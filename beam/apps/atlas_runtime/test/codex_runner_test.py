@@ -152,26 +152,75 @@ class ClaudeRepositoryLifecycleTest(unittest.TestCase):
                 process.kill()
                 process.wait()
 
-    def test_saved_claude_context_preserves_work_but_refuses_git_identity_drift(self):
-        saved = claude.context(str(self.repo), self.scope)
-        (self.repo / 'unfinished.txt').write_text('keep this work\n')
-        self.assertEqual(claude.context(str(self.repo), self.scope), saved)
-        for args in (
-                ['symbolic-ref', 'HEAD', 'refs/heads/other'],
-                ['remote', 'add', 'origin', 'https://github.com/other/repo.git']):
-            subprocess.run(['git', '-C', str(self.repo), *args], check=True)
-            with self.assertRaisesRegex(ValueError, 'repository identity'):
-                assignment.execute_assignment(
-                    str(self.repo), self.scope, None, False, 'claude',
-                    str(self.root), saved, ['/must-not-execute'])
-            subprocess.run(['git', '-C', str(self.repo), 'symbolic-ref', 'HEAD',
-                            saved['git']['branch']], check=True)
-        self.assertEqual((self.repo / 'unfinished.txt').read_text(), 'keep this work\n')
+    def test_matching_saved_claude_context_is_written_before_native_execution(self):
+        unfinished = self.repo / 'unfinished.txt'
+        unfinished.write_bytes(b'keep this work\n\x00\xff')
+        claude.save_context(str(self.repo), self.scope, str(self.root), None)
+        context_path = self.root / 'claude-context.json'
+        saved = json.loads(context_path.read_text())
+        self.assertEqual(set(saved), {'cwd', 'permissions', 'git'})
+        self.assertEqual(saved['cwd'], str(self.repo))
+        self.assertEqual(saved['permissions'], self.scope)
+        self.assertEqual(saved['git']['root'], str(self.repo))
+        context_path.unlink()
 
-    def test_unreadable_git_identity_is_not_treated_as_a_non_repository(self):
+        def native_execution(executable, command):
+            self.assertEqual(json.loads(context_path.read_text()), saved)
+
+        with patch.object(assignment.os, 'execv', side_effect=native_execution) as execute:
+            assignment.execute_assignment(
+                str(self.repo), self.scope, None, False, 'claude',
+                str(self.root), saved, ['/fixture-native'])
+        execute.assert_called_once_with('/fixture-native', ['/fixture-native'])
+        self.assertEqual(unfinished.read_bytes(), b'keep this work\n\x00\xff')
+
+    def test_saved_claude_context_drift_refuses_before_native_execution(self):
+        unfinished = self.repo / 'unfinished.txt'
+        unfinished.write_bytes(b'keep this work\n\x00\xff')
+        context_path = self.root / 'claude-context.json'
+        for drift, args in (
+                ('branch', ['symbolic-ref', 'HEAD', 'refs/heads/other']),
+                ('origin', ['remote', 'add', 'origin', 'https://github.com/other/repo.git']),
+                ('scope', [])):
+            with self.subTest(drift=drift):
+                claude.save_context(str(self.repo), self.scope, str(self.root), None)
+                saved_bytes = context_path.read_bytes()
+                saved = json.loads(saved_bytes)
+                if args:
+                    subprocess.run(['git', '-C', str(self.repo), *args], check=True)
+                with patch.object(assignment.os, 'execv') as execute:
+                    with self.assertRaisesRegex(
+                            ValueError, 'Saved Claude working directory, repository identity or permission scope changed'):
+                        assignment.execute_assignment(
+                            str(self.repo), None if drift == 'scope' else self.scope,
+                            None, False, 'claude', str(self.root), saved, ['/must-not-execute'])
+                execute.assert_not_called()
+                self.assertEqual(context_path.read_bytes(), saved_bytes)
+                self.assertEqual(unfinished.read_bytes(), b'keep this work\n\x00\xff')
+
+    def test_failed_context_discovery_never_saves_or_executes(self):
+        unfinished = self.repo / 'unfinished.txt'
+        unfinished.write_bytes(b'keep this work\n\x00\xff')
+        context_path = self.root / 'claude-context.json'
+        claude.save_context(str(self.repo), None, str(self.root), None)
+        saved_bytes = context_path.read_bytes()
+        saved = json.loads(saved_bytes)
         (self.repo / '.git/config').write_text('invalid git configuration\n')
-        with self.assertRaisesRegex(ValueError, 'Cannot inspect Claude working directory'):
-            claude.context(str(self.repo), None)
+        for expected in (saved, None):
+            with self.subTest(saved=expected is not None):
+                if expected is None:
+                    context_path.unlink()
+                with patch.object(assignment.os, 'execv') as execute:
+                    with self.assertRaisesRegex(ValueError, 'Cannot inspect Claude working directory'):
+                        assignment.execute_assignment(
+                            str(self.repo), None, None, False, 'claude',
+                            str(self.root), expected, ['/must-not-execute'])
+                execute.assert_not_called()
+                if expected is None:
+                    self.assertFalse(context_path.exists())
+                else:
+                    self.assertEqual(context_path.read_bytes(), saved_bytes)
+                self.assertEqual(unfinished.read_bytes(), b'keep this work\n\x00\xff')
 
 
 class NativeModelTest(unittest.TestCase):

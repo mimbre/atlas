@@ -14,16 +14,18 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"unicode"
+	"unicode/utf8"
 )
 
 func Run(args []string, input io.Reader, output io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("use workspace path|scope|dedicated-scope|request|lock|prepare")
+		return errors.New("use workspace path|scope|context|dedicated-scope|request|lock|prepare")
 	}
 	var result any
 	var err error
 	switch args[0] {
-	case "path", "scope", "dedicated-scope":
+	case "path", "scope", "context", "dedicated-scope":
 		if len(args) != 2 {
 			return fmt.Errorf("workspace %s requires one path", args[0])
 		}
@@ -32,6 +34,8 @@ func Run(args []string, input io.Reader, output io.Writer) error {
 			result, err = workspaceResolve(args[1])
 		case "scope":
 			result, err = workspaceScope(args[1])
+		case "context":
+			result, err = workspaceContext(args[1])
 		case "dedicated-scope":
 			result = workspaceDedicatedScope(workspacePath(args[1]))
 		}
@@ -202,6 +206,78 @@ func workspaceRun(argv []string, env []string) (string, string, int, error) {
 		return strings.ReplaceAll(strings.ReplaceAll(value, "\r\n", "\n"), "\r", "\n")
 	}
 	return text(stdout.String()), text(stderr.String()), code, nil
+}
+
+func workspaceContext(path string) (map[string]any, error) {
+	root, err := workspaceResolve(path)
+	if err != nil {
+		return nil, err
+	}
+	git := func(args ...string) (string, int, error) {
+		stdout, stderr, code, err := workspaceRun(append([]string{"git", "-C", root}, args...), nil)
+		if err == nil && (!utf8.ValidString(stdout) || !utf8.ValidString(stderr)) {
+			err = errors.New("Cannot decode Claude Git output as UTF-8")
+		}
+		return stdout, code, err
+	}
+	top, code, err := git("rev-parse", "--show-toplevel")
+	if err != nil {
+		return nil, err
+	}
+	result := map[string]any{"cwd": root, "git": nil}
+	if code != 0 {
+		if code != 128 {
+			return nil, errors.New("Cannot inspect Claude working directory")
+		}
+		for ancestor := root; ; ancestor = filepath.Dir(ancestor) {
+			if _, err := os.Lstat(filepath.Join(ancestor, ".git")); err == nil {
+				return nil, errors.New("Cannot inspect Claude working directory")
+			}
+			if filepath.Dir(ancestor) == ancestor {
+				break
+			}
+		}
+		return result, nil
+	}
+	head, code, err := git("symbolic-ref", "--quiet", "HEAD")
+	if err != nil {
+		return nil, err
+	}
+	if code != 0 && code != 1 {
+		return nil, errors.New("Cannot inspect Claude repository branch")
+	}
+	if code == 1 {
+		head, _, err = git("rev-parse", "HEAD")
+		if err != nil {
+			return nil, err
+		}
+	}
+	origin, code, err := git("config", "--get-all", "remote.origin.url")
+	if err != nil {
+		return nil, err
+	}
+	space := func(char rune) bool {
+		return unicode.IsSpace(char) || (char >= '\x1c' && char <= '\x1f')
+	}
+	head = strings.TrimFunc(head, space)
+	if head == "" || (code != 0 && code != 1) {
+		return nil, errors.New("Cannot inspect Claude repository identity")
+	}
+	origins := []string{}
+	// Match Python splitlines, including empty URLs and Unicode line separators.
+	start := 0
+	for offset, char := range origin {
+		switch char {
+		case '\n', '\v', '\f', '\x1c', '\x1d', '\x1e', '\u0085', '\u2028', '\u2029':
+			origins = append(origins, origin[start:offset])
+			start = offset + utf8.RuneLen(char)
+		}
+	}
+	if start < len(origin) {
+		origins = append(origins, origin[start:])
+	}
+	result["git"] = map[string]any{"root": strings.TrimFunc(top, space), "branch": head, "origin": origins}
+	return result, nil
 }
 
 func workspaceRequest(home, url, branch string) (map[string]any, error) {
