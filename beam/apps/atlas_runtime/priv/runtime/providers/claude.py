@@ -1,29 +1,8 @@
 import json
-import os
 from pathlib import Path
-import subprocess
 import uuid
 
-
-def context(workspace, scope):
-    root = Path(workspace).resolve()
-    def git(*args):
-        return subprocess.run(['git', '-C', str(root), *args],
-                              capture_output=True, text=True)
-    top = git('rev-parse', '--show-toplevel')
-    identity = None
-    if top.returncode == 0:
-        branch = git('symbolic-ref', '--quiet', 'HEAD')
-        if branch.returncode not in (0, 1):
-            raise ValueError('Cannot inspect Claude repository branch')
-        head = branch.stdout.strip() if branch.returncode == 0 else git('rev-parse', 'HEAD').stdout.strip()
-        origin = git('config', '--get-all', 'remote.origin.url')
-        if not head or origin.returncode not in (0, 1):
-            raise ValueError('Cannot inspect Claude repository identity')
-        identity = {'root': top.stdout.strip(), 'branch': head, 'origin': origin.stdout.splitlines()}
-    elif top.returncode != 128 or any(os.path.lexists(path / '.git') for path in (root, *root.parents)):
-        raise ValueError('Cannot inspect Claude working directory')
-    return {'cwd': str(root), 'permissions': scope, 'git': identity}
+from runtime.workspaces import client as workspace_client
 
 
 def assistant_model_matches(configured, actual):
@@ -41,7 +20,8 @@ def validate(scope, sandbox, session, model, expected_context):
 
 
 def save_context(workspace, scope, folder, expected_context):
-    actual = context(workspace, scope)
+    actual = workspace_client.request('context', workspace)
+    actual['permissions'] = scope
     if expected_context is not None and actual != expected_context:
         raise ValueError('Saved Claude working directory, repository identity or permission scope changed')
     (Path(folder) / 'claude-context.json').write_text(json.dumps(actual))

@@ -313,3 +313,201 @@ func TestWorkspaceLockDescriptorOwnsRepositoryUntilReceiverCloses(t *testing.T) 
 		t.Fatalf("sender leaked ownership after receiver closed: %v", err)
 	}
 }
+
+func TestWorkspaceContextIdentityAndUnfinishedFiles(t *testing.T) {
+	root := workspaceTestRoot(t)
+	repo := filepath.Join(root, "repo")
+	workspaceTestGit(t, root, "init", "-q", "-b", "feature/context", repo)
+	want := map[string]any{
+		"cwd": repo,
+		"git": map[string]any{"root": repo, "branch": "refs/heads/feature/context", "origin": []any{}},
+	}
+	if got := workspaceTestCall(t, nil, "context", repo); !reflect.DeepEqual(got, want) {
+		t.Fatalf("unborn branch context = %#v, want %#v", got, want)
+	}
+	workspaceTestWrite(t, filepath.Join(repo, "tracked"), "committed\n")
+	workspaceTestGit(t, repo, "add", "tracked")
+	workspaceTestGit(t, repo, "commit", "-qm", "initial")
+	initial := workspaceTestGit(t, repo, "rev-parse", "HEAD")
+	workspaceTestGit(t, repo, "commit", "--allow-empty", "-qm", "same branch")
+	if got := workspaceTestCall(t, nil, "context", repo); !reflect.DeepEqual(got, want) {
+		t.Fatalf("commit on same branch changed context: %#v", got)
+	}
+	workspaceTestGit(t, repo, "config", "--add", "remote.origin.url", "https://example.invalid/first")
+	workspaceTestGit(t, repo, "config", "--add", "remote.origin.url", "ssh://example.invalid/second")
+	want["git"].(map[string]any)["origin"] = []any{"https://example.invalid/first", "ssh://example.invalid/second"}
+	workspaceTestWrite(t, filepath.Join(repo, "tracked"), "staged unfinished\n")
+	workspaceTestGit(t, repo, "add", "tracked")
+	workspaceTestWrite(t, filepath.Join(repo, "tracked"), "unstaged unfinished\x00bytes\n")
+	workspaceTestWrite(t, filepath.Join(repo, "untracked"), "untracked unfinished\x00bytes\n")
+	saved := map[string][]byte{}
+	for _, path := range []string{"tracked", "untracked", ".git/index", ".git/HEAD", ".git/config"} {
+		content, err := os.ReadFile(filepath.Join(repo, path))
+		if err != nil {
+			t.Fatal(err)
+		}
+		saved[path] = content
+	}
+	deep := filepath.Join(repo, "nested", "child")
+	if err := os.MkdirAll(deep, 0700); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(root, "alias")
+	if err := os.Symlink(deep, alias); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{repo, deep, alias, alias + "/.."} {
+		want["cwd"] = repo
+		if path == deep || path == alias {
+			want["cwd"] = deep
+		} else if path == alias+"/.." {
+			want["cwd"] = filepath.Dir(deep)
+		}
+		if got := workspaceTestCall(t, nil, "context", path); !reflect.DeepEqual(got, want) {
+			t.Fatalf("context %q = %#v, want %#v", path, got, want)
+		}
+	}
+	for path, content := range saved {
+		got, err := os.ReadFile(filepath.Join(repo, path))
+		if err != nil || !bytes.Equal(got, content) {
+			t.Fatalf("context changed unfinished file %s: %v", path, err)
+		}
+	}
+	workspaceTestGit(t, repo, "checkout", "--detach", "-q", initial)
+	want["cwd"] = repo
+	want["git"].(map[string]any)["branch"] = initial
+	if got := workspaceTestCall(t, nil, "context", repo); !reflect.DeepEqual(got, want) {
+		t.Fatalf("detached context = %#v, want %#v", got, want)
+	}
+	linked := filepath.Join(root, "linked")
+	workspaceTestGit(t, repo, "worktree", "add", "-q", "-b", "linked", linked)
+	want["cwd"] = linked
+	want["git"].(map[string]any)["root"] = linked
+	want["git"].(map[string]any)["branch"] = "refs/heads/linked"
+	if got := workspaceTestCall(t, nil, "context", linked); !reflect.DeepEqual(got, want) {
+		t.Fatalf("linked worktree context = %#v, want %#v", got, want)
+	}
+}
+
+func TestWorkspaceContextOriginLines(t *testing.T) {
+	root := workspaceTestRoot(t)
+	workspaceTestGit(t, root, "init", "-q", "-b", "main")
+	workspaceTestGit(t, root, "config", "--add", "remote.origin.url", "")
+	workspaceTestGit(t, root, "config", "--add", "remote.origin.url", "one\r\ntwo\rthree\vfour\ffive\x1csix\x1dseven\x1eeight\u0085nine\u2028ten\u2029eleven\n")
+	want := map[string]any{
+		"cwd": root,
+		"git": map[string]any{
+			"root": root, "branch": "refs/heads/main",
+			"origin": []any{"", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", ""},
+		},
+	}
+	if got := workspaceTestCall(t, nil, "context", root); !reflect.DeepEqual(got, want) {
+		t.Fatalf("origin lines = %#v, want %#v", got, want)
+	}
+}
+
+func TestWorkspaceContextPlainAndBrokenGitDirectories(t *testing.T) {
+	root := workspaceTestRoot(t)
+	for _, path := range []string{root, filepath.Join(root, "missing", "child")} {
+		want := map[string]any{"cwd": path, "git": nil}
+		if got := workspaceTestCall(t, nil, "context", path); !reflect.DeepEqual(got, want) {
+			t.Fatalf("plain context = %#v, want %#v", got, want)
+		}
+	}
+	for _, kind := range []string{"invalid file", "missing gitdir", "empty directory", "dangling symlink", "symlink loop"} {
+		t.Run(kind, func(t *testing.T) {
+			repo := filepath.Join(root, kind)
+			nested := filepath.Join(repo, "nested", "child")
+			if err := os.MkdirAll(nested, 0700); err != nil {
+				t.Fatal(err)
+			}
+			git := filepath.Join(repo, ".git")
+			switch kind {
+			case "invalid file":
+				workspaceTestWrite(t, git, "not git metadata\n")
+			case "missing gitdir":
+				workspaceTestWrite(t, git, "gitdir: missing\n")
+			case "empty directory":
+				if err := os.Mkdir(git, 0700); err != nil {
+					t.Fatal(err)
+				}
+			case "dangling symlink":
+				if err := os.Symlink(filepath.Join(root, "absent"), git); err != nil {
+					t.Fatal(err)
+				}
+			case "symlink loop":
+				if err := os.Symlink(".git", git); err != nil {
+					t.Fatal(err)
+				}
+			}
+			unfinished := filepath.Join(nested, "unfinished")
+			workspaceTestWrite(t, unfinished, "keep unfinished\x00bytes\n")
+			for _, path := range []string{repo, nested, filepath.Join(nested, "missing")} {
+				workspaceTestRefuse(t, nil, "Cannot inspect Claude working directory", "context", path)
+			}
+			if got, err := os.ReadFile(unfinished); err != nil || string(got) != "keep unfinished\x00bytes\n" {
+				t.Fatalf("refusal changed unfinished bytes: %q, %v", got, err)
+			}
+		})
+	}
+}
+
+func TestWorkspaceContextInspectionFailures(t *testing.T) {
+	root := workspaceTestRoot(t)
+	repo := filepath.Join(root, "repo")
+	workspaceTestGit(t, root, "init", "-q", "-b", "main", repo)
+	workspaceTestGit(t, repo, "commit", "--allow-empty", "-qm", "initial")
+	realGit, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(root, "bin")
+	if err := os.Mkdir(bin, 0700); err != nil {
+		t.Fatal(err)
+	}
+	wrapper := filepath.Join(bin, "git")
+	workspaceTestWrite(t, wrapper, "#!/bin/sh\nif [ \"$3:$4\" = \"$CONTEXT_FAIL\" ]; then\n  echo 'inspection unavailable' >&2\n  exit 2\nfi\ncase \"$CONTEXT_INVALID_UTF8\" in\n  stdout) printf '\\377'; exit 0;;\n  stderr) printf '\\377' >&2;;\nesac\nexec \"$CONTEXT_REAL_GIT\" \"$@\"\n")
+	if err := os.Chmod(wrapper, 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CONTEXT_REAL_GIT", realGit)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	for _, failure := range []struct {
+		command string
+		message string
+	}{
+		{"rev-parse:--show-toplevel", "Cannot inspect Claude working directory"},
+		{"symbolic-ref:--quiet", "Cannot inspect Claude repository branch"},
+		{"config:--get-all", "Cannot inspect Claude repository identity"},
+	} {
+		t.Run(failure.command, func(t *testing.T) {
+			t.Setenv("CONTEXT_FAIL", failure.command)
+			workspaceTestRefuse(t, nil, failure.message, "context", repo)
+		})
+	}
+	for _, stream := range []string{"stdout", "stderr"} {
+		t.Run("invalid UTF-8 "+stream, func(t *testing.T) {
+			t.Setenv("CONTEXT_INVALID_UTF8", stream)
+			workspaceTestRefuse(t, nil, "Cannot decode Claude Git output as UTF-8", "context", repo)
+		})
+	}
+	workspaceTestGit(t, repo, "checkout", "--detach", "-q")
+	t.Setenv("CONTEXT_FAIL", "rev-parse:HEAD")
+	workspaceTestRefuse(t, nil, "Cannot inspect Claude repository identity", "context", repo)
+	t.Setenv("PATH", filepath.Join(root, "no-git"))
+	workspaceTestRefuse(t, nil, "git", "context", repo)
+}
+
+func TestWorkspaceContextUnreadableGitMetadata(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can read mode-000 Git metadata")
+	}
+	root := workspaceTestRoot(t)
+	workspaceTestGit(t, root, "init", "-q", "-b", "main")
+	config := filepath.Join(root, ".git", "config")
+	if err := os.Chmod(config, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(config, 0600) })
+	workspaceTestRefuse(t, nil, "Cannot inspect Claude working directory", "context", root)
+}
