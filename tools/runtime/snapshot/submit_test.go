@@ -435,3 +435,81 @@ func TestUnrepresentableChangesAreRefusedBeforeSending(t *testing.T) {
 		})
 	}
 }
+
+// A repository below another folder is hidden from the walk when that folder is replaced, which
+// must refuse instead of submitting the repository's base files as deletions.
+func TestReplacedRepositoryAncestorIsRefused(t *testing.T) {
+	nested := repository{Commit: strings.Repeat("c", 40), Path: "x/app", Repository: "github.com/test/app"}
+	setup := func(t *testing.T) (*fixture, *fakeCode, string, string) {
+		t.Helper()
+		id, raw := snapshotOf(t, []repository{nested, two}, file(nested, "a.txt", "100644", "alpha"), file(two, "b.txt", "100644", "beta"))
+		f := newFixture(t, raw, map[string][]byte{"x/app": archiveOf(t, memberA), "two": archiveOf(t, memberB)})
+		dest := filepath.Join(f.parent, "work")
+		_, err := Materialize(f.home, id, dest)
+		must(t, err)
+		code := &fakeCode{base: map[string]map[string]bool{nested.Repository: {"a.txt": true}, two.Repository: {"b.txt": true}}, bodies: map[string][]byte{}, entries: map[string][]map[string]any{}, blobs: map[string][]byte{}, commits: map[string]string{}}
+		f.hook = code.handle
+		return f, code, id, dest
+	}
+	for _, test := range []struct {
+		name    string
+		replace func(t *testing.T, x string)
+	}{
+		{"file", func(t *testing.T, x string) { must(t, os.WriteFile(x, []byte("now a file\n"), 0644)) }},
+		{"symlink to a matching folder", func(t *testing.T, x string) {
+			must(t, os.Rename(x, x+"-moved"))
+			must(t, os.Symlink("x-moved", x))
+		}},
+		{"dangling symlink", func(t *testing.T, x string) { must(t, os.Symlink("missing", x)) }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			f, code, id, dest := setup(t)
+			x := filepath.Join(dest, "x")
+			if !strings.HasPrefix(test.name, "symlink") {
+				must(t, os.RemoveAll(x))
+			}
+			test.replace(t, x)
+			baseline := filepath.Join(f.home, "snapshots", strings.TrimPrefix(id, "sha256:"))
+			before, base := state(t, dest), state(t, baseline)
+			result, err := Submit(f.home, dest, "x/app", changeA)
+			if err == nil || !strings.Contains(err.Error(), "cannot submit x/app: its folder x is no longer a directory") {
+				t.Fatalf("got %v, %v", result, err)
+			}
+			if len(code.log) != 0 {
+				t.Fatalf("Code was called: %v", code.log)
+			}
+			equal(t, state(t, dest), before)
+			equal(t, state(t, baseline), base)
+			noTemporaries(t, f.home)
+
+			// The other repository does not depend on that folder and still submits.
+			must(t, os.WriteFile(filepath.Join(dest, "two", "b.txt"), []byte("BETA\n"), 0644))
+			result, err = Submit(f.home, dest, "two", changeA)
+			must(t, err)
+			if result["state"] != "sealed" || !reflect.DeepEqual(code.entries[changeA], []map[string]any{written("b.txt", "100644", "BETA\n")}) {
+				t.Fatalf("two: %v %v", result, code.entries)
+			}
+		})
+	}
+
+	t.Run("valid nested repository", func(t *testing.T) {
+		f, code, _, dest := setup(t)
+		must(t, os.WriteFile(filepath.Join(dest, "x", "app", "a.txt"), []byte("changed"), 0644))
+		must(t, os.WriteFile(filepath.Join(dest, "x", "outside.txt"), []byte("ignored by --path"), 0644))
+		result, err := Submit(f.home, dest, "x/app", changeA)
+		must(t, err)
+		if result["state"] != "sealed" || !reflect.DeepEqual(code.entries[changeA], []map[string]any{written("a.txt", "100644", "changed")}) {
+			t.Fatalf("got %v %v", result, code.entries)
+		}
+	})
+
+	t.Run("missing ancestor still deletes the repository's files", func(t *testing.T) {
+		f, code, _, dest := setup(t)
+		must(t, os.RemoveAll(filepath.Join(dest, "x")))
+		result, err := Submit(f.home, dest, "x/app", changeA)
+		must(t, err)
+		if result["state"] != "sealed" || !reflect.DeepEqual(code.entries[changeA], []map[string]any{deleted("a.txt")}) {
+			t.Fatalf("got %v %v", result, code.entries)
+		}
+	})
+}

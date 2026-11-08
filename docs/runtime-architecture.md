@@ -265,7 +265,7 @@ Folder submission (implemented, `tools/runtime/snapshot/submit.go`):
   - symlinks are written with their target;
   - deletions become deletes, and file, directory and link replacements carry the explicit deletes Code requires;
   - empty directories cannot be represented and are ignored.
-- **Refused locally, never silently omitted:** FIFOs, sockets and devices; `.git` paths; absolute or escaping symlinks; a repository folder replaced by a non-directory; blobs over 64 MiB; a request over 1 MiB. Nothing is sent to Code.
+- **Refused locally, never silently omitted:** FIFOs, sockets and devices; `.git` paths; absolute or escaping symlinks; a repository folder, or an existing ancestor of it, replaced by a non-directory (checked without following symlinks); blobs over 64 MiB; a request over 1 MiB. Nothing is sent to Code. A missing repository folder or ancestor still submits its base files as deletions.
 - **Consistency:** every written file is copied (opened `O_NOFOLLOW`) into a private 0700 folder under `<runtime home>/submissions/`. Entries are built from those copies, and the folder is scanned again. Any difference refuses with `folder … changed during submission; nothing was sent to Code`. Uploads come from the copies, which are removed afterwards. Neither the destination nor the baseline is written, and the baseline is never "advanced".
 - **Flow:** `POST /v1/changes`, `PUT` each missing blob, then `POST …/seal`.
   - A clean repository returns `state: "clean", commit: null` without contacting Code.
