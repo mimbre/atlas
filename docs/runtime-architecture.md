@@ -33,27 +33,153 @@ Runtime remains local-first, running native agent CLIs on macOS. Neither Linux n
 - Keep permission configuration and credential material outside agent-writable locations. Agents cannot expand their own permissions.
 - Atlas Server or the external coordinator still owns workflow authorization, acceptance, merge and release decisions. The local component executes authorized GitHub operations; centralizing credentials does not transfer orchestration to Runtime.
 
-### Proposed Code application
+### Code service: proposed contract (step 1, not implemented)
 
-Code is a proposed reusable Elixir OTP application for centralized code-hosting provider operations and credentials, including GitHub access. It can be embedded in a standalone Runtime release or an Atlas Server release; independent deployment is optional later, not required now. Runtime continues to own local workspaces. Orchestration remains outside Code, and standalone Runtime must not require Server or Flow.
+Status: proposal. **None of the endpoints below exist.** Everything under "Current callers" is implemented today and cited from source at `f4492cbeb0f199b0228282c507ae6f8f05b05596`.
 
-OTP application boundaries organize responsibilities and dependencies; they are not OS security isolation. Flow, Bus and State packaging follows explicit dependencies rather than a requirement to distribute every layer independently. This migration introduces no Code application or centralized-access implementation.
+Decisions from Melle that this contract follows:
+- Code is a separate local Elixir service beside Runtime, reached over authenticated loopback HTTP. The same contract can later be hosted on Atlas Server. No VM, Linux, filesystem mount or private Git server is required, and Runtime keeps working without Atlas Server.
+- Code owns Git metadata, repository/provider credentials and Git operations.
+- Runtime materializes snapshots into one or more temporary ordinary worker folders. Workers receive folder paths only: no Git metadata, no Code API, no credentials.
+- Immutable baselines stay outside worker access. Local read-only status/diff must work offline before the current Git access is withdrawn. Text and binary bytes, deletions, executable modes and symlinks are preserved.
+- Changes upload against an exact snapshot and base. Uploading does not authorize a commit, PR or release; the trusted external orchestrator authorizes publication separately. Nothing is silently rebased or overwritten.
+- The first proof is the full local Code + Runtime + one external orchestrator workflow. Server and Console work stay parked. Existing trusted development-agent Git/PR access remains until the replacement is proven.
+
+#### Current callers (implemented)
+
+| Responsibility today | Where | Moves to |
+|---|---|---|
+| Validate a GitHub HTTPS URL and a new branch name; derive the managed clone path and dedicated scope | `tools/runtime/workspace/workspace.go` `workspaceRequest` (`git check-ref-format`), called by Elixir `Workspaces.repository_request` (`workspaces/workspace.ex:19`) from `Service.worker_command` start (`execution/service.ex:178`) | URL/branch validation: Code. Worker-folder path: Runtime. |
+| Clone, fetch, check origin, refuse dirty state and existing branches, create the task branch at fetched `origin/develop` | `workspace.Prepare` (`workspace.go:491–628`). Git runs inside the worker's Codex sandbox prefix (`host.go:497–506`) with `credential.helper=!gh auth git-credential`, writing `.git/atlas-runtime-repository.json` | Code (resolve, snapshot). The clone and branch disappear from worker folders. |
+| Repository scope, canonical root and Git metadata location | `workspace.Scope` (`workspace.go:291`) and `DedicatedScope` (`:143`, `network_hosts: github.com, api.github.com`); Elixir `Workspaces.permission_scope` at start and continuation (`service.ex:201,229`) | Runtime (folder scope only; the Git fields drop out) |
+| Saved Claude cwd/branch/origin identity for continuation | `workspace.Context` (`workspace.go:176`) via `host.saveContext` (`claude.go:385`); `claude-context.json` read at `service.ex:235` | Runtime, against a snapshot ID instead of a branch/origin |
+| Directory ownership | `workspace.Lock` (`workspace.go:394`), held by `native-host` until the group is reaped (`host.go:179`) | Runtime (unchanged) |
+| Worker GitHub network access | Codex profile `github.com`/`api.github.com` (`host/codex.go:50`); Claude `allowedDomains` from `network_hosts` plus the macOS trustd allowance (`host/claude.go:245–273`). Workers use the user's `gh` login | Removed once Code publishes |
+| Handoff identity | `handoff_records.ex:11,193`: `repository_url`, `branch`, `base_sha`, `head_sha`, `pr_url` declared by the coordinator and bound to saved repository metadata | Orchestrator declares; Code later verifies against the change and publication |
+| Atlas-connected path | `integrations/atlas_server/*` and `providers/claude.ex` contain no Git or GitHub calls (searched) | No change |
+| Run metadata | Saved `repository: {url, branch, base_sha}` (`command_admissions.ex:200–207`); `runtime.repository_prepared` (`host/native.ex:217`) | Adds `snapshot_id` |
+| CLI | `atlas-runtime start --repo URL --branch NAME --permissions dedicated-repository` (`tools/runtime/main.go`) | Unchanged in step 2 |
+| Credentials | Only the user's existing `gh` login, read through Git's credential helper. No token is stored by Runtime | Code only |
+| Local diff | Native agents and the coordinator run `git status`/`git diff` in the worker clone; Runtime has none | Runtime, offline against the baseline |
+| Workflow authorization | The external coordinator (inbox workflow) | Orchestrator, unchanged |
+| Snapshots and change uploads | None | Code stores them; Runtime materializes and uploads |
+| Publication and release | Development agents push with `gh`; the coordinator merges | Code, authorized only by the orchestrator |
+| Uncommitted bytes across continuation | `Prepare` keeps them, refusing branch drift (`workspace.go:584–592`) | Runtime keeps the worker folder per execution |
+| Exact base | `base_sha` from `rev-parse refs/remotes/origin/develop` (`workspace.go:618`) | Code `resolve` |
+| Repository allow-list | Regex accepts any `github.com/OWNER/REPO` | Code configuration lists allowed repositories |
+| macOS trustd allowance | Required for worker `gh` | Removable once workers no longer contact GitHub (verify first) |
+| Multi-repository | One repository per execution | Manifest with several repositories, each at its own path |
+
+#### Who does what
+
+| | Code | Runtime | Orchestrator |
+|---|---|---|---|
+| Resolve a ref to an exact commit | performs | requests | chooses repository and ref |
+| Snapshot (manifest and archive) | creates and serves | downloads and materializes into worker folders, keeps an immutable baseline outside worker access | — |
+| Local status/diff | — | computes offline: worker folder against baseline | reads |
+| Change upload | stores against the exact base | builds entries from the diff and uploads them | — |
+| Publication (branch, PR) and release (merge) | performs | — | authorizes each one explicitly |
+| Credentials and Git metadata | only holder | never | never |
+
+Workers only ever see their folders.
+
+#### Transport and errors (proposed)
+
+Code listens only on `127.0.0.1` with a configured port, using OTP `:inets` `httpd`; Runtime calls it with `:httpc`. Neither needs a new dependency. Requests carry `Authorization: Bearer <token>`.
+
+There are two tokens, each in an owner-only (0600) file under the Code home:
+- the **runtime token** allows resolve, snapshot and change operations;
+- the **orchestrator token** additionally allows publication and release.
+
+Runtime never passes either token to native workers; `Agent.Native` already strips all but a fixed environment list.
+
+**Known limit:** a same-user token file is not hidden from a worker that can read the user's home directory, e.g. a Codex read-only sandbox. This proposal does not claim worker isolation from Code; that belongs to the later isolation work.
+
+Every error response is `{"error": {"code": "<code>", "message": "<text>", "details": {}}}` with the HTTP status shown:
+
+| Status | Codes |
+|---|---|
+| 400 | `invalid_request` |
+| 401 | `unauthorized` |
+| 403 | `forbidden` (wrong token or repository not allowed) |
+| 404 | `not_found`, `unknown_ref` |
+| 409 | `base_mismatch`, `branch_exists`, `conflict` |
+| 422 | `incomplete_upload` |
+| 503 | `provider_unavailable` |
+
+Responses are JSON, except archive and blob bodies, which are bytes.
+
+#### Endpoints (proposed)
+
+1. **Health.** `GET /v1/health` → `{"service": "atlas-code", "version": "…"}`.
+2. **Exact-revision preparation.** `POST /v1/revisions/resolve`
+   - Request: `{"repository": "github.com/eyra/atlas", "ref": "develop"}`.
+   - Response: `{"repository": …, "ref": …, "commit": "<40/64 hex>"}`.
+   - This is read-only (`git ls-remote` or a fetch into Code's own clone).
+3. **Multi-repository snapshot.** `POST /v1/snapshots`
+   - Request: `{"repositories": [{"repository": "github.com/eyra/atlas", "commit": "<sha>", "path": "atlas"}]}`.
+   - Paths are relative, unique and non-overlapping.
+   - Response: `{"snapshot_id": "sha256:<digest of the canonical manifest>", "repositories": [{"repository", "commit", "path"}]}`.
+   - Idempotent: the same request returns the same ID. An unknown commit is a 404.
+4. **Snapshot manifest.** `GET /v1/snapshots/{id}/manifest` → `{"snapshot_id", "entries": [{"repository", "path", "kind": "file|symlink", "mode": "100644|100755|120000", "size", "sha256", "target"?}]}`. The `target` field is present for symlinks only.
+5. **Snapshot archive.** `GET /v1/snapshots/{id}/archive?path=atlas` → a tar stream of the working tree only: no `.git`, no credentials, modes and symlinks preserved. Runtime verifies each entry against the manifest before materializing it.
+6. **Change submission.** Three requests:
+   1. `POST /v1/changes` with `{"change_id": "<caller UUID>", "snapshot_id", "repository", "base_commit", "entries": [{"path", "op": "write|delete", "kind", "mode", "size", "sha256", "target"?}]}`.
+      - `base_commit` must equal that repository's commit in the snapshot; otherwise `409 base_mismatch`.
+      - The response lists missing blob digests.
+      - Repeating with the same `change_id` and identical body is idempotent; a different body is `409 conflict`.
+   2. `PUT /v1/changes/{id}/blobs/{sha256}` with the bytes. Code verifies the digest and size. Re-uploading the same blob is a no-op.
+   3. `POST /v1/changes/{id}/seal`.
+      - Refuses with `422 incomplete_upload` and the missing digests until every blob is present.
+      - Then builds a commit whose parent is exactly `base_commit` on a Code-private ref, and returns `{"change_id", "state": "sealed", "commit"}`.
+   - Open (unsealed) changes are never visible to publication and may expire; sealing is the only transition.
+7. **Publication.** `POST /v1/publications`, orchestrator token only.
+   - Request: `{"publication_id", "change_id", "branch": "work/…", "pull_request": {"base": "develop", "title", "body"}?}`.
+   - Code pushes the sealed commit to a new branch: create-only, never forced (`409 branch_exists`). It opens the PR when one is requested.
+   - Response: `{"publication_id", "branch", "commit", "pr_url"?}`.
+   - If `develop` has moved, the PR shows the conflict; Code does not rebase.
+8. **Release.** `POST /v1/releases`, orchestrator token only.
+   - Request: `{"release_id", "pr_url", "expected_head": "<sha>"}`.
+   - Code merges only if the PR head equals `expected_head` and GitHub reports it mergeable; otherwise `409 conflict`.
+   - This is the last step and is proposed for after the local workflow proof.
+
+All mutating requests carry caller-chosen IDs. A repeated identical request returns the recorded result, the same rule as Runtime admissions.
+
+#### Step 2: smallest runnable extraction (proposed next slice)
+
+Scope:
+- A new `beam/apps/atlas_code` application, started as its own local service (its own home, port and token files). It does not start Runtime.
+- It implements only `GET /v1/health` and `POST /v1/revisions/resolve`, using its own credential helper call (`gh auth git-credential`, as `Prepare` uses today) and a repository allow-list.
+- Runtime's managed-repository start calls `resolve` before preparation. `Prepare` checks out the returned commit instead of `rev-parse refs/remotes/origin/develop` (`workspace.go:618`), and records it as `base_sha`.
+- Clone/fetch inside the worker clone stays unchanged in step 2.
+- If Code is unconfigured, unreachable or refuses, the start fails with a `Code service unavailable: …` error before anything is cloned or launched. There is no local fallback, embedded Code or Atlas Server use.
+- Continuation and `--cwd` runs never call Code.
+
+Acceptance proof:
+- Code and Runtime start and stop independently.
+- A real managed start records `base_sha` equal to Code's `resolve` result, which equals `git ls-remote origin develop`.
+- With Code stopped, the same start fails with the explicit error, with no clone and no native process.
+- Wrong token and a disallowed repository are refused.
+- Continuation of an existing managed turn still works with Code stopped.
+
+Later bounded steps, each a separate assignment:
+1. Snapshot creation and archive in Code, plus Runtime materialization into worker folders with an immutable baseline.
+2. Offline local status/diff in Runtime (Go) against the baseline.
+3. Change upload and sealing.
+4. Orchestrator-authorized publication.
+5. Proof of the full local workflow. Only after that: withdraw worker GitHub access, remove the macOS trustd allowance where verified, then release.
+
+Open questions:
+- How the orchestrator token is provisioned to the external coordinator.
+- Snapshot retention limits.
+- Whether `resolve` uses `ls-remote` or a persistent Code clone. Step 2 can use `ls-remote`; snapshots need a clone.
+- Whether a worker-visible read-only status/diff is exposed as a Runtime command or as a file Runtime writes into the turn artifacts.
 
 ### TLS relationship and limits
 
 The current macOS Claude trust-service allowance is a verified compatibility fix, not the final isolation design. A trusted GitHub component could perform certificate verification outside the agent sandbox, allowing removal of that allowance from agents if no other required tools depend on it. Verify those dependencies before removal; never disable TLS verification.
 
 Centralized access reduces credential exposure but is not sufficient by itself to prevent data leaving the machine. Its operation surface must not permit arbitrary destinations, repositories or accounts. Approved publishing operations can still transmit workspace content; authorization must constrain where and what may be published.
-
-### Later implementation sequence
-
-1. Inventory current GitHub callers and credential paths, including workspace acquisition and agent commands.
-2. Introduce the smallest local GitHub operation boundary using existing Runtime contracts and components; no separate daemon or framework unless required.
-3. Migrate every caller, remove agent credential inheritance and direct authenticated GitHub paths, and enforce the boundary in the execution environment rather than relying on prompts.
-4. Exercise normal clone/fetch/push/PR behavior and refusals for unauthorized repositories, branches and operations. Verify agents cannot read the centralized credentials.
-5. Check remaining tool dependencies on macOS trust services and remove the agent allowance only where real behavior still works.
-
-Open implementation details: exact operation contract, credential source/scopes and enforceable native macOS read/network restrictions. These require code inspection and runtime proof; this document does not claim they are implemented.
 
 ## Domain concepts
 
@@ -208,7 +334,7 @@ The workspace package's `Context` returns canonical `cwd` and either `git: null`
 
 The workspace and native-host Go translations are complete; Runtime execution no longer uses Python. Lifecycle and durable state stay in Elixir.
 
-The shared provider capability and interaction contract remains a separate architectural goal. Claude-only question admission is still explicit, and Codex question support is not part of this extraction. Execution identity, permission checks, error handling, delivery evidence and durable records retain their existing contracts. The proposed centralized GitHub/Code OTP application above remains future work, not an implemented service or dependency.
+The shared provider capability and interaction contract remains a separate architectural goal. Claude-only question admission is still explicit, and Codex question support is not part of this extraction. Execution identity, permission checks, error handling, delivery evidence and durable records retain their existing contracts. The proposed Code service contract above remains future work, not an implemented service or dependency.
 
 ## Authorized macOS Claude TLS allowance
 
