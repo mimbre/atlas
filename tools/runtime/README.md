@@ -394,7 +394,7 @@ Requires the normal Elixir/OTP/Mix toolchain and the selected official CLI (`cod
 
 ## Optional Atlas Server lifecycle reporting
 
-Opt-in, and lifecycle only. Write `server.json` in the Runtime home before `service start`:
+Opt-in: lifecycle, and live public output for Console. Write `server.json` in the Runtime home before `service start`:
 
 ```json
 {"environment": "test", "machine": "laptop-runtime", "host": "127.0.0.1", "port": 4100,
@@ -414,7 +414,13 @@ It never sets a Flow outcome or item ownership, and Server gets no start, stop o
 
 `status`, `turns` and `turn.json` show what Server confirmed, in `server.report`: `turn` (`unconfirmed`, `running`, `ended`), `execution` (`unconfirmed`, `registered`) and the last failure in `error` (for example `turn not created: State did not answer`). Each write is one bounded exchange, so a missing or refusing Server never delays or changes `start`, `output`, `stop` or the local terminal state. `service stop` stops the workers at once. The daemon then waits up to 5 s for pending reports before it exits, and the command returns once it has. With Server unreachable, a measured `service stop` took about 6 s in total.
 
-This is a best-effort mirror. There is no retry queue, replay, crash reconciliation or automatic recovery. A failed write stays failed. If the turn was never created, nothing more is written for it. A turn left `running` by a daemon that died keeps a lease that simply runs out. In this mode the existing output endpoint is not served over the link, so Server cannot read this service's output yet.
+This is a best-effort mirror. There is no retry queue, replay, crash reconciliation or automatic recovery. A failed write stays failed. If the turn was never created, nothing more is written for it. A turn left `running` by a daemon that died keeps a lease that simply runs out.
+
+### Live output
+
+A reported turn's public output is also kept, in memory, in the existing Runtime output ring under its exact Server identity: `environment`, `machine` and `worker`, the Server turn and its `attempt`, as saved in `turn.json`. The service opens the ring before it handles any of the agent's events and closes it when the turn finishes, fails (including a crashed agent) or is stopped. Only the provider's public projection goes in, the same one connected turns use: completed assistant text, and tool name with `started`/`completed`/`failed` (or a short activity line). Native records, reasoning, tool input and results, session details and the token never do. Text is split into bounded events, and retention, expiry and gap `reset` behavior are the ring's own (at most 1000 events, 1 MiB and 15 minutes per turn). Nothing new is persisted: `output` and the artifacts are unchanged, and output from before a daemon restart is gone.
+
+With `server.json`, the service serves the existing read-only output endpoint as `runtime@<machine>/output`, for the configured `machine` only, over the same Bus link. Console reads it through Control's existing exact-attempt route. A request for any other machine, turn or attempt gets `output_unavailable` or `invalid_request`, never output. Without `server.json`, no link is made and no reported ring exists, so nothing is served off this machine. Output is recorded locally and never waits for Server. After a down link recovers, retained output is readable if Server registered the execution; a refused registration does not become readable merely because the link recovers. A lost ring does not fail the native turn, and its next public event reopens the ring in a new epoch. Local ring calls are synchronous and retain their normal timeout; this is not a zero-delay guarantee. Viewers can only read: there are no start, stop, guidance or other controls.
 
 ## Install
 

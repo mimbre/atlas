@@ -6,7 +6,10 @@ defmodule AtlasRuntime.Integrations.AtlasServer.Lifecycle do
   exact attempt's execution, renews its activity and lease as `AtlasRuntime.Turn` does, and
   ends it with why: `finished`, `failed: …` or `stopped`. It sets no item, no Flow outcome,
   and gives Server no start, stop or guidance over the native agent. Local turn IDs never
-  change; the Server identity is persisted with the turn before any remote write.
+  change; the Server identity is persisted with the turn before any remote write. Such a
+  turn's public output is retained by the Service in `AtlasRuntime.Output` under that exact
+  identity, and read through `AtlasRuntime.OutputEndpoint` as the configured machine; this
+  reporter carries none of it.
 
   It is a best-effort mirror. Each write is one bounded `Talk` exchange from this process,
   in order; the native lifecycle never waits for it. What Server confirmed, and the last

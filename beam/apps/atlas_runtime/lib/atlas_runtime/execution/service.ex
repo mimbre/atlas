@@ -11,6 +11,7 @@ defmodule AtlasRuntime.Service do
   alias AtlasRuntime.Handoffs.Commands, as: Handoffs
   alias AtlasRuntime.Integrations.AtlasServer.Lifecycle
   alias AtlasRuntime.Interactions.Commands, as: Interactions
+  alias AtlasRuntime.Output
   alias AtlasRuntime.Persistence.History
   alias AtlasRuntime.Workspaces
   import AtlasRuntime.Execution.Identity
@@ -416,6 +417,8 @@ defmodule AtlasRuntime.Service do
 
     case result do
       {:ok, pid} ->
+        # Before this call returns, no agent message is handled: the ring precedes all output.
+        open_output(run)
         worker = %{agent: pid, monitor: Process.monitor(pid), run: run}
         next = %{state | workers: Map.put(state.workers, worker_id, worker)}
         reply = if record, do: {:admission, record, run}, else: run
@@ -434,6 +437,7 @@ defmodule AtlasRuntime.Service do
   defp stop(state) do
     :ok = Native.stop(state.agent)
     Process.demonitor(state.monitor, [:flush])
+    finish_output(state.run)
     %{state | agent: nil, monitor: nil,
       run: Map.merge(state.run, %{state: "stopped", pending_question: nil, ended_at: DateTime.to_iso8601(DateTime.utc_now())})}
   end
@@ -451,6 +455,7 @@ defmodule AtlasRuntime.Service do
          end) do
       nil -> {:noreply, state}
       {id, worker} ->
+        finish_output(worker.run)
         run = Map.merge(worker.run, %{state: "failed", pending_question: nil, error: inspect(reason),
           ended_at: DateTime.to_iso8601(DateTime.utc_now())})
         next = put_worker(state, id, %{worker | agent: nil, monitor: nil, run: run})
@@ -510,8 +515,14 @@ defmodule AtlasRuntime.Service do
     put_worker(state, id, %{worker | run: Map.put(worker.run, :activity, text)})
   end
 
+  defp agent_message({:output, event}, _id, worker, state) do
+    append_output(worker.run, event)
+    state
+  end
+
   defp agent_message({:ended, text}, id, worker, state) do
     Process.demonitor(worker.monitor, [:flush])
+    finish_output(worker.run)
     run = Map.merge(worker.run, %{state: "finished", pending_question: nil, result: text,
       ended_at: DateTime.to_iso8601(DateTime.utc_now())})
     next = put_worker(state, id, %{worker | agent: nil, monitor: nil, run: run})
@@ -519,6 +530,35 @@ defmodule AtlasRuntime.Service do
   end
 
   defp agent_message(_, _, _, state), do: state
+
+  # A reported turn's public output (the provider's projection, as a connected turn's) is
+  # retained in Output under its exact Server identity, owned by this service. It is local:
+  # it never waits for Server, and a missing ring never changes the native lifecycle.
+  # Only a new event from the turn's own agent may reopen a lost ring, in a new epoch.
+  defp open_output(run), do: output(run, &Output.open(&1, self()))
+  defp finish_output(run), do: output(run, &Output.finish/1)
+
+  defp append_output(run, event) do
+    case output(run, &Output.append(&1, event)) do
+      {:error, "output_unavailable"} ->
+        with :ok <- open_output(run), do: output(run, &Output.append(&1, event))
+
+      result ->
+        result
+    end
+  end
+
+  defp output(%{server: server}, call) do
+    call.(%{
+      "worker" => Map.take(server, ~w(environment machine worker)),
+      "turn" => server["turn"],
+      "attempt" => server["attempt"]
+    })
+  catch
+    :exit, _ -> {:error, "output_unavailable"}
+  end
+
+  defp output(_run, _call), do: :ok
 
   defp put_worker(state, id, worker),
     do: %{state | workers: Map.put(state.workers, id, worker)}
