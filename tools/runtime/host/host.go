@@ -1,4 +1,4 @@
-// Package host owns one native Codex CLI process group for the Elixir Runtime:
+// Package host owns one native Codex or Claude CLI process group for the Elixir Runtime:
 // launch, synchronous session confirmation, stdin stop control and cleanup.
 package host
 
@@ -14,6 +14,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -70,16 +71,26 @@ func run(args []string) (err error) {
 			return err
 		}
 	}
-	scope, repository, model, questions := values[0], values[1], values[2], values[4]
-	if enabled, ok := questions.(bool); !ok || (enabled && backend != "claude") {
+	scope, repository, model, resumeContext, questions := values[0], values[1], values[2], values[3], values[4]
+	enabled, ok := questions.(bool)
+	if !ok || (enabled && backend != "claude") {
 		return errors.New("Questions require a boolean opt-in and the Claude backend")
 	}
 	modelName, _ := model.(string)
 	if model != nil && !modelPattern.MatchString(modelName) {
 		return errors.New("Model must be a nonempty identifier of at most 200 characters")
 	}
-	if backend != "codex" {
-		return errors.New("Backend must be codex")
+	if backend != "codex" && backend != "claude" {
+		return errors.New("Backend must be codex or claude")
+	}
+	if enabled {
+		// Claude questions still run in the Python native host.
+		return errors.New("Claude questions are not supported by native-host")
+	}
+	if backend == "claude" {
+		if err = claudeValidate(scope, sandbox, session, model, resumeContext); err != nil {
+			return err
+		}
 	}
 	if scope == nil && sandbox != "read-only" && sandbox != "workspace-write" {
 		return errors.New("Sandbox must be read-only or workspace-write")
@@ -91,17 +102,27 @@ func run(args []string) (err error) {
 			return errors.New("Managed repository context does not match this start or continuation")
 		}
 	}
-	permissions := []string{"--sandbox", sandbox}
-	if scope != nil {
-		if sandbox != "" {
-			return errors.New("Dedicated repository permissions conflict with sandbox")
-		}
-		if permissions, err = permissionArguments(scope); err != nil {
-			return err
-		}
+	if scope != nil && sandbox != "" {
+		return errors.New("Dedicated repository permissions conflict with sandbox")
 	}
-	command := codexCommand(executable, workspacePath, folder, goal, permissions, session, modelName)
-	protocol := codexProtocol{session: session}
+	var command []string
+	var protocol interface {
+		event(map[string]any) error
+		complete(stopped bool) error
+	}
+	if backend == "codex" {
+		permissions := []string{"--sandbox", sandbox}
+		if scope != nil {
+			if permissions, err = permissionArguments(scope); err != nil {
+				return err
+			}
+		}
+		command = codexCommand(executable, workspacePath, folder, goal, permissions, session, modelName)
+		protocol = &codexProtocol{session: session}
+	} else {
+		command = claudeCommand(executable, goal, scope, session, modelName)
+		protocol = &claudeProtocol{session: session, model: modelName}
+	}
 
 	// EPIPE on stdout must reach cleanup instead of killing the host; children still get default SIGPIPE.
 	signal.Notify(make(chan os.Signal, 1), syscall.SIGPIPE)
@@ -123,6 +144,7 @@ func run(args []string) (err error) {
 
 	var leader *process
 	var lock *os.File
+	var nativeTemporary *string
 	groupKilled := false
 	defer func() {
 		if leader != nil {
@@ -134,6 +156,11 @@ func run(args []string) (err error) {
 				}
 			}
 			leader.wait(-1)
+		}
+		if nativeTemporary != nil {
+			if removeErr := os.RemoveAll(*nativeTemporary); removeErr != nil {
+				err = removeErr
+			}
 		}
 		// Keep ownership until the complete process group has been reaped, including on stop.
 		if lock != nil {
@@ -148,13 +175,44 @@ func run(args []string) (err error) {
 			return err
 		}
 	}
-	if scope != nil {
+	var environment []string
+	if scope != nil && backend == "claude" {
+		if repository == nil {
+			current, err := workspace.Scope(workspacePath)
+			if err != nil {
+				return err
+			}
+			if !workspace.JSONEqual(current, scope) {
+				return errors.New("Dedicated repository permission scope changed")
+			}
+		}
+		home, err := homeDirectory()
+		if err != nil {
+			return err
+		}
+		if home, err = resolvePath(home); err != nil {
+			return err
+		}
+		temporary, err := makeTemporary(home)
+		if err != nil {
+			return err
+		}
+		nativeTemporary = &temporary
+		settings, err := claudeRepositorySettings(scope, temporary)
+		if err != nil {
+			return err
+		}
+		command = slices.Insert(command, 1, "--settings", settings)
+		environment = append(os.Environ(), "CLAUDE_CODE_TMPDIR="+temporary)
+	}
+	// Claude always saves its context in the pre-exec child; Codex only needs it for a scope.
+	if scope != nil || backend == "claude" {
 		self, err := os.Executable()
 		if err != nil {
 			return err
 		}
-		command = append([]string{self, "native-host", "--execute-assignment", workspacePath,
-			args[6], args[7], strconv.FormatBool(created)}, command...)
+		command = append([]string{self, "native-host", "--execute-assignment", backend, workspacePath,
+			args[6], args[7], strconv.FormatBool(created), folder, args[10]}, command...)
 	}
 
 	reader, writer, err := os.Pipe()
@@ -164,6 +222,9 @@ func run(args []string) (err error) {
 	child := exec.Command(command[0], command[1:]...)
 	child.Stdout, child.Stderr = writer, errorsFile
 	child.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if backend == "claude" {
+		child.Dir, child.Env = workspacePath, environment
+	}
 	startedAt := time.Now()
 	err = child.Start()
 	writer.Close()
@@ -175,27 +236,30 @@ func run(args []string) (err error) {
 		PID             int      `json:"pid"`
 		Command         []string `json:"command"`
 		NativeTemporary *string  `json:"native_temporary"`
-	}{leader.pid, command, nil})
+	}{leader.pid, command, nativeTemporary})
 	if err != nil {
 		return err
 	}
 	if err = os.WriteFile(filepath.Join(folder, "process.json"), evidence, 0666); err != nil {
 		return err
 	}
-	// The Codex child inherits this environment; Runtime reads its rollout evidence.
-	codexHome, present := os.LookupEnv("CODEX_HOME")
-	if !present {
-		home, err := homeDirectory()
-		if err != nil {
-			return err
-		}
-		codexHome = filepath.Join(home, ".codex")
-	}
-	if err = emit(map[string]any{
+	started := map[string]any{
 		"type": "runtime.process_started", "pid": leader.pid,
 		"started_at": startedAt.UTC().Format("2006-01-02T15:04:05.000000-07:00"),
-		"workspace":  workspacePath, "codex_home": codexHome,
-	}); err != nil {
+	}
+	if backend == "codex" {
+		// The Codex child inherits this environment; Runtime reads its rollout evidence.
+		codexHome, present := os.LookupEnv("CODEX_HOME")
+		if !present {
+			home, err := homeDirectory()
+			if err != nil {
+				return err
+			}
+			codexHome = filepath.Join(home, ".codex")
+		}
+		started["workspace"], started["codex_home"] = workspacePath, codexHome
+	}
+	if err = emit(started); err != nil {
 		return err
 	}
 
@@ -329,16 +393,17 @@ func homeDirectory() (string, error) {
 }
 
 // executeAssignment runs as the new group leader: it prepares the managed repository,
-// rechecks the scope and then becomes Codex, so Git and Codex stay in the owned group.
+// rechecks the scope, saves Claude's context and then becomes the native CLI,
+// so Git and the native CLI stay in the owned group.
 func executeAssignment(args []string) error {
-	if len(args) < 5 {
-		return errors.New("native-host --execute-assignment requires workspace, scope, repository, created and command")
+	if len(args) < 8 {
+		return errors.New("native-host --execute-assignment requires backend, workspace, scope, repository, created, folder, resume context and command")
 	}
-	workspacePath, command := args[0], args[4:]
-	var values [3]any // scope, repository, created
-	for index := range values {
+	backend, workspacePath, folder, command := args[0], args[1], args[5], args[7:]
+	var values [4]any // scope, repository, created, resume context
+	for index, position := range []int{2, 3, 4, 6} {
 		var err error
-		if values[index], err = argument(args[index+1]); err != nil {
+		if values[index], err = argument(args[position]); err != nil {
 			return err
 		}
 	}
@@ -346,11 +411,19 @@ func executeAssignment(args []string) error {
 	if values[1] != nil {
 		repository, _ := values[1].(map[string]any)
 		created, _ := values[2].(bool)
+		sandbox := command[0]
+		if backend == "claude" {
+			// Claude prepares through the installed Codex sandbox, as resolved from PATH.
+			var err error
+			if sandbox, err = exec.LookPath("codex"); err != nil && !errors.Is(err, exec.ErrDot) {
+				return errors.New("Managed repository preparation requires the installed Codex sandbox")
+			}
+		}
 		permissions, err := permissionArguments(scope)
 		if err != nil {
 			return err
 		}
-		prefix := append(append([]string{command[0], "sandbox", "-P", "atlas_repository", "-C", workspacePath}, permissions...), "--")
+		prefix := append(append([]string{sandbox, "sandbox", "-P", "atlas_repository", "-C", workspacePath}, permissions...), "--")
 		prepared, err := workspace.Prepare(scope, repository, created, prefix)
 		if err != nil {
 			return err
@@ -366,6 +439,11 @@ func executeAssignment(args []string) error {
 		}
 		if !workspace.JSONEqual(current, values[0]) {
 			return errors.New("Dedicated repository permission scope changed")
+		}
+	}
+	if backend == "claude" {
+		if err := saveContext(workspacePath, values[0], folder, values[3]); err != nil {
+			return err
 		}
 	}
 	return syscall.Exec(command[0], command, os.Environ())

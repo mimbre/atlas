@@ -56,9 +56,11 @@ class ClaudeRepositoryLifecycleTest(unittest.TestCase):
             ('time.sleep(30)\n' if hang else '') +
             ('sys.exit(7)\n' if fail else ''))
         self.native.chmod(0o700)
+        # Claude without questions runs in the Go host built by setup_workspace_cli.
         return subprocess.Popen(
-            [sys.executable, str(HELPER), str(self.native), str(self.repo), str(self.root),
-             'fixture lifecycle only', '', '', json.dumps(scope), 'null', 'claude'],
+            [os.environ['ATLAS_RUNTIME_EXECUTABLE'], 'native-host', str(self.native), str(self.repo),
+             str(self.root), 'fixture lifecycle only', '', '', json.dumps(scope), 'null', 'claude',
+             'null', 'null', 'false'],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
             env=dict(os.environ, HOME=str(home),
                      CODEX_HOME=os.environ.get('CODEX_HOME', str(Path.home() / '.codex')))

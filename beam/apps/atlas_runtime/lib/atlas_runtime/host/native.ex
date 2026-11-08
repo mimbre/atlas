@@ -7,9 +7,10 @@ defmodule AtlasRuntime.Agent.Native do
   Claude questions require explicit `questions_enabled: true`; answer delivery
   acknowledges a native stdin write, while processed evidence requires a tool result.
   Requires explicit `command`, `workspace` and `goal` agent settings. The native
-  host (Go `atlas-runtime native-host` for Codex, the Python runner for Claude)
-  owns a process group and reaps it on stop or parent loss. JSONL output,
-  stderr and the final answer stay under `turns_dir/<turn key>`. Guidance is not
+  host (Go `atlas-runtime native-host` for Codex and Claude without questions,
+  the Python runner for Claude questions) owns a process group and reaps it on
+  stop or parent loss. JSONL output, stderr and the final answer stay under
+  `turns_dir/<turn key>`. Guidance is not
   supported. Success requires a successful native result and clean process exit.
   """
   use GenServer
@@ -55,9 +56,10 @@ defmodule AtlasRuntime.Agent.Native do
     resume_context = settings["resume_context"]
     questions_enabled = Map.get(settings, "questions_enabled", false)
 
-    # Codex runs in the Go host of the launching CLI; Claude stays on the Python runner.
+    # Codex and Claude without questions run in the Go host of the launching CLI;
+    # Claude questions stay on the Python runner.
     {host, host_args} =
-      if backend == "codex",
+      if backend == "codex" or (backend == "claude" and questions_enabled == false),
         do: {System.get_env("ATLAS_RUNTIME_EXECUTABLE"), ["native-host"]},
         else:
           {System.find_executable("python3"),

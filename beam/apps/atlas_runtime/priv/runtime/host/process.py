@@ -58,6 +58,9 @@ def main(entrypoint):
     if backend != 'claude':
         # Codex runs in the Go native host (atlas-runtime native-host).
         raise ValueError('Backend must be claude')
+    if not questions_enabled:
+        # Claude without questions runs in the Go native host too.
+        raise ValueError('Claude questions must be enabled')
     claude.validate(scope, sandbox, session, model, expected_context)
     if len(extra) > 6 or (scope is None and sandbox not in ('read-only', 'workspace-write')):
         raise ValueError('Sandbox must be read-only or workspace-write')
@@ -67,9 +70,8 @@ def main(entrypoint):
     if scope is not None and sandbox:
         raise ValueError('Dedicated repository permissions conflict with sandbox')
     folder = Path(folder)
-    question_session = session or str(uuid.uuid4()) if questions_enabled else None
-    command, tools = claude.build_command(
-        executable, goal, scope, session, model, questions_enabled, question_session)
+    question_session = session or str(uuid.uuid4())
+    command, tools = claude.build_command(executable, scope, session, model, question_session)
     protocol = claude.Protocol(session, model)
 
     def forward(event):
@@ -120,8 +122,7 @@ def main(entrypoint):
                        workspace, json.dumps(scope), json.dumps(repository), json.dumps(created),
                        str(folder), json.dumps(expected_context), *command]
             started_at = datetime.now(timezone.utc)
-            process = subprocess.Popen(command, stdin=subprocess.PIPE if questions_enabled else subprocess.DEVNULL,
-                                       stdout=subprocess.PIPE,
+            process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                        stderr=errors, start_new_session=True,
                                        cwd=workspace, env=environment)
             (folder / 'process.json').write_text(json.dumps({
@@ -130,18 +131,17 @@ def main(entrypoint):
                   'started_at': started_at.isoformat()})
             selector.register(sys.stdin, selectors.EVENT_READ, 'control')
             selector.register(process.stdout, selectors.EVENT_READ, 'output')
-            if questions_enabled:
-                os.set_blocking(process.stdin.fileno(), False)
-                host = QuestionProtocol(question_session, goal,
+            os.set_blocking(process.stdin.fileno(), False)
+            host = QuestionProtocol(question_session, goal,
                                     lambda event: write_native(process.stdin, event),
                                     process.stdin.close, tools.split(',') + ['AskUserQuestion'],
                                     process.pid, model if session else None)
-                host.start()
+            host.start()
             while True:
                 for key, _ in selector.select(.1):
                     if key.data == 'control':
                         data = os.read(sys.stdin.fileno(), 4096)
-                        should_stop = not questions_enabled or not data
+                        should_stop = not data
                         if not should_stop:
                             control_partial += data
                             while b'\n' in control_partial:
