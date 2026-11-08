@@ -156,21 +156,20 @@ Transport-specific parsing and presentation remain at the edge. A truncated stat
 
 ## Current implementation versus this target
 
-The current standalone layout separates executable ownership and durable operations without changing languages:
+The current layout groups both execution paths by responsibility without treating their different contracts as interchangeable:
 
 ```text
 beam/apps/atlas_runtime/lib/atlas_runtime/
   application.ex
   entrypoints/socket.ex
-  execution/{service,command_admissions,backend_policy,identity}.ex
-  interactions/{commands,native_question,question_records,peer_question_records}.ex
+  execution/{service,command_admissions,backend_policy,identity,engine,turn,settings,faults}.ex
+  interactions/{commands,native_question,question_records,peer_question_records,guidance,output}.ex
   handoffs/{commands,handoff_records}.ex
   persistence/{history,execution_events}.ex
   workspaces/workspace.ex
   host/native.ex
-  providers/{agent,input,native_events}.ex
-  connected/{engine,turn,guidance,talk,settings,faults,output,output_endpoint}.ex
-  connected/adapters/{claude,claude/broker,fake_inbox,stub}.ex
+  providers/{agent,input,native_events,claude,fake_inbox,stub}.ex
+  integrations/atlas_server/{talk,output_endpoint,broker,commands}.ex
 
 beam/apps/atlas_runtime/priv/runtime/
   entrypoint.py
@@ -197,7 +196,11 @@ Dependencies and responsibilities:
 - The thin Python entrypoint calls the host process loop. Host modules own process groups, control transport, sandbox mechanics, workspace ownership lifetime and cleanup. Provider modules own native command construction, question protocol, resume context and model/session interpretation. Both depend on the shared protocol codec; provider modules do not import host lifecycle code.
 - The Go CLI imports the dependency-free local `workspace` package. That package does not import the CLI or choose a provider.
 
-The connected Engine/Turn/guidance/output path and its existing adapters are grouped explicitly under `connected/`. Its existing `Agent` behaviour and input contract remain under `providers/`; their module APIs and connected behavior are unchanged. This is not a claim that the connected and standalone paths already share one interaction contract. Standalone startup still requires neither Atlas Server nor Flow.
+`Engine`, `Turn`, engine settings and test-environment fault injection belong to execution lifecycle, not a `connected/` mode bucket. `Guidance` owns exact-attempt queued-input reconciliation; `Output` owns bounded ephemeral public-output retention, not durable history. They live under `interactions/`. The existing provider and proof adapters live beside the `Agent` contract in `providers/`.
+
+Only actual Atlas communication remains under `integrations/atlas_server/`: State read/fact transport (`Talk`), the address-validated Bus/BFF output endpoint, the Atlas command broker, and Atlas-only command setup. `Commands` owns Atlas prompts, help discovery, bridge configuration and the confined command environment/wrapper/profile previously embedded in the Claude adapter. The adapter retains Claude argv, event interpretation and process lifecycle, consumes that setup, and has no forwarding copies of the extracted helpers. The command setup uses the broker and never calls the provider; the output endpoint reads the independent output buffer.
+
+These execution paths remain distinct. `Engine` reconciles ownership and leases through Atlas facts and starts `Turn`; standalone `Service` admits explicitly requested native executions and stores its own history. Grouping them by responsibility does not add a shared workflow engine, unify queued guidance with native questions, or enable either protocol on the other adapter. Existing module APIs for unchanged responsibilities remain stable. Standalone startup still requires neither Atlas Server nor Flow, and its native host/Python implementation is unchanged by this correction.
 
 ## Implemented workspace boundary
 

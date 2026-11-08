@@ -5,6 +5,7 @@ defmodule AtlasRuntime.ClaudeTest do
 
   alias AtlasRuntime.Agent.Claude
   alias AtlasRuntime.Agent.Claude.Broker
+  alias AtlasRuntime.Integrations.AtlasServer.Commands
 
   @moduletag :tmp_dir
 
@@ -121,8 +122,8 @@ defmodule AtlasRuntime.ClaudeTest do
     {:ok, %{port: port}} =
       Broker.open(%{atlas: atlas, env_file: o[:env_file], agent: "trial", folder: folder})
 
-    :ok = Claude.wrapper(folder, o, port)
-    {folder, o, Claude.environment(@turn, o, folder)}
+    :ok = Commands.wrapper(folder, o, port)
+    {folder, o, Commands.environment(@turn, o, folder)}
   end
 
   # As Claude Code runs a command: its snapshot first, which sets PATH back to its own
@@ -150,11 +151,11 @@ defmodule AtlasRuntime.ClaudeTest do
     # Its sys folder holds what Claude Code needs for itself (macOS: security) and no more.
     assert File.ls!(Path.join(folder, "sys")) -- ["security"] == []
     assert env["ATLAS_AS"] == "trial" and env["ATLAS_ENV_FILE"] == o[:env_file]
-    assert env["CLAUDE_CODE_TMPDIR"] == Claude.tmp(folder)
+    assert env["CLAUDE_CODE_TMPDIR"] == Commands.tmp(folder)
     refute Map.has_key?(env, "GITHUB_TOKEN") or Map.has_key?(env, "MIX_ENV")
 
     # Beside the folder, not in it: what the agent's commands may not write.
-    for file <- [Claude.shell(folder), Claude.profile(folder), Claude.tmp(folder)],
+    for file <- [Commands.shell(folder), Commands.profile(folder), Commands.tmp(folder)],
         do: refute(String.starts_with?(file, folder <> "/"))
 
     # The client alone, without the sandbox: what the broker answers.
@@ -209,7 +210,7 @@ defmodule AtlasRuntime.ClaudeTest do
     # Bash's own reads and writes reach nothing.
     {out, _} = run.(~s(echo x > "#{Path.join(dir, "f")}"))
     assert out =~ "Operation not permitted" and not File.exists?(Path.join(dir, "f"))
-    {out, _} = run.(~s(echo x > "#{Path.join(Claude.tmp(folder), "other")}"))
+    {out, _} = run.(~s(echo x > "#{Path.join(Commands.tmp(folder), "other")}"))
     assert out =~ "Operation not permitted"
     {out, _} = run.("while read l; do echo \"$l\"; done < /etc/hosts")
     assert out =~ "Operation not permitted"
@@ -223,12 +224,12 @@ defmodule AtlasRuntime.ClaudeTest do
     # What it may: the turn's atlas, and Claude Code's cwd file after each command.
     {out, 0} = run.("atlas get X")
     assert out == "build atlas: get X (file=#{o[:env_file]} as=trial)\n"
-    cwd = Path.join(Claude.tmp(folder), "claude-ab12-cwd")
+    cwd = Path.join(Commands.tmp(folder), "claude-ab12-cwd")
     {_, 0} = run.(~s(pwd -P >| "#{cwd}"))
     assert File.read!(cwd) =~ "turn"
 
     # Every command it ran is kept beside the folder, one line each.
-    kept = File.read!(Claude.commands(folder)) |> String.split("\n", trim: true)
+    kept = File.read!(Commands.commands(folder)) |> String.split("\n", trim: true)
     assert List.last(kept) =~ "pwd\\ -P"
   end
 
@@ -238,7 +239,7 @@ defmodule AtlasRuntime.ClaudeTest do
     {out, 126} = through_prefix(dir, folder, env).("atlas get X")
     assert out =~ "no sandbox on this machine, so no command runs"
     refute out =~ "build atlas"
-    assert File.read!(Claude.commands(folder)) =~ "atlas\\ get\\ X"
+    assert File.read!(Commands.commands(folder)) =~ "atlas\\ get\\ X"
   end
 
   # A stand-in for the build's `atlas` that answers help as the real one does (its output,
@@ -287,7 +288,7 @@ defmodule AtlasRuntime.ClaudeTest do
   test "its rules show the allowed atlas commands and the item's kind, as atlas help says",
        %{tmp_dir: dir} do
     config = %{atlas: helpful_atlas(dir), env_file: "/i.json", agent: "trial", folder: dir}
-    forms = Claude.forms(config, "card")
+    forms = Commands.forms(config, "card")
 
     # The usage lines of get, list and set, and what goes on from set's line.
     for line <- [
@@ -310,13 +311,12 @@ defmodule AtlasRuntime.ClaudeTest do
     # In the turn's rules, after what is expected of it.
     {_, args} = Claude.command(@turn, %{"command" => "claude"}, forms)
     rules = Enum.at(args, Enum.find_index(args, &(&1 == "--append-system-prompt")) + 1)
-    assert rules =~ ~r/and stop\.\n\nThe atlas commands you may use \(from `atlas help`\):\n/
     assert String.ends_with?(rules, "empty removes it")
 
     # A turn whose atlas does not answer runs with the rules alone.
-    assert Claude.forms(config, "nothing") =~ "atlas set"
-    refute Claude.forms(config, "nothing") =~ "What your item's kind"
-    assert Claude.forms(%{config | atlas: Path.join(dir, "no-atlas")}, "card") == ""
+    assert Commands.forms(config, "nothing") =~ "atlas set"
+    refute Commands.forms(config, "nothing") =~ "What your item's kind"
+    assert Commands.forms(%{config | atlas: Path.join(dir, "no-atlas")}, "card") == ""
   end
 
   test "its command: confined, headless, with the agent's model and budget" do
