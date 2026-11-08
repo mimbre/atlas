@@ -221,12 +221,25 @@ Integrated default-model proof on 2026-11-07, after the coordinator cleared the 
 ## Materialized-folder workers (Codex and Claude)
 
 ```sh
-atlas-runtime snapshot materialize --snapshot sha256:HEX --dest /abs/assignment
+atlas-runtime snapshot materialize --snapshot sha256:HEX --dest /abs/assignment   # outside the Runtime home
 atlas-runtime start --worker NAME --backend codex --cwd /abs/assignment --permissions materialized-folder "Assignment"
 atlas-runtime continue --worker NAME --turn TURN_ID "Next step"
 ```
 
-The worker can read, edit and test the assigned folder and run `atlas-runtime snapshot status|diff` on it. It cannot read Git metadata, the Runtime home (beyond this snapshot's record and baseline), Code tokens or the listed credential locations, and it has no network, so it cannot reach Code. Provider authentication still works because the trusted native host runs outside the sandbox. Runtime setup and continuation run no Git and make no Code request; Code may be stopped while the worker runs. Use `--backend claude` (optionally with `--questions`) for Claude. See the architecture document for both exact profiles and their deny-list limits.
+The worker can read, edit and test the assigned folder and inspect it with `"$ATLAS_RUNTIME_EXECUTABLE" snapshot status|diff --dest .`. `ATLAS_RUNTIME_EXECUTABLE` is the exact CLI that launched the worker; a bare `atlas-runtime` may resolve to another installation in a login shell. The folder must be materialized outside the Runtime home; overlapping folders are refused before launch. The worker cannot read Git metadata, the Runtime home (beyond this snapshot's record and baseline, and the launching executable if it lives there), Code tokens or the listed credential locations, and it has no network, so it cannot reach Code. Provider authentication still works because the trusted native host runs outside the sandbox. Runtime setup and continuation run no Git and make no Code request; Code may be stopped while the worker runs. Use `--backend claude` (optionally with `--questions`) for Claude. See the architecture document for both exact profiles and their deny-list limits.
+
+Inspector contract verified on 2026-11-08 in an isolated daemon whose `atlas-runtime` lives inside its own private Runtime home, as in the dedicated deployment. Code was stopped before the workers started, and the login-shell `atlas-runtime` outside the sandbox is the older shared `~/.local/bin/atlas-runtime`, whose help lacks this profile.
+
+- A folder materialized inside the Runtime home was refused at start with the overlap message, and no turn was created.
+- Codex (`gpt-6.1-sol`, session `01a1bc39-0740-7b60-b3c4-1f0970402b9d`) and Claude (`claude-opus-5-5[1m]`, session `f5ccfd17-198e-4f46-ade4-1747a0a5fe5b`) each worked on their own folder outside the home:
+  - `ATLAS_RUNTIME_EXECUTABLE` named the home-resident binary;
+  - they edited `calc.go`, `go test` passed, and `"$ATLAS_RUNTIME_EXECUTABLE" snapshot status` listed the change;
+  - `cat $ATLAS_RUNTIME_HOME/code.json` and `ls $ATLAS_RUNTIME_HOME` both exited 1;
+  - continuations ran `snapshot diff` with the exact hunk.
+- With the older CLI explicitly first on `PATH`, a bare `atlas-runtime` resolved to `~/.local/bin/atlas-runtime` and failed (Codex: `mkdir …: file exists`; Claude: `chmod …: operation not permitted`). The explicit `"$ATLAS_RUNTIME_EXECUTABLE"` in the same command succeeded.
+- Runtime ran no Git. The only Git calls came from native Claude's own launch probes.
+
+Evidence: `/Users/melle/.ac-ic-m7lo4zo9/folder-inspector-evidence.json`.
 
 Verified on 2026-11-08 in an isolated daemon (Codex 0.166.0, `gpt-6.1-sol`). Snapshot `sha256:cdf993d12d454292b0499266d03df591cc45629dd8559d3b94b8c0ab92f72c9a` (repositories `app`, `docs`) was materialized; the worker is `fw`, session `01a1bc16-3d75-7821-a326-04a23f27043e`.
 

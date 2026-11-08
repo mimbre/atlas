@@ -406,7 +406,7 @@ func codexConfig(root, subject string) error {
 	return nil
 }
 
-// FolderScope is the materialized-folder permission scope of dest, materialized under the
+// FolderScope is the materialized-folder permission scope of dest, materialized outside the
 // Runtime home. It verifies the record and baseline like snapshot status, without Git.
 func FolderScope(dest, home string) (map[string]any, error) {
 	if !filepath.IsAbs(dest) || !filepath.IsAbs(home) {
@@ -415,6 +415,17 @@ func FolderScope(dest, home string) (map[string]any, error) {
 	home, err := filepath.EvalSymlinks(home)
 	if err != nil {
 		return nil, err
+	}
+	// Workers cannot inspect a folder inside the home they are denied, nor write one containing it.
+	canonical := filepath.Clean(dest)
+	if parent, err := filepath.EvalSymlinks(filepath.Dir(canonical)); err == nil {
+		canonical = filepath.Join(parent, filepath.Base(canonical))
+	}
+	within := func(dir, path string) bool {
+		return path == dir || strings.HasPrefix(path, strings.TrimSuffix(dir, "/")+"/")
+	}
+	if within(home, canonical) || within(canonical, home) {
+		return nil, fmt.Errorf("Materialized folder %s overlaps the Runtime home %s; materialize it outside the Runtime home", dest, home)
 	}
 	scope, err := snapshot.Verified(home, dest)
 	if err != nil {

@@ -29,8 +29,8 @@ func codexCommand(executable, workspace, folder, goal string, permissions []stri
 }
 
 // permissionArguments translates a permission scope into its Codex permission profile;
-// scratch is the owned scratch folder of a materialized-folder turn.
-func permissionArguments(scope any, scratch string) ([]string, error) {
+// scratch is the owned scratch folder and inspector the Runtime executable of a materialized-folder turn.
+func permissionArguments(scope any, scratch, inspector string) ([]string, error) {
 	fields, _ := scope.(map[string]any)
 	switch fields["profile"] {
 	case "dedicated-repository":
@@ -40,7 +40,7 @@ func permissionArguments(scope any, scratch string) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		return folderArguments(fields, scratch, user)
+		return folderArguments(fields, scratch, user, inspector)
 	}
 	return nil, errors.New("Unknown permission profile")
 }
@@ -77,14 +77,18 @@ var credentialPaths = []string{".codex", ".config/gh", ".ssh", ".aws", ".docker"
 // folderArguments translates a materialized-folder scope into the Codex permission profile:
 // write only the folder and scratch, read only the snapshot record and baseline, deny Git
 // metadata, the Runtime home, the Code token and user credentials under user, no network.
-func folderArguments(scope map[string]any, scratch, user string) ([]string, error) {
+// Workers may read (and so execute) the inspector even inside a denied path.
+func folderArguments(scope map[string]any, scratch, user, inspector string) ([]string, error) {
 	root, _ := scope["root"].(string)
 	home, _ := scope["home"].(string)
 	record, _ := scope["record"].(string)
 	baseline, _ := scope["baseline"].(string)
 	repositories, _ := scope["repositories"].([]any)
-	if root == "" || home == "" || record == "" || baseline == "" || len(repositories) == 0 || scratch == "" {
+	if root == "" || home == "" || record == "" || baseline == "" || len(repositories) == 0 || scratch == "" || inspector == "" {
 		return nil, errors.New("Materialized folder scope is incomplete")
+	}
+	if err := writableInspector(inspector, root, scratch); err != nil {
+		return nil, err
 	}
 	entries := [][2]string{{root, "write"}, {scratch, "write"}, {home, "none"}, {record, "read"}, {baseline, "read"},
 		{filepath.Join(root, ".git"), "none"}}
@@ -123,6 +127,13 @@ func folderArguments(scope map[string]any, scratch, user string) ([]string, erro
 		}
 		entries = append(entries, [2]string{path, "none"})
 	}
+	// Seatbelt lets a specific file read win inside a denied directory; grant only the inspector itself.
+	for _, entry := range entries {
+		if entry[1] == "none" && within(entry[0], inspector) {
+			entries = append(entries, [2]string{inspector, "read"})
+			break
+		}
+	}
 	access := map[string]string{}
 	var paths []string
 	for _, entry := range entries {
@@ -142,6 +153,18 @@ func folderArguments(scope map[string]any, scratch, user string) ([]string, erro
 	profile := `permissions={atlas_folder={extends=":read-only",filesystem={` + strings.Join(paths, ",") +
 		`},network={enabled=false}}}`
 	return []string{"-c", `default_permissions="atlas_folder"`, "-c", profile}, nil
+}
+
+func within(dir, path string) bool { return path == dir || strings.HasPrefix(path, dir+"/") }
+
+// writableInspector refuses a Runtime executable that workers could replace before running it.
+func writableInspector(inspector string, writable ...string) error {
+	for _, path := range writable {
+		if within(path, inspector) {
+			return fmt.Errorf("Runtime executable %s is inside worker-writable %s; install atlas-runtime outside the materialized folder and worker temp", inspector, path)
+		}
+	}
+	return nil
 }
 
 // codeToken is the resolved token_file of <home>/code.json, or empty when Code is not configured.

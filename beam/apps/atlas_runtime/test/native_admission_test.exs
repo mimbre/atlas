@@ -480,11 +480,22 @@ defmodule AtlasRuntime.NativeAdmissionTest do
       "repositories" => [path], "home" => home, "record" => record, "baseline" => baseline}
   end
 
+  defp overlap(dest, home),
+    do: "Materialized folder #{dest} overlaps the Runtime home #{home}; materialize it outside the Runtime home"
+
+  # The worker observes the host's own resolved executable, never a PATH lookup.
+  defp host_executable do
+    executable = System.fetch_env!("ATLAS_RUNTIME_EXECUTABLE")
+    Path.join(AtlasRuntime.Workspaces.workspace_path(Path.dirname(executable)), Path.basename(executable))
+  end
+
   test "materialized-folder binds its verified snapshot for Codex and continuation never rebinds", context do
     # Folder scopes require canonical paths; the macOS temporary directory is behind /var.
     real = AtlasRuntime.Workspaces.workspace_path(context.dir)
     context = %{context | dir: real, service: launch_service(real)}
-    dest = Path.join(real, "folder")
+    # Workers cannot read the Runtime home, so the folder must lie outside it.
+    dest = real <> "-folder"
+    on_exit(fn -> File.rm_rf!(dest) end)
     scope = materialize!(real, dest, "repo")
     git_log = Path.join(real, "git.log")
     File.rm!(Path.join(context.bin, "git"))
@@ -493,6 +504,12 @@ defmodule AtlasRuntime.NativeAdmissionTest do
     request = start_request(context, "folder", %{"cwd" => dest, "permissions" => "materialized-folder"})
 
     assert command_error(context.service, Map.put(request, "sandbox", "read-only")) =~ "cannot be combined with sandbox"
+    # A folder inside the Runtime home is refused before any native launch.
+    inside = Path.join(real, "folder")
+    inside_scope = materialize!(real, inside, "repo")
+    assert command_error(context.service, start_request(context, "inside", %{"cwd" => inside, "permissions" => "materialized-folder"})) ==
+             overlap(inside, real)
+    assert launches(context.dir) == []
     record = accepted(context.dir, call(context.service, request))
     assert record["binding"]["permissions"] == scope
     assert record["binding"]["backend"] == "codex"
@@ -504,6 +521,17 @@ defmodule AtlasRuntime.NativeAdmissionTest do
     [start, resume] = launches(context.dir)
     assert ~s(default_permissions="atlas_folder") in start["argv"]
     assert resume["resumed"] and ~s(default_permissions="atlas_folder") in resume["argv"]
+    assert start["executable"] == host_executable() and resume["executable"] == host_executable()
+
+    # A saved turn of a folder inside the Runtime home cannot continue.
+    legacy = "turn-00000000000000aa"
+    File.mkdir_p!(Path.join([real, "turns", legacy]))
+    File.write!(Path.join([real, "turns", legacy, "turn.json"]), JSON.encode!(%{
+      "worker_id" => "legacy", "state" => "finished", "backend" => "codex", "session_id" => "legacy-session",
+      "cwd" => inside, "sandbox" => nil, "permissions" => inside_scope}))
+    assert command_error(context.service, %{"command" => "continue", "turn_id" => legacy, "assignment" => "plain:legacy"}) ==
+             overlap(inside, real)
+    assert length(launches(context.dir)) == 2
 
     # Rebinding the folder to another snapshot is refused, not refreshed.
     rebound = materialize!(real, dest, "other")
@@ -550,6 +578,7 @@ defmodule AtlasRuntime.NativeAdmissionTest do
       assert "Read(/#{real})" in settings["permissions"]["deny"]
     end
     assert resume["resumed"]
+    assert start["executable"] == host_executable() and resume["executable"] == host_executable()
 
     # Rebinding the folder to another snapshot is refused, not refreshed.
     materialize!(real, dest, "other")
