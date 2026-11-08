@@ -554,15 +554,26 @@ func TestPeerCorrelationRequiresExactTargetsAndNoDispatchOptions(t *testing.T) {
 func TestSnapshotMaterializeNeedsExactFlagsAndNoRuntimeService(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("ATLAS_RUNTIME_HOME", dir)
-	usage := "use snapshot materialize --snapshot sha256:HEX --dest NEW_PATH"
+	usage := "use snapshot materialize --snapshot sha256:HEX --dest NEW_PATH, or snapshot status|diff --dest PATH [--path REPO_PATH]..."
 	for _, args := range [][]string{
 		{"snapshot"},
 		{"snapshot", "download"},
 		{"snapshot", "materialize", "--snapshot", "sha256:x"},
 		{"snapshot", "materialize", "--dest", filepath.Join(dir, "work")},
 		{"snapshot", "materialize", "--snapshot", "sha256:x", "--dest", filepath.Join(dir, "work"), "extra"},
+		{"snapshot", "status"},
+		{"snapshot", "diff", "--path", "beta"},
+		{"snapshot", "status", "--dest", dir, "extra"},
 	} {
 		if _, err := execute(args); err == nil || err.Error() != usage {
+			t.Fatalf("%q: %v", args, err)
+		}
+	}
+	for _, args := range [][]string{
+		{"snapshot", "status", "--snapshot", "sha256:x", "--dest", dir},
+		{"snapshot", "materialize", "--path", "beta", "--dest", dir},
+	} {
+		if _, err := execute(args); err == nil || !strings.Contains(err.Error(), "flag provided but not defined") {
 			t.Fatalf("%q: %v", args, err)
 		}
 	}
@@ -571,5 +582,12 @@ func TestSnapshotMaterializeNeedsExactFlagsAndNoRuntimeService(t *testing.T) {
 	_, err := execute([]string{"snapshot", "materialize", "--snapshot", id, "--dest", filepath.Join(dir, "work")})
 	if err == nil || !strings.HasPrefix(err.Error(), "Code service unavailable: not configured; write ") {
 		t.Fatalf("got %v", err)
+	}
+	// Status and diff reach inspection offline too; this folder was never materialized.
+	for _, command := range []string{"status", "diff"} {
+		_, err = execute([]string{"snapshot", command, "--dest", dir, "--path", "a", "--path", "b"})
+		if err == nil || !strings.HasPrefix(err.Error(), "no materialization record for ") {
+			t.Fatalf("%s: %v", command, err)
+		}
 	}
 }

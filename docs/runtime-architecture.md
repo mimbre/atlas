@@ -192,12 +192,26 @@ Runtime snapshot materialization (implemented, Go package `tools/runtime/snapsho
 - **Baseline:** an immutable, read-only copy is kept at `<runtime home>/snapshots/<hex>/` (`manifest.json`, `complete`, `tree/`). It is reused for later materializations of the same snapshot. `<runtime home>/materializations/<sha256(dest)>.json` records `{destination, snapshot_id, materialized_at}` after publication. Runtime runs no `git`, and no credentials or Git metadata reach the destination or the baseline.
 - **Limits:** a killed process leaves its 0700 staging folders. A reused baseline is trusted by its `complete` marker, not re-hashed. NFC/NFD name collisions are not modelled. There is no manifest size cap. Linux publishing has only been cross-compiled, not run.
 
+Offline status and diff (implemented, `tools/runtime/snapshot/inspect.go`):
+- **Commands:** `atlas-runtime snapshot status --dest PATH [--path REPO_PATH]...` and `atlas-runtime snapshot diff --dest PATH [--path REPO_PATH]...` run in the CLI process with no daemon, Code request or Git.
+- **Output:** `{snapshot_id, destination, clean, changes}`. Each change has `repository`, `path` (relative to the destination) and `change`:
+  - `added`, `deleted` or `modified`, with `binary: true` for binary content;
+  - `mode`, with `old_mode`/`new_mode`;
+  - `symlink`, with `old_target`/`new_target`;
+  - `kind`, with `old_kind`/`new_kind`.
+
+  A content change that also flips the executable bit is one `modified` entry carrying both mode fields. `diff` adds a unified `diff` string to each text change (`a/`/`b/` headers, `/dev/null` for added or deleted files).
+- **Verification:** the destination's materialization record, the baseline `complete` marker and the manifest hash must all match the snapshot ID, and the manifest must pass the materialization checks. A baseline file is re-hashed when it is read for a diff. Any mismatch or missing piece is an explicit error, never a clean result.
+- **Symlinks** are compared as links and never followed.
+- **Files outside repository paths** are reported as `added` with `repository: ""` unless `--path` restricts the walk.
+- **Never written:** neither the destination nor the baseline.
+- **Limits:** every selected file is hashed on each run (no stat cache). Files over 1 MiB are reported without binary/text classification or diff. More than 2000 changed lines gives no text diff. Empty directories are not reported. Hunks can differ from GNU diff on ties.
+
 Later bounded steps, each a separate assignment:
-1. Use materialized snapshots for worker starts (after the diff step below).
-2. Offline local status/diff in Runtime (Go) against the baseline.
-3. Change upload and sealing.
-4. Orchestrator-authorized publication.
-5. Proof of the full local workflow. Only after that: withdraw worker GitHub access, remove the macOS trustd allowance where verified, then release.
+1. Use materialized snapshots for worker starts.
+2. Change upload and sealing, built from these offline changes.
+3. Orchestrator-authorized publication.
+4. Proof of the full local workflow. Only after that: withdraw worker GitHub access, remove the macOS trustd allowance where verified, then release.
 
 Open questions:
 - How the orchestrator token is provisioned to the external coordinator.
