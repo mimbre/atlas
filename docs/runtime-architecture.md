@@ -33,9 +33,9 @@ Runtime remains local-first, running native agent CLIs on macOS. Neither Linux n
 - Keep permission configuration and credential material outside agent-writable locations. Agents cannot expand their own permissions.
 - Atlas Server or the external coordinator still owns workflow authorization, acceptance, merge and release decisions. The local component executes authorized GitHub operations; centralizing credentials does not transfer orchestration to Runtime.
 
-### Code service: contract (implemented: health, resolve, snapshots and change submission)
+### Code service: contract (implemented: endpoints 1–7; release proposed)
 
-Status: endpoints 1–6 below (health, resolve, snapshot creation, manifest, archive, change submission) are implemented in `beam/apps/atlas_code`. **Publication and release remain proposals.** Runtime can materialize a snapshot, inspect it offline and submit a repository's changes as a sealed Code-private commit with `atlas-runtime snapshot materialize|status|diff|submit` (below). Managed worker starts do not use snapshots yet. Everything under "Current callers" was cited from source at `f4492cbeb0f199b0228282c507ae6f8f05b05596`; since step 2, the fresh-start base is Code's `resolve` result rather than `origin/develop` from the worker clone.
+Status: endpoints 1–7 below (health, resolve, snapshot creation, manifest, archive, change submission, publication) are implemented in `beam/apps/atlas_code`. **Release remains a proposal.** Runtime can materialize a snapshot, inspect it offline and submit a repository's changes as a sealed Code-private commit with `atlas-runtime snapshot materialize|status|diff|submit` (below); publication is called by the orchestrator, not by Runtime. Managed worker starts do not use snapshots yet. Everything under "Current callers" was cited from source at `f4492cbeb0f199b0228282c507ae6f8f05b05596`; since step 2, the fresh-start base is Code's `resolve` result rather than `origin/develop` from the worker clone.
 
 Decisions from Melle that this contract follows:
 - Code is a separate local Elixir service beside Runtime, reached over authenticated loopback HTTP. The same contract can later be hosted on Atlas Server. No VM, Linux, filesystem mount or private Git server is required, and Runtime keeps working without Atlas Server.
@@ -109,7 +109,7 @@ Every error response is `{"error": {"code": "<code>", "message": "<text>", "deta
 
 Responses are JSON, except archive and blob bodies, which are bytes.
 
-#### Endpoints (1–6 implemented, 7–8 proposed)
+#### Endpoints (1–7 implemented, 8 proposed)
 
 1. **Health.** `GET /v1/health` → `{"service": "atlas-code", "version": "…"}`.
 2. **Exact-revision preparation.** `POST /v1/revisions/resolve`
@@ -179,6 +179,29 @@ Snapshots as implemented:
    - Code pushes the sealed commit to a new branch: create-only, never forced (`409 branch_exists`). It opens the PR when one is requested.
    - Response: `{"publication_id", "branch", "commit", "pr_url"?}`.
    - If `develop` has moved, the PR shows the conflict; Code does not rebase.
+
+   Publication as implemented:
+   - **Authorization:** an optional `$ATLAS_CODE_HOME/orchestrator.token` (regular file, not a symlink, mode 0600 or stricter, non-empty, different from the runtime token; otherwise start is refused) enables publication. The orchestrator token is accepted on every endpoint. The runtime token gets `403 forbidden` "Publication requires the orchestrator token". Without an orchestrator token, publication is `403` "Publication is not configured". Tokens are compared as SHA-256 digests in constant time.
+   - **Request rules:**
+     - Unknown keys are refused, and the body is capped at 16 KiB.
+     - `branch` must start with `work/` and be a valid branch name.
+     - PR `title` must be one line of at most 256 characters, and the PR `body` must contain "Written by an AI agent".
+     - Repository, base and commit come only from the stored change. Unknown changes are `404`, open changes `409 change_not_sealed`, and repositories no longer allow-listed `403`.
+     - A PR on a remote that is not `https://github.com/OWNER/REPO(.git)` is `422 unsupported_provider`, refused before anything is recorded or pushed.
+   - **Create-only push:** `git push --porcelain --force-with-lease=refs/heads/B: URL COMMIT:refs/heads/B` from Code's cache. Only a "new branch" result counts. The lease does not refuse a branch already at the same commit (Git reports it as up to date), so Code treats that, and any rejection, as `409 branch_exists`.
+     - Existing remote branches are never moved, including fast-forwards.
+     - Another publication ID that already claimed the same repository and branch is also `409 branch_exists`.
+     - No merge, rebase or `develop` change; the cache's `refs/heads` are untouched.
+   - **Phases and retries:** `publications/<id>.json` records the request and phase atomically before each remote effect. The phases are `pushing` → `pushed` → `published`, or `failed`.
+     - An identical repeat resumes from the recorded phase; a different body under the same ID is `409 conflict`.
+     - A repeat in `pushing` first checks the remote. At the sealed commit, it counts as Code's own earlier push (a third party creating the same branch at the same commit looks identical and is harmless). Absent, it pushes again, create-only. At any other commit, `failed`.
+     - With a PR requested, `pushed` first adopts exactly one existing PR for the branch (`gh pr list --state all`), otherwise runs `gh pr create` (`GH_PROMPT_DISABLED=1`, body from a temp file). Any `gh` failure stays at `pushed` and returns `502 publication_incomplete` with `{phase, branch, commit}`; it is never reported as success.
+     - Git failures are `503 provider_unavailable` with the exit status only; raw Git or `gh` output never reaches a response.
+   - **Configuration:** `config.json` may set `"gh"` to the `gh` executable; the default is `gh` on PATH, using Code's own `gh` login.
+   - **Limits:**
+     - All publications are serialized by one lock, including remote calls.
+     - A failed publication's branch claim is permanent.
+     - Real GitHub PR creation has only been exercised against a fixture `gh`, not GitHub. The real Atlas end-to-end publication is a separate coordinator task.
 8. **Release.** `POST /v1/releases`, orchestrator token only.
    - Request: `{"release_id", "pr_url", "expected_head": "<sha>"}`.
    - Code merges only if the PR head equals `expected_head` and GitHub reports it mergeable; otherwise `409 conflict`.
@@ -206,7 +229,7 @@ Acceptance proof:
 As implemented:
 - **Startup:** `cd beam/apps/atlas_code && ATLAS_CODE_HOME=/abs/home mix atlas_code.server`. It runs as its own BEAM process, binds only `127.0.0.1`, prints `Code ready on 127.0.0.1:PORT` and starts no Runtime, Bus or State.
 - **Code configuration:** `$ATLAS_CODE_HOME/config.json` is `{"port": N, "repositories": {"github.com/OWNER/REPO": "<git remote URL or path>"}}`. Its keys are the allow-list.
-- **Token:** `$ATLAS_CODE_HOME/runtime.token` must be a regular file with mode 0600 or stricter, otherwise start is refused. Only the orchestrator token remains unimplemented.
+- **Token:** `$ATLAS_CODE_HOME/runtime.token` must be a regular file with mode 0600 or stricter, otherwise start is refused. An optional `orchestrator.token` with the same rules enables publication (endpoint 7).
 - **Runtime configuration:** Runtime reads `<runtime state dir>/code.json`, i.e. `{"url": "http://127.0.0.1:PORT", "token_file": "/abs/path"}`. The Go CLI strips `ATLAS_*` from the daemon environment, which is why this is a file rather than environment variables.
 - **Managed start:** Runtime resolves `develop` of the normalized repository before reserving an admission or creating anything. The fresh repository record carries `resolved_commit`. `Prepare` checks that commit exists after its existing fetch, branches from it, and saves it as `base_sha`. Saved runs and continuations keep `{url, branch, base_sha}`.
 - **Remaining Git responsibilities:** clone, fetch, origin and dirty checks still run inside the worker's sandboxed clone with the user's `gh` credential helper. Code only runs `ls-remote` through the same helper.
@@ -254,8 +277,7 @@ Folder submission (implemented, `tools/runtime/snapshot/submit.go`):
 
 Later bounded steps, each a separate assignment:
 1. Use materialized snapshots for worker starts.
-2. Orchestrator-authorized publication.
-3. Proof of the full local workflow. Only after that: withdraw worker GitHub access, remove the macOS trustd allowance where verified, then release.
+2. Proof of the full local workflow, including real GitHub publication through Code. Only after that: withdraw worker GitHub access, remove the macOS trustd allowance where verified, then release (endpoint 8).
 
 Open questions:
 - How the orchestrator token is provisioned to the external coordinator.
