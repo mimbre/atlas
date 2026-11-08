@@ -2,19 +2,26 @@ defmodule AtlasCode do
   @moduledoc """
   Local Code service: `GET /v1/health`, `POST /v1/revisions/resolve`, `POST /v1/snapshots`,
   `GET /v1/snapshots/{id}/manifest`, `GET /v1/snapshots/{id}/archive?path=…`,
-  `POST /v1/changes`, `PUT /v1/changes/{id}/blobs/{sha256}` and `POST /v1/changes/{id}/seal`
-  on 127.0.0.1 over OTP `:inets` httpd. Every request, health included, needs
-  `Authorization: Bearer <runtime token>`.
+  `POST /v1/changes`, `PUT /v1/changes/{id}/blobs/{sha256}`, `POST /v1/changes/{id}/seal`
+  and `POST /v1/publications` on 127.0.0.1 over OTP `:inets` httpd. Every request, health
+  included, needs `Authorization: Bearer <token>`: the runtime token or the orchestrator token.
+  Only the orchestrator token may publish.
 
   The home directory holds:
-  - `config.json`: `{"port": N, "repositories": {"github.com/owner/repo": "<git remote URL or path>"}}`.
-    The keys are the only repository names the API accepts.
+  - `config.json`: `{"port": N, "repositories": {"github.com/owner/repo": "<git remote URL or path>"},
+    "gh"?: "<gh executable>"}`. The repository keys are the only names the API accepts; `gh`
+    defaults to `gh` on PATH.
   - `runtime.token`: the bearer token, an owner-only (0600) regular file.
+  - `orchestrator.token` (optional): the publishing token, same file rules, different from
+    `runtime.token`. Without it Code starts and refuses every publication.
   - `cache/<sha256 of name and remote>.git`: Code's private bare clone per repository.
-    Sealed changes live there as commits on `refs/atlas/changes/<change id>`; nothing is pushed.
+    Sealed changes live there as commits on `refs/atlas/changes/<change id>`.
   - `snapshots/<hex>.json`: the canonical manifest whose SHA-256 is the snapshot ID.
   - `changes/<change id>/`: `change.json` (the canonical request), `blobs/<sha256>` (verified
     bytes) and, once sealed, `commit`.
+  - `publications/<publication id>.json`: `{"request", "phase", "repository", "base_commit",
+    "commit", "pull_request"?}`, written before any remote effect. Phases: `pushing`, then
+    `pushed`, then `published`; or `failed` when the remote branch already existed.
   """
   require Record
   Record.defrecordp(:mod, Record.extract(:mod, from_lib: "inets/include/httpd.hrl"))
@@ -27,7 +34,8 @@ defmodule AtlasCode do
     "/v1/health" => ~c"GET",
     "/v1/revisions/resolve" => ~c"POST",
     "/v1/snapshots" => ~c"POST",
-    "/v1/changes" => ~c"POST"
+    "/v1/changes" => ~c"POST",
+    "/v1/publications" => ~c"POST"
   }
   @git_config [
     "-c",
@@ -56,6 +64,18 @@ defmodule AtlasCode do
            do: raise("config.json repositories must map repository names to Git remotes")
 
     token = token!(Path.join(home, "runtime.token"))
+    gh = Map.get(config, "gh", "gh")
+
+    unless is_binary(gh) and gh != "",
+      do: raise("config.json gh must be the path or name of the gh executable")
+
+    orchestrator =
+      case File.lstat(Path.join(home, "orchestrator.token")) do
+        {:error, :enoent} -> nil
+        _ -> token!(Path.join(home, "orchestrator.token"))
+      end
+
+    if orchestrator == token, do: raise("orchestrator.token must differ from runtime.token")
 
     {:ok, pid} =
       :inets.start(:httpd,
@@ -69,8 +89,14 @@ defmodule AtlasCode do
         # Bodies over one chunk reach `do/1` in pieces, so the token and the per-endpoint
         # limit are checked before more than 64 KiB is buffered.
         max_client_body_chunk: 64 * 1024,
-        # Only the token's digest is kept, for a constant-time comparison.
-        atlas_code: %{token: :crypto.hash(:sha256, token), repositories: repositories, home: home}
+        # Only the tokens' digests are kept, for constant-time comparisons.
+        atlas_code: %{
+          token: :crypto.hash(:sha256, token),
+          orchestrator: orchestrator && :crypto.hash(:sha256, orchestrator),
+          repositories: repositories,
+          home: home,
+          gh: gh
+        }
       )
 
     {:ok, pid, :httpd.info(pid)[:port]}
@@ -105,7 +131,7 @@ defmodule AtlasCode do
   defp receive_body(request, :undefined, chunk) do
     settings = :httpd_util.lookup(mod(request, :config_db), :atlas_code)
 
-    if authorized?(mod(request, :parsed_header), settings.token) do
+    if role = role(mod(request, :parsed_header), settings) do
       path = request |> mod(:request_uri) |> to_string() |> String.split("?") |> hd()
 
       limit =
@@ -120,17 +146,17 @@ defmodule AtlasCode do
             @body_bytes
         end
 
-      receive_body(request, {:ok, limit, ""}, chunk)
+      receive_body(request, {:ok, role, limit, ""}, chunk)
     else
       {:error, error(401, "unauthorized", "Missing or wrong bearer token")}
     end
   end
 
-  defp receive_body(_request, {:ok, limit, body}, chunk)
+  defp receive_body(_request, {:ok, _role, limit, body}, chunk)
        when byte_size(body) + byte_size(chunk) > limit,
        do: {:error, error(413, "payload_too_large", "The body exceeds #{limit} bytes")}
 
-  defp receive_body(_request, {:ok, limit, body}, chunk), do: {:ok, limit, body <> chunk}
+  defp receive_body(_request, {:ok, role, limit, body}, chunk), do: {:ok, role, limit, body <> chunk}
   defp receive_body(_request, {:error, _} = rejected, _chunk), do: rejected
 
   defp respond(request, body) do
@@ -139,7 +165,9 @@ defmodule AtlasCode do
 
     response =
       case body do
-        {:ok, _limit, body} -> route(mod(request, :method), path, Enum.join(query), body, settings)
+        {:ok, role, _limit, body} ->
+          route(mod(request, :method), path, Enum.join(query), body, Map.put(settings, :role, role))
+
         {:error, response} -> response
       end
 
@@ -166,13 +194,19 @@ defmodule AtlasCode do
     end
   end
 
-  defp authorized?(headers, digest) do
+  defp role(headers, %{token: runtime, orchestrator: orchestrator}) do
     case List.keyfind(headers, ~c"authorization", 0) do
       {_, ~c"Bearer " ++ token} ->
-        :crypto.hash_equals(digest, :crypto.hash(:sha256, :erlang.list_to_binary(token)))
+        digest = :crypto.hash(:sha256, :erlang.list_to_binary(token))
+
+        cond do
+          orchestrator && :crypto.hash_equals(orchestrator, digest) -> :orchestrator
+          :crypto.hash_equals(runtime, digest) -> :runtime
+          true -> nil
+        end
 
       _ ->
-        false
+        nil
     end
   end
 
@@ -334,6 +368,19 @@ defmodule AtlasCode do
     end
   end
 
+  defp route(~c"POST", "/v1/publications", _query, body, settings) do
+    cond do
+      settings.orchestrator == nil ->
+        error(403, "forbidden", "Publication is not configured")
+
+      settings.role != :orchestrator ->
+        error(403, "forbidden", "Publication requires the orchestrator token")
+
+      true ->
+        with {:ok, request} <- publication_request(body), do: publish(settings, request)
+    end
+  end
+
   defp route(_method, path, _query, _body, _settings) do
     if Map.has_key?(@paths, path),
       do: error(405, "method_not_allowed", "Use #{@paths[path]} for #{path}"),
@@ -372,39 +419,39 @@ defmodule AtlasCode do
   end
 
   defp resolve(repository, url, ref) do
-    name = "refs/heads/" <> ref
+    case ls_remote([], url, "refs/heads/" <> ref) do
+      [commit] ->
+        {200, %{"repository" => repository, "ref" => ref, "commit" => commit}}
 
+      [] ->
+        error(404, "unknown_ref", "Branch not found", %{"repository" => repository, "ref" => ref})
+
+      {:failed, status} ->
+        error(503, "provider_unavailable", "git ls-remote failed with exit status #{status}")
+
+      _ ->
+        error(503, "provider_unavailable", "Git returned an ambiguous reference")
+    end
+  end
+
+  # The commits the remote reports for exactly `name`, or `{:failed, exit status}`.
+  defp ls_remote(git_dir, url, name) do
     # Git output is never returned: it may echo the remote URL or credential prompts.
-    case System.cmd("git", @git_config ++ ["ls-remote", "--exit-code", url, name],
+    case System.cmd("git", @git_config ++ git_dir ++ ["ls-remote", "--exit-code", url, name],
            env: [{"GIT_TERMINAL_PROMPT", "0"}],
            stderr_to_stdout: true
          ) do
       {output, 0} ->
-        matches =
-          for line <- String.split(output, "\n"),
-              [commit, ^name] <- [String.split(line, "\t")],
-              sha?(commit),
-              do: commit
-
-        case matches do
-          [commit] ->
-            {200, %{"repository" => repository, "ref" => ref, "commit" => commit}}
-
-          [] ->
-            error(404, "unknown_ref", "Branch not found", %{
-              "repository" => repository,
-              "ref" => ref
-            })
-
-          _ ->
-            error(503, "provider_unavailable", "Git returned an ambiguous reference")
-        end
+        for line <- String.split(output, "\n"),
+            [commit, ^name] <- [String.split(line, "\t")],
+            sha?(commit),
+            do: commit
 
       {_, 2} ->
-        error(404, "unknown_ref", "Branch not found", %{"repository" => repository, "ref" => ref})
+        []
 
       {_, status} ->
-        error(503, "provider_unavailable", "git ls-remote failed with exit status #{status}")
+        {:failed, status}
     end
   end
 
@@ -1085,6 +1132,320 @@ defmodule AtlasCode do
     after
       File.rm(index)
     end
+  end
+
+  defp publication_request(body) do
+    case JSON.decode(body) do
+      {:ok, %{"publication_id" => id, "change_id" => change, "branch" => branch} = request}
+      when is_binary(id) and is_binary(change) and is_binary(branch) and
+             (map_size(request) == 3 or
+                (map_size(request) == 4 and is_map_key(request, "pull_request"))) ->
+        pr = request["pull_request"]
+
+        cond do
+          not uuid?(id) ->
+            error(400, "invalid_request", "publication_id must be a lowercase UUID")
+
+          not uuid?(change) ->
+            error(400, "invalid_request", "change_id must be a lowercase UUID")
+
+          not (String.starts_with?(branch, "work/") and branch?(branch)) ->
+            error(400, "invalid_request", "branch must be a valid branch name under work/", %{
+              "branch" => branch
+            })
+
+          map_size(request) == 3 ->
+            {:ok, request}
+
+          not (is_map(pr) and map_size(pr) == 3 and is_binary(pr["base"]) and
+                   is_binary(pr["title"]) and is_binary(pr["body"])) ->
+            error(400, "invalid_request", ~s(pull_request must be {"base", "title", "body"}))
+
+          pr["base"] == branch or not branch?(pr["base"]) ->
+            error(400, "invalid_request", "pull_request.base must be a valid branch name other than branch")
+
+          String.trim(pr["title"]) == "" or String.length(pr["title"]) > 256 or
+              String.contains?(pr["title"], ["\n", "\r"]) ->
+            error(400, "invalid_request", "pull_request.title must be one non-empty line of at most 256 characters")
+
+          not String.contains?(pr["body"], "Written by an AI agent") ->
+            error(400, "invalid_request", ~s(pull_request.body must carry the attribution "Written by an AI agent"))
+
+          true ->
+            {:ok, request}
+        end
+
+      _ ->
+        error(
+          400,
+          "invalid_request",
+          ~s(Body must be {"publication_id", "change_id", "branch", "pull_request"?: {"base", "title", "body"}})
+        )
+    end
+  end
+
+  # The record is written before any remote effect and after every phase, so a repeat resumes
+  # where the last attempt stopped. One lock covers all publications, which makes the branch
+  # claim below race-free.
+  # shortcut: publications are serialized, remote calls included; lock per branch if that gets slow.
+  defp publish(settings, %{"publication_id" => id} = request) do
+    dir = Path.join(settings.home, "publications")
+    file = Path.join(dir, id <> ".json")
+
+    locked(dir, fn ->
+      case File.read(file) do
+        {:ok, json} ->
+          case JSON.decode!(json) do
+            %{"request" => ^request, "phase" => "published"} = record ->
+              published(record)
+
+            %{"request" => ^request, "phase" => "failed"} = record ->
+              branch_exists(record)
+
+            %{"request" => ^request} = record ->
+              with {:ok, target} <- target(settings, record),
+                   do: advance(settings, file, record, target, false)
+
+            _ ->
+              error(409, "conflict", "publication_id was already used with a different body", %{
+                "publication_id" => id
+              })
+          end
+
+        {:error, :enoent} ->
+          with {:ok, record} <- publication(settings, request),
+               {:ok, target} <- target(settings, record) do
+            File.mkdir_p!(dir)
+            advance(settings, file, save(file, record), target, true)
+          end
+      end
+    end)
+  end
+
+  # Repository, base and commit come only from the sealed change. A branch is claimed by the
+  # first publication ID that records it, even if that publication later failed.
+  defp publication(settings, %{"change_id" => change_id, "branch" => branch} = request) do
+    dir = Path.join([settings.home, "changes", change_id])
+
+    case {File.read(Path.join(dir, "change.json")), File.read(Path.join(dir, "commit"))} do
+      {{:error, :enoent}, _} ->
+        error(404, "not_found", "Change not found", %{"change_id" => change_id})
+
+      {_, {:error, :enoent}} ->
+        error(409, "change_not_sealed", "Only a sealed change can be published", %{
+          "change_id" => change_id
+        })
+
+      {{:ok, json}, {:ok, commit}} ->
+        %{"repository" => repository, "base_commit" => base} = JSON.decode!(json)
+        publications = Path.join(settings.home, "publications")
+
+        record = %{
+          "request" => request,
+          "phase" => "pushing",
+          "repository" => repository,
+          "base_commit" => base,
+          "commit" => commit
+        }
+
+        names =
+          case File.ls(publications) do
+            {:ok, names} -> names
+            {:error, :enoent} -> []
+          end
+
+        claimed =
+          Enum.any?(names, fn name ->
+            String.ends_with?(name, ".json") and
+              match?(
+                %{"repository" => ^repository, "request" => %{"branch" => ^branch}},
+                publications |> Path.join(name) |> File.read!() |> JSON.decode!()
+              )
+          end)
+
+        if claimed, do: branch_exists(record), else: {:ok, record}
+    end
+  end
+
+  # Checked on every attempt with remote effects: the repository must still be allowed, and a
+  # pull request needs a provider mapping, which only https://github.com/OWNER/REPO remotes have.
+  defp target(settings, %{"repository" => repository, "commit" => commit, "request" => request}) do
+    url = settings.repositories[repository]
+    dir = url && Path.join([settings.home, "cache", sha256([repository, 0, url]) <> ".git"])
+
+    slug =
+      url &&
+        Regex.run(~r{\Ahttps://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?)(?:\.git)?\z}, url,
+          capture: :all_but_first
+        )
+
+    cond do
+      url == nil ->
+        error(403, "forbidden", "Repository is not allowed", %{"repository" => repository})
+
+      request["pull_request"] && slug == nil ->
+        error(422, "unsupported_provider", "Pull requests need an https://github.com/OWNER/REPO remote", %{
+          "repository" => repository
+        })
+
+      not commit?(dir, commit) ->
+        error(409, "conflict", "The sealed commit is not in Code's cache for the configured remote", %{
+          "commit" => commit
+        })
+
+      true ->
+        {:ok, {url, dir, slug && hd(slug)}}
+    end
+  end
+
+  defp advance(settings, file, record, target, first) do
+    with {:ok, record} <- push(file, record, target, first),
+         {:ok, record} <- pull_request(settings.gh, file, record, target),
+         do: published(save(file, %{record | "phase" => "published"}))
+  end
+
+  defp push(_file, %{"phase" => "pushed"} = record, _target, _first), do: {:ok, record}
+
+  defp push(file, %{"commit" => commit, "request" => %{"branch" => branch}} = record, target, first) do
+    {url, dir, _slug} = target
+    ref = "refs/heads/" <> branch
+
+    # A repeat still in phase pushing may follow our own push whose response was lost, so the
+    # branch at exactly our commit counts as ours. A third party creating the same branch at the
+    # same commit is indistinguishable, and harmless.
+    case if(first, do: [], else: ls_remote(["--git-dir", dir], url, ref)) do
+      [^commit] ->
+        {:ok, save(file, %{record | "phase" => "pushed"})}
+
+      [] ->
+        # The empty lease and the remote's own old-value check refuse an existing branch, even a
+        # fast-forward. A branch already at the commit is reported "=" with exit 0, so only "*"
+        # (new branch) is our write.
+        args =
+          @git_config ++
+            ["--git-dir", dir, "push", "--porcelain", "--force-with-lease=#{ref}:", url, "#{commit}:#{ref}"]
+
+        {output, status} =
+          System.cmd("git", args, env: [{"GIT_TERMINAL_PROMPT", "0"}], stderr_to_stdout: true)
+
+        spec = "#{commit}:#{ref}"
+
+        flag =
+          Enum.find_value(String.split(output, "\n"), fn line ->
+            case String.split(line, "\t") do
+              [flag, ^spec | _] -> flag
+              _ -> nil
+            end
+          end)
+
+        cond do
+          status == 0 and flag == "*" ->
+            {:ok, save(file, %{record | "phase" => "pushed"})}
+
+          # No status line: the outcome is unknown, so the phase stays pushing for a repeat.
+          flag == nil ->
+            error(503, "provider_unavailable", "git push failed with exit status #{status}")
+
+          true ->
+            case ls_remote(["--git-dir", dir], url, ref) do
+              [_ | _] -> failed(file, record)
+              _ -> error(503, "provider_unavailable", "git push was refused with exit status #{status}")
+            end
+        end
+
+      [_ | _] ->
+        failed(file, record)
+
+      {:failed, status} ->
+        error(503, "provider_unavailable", "git ls-remote failed with exit status #{status}")
+    end
+  end
+
+  defp failed(file, record) do
+    save(file, %{record | "phase" => "failed"})
+    branch_exists(record)
+  end
+
+  defp branch_exists(%{"repository" => repository, "request" => %{"branch" => branch}}),
+    do:
+      error(409, "branch_exists", "The branch already exists or is claimed; Code never overwrites it", %{
+        "repository" => repository,
+        "branch" => branch
+      })
+
+  # An existing pull request for the branch is one an earlier attempt created before its
+  # response was lost, so it is adopted rather than duplicated. gh output is never returned.
+  defp pull_request(gh, file, %{"request" => %{"pull_request" => pr, "branch" => branch}} = record, target) do
+    {_url, _dir, slug} = target
+    executable = System.find_executable(gh)
+
+    run = fn args ->
+      System.cmd(executable, args,
+        cd: Path.dirname(file),
+        env: [{"GH_PROMPT_DISABLED", "1"}, {"GIT_TERMINAL_PROMPT", "0"}],
+        stderr_to_stdout: true
+      )
+    end
+
+    url =
+      executable &&
+        case run.(["pr", "list", "--repo=" <> slug, "--head=" <> branch, "--state", "all", "--json", "url"]) do
+          {output, 0} ->
+            case JSON.decode(output) do
+              {:ok, [%{"url" => url}]} -> url
+              {:ok, []} -> create_pull_request(run, file, slug, branch, pr)
+              _ -> nil
+            end
+
+          _ ->
+            nil
+        end
+
+    if is_binary(url),
+      do: {:ok, Map.put(record, "pull_request", %{"url" => url, "base" => pr["base"]})},
+      else:
+        error(502, "publication_incomplete", "The branch is pushed but the pull request is not created; repeat the request", %{
+          "phase" => "pushed",
+          "branch" => branch,
+          "commit" => record["commit"]
+        })
+  end
+
+  defp pull_request(_gh, _file, record, _target), do: {:ok, record}
+
+  defp create_pull_request(run, file, slug, branch, %{"base" => base, "title" => title, "body" => body}) do
+    body_file = file <> ".body.tmp"
+    File.write!(body_file, body)
+
+    try do
+      args = ["pr", "create", "--repo=" <> slug, "--head=" <> branch, "--base=" <> base]
+
+      case run.(args ++ ["--title=" <> title, "--body-file=" <> body_file]) do
+        {output, 0} ->
+          case Regex.run(~r{^https://github\.com/\S+/pull/\d+$}m, output) do
+            [url] -> url
+            nil -> nil
+          end
+
+        _ ->
+          nil
+      end
+    after
+      File.rm(body_file)
+    end
+  end
+
+  defp published(%{"request" => request} = record),
+    do:
+      {200,
+       record
+       |> Map.drop(["request", "phase"])
+       |> Map.merge(Map.take(request, ["publication_id", "change_id", "branch"]))
+       |> Map.put("state", "published")}
+
+  defp save(file, record) do
+    write_atomic(file, JSON.encode!(record))
+    record
   end
 
   defp sha256(data), do: Base.encode16(:crypto.hash(:sha256, data), case: :lower)

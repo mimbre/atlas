@@ -491,6 +491,21 @@ Evidence: `/Users/melle/.ac-cs-tzajs3ev/change-submission-evidence.json`. No ins
 
 Evidence: `/Users/melle/.ac-fs-avnie5kj/folder-submit-evidence.json`. No installation, daemon restart or deployment.
 
+2026-11-08: added Code publication (`POST /v1/publications`, orchestrator token only); see the architecture document for configuration, authorization and retry phases. `atlas_code` tests (19) passed. They cover role refusal, validation, open and unknown changes, exact create-only pushes, existing branches at another commit, at the same commit and at an ancestor, a pre-receive race, same-ID replay and conflict, and PR create/adopt/partial-failure reconciliation through a fixture `gh`. Separate Code process proof against a local fixture remote:
+
+- Runtime token: `403` "Publication requires the orchestrator token".
+- Open change: `409 change_not_sealed`.
+- A PR on the `file`-path remote: `422 unsupported_provider`, refused before any push.
+- The orchestrator published branch `work/publication-proof` at exactly the sealed commit `7a45c6962042271fafce06ae50a0c3c451d68ff8`, whose only parent is base `19f95300387066c8e335fceeedf85fdc56a2e526`. Remote `develop` stayed at the base.
+- Repeats:
+  - an identical repeat returned the identical result;
+  - a changed body under the same ID gave `409 conflict`;
+  - a second ID for the same branch gave `409 branch_exists`.
+- Pre-existing remote branches at the base (fast-forward possible) and at the sealed commit itself both gave `409 branch_exists` and stayed unchanged.
+- The cache `refs/heads` stayed at `develop`.
+
+This is fixture evidence only; real GitHub PR creation was not exercised. Evidence: `/Users/melle/.ac-pb-10wtc6jv/code-publication-evidence.json`. No installation, daemon restart or deployment.
+
 2026-11-08: moved Claude `answer.txt` persistence from the Python provider into `AtlasRuntime.Agent.Native`. Session/model confirmation stays in Python, before records are forwarded. Each forwarded string result, error results included, overwrites the artifact before terminal notification; a failed write fails the turn. Focused native, admission, service, question, Codex and protocol ExUnit tests (84) and both Python runner modules (20 and 25) passed. In an isolated daemon, real Claude start `turn-3db17cd9af722dda` and saved continuation `turn-c8b6c3fe665d9d34` (same session/model/repository) had their saved answers returned by `output --turn`, including the question-dependent `ANSWER_BETA`; that answer was delivered and processed. Cancelled continuation `turn-3b52fce43ea74d83` wrote no answer, released its lock and removed its group/private temp. The daemon stopped; disposable binary/build/clone were removed. No installation, default-daemon restart or deployment.
 
 2026-11-08: moved Codex native hosting from the Python runner to the Go `atlas-runtime native-host` command. It keeps the same arguments, stdout records, stop control, diagnostics and artifacts; Claude stays on Python. Go packages (including race-checked host tests), both Python runner modules (25 and 20 tests) and 73 focused ExUnit tests passed. Isolated public-CLI proof ran two concurrent workers: read-only Codex `turn-1bbf325ed9afb4fb` and workspace-write `turn-3d84605e2fdd9249`, which created the requested file. Read-only continuation `turn-6b86db84a3a3f16a` kept session and model `gpt-6.1-sol` from rollout evidence. Managed repository start `turn-9c691e7ce2885bf2` provisioned a fresh branch at the fetched base, and continuation `turn-a8edc3e54d5fc863` read preserved unfinished bytes. During cancelled managed continuation `turn-c4c332cb95dfda73`, `ps` showed `atlas-runtime native-host` as the parent of the Codex group leader; stopping it released the directory lock and removed the group. After restart, saved-turn continuation `turn-4b4bfccadc4c3f53`, with a replaced session ID, failed as `{:codex_failed, 1, nil}` with `Native runner: Codex resume ended without confirming its session`. `service stop` during active managed turn `turn-09242c1c516e2cc5` reaped its group and released the lock. Claude start `turn-09052cd5ed27150b` with a delivered and processed question still ran on Python. Disposable binary, build and workspaces were removed. No installation, default-daemon restart or deployment.

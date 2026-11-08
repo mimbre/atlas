@@ -3,6 +3,26 @@ defmodule AtlasCodeTest do
 
   @moduletag :tmp_dir
   @token "runtime-secret-token"
+  @orchestrator "orchestrator-secret-token"
+  @attribution "\n\n<sub>Written by an AI agent (test).</sub>\n"
+  # Fixture provider, not GitHub: records each call; `fail-before`/`fail-after` files make
+  # `pr create` fail before or after it creates the pull request.
+  @gh """
+  #!/bin/sh
+  state=$(dirname "$0")
+  echo "$GH_PROMPT_DISABLED $*" >> "$state/gh-calls"
+  case "$1 $2" in
+    "pr list")
+      if [ -e "$state/pr-url" ]; then printf '[{"url":"%s"}]\\n' "$(cat "$state/pr-url")"; else echo '[]'; fi ;;
+    "pr create")
+      if [ -e "$state/fail-before" ]; then echo "ghp_secret failed" >&2; exit 1; fi
+      for arg; do case "$arg" in --body-file=*) cp "${arg#--body-file=}" "$state/pr-body" ;; esac; done
+      echo https://github.com/test/app/pull/7 > "$state/pr-url"
+      if [ -e "$state/fail-after" ]; then echo "ghp_secret lost" >&2; exit 1; fi
+      cat "$state/pr-url" ;;
+    *) exit 2 ;;
+  esac
+  """
 
   setup %{tmp_dir: dir} do
     source = Path.join(dir, "source")
@@ -138,7 +158,8 @@ defmodule AtlasCodeTest do
             {:get, "/v1/snapshots/sha256:#{String.duplicate("0", 64)}/archive?path=app"},
             {:post, "/v1/changes"},
             {:put, "#{change}/blobs/#{String.duplicate("0", 64)}"},
-            {:post, "#{change}/seal"}
+            {:post, "#{change}/seal"},
+            {:post, "/v1/publications"}
           ],
           body <- [json, big] do
         {status, reply} = send_request(port, method, path, body, headers)
@@ -155,6 +176,27 @@ defmodule AtlasCodeTest do
     assert_raise RuntimeError, ~r/owner-only/, fn -> AtlasCode.start(home) end
     File.rm!(Path.join(home, "runtime.token"))
     assert_raise RuntimeError, ~r/owner-only/, fn -> AtlasCode.start(home) end
+  end
+
+  test "start refuses an invalid orchestrator token file", %{home: home} do
+    orchestrator = Path.join(home, "orchestrator.token")
+    File.write!(orchestrator, @orchestrator)
+    File.chmod!(orchestrator, 0o644)
+    assert_raise RuntimeError, ~r/owner-only/, fn -> AtlasCode.start(home) end
+    File.rm!(orchestrator)
+    File.ln_s!(Path.join(home, "runtime.token"), orchestrator)
+    assert_raise RuntimeError, ~r/owner-only/, fn -> AtlasCode.start(home) end
+    File.rm!(orchestrator)
+    File.write!(orchestrator, @token)
+    File.chmod!(orchestrator, 0o600)
+    assert_raise RuntimeError, ~r/must differ/, fn -> AtlasCode.start(home) end
+  end
+
+  test "without an orchestrator token Code starts and refuses publication", %{port: port} do
+    body = %{"publication_id" => uuid(1), "change_id" => uuid(2), "branch" => "work/x"}
+
+    assert {403, %{"error" => %{"code" => "forbidden", "message" => "Publication is not configured"}}} =
+             publish(port, body, @token)
   end
 
   describe "snapshots" do
@@ -686,20 +728,343 @@ defmodule AtlasCodeTest do
     end
   end
 
-  defp serve(dir, name, repositories) do
+  describe "publications" do
+    setup %{tmp_dir: dir} do
+      {source, base} = fixture(dir, "app", &File.write!(Path.join(&1, "README.md"), "hello\n"))
+      remote = Path.join(dir, "remote.git")
+      git(dir, ["clone", "-q", "--bare", source, remote])
+      # Bare repositories keep no reflog by default; it counts the remote's ref updates.
+      git(remote, ["config", "core.logAllRefUpdates", "always"])
+      gh = Path.join(dir, "gh")
+      File.write!(gh, @gh)
+      File.chmod!(gh, 0o755)
+      hub = "https://github.com/test/app.git"
+
+      repositories = %{"github.com/test/app" => hub, "github.com/test/plain" => "file://" <> remote}
+
+      {home, port} =
+        serve(dir, "publications-home", repositories, %{"gh" => gh}, fn home ->
+          File.write!(Path.join(home, "orchestrator.token"), @orchestrator <> "\n")
+          File.chmod!(Path.join(home, "orchestrator.token"), 0o600)
+          # Test seam: Code's cache for the GitHub URL rewrites it to the local fixture remote,
+          # so the GitHub provider mapping applies while no push or fetch leaves this machine.
+          cache = Path.join([home, "cache", hex(["github.com/test/app", 0, hub]) <> ".git"])
+          git(dir, ["init", "-q", "--bare", cache])
+          git(cache, ["config", "url.file://#{remote}.insteadOf", hub])
+        end)
+
+      {200, %{"snapshot_id" => snapshot_id}} =
+        snapshot(port, [
+          %{"repository" => "github.com/test/app", "commit" => base, "path" => "app"},
+          %{"repository" => "github.com/test/plain", "commit" => base, "path" => "plain"}
+        ])
+
+      sealed = fn id, repository ->
+        bytes = "published #{id}\n"
+
+        {200, %{"state" => "open"}} =
+          submit(port, %{
+            "change_id" => id,
+            "snapshot_id" => snapshot_id,
+            "repository" => repository,
+            "base_commit" => base,
+            "entries" => [write("README.md", bytes)]
+          })
+
+        {200, _} = upload(port, id, hex(bytes), bytes)
+        {200, %{"state" => "sealed", "commit" => commit}} = seal(port, id)
+        commit
+      end
+
+      %{port: port, home: home, remote: remote, base: base, sealed: sealed, snapshot_id: snapshot_id}
+    end
+
+    test "only the orchestrator token publishes; it may call every endpoint", %{port: port} do
+      body = %{"publication_id" => uuid(1), "change_id" => uuid(2), "branch" => "work/x"}
+
+      assert {403,
+              %{
+                "error" => %{
+                  "code" => "forbidden",
+                  "message" => "Publication requires the orchestrator token"
+                }
+              }} = publish(port, body, @token)
+
+      assert {404, %{"error" => %{"code" => "not_found"}}} = publish(port, body)
+
+      {status, reply} =
+        send_request(port, :get, "/v1/health", "", [
+          {~c"authorization", ~c"Bearer " ++ String.to_charlist(@orchestrator)}
+        ])
+
+      assert status == 200
+      refute reply =~ @orchestrator
+    end
+
+    test "invalid requests, unknown or open changes and unsupported providers are refused before any record",
+         %{port: port, home: home, remote: remote, sealed: sealed, snapshot_id: snapshot_id, base: base} do
+      change = uuid(10)
+      commit = sealed.(change, "github.com/test/app")
+      ok = %{"publication_id" => uuid(11), "change_id" => change, "branch" => "work/ok"}
+      pr = %{"base" => "develop", "title" => "Fix", "body" => "Body" <> @attribution}
+
+      for body <- [
+            "not json",
+            Map.delete(ok, "branch"),
+            Map.put(ok, "extra", 1),
+            %{ok | "publication_id" => "x"},
+            %{ok | "change_id" => change <> "0"},
+            %{ok | "branch" => "develop"},
+            %{ok | "branch" => "work/../x"},
+            %{ok | "branch" => "work/x.lock"},
+            %{ok | "branch" => 1},
+            Map.put(ok, "pull_request", nil),
+            Map.put(ok, "pull_request", Map.put(pr, "draft", true)),
+            Map.put(ok, "pull_request", %{pr | "base" => "work/ok"}),
+            Map.put(ok, "pull_request", %{pr | "base" => "-x"}),
+            Map.put(ok, "pull_request", %{pr | "title" => " "}),
+            Map.put(ok, "pull_request", %{pr | "title" => "a\nb"}),
+            Map.put(ok, "pull_request", %{pr | "title" => String.duplicate("t", 257)}),
+            # Attribution is required in pull request bodies.
+            Map.put(ok, "pull_request", %{pr | "body" => "No attribution"})
+          ] do
+        assert {400, %{"error" => %{"code" => "invalid_request"}}} = publish(port, body)
+      end
+
+      assert {404, %{"error" => %{"code" => "not_found"}}} =
+               publish(port, %{ok | "change_id" => uuid(12)})
+
+      bytes = "open\n"
+
+      {200, %{"state" => "open"}} =
+        submit(port, %{
+          "change_id" => uuid(13),
+          "snapshot_id" => snapshot_id,
+          "repository" => "github.com/test/app",
+          "base_commit" => base,
+          "entries" => [write("README.md", bytes)]
+        })
+
+      {200, %{"state" => "open"}} = upload(port, uuid(13), hex(bytes), bytes)
+
+      assert {409, %{"error" => %{"code" => "change_not_sealed"}}} =
+               publish(port, %{ok | "change_id" => uuid(13)})
+
+      # A pull request on a remote without a provider mapping fails before the push.
+      plain = sealed.(uuid(14), "github.com/test/plain")
+
+      assert {422, %{"error" => %{"code" => "unsupported_provider"}}} =
+               publish(port, Map.merge(ok, %{"change_id" => uuid(14), "pull_request" => pr}))
+
+      refute File.exists?(Path.join(home, "publications"))
+      assert git(remote, ["for-each-ref", "refs/heads/work"]) == ""
+      assert {_, status} = System.cmd("git", ["cat-file", "-e", commit], cd: remote, stderr_to_stdout: true)
+      assert status != 0
+
+      # The same remote publishes fine without a pull request.
+      assert {200, %{"commit" => ^plain, "repository" => "github.com/test/plain"}} =
+               publish(port, %{ok | "change_id" => uuid(14)})
+    end
+
+    test "the exact sealed commit is pushed once to a new branch and repeats replay it", %{
+      port: port,
+      home: home,
+      remote: remote,
+      base: base,
+      sealed: sealed
+    } do
+      change = uuid(20)
+      commit = sealed.(change, "github.com/test/app")
+      body = %{"publication_id" => uuid(21), "change_id" => change, "branch" => "work/one"}
+
+      expected = %{
+        "publication_id" => uuid(21),
+        "change_id" => change,
+        "repository" => "github.com/test/app",
+        "branch" => "work/one",
+        "commit" => commit,
+        "base_commit" => base,
+        "state" => "published"
+      }
+
+      assert {200, ^expected} = publish(port, body)
+      assert git(remote, ["rev-parse", "refs/heads/work/one"]) == commit <> "\n"
+      assert git(remote, ["rev-parse", commit <> "^@"]) == base <> "\n"
+      assert git(remote, ["rev-parse", "refs/heads/develop"]) == base <> "\n"
+      assert {200, ^expected} = publish(port, body)
+
+      # A response lost after the push: the record still says pushing, the branch is ours.
+      file = Path.join([home, "publications", uuid(21) <> ".json"])
+      record = file |> File.read!() |> JSON.decode!()
+      assert record["phase"] == "published"
+      File.write!(file, JSON.encode!(%{record | "phase" => "pushing"}))
+      assert {200, ^expected} = publish(port, body)
+      assert git(remote, ["reflog", "show", "refs/heads/work/one"]) |> String.split("\n", trim: true) |> length() == 1
+
+      assert {409, %{"error" => %{"code" => "conflict"}}} =
+               publish(port, %{body | "branch" => "work/two"})
+
+      assert {409, %{"error" => %{"code" => "branch_exists"}}} =
+               publish(port, %{body | "publication_id" => uuid(22)})
+
+      refute File.exists?(Path.join([home, "publications", uuid(22) <> ".json"]))
+    end
+
+    test "existing remote branches are never overwritten, even fast-forwards or the same commit", %{
+      port: port,
+      home: home,
+      remote: remote,
+      base: base,
+      sealed: sealed
+    } do
+      change = uuid(30)
+      commit = sealed.(change, "github.com/test/app")
+      [cache] = Path.wildcard(Path.join([home, "cache", "*.git"])) |> Enum.filter(&commit?(&1, commit))
+      git(cache, ["push", "-q", remote, "#{commit}:refs/heads/work/same"])
+      other = remote |> git(["commit-tree", base <> "^{tree}", "-p", base, "-m", "other"]) |> String.trim()
+      git(remote, ["update-ref", "refs/heads/work/other", other])
+      git(remote, ["update-ref", "refs/heads/work/ancestor", base])
+      refs = git(remote, ["for-each-ref"])
+
+      for {branch, n} <- [{"work/other", 31}, {"work/same", 32}, {"work/ancestor", 33}] do
+        body = %{"publication_id" => uuid(n), "change_id" => change, "branch" => branch}
+
+        assert {409, %{"error" => %{"code" => "branch_exists", "details" => %{"branch" => ^branch}}}} =
+                 publish(port, body)
+
+        assert {409, %{"error" => %{"code" => "branch_exists"}}} = publish(port, body)
+
+        assert %{"phase" => "failed"} =
+                 JSON.decode!(File.read!(Path.join([home, "publications", uuid(n) <> ".json"])))
+      end
+
+      assert git(remote, ["for-each-ref"]) == refs
+    end
+
+    test "a branch created between the remote's advertisement and its update is not overwritten", %{
+      port: port,
+      remote: remote,
+      base: base,
+      sealed: sealed
+    } do
+      change = uuid(40)
+      sealed.(change, "github.com/test/app")
+      hook = Path.join([remote, "hooks", "pre-receive"])
+      # Runs after the client checked its lease against the advertised refs.
+      File.write!(hook, "#!/bin/sh\nenv -u GIT_QUARANTINE_PATH git update-ref refs/heads/work/race #{base}\n")
+      File.chmod!(hook, 0o755)
+
+      assert {409, %{"error" => %{"code" => "branch_exists"}}} =
+               publish(port, %{"publication_id" => uuid(41), "change_id" => change, "branch" => "work/race"})
+
+      assert git(remote, ["rev-parse", "refs/heads/work/race"]) == base <> "\n"
+    end
+
+    test "a pull request is created once through the provider", %{
+      tmp_dir: dir,
+      port: port,
+      remote: remote,
+      sealed: sealed
+    } do
+      change = uuid(50)
+      commit = sealed.(change, "github.com/test/app")
+      pr = %{"base" => "develop", "title" => "Fix the README", "body" => "Fixes it." <> @attribution}
+      body = %{"publication_id" => uuid(51), "change_id" => change, "branch" => "work/pr", "pull_request" => pr}
+
+      assert {200,
+              %{
+                "commit" => ^commit,
+                "branch" => "work/pr",
+                "state" => "published",
+                "pull_request" => %{"url" => "https://github.com/test/app/pull/7", "base" => "develop"}
+              } = published} = publish(port, body)
+
+      assert {200, ^published} = publish(port, body)
+      assert git(remote, ["rev-parse", "refs/heads/work/pr"]) == commit <> "\n"
+      assert File.read!(Path.join(dir, "pr-body")) == pr["body"]
+
+      assert [
+               "1 pr list --repo=test/app --head=work/pr --state all --json url",
+               "1 pr create --repo=test/app --head=work/pr --base=develop --title=Fix the README --body-file=" <> _
+             ] = dir |> Path.join("gh-calls") |> File.read!() |> String.split("\n", trim: true)
+    end
+
+    test "a pull request failure after the push is incomplete and a repeat resumes without a second branch or PR",
+         %{tmp_dir: dir, port: port, remote: remote, sealed: sealed} do
+      change = uuid(60)
+      commit = sealed.(change, "github.com/test/app")
+      pr = %{"base" => "develop", "title" => "Fix", "body" => "Fixes it." <> @attribution}
+      body = %{"publication_id" => uuid(61), "change_id" => change, "branch" => "work/pr", "pull_request" => pr}
+      incomplete = %{"phase" => "pushed", "branch" => "work/pr", "commit" => commit}
+
+      File.write!(Path.join(dir, "fail-before"), "")
+
+      assert {502, %{"error" => %{"code" => "publication_incomplete", "details" => ^incomplete}} = error} =
+               publish(port, body)
+
+      refute JSON.encode!(error) =~ "ghp_secret"
+      assert git(remote, ["rev-parse", "refs/heads/work/pr"]) == commit <> "\n"
+
+      # The provider creates the pull request but its response is lost.
+      File.rm!(Path.join(dir, "fail-before"))
+      File.write!(Path.join(dir, "fail-after"), "")
+
+      assert {502, %{"error" => %{"code" => "publication_incomplete", "details" => ^incomplete}}} =
+               publish(port, body)
+
+      File.rm!(Path.join(dir, "fail-after"))
+
+      assert {200, %{"pull_request" => %{"url" => "https://github.com/test/app/pull/7"}} = published} =
+               publish(port, body)
+
+      assert {200, ^published} = publish(port, body)
+
+      # The last attempt adopted the existing pull request instead of creating another.
+      calls = dir |> Path.join("gh-calls") |> File.read!() |> String.split("\n", trim: true)
+      assert Enum.map(calls, &(&1 |> String.split(" ") |> Enum.take(3))) == [
+               ["1", "pr", "list"],
+               ["1", "pr", "create"],
+               ["1", "pr", "list"],
+               ["1", "pr", "create"],
+               ["1", "pr", "list"]
+             ]
+
+      assert git(remote, ["reflog", "show", "refs/heads/work/pr"]) |> String.split("\n", trim: true) |> length() == 1
+      assert git(remote, ["for-each-ref", "--format=%(refname)", "refs/heads/work"]) == "refs/heads/work/pr\n"
+    end
+  end
+
+  defp serve(dir, name, repositories, config \\ %{}, prepare \\ fn _home -> :ok end) do
     home = Path.join(dir, name)
     File.mkdir!(home)
 
     File.write!(
       Path.join(home, "config.json"),
-      JSON.encode!(%{"port" => 0, "repositories" => repositories})
+      JSON.encode!(Map.merge(config, %{"port" => 0, "repositories" => repositories}))
     )
 
     File.write!(Path.join(home, "runtime.token"), @token <> "\n")
     File.chmod!(Path.join(home, "runtime.token"), 0o600)
+    prepare.(home)
     {:ok, pid, port} = AtlasCode.start(home)
     on_exit(fn -> AtlasCode.stop(pid) end)
     {home, port}
+  end
+
+  defp uuid(n), do: "00000000-0000-4000-8000-" <> String.pad_leading(Integer.to_string(n), 12, "0")
+
+  defp commit?(dir, commit),
+    do: match?({_, 0}, System.cmd("git", ["cat-file", "-e", commit], cd: dir, stderr_to_stdout: true))
+
+  defp publish(port, body, token \\ @orchestrator) do
+    body = if is_binary(body), do: body, else: JSON.encode!(body)
+
+    {status, reply} =
+      send_request(port, :post, "/v1/publications", body, [
+        {~c"authorization", ~c"Bearer " ++ String.to_charlist(token)}
+      ])
+
+    {status, JSON.decode!(reply)}
   end
 
   defp write(path, bytes, mode \\ "100644"),
