@@ -33,9 +33,9 @@ Runtime remains local-first, running native agent CLIs on macOS. Neither Linux n
 - Keep permission configuration and credential material outside agent-writable locations. Agents cannot expand their own permissions.
 - Atlas Server or the external coordinator still owns workflow authorization, acceptance, merge and release decisions. The local component executes authorized GitHub operations; centralizing credentials does not transfer orchestration to Runtime.
 
-### Code service: contract (implemented: health, resolve and snapshots)
+### Code service: contract (implemented: health, resolve, snapshots and change submission)
 
-Status: endpoints 1–5 below (health, resolve, snapshot creation, manifest, archive) are implemented in `beam/apps/atlas_code`. **Changes, publication and release remain proposals.** Runtime can materialize a snapshot with `atlas-runtime snapshot materialize` (below), but managed worker starts do not use it yet. Everything under "Current callers" was cited from source at `f4492cbeb0f199b0228282c507ae6f8f05b05596`; since step 2, the fresh-start base is Code's `resolve` result rather than `origin/develop` from the worker clone.
+Status: endpoints 1–6 below (health, resolve, snapshot creation, manifest, archive, change submission) are implemented in `beam/apps/atlas_code`. **Publication and release remain proposals.** Runtime can materialize a snapshot with `atlas-runtime snapshot materialize` and inspect it offline (below), but does not upload changes yet, and managed worker starts do not use snapshots yet. Everything under "Current callers" was cited from source at `f4492cbeb0f199b0228282c507ae6f8f05b05596`; since step 2, the fresh-start base is Code's `resolve` result rather than `origin/develop` from the worker clone.
 
 Decisions from Melle that this contract follows:
 - Code is a separate local Elixir service beside Runtime, reached over authenticated loopback HTTP. The same contract can later be hosted on Atlas Server. No VM, Linux, filesystem mount or private Git server is required, and Runtime keeps working without Atlas Server.
@@ -109,7 +109,7 @@ Every error response is `{"error": {"code": "<code>", "message": "<text>", "deta
 
 Responses are JSON, except archive and blob bodies, which are bytes.
 
-#### Endpoints (1–5 implemented, 6–8 proposed)
+#### Endpoints (1–6 implemented, 7–8 proposed)
 
 1. **Health.** `GET /v1/health` → `{"service": "atlas-code", "version": "…"}`.
 2. **Exact-revision preparation.** `POST /v1/revisions/resolve`
@@ -147,6 +147,33 @@ Snapshots as implemented:
       - Refuses with `422 incomplete_upload` and the missing digests until every blob is present.
       - Then builds a commit whose parent is exactly `base_commit` on a Code-private ref, and returns `{"change_id", "state": "sealed", "commit"}`.
    - Open (unsealed) changes are never visible to publication and may expire; sealing is the only transition.
+
+   Change submission as implemented:
+   - **Body limits:** change IDs are canonical lowercase UUIDs. JSON bodies are capped at 16 KiB, except `POST /v1/changes` at 1 MiB; blobs are capped at 64 MiB, and anything larger gets `413 payload_too_large`.
+   - **Entry paths** are repository-relative and pass the same path check as snapshots.
+   - **Entry shapes:**
+     - delete: `{path, op}`;
+     - file write: `{…, kind: "file", mode: 100644|100755, size, sha256}`;
+     - symlink write: `{…, kind: "symlink", mode: 120000, target, size, sha256}`, where size and digest are those of the target bytes. Code stores the target itself, so symlinks are never listed in `missing`.
+   - **Deletes** must name a file or symlink in the base.
+   - **Replacements must be explicit:** writing a file where a base directory had entries, or writing under a base file, requires deleting every replaced base path. Otherwise the request is `400` with the conflicting paths.
+   - **Written symlink targets** use the snapshot symlink rule; a violation is `422 unsupported_content`.
+   - **Repeats:**
+     - an identical body (entry order ignored) returns the current state;
+     - a different body is `409 conflict`;
+     - a blob upload is verified for size and digest and is a no-op when repeated;
+     - an unreferenced digest is `404`.
+   - **Seal:**
+     - Builds the tree in Code's private cache with a temporary index (no checkout, no `.gitattributes` filters), then runs `commit-tree -p <base_commit>`.
+     - Author and committer are `Atlas Code <atlas-code@localhost>`, with the base commit's committer date, so the same change always produces the same commit. The message is `Atlas change <id>`.
+     - Creates the private ref `refs/atlas/changes/<id>` without overwriting. A repeated seal returns the recorded commit.
+     - Nothing is pushed and `refs/heads` is never touched; a moved source branch does not change the parent.
+   - **Limits:**
+     - a blob upload is held in memory (up to 64 MiB) before its size is checked;
+     - a body over 64 MiB gets httpd's HTML 413 page;
+     - a Git failure during seal returns a plain 500;
+     - open changes are never cleaned up, and there is no `GET /v1/changes/{id}`; repeat the `POST` instead;
+     - concurrency and a crash during seal were not tested.
 7. **Publication.** `POST /v1/publications`, orchestrator token only.
    - Request: `{"publication_id", "change_id", "branch": "work/…", "pull_request": {"base": "develop", "title", "body"}?}`.
    - Code pushes the sealed commit to a new branch: create-only, never forced (`409 branch_exists`). It opens the PR when one is requested.
@@ -209,7 +236,7 @@ Offline status and diff (implemented, `tools/runtime/snapshot/inspect.go`):
 
 Later bounded steps, each a separate assignment:
 1. Use materialized snapshots for worker starts.
-2. Change upload and sealing, built from these offline changes.
+2. Runtime upload of offline changes to Code's change endpoints (Code side implemented).
 3. Orchestrator-authorized publication.
 4. Proof of the full local workflow. Only after that: withdraw worker GitHub access, remove the macOS trustd allowance where verified, then release.
 

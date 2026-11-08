@@ -1,8 +1,9 @@
 defmodule AtlasCode do
   @moduledoc """
   Local Code service: `GET /v1/health`, `POST /v1/revisions/resolve`, `POST /v1/snapshots`,
-  `GET /v1/snapshots/{id}/manifest` and `GET /v1/snapshots/{id}/archive?path=…` on
-  127.0.0.1 over OTP `:inets` httpd. Every request, health included, needs
+  `GET /v1/snapshots/{id}/manifest`, `GET /v1/snapshots/{id}/archive?path=…`,
+  `POST /v1/changes`, `PUT /v1/changes/{id}/blobs/{sha256}` and `POST /v1/changes/{id}/seal`
+  on 127.0.0.1 over OTP `:inets` httpd. Every request, health included, needs
   `Authorization: Bearer <runtime token>`.
 
   The home directory holds:
@@ -10,16 +11,23 @@ defmodule AtlasCode do
     The keys are the only repository names the API accepts.
   - `runtime.token`: the bearer token, an owner-only (0600) regular file.
   - `cache/<sha256 of name and remote>.git`: Code's private bare clone per repository.
+    Sealed changes live there as commits on `refs/atlas/changes/<change id>`; nothing is pushed.
   - `snapshots/<hex>.json`: the canonical manifest whose SHA-256 is the snapshot ID.
+  - `changes/<change id>/`: `change.json` (the canonical request), `blobs/<sha256>` (verified
+    bytes) and, once sealed, `commit`.
   """
   require Record
   Record.defrecordp(:mod, Record.extract(:mod, from_lib: "inets/include/httpd.hrl"))
 
+  # JSON bodies are bounded per endpoint; only blob uploads may reach @blob_bytes.
   @body_bytes 16 * 1024
+  @change_bytes 1024 * 1024
+  @blob_bytes 64 * 1024 * 1024
   @paths %{
     "/v1/health" => ~c"GET",
     "/v1/revisions/resolve" => ~c"POST",
-    "/v1/snapshots" => ~c"POST"
+    "/v1/snapshots" => ~c"POST",
+    "/v1/changes" => ~c"POST"
   }
   @git_config [
     "-c",
@@ -57,7 +65,10 @@ defmodule AtlasCode do
         server_root: String.to_charlist(home),
         document_root: String.to_charlist(home),
         modules: [__MODULE__],
-        max_body_size: @body_bytes,
+        max_body_size: @blob_bytes,
+        # Bodies over one chunk reach `do/1` in pieces, so the token and the per-endpoint
+        # limit are checked before more than 64 KiB is buffered.
+        max_client_body_chunk: 64 * 1024,
         # Only the token's digest is kept, for a constant-time comparison.
         atlas_code: %{token: :crypto.hash(:sha256, token), repositories: repositories, home: home}
       )
@@ -81,16 +92,55 @@ defmodule AtlasCode do
 
   @doc false
   # httpd callback: one JSON response per request, never logging headers or the token.
+  # With `max_client_body_chunk` the body arrives as `{:first, chunk}`, `{:continue, chunk,
+  # state}`… and finally `{:last, chunk, state}`; a body within one chunk is `{:last, body, :undefined}`.
   def unquote(:do)(request) do
+    case mod(request, :entity_body) do
+      {:first, chunk} -> {:continue, receive_body(request, :undefined, chunk)}
+      {:continue, chunk, state} -> {:continue, receive_body(request, state, chunk)}
+      {:last, chunk, state} -> respond(request, receive_body(request, state, chunk))
+    end
+  end
+
+  defp receive_body(request, :undefined, chunk) do
+    settings = :httpd_util.lookup(mod(request, :config_db), :atlas_code)
+
+    if authorized?(mod(request, :parsed_header), settings.token) do
+      path = request |> mod(:request_uri) |> to_string() |> String.split("?") |> hd()
+
+      limit =
+        cond do
+          mod(request, :method) == ~c"PUT" and String.starts_with?(path, "/v1/changes/") ->
+            @blob_bytes
+
+          path == "/v1/changes" ->
+            @change_bytes
+
+          true ->
+            @body_bytes
+        end
+
+      receive_body(request, {:ok, limit, ""}, chunk)
+    else
+      {:error, error(401, "unauthorized", "Missing or wrong bearer token")}
+    end
+  end
+
+  defp receive_body(_request, {:ok, limit, body}, chunk)
+       when byte_size(body) + byte_size(chunk) > limit,
+       do: {:error, error(413, "payload_too_large", "The body exceeds #{limit} bytes")}
+
+  defp receive_body(_request, {:ok, limit, body}, chunk), do: {:ok, limit, body <> chunk}
+  defp receive_body(_request, {:error, _} = rejected, _chunk), do: rejected
+
+  defp respond(request, body) do
     settings = :httpd_util.lookup(mod(request, :config_db), :atlas_code)
     [path | query] = request |> mod(:request_uri) |> to_string() |> String.split("?", parts: 2)
 
     response =
-      if authorized?(mod(request, :parsed_header), settings.token) do
-        body = :erlang.list_to_binary(mod(request, :entity_body))
-        route(mod(request, :method), path, Enum.join(query), body, settings)
-      else
-        error(401, "unauthorized", "Missing or wrong bearer token")
+      case body do
+        {:ok, _limit, body} -> route(mod(request, :method), path, Enum.join(query), body, settings)
+        {:error, response} -> response
       end
 
     case response do
@@ -211,6 +261,79 @@ defmodule AtlasCode do
     end
   end
 
+  defp route(~c"POST", "/v1/changes", _query, body, settings) do
+    with {:ok,
+          %{
+            "change_id" => id,
+            "snapshot_id" => snapshot_id,
+            "repository" => repository,
+            "base_commit" => base,
+            "entries" => [_ | _] = entries
+          } = request}
+         when map_size(request) == 5 and is_binary(id) and is_binary(snapshot_id) and
+                is_binary(repository) and is_binary(base) <- JSON.decode(body) do
+      cond do
+        not uuid?(id) ->
+          error(400, "invalid_request", "change_id must be a lowercase UUID", %{"change_id" => id})
+
+        not sha?(base) ->
+          error(400, "invalid_request", "base_commit must be 40 or 64 lowercase hex characters", %{
+            "base_commit" => base
+          })
+
+        bad = Enum.find(entries, &(not entry?(&1))) ->
+          error(
+            400,
+            "invalid_request",
+            ~s(An entry must be {"path", "op": "delete"}, {"path", "op": "write", "kind": "file", "mode": "100644|100755", "size", "sha256"} or {"path", "op": "write", "kind": "symlink", "mode": "120000", "target", "size", "sha256"} with the target's size and sha256),
+            %{"entry" => bad}
+          )
+
+        bad = Enum.find(entries, &(not safe_path?(&1["path"]))) ->
+          error(400, "invalid_request", "path must be relative and normalized", %{
+            "path" => bad["path"]
+          })
+
+        path =
+            entries
+            |> Enum.frequencies_by(& &1["path"])
+            |> Enum.find_value(fn {path, count} -> count > 1 and path end) ->
+          error(400, "invalid_request", "paths must be unique", %{"path" => path})
+
+        digest =
+            entries
+            |> Enum.filter(&(&1["op"] == "write"))
+            |> Enum.group_by(& &1["sha256"], & &1["size"])
+            |> Enum.find_value(fn {digest, sizes} -> length(Enum.uniq(sizes)) > 1 and digest end) ->
+          error(400, "invalid_request", "One sha256 must have one size", %{"sha256" => digest})
+
+        true ->
+          create(settings, %{request | "entries" => Enum.sort_by(entries, & &1["path"])})
+      end
+    else
+      _ ->
+        error(
+          400,
+          "invalid_request",
+          ~s(Body must be {"change_id", "snapshot_id", "repository", "base_commit", "entries": [{"path", "op", …}, …]})
+        )
+    end
+  end
+
+  defp route(~c"PUT", "/v1/changes/" <> rest, _query, body, settings) do
+    case String.split(rest, "/") do
+      [id, "blobs", digest] -> locked_change(settings, id, &upload(&1, &2, digest, body))
+      _ -> error(404, "not_found", "Unknown path")
+    end
+  end
+
+  defp route(~c"POST", "/v1/changes/" <> rest, _query, _body, settings) do
+    case String.split(rest, "/") do
+      [id, "seal"] -> locked_change(settings, id, &seal(settings, &1, &2))
+      _ -> error(404, "not_found", "Unknown path")
+    end
+  end
+
   defp route(_method, path, _query, _body, _settings) do
     if Map.has_key?(@paths, path),
       do: error(405, "method_not_allowed", "Use #{@paths[path]} for #{path}"),
@@ -314,9 +437,7 @@ defmodule AtlasCode do
 
           unless File.exists?(file) do
             File.mkdir_p!(Path.dirname(file))
-            temporary = "#{file}.#{System.unique_integer([:positive])}.tmp"
-            File.write!(temporary, manifest)
-            File.rename!(temporary, file)
+            write_atomic(file, manifest)
           end
 
           {200, %{"snapshot_id" => "sha256:" <> hex, "repositories" => repositories}}
@@ -337,9 +458,7 @@ defmodule AtlasCode do
       %{^repository => url} ->
         dir = Path.join([home, "cache", sha256([repository, 0, url]) <> ".git"])
 
-        case :global.trans({{__MODULE__, dir}, self()}, fn -> fetch(dir, url, commit) end, [
-               node()
-             ]) do
+        case locked(dir, fn -> fetch(dir, url, commit) end) do
           :ok ->
             {:ok, dir}
 
@@ -646,6 +765,325 @@ defmodule AtlasCode do
       {^port, {:exit_status, status}} -> raise "git cat-file exited with status #{status}"
     after
       60_000 -> raise "git cat-file timed out"
+    end
+  end
+
+  defp uuid?(value),
+    do: Regex.match?(~r/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/, value)
+
+  defp sha256?(value), do: is_binary(value) and Regex.match?(~r/\A[0-9a-f]{64}\z/, value)
+
+  defp entry?(%{"op" => "delete", "path" => path} = entry) when map_size(entry) == 2,
+    do: is_binary(path)
+
+  defp entry?(
+         %{"op" => "write", "kind" => "file", "path" => path, "mode" => mode, "size" => size} =
+           entry
+       )
+       when map_size(entry) == 6 and is_binary(path) and mode in ["100644", "100755"] and
+              is_integer(size) and size in 0..@blob_bytes,
+       do: sha256?(entry["sha256"])
+
+  # Symlink targets travel in the request; their size and sha256 must describe the target bytes.
+  defp entry?(
+         %{"op" => "write", "kind" => "symlink", "mode" => "120000", "path" => path} = entry
+       )
+       when map_size(entry) == 7 and is_binary(path) and is_binary(:erlang.map_get("target", entry)),
+       do: entry["size"] == byte_size(entry["target"]) and entry["sha256"] == sha256(entry["target"])
+
+  defp entry?(_entry), do: false
+
+  defp locked(key, fun), do: :global.trans({{__MODULE__, key}, self()}, fun, [node()])
+
+  defp write_atomic(file, data) do
+    temporary = "#{file}.#{System.unique_integer([:positive])}.tmp"
+    File.write!(temporary, data)
+    File.rename!(temporary, file)
+  end
+
+  # The stored body is the canonical JSON (sorted keys, entries sorted by path), so a repeat
+  # with the entries in another order is the same change.
+  defp create(settings, %{"change_id" => id} = request) do
+    dir = Path.join([settings.home, "changes", id])
+    json = JSON.encode!(request)
+
+    locked(dir, fn ->
+      case File.read(Path.join(dir, "change.json")) do
+        {:ok, ^json} ->
+          state(dir, request)
+
+        {:ok, _other} ->
+          error(409, "conflict", "change_id was already used with a different body", %{
+            "change_id" => id
+          })
+
+        {:error, :enoent} ->
+          with :ok <- check(settings, request) do
+            File.mkdir_p!(Path.join(dir, "blobs"))
+
+            for %{"kind" => "symlink", "sha256" => digest, "target" => target} <-
+                  request["entries"],
+                do: put_blob(dir, digest, target)
+
+            write_atomic(Path.join(dir, "change.json"), json)
+            state(dir, request)
+          end
+      end
+    end)
+  end
+
+  # The resulting tree must satisfy the snapshot policy: the base already does, so only written
+  # paths can add a file/directory clash or an escaping symlink. Replacements are explicit:
+  # every base path under a written path, and a base file above one, must be deleted.
+  defp check(settings, %{
+         "snapshot_id" => snapshot_id,
+         "repository" => repository,
+         "base_commit" => base,
+         "entries" => entries
+       }) do
+    with {:ok, _id, manifest} <- manifest(settings.home, snapshot_id),
+         true <-
+           Map.has_key?(settings.repositories, repository) ||
+             error(403, "forbidden", "Repository is not allowed", %{"repository" => repository}),
+         %{"path" => root} <-
+           Enum.find(
+             manifest["repositories"],
+             &(&1["repository"] == repository and &1["commit"] == base)
+           ) || base_error(manifest, repository, base) do
+      prefix = root <> "/"
+
+      base_paths =
+        for %{"path" => path} <- manifest["entries"],
+            String.starts_with?(path, prefix),
+            into: MapSet.new(),
+            do: binary_part(path, byte_size(prefix), byte_size(path) - byte_size(prefix))
+
+      {deletes, writes} = Enum.split_with(entries, &(&1["op"] == "delete"))
+
+      tree =
+        base_paths
+        |> MapSet.difference(MapSet.new(deletes, & &1["path"]))
+        |> MapSet.union(MapSet.new(writes, & &1["path"]))
+
+      directories = for path <- tree, directory <- ancestors(path), into: MapSet.new(), do: directory
+
+      conflict =
+        Enum.find_value(writes, fn %{"path" => path} ->
+          if parent = Enum.find(ancestors(path), &(&1 in tree)),
+            do: [parent, path],
+            else:
+              path in directories and
+                [path, Enum.find(tree, &String.starts_with?(&1, path <> "/"))]
+        end)
+
+      refused =
+        for %{"kind" => "symlink", "path" => path, "target" => target} <- writes,
+            not internal_link?(path, target),
+            do: elem(refused(repository, path, "symlink_target"), 1)
+
+      cond do
+        bad = Enum.find(deletes, &(&1["path"] not in base_paths)) ->
+          error(400, "invalid_request", "A deleted path must be a file or symlink in the base", %{
+            "path" => bad["path"]
+          })
+
+        conflict ->
+          error(
+            400,
+            "invalid_request",
+            "A path would be both a file and a directory; delete every base path it replaces",
+            %{"paths" => conflict}
+          )
+
+        refused != [] ->
+          error(422, "unsupported_content", "The change content cannot be accepted", %{
+            "entries" => refused
+          })
+
+        true ->
+          :ok
+      end
+    end
+  end
+
+  defp base_error(manifest, repository, base) do
+    case Enum.find(manifest["repositories"], &(&1["repository"] == repository)) do
+      nil ->
+        error(404, "not_found", "Repository is not in the snapshot", %{"repository" => repository})
+
+      %{"commit" => commit} ->
+        error(409, "base_mismatch", "base_commit is not the repository's commit in the snapshot", %{
+          "repository" => repository,
+          "base_commit" => base,
+          "commit" => commit
+        })
+    end
+  end
+
+  defp ancestors(path) do
+    parts = String.split(path, "/")
+    for n <- 1..(length(parts) - 1)//1, do: parts |> Enum.take(n) |> Enum.join("/")
+  end
+
+  # Uploads and seals of one change are serialized; the change must already exist.
+  defp locked_change(settings, id, fun) do
+    dir = Path.join([settings.home, "changes", id])
+
+    if uuid?(id) do
+      locked(dir, fn ->
+        case File.read(Path.join(dir, "change.json")) do
+          {:ok, json} -> fun.(dir, JSON.decode!(json))
+          {:error, :enoent} -> error(404, "not_found", "Change not found", %{"change_id" => id})
+        end
+      end)
+    else
+      error(400, "invalid_request", "change id must be a lowercase UUID")
+    end
+  end
+
+  defp upload(dir, request, digest, body) do
+    sizes =
+      for %{"op" => "write", "sha256" => ^digest, "size" => size} <- request["entries"],
+          uniq: true,
+          do: size
+
+    case sizes do
+      [] ->
+        error(404, "not_found", "The change writes no blob with this sha256")
+
+      [size] when byte_size(body) != size ->
+        error(400, "invalid_request", "The body is #{byte_size(body)} bytes, not #{size}", %{
+          "sha256" => digest
+        })
+
+      [_size] ->
+        if sha256(body) == digest do
+          put_blob(dir, digest, body)
+          state(dir, request)
+        else
+          error(400, "invalid_request", "The body does not match its sha256", %{
+            "sha256" => digest
+          })
+        end
+    end
+  end
+
+  defp put_blob(dir, digest, bytes) do
+    file = Path.join([dir, "blobs", digest])
+    unless File.exists?(file), do: write_atomic(file, bytes)
+  end
+
+  defp state(dir, %{"change_id" => id, "entries" => entries}) do
+    case File.read(Path.join(dir, "commit")) do
+      {:ok, commit} ->
+        {200, %{"change_id" => id, "state" => "sealed", "missing" => [], "commit" => commit}}
+
+      {:error, :enoent} ->
+        missing =
+          for %{"op" => "write", "sha256" => digest} <- entries,
+              not File.exists?(Path.join([dir, "blobs", digest])),
+              uniq: true,
+              do: digest
+
+        {200, %{"change_id" => id, "state" => "open", "missing" => Enum.sort(missing)}}
+    end
+  end
+
+  # Sealing is the only transition and happens once; a repeat returns the recorded commit.
+  defp seal(settings, dir, %{"repository" => repository, "base_commit" => base} = request) do
+    case state(dir, request) do
+      {200, %{"state" => "open", "missing" => [_ | _] = missing}} ->
+        error(422, "incomplete_upload", "Upload every blob before sealing", %{"missing" => missing})
+
+      {200, %{"state" => "open"}} ->
+        with {:ok, git_dir} <- acquire(settings, %{"repository" => repository, "commit" => base}),
+             {:ok, commit} <- locked(git_dir, fn -> commit(git_dir, dir, request) end) do
+          write_atomic(Path.join(dir, "commit"), commit)
+          state(dir, request)
+        end
+
+      sealed ->
+        sealed
+    end
+  end
+
+  # Builds the commit in Code's cache from the exact base with a temporary index: no checkout,
+  # no refs/heads, no push. GIT_WORK_TREE only gives update-index a root for --force-remove;
+  # read-tree without -u, --cacheinfo and --force-remove never read or write it. Author,
+  # committer and date (the base's committer date) are fixed, so a change always gives the same commit.
+  defp commit(git_dir, dir, %{"change_id" => id, "base_commit" => base, "entries" => entries}) do
+    index = Path.join(dir, "index.#{System.unique_integer([:positive])}.tmp")
+    {raw, 0} = System.cmd("git", ["--git-dir", git_dir, "cat-file", "commit", base])
+    [_, date] = Regex.run(~r/^committer .* (\d+ [+-]\d{4})$/m, raw)
+
+    env = [
+      {"GIT_INDEX_FILE", index},
+      {"GIT_WORK_TREE", dir},
+      {"GIT_AUTHOR_NAME", "Atlas Code"},
+      {"GIT_AUTHOR_EMAIL", "atlas-code@localhost"},
+      {"GIT_AUTHOR_DATE", date},
+      {"GIT_COMMITTER_NAME", "Atlas Code"},
+      {"GIT_COMMITTER_EMAIL", "atlas-code@localhost"},
+      {"GIT_COMMITTER_DATE", date}
+    ]
+
+    git = fn args ->
+      System.cmd("git", ["-c", "core.hooksPath=/dev/null", "--git-dir", git_dir | args],
+        cd: dir,
+        env: env
+      )
+    end
+
+    run = fn args ->
+      {output, 0} = git.(args)
+      String.trim(output)
+    end
+
+    try do
+      run.(["read-tree", base])
+      {deletes, writes} = Enum.split_with(entries, &(&1["op"] == "delete"))
+      digests = writes |> Enum.map(& &1["sha256"]) |> Enum.uniq()
+
+      # Chunks of 500 keep each command line far below the OS argument limit.
+      oids =
+        for chunk <- Enum.chunk_every(digests, 500),
+            oid <-
+              String.split(
+                run.(["hash-object", "-w", "--no-filters", "--" | Enum.map(chunk, &("blobs/" <> &1))]),
+                "\n"
+              ),
+            do: oid
+
+      oid = Map.new(Enum.zip(digests, oids))
+
+      for chunk <- Enum.chunk_every(deletes, 500),
+          do: run.(["update-index", "--force-remove", "--" | Enum.map(chunk, & &1["path"])])
+
+      for chunk <- Enum.chunk_every(writes, 500) do
+        run.([
+          "update-index",
+          "--add"
+          | Enum.flat_map(chunk, &["--cacheinfo", "#{&1["mode"]},#{oid[&1["sha256"]]},#{&1["path"]}"])
+        ])
+      end
+
+      tree = run.(["write-tree"])
+      commit = run.(["commit-tree", "--no-gpg-sign", "-p", base, "-m", "Atlas change #{id}", tree])
+      ref = "refs/atlas/changes/" <> id
+
+      # The empty old value makes update-ref refuse to move an existing ref; an existing ref
+      # with the same (deterministic) commit is a seal interrupted before it was recorded.
+      case git.(["update-ref", ref, commit, ""]) do
+        {_, 0} ->
+          {:ok, commit}
+
+        _ ->
+          if run.(["rev-parse", "--verify", ref]) == commit,
+            do: {:ok, commit},
+            else: error(409, "conflict", "The change ref points at another commit", %{"change_id" => id})
+      end
+    after
+      File.rm(index)
     end
   end
 
