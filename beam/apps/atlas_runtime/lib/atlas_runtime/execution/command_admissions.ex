@@ -192,7 +192,7 @@ defmodule AtlasRuntime.CommandAdmissions do
   defp valid_permissions?(%{"permissions" => nil, "sandbox" => sandbox}),
     do: sandbox in ["read-only", "workspace-write"]
   defp valid_permissions?(%{"permissions" => %{"profile" => "materialized-folder"} = scope, "sandbox" => nil,
-                            "cwd" => cwd, "backend" => "codex", "repository" => nil}) do
+                            "cwd" => cwd, "repository" => nil}) do
     Enum.sort(Map.keys(scope)) == ~w(baseline home profile record repositories root snapshot_id version) and
       scope["version"] == 1 and scope["root"] == cwd and matches?(scope["snapshot_id"], ~r/\Asha256:[0-9a-f]{64}\z/) and
       is_list(scope["repositories"]) and scope["repositories"] != [] and Enum.all?(scope["repositories"], &text?/1) and

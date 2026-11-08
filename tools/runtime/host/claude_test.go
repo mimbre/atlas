@@ -55,15 +55,15 @@ func TestClaudeValidationKeepsPythonOrderAndMessages(t *testing.T) {
 		{"boolean opt-in precedes model", map[int]string{9: `""`, 11: "1"}, "Questions require a boolean opt-in and the Claude backend"},
 		{"model precedes backend", map[int]string{8: "other", 9: `"--x"`}, "Model must be a nonempty identifier of at most 200 characters"},
 		{"unknown backend", map[int]string{8: "other"}, "Backend must be codex or claude"},
-		{"write needs a scope", map[int]string{4: "workspace-write"}, "Claude requires read-only or dedicated-repository execution"},
+		{"write needs a scope", map[int]string{4: "workspace-write"}, "Claude requires read-only, dedicated-repository or materialized-folder execution"},
 		{"unparsable session", map[int]string{5: "not-a-uuid"}, "badly formed hexadecimal UUID string"},
 		{"non-hex session", map[int]string{5: strings.Repeat("z", 32)}, "invalid literal for int() with base 16: '" + strings.Repeat("z", 32) + "'"},
 		{"non-canonical session", map[int]string{5: strings.ToUpper(claudeSession), 9: `"m"`, 10: context}, "Claude resume requires a confirmed UUID, model and saved execution context"},
 		{"resume without model", map[int]string{5: claudeSession, 10: context}, "Claude resume requires a confirmed UUID, model and saved execution context"},
 		{"resume without context", map[int]string{5: claudeSession, 9: `"m"`}, "Claude resume requires a confirmed UUID, model and saved execution context"},
 		{"scope conflicts with sandbox", map[int]string{6: `{"profile":"dedicated-repository","root":"/r"}`}, "Dedicated repository permissions conflict with sandbox"},
-		{"folder profile is Codex only", map[int]string{4: "", 6: `{"profile":"materialized-folder","root":"/r"}`}, "Claude supports only the dedicated-repository permission profile"},
-		{"profile is required", map[int]string{4: "", 6: `{"root":"/r"}`}, "Claude supports only the dedicated-repository permission profile"},
+		{"unknown profile", map[int]string{4: "", 6: `{"profile":"other","root":"/r"}`}, "Claude supports only the dedicated-repository and materialized-folder permission profiles"},
+		{"profile is required", map[int]string{4: "", 6: `{"root":"/r"}`}, "Claude supports only the dedicated-repository and materialized-folder permission profiles"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			directory := t.TempDir()

@@ -385,7 +385,7 @@ func executeTo(args []string, out io.Writer) (map[string]any, error) {
 		requestIDFlag(flags, command)
 		cwd := flags.String("cwd", "", "existing working directory")
 		sandbox := flags.String("sandbox", "read-only", "read-only or workspace-write")
-		permissions := flags.String("permissions", "", "explicit dedicated-repository Git/GitHub scope or Codex materialized-folder scope")
+		permissions := flags.String("permissions", "", "explicit dedicated-repository Git/GitHub scope or materialized-folder scope")
 		repository := flags.String("repo", "", "GitHub HTTPS repository to provision")
 		branch := flags.String("branch", "", "new task branch based on freshly fetched develop")
 		backend := flags.String("backend", "", "explicit codex or claude; omitted uses preferences")

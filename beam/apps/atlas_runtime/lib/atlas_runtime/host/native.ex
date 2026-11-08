@@ -3,8 +3,9 @@ defmodule AtlasRuntime.Agent.Native do
   Owned official CLI execution using existing native authentication. Codex remains
   the default, with its read-only, workspace-write, dedicated-repository and
   materialized-folder modes.
-  Claude supports fresh restricted read-only assignments and explicit independent
-  repository Bash execution, including managed provisioning and explicit saved continuation.
+  Claude supports fresh restricted read-only assignments, explicit independent
+  repository Bash execution, including managed provisioning, materialized-folder
+  execution and explicit saved continuation.
   Claude questions require explicit `questions_enabled: true`; answer delivery
   acknowledges a native stdin write, while processed evidence requires a tool result.
   Requires explicit `command`, `workspace` and `goal` agent settings. The native
@@ -63,14 +64,16 @@ defmodule AtlasRuntime.Agent.Native do
       is_nil(model) ||
         (is_binary(model) && Regex.match?(~r/\A[A-Za-z0-9][A-Za-z0-9._:\/\[\]-]{0,199}\z/, model))
 
-    # Claude refuses materialized-folder until its own slice; Codex refuses unknown profiles.
+    # Both backends refuse unknown profiles; a materialized folder is never provisioned.
     supported =
       (backend == "codex" &&
          (is_nil(scope) || (is_map(scope) && scope["profile"] in ["dedicated-repository", "materialized-folder"]))) ||
         (backend == "claude" &&
            (is_nil(session) || (is_map(resume_context) && is_binary(model))) &&
            ((sandbox == "read-only" && is_nil(scope) && is_nil(repository)) ||
-              (is_nil(sandbox) && is_map(scope) && scope["profile"] == "dedicated-repository")))
+              (is_nil(sandbox) && is_map(scope) &&
+                 (scope["profile"] == "dedicated-repository" ||
+                    (scope["profile"] == "materialized-folder" && is_nil(repository))))))
 
     if command && host &&
          AtlasRuntime.Workspaces.valid_request?(workspace, sandbox, scope, repository) &&

@@ -480,7 +480,7 @@ defmodule AtlasRuntime.NativeAdmissionTest do
       "repositories" => [path], "home" => home, "record" => record, "baseline" => baseline}
   end
 
-  test "materialized-folder binds its verified snapshot for Codex only and continuation never rebinds", context do
+  test "materialized-folder binds its verified snapshot for Codex and continuation never rebinds", context do
     # Folder scopes require canonical paths; the macOS temporary directory is behind /var.
     real = AtlasRuntime.Workspaces.workspace_path(context.dir)
     context = %{context | dir: real, service: launch_service(real)}
@@ -492,8 +492,6 @@ defmodule AtlasRuntime.NativeAdmissionTest do
     File.chmod!(Path.join(context.bin, "git"), 0o755)
     request = start_request(context, "folder", %{"cwd" => dest, "permissions" => "materialized-folder"})
 
-    assert command_error(context.service, Map.put(request, "backend", "claude")) =~
-             "Selected claude backend cannot meet the requested permissions"
     assert command_error(context.service, Map.put(request, "sandbox", "read-only")) =~ "cannot be combined with sandbox"
     record = accepted(context.dir, call(context.service, request))
     assert record["binding"]["permissions"] == scope
@@ -510,6 +508,51 @@ defmodule AtlasRuntime.NativeAdmissionTest do
     # Rebinding the folder to another snapshot is refused, not refreshed.
     rebound = materialize!(real, dest, "other")
     assert rebound["snapshot_id"] != scope["snapshot_id"]
+    assert command_error(context.service, %{"command" => "continue", "assignment" => "plain:rebound"}) =~
+             "permission scope changed"
+    assert length(launches(context.dir)) == 2
+    refute File.exists?(git_log)
+  end
+
+  test "Claude materialized-folder binds the snapshot scope as its Git-free context and never rebinds", context do
+    real = AtlasRuntime.Workspaces.workspace_path(context.dir)
+    context = %{context | dir: real, service: launch_service(real)}
+    # Claude's sandbox denies writes below system temp roots, so the folder must lie outside TMPDIR.
+    previous_tmp = System.get_env("TMPDIR")
+    tmp = Path.join(real, "tmp")
+    File.mkdir_p!(tmp)
+    System.put_env("TMPDIR", tmp)
+    on_exit(fn -> if previous_tmp, do: System.put_env("TMPDIR", previous_tmp), else: System.delete_env("TMPDIR") end)
+    # Claude's denies win over its allows, so the folder must also lie outside the Runtime home.
+    dest = real <> "-folder"
+    on_exit(fn -> File.rm_rf!(dest) end)
+    scope = materialize!(real, dest, "repo")
+    git_log = Path.join(real, "git.log")
+    File.rm!(Path.join(context.bin, "git"))
+    File.write!(Path.join(context.bin, "git"), "#!/bin/sh\necho \"$@\" >> '#{git_log}'\nexit 1\n")
+    File.chmod!(Path.join(context.bin, "git"), 0o755)
+    request = start_request(context, "claude-folder", %{"cwd" => dest, "permissions" => "materialized-folder", "backend" => "claude"})
+
+    record = accepted(context.dir, call(context.service, request))
+    assert record["binding"]["permissions"] == scope
+    assert record["binding"]["backend"] == "claude"
+    finished(context.service)
+    saved = Path.join([real, "turns", record["turn_id"], "claude-context.json"]) |> File.read!() |> JSON.decode!()
+    assert saved == %{"cwd" => dest, "git" => nil, "permissions" => scope}
+
+    continued = call(context.service, %{"command" => "continue", "request_id" => "claude-folder-next", "assignment" => "admit:claude-folder-next"})
+    assert accepted(context.dir, continued)["binding"]["permissions"] == scope
+    finished(context.service)
+    [start, resume] = launches(context.dir)
+    for launch <- [start, resume] do
+      settings = launch["argv"] |> Enum.drop_while(&(&1 != "--settings")) |> Enum.at(1) |> JSON.decode!()
+      assert hd(settings["sandbox"]["filesystem"]["allowWrite"]) == dest
+      assert "Read(/#{real})" in settings["permissions"]["deny"]
+    end
+    assert resume["resumed"]
+
+    # Rebinding the folder to another snapshot is refused, not refreshed.
+    materialize!(real, dest, "other")
     assert command_error(context.service, %{"command" => "continue", "assignment" => "plain:rebound"}) =~
              "permission scope changed"
     assert length(launches(context.dir)) == 2

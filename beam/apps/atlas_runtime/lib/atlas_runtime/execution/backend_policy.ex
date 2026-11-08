@@ -159,7 +159,9 @@ defmodule AtlasRuntime.BackendPolicy do
         "claude" ->
           (is_nil(permissions) and sandbox == "read-only" and
              not Map.has_key?(request, "repository")) or
-            (permissions == "dedicated-repository" and not Map.has_key?(request, "sandbox"))
+            (permissions == "dedicated-repository" and not Map.has_key?(request, "sandbox")) or
+            (permissions == "materialized-folder" and not Map.has_key?(request, "sandbox") and
+               not Map.has_key?(request, "repository"))
 
         "codex" ->
           (is_nil(permissions) and sandbox in ["read-only", "workspace-write"] and
