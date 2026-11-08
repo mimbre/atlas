@@ -1,6 +1,6 @@
 ---
 name: atlas-local-orchestrator
-description: "Act as the external local orchestrator for standalone Atlas Runtime without Atlas Server: assign workers repository folders, track work and questions, require pivot ACKs, verify completion and coordinate Code operations."
+description: "Act as the external local orchestrator for standalone Atlas Runtime without Atlas Server: assign short bounded folder tasks, require scope ACKs, track questions, verify completion and coordinate Code operations without interrupting workers."
 ---
 # Atlas Local Orchestrator
 
@@ -10,13 +10,12 @@ The driving agent is the external local orchestrator when Atlas Server is absent
 
 - The orchestrator owns assignments, dependencies, authorized workflow transitions, question routing, completion acceptance and next steps.
 - Each worker receives **one or more temporary repository working folders**, with explicit read/write scope per folder. Workers read, edit and test working files.
-- Workers have no Git operations, Code-layer API access or provider credentials. A visible `.git` entry grants no access: its contents and any referenced external metadata must be inaccessible to workers.
-- Code owns repository/provider operations and credentials. Runtime prepares and exposes working folders through the available workspace/Code boundary. The orchestrator requests authorized preparation, commits, branches and PRs outside worker permissions.
+- Workers must not run Git or `gh`, call Code APIs, handle repository/provider credentials or create PRs. Code owns repository/provider operations and credentials; the orchestrator alone requests authorized preparation and publication outside worker execution.
 - Workers deliver changed files and verification evidence, not commits or PRs. A worker role named Server or Runtime does not grant orchestration authority.
 - Provider/model execution policy, local availability and local cost constraints belong to Runtime. The orchestrator supplies task requirements and explicit authorized overrides, not a duplicate fallback engine.
 - Route worker questions through the orchestrator. Do not assume direct peer chat, peer dispatch or authority to assign other workers.
 
-These are the agreed target boundaries, not proof that the installed implementation enforces them. Read `skill://atlas-runtime` and the installed CLI README before operations. Inspect available capabilities; never invent flags or claim that Markdown instructions prevent Git access. If folder-only execution, multiple folders or a Code interface is unavailable, report the exact gap. Do not silently substitute a Git-enabled worker profile. Existing explicitly authorized legacy work is not retroactively interrupted by loading this skill.
+Ordinary-folder snapshot materialization, offline inspection, submission and Code publication are implemented. The strict folder-only sandbox profile is still being implemented: ordinary folders and these instructions do not prove credential isolation or prevent access to external Git metadata. Managed repository starts do not yet use snapshots. Read `skill://atlas-runtime`, `docs/runtime-architecture.md` and the installed CLI README before operations; inspect capabilities and report exact gaps without inventing flags or silently substituting a Git-enabled worker profile.
 
 ## Start and resume
 
@@ -30,7 +29,7 @@ These are the agreed target boundaries, not proof that the installed implementat
 Each assignment includes:
 
 - Stable assignment ID and exact previous assignment superseded, if any.
-- Goal, bounded scope, explicit non-goals and dependencies.
+- Goal, short bounded scope, explicit non-goals and dependencies. Split long work into deliveries that allow steering at task boundaries.
 - Worker identity and Runtime instance; the one or more supplied folder paths and their allowed operations.
 - Repository/base identities recorded by trusted workspace machinery, not obtained through worker Git access. Fresh assignments use the project's required fresh base; continuations preserve unfinished work rather than silently refreshing folders.
 - Acceptance criteria, focused tests and real behavior to exercise.
@@ -39,17 +38,23 @@ Each assignment includes:
 
 Describe architecture and progress through responsibilities, folders and behavior. Keep Git/PR bookkeeping outside worker execution.
 
-## Pivot acknowledgment
+## Assignment acknowledgment and safe boundaries
 
-A sent pivot is pending, not applied. Inbox delivery, watcher acknowledgment, command acceptance and silence are not proof of a switch.
+**Never interrupt a running agent.** Let its bounded assignment reach delivery and stop; queue steering for the next safe task boundary. Do not inject a replacement assignment mid-task, restart workers to change direction or discard unfinished edits. Preserve artifacts and report remaining processes at delivery.
 
-Require an explicit agent ACK naming the exact replacement assignment and confirming:
+A new assignment is pending until the worker explicitly ACKs its assignment ID, scope, supplied folders and exact bases. Use an ACK-only turn before authorizing implementation. Runtime command admission, inbox delivery, notification/watcher acknowledgment and silence are not this worker ACK.
 
-1. Previous work stopped at a safe point.
-2. Preserved files/artifacts and remaining processes.
-3. New scope, folders/base and next action.
+Record the matching ACK before marking the assignment active. At a task boundary, name the previous assignment superseded, preserve its delivery and remaining work, and obtain a fresh scope/folder/base ACK. Receipt-only ACK is insufficient; do not send competing pending assignments.
 
-Record the matching ACK before marking the pivot active. Receipt-only ACK is insufficient. Until then assume old work may continue. Avoid competing replacement instructions; a later user pivot must explicitly supersede the pending assignment and require its own ACK. Never discard edits or force a restart to manufacture acknowledgment.
+## Local Runtime + Code workflow
+
+1. The external orchestrator uses Code's separate local APIs: `POST /v1/revisions/resolve` for exact commits, then `POST /v1/snapshots` with repository, commit and relative path entries. Preserve snapshot/repository/base identities in the assignment.
+2. Run `atlas-runtime snapshot materialize --snapshot sha256:<hex> --dest NEW_PATH`. Runtime verifies the manifest/archives, produces one or more ordinary repository folders without Git metadata and retains an immutable baseline outside the destination. It refuses an existing destination. Supply the resulting folder paths and scopes to the worker; the worker only edits/tests them and returns changed paths and evidence, then stops.
+3. After delivery, the orchestrator inspects `atlas-runtime snapshot status --dest PATH [--path REPO_PATH]...` and `atlas-runtime snapshot diff --dest PATH [--path REPO_PATH]...`. Both work offline without Code, Git or a daemon. Verify scope and behavior before accepting the delivery.
+4. Submit with `atlas-runtime snapshot submit --dest PATH [--path REPO_PATH] --change-id UUID`. Choose a lowercase UUID; `--path` is required for multi-repository materializations, with one repository per submit. Submission seals a Code-private commit whose parent is the exact snapshot base; it does not publish, reset worker files or advance the baseline. A clean result has no commit. Preserve the change ID and exact command for reconciliation/resume; changed content under the same ID conflicts.
+5. The orchestrator alone calls `POST /v1/publications` with its separate orchestrator token, caller-chosen `publication_id`, sealed `change_id`, new `work/…` branch and optional `pull_request: {base, title, body}`. Attribute the PR body as required by project policy. Code creates the branch at the sealed commit and optionally opens the PR; it never moves an existing branch or silently rebases.
+6. Preserve Runtime request IDs, change/publication IDs, exact request bodies and returned commit/PR evidence. Inspect errors and partial effects before retrying: `publication_incomplete` can mean the branch was pushed but PR creation failed. An identical request with the same ID resumes recorded work; do not blindly retry with fresh IDs or changed bodies.
+7. The coordinator verifies the exact PR head against the sealed commit and merges under project policy. The release endpoint remains proposed; there is no automatic merge or invented release CLI. Prepare the next assignment from the required integrated base only after integration.
 
 ## Questions and evidence
 
@@ -61,13 +66,13 @@ Track each unresolved question with its ID, worker/turn, evidence, owner, next a
 
 Use the installed event/question/handoff interfaces and existing host wake mechanism. Finite follow commands do not monitor future assignments. If the host already rearms monitoring, do not spawn duplicate watchers. If no wake mechanism exists, disclose that limitation instead of promising unattended progress.
 
-For each notification: inspect evidence, handle or explicitly escalate it, update durable state, then acknowledge the notification. Advance event cursors only after handling events; reconcile retention gaps rather than skipping them. Notification acknowledgment never substitutes for pivot ACK.
+For each notification: inspect evidence, handle or explicitly escalate it, update durable state, then acknowledge the notification. Advance event cursors only after handling events; reconcile retention gaps rather than skipping them. Notification acknowledgment never substitutes for the worker's assignment ACK. Inspect targeted question delivery/processing and handoff records; neither a delivered answer nor a declared handoff proves verified success.
 
 A terminal conversation is not verified task completion. Inspect changed files and concrete verification evidence. Run relevant focused checks and exercise significant changed behavior before acceptance. Preserve failed/unknown outcomes honestly.
 
 After acceptance, request authorized Code operations outside the worker. Follow project merge policy; do not invent reviewer gates. Assign the next task only after required integration, from the fresh integrated base. If no approved next task exists, wait rather than expand scope.
 
-Keep the installed Runtime current only at a safe idle point or with explicit interruption authorization. Do not restart user-stopped processes. Report progress briefly: completed behavior, current responsibility/folder, blockers and next step.
+Keep the installed Runtime current only at a safe idle point; never interrupt a running agent for an update. Do not restart user-stopped processes. Report progress briefly: completed behavior, current responsibility/folder, blockers and next step.
 
 ## Scope discipline
 
