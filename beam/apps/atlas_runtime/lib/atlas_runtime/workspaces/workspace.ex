@@ -14,6 +14,9 @@ defmodule AtlasRuntime.Workspaces do
 
   def permission_scope(workspace), do: workspace_request(["scope", workspace])
 
+  # Materialized under the Runtime home; verified without Git, so the scope is the snapshot identity.
+  def folder_scope(workspace, home), do: workspace_request(["folder-scope", workspace, home])
+
   def workspace_path(workspace), do: workspace_request(["path", workspace])
 
   def repository_request(home, url, branch),

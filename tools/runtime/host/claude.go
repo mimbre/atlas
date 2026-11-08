@@ -31,6 +31,9 @@ func claudeValidate(scope any, sandbox, session string, model, expectedContext a
 	if scope == nil && sandbox != "read-only" {
 		return errors.New("Claude requires read-only or dedicated-repository execution")
 	}
+	if fields, _ := scope.(map[string]any); scope != nil && fields["profile"] != "dedicated-repository" {
+		return errors.New("Claude supports only the dedicated-repository permission profile")
+	}
 	if session == "" {
 		return nil
 	}

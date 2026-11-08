@@ -112,7 +112,7 @@ defmodule AtlasRuntime.CommandAdmissions do
       if questions and request["backend"] == "codex",
         do: raise(ArgumentError, "Questions are supported only by Claude")
       request = Map.put(request, "questions_enabled", questions)
-      optional!(request, "permissions", &(&1 == "dedicated-repository"))
+      optional!(request, "permissions", &(&1 in ["dedicated-repository", "materialized-folder"]))
 
       cond do
         Map.has_key?(request, "repository") or Map.has_key?(request, "branch") ->
@@ -123,7 +123,7 @@ defmodule AtlasRuntime.CommandAdmissions do
           request
         not path?(request["cwd"]) ->
           raise ArgumentError, "A working directory is required"
-        request["permissions"] == "dedicated-repository" ->
+        Map.has_key?(request, "permissions") ->
           if Map.has_key?(request, "sandbox"), do: raise(ArgumentError, "Permissions cannot be combined with sandbox")
           request
         true ->
@@ -172,7 +172,7 @@ defmodule AtlasRuntime.CommandAdmissions do
       unless is_nil(binding["source_turn_id"]) and is_nil(binding["session_id"]) and
                binding["questions_enabled"] == request["questions_enabled"] and
                binding["sandbox"] == request["sandbox"] and
-               (request["permissions"] == "dedicated-repository") == is_map(binding["permissions"]) and
+               request["permissions"] == binding["permissions"]["profile"] and
                Map.has_key?(request, "repository") == is_map(binding["repository"]),
         do: raise("Start binding does not match its request")
       if Map.has_key?(request, "branch") and request["branch"] != binding["repository"]["branch"],
@@ -191,6 +191,13 @@ defmodule AtlasRuntime.CommandAdmissions do
 
   defp valid_permissions?(%{"permissions" => nil, "sandbox" => sandbox}),
     do: sandbox in ["read-only", "workspace-write"]
+  defp valid_permissions?(%{"permissions" => %{"profile" => "materialized-folder"} = scope, "sandbox" => nil,
+                            "cwd" => cwd, "backend" => "codex", "repository" => nil}) do
+    Enum.sort(Map.keys(scope)) == ~w(baseline home profile record repositories root snapshot_id version) and
+      scope["version"] == 1 and scope["root"] == cwd and matches?(scope["snapshot_id"], ~r/\Asha256:[0-9a-f]{64}\z/) and
+      is_list(scope["repositories"]) and scope["repositories"] != [] and Enum.all?(scope["repositories"], &text?/1) and
+      Enum.all?([scope["home"], scope["record"], scope["baseline"]], &absolute_path?/1)
+  end
   defp valid_permissions?(%{"permissions" => scope, "sandbox" => nil, "cwd" => cwd}) when is_map(scope) do
     scope == %{"profile" => "dedicated-repository", "version" => 1, "root" => cwd,
       "git_dir" => Path.join(cwd, ".git"), "network_hosts" => ["github.com", "api.github.com"]}

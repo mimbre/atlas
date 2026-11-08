@@ -85,6 +85,21 @@ func openFolder(home, dest string) (*folder, error) {
 	return &folder{dest: dest, id: id, baseline: baseline, m: m, entries: entries}, nil
 }
 
+// Verified opens dest like Inspect does, without walking it, and returns its canonical root,
+// snapshot ID, repository paths, record file and baseline directory.
+func Verified(home, dest string) (map[string]any, error) {
+	f, err := openFolder(home, dest)
+	if err != nil {
+		return nil, err
+	}
+	repositories := []any{}
+	for _, r := range f.m.Repositories {
+		repositories = append(repositories, r.Path)
+	}
+	return map[string]any{"root": f.dest, "snapshot_id": f.id, "repositories": repositories,
+		"record": recordPath(home, f.dest), "baseline": f.baseline}, nil
+}
+
 // changes lists the folder's differences from its baseline sorted by path, as Inspect reports them.
 func (f *folder) changes(paths []string, diffs bool) ([]change, error) {
 	dest, m, entries := f.dest, f.m, f.entries
@@ -187,9 +202,14 @@ func materialized(dest string) (string, error) {
 	return dest, nil
 }
 
+// recordPath is where Materialize records dest.
+func recordPath(home, dest string) string {
+	return filepath.Join(home, "materializations", fmt.Sprintf("%x.json", sha256.Sum256([]byte(dest))))
+}
+
 // recorded returns the snapshot ID Materialize recorded for dest.
 func recorded(home, dest string) (string, error) {
-	path := filepath.Join(home, "materializations", fmt.Sprintf("%x.json", sha256.Sum256([]byte(dest))))
+	path := recordPath(home, dest)
 	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return "", fmt.Errorf("no materialization record for %s", dest)

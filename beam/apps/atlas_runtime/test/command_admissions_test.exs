@@ -352,6 +352,42 @@ defmodule AtlasRuntime.CommandAdmissionsTest do
     end
   end
 
+  test "materialized-folder binding retains exactly the verified Codex folder scope", context do
+    cwd = context.request["cwd"]
+    request = context.request |> Map.delete("sandbox") |> Map.put("permissions", "materialized-folder")
+    assert Admissions.canonical(request) == request
+    assert_raise ArgumentError, fn -> Admissions.canonical(Map.put(request, "sandbox", "read-only")) end
+    assert_raise ArgumentError, fn ->
+      Admissions.canonical(request |> Map.delete("cwd") |> Map.merge(%{"repository" => "https://github.com/Owner/Repo", "branch" => "task"}))
+    end
+    home = Path.join(context.dir, "runtime")
+    scope = %{"profile" => "materialized-folder", "version" => 1, "root" => cwd,
+      "snapshot_id" => "sha256:" <> String.duplicate("c", 64), "repositories" => ["repo"], "home" => home,
+      "record" => Path.join(home, "materializations/x.json"), "baseline" => Path.join(home, "snapshots/" <> String.duplicate("c", 64))}
+    binding = %{context.binding | "sandbox" => nil, "permissions" => scope}
+    run = Map.merge(context.run, %{sandbox: nil, permissions: scope})
+    record = Admissions.reserve(Path.join(context.dir, "folder"), "Request_1", request, binding, @turn, run)
+    assert Admissions.load(Path.join(context.dir, "folder"), "Request_1") == record
+    assert record["binding"]["permissions"] == scope
+
+    for {bad_request, bad_binding} <- [
+          {request, %{binding | "backend" => "claude"}},
+          {request, %{binding | "repository" => %{"url" => "u", "branch" => "b"}}},
+          {request, %{binding | "permissions" => Map.put(scope, "git_dir", Path.join(cwd, ".git"))}},
+          {request, %{binding | "permissions" => Map.delete(scope, "home")}},
+          {request, %{binding | "permissions" => %{scope | "root" => home}}},
+          {request, %{binding | "permissions" => %{scope | "version" => 2}}},
+          {request, %{binding | "permissions" => %{scope | "repositories" => []}}},
+          {request, %{binding | "permissions" => %{scope | "snapshot_id" => "sha256:x"}}},
+          {request, %{binding | "permissions" => %{scope | "record" => "relative.json"}}},
+          {Map.put(request, "permissions", "dedicated-repository"), binding}
+        ] do
+      assert_raise Admissions.StorageError, fn ->
+        Admissions.reserve(Path.join(context.dir, "bad"), "Request_1", bad_request, bad_binding, @turn, run)
+      end
+    end
+  end
+
   test "managed saved continuation preserves base revision and rejects unrelated metadata", context do
     cwd = context.request["cwd"]
     request = %{"command" => "continue", "assignment" => "next", "turn_id" => @source}

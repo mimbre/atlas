@@ -199,9 +199,9 @@ defmodule AtlasRuntime.Service do
           if sandbox not in ["read-only", "workspace-write"],
             do: raise("Sandbox must be read-only or workspace-write")
           {sandbox, nil}
-        "dedicated-repository" ->
+        profile when profile in ["dedicated-repository", "materialized-folder"] ->
           if Map.has_key?(request, "sandbox"), do: raise("Permissions cannot be combined with sandbox")
-          {nil, Workspaces.permission_scope(cwd)}
+          {nil, current_scope(profile, cwd, state)}
         _ -> raise("Unknown permission profile")
       end
     start_turn(assignment, cwd, sandbox, scope, nil, state, worker_id, nil, selection, nil, Map.get(request, "questions_enabled", false), admission)
@@ -229,7 +229,7 @@ defmodule AtlasRuntime.Service do
          not ((is_nil(scope) and sandbox in ["read-only", "workspace-write"]) or
            (is_map(scope) and is_nil(sandbox))),
       do: raise("The selected turn has no valid saved working directory and permissions")
-    if scope && scope != Workspaces.permission_scope(cwd),
+    if scope && scope != current_scope(scope["profile"], cwd, state),
       do: raise("The selected turn's permission scope changed")
     context =
       if backend == "claude" do
@@ -243,6 +243,9 @@ defmodule AtlasRuntime.Service do
   end
 
   defp worker_command(_, _, _, _, _, _), do: raise("Unknown or malformed command")
+
+  defp current_scope("materialized-folder", cwd, state), do: Workspaces.folder_scope(cwd, state.dir)
+  defp current_scope(_dedicated, cwd, _state), do: Workspaces.permission_scope(cwd)
 
   defp select_worker(request, state) do
     explicit? = Map.has_key?(request, "worker_id")

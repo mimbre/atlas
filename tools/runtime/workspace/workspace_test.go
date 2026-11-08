@@ -2,8 +2,11 @@ package workspace
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -392,6 +395,87 @@ func TestWorkspaceLockOwnsRepositoryUntilClosed(t *testing.T) {
 		t.Fatalf("released repository not reacquired as existing: %v %v", created, err)
 	}
 	again.Close()
+}
+
+// workspaceTestMaterialize records dest under home as Materialize would, for a snapshot of
+// one empty repository "repo", and returns the snapshot ID.
+func workspaceTestMaterialize(t *testing.T, home, dest string) string {
+	t.Helper()
+	manifest := `{"entries":[],"repositories":[{"commit":"` + strings.Repeat("a", 40) + `","path":"repo","repository":"r"}]}`
+	sum := sha256.Sum256([]byte(manifest))
+	id := "sha256:" + hex.EncodeToString(sum[:])
+	baseline := filepath.Join(home, "snapshots", hex.EncodeToString(sum[:]))
+	for _, directory := range []string{filepath.Join(baseline, "tree"), filepath.Join(home, "materializations"), filepath.Join(dest, "repo")} {
+		if err := os.MkdirAll(directory, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	workspaceTestWrite(t, filepath.Join(baseline, "manifest.json"), manifest)
+	workspaceTestWrite(t, filepath.Join(baseline, "complete"), id+"\n")
+	workspaceTestWrite(t, filepath.Join(home, "materializations", fmt.Sprintf("%x.json", sha256.Sum256([]byte(dest)))),
+		fmt.Sprintf(`{"destination":%q,"snapshot_id":%q,"materialized_at":"2026-11-08T00:00:00Z"}`, dest, id))
+	return id
+}
+
+func TestWorkspaceFolderScopeVerifiesMaterializationWithoutGit(t *testing.T) {
+	root := workspaceTestRoot(t)
+	home := filepath.Join(root, "runtime")
+	dest := filepath.Join(root, "work")
+	id := workspaceTestMaterialize(t, home, dest)
+	// No Git may run: an empty PATH makes any attempt fail.
+	t.Setenv("PATH", "")
+	baseline := filepath.Join(home, "snapshots", strings.TrimPrefix(id, "sha256:"))
+	record := filepath.Join(home, "materializations", fmt.Sprintf("%x.json", sha256.Sum256([]byte(dest))))
+	want := map[string]any{"profile": "materialized-folder", "version": 1.0, "root": dest, "snapshot_id": id,
+		"repositories": []any{"repo"}, "home": home, "record": record, "baseline": baseline}
+	if got := workspaceTestCall(t, "folder-scope", dest, home); !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	exact, err := FolderScope(dest, home)
+	if err != nil || !JSONEqual(exact, workspaceTestDecode(t, want, true)) {
+		t.Fatalf("Native host comparison differs: %v %v", exact, err)
+	}
+
+	workspaceTestRefuse(t, "requires destination and Runtime home", "folder-scope", dest)
+	workspaceTestRefuse(t, "must be absolute", "folder-scope", "work", home)
+	other := filepath.Join(root, "other")
+	if err := os.Mkdir(other, 0700); err != nil {
+		t.Fatal(err)
+	}
+	workspaceTestRefuse(t, "no materialization record", "folder-scope", other, home)
+	if err := os.Symlink(root, filepath.Join(root, "alias")); err != nil {
+		t.Fatal(err)
+	}
+	workspaceTestRefuse(t, "canonical path", "folder-scope", filepath.Join(root, "alias", "work"), home)
+
+	// A Git work tree here or above would make the trusted native CLI run Git.
+	outer := filepath.Join(root, "outer")
+	nested := filepath.Join(outer, "deep", "work")
+	workspaceTestMaterialize(t, home, nested)
+	if err := os.Mkdir(filepath.Join(outer, ".git"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	workspaceTestRefuse(t, "inside a Git work tree", "folder-scope", nested, home)
+	workspaceTestWrite(t, filepath.Join(dest, ".git"), "gitdir: /elsewhere\n")
+	workspaceTestRefuse(t, "inside a Git work tree", "folder-scope", dest, home)
+	if err := os.Remove(filepath.Join(dest, ".git")); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Mkdir(filepath.Join(dest, ".codex"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	workspaceTestWrite(t, filepath.Join(dest, ".codex", "config.toml"), "")
+	workspaceTestRefuse(t, "Materialized folder cannot load project or system Codex config", "folder-scope", dest, home)
+	if err := os.RemoveAll(filepath.Join(dest, ".codex")); err != nil {
+		t.Fatal(err)
+	}
+
+	// The record binds the folder to its snapshot; another destination or snapshot is refused.
+	workspaceTestWrite(t, record, fmt.Sprintf(`{"destination":"/elsewhere","snapshot_id":%q}`, id))
+	workspaceTestRefuse(t, "invalid materialization record", "folder-scope", dest, home)
+	workspaceTestWrite(t, record, fmt.Sprintf(`{"destination":%q,"snapshot_id":"sha256:%s"}`, dest, strings.Repeat("0", 64)))
+	workspaceTestRefuse(t, "missing or incomplete", "folder-scope", dest, home)
 }
 
 func TestWorkspaceContextIdentityAndUnfinishedFiles(t *testing.T) {

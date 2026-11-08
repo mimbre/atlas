@@ -463,4 +463,56 @@ defmodule AtlasRuntime.NativeAdmissionTest do
     refute File.exists?(Path.join(context.dir, "admissions/missing-context.json"))
     assert length(launches(context.dir)) == 1
   end
+
+  # Records dest under home as snapshot materialize would, for one empty repository at path.
+  defp materialize!(home, dest, path) do
+    manifest = ~s({"entries":[],"repositories":[{"commit":"#{String.duplicate("a", 40)}","path":"#{path}","repository":"r"}]})
+    hex = :crypto.hash(:sha256, manifest) |> Base.encode16(case: :lower)
+    baseline = Path.join([home, "snapshots", hex])
+    record = Path.join([home, "materializations", Base.encode16(:crypto.hash(:sha256, dest), case: :lower) <> ".json"])
+    File.mkdir_p!(Path.join(baseline, "tree"))
+    File.mkdir_p!(Path.dirname(record))
+    File.mkdir_p!(Path.join(dest, path))
+    File.write!(Path.join(baseline, "manifest.json"), manifest)
+    File.write!(Path.join(baseline, "complete"), "sha256:#{hex}\n")
+    File.write!(record, JSON.encode!(%{"destination" => dest, "snapshot_id" => "sha256:" <> hex}))
+    %{"profile" => "materialized-folder", "version" => 1, "root" => dest, "snapshot_id" => "sha256:" <> hex,
+      "repositories" => [path], "home" => home, "record" => record, "baseline" => baseline}
+  end
+
+  test "materialized-folder binds its verified snapshot for Codex only and continuation never rebinds", context do
+    # Folder scopes require canonical paths; the macOS temporary directory is behind /var.
+    real = AtlasRuntime.Workspaces.workspace_path(context.dir)
+    context = %{context | dir: real, service: launch_service(real)}
+    dest = Path.join(real, "folder")
+    scope = materialize!(real, dest, "repo")
+    git_log = Path.join(real, "git.log")
+    File.rm!(Path.join(context.bin, "git"))
+    File.write!(Path.join(context.bin, "git"), "#!/bin/sh\necho \"$@\" >> '#{git_log}'\nexit 1\n")
+    File.chmod!(Path.join(context.bin, "git"), 0o755)
+    request = start_request(context, "folder", %{"cwd" => dest, "permissions" => "materialized-folder"})
+
+    assert command_error(context.service, Map.put(request, "backend", "claude")) =~
+             "Selected claude backend cannot meet the requested permissions"
+    assert command_error(context.service, Map.put(request, "sandbox", "read-only")) =~ "cannot be combined with sandbox"
+    record = accepted(context.dir, call(context.service, request))
+    assert record["binding"]["permissions"] == scope
+    assert record["binding"]["backend"] == "codex"
+    finished(context.service)
+
+    continued = call(context.service, %{"command" => "continue", "request_id" => "folder-next", "assignment" => "admit:folder-next"})
+    assert accepted(context.dir, continued)["binding"]["permissions"] == scope
+    finished(context.service)
+    [start, resume] = launches(context.dir)
+    assert ~s(default_permissions="atlas_folder") in start["argv"]
+    assert resume["resumed"] and ~s(default_permissions="atlas_folder") in resume["argv"]
+
+    # Rebinding the folder to another snapshot is refused, not refreshed.
+    rebound = materialize!(real, dest, "other")
+    assert rebound["snapshot_id"] != scope["snapshot_id"]
+    assert command_error(context.service, %{"command" => "continue", "assignment" => "plain:rebound"}) =~
+             "permission scope changed"
+    assert length(launches(context.dir)) == 2
+    refute File.exists?(git_log)
+  end
 end

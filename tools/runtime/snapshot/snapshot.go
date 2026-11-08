@@ -726,7 +726,7 @@ func record(home, dest, id string) error {
 	if err != nil {
 		return err
 	}
-	return os.Rename(file.Name(), filepath.Join(dir, fmt.Sprintf("%x.json", sha256.Sum256([]byte(dest)))))
+	return os.Rename(file.Name(), recordPath(home, dest))
 }
 
 // renameExclusive renames atomically and fails with EEXIST instead of replacing anything at

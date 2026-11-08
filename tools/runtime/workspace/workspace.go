@@ -15,11 +15,13 @@ import (
 	"syscall"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/eyra/atlas/tools/runtime/snapshot"
 )
 
 func Run(args []string, output io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("use workspace path|scope|request")
+		return errors.New("use workspace path|scope|folder-scope|request")
 	}
 	var result any
 	var err error
@@ -33,6 +35,11 @@ func Run(args []string, output io.Writer) error {
 		} else {
 			result, err = Scope(args[1])
 		}
+	case "folder-scope":
+		if len(args) != 3 {
+			return errors.New("workspace folder-scope requires destination and Runtime home")
+		}
+		result, err = FolderScope(args[1], args[2])
 	case "request":
 		if len(args) != 4 {
 			return errors.New("workspace request requires home, URL and branch")
@@ -350,28 +357,37 @@ func Scope(workspace string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err = codexConfig(root, "Dedicated repository"); err != nil {
+		return nil, err
+	}
+	return workspaceDedicatedScope(root), nil
+}
+
+// codexConfig refuses project, ancestor or system Codex config that root would load.
+func codexConfig(root, subject string) error {
 	codexHome, present := os.LookupEnv("CODEX_HOME")
 	if !present {
 		home, err := os.UserHomeDir()
 		if err != nil {
-			return nil, err
+			return err
 		}
 		codexHome = filepath.Join(home, ".codex")
 	}
 	ignored, err := workspaceResolve(codexHome)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	ignored = filepath.Join(ignored, "config.toml")
+	refused := errors.New(subject + " cannot load project or system Codex config")
 	for directory := root; ; directory = filepath.Dir(directory) {
 		config := filepath.Join(directory, ".codex/config.toml")
 		if config != ignored {
 			exists, err := workspaceExists(config)
 			if err != nil {
-				return nil, err
+				return err
 			}
 			if exists {
-				return nil, errors.New("Dedicated repository cannot load project or system Codex config")
+				return refused
 			}
 		}
 		if directory == "/" {
@@ -381,13 +397,49 @@ func Scope(workspace string) (map[string]any, error) {
 	if config := "/etc/codex/config.toml"; config != ignored {
 		exists, err := workspaceExists(config)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if exists {
-			return nil, errors.New("Dedicated repository cannot load project or system Codex config")
+			return refused
 		}
 	}
-	return workspaceDedicatedScope(root), nil
+	return nil
+}
+
+// FolderScope is the materialized-folder permission scope of dest, materialized under the
+// Runtime home. It verifies the record and baseline like snapshot status, without Git.
+func FolderScope(dest, home string) (map[string]any, error) {
+	if !filepath.IsAbs(dest) || !filepath.IsAbs(home) {
+		return nil, errors.New("Materialized folder and Runtime home must be absolute paths")
+	}
+	home, err := filepath.EvalSymlinks(home)
+	if err != nil {
+		return nil, err
+	}
+	scope, err := snapshot.Verified(home, dest)
+	if err != nil {
+		return nil, err
+	}
+	root := scope["root"].(string)
+	if root != filepath.Clean(dest) {
+		return nil, errors.New("Materialized folder requires its canonical path")
+	}
+	// The trusted native CLI runs Git when it finds metadata here or above.
+	for directory := root; ; directory = filepath.Dir(directory) {
+		if _, err := os.Lstat(filepath.Join(directory, ".git")); err == nil {
+			return nil, errors.New("Materialized folder cannot be inside a Git work tree")
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+		if directory == "/" {
+			break
+		}
+	}
+	if err = codexConfig(root, "Materialized folder"); err != nil {
+		return nil, err
+	}
+	scope["profile"], scope["version"], scope["home"] = "materialized-folder", json.Number("1"), home
+	return scope, nil
 }
 
 // Lock flocks the repository directory; the caller owns the lock until it closes the file.

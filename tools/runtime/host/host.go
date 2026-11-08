@@ -108,10 +108,18 @@ func run(args []string) (err error) {
 		complete(stopped bool) error
 	}
 	questionSession := ""
+	// A materialized-folder turn needs no pre-exec child: no Git and no repository preparation.
+	folderScope, _ := scope.(map[string]any)
+	folderProfile := backend == "codex" && folderScope["profile"] == "materialized-folder"
+	runtimeHome, _ := folderScope["home"].(string)
+	scratch := ""
+	if folderProfile {
+		scratch = filepath.Join(runtimeHome, "scratch", filepath.Base(folder))
+	}
 	if backend == "codex" {
 		permissions := []string{"--sandbox", sandbox}
 		if scope != nil {
-			if permissions, err = permissionArguments(scope); err != nil {
+			if permissions, err = permissionArguments(scope, scratch); err != nil {
 				return err
 			}
 		}
@@ -183,6 +191,36 @@ func run(args []string) (err error) {
 		}
 	}
 	var environment []string
+	if folderProfile {
+		current, err := workspace.FolderScope(workspacePath, runtimeHome)
+		if err == nil && !workspace.JSONEqual(current, scope) {
+			err = errors.New("Materialized folder permission scope changed")
+		}
+		if err == nil {
+			if err = os.MkdirAll(filepath.Dir(scratch), 0700); err == nil {
+				err = os.Mkdir(scratch, 0700)
+			}
+		}
+		if err != nil {
+			errorsFile.WriteString(err.Error())
+			return err
+		}
+		nativeTemporary = &scratch
+		self, err := os.Executable()
+		if err != nil {
+			return err
+		}
+		// Workers inspect their folder with this executable against this home's record and baseline.
+		environment = append(os.Environ(), "PATH="+filepath.Dir(self)+":"+os.Getenv("PATH"), "ATLAS_RUNTIME_HOME="+runtimeHome)
+		for _, cache := range [][2]string{{"TMPDIR", "tmp"}, {"GOCACHE", "go-build"}, {"GOTMPDIR", "go-tmp"},
+			{"XDG_CACHE_HOME", "cache"}, {"npm_config_cache", "npm"}} {
+			path := filepath.Join(scratch, cache[1])
+			if err = os.Mkdir(path, 0700); err != nil {
+				return err
+			}
+			environment = append(environment, cache[0]+"="+path)
+		}
+	}
 	if scope != nil && backend == "claude" {
 		if repository == nil {
 			current, err := workspace.Scope(workspacePath)
@@ -213,7 +251,7 @@ func run(args []string) (err error) {
 		environment = append(os.Environ(), "CLAUDE_CODE_TMPDIR="+temporary)
 	}
 	// Claude always saves its context in the pre-exec child; Codex only needs it for a scope.
-	if scope != nil || backend == "claude" {
+	if (scope != nil && !folderProfile) || backend == "claude" {
 		self, err := os.Executable()
 		if err != nil {
 			return err
@@ -231,6 +269,8 @@ func run(args []string) (err error) {
 	child.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if backend == "claude" {
 		child.Dir, child.Env = workspacePath, environment
+	} else if folderProfile {
+		child.Env = environment
 	}
 	// Question answers go to native stdin through an explicit pipe the loop writes without blocking.
 	var nativeInput, stdin *os.File
@@ -498,7 +538,7 @@ func executeAssignment(args []string) error {
 				return errors.New("Managed repository preparation requires the installed Codex sandbox")
 			}
 		}
-		permissions, err := permissionArguments(scope)
+		permissions, err := permissionArguments(scope, "")
 		if err != nil {
 			return err
 		}

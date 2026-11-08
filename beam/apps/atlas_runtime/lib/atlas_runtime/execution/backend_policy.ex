@@ -164,7 +164,9 @@ defmodule AtlasRuntime.BackendPolicy do
         "codex" ->
           (is_nil(permissions) and sandbox in ["read-only", "workspace-write"] and
              not Map.has_key?(request, "repository")) or
-            (permissions == "dedicated-repository" and not Map.has_key?(request, "sandbox"))
+            (permissions == "dedicated-repository" and not Map.has_key?(request, "sandbox")) or
+            (permissions == "materialized-folder" and not Map.has_key?(request, "sandbox") and
+               not Map.has_key?(request, "repository"))
       end
 
     if not supported,
