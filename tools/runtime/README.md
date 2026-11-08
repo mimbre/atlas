@@ -218,6 +218,38 @@ Focused verification passed: 64 ExUnit tests, 46 Python runner tests and the Go 
 
 Integrated default-model proof on 2026-11-07, after the coordinator cleared the installed model blocker: fresh base `dd3495f849d29afd8828a62d3aec224117d4a7c6` plus the preserved records changes passed 65 focused ExUnit tests, 47 Python runner tests and the Go CLI suite. No functionality was added; the integration retained both model/configuration and record correlation behavior. Public turn `turn-4ac10c564e7d5364`, session `26d24086-d103-49e6-9be3-fb4272395f90`, used `requested_model: null` with no native `--model` override. Native init/record correlation retained `claude-opus-5-5[1m]`, while assistant output named `claude-opus-5-5`. Fresh answer `815903` produced processed evidence and result `815926` (+23). Identical repeats returned admission, conflicts refused, and the full record plus exact six-event cursor replay survived restart. A repeated answer after restart returned processed evidence with an empty worker registry and no new events. Native group and both isolated daemons were absent afterward; disposable client/build removed. Default installation remained untouched; broad write containment was not repeated.
 
+## Codex materialized-folder workers
+
+```sh
+atlas-runtime snapshot materialize --snapshot sha256:HEX --dest /abs/assignment
+atlas-runtime start --worker NAME --backend codex --cwd /abs/assignment --permissions materialized-folder "Assignment"
+atlas-runtime continue --worker NAME --turn TURN_ID "Next step"
+```
+
+The worker can read, edit and test the assigned folder and run `atlas-runtime snapshot status|diff` on it. It cannot read Git metadata, the Runtime home (beyond this snapshot's record and baseline), Code tokens or the listed credential locations, and it has no network, so it cannot reach Code. Codex authentication still works because the trusted native host runs outside the sandbox. Setup and continuation run no Git and make no Code request; Code may be stopped while the worker runs. Claude refuses this profile. See the architecture document for the exact profile and its deny-list limits.
+
+Verified on 2026-11-08 in an isolated daemon (Codex 0.166.0, `gpt-6.1-sol`). Snapshot `sha256:cdf993d12d454292b0499266d03df591cc45629dd8559d3b94b8c0ab92f72c9a` (repositories `app`, `docs`) was materialized; the worker is `fw`, session `01a1bc16-3d75-7821-a326-04a23f27043e`.
+
+- Turn `turn-6c4944b06b69a732` added `Sub` and `TestSub`, ran `go test` (ok) and reported its two changes with `snapshot status`.
+- Continuation `turn-9d16b1d43c53fc32` reported the unified diff with `snapshot diff`.
+- Code was then stopped. Continuation `turn-66d6cafa4e4353de` reran `go test` (ok) with the same session, model and scope.
+- A logging `git` shim on the daemon `PATH` recorded zero Git invocations for service start, start and continuations.
+- The model declined to run the credential sentinels itself. So the turn's recorded profile arguments were run through the installed `codex sandbox` with the same script:
+
+  | Probe | Sandboxed | Unsandboxed |
+  |---|---|---|
+  | `~/.codex/auth.json`, `~/.config/gh/hosts.yml`, `~/.ssh`, the Runtime `code.json`, the Code token | 1 (all) | 0 (all) |
+  | Code `/v1/health` over curl | 7 (blocked) | 0 |
+  | Keychain lookup for `gh:github.com` | 44 | 0 |
+  | `mkdir app/.git` / `mkdir .git` | 1 / 1 | 0 / 0 |
+
+  Exit codes only; no contents were printed.
+- Claude with `--permissions materialized-folder` was refused.
+- A stopped long turn (`turn-a97676d65224d5dd`) released the lock and removed its scratch folder.
+- The baseline and record were unchanged.
+
+Evidence: `/Users/melle/.ac-nf-p6hmdtmf/codex-folder-profile-evidence.json`. No installation, default-daemon restart or deployment.
+
 ## Claude scoped repository writes
 
 Select Claude repository writes explicitly with `atlas-runtime start --backend claude --cwd /canonical/independent/repository --permissions dedicated-repository "Edit the assigned file and create a local commit"`, or use managed `--repo` provisioning below. This reuses independent-root validation and owned directory locking. It enables Bash alongside read-only Read/Glob/Grep, never Edit/Write. Native settings require sandbox availability, disable unsandboxed escape and excluded commands, retain the existing GitHub domain list, and deny writes to `.agents`, `.codex`, `.aws`, `.claude`, `.git/config` and `.git/hooks`. Generic workspace-write remains refused.

@@ -275,8 +275,25 @@ Folder submission (implemented, `tools/runtime/snapshot/submit.go`):
   - No local submission record is kept; Code's state answers repeats.
 - **Limits:** a file that changes and changes back between the copy and the rescan is not detected (only identical bytes could pass). Path checks refuse at the first problem rather than listing all. Each Code read times out after 60 s, and a slower seal is reported as unavailable with the resume hint.
 
+Codex materialized-folder profile (implemented, Codex only):
+- **Command:** `atlas-runtime start --worker W --backend codex --cwd DEST --permissions materialized-folder ASSIGNMENT`, where `DEST` is a folder produced by `snapshot materialize`. It cannot be combined with `--sandbox` or `--repo`/`--branch`. Claude refuses it with the existing capability error; there is no fallback to broader permissions. Legacy `dedicated-repository` is unchanged.
+- **Scope without Git:** the internal `atlas-runtime workspace folder-scope DEST HOME` verifies the materialization exactly as `snapshot status` does. It refuses a non-canonical `DEST`, a `.git` entry in `DEST` or any ancestor (so the trusted native Codex never finds a Git repository), and project or ancestor `.codex/config.toml`. The scope binds `{profile, version, root, snapshot_id, repositories, home, record, baseline}`. Start, continuation and the native host recompute it and require equality, so a re-recorded or replaced snapshot refuses continuation. No Git, Code request or pre-exec wrapper runs, and the directory lock is held until the process group is reaped.
+- **Effective Codex profile** (`extends=":read-only"`, `network.enabled=false`, no proxy):
+  - `DEST` and a private `HOME/scratch/<turn>` are writable;
+  - the Runtime `HOME` is `none`, except read access to this snapshot's record and baseline;
+  - `DEST/.git` and each `DEST/<repo>/.git` are `none`;
+  - the Code token file and its directory (from `code.json`), `$CODEX_HOME`, and known credential paths are `none`: `~/.codex`, `~/.config/gh`, `~/.ssh`, `~/.aws`, `~/.docker`, `~/Library/Keychains`, `~/.git-credentials`, `~/.config/git`, `~/.netrc`, `~/.gitconfig`, `~/.claude`, `~/.claude.json`, and the default Runtime home.
+
+  Paths are resolved through symlinks before mapping. `process.json` records the exact arguments.
+- **Worker environment:** the existing minimal environment, plus `ATLAS_RUNTIME_HOME`, a `PATH` that starts with the `atlas-runtime` directory, and `TMPDIR`/`GOCACHE`/`GOTMPDIR`/`XDG_CACHE_HOME`/`npm_config_cache` in the scratch folder, which is removed after reaping. `snapshot status|diff` no longer create or chmod the Runtime home, so they work read-only inside the sandbox.
+- **Limits:**
+  - The base is still `:read-only`, so credential protection is a deny-list: secrets in unlisted locations (for example `~/.npmrc` or `~/.kube`) stay readable, and other non-credential home files are readable.
+  - `GOMODCACHE` is not redirected, so builds need modules already cached.
+  - Workers can create `.git` in unmapped subfolders; these are reported by `status`.
+  - This is provider-sandbox confinement, not hostile-host isolation.
+
 Later bounded steps, each a separate assignment:
-1. Use materialized snapshots for worker starts.
+1. Use materialized snapshots for worker starts automatically (orchestration), and the equivalent Claude profile.
 2. Proof of the full local workflow, including real GitHub publication through Code. Only after that: withdraw worker GitHub access, remove the macOS trustd allowance where verified, then release (endpoint 8).
 
 Open questions:

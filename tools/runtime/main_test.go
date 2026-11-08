@@ -3,7 +3,10 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -599,6 +602,60 @@ func TestSnapshotMaterializeNeedsExactFlagsAndNoRuntimeService(t *testing.T) {
 	}
 	_, err = execute([]string{"snapshot", "submit", "--dest", dir, "--change-id", "00000000-0000-0000-0000-000000000000"})
 	if err == nil || !strings.HasPrefix(err.Error(), "no materialization record for ") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+// Workers inspect their folder inside a sandbox that may only read their record and baseline.
+func TestSnapshotInspectionLeavesTheHomeUntouched(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	home, dest := filepath.Join(root, "runtime"), filepath.Join(root, "work")
+	manifest := `{"entries":[],"repositories":[{"commit":"` + strings.Repeat("a", 40) + `","path":"repo","repository":"r"}]}`
+	sum := sha256.Sum256([]byte(manifest))
+	id := "sha256:" + hex.EncodeToString(sum[:])
+	baseline := filepath.Join(home, "snapshots", hex.EncodeToString(sum[:]))
+	for _, directory := range []string{filepath.Join(baseline, "tree"), filepath.Join(home, "materializations"), filepath.Join(dest, "repo")} {
+		if err := os.MkdirAll(directory, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for path, body := range map[string]string{
+		filepath.Join(baseline, "manifest.json"):                                                     manifest,
+		filepath.Join(baseline, "complete"):                                                          id + "\n",
+		filepath.Join(home, "materializations", fmt.Sprintf("%x.json", sha256.Sum256([]byte(dest)))): fmt.Sprintf(`{"destination":%q,"snapshot_id":%q}`, dest, id),
+		filepath.Join(dest, "repo", "new.txt"):                                                       "new\n",
+	} {
+		if err := os.WriteFile(path, []byte(body), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chmod(home, 0500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(home, 0700) })
+	t.Setenv("ATLAS_RUNTIME_HOME", home)
+	for _, command := range []string{"status", "diff"} {
+		result, err := execute([]string{"snapshot", command, "--dest", dest})
+		if err != nil || result["snapshot_id"] != id || result["clean"] != false {
+			t.Fatalf("%s: %v %v", command, result, err)
+		}
+		if info, err := os.Stat(home); err != nil || info.Mode().Perm() != 0500 {
+			t.Fatalf("%s changed the home: %v %v", command, info, err)
+		}
+	}
+	missing := filepath.Join(root, "missing")
+	t.Setenv("ATLAS_RUNTIME_HOME", missing)
+	if _, err := execute([]string{"snapshot", "status", "--dest", dest}); err == nil || !strings.HasPrefix(err.Error(), "no materialization record for ") {
+		t.Fatalf("got %v", err)
+	}
+	if _, err := os.Stat(missing); !os.IsNotExist(err) {
+		t.Fatalf("status created the home: %v", err)
+	}
+	t.Setenv("ATLAS_RUNTIME_HOME", "relative")
+	if _, err := execute([]string{"snapshot", "diff", "--dest", dest}); err == nil || err.Error() != "ATLAS_RUNTIME_HOME must be an absolute path" {
 		t.Fatalf("got %v", err)
 	}
 }
