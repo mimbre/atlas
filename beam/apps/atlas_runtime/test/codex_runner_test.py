@@ -16,6 +16,8 @@ from unittest.mock import patch
 
 
 HELPER = Path(__file__).resolve().parents[1] / 'priv' / 'native_runner.py'
+sys.path.insert(0, str(HELPER.parent))
+import native_workspace
 spec = importlib.util.spec_from_file_location('native_runner', HELPER)
 runner = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(runner)
@@ -29,7 +31,7 @@ class ClaudeRepositoryLifecycleTest(unittest.TestCase):
         self.repo = self.root / 'repo'
         self.repo.mkdir()
         subprocess.run(['git', 'init', '-q', str(self.repo)], check=True)
-        self.scope = runner.permission_scope(str(self.repo))
+        self.scope = native_workspace.permission_scope(str(self.repo))
         self.capture = self.root / 'owned-temp.txt'
         self.native = self.root / 'fixture-native'
 
@@ -105,7 +107,7 @@ class ClaudeRepositoryLifecycleTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             with self.assertRaisesRegex(ValueError, 'outside system temporary directories'):
                 runner.claude_repository_settings(
-                    runner.dedicated_scope(Path(directory).resolve()), '/private-owned')
+                    native_workspace.dedicated_scope(Path(directory).resolve()), '/private-owned')
 
     def test_native_temp_byte_limit_fails_closed_before_fallback(self):
         suffix = len(os.fsencode(f'/claude-{os.getuid()}'))
@@ -118,6 +120,16 @@ class ClaudeRepositoryLifecycleTest(unittest.TestCase):
                 runner.claude_repository_settings(self.scope, temporary)
         with self.assertRaisesRegex(ValueError, '44-byte'):
             runner.claude_repository_settings(self.scope, '/' + 'é' * 22)
+
+    def test_trust_service_access_is_macos_only_and_exact(self):
+        for platform in ('darwin', 'linux'):
+            with self.subTest(platform=platform), patch.object(runner.sys, 'platform', platform):
+                settings = runner.claude_repository_settings(self.scope, '/private-owned')
+                network = settings['sandbox']['network']
+                if platform == 'darwin':
+                    self.assertEqual(network['allowMachLookup'], ['com.apple.trustd.agent'])
+                else:
+                    self.assertNotIn('allowMachLookup', network)
 
     def test_long_home_refuses_native_and_removes_created_temp(self):
         process = self.launch(self.scope, home=self.root)
@@ -384,7 +396,7 @@ class DedicatedRepositoryTest(unittest.TestCase):
                         '--allow-empty', '-qm', 'initial'], check=True)
 
     def test_only_independent_canonical_repository_root_is_accepted(self):
-        scope = runner.permission_scope(str(self.repo))
+        scope = native_workspace.permission_scope(str(self.repo))
         self.assertEqual(scope['root'], str(self.repo))
         self.assertEqual(scope['git_dir'], str(self.repo / '.git'))
         alias = self.root / 'alias'
@@ -396,23 +408,23 @@ class DedicatedRepositoryTest(unittest.TestCase):
                         '-b', 'other', str(worktree)], check=True)
         for path in (alias, child, worktree, self.repo):
             with self.subTest(path=path), self.assertRaises(ValueError):
-                runner.permission_scope(str(path))
+                native_workspace.permission_scope(str(path))
 
     def test_external_and_shared_metadata_are_rejected(self):
         metadata = self.repo / '.git'
         alternate = metadata / 'objects/info/alternates'
         alternate.write_text(str(self.root / 'objects') + '\n')
         with self.assertRaises(ValueError):
-            runner.permission_scope(str(self.repo))
+            native_workspace.permission_scope(str(self.repo))
         alternate.unlink()
         linked = metadata / 'linked'
         linked.symlink_to(self.root, target_is_directory=True)
         with self.assertRaises(ValueError):
-            runner.permission_scope(str(self.repo))
+            native_workspace.permission_scope(str(self.repo))
         linked.unlink()
         os.link(metadata / 'HEAD', self.root / 'shared-head')
         with self.assertRaises(ValueError):
-            runner.permission_scope(str(self.repo))
+            native_workspace.permission_scope(str(self.repo))
 
     def test_project_config_cannot_override_permission_profile(self):
         for directory in (self.repo, self.root):
@@ -420,7 +432,7 @@ class DedicatedRepositoryTest(unittest.TestCase):
             config.mkdir()
             (config / 'config.toml').write_text('sandbox_mode = "read-only"\n')
             with self.assertRaises(ValueError):
-                runner.permission_scope(str(self.repo))
+                native_workspace.permission_scope(str(self.repo))
             (config / 'config.toml').unlink()
             config.rmdir()
 
@@ -446,11 +458,12 @@ class ProvisioningTest(unittest.TestCase):
             f"    args[1:1] = ['-c', 'url.{self.source.as_uri()}.insteadOf={self.url}']\n"
             "os.execvp(args[0], args)\n")
         self.bridge.chmod(0o700)
-        self.request = runner.repository_request(str(self.root / 'runtime'), self.url, 'task/first')
+        self.request = native_workspace.repository_request(str(self.root / 'runtime'), self.url, 'task/first')
         self.repo = Path(self.request['permissions']['root'])
         self.repo.mkdir(parents=True)
-        runner.prepare_repository(str(self.bridge), self.request['permissions'],
-                                  self.request['repository'], True)
+        self.command_prefix = [str(self.bridge), '-C', str(self.repo), '--']
+        native_workspace.prepare_repository(self.request['permissions'],
+                                            self.request['repository'], True, self.command_prefix)
 
     def git(self, cwd, *args):
         return subprocess.check_output(
@@ -458,9 +471,9 @@ class ProvisioningTest(unittest.TestCase):
              '-c', 'user.email=test@example.invalid', *args], text=True).strip()
 
     def prepare(self, branch):
-        request = runner.repository_request(str(self.root / 'runtime'), self.url, branch)
-        return runner.prepare_repository(str(self.bridge), request['permissions'],
-                                         request['repository'], False)
+        request = native_workspace.repository_request(str(self.root / 'runtime'), self.url, branch)
+        return native_workspace.prepare_repository(request['permissions'],
+                                                   request['repository'], False, self.command_prefix)
 
     def test_reuse_uses_fresh_develop_and_preserves_prior_task_commit(self):
         self.git(self.repo, 'commit', '--allow-empty', '-qm', 'task change')
@@ -478,11 +491,11 @@ class ProvisioningTest(unittest.TestCase):
         saved = {**self.request['repository'], 'base_sha': head}
         (self.repo / 'unfinished.txt').write_text('keep working\n')
         self.git(self.source, 'commit', '--allow-empty', '-qm', 'new remote base')
-        runner.prepare_repository(str(self.bridge), self.request['permissions'], saved, False)
+        native_workspace.prepare_repository(self.request['permissions'], saved, False, self.command_prefix)
         self.assertEqual(self.git(self.repo, 'rev-parse', 'HEAD'), head)
         self.git(self.repo, 'checkout', '-qb', 'different-task')
         with self.assertRaises(ValueError):
-            runner.prepare_repository(str(self.bridge), self.request['permissions'], saved, False)
+            native_workspace.prepare_repository(self.request['permissions'], saved, False, self.command_prefix)
         self.assertEqual(self.git(self.repo, 'branch', '--show-current'), 'different-task')
         self.assertEqual((self.repo / 'unfinished.txt').read_text(), 'keep working\n')
 
@@ -525,10 +538,10 @@ class ProvisioningTest(unittest.TestCase):
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             with self.assertRaises(ValueError):
-                runner.lock_repository(str(self.repo), False)
+                native_workspace.lock_repository(str(self.repo), False)
         finally:
             os.close(lock)
-        acquired, created = runner.lock_repository(str(self.repo), False)
+        acquired, created = native_workspace.lock_repository(str(self.repo), False)
         self.assertFalse(created)
         os.close(acquired)
 
@@ -548,7 +561,7 @@ class ProvisioningTest(unittest.TestCase):
                 ('https://github.com/test/../repo', 'task/new'),
                 (self.url, 'develop'), (self.url, '../branch'), (self.url, '--force')):
             with self.subTest(url=url, branch=branch), self.assertRaises(ValueError):
-                runner.repository_request(str(self.root / 'runtime'), url, branch)
+                native_workspace.repository_request(str(self.root / 'runtime'), url, branch)
 
 
 if __name__ == '__main__':
