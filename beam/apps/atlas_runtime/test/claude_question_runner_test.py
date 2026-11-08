@@ -16,6 +16,8 @@ import unittest
 
 
 HELPER = Path(__file__).resolve().parents[1] / 'priv' / 'native_runner.py'
+sys.path.insert(0, str(HELPER.parent))
+import native_workspace
 spec = importlib.util.spec_from_file_location('question_native_runner', HELPER)
 runner = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(runner)
@@ -401,7 +403,7 @@ class QuestionProcessTest(unittest.TestCase):
         scope = None
         if scoped:
             subprocess.run(['git', 'init', '-q', str(self.workspace)], check=True)
-            scope = runner.permission_scope(str(self.workspace))
+            scope = native_workspace.permission_scope(str(self.workspace))
         self.process = subprocess.Popen(
             [sys.executable, str(HELPER), str(self.native), str(self.workspace), str(self.root),
              'fixture assignment', '' if scoped else 'read-only', '', json.dumps(scope),
