@@ -11,7 +11,7 @@ atlas-runtime stop
 atlas-runtime service stop
 ```
 
-Commands return one JSON response, except `output --follow`, which streams JSON lines. `start` returns while the selected native agent runs. `stop` stops only the selected worker's agent, not the service. `service stop` stops all workers and then the daemon; a partial stop failure retains completed stops and refuses shutdown. `service status` exposes a `workers` map. Single-worker `agent_state`/stop `agent` fields remain available only when unambiguous. No automatic daemon startup, assignment retries or stdin session. Command failures exit nonzero. A successful `status` or `output` query exits zero even for a failed turn, retaining its `state: "failed"`, `error`, ID and artifact location.
+Commands return one JSON response, except `output --follow`, which streams JSON lines. `start` returns while the selected native agent runs. `stop` stops only the selected worker's agent, not the service. `service stop` stops all workers and then the daemon; a partial stop failure retains completed stops and refuses shutdown. If every worker stopped but the stop reply was lost (for example, the caller's 30 s deadline expired first), the daemon still refuses new work, `service status` reports `service: "stopping"`, and repeating `service stop` completes the shutdown. `service status` exposes a `workers` map. Single-worker `agent_state`/stop `agent` fields remain available only when unambiguous. No automatic daemon startup, assignment retries or stdin session. Command failures exit nonzero. A successful `status` or `output` query exits zero even for a failed turn, retaining its `state: "failed"`, `error`, ID and artifact location.
 
 ## Explicit concurrent workers
 

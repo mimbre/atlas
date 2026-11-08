@@ -69,6 +69,19 @@ defmodule AtlasRuntime.Service do
     end
   end
 
+  # A completed service-stop whose caller disappeared has stopped every worker and still refuses
+  # new work, so status and a repeated stop stay available; the repeat only requests shutdown.
+  defp command(%{"command" => "service-status"} = request, %{stopping: true} = state)
+       when map_size(request) == 1,
+       do: service_status(state, "stopping")
+
+  defp command(%{"command" => "service-stop"} = request, %{stopping: true} = state)
+       when map_size(request) == 1 do
+    reply = %{service: "stopping", workers: worker_runs(state)}
+    run = sole_run(state)
+    {if(run, do: Map.put(reply, :agent, run), else: reply), state, true}
+  end
+
   defp command(_, %{stopping: true}), do: raise("Runtime service is stopping")
 
   defp command(%{"command" => name} = request, state)
@@ -94,11 +107,7 @@ defmodule AtlasRuntime.Service do
   defp command(%{"worker_id" => _}, _),
     do: raise("This command does not accept a worker")
 
-  defp command(%{"command" => "service-status"}, state) do
-    reply = %{service: "running", pid: System.pid(), workers: worker_runs(state)}
-    run = sole_run(state)
-    {if(run, do: Map.put(reply, :agent_state, run.state), else: reply), state, false}
-  end
+  defp command(%{"command" => "service-status"}, state), do: service_status(state, "running")
 
   defp command(%{"command" => "service-stop"}, state) do
     {workers, errors} =
@@ -148,6 +157,12 @@ defmodule AtlasRuntime.Service do
   end
 
   defp command(_, _), do: raise("Unknown or malformed command")
+
+  defp service_status(state, service) do
+    reply = %{service: service, pid: System.pid(), workers: worker_runs(state)}
+    run = sole_run(state)
+    {if(run, do: Map.put(reply, :agent_state, run.state), else: reply), state, false}
+  end
 
 
 

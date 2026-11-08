@@ -9,6 +9,10 @@ defmodule AtlasRuntime.ServiceTest do
   defmodule OwnedProcess do
     use GenServer
     def init(reply), do: {:ok, reply}
+    def handle_call(:stop, _from, {:delay, milliseconds, reply} = state) do
+      Process.sleep(milliseconds)
+      {:reply, reply, state}
+    end
     def handle_call(:stop, _from, reply), do: {:reply, reply, reply}
     def handle_call({:answer, question_id, answers}, {caller, _}, reply) do
       send(caller, {:answer_write, question_id, answers})
@@ -277,6 +281,47 @@ defmodule AtlasRuntime.ServiceTest do
     assert Enum.map(events(next), & &1["worker_id"]) == ["alpha", "gamma"]
     assert {:noreply, next} = Service.handle_info({:DOWN, beta.monitor, :process, beta.agent, :failed}, next)
     assert next.workers["beta"].run.state == "failed"
+  end
+
+  test "a completed service-stop whose caller disappeared still answers status and a repeated stop", %{state: state} do
+    # A Service process, without its socket, owning one worker whose stop outlasts the first caller.
+    alpha = worker(state, "alpha", 1, stop_reply: {:delay, 300, :ok}).workers["alpha"]
+    service =
+      :proc_lib.spawn(fn ->
+        alpha = %{alpha | monitor: Process.monitor(alpha.agent)}
+        :gen_server.enter_loop(Service, [], %{state | workers: %{"alpha" => alpha}})
+      end)
+    on_exit(fn -> Process.exit(service, :kill) end)
+
+    caller = spawn(fn -> GenServer.call(service, %{"command" => "service-stop"}, 50) end)
+    caller_ref = Process.monitor(caller)
+    assert_receive {:DOWN, ^caller_ref, :process, ^caller, {:timeout, _}}, 1_000
+
+    # The Service finishes the stop after its caller is gone, so the socket never requests shutdown.
+    stopped = :sys.get_state(service)
+    assert stopped.stopping
+    assert stopped.workers["alpha"].agent == nil
+    assert stopped.workers["alpha"].run.state == "stopped"
+    assert Process.alive?(service)
+
+    # The CLI's status preflight before it retries the stop.
+    assert {%{service: "stopping", agent_state: "stopped", workers: %{"alpha" => %{state: "stopped"}}},
+            false} = GenServer.call(service, %{"command" => "service-status"})
+
+    # New work and malformed service commands still refuse.
+    for request <- [%{"command" => "start", "worker_id" => "beta", "cwd" => state.dir, "assignment" => "next"},
+                    %{"command" => "start", "request_id" => "retry-1", "cwd" => state.dir, "assignment" => "next"},
+                    %{"command" => "continue", "worker_id" => "alpha", "assignment" => "next"},
+                    %{"command" => "stop", "worker_id" => "alpha"},
+                    %{"command" => "service-stop", "worker_id" => "alpha"}] do
+      assert {%{command_error: "Runtime service is stopping"}, false} = GenServer.call(service, request)
+    end
+
+    # The repeated stop returns the shutdown flag the socket acts on.
+    assert {%{service: "stopping", workers: %{"alpha" => %{state: "stopped"}}, agent: %{state: "stopped"}},
+            true} = GenServer.call(service, %{"command" => "service-stop"})
+    assert Enum.map(ExecutionEvents.query(:sys.get_state(service).events, nil, 100)["events"],
+             &{&1["worker_id"], &1["kind"]}) == [{"alpha", "execution_stopped"}]
   end
 
   test "workspace preflight blocks identical, nested, parent and symlink aliases in every sandbox", %{state: state} do
