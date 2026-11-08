@@ -64,9 +64,11 @@ defmodule AtlasRuntime.Agent.Native do
            ((sandbox == "read-only" && is_nil(scope) && is_nil(repository)) ||
               (is_nil(sandbox) && is_map(scope) && scope["profile"] == "dedicated-repository")))
 
-    if command && python && AtlasRuntime.Workspaces.valid_request?(workspace, sandbox, scope, repository) &&
+    if command && python &&
+         AtlasRuntime.Workspaces.valid_request?(workspace, sandbox, scope, repository) &&
          is_binary(goal) && String.trim(goal) != "" && supported &&
-         valid_model && is_boolean(questions_enabled) && (not questions_enabled or backend == "claude") &&
+         valid_model && is_boolean(questions_enabled) &&
+         (not questions_enabled or backend == "claude") &&
          (is_nil(session) || (is_binary(session) && session != "")) do
       File.mkdir_p!(folder)
       helper = Path.join(:code.priv_dir(:atlas_runtime), "runtime/entrypoint.py")
@@ -110,6 +112,7 @@ defmodule AtlasRuntime.Agent.Native do
          question: NativeQuestion.new(questions_enabled),
          model: nil,
          session: nil,
+         launch: nil,
          quota_seen: false,
          monitor: monitor,
          port: port,
@@ -132,7 +135,8 @@ defmodule AtlasRuntime.Agent.Native do
       command = JSON.encode!(%{command: "answer", question_id: question_id, answers: answers})
 
       if write_control(state.port, command <> "\n") do
-        {:noreply, %{state | question: NativeQuestion.await_delivery(state.question, question_id, from)}}
+        {:noreply,
+         %{state | question: NativeQuestion.await_delivery(state.question, question_id, from)}}
       else
         {:stop, :native_transport_closed, {:error, :native_transport_closed},
          %{state | question: NativeQuestion.clear(state.question)}}
@@ -157,7 +161,8 @@ defmodule AtlasRuntime.Agent.Native do
   end
 
   def handle_info({:answer_timeout, id}, %{question: %{waiter: {id, _, _}}} = state),
-    do: {:stop, :answer_delivery_timeout, %{state | question: NativeQuestion.clear(state.question)}}
+    do:
+      {:stop, :answer_delivery_timeout, %{state | question: NativeQuestion.clear(state.question)}}
 
   def handle_info({port, {:data, {:noeol, part}}}, %{port: port} = state) do
     if byte_size(state.partial) + byte_size(part) > 2_097_152,
@@ -201,24 +206,26 @@ defmodule AtlasRuntime.Agent.Native do
     ArgumentError -> false
   end
 
-  defp consume(%{"type" => "runtime.process_ended", "exit_code" => code}, state),
-    do: %{state | process_exit: code}
+  defp consume(%{"type" => "runtime.process_ended", "exit_code" => code} = record, state),
+    do: %{NativeEvents.ended(record, state) | process_exit: code}
 
   defp consume(%{"type" => "runtime.repository_prepared", "repository" => repository}, state) do
     send(state.owner, {:agent, self(), {:repository, repository}})
     state
   end
 
-  defp consume(%{"type" => "runtime.question"} = record,
-         %{stopping: nil, completed: false, failed: false} = state),
-    do: %{state | question: NativeQuestion.consume(record, state.question, state.owner)}
+  defp consume(
+         %{"type" => "runtime.question"} = record,
+         %{stopping: nil, completed: false, failed: false} = state
+       ),
+       do: %{state | question: NativeQuestion.consume(record, state.question, state.owner)}
 
   defp consume(%{"type" => "runtime.answer_processed"} = record, %{stopping: nil} = state),
     do: %{state | question: NativeQuestion.consume(record, state.question, state.owner)}
 
   defp consume(%{"type" => type} = record, state)
        when type in ["runtime.answer_delivered", "runtime.answer_rejected"],
-    do: %{state | question: NativeQuestion.consume(record, state.question, state.owner)}
+       do: %{state | question: NativeQuestion.consume(record, state.question, state.owner)}
 
   defp consume(record, state) do
     state = NativeEvents.consume(record, state)
@@ -228,7 +235,6 @@ defmodule AtlasRuntime.Agent.Native do
       else: state
   end
 
-
   @impl true
   def terminate(_, state) do
     NativeQuestion.clear(state.question)
@@ -237,5 +243,4 @@ defmodule AtlasRuntime.Agent.Native do
   rescue
     ArgumentError -> :ok
   end
-
 end

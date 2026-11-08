@@ -63,6 +63,6 @@ class Protocol:
         if event.get('type') == 'result' and isinstance(event.get('result'), str):
             (self.folder / 'answer.txt').write_text(event['result'])
 
-    def complete(self, workspace, started_at, stopped):
+    def complete(self, stopped):
         if self.session and not self.session_seen and not stopped:
             raise ValueError('Claude resume ended without confirming its session')

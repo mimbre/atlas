@@ -1,11 +1,44 @@
 defmodule AtlasRuntime.Providers.NativeEvents do
   @moduledoc "Interpret official provider records without owning their process or transport."
 
+  alias AtlasRuntime.Providers.Codex
+
+  @doc """
+  The host's process end. A confirmed Codex session that was not stopped looks up its
+  actual model before the runner exits, so identity precedes terminal completion.
+  """
+  def ended(
+        %{"stopped" => false},
+        %{backend: "codex", session: session, launch: %{} = launch} = state
+      )
+      when is_binary(session),
+      do:
+        identify(
+          state,
+          Codex.model(session, launch.workspace, launch.codex_home, launch.started_at)
+        )
+
+  def ended(_, state), do: state
+
+  # The host reports the exact launch time, workspace and Codex home its child received.
   def consume(
-        %{"type" => "runtime.identity", "backend" => "codex", "model" => model},
+        %{
+          "type" => "runtime.process_started",
+          "started_at" => started_at,
+          "workspace" => workspace,
+          "codex_home" => home
+        },
         %{backend: "codex"} = state
-      ),
-      do: identify(state, model)
+      )
+      when is_binary(started_at) and is_binary(workspace) and is_binary(home) do
+    case DateTime.from_iso8601(started_at) do
+      {:ok, started_at, _} ->
+        %{state | launch: %{started_at: started_at, workspace: workspace, codex_home: home}}
+
+      _ ->
+        state
+    end
+  end
 
   def consume(
         %{
@@ -37,7 +70,7 @@ defmodule AtlasRuntime.Providers.NativeEvents do
       )
       when is_binary(id) and id != "" do
     send(state.owner, {:agent, self(), {:session, id}})
-    state
+    %{state | session: id}
   end
 
   def consume(
