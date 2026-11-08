@@ -9,18 +9,31 @@ defmodule AtlasRuntime.Service do
   alias AtlasRuntime.QuestionRecords
   alias AtlasRuntime.Entrypoints.Socket
   alias AtlasRuntime.Handoffs.Commands, as: Handoffs
+  alias AtlasRuntime.Integrations.AtlasServer.Lifecycle
   alias AtlasRuntime.Interactions.Commands, as: Interactions
   alias AtlasRuntime.Persistence.History
   alias AtlasRuntime.Workspaces
   import AtlasRuntime.Execution.Identity
 
-  def start(dir), do: GenServer.start_link(__MODULE__, dir, name: __MODULE__)
+  @doc "Start the service; `server` (without its token) opts into Atlas Server lifecycle reporting."
+  def start(dir, server \\ nil), do: GenServer.start_link(__MODULE__, {dir, server}, name: __MODULE__)
 
-  def init(dir) do
+  def init(dir) when is_binary(dir), do: init({dir, nil, []})
+  def init({dir, server}), do: init({dir, server, []})
+
+  # `reporting` is explicit dependency injection for private proof tests (bounded Talk timing).
+  def init({dir, server, reporting}) do
     policy = BackendPolicy.load(dir)
     events = History.recover(dir)
     Socket.start(dir, __MODULE__)
-    {:ok, %{dir: dir, policy: policy, events: events, workers: %{}, stopping: false}}
+    state = %{dir: dir, policy: policy, events: events, workers: %{}, stopping: false}
+
+    if server do
+      {:ok, reporter} = Lifecycle.start(server, reporting)
+      {:ok, Map.put(state, :server, %{config: server, reporter: reporter})}
+    else
+      {:ok, state}
+    end
   end
 
 
@@ -368,6 +381,9 @@ defmodule AtlasRuntime.Service do
     run = if repository, do: Map.put(run, :repository, repository), else: run
     run = if admission, do: Map.put(run, :request_id, elem(admission, 0)), else: run
     run = if source_turn_id, do: Map.put(run, :source_turn_id, source_turn_id), else: run
+    # The Server identity is part of the turn from its first persistence, before any report.
+    server = Lifecycle.identity(state[:server][:config], worker_id, key)
+    run = if server, do: Map.put(run, :server, server), else: run
 
     record =
       if admission do
@@ -442,7 +458,24 @@ defmodule AtlasRuntime.Service do
     end
   end
 
+  # Exact correlation: a report changes only the turn with this local ID and attempt.
+  def handle_info({:server_report, turn, attempt, report}, state) do
+    case Enum.find(state.workers, fn {_id, worker} -> worker.run[:id] == turn end) do
+      {id, %{run: %{server: %{"attempt" => ^attempt} = server}} = worker} ->
+        {:noreply, update_run(state, id, worker, Map.put(worker.run, :server, Map.put(server, "report", report)))}
+
+      nil ->
+        History.server_report(state.dir, turn, attempt, report)
+        {:noreply, state}
+
+      _ ->
+        {:noreply, state}
+    end
+  end
+
   def handle_info(:shutdown, state) do
+    # Ends already asked for get a bounded moment; Server never holds the exit up longer.
+    if state[:server], do: Lifecycle.flush(state.server.reporter, 5_000)
     System.stop(0)
     {:noreply, state}
   end
@@ -471,8 +504,11 @@ defmodule AtlasRuntime.Service do
   defp agent_message({:session, session}, id, worker, state),
     do: update_run(state, id, worker, Map.put(worker.run, :session_id, session))
 
-  defp agent_message({:activity, text}, id, worker, state),
-    do: put_worker(state, id, %{worker | run: Map.put(worker.run, :activity, text)})
+  defp agent_message({:activity, text}, id, worker, state) do
+    if state[:server] && worker.run[:server],
+      do: Lifecycle.activity(state.server.reporter, worker.run, text)
+    put_worker(state, id, %{worker | run: Map.put(worker.run, :activity, text)})
+  end
 
   defp agent_message({:ended, text}, id, worker, state) do
     Process.demonitor(worker.monitor, [:flush])
@@ -492,8 +528,26 @@ defmodule AtlasRuntime.Service do
 
   defp record_changes(previous, next) do
     {events, workers} = History.checkpoint(next.dir, next.events, previous.workers, next.workers)
-    %{next | events: events, workers: workers}
+    next = %{next | events: events, workers: workers}
+    report(previous, next)
+    next
   end
+
+  # After the checkpoint: a reported turn is in turn.json before the reporter hears of it.
+  defp report(previous, %{server: %{reporter: reporter}} = next) do
+    Enum.each(next.workers, fn {id, worker} ->
+      old = Map.get(previous.workers, id, idle_worker(id)).run
+      new? = worker.run[:id] != old[:id]
+
+      if worker.run[:server] do
+        if new?, do: Lifecycle.started(reporter, worker.run)
+        if worker.run.state in ["stopped", "finished", "failed"] and (new? or worker.run.state != old.state),
+          do: Lifecycle.ended(reporter, worker.run)
+      end
+    end)
+  end
+
+  defp report(_previous, _next), do: :ok
 
   defp overlapping_paths?(left, right) do
     left == right or String.starts_with?(left, right <> "/") or
