@@ -557,7 +557,7 @@ func TestPeerCorrelationRequiresExactTargetsAndNoDispatchOptions(t *testing.T) {
 func TestSnapshotMaterializeNeedsExactFlagsAndNoRuntimeService(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("ATLAS_RUNTIME_HOME", dir)
-	usage := "use snapshot materialize --snapshot sha256:HEX --dest NEW_PATH, snapshot status|diff --dest PATH [--path REPO_PATH]..., or snapshot submit --dest PATH [--path REPO_PATH] --change-id UUID"
+	usage := "use snapshot materialize --snapshot sha256:HEX --dest NEW_PATH, snapshot status|diff --dest PATH [--path REPO_PATH]..., snapshot submit --dest PATH [--path REPO_PATH] --change-id UUID, or snapshot rebind --dest PATH"
 	for _, args := range [][]string{
 		{"snapshot"},
 		{"snapshot", "download"},
@@ -569,6 +569,8 @@ func TestSnapshotMaterializeNeedsExactFlagsAndNoRuntimeService(t *testing.T) {
 		{"snapshot", "status", "--dest", dir, "extra"},
 		{"snapshot", "submit", "--dest", dir},
 		{"snapshot", "submit", "--change-id", "00000000-0000-0000-0000-000000000000"},
+		{"snapshot", "rebind"},
+		{"snapshot", "rebind", "--dest", dir, "extra"},
 	} {
 		if _, err := execute(args); err == nil || err.Error() != usage {
 			t.Fatalf("%q: %v", args, err)
@@ -578,6 +580,7 @@ func TestSnapshotMaterializeNeedsExactFlagsAndNoRuntimeService(t *testing.T) {
 		{"snapshot", "status", "--snapshot", "sha256:x", "--dest", dir},
 		{"snapshot", "materialize", "--path", "beta", "--dest", dir},
 		{"snapshot", "submit", "--snapshot", "sha256:x", "--dest", dir, "--change-id", "x"},
+		{"snapshot", "rebind", "--path", "beta", "--dest", dir},
 	} {
 		if _, err := execute(args); err == nil || !strings.Contains(err.Error(), "flag provided but not defined") {
 			t.Fatalf("%q: %v", args, err)
@@ -588,6 +591,10 @@ func TestSnapshotMaterializeNeedsExactFlagsAndNoRuntimeService(t *testing.T) {
 	_, err := execute([]string{"snapshot", "materialize", "--snapshot", id, "--dest", filepath.Join(dir, "work")})
 	if err == nil || !strings.HasPrefix(err.Error(), "Code service unavailable: not configured; write ") {
 		t.Fatalf("got %v", err)
+	}
+	// Rebind reaches the folder without the Runtime socket; this one was never materialized.
+	if _, err = execute([]string{"snapshot", "rebind", "--dest", dir}); err == nil || !strings.HasPrefix(err.Error(), "no materialization record for ") {
+		t.Fatalf("rebind: %v", err)
 	}
 	// Status and diff reach inspection offline too; this folder was never materialized.
 	for _, command := range []string{"status", "diff"} {
@@ -613,7 +620,7 @@ func TestSnapshotInspectionLeavesTheHomeUntouched(t *testing.T) {
 		t.Fatal(err)
 	}
 	home, dest := filepath.Join(root, "runtime"), filepath.Join(root, "work")
-	manifest := `{"entries":[],"repositories":[{"commit":"` + strings.Repeat("a", 40) + `","path":"repo","repository":"r"}]}`
+	manifest := `{"entries":[],"repositories":[{"path":"repo","repository":"r","revision":"rev_` + strings.Repeat("a", 64) + `"}],"version":2}`
 	sum := sha256.Sum256([]byte(manifest))
 	id := "sha256:" + hex.EncodeToString(sum[:])
 	baseline := filepath.Join(home, "snapshots", hex.EncodeToString(sum[:]))

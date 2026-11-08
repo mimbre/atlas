@@ -208,7 +208,8 @@ defmodule AtlasRuntime.CommandAdmissions do
   defp valid_repository?(%{"repository" => repository, "permissions" => scope, "session_id" => session})
        when is_map(repository) and is_map(scope) do
     sha = ~r/\A(?:[0-9a-f]{40}|[0-9a-f]{64})\z/
-    # Fresh starts carry Code's resolved commit; admissions saved before Code carry only branch and url.
+    # Fresh starts carry only branch and url; admissions recorded while Code resolved the base also
+    # carry its commit, and stay valid as recorded.
     valid_revision =
       case {is_nil(session), Enum.sort(Map.keys(repository))} do
         {true, ~w(branch url)} -> true

@@ -2,8 +2,6 @@ package snapshot
 
 import (
 	"archive/tar"
-	"bytes"
-	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -24,14 +22,14 @@ const changeA = "0b5e1d4c-8f7a-4c2b-9d3e-1a2b3c4d5e6f"
 // fakeCode implements the change endpoints of Code's group 6, including its request shape,
 // replacement and idempotency rules, closely enough to exercise Submit.
 type fakeCode struct {
-	base    map[string]map[string]bool // repository → base paths relative to its root
-	bodies  map[string][]byte
-	entries map[string][]map[string]any
-	blobs   map[string][]byte // "<change id>/<sha256>"
-	commits map[string]string
-	log     []string
-	puts    int
-	failPut int // the PUT with this 1-based number loses its connection
+	base      map[string]map[string]bool // repository → base paths relative to its root
+	bodies    map[string][]byte
+	entries   map[string][]map[string]any
+	blobs     map[string][]byte // "<change id>/<sha256>"
+	revisions map[string]string
+	log       []string
+	puts      int
+	failPut   int // the PUT with this 1-based number loses its connection
 }
 
 func (c *fakeCode) handle(w http.ResponseWriter, r *http.Request) bool {
@@ -50,7 +48,9 @@ func (c *fakeCode) handle(w http.ResponseWriter, r *http.Request) bool {
 		}
 		id, _ := request["change_id"].(string)
 		if old, ok := c.bodies[id]; ok {
-			if !bytes.Equal(old, body) {
+			// Code compares its canonical JSON, so key order is not part of a request.
+			var stored any
+			if json.Unmarshal(old, &stored) != nil || !reflect.DeepEqual(stored, any(request)) {
 				codeError(w, 409, "conflict", "change_id was already used with a different body")
 				return true
 			}
@@ -85,9 +85,9 @@ func (c *fakeCode) handle(w http.ResponseWriter, r *http.Request) bool {
 			codeError(w, 422, "incomplete_upload", "Upload every blob before sealing")
 			return true
 		}
-		if c.commits[id] == "" {
-			sum := sha1.Sum(c.bodies[id])
-			c.commits[id] = hex.EncodeToString(sum[:])
+		if c.revisions[id] == "" {
+			sum := sha256.Sum256(c.bodies[id])
+			c.revisions[id] = "rev_" + hex.EncodeToString(sum[:])
 		}
 		c.state(w, id)
 	default:
@@ -152,8 +152,8 @@ func (c *fakeCode) missing(id string) []string {
 
 func (c *fakeCode) state(w http.ResponseWriter, id string) {
 	reply := map[string]any{"change_id": id, "state": "open", "missing": c.missing(id)}
-	if commit := c.commits[id]; commit != "" {
-		reply["state"], reply["missing"], reply["commit"] = "sealed", []string{}, commit
+	if revision := c.revisions[id]; revision != "" {
+		reply["state"], reply["missing"], reply["revision"] = "sealed", []string{}, revision
 	}
 	json.NewEncoder(w).Encode(reply)
 }
@@ -162,7 +162,7 @@ func (c *fakeCode) state(w http.ResponseWriter, id string) {
 func submitFixture(t *testing.T, both bool, members ...member) (*fixture, *fakeCode, string, string) {
 	t.Helper()
 	repositories, entries := []repository{one}, []entry{}
-	code := &fakeCode{base: map[string]map[string]bool{one.Repository: {}, two.Repository: {"b.txt": true}}, bodies: map[string][]byte{}, entries: map[string][]map[string]any{}, blobs: map[string][]byte{}, commits: map[string]string{}}
+	code := &fakeCode{base: map[string]map[string]bool{one.Repository: {}, two.Repository: {"b.txt": true}}, bodies: map[string][]byte{}, entries: map[string][]map[string]any{}, blobs: map[string][]byte{}, revisions: map[string]string{}}
 	for _, m := range members {
 		code.base[one.Repository][m.name] = true
 		switch {
@@ -272,11 +272,11 @@ func TestSubmitConvertsEveryChangeKindAndSeals(t *testing.T) {
 	var request map[string]any
 	must(t, json.Unmarshal(code.bodies[changeA], &request))
 	delete(request, "entries")
-	if !reflect.DeepEqual(request, map[string]any{"change_id": changeA, "snapshot_id": id, "repository": one.Repository, "base_commit": one.Commit}) {
+	if !reflect.DeepEqual(request, map[string]any{"change_id": changeA, "snapshot_id": id, "repository": one.Repository, "base_revision": one.Revision}) {
 		t.Fatalf("request: %v", request)
 	}
-	commit := code.commits[changeA]
-	if !reflect.DeepEqual(result, map[string]any{"snapshot_id": id, "repository": one.Repository, "path": "one", "base_commit": one.Commit, "change_id": changeA, "state": "sealed", "commit": commit}) || len(commit) != 40 {
+	revision := code.revisions[changeA]
+	if !reflect.DeepEqual(result, map[string]any{"snapshot_id": id, "repository": one.Repository, "path": "one", "base_revision": one.Revision, "change_id": changeA, "state": "sealed", "revision": revision}) || len(revision) != 68 {
 		t.Fatalf("result: %v", result)
 	}
 	// Every file write was uploaded once with its exact bytes (the fake verifies each digest); links never are.
@@ -292,7 +292,7 @@ func TestSubmitConvertsEveryChangeKindAndSeals(t *testing.T) {
 	// The other repository is untouched by that change and submits on its own.
 	result, err = Submit(f.home, dest, "two", "1b5e1d4c-8f7a-4c2b-9d3e-1a2b3c4d5e6f")
 	must(t, err)
-	if result["repository"] != two.Repository || result["base_commit"] != two.Commit || result["state"] != "sealed" ||
+	if result["repository"] != two.Repository || result["base_revision"] != two.Revision || result["state"] != "sealed" ||
 		!reflect.DeepEqual(code.entries["1b5e1d4c-8f7a-4c2b-9d3e-1a2b3c4d5e6f"], []map[string]any{written("b.txt", "100644", "BETA\n")}) {
 		t.Fatalf("two: %v %v", result, code.entries)
 	}
@@ -303,12 +303,12 @@ func TestCleanRepositoryMakesNoRequest(t *testing.T) {
 	must(t, os.Remove(filepath.Join(f.home, "code.json"))) // not even Code's configuration is read
 	result, err := Submit(f.home, dest, "", changeA)
 	must(t, err)
-	if !reflect.DeepEqual(result, map[string]any{"snapshot_id": id, "repository": one.Repository, "path": "one", "base_commit": one.Commit, "change_id": changeA, "state": "clean", "commit": nil}) || len(code.log) != 0 {
+	if !reflect.DeepEqual(result, map[string]any{"snapshot_id": id, "repository": one.Repository, "path": "one", "base_revision": one.Revision, "change_id": changeA, "state": "clean", "revision": nil}) || len(code.log) != 0 {
 		t.Fatalf("got %v, log %v", result, code.log)
 	}
 }
 
-func TestRepeatResumesAPartialUploadAndReturnsTheSameCommit(t *testing.T) {
+func TestRepeatResumesAPartialUploadAndReturnsTheSameRevision(t *testing.T) {
 	f, code, _, dest := submitFixture(t, false, memberA, memberRun, memberL)
 	at := func(path string) string { return filepath.Join(dest, "one", path) }
 	must(t, os.WriteFile(at("a.txt"), []byte("changed"), 0644))
@@ -322,7 +322,7 @@ func TestRepeatResumesAPartialUploadAndReturnsTheSameCommit(t *testing.T) {
 		strings.Contains(err.Error(), token) {
 		t.Fatalf("got %v", err)
 	}
-	if len(code.log) != 3 || code.commits[changeA] != "" || len(code.missing(changeA)) != 2 {
+	if len(code.log) != 3 || code.revisions[changeA] != "" || len(code.missing(changeA)) != 2 {
 		t.Fatalf("log %v", code.log)
 	}
 	noTemporaries(t, f.home)
@@ -332,16 +332,16 @@ func TestRepeatResumesAPartialUploadAndReturnsTheSameCommit(t *testing.T) {
 	result, err := Submit(f.home, dest, "one", changeA)
 	must(t, err)
 	wantLog := []string{"POST /v1/changes", "PUT /v1/changes/" + changeA + "/blobs/" + missing[0], "PUT /v1/changes/" + changeA + "/blobs/" + missing[1], "POST /v1/changes/" + changeA + "/seal"}
-	commit := code.commits[changeA]
-	if !reflect.DeepEqual(code.log, wantLog) || result["state"] != "sealed" || result["commit"] != commit || commit == "" {
+	revision := code.revisions[changeA]
+	if !reflect.DeepEqual(code.log, wantLog) || result["state"] != "sealed" || result["revision"] != revision || revision == "" {
 		t.Fatalf("got %v, log %v", result, code.log)
 	}
 
-	// A sealed change returns its commit without uploading or sealing again.
+	// A sealed change returns its revision without uploading or sealing again.
 	code.log = nil
 	result, err = Submit(f.home, dest, "one", changeA)
 	must(t, err)
-	if !reflect.DeepEqual(code.log, []string{"POST /v1/changes"}) || result["commit"] != commit {
+	if !reflect.DeepEqual(code.log, []string{"POST /v1/changes"}) || result["revision"] != revision {
 		t.Fatalf("got %v, log %v", result, code.log)
 	}
 
@@ -440,7 +440,7 @@ func TestUnrepresentableChangesAreRefusedBeforeSending(t *testing.T) {
 // A repository below another folder is hidden from the walk when that folder is replaced, which
 // must refuse instead of submitting the repository's base files as deletions.
 func TestReplacedRepositoryAncestorIsRefused(t *testing.T) {
-	nested := repository{Commit: strings.Repeat("c", 40), Path: "x/app", Repository: "github.com/test/app"}
+	nested := repository{Revision: "rev_" + strings.Repeat("c", 64), Path: "x/app", Repository: "github.com/test/app"}
 	setup := func(t *testing.T) (*fixture, *fakeCode, string, string) {
 		t.Helper()
 		id, raw := snapshotOf(t, []repository{nested, two}, file(nested, "a.txt", "100644", "alpha"), file(two, "b.txt", "100644", "beta"))
@@ -448,7 +448,7 @@ func TestReplacedRepositoryAncestorIsRefused(t *testing.T) {
 		dest := filepath.Join(f.parent, "work")
 		_, err := Materialize(f.home, id, dest)
 		must(t, err)
-		code := &fakeCode{base: map[string]map[string]bool{nested.Repository: {"a.txt": true}, two.Repository: {"b.txt": true}}, bodies: map[string][]byte{}, entries: map[string][]map[string]any{}, blobs: map[string][]byte{}, commits: map[string]string{}}
+		code := &fakeCode{base: map[string]map[string]bool{nested.Repository: {"a.txt": true}, two.Repository: {"b.txt": true}}, bodies: map[string][]byte{}, entries: map[string][]map[string]any{}, blobs: map[string][]byte{}, revisions: map[string]string{}}
 		f.hook = code.handle
 		return f, code, id, dest
 	}

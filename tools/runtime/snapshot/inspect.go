@@ -73,13 +73,23 @@ func openFolder(home, dest string) (*folder, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err = rebound(home, dest); err != nil {
+		return nil, err
+	}
+	return openRecorded(home, dest)
+}
+
+// openRecorded opens the canonical folder dest from its record and verified baseline.
+func openRecorded(home, dest string) (*folder, error) {
 	id, err := recorded(home, dest)
 	if err != nil {
 		return nil, err
 	}
 	baseline := filepath.Join(home, "snapshots", strings.TrimPrefix(id, "sha256:"))
 	m, entries, err := loadBaseline(baseline, id)
-	if err != nil {
+	if errors.Is(err, errPredates) {
+		return nil, fmt.Errorf("materialization %s predates revision handles; run atlas-runtime snapshot rebind --dest %s", dest, dest)
+	} else if err != nil {
 		return nil, err
 	}
 	return &folder{dest: dest, id: id, baseline: baseline, m: m, entries: entries}, nil
@@ -202,6 +212,9 @@ func materialized(dest string) (string, error) {
 	return dest, nil
 }
 
+// errPredates marks a baseline whose manifest predates revision handles: only Rebind reads it.
+var errPredates = errors.New("baseline predates revision handles")
+
 // recordPath is where Materialize records dest.
 func recordPath(home, dest string) string {
 	return filepath.Join(home, "materializations", fmt.Sprintf("%x.json", sha256.Sum256([]byte(dest))))
@@ -238,6 +251,12 @@ func loadBaseline(baseline, id string) (*manifest, map[string]*entry, error) {
 	}
 	if sum := sha256.Sum256(raw); "sha256:"+hex.EncodeToString(sum[:]) != id {
 		return nil, nil, fmt.Errorf("baseline manifest %s hashes to sha256:%x, not %s", filepath.Join(baseline, "manifest.json"), sum, id)
+	}
+	var version struct {
+		Version *int `json:"version"`
+	}
+	if json.Unmarshal(raw, &version) == nil && version.Version == nil {
+		return nil, nil, errPredates
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()

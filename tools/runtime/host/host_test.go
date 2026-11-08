@@ -487,7 +487,6 @@ printf '%s\n' '{"type":"thread.started","thread_id":"native-session"}' '{"type":
 	}
 
 	base := gitIn(t, source, "rev-parse", "HEAD")
-	request.Repository["resolved_commit"] = base
 	records := launch("", request.Repository)
 	prepared := records[1]["repository"].(map[string]any)
 	if prepared["base_sha"] != base || gitIn(t, root, "branch", "--show-current") != "task/first" {

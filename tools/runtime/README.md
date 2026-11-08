@@ -353,19 +353,9 @@ atlas-runtime start --repo https://github.com/eyra/atlas.git --branch work/serve
 
 The daemon manages one independent clone per worker and normalized owner/repository beneath its selected state directory: `workers/<worker>/repositories/<owner>/<repository>`. Each caller supplies its own task branch. Older managed paths remain available to their saved continuations; new starts use worker-specific paths without moving existing work. The URL must name `https://github.com/OWNER/REPO[.git]`, without embedded credentials, query strings or fragments. `--repo` and `--branch` must be supplied together with explicit dedicated-repository permissions, and cannot be combined with `--cwd` or `--sandbox`. Repository choice, branch name and assignment remain external decisions.
 
-Before anything is reserved or cloned, Runtime asks the separate local Code service to resolve `develop` of the normalized `github.com/OWNER/REPO`. It then clones an absent path, or reuses only a Runtime-marked independent clone with a matching origin and clean tracked/untracked state. It freshly fetches remote heads, checks that the Code-resolved commit is present, and creates the requested new branch at exactly that commit, recorded as `base_sha`. Existing local or remote task branches are refused, including `develop`. Dirty, unmanaged, mismatched or actively owned paths are refused without reset, stash, deletion or branch overwrite; ignored-file collisions also prevent checkout. Previous task branches/commits stay intact. Stale remote-tracking branches are not automatically pruned.
+Runtime clones an absent path, or reuses only a Runtime-marked independent clone with a matching origin and clean tracked/untracked state. It freshly fetches remote heads and creates the requested new branch at exactly the fetched `origin/develop`, recorded as `base_sha`. Existing local or remote task branches are refused, including `develop`. Dirty, unmanaged, mismatched or actively owned paths are refused without reset, stash, deletion or branch overwrite; ignored-file collisions also prevent checkout. Previous task branches/commits stay intact. Stale remote-tracking branches are not automatically pruned.
 
-Managed starts require Code. Start it as its own process and point Runtime at it:
-
-```sh
-# Code home: config.json {"port": 47100, "repositories": {"github.com/eyra/atlas": "https://github.com/eyra/atlas.git"}}
-# and runtime.token (mode 0600).
-(cd beam/apps/atlas_code && ATLAS_CODE_HOME=/abs/code-home mix atlas_code.server)
-# Runtime state dir (default ~/.local/state/atlas-runtime, or $ATLAS_RUNTIME_HOME):
-# code.json {"url": "http://127.0.0.1:47100", "token_file": "/abs/code-home/runtime.token"}
-```
-
-If Code is unconfigured, unreachable or refuses, `start` fails before any admission, clone or native process. The error starts with `Code service unavailable:` (missing configuration, connection failure, timeout) or `Code refused develop of github.com/OWNER/REPO:` (status, code and message). There is no local fallback. Continuation and `--cwd` starts never contact Code. Code only resolves revisions so far; clone, fetch and the other Git checks still run in the worker's sandboxed clone as described below.
+Managed starts do not use Code: this older Git-native profile resolves `develop` itself, in the worker's sandboxed clone. Admissions recorded while Code resolved the base keep their `resolved_commit` as recorded. Code serves materialized folders (snapshots, changes, reviews and integrations), which use only its opaque revision handles.
 
 Git preparation runs under the same native repository/network profile, using the existing GitHub credential helper without copying credentials or changing global Git config. The existing runner holds an advisory directory lock through preparation, native execution and process-group cleanup. Dedicated-repository starts, and legacy `--cwd` starts on a marked managed clone, honor that lock. The daemon also refuses canonical identical, nested or parent workspace overlap with any active worker, including symlink aliases and unscoped sandbox modes. Directory locks coordinate Runtime owners; they are not locks against humans or other tools that ignore them.
 
@@ -465,7 +455,7 @@ atlas-dev turns              # saved history across workers and restarts
 atlas-dev service stop
 ```
 
-Run one Code process per Code home: check the configured port first (`lsof -iTCP:PORT -sTCP:LISTEN`) rather than starting a duplicate. Ctrl-C stops Code; nothing restarts it. The Runtime home's `code.json` keeps pointing at that port and `runtime.token`. Existing homes, saved turns and the shared binary and daemon are reused unchanged; wrappers move or overwrite nothing. Rebuild into the instance home only after its daemon is stopped.
+Run one Code process per Code home; a second start, or `mix atlas_code.migrate`, is refused while `service.owner/` names a live owner. Stop Code with SIGTERM (`kill PID`): it stops serving, then releases the home. Ctrl-C, a crash or SIGKILL leaves the home owned, and the next start prints the stale owner's ID; once that process has stopped, recover with `ATLAS_CODE_HOME=/abs/code-home mix atlas_code.unlock --owner OWNER` (refused while `ps` cannot show the PID gone). Nothing restarts Code. The Runtime home's `code.json` keeps pointing at that port and `runtime.token`. Existing homes, saved turns and the shared binary and daemon are reused unchanged; wrappers move or overwrite nothing. Rebuild into the instance home only after its daemon is stopped.
 
 ## Model-free native sandbox verification
 
