@@ -63,6 +63,11 @@ jobs:
         with:
           otp-version: "28"
           elixir-version: "1.18"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: false
+      - run: go test ../tools/runtime/*.go
       - run: python3 -m pip install -r ../rela/scripts/requirements.txt
       - run: mix compile --warnings-as-errors
       - run: mix format --check-formatted

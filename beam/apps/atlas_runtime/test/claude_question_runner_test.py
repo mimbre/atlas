@@ -17,7 +17,9 @@ import unittest
 
 HELPER = Path(__file__).resolve().parents[1] / 'priv' / 'native_runner.py'
 sys.path.insert(0, str(HELPER.parent))
-import native_workspace
+import workspace_client
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from workspace_test_support import setup_workspace_cli
 spec = importlib.util.spec_from_file_location('question_native_runner', HELPER)
 runner = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(runner)
@@ -27,6 +29,10 @@ TOOLS = ['Read', 'Glob', 'Grep', 'AskUserQuestion']
 QUESTION = {'question': 'Which value?', 'header': 'Value', 'multiSelect': False,
             'options': [{'label': '11', 'description': 'First'},
                         {'label': '23', 'description': 'Second'}]}
+
+
+def setUpModule():
+    setup_workspace_cli()
 
 
 def assistant(session=SESSION, tool='tool-1'):
@@ -403,7 +409,7 @@ class QuestionProcessTest(unittest.TestCase):
         scope = None
         if scoped:
             subprocess.run(['git', 'init', '-q', str(self.workspace)], check=True)
-            scope = native_workspace.permission_scope(str(self.workspace))
+            scope = workspace_client.request('scope', str(self.workspace))
         self.process = subprocess.Popen(
             [sys.executable, str(HELPER), str(self.native), str(self.workspace), str(self.root),
              'fixture assignment', '' if scoped else 'read-only', '', json.dumps(scope),

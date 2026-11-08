@@ -15,7 +15,7 @@ import time
 import tempfile
 import uuid
 
-import native_workspace
+import workspace_client
 
 
 def emit(event):
@@ -104,9 +104,11 @@ def execute_assignment(workspace, scope, repository, created, backend, folder, e
             raise ValueError('Managed repository preparation requires the installed Codex sandbox')
         command_prefix = [executable, 'sandbox', '-P', 'atlas_repository', '-C', workspace,
                           *permission_arguments(scope), '--']
-        prepared = native_workspace.prepare_repository(scope, repository, created, command_prefix)
+        prepared = workspace_client.request('prepare', payload={
+            'scope': scope, 'repository': repository, 'created': created,
+            'command_prefix': command_prefix})
         emit({'type': 'runtime.repository_prepared', 'repository': prepared})
-    if scope is not None and scope != native_workspace.permission_scope(workspace):
+    if scope is not None and scope != workspace_client.request('scope', workspace):
         raise ValueError('Dedicated repository permission scope changed')
     if backend == 'claude':
         context = claude_context(workspace, scope)
@@ -392,15 +394,6 @@ class QuestionHost:
 
 
 def main():
-    if len(sys.argv) == 3 and sys.argv[1] == '--workspace-path':
-        print(json.dumps(str(Path(sys.argv[2]).resolve())))
-        return
-    if len(sys.argv) == 3 and sys.argv[1] == '--permission-scope':
-        print(json.dumps(native_workspace.permission_scope(sys.argv[2])))
-        return
-    if len(sys.argv) == 5 and sys.argv[1] == '--repository-request':
-        print(json.dumps(native_workspace.repository_request(*sys.argv[2:])))
-        return
     if len(sys.argv) > 9 and sys.argv[1] == '--execute-assignment':
         execute_assignment(sys.argv[2], json.loads(sys.argv[3]), json.loads(sys.argv[4]),
                            json.loads(sys.argv[5]), sys.argv[6], sys.argv[7],
@@ -427,7 +420,7 @@ def main():
             raise ValueError('Claude resume requires a confirmed UUID, model and saved execution context')
     if len(extra) > 6 or (scope is None and sandbox not in ('read-only', 'workspace-write')):
         raise ValueError('Sandbox must be read-only or workspace-write')
-    if repository is not None and (scope != native_workspace.dedicated_scope(Path(workspace)) or
+    if repository is not None and (scope != workspace_client.request('dedicated-scope', workspace) or
                                    bool(session) != ('base_sha' in repository)):
         raise ValueError('Managed repository context does not match this start or continuation')
     if scope is not None:
@@ -516,12 +509,12 @@ def main():
         with (folder / 'stderr.log').open('wb') as errors, (folder / 'stream.jsonl').open('wb') as output:
             if scope is not None or (Path(workspace) / '.git/atlas-runtime-repository.json').exists():
                 try:
-                    lock, created = native_workspace.lock_repository(workspace, repository is not None and not session)
+                    lock, created = workspace_client.acquire(workspace, repository is not None and not session)
                 except Exception as error:
                     errors.write(str(error).encode())
                     raise
                 if backend == 'claude' and scope is not None:
-                    if repository is None and scope != native_workspace.permission_scope(workspace):
+                    if repository is None and scope != workspace_client.request('scope', workspace):
                         raise ValueError('Dedicated repository permission scope changed')
                     native_temporary = tempfile.mkdtemp(prefix='.ac-', dir=Path.home().resolve())
                     command[1:1] = ['--settings', json.dumps(
