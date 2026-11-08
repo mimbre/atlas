@@ -201,6 +201,18 @@ defmodule AtlasRuntime.ServiceTest do
     error(state, %{"command" => "output", "turn_id" => invalid}, "Invalid saved worker ID")
   end
 
+  test "without server.json a turn carries no Server identity and nothing reports", %{state: state} do
+    state = worker(state, "alpha", 1)
+    alpha = state.workers["alpha"]
+    {:noreply, state} = Service.handle_info({:agent, alpha.agent, {:activity, "active"}}, state)
+    {:noreply, state} = Service.handle_info({:agent, alpha.agent, {:ended, "done"}}, state)
+    {:noreply, state} = Service.handle_info({:server_report, alpha.run.id, "attempt", %{}}, state)
+    refute Map.has_key?(state, :server)
+    refute Map.has_key?(state.workers["alpha"].run, :server)
+    refute Map.has_key?(JSON.decode!(File.read!(Path.join(alpha.run.artifacts, "turn.json"))), "server")
+    refute_received {:"$gen_cast", _}
+  end
+
   test "owned pid and exact monitor route identity, activity, completion and failure", %{state: state} do
     state = state |> worker("alpha", 1) |> worker("beta", 2, backend: "claude")
     alpha = state.workers["alpha"]

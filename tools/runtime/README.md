@@ -1,6 +1,6 @@
 # Runtime service and CLI
 
-One Go command-line client, a separate Elixir Runtime daemon, and explicitly targeted concurrent native workers. Each worker has at most one active execution. Codex remains the default without configured preferences; Claude requires explicit selection or an explicit preference. No Atlas server connection or orchestration. Runtime and Bus are the only Atlas applications started; State, Flow, Control and Rela are not started.
+One Go command-line client, a separate Elixir Runtime daemon, and explicitly targeted concurrent native workers. Each worker has at most one active execution. Codex remains the default without configured preferences; Claude requires explicit selection or an explicit preference. No Atlas server connection, unless explicitly opted into [lifecycle reporting](#optional-atlas-server-lifecycle-reporting), and no orchestration. Runtime and Bus are the only Atlas applications started; State, Flow, Control and Rela are not started.
 
 ```sh
 atlas-runtime service start
@@ -391,6 +391,30 @@ atlas-runtime output --turn turn-0123456789abcdef
 History survives daemon restart, but `status` still starts idle and plain `continue` does not select saved history. Only explicit `continue --turn ID` selects a saved successful conversation. Older artifact folders without metadata remain readable with state `unknown`; missing assignment/timestamp/session fields are not guessed. A saved `running` turn no longer owned by this daemon is shown as `unknown` with `recorded_state: running`, not claimed to be active or successful. No automatic restart, crash recovery, retention/deletion policy or server connection is introduced.
 
 Requires the normal Elixir/OTP/Mix toolchain and the selected official CLI (`codex` or `claude`) on PATH. First service start compiles Runtime and Bus into its own build directory. `ATLAS_RUNTIME_HOME=/absolute/path` selects an isolated instance; use it consistently across commands. Directory aliases are resolved before building, including macOS `/tmp` → `/private/tmp`, so Mix's relative `priv` links resolve correctly.
+
+## Optional Atlas Server lifecycle reporting
+
+Opt-in, and lifecycle only. Write `server.json` in the Runtime home before `service start`:
+
+```json
+{"environment": "test", "machine": "laptop-runtime", "host": "127.0.0.1", "port": 4100,
+ "token_file": "server.token", "workers": ["runner"]}
+```
+
+Without `server.json`, nothing changes: no Bus link, no reporter, no extra `turn.json` fields. If it is present but invalid, the service refuses to start. `machine` must be a valid, explicit name dedicated to this service; never use a machine a connected Engine already uses. The Bus link token is bound to that machine. A local check cannot prove that no other node uses the name: an actual link or attach conflict shows up as an unconfirmed report. `token_file` must be a regular file inside the Runtime home, with no symbolic link on its path, owned by the home's owner and readable by nobody else (`chmod 600`). Invalid files are refused, never repaired. The token goes only to the Bus link. It is never put in the environment, native input, status, history or artifacts. The Bus link client keeps it out of its supervisor child spec and start arguments, and holds it only in an opaque closure. Printed diagnostics (default and SASL crash reports, failure arguments, a caller's exit) therefore show `#Function<…>` instead. This protects printed output only: code in the same VM can still read the token, for example from the application env or the process state.
+
+`workers` controls reporting only. For each turn of a listed worker (each must be an existing Server agent), the service saves a `server` record in `turn.json` before any remote write: `environment`, `machine`, `worker`, the Server turn `TU-<machine>-<local turn ID>` and a fresh `attempt`. Local turn IDs never change. A background reporter then, as `runtime@<machine>`:
+
+1. creates that turn `running` on this machine, by its worker, without an item;
+2. registers that exact attempt's `worker_execution`, with harness `codex`/`claude`, harness version `unknown`, the requested model or `unknown`, and `queued_input`, `durable_accept_query` and `consumption_evidence` all `false`;
+3. renews `activity` and `lease_until` at most once per lease interval, as connected turns do;
+4. ends it `ended` with an empty lease, `ended_at`, and `why` `finished`, `failed: <error>` or `stopped`.
+
+It never sets a Flow outcome or item ownership, and Server gets no start, stop or guidance control over the native agent. Unlisted workers run as before, with no State writes.
+
+`status`, `turns` and `turn.json` show what Server confirmed, in `server.report`: `turn` (`unconfirmed`, `running`, `ended`), `execution` (`unconfirmed`, `registered`) and the last failure in `error` (for example `turn not created: State did not answer`). Each write is one bounded exchange, so a missing or refusing Server never delays or changes `start`, `output`, `stop` or the local terminal state. `service stop` stops the workers at once. The daemon then waits up to 5 s for pending reports before it exits, and the command returns once it has. With Server unreachable, a measured `service stop` took about 6 s in total.
+
+This is a best-effort mirror. There is no retry queue, replay, crash reconciliation or automatic recovery. A failed write stays failed. If the turn was never created, nothing more is written for it. A turn left `running` by a daemon that died keeps a lease that simply runs out. In this mode the existing output endpoint is not served over the link, so Server cannot read this service's output yet.
 
 ## Install
 

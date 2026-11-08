@@ -154,6 +154,20 @@ defmodule AtlasRuntime.Persistence.History do
     File.rename!(path <> ".tmp", path)
   end
 
+  @doc "A late Server report on a saved turn: kept only for its exact attempt."
+  def server_report(dir, turn, attempt, report) do
+    path = Path.join([dir, "turns", turn, "turn.json"])
+
+    with true <- valid_id?(turn),
+         {:ok, bytes} <- File.read(path),
+         {:ok, %{"id" => ^turn, "server" => %{"attempt" => ^attempt} = server} = run} <- JSON.decode(bytes) do
+      File.write!(path <> ".tmp", JSON.encode!(Map.put(run, "server", Map.put(server, "report", report))))
+      File.rename!(path <> ".tmp", path)
+    end
+
+    :ok
+  end
+
   def output(nil), do: %{answer: nil, recent_events: ""}
 
   def output(folder) do
