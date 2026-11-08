@@ -417,6 +417,22 @@ Real isolated proof used freshly fetched base `0b9c492d481f2fd6198df6f7c243c0b85
 
 No installation, default-daemon restart or deployment.
 
+2026-11-08: added Code snapshot creation, manifest and archive endpoints (`POST /v1/snapshots`, `GET /v1/snapshots/{id}/manifest`, `GET /v1/snapshots/{id}/archive?path=`); Runtime does not use them yet. `atlas_code` tests (8) passed. Separate Code process proof with local fixture repositories:
+
+- Repositories `app` at `edd24028318f6e47683a20b1eb36333f29bdcc06` and `docs` at `11b3c08253b271fe595101cc584c7dbea2b3bced` (mounted at `vendor/docs`) gave snapshot `sha256:122107cc10ce4e9f93d0f6f6674b2bbb911b3c34abb27801340fb7af70344e6d`.
+- The same ID came back for the reversed request, and it equals the sha256 of the canonical manifest.
+- Both archives matched every manifest entry: bytes and size, the executable bit on `bin/run.sh`, binary NUL content and the symlink target. They contained no `.git`, and `$Format:%H$` stayed unexpanded.
+- Refusals:
+  - wrong or missing token: 401;
+  - unknown commit: 404;
+  - `../x`, `/abs`, duplicate and nested paths: 400;
+  - repository not allowed: 403;
+  - escaping symlink: 422 `unsupported_content`;
+  - unknown snapshot: 404.
+- The token never appeared in responses or the log.
+
+Evidence: `/Users/melle/.ac-sn-r3489bll/code-snapshots-evidence.json`. No installation, default-daemon restart or deployment.
+
 2026-11-08: moved Claude `answer.txt` persistence from the Python provider into `AtlasRuntime.Agent.Native`. Session/model confirmation stays in Python, before records are forwarded. Each forwarded string result, error results included, overwrites the artifact before terminal notification; a failed write fails the turn. Focused native, admission, service, question, Codex and protocol ExUnit tests (84) and both Python runner modules (20 and 25) passed. In an isolated daemon, real Claude start `turn-3db17cd9af722dda` and saved continuation `turn-c8b6c3fe665d9d34` (same session/model/repository) had their saved answers returned by `output --turn`, including the question-dependent `ANSWER_BETA`; that answer was delivered and processed. Cancelled continuation `turn-3b52fce43ea74d83` wrote no answer, released its lock and removed its group/private temp. The daemon stopped; disposable binary/build/clone were removed. No installation, default-daemon restart or deployment.
 
 2026-11-08: moved Codex native hosting from the Python runner to the Go `atlas-runtime native-host` command. It keeps the same arguments, stdout records, stop control, diagnostics and artifacts; Claude stays on Python. Go packages (including race-checked host tests), both Python runner modules (25 and 20 tests) and 73 focused ExUnit tests passed. Isolated public-CLI proof ran two concurrent workers: read-only Codex `turn-1bbf325ed9afb4fb` and workspace-write `turn-3d84605e2fdd9249`, which created the requested file. Read-only continuation `turn-6b86db84a3a3f16a` kept session and model `gpt-6.1-sol` from rollout evidence. Managed repository start `turn-9c691e7ce2885bf2` provisioned a fresh branch at the fetched base, and continuation `turn-a8edc3e54d5fc863` read preserved unfinished bytes. During cancelled managed continuation `turn-c4c332cb95dfda73`, `ps` showed `atlas-runtime native-host` as the parent of the Codex group leader; stopping it released the directory lock and removed the group. After restart, saved-turn continuation `turn-4b4bfccadc4c3f53`, with a replaced session ID, failed as `{:codex_failed, 1, nil}` with `Native runner: Codex resume ended without confirming its session`. `service stop` during active managed turn `turn-09242c1c516e2cc5` reaped its group and released the lock. Claude start `turn-09052cd5ed27150b` with a delivered and processed question still ran on Python. Disposable binary, build and workspaces were removed. No installation, default-daemon restart or deployment.

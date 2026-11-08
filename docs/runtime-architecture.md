@@ -33,9 +33,9 @@ Runtime remains local-first, running native agent CLIs on macOS. Neither Linux n
 - Keep permission configuration and credential material outside agent-writable locations. Agents cannot expand their own permissions.
 - Atlas Server or the external coordinator still owns workflow authorization, acceptance, merge and release decisions. The local component executes authorized GitHub operations; centralizing credentials does not transfer orchestration to Runtime.
 
-### Code service: contract (step 2 implemented: health and resolve only)
+### Code service: contract (implemented: health, resolve and snapshots)
 
-Status: `GET /v1/health` and `POST /v1/revisions/resolve` are implemented in `beam/apps/atlas_code`. **Every other endpoint below remains a proposal.** Everything under "Current callers" was cited from source at `f4492cbeb0f199b0228282c507ae6f8f05b05596`; since step 2, the fresh-start base is Code's `resolve` result rather than `origin/develop` from the worker clone.
+Status: endpoints 1–5 below (health, resolve, snapshot creation, manifest, archive) are implemented in `beam/apps/atlas_code`. **Changes, publication and release remain proposals.** Runtime does not yet download or materialize snapshots. Everything under "Current callers" was cited from source at `f4492cbeb0f199b0228282c507ae6f8f05b05596`; since step 2, the fresh-start base is Code's `resolve` result rather than `origin/develop` from the worker clone.
 
 Decisions from Melle that this contract follows:
 - Code is a separate local Elixir service beside Runtime, reached over authenticated loopback HTTP. The same contract can later be hosted on Atlas Server. No VM, Linux, filesystem mount or private Git server is required, and Runtime keeps working without Atlas Server.
@@ -109,7 +109,7 @@ Every error response is `{"error": {"code": "<code>", "message": "<text>", "deta
 
 Responses are JSON, except archive and blob bodies, which are bytes.
 
-#### Endpoints (proposed)
+#### Endpoints (1–5 implemented, 6–8 proposed)
 
 1. **Health.** `GET /v1/health` → `{"service": "atlas-code", "version": "…"}`.
 2. **Exact-revision preparation.** `POST /v1/revisions/resolve`
@@ -123,6 +123,20 @@ Responses are JSON, except archive and blob bodies, which are bytes.
    - Idempotent: the same request returns the same ID. An unknown commit is a 404.
 4. **Snapshot manifest.** `GET /v1/snapshots/{id}/manifest` → `{"snapshot_id", "entries": [{"repository", "path", "kind": "file|symlink", "mode": "100644|100755|120000", "size", "sha256", "target"?}]}`. The `target` field is present for symlinks only.
 5. **Snapshot archive.** `GET /v1/snapshots/{id}/archive?path=atlas` → a tar stream of the working tree only: no `.git`, no credentials, modes and symlinks preserved. Runtime verifies each entry against the manifest before materializing it.
+
+Snapshots as implemented:
+- **Cache:** Code keeps one private bare repository per allowed repository under `$ATLAS_CODE_HOME/cache/`. It fetches all branches with its credential helper when a requested commit is missing. Only commits reachable from a branch can be snapshotted; anything else is a 404. Snapshot manifests are stored once, atomically, under `$ATLAS_CODE_HOME/snapshots/`.
+- **Identity:** the snapshot ID is the sha256 of the canonical (sorted, compact) `{"entries", "repositories"}` JSON. Request order does not matter, and the commits are part of the identity. The manifest response also returns `repositories`, so Runtime can recompute the ID.
+- **Exact bytes:** manifest digests and archive contents are Git blob bytes as stored. `.gitattributes` effects (export-subst, export-ignore, filters, line-ending conversion) are never applied, which is why Code builds the archive itself instead of using `git archive`.
+- **Archive:** tar member names are relative to the repository root. Files have mode 0644 or 0755 and symlinks are tar symlinks. There are no directory entries and no `.git`. Headers are deterministic (mtime 0, uid/gid 0, pax for names over 100 bytes). The archive is streamed blob by blob with a `Content-Length`.
+- **Refused content:** `422 unsupported_content`, listing every offending entry, for:
+  - submodules (gitlinks);
+  - symlinks whose target is absolute, empty, not UTF-8 or escapes the repository root;
+  - file paths that are not UTF-8, contain control characters or backslashes, or have a `.git` segment;
+  - any other mode.
+- **Request errors:** unsafe snapshot paths and duplicate or nested paths are `400 invalid_request`, with the offending paths in `details`.
+- **LFS:** pointer files are ordinary bytes and are not expanded.
+- **Limits:** no timeout on Code's `git fetch`; archive reads time out after 60 s without data. Concurrent snapshots of the same repository are serialized but were not stress-tested. Files of 8 GiB or more are untested.
 6. **Change submission.** Three requests:
    1. `POST /v1/changes` with `{"change_id": "<caller UUID>", "snapshot_id", "repository", "base_commit", "entries": [{"path", "op": "write|delete", "kind", "mode", "size", "sha256", "target"?}]}`.
       - `base_commit` must equal that repository's commit in the snapshot; otherwise `409 base_mismatch`.
@@ -172,7 +186,7 @@ As implemented:
 - **Limits:** Code has no timeout of its own on a hanging `ls-remote` (Runtime gives up after 15 s). Oversized bodies get httpd's HTML 413. Runtime does not check `token_file` permissions. Same-user processes, including workers, can read the token file.
 
 Later bounded steps, each a separate assignment:
-1. Snapshot creation and archive in Code, plus Runtime materialization into worker folders with an immutable baseline.
+1. Runtime download and materialization of Code snapshots into worker folders, with an immutable baseline.
 2. Offline local status/diff in Runtime (Go) against the baseline.
 3. Change upload and sealing.
 4. Orchestrator-authorized publication.
