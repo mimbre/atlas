@@ -55,8 +55,12 @@ Agents' CLI calls still use the ordinary environment file and reach Control.
 The separate standalone `atlas-runtime` CLI runs native workers through a local Runtime
 service and Unix socket ([service guide](../../tools/runtime/README.md)). By default it
 has no Atlas Server connection. Optional `server.json` configuration reports allowlisted
-workers' lifecycle to Server for Console visibility; output streaming is not available
-in this mode yet. Server does not gain orchestration or worker controls through this
+workers' lifecycle to Server for Console visibility. It also serves those turns' live public
+output: the existing bounded output ring, keyed by each turn's exact persisted Server
+identity and attempt, is read through `runtime@<machine>/output` for the configured
+machine only, so Console uses the same exact-attempt output route as a connected node.
+Output is recorded locally and never waits for Server; a lost ring or link never affects
+the native turn. Server does not gain orchestration or worker controls through this
 connection. Local `status` and `output` remain usable without Server and do not establish
 registration of the connected `atlas runtime` node described here.
 

@@ -4,7 +4,8 @@ defmodule AtlasRuntime.ServerLifecycleTest do
   alias AtlasBus.Envelope
   alias AtlasRuntime.Agent.Native
   alias AtlasRuntime.Integrations.AtlasServer.Lifecycle
-  alias AtlasRuntime.{BackendPolicy, ExecutionEvents, Service}
+  alias AtlasRuntime.{BackendPolicy, ExecutionEvents, Output, OutputEndpoint, Service}
+  alias AtlasBFFContract.Wire.Runtime.OutputProtocol, as: Wire
 
   @moduletag capture_log: true
   @talk [talk: [tries: 1, wait: 300]]
@@ -159,6 +160,13 @@ defmodule AtlasRuntime.ServerLifecycleTest do
   end
 
   defp status(pid, worker), do: ok(pid, %{"command" => "status", "worker_id" => worker})
+
+  # The exact execution Output and Control key a reported turn's output by.
+  defp execution(server),
+    do: %{"worker" => Map.take(server, ~w(environment machine worker)), "turn" => server["turn"],
+          "attempt" => server["attempt"]}
+
+  defp events(%{"events" => events}), do: Enum.map(events, &Map.delete(&1, "sequence"))
   defp saved(run), do: Path.join(run.artifacts, "turn.json") |> File.read!() |> JSON.decode!()
 
   test "configuration is opt-in, exact, and keeps its token in the protected Runtime home", %{dir: dir} do
@@ -286,6 +294,53 @@ defmodule AtlasRuntime.ServerLifecycleTest do
     run = await(fn -> (r = status(pid, "alpha")) && r.state == "finished" && r.server["report"]["error"] && r end)
     assert run.server["report"]["error"] == "turn not created: State did not answer"
     assert ok(pid, %{"command" => "output", "worker_id" => "alpha"}).state == "finished"
+    # Output never waits for Server: it is retained, and closed, without one.
+    assert {:ok, %{"stream" => %{"ended" => true}} = read} = Output.read(execution(run.server), nil)
+    assert %{"kind" => "text", "text" => "Synthetic fixture completed"} in events(read)
+  end
+
+  test "a reported turn's public output is retained under its exact attempt and closed at its end",
+       %{dir: dir} do
+    start_supervised!({Store, agents: ["alpha", "beta"], dir: dir})
+    pid = launch(dir, config())
+    alpha = start(pid, "alpha", dir)
+    beta = start(pid, "beta", dir)
+    await(fn -> status(pid, "alpha").state == "finished" and status(pid, "beta").state == "finished" end)
+
+    exact = execution(alpha.server)
+    assert {:ok, %{"stream" => %{"execution" => ^exact, "ended" => true}, "more" => false} = read} =
+             Output.read(exact, nil)
+    # Only the provider's public projection: no native records, session or model input.
+    assert %{"kind" => "text", "text" => "Synthetic fixture completed"} in events(read)
+    assert Enum.all?(events(read), &(Map.keys(&1) -- ~w(kind text tool_name status) == []))
+
+    for wrong <- [put_in(exact["attempt"], "other-attempt"), put_in(exact["worker"]["machine"], "elsewhere"),
+                  put_in(exact["worker"]["worker"], "beta"), put_in(exact["turn"], alpha.id)],
+        do: assert(Output.snapshot(wrong) == {:error, "output_unavailable"})
+
+    # An unreported worker's turn keeps its local output only.
+    rings = :sys.get_state(Output).rings
+    refute Enum.any?(Map.keys(rings), fn key -> elem(key, 2) == "beta" or elem(key, 3) =~ beta.id end)
+
+    # Control reads it through the existing exact-attempt route of the configured machine.
+    client = "control/standalone-output-#{System.unique_integer([:positive])}"
+    :ok = AtlasBus.attach(client)
+    endpoint = start_supervised!({OutputEndpoint, machine: "box"})
+    envelope = %{Envelope.new("request", "runtime.output") | sender: client, address: "runtime@box/output"}
+
+    ask = fn operation, request ->
+      send(endpoint, {:atlas_bus, envelope, Wire.request(operation, Map.put(request, :id, envelope.id))})
+      assert_receive {:atlas_bus, %Envelope{class: "answer", id: id}, reply}
+      assert id == envelope.id
+      Wire.decode_reply(operation, reply)
+    end
+
+    assert {:ok, :result, %{"cursor" => cursor}} = ask.(:runtime_output_snapshot, %{execution: exact})
+    assert {:ok, :result, %{"stream" => %{"ended" => true}} = remote} =
+             ask.(:runtime_output_read, %{execution: exact, cursor: cursor})
+    assert events(remote) == events(read)
+    assert {:ok, :error, %{"error" => %{"code" => "output_unavailable"}}} =
+             ask.(:runtime_output_snapshot, %{execution: put_in(exact["attempt"], "other-attempt")})
   end
 
   describe "service reporting hooks" do
@@ -295,7 +350,7 @@ defmodule AtlasRuntime.ServerLifecycleTest do
               server: Lifecycle.identity(config(), "alpha", "turn-00000000000000a1")}
       File.mkdir_p!(run.artifacts)
       File.write!(Path.join(run.artifacts, "turn.json"), JSON.encode!(run))
-      {:ok, agent} = Agent.start(fn -> nil end)
+      agent = start_supervised!({Agent, fn -> nil end})
       state = %{dir: dir, policy: BackendPolicy.empty(), events: ExecutionEvents.open(dir), stopping: false,
                 server: %{config: config(), reporter: self()},
                 workers: %{"alpha" => %{agent: agent, monitor: Process.monitor(agent), run: run}}}
@@ -319,6 +374,37 @@ defmodule AtlasRuntime.ServerLifecycleTest do
       refute_received {:"$gen_cast", {:started, _}}
     end
 
+    test "public output goes to the exact attempt's ring, closed by every terminal path",
+         %{state: state, run: run} do
+      agent = state.workers["alpha"].agent
+      exact = execution(run.server)
+      # No ring was opened (as when it was lost): the turn's own next event opens one.
+      {:noreply, state} = Service.handle_info({:agent, agent, {:output, %{"kind" => "text", "text" => "one"}}}, state)
+      {:noreply, state} = Service.handle_info({:agent, agent, {:output, %{"kind" => "tool", "tool_name" => "Read", "status" => "started"}}}, state)
+      # Another process's output never reaches it.
+      {:noreply, ^state} = Service.handle_info({:agent, self(), {:output, %{"kind" => "text", "text" => "foreign"}}}, state)
+      assert {:ok, %{"stream" => %{"ended" => false}} = read} = Output.read(exact, nil)
+      assert events(read) == [%{"kind" => "text", "text" => "one"},
+                              %{"kind" => "tool", "tool_name" => "Read", "status" => "started"}]
+
+      {:noreply, ended} = Service.handle_info({:agent, agent, {:ended, "done"}}, state)
+      assert {:ok, %{"stream" => %{"ended" => true}}} = Output.snapshot(exact)
+      assert ended.workers["alpha"].run.state == "finished"
+
+      # A crashed agent's turn: the ring closes too, and later events are ignored.
+      next = %{run | id: "turn-00000000000000a2", artifacts: Path.join(Path.dirname(run.artifacts), "turn-00000000000000a2"),
+                     server: Lifecycle.identity(config(), "alpha", "turn-00000000000000a2")}
+      File.mkdir_p!(next.artifacts)
+      crashing = start_supervised!(Supervisor.child_spec({Agent, fn -> nil end}, id: :crashing_agent))
+      ref = Process.monitor(crashing)
+      state = put_in(state.workers["alpha"], %{agent: crashing, monitor: ref, run: next})
+      {:noreply, state} = Service.handle_info({:agent, crashing, {:output, %{"kind" => "text", "text" => "partial"}}}, state)
+      {:noreply, state} = Service.handle_info({:DOWN, ref, :process, crashing, :killed}, state)
+      {:noreply, _} = Service.handle_info({:agent, crashing, {:output, %{"kind" => "text", "text" => "late"}}}, state)
+      assert {:ok, %{"stream" => %{"ended" => true}} = read} = Output.read(execution(next.server), nil)
+      assert events(read) == [%{"kind" => "text", "text" => "partial"}]
+    end
+
     test "a late report changes a saved turn only for its exact attempt", %{state: state, run: run} do
       state = %{state | workers: %{}}
       ended = %{"turn" => "ended", "execution" => "registered", "error" => nil}
@@ -329,6 +415,7 @@ defmodule AtlasRuntime.ServerLifecycleTest do
       assert saved(run)["id"] == run.id
     end
   end
+
 
   test "the reporter renews activity and lease at most once per interval", %{dir: dir} do
     store = start_supervised!({Store, agents: ["alpha"], dir: dir})

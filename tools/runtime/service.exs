@@ -10,7 +10,8 @@ server = Lifecycle.load!(dir)
 if server do
   Application.put_env(:atlas_bus, :environment, server.environment, persistent: true)
   Application.put_env(:atlas_bus, :link, Lifecycle.link(server), persistent: true)
-  Application.put_env(:atlas_runtime, :server_lifecycle, true, persistent: true)
+  # Its output endpoint is this machine's: `runtime@<machine>/output`, the link's own.
+  Application.put_env(:atlas_runtime, :server_lifecycle, server.machine, persistent: true)
 end
 
 Application.put_env(:atlas_runtime, :start, false)

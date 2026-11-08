@@ -113,7 +113,10 @@ owned addressed Bus request route, Control subscription lifecycle, or Console
 consumer. Their declarations are not capability proof. Control must bound total
 subscriptions and send/request deadlines as well as each viewer's pending bytes;
 a slow viewer must reconcile explicitly without blocking Runtime or other viewers.
-Private snapshot attachment and the standalone Runtime CLI remain unchanged.
+Private snapshot attachment remains unchanged. The standalone Runtime service can
+opt into the same output route through `server.json`: public native output is kept
+under the persisted Server execution identity and attempt, and the endpoint uses
+the configured machine. Local CLI output remains available without Server.
 
 ### Declared Console worker actions
 
