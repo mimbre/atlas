@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -80,6 +81,9 @@ func Submit(home, dest, path, id string) (map[string]any, error) {
 			break
 		}
 	}
+	if err = f.ancestors(r); err != nil {
+		return nil, err
+	}
 	result := map[string]any{"snapshot_id": f.id, "repository": r.Repository, "path": r.Path, "base_commit": r.Commit, "change_id": id, "state": "clean", "commit": nil}
 	if len(changes) == 0 {
 		return result, nil
@@ -106,6 +110,9 @@ func Submit(home, dest, path, id string) (map[string]any, error) {
 	if changes, err = f.changes([]string{path}, false); err != nil {
 		return nil, err
 	}
+	if err = f.ancestors(r); err != nil {
+		return nil, err
+	}
 	again, err := f.convert(r, changes, "")
 	if err != nil {
 		return nil, err
@@ -126,6 +133,27 @@ func Submit(home, dest, path, id string) (map[string]any, error) {
 	}
 	result["state"], result["commit"] = "sealed", commit
 	return result, nil
+}
+
+// ancestors refuses an existing folder above repository r that is no longer a real directory:
+// the walk would not enter it, so every base file of r would become a deletion. A missing
+// folder is a deletion of the repository's content. Nothing is followed.
+func (f *folder) ancestors(r repository) error {
+	for i := range len(r.Path) {
+		if r.Path[i] != '/' {
+			continue
+		}
+		dir := r.Path[:i]
+		info, err := os.Lstat(filepath.Join(f.dest, filepath.FromSlash(dir)))
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		} else if err != nil {
+			return fmt.Errorf("cannot submit %s: %v", r.Path, reason(err))
+		} else if !info.IsDir() {
+			return fmt.Errorf("cannot submit %s: its folder %s is no longer a directory", r.Path, dir)
+		}
+	}
+	return nil
 }
 
 // convert turns repository r's changes into Code change entries in path order. With blobs set,
