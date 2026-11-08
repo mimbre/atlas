@@ -46,10 +46,29 @@ type inspection struct {
 	changes    []change
 }
 
+// folder is a destination published by Materialize, with its verified baseline.
+type folder struct {
+	dest, id, baseline string
+	m                  *manifest
+	entries            map[string]*entry
+}
+
 // Inspect compares the folder dest, published by Materialize, with its recorded baseline
 // without writing to either. paths selects repository paths; none selects every repository
 // and also reports anything outside them. diffs adds unified diffs for text content changes.
 func Inspect(home, dest string, paths []string, diffs bool) (map[string]any, error) {
+	f, err := openFolder(home, dest)
+	if err != nil {
+		return nil, err
+	}
+	changes, err := f.changes(paths, diffs)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"snapshot_id": f.id, "destination": f.dest, "clean": len(changes) == 0, "changes": changes}, nil
+}
+
+func openFolder(home, dest string) (*folder, error) {
 	dest, err := materialized(dest)
 	if err != nil {
 		return nil, err
@@ -63,6 +82,12 @@ func Inspect(home, dest string, paths []string, diffs bool) (map[string]any, err
 	if err != nil {
 		return nil, err
 	}
+	return &folder{dest: dest, id: id, baseline: baseline, m: m, entries: entries}, nil
+}
+
+// changes lists the folder's differences from its baseline sorted by path, as Inspect reports them.
+func (f *folder) changes(paths []string, diffs bool) ([]change, error) {
+	dest, m, entries := f.dest, f.m, f.entries
 	selected := m.Repositories
 	if len(paths) > 0 {
 		selected = nil
@@ -82,10 +107,10 @@ func Inspect(home, dest string, paths []string, diffs bool) (map[string]any, err
 		}
 	}
 
-	in := &inspection{dest: dest, tree: filepath.Join(baseline, "tree"), diffs: diffs}
+	in := &inspection{dest: dest, tree: filepath.Join(f.baseline, "tree"), diffs: diffs}
 	seen := map[string]bool{}
 	// WalkDir never follows symlinks, so a symlinked directory is compared as a link.
-	err = filepath.WalkDir(dest, func(name string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(dest, func(name string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return fmt.Errorf("cannot inspect %s: %v", name, err)
 		}
@@ -138,7 +163,7 @@ func Inspect(home, dest string, paths []string, diffs bool) (map[string]any, err
 	if in.changes == nil {
 		in.changes = []change{}
 	}
-	return map[string]any{"snapshot_id": id, "destination": dest, "clean": len(in.changes) == 0, "changes": in.changes}, nil
+	return in.changes, nil
 }
 
 // materialized resolves dest like Materialize did and requires an existing real directory there.

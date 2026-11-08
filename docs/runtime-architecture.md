@@ -35,7 +35,7 @@ Runtime remains local-first, running native agent CLIs on macOS. Neither Linux n
 
 ### Code service: contract (implemented: health, resolve, snapshots and change submission)
 
-Status: endpoints 1–6 below (health, resolve, snapshot creation, manifest, archive, change submission) are implemented in `beam/apps/atlas_code`. **Publication and release remain proposals.** Runtime can materialize a snapshot with `atlas-runtime snapshot materialize` and inspect it offline (below), but does not upload changes yet, and managed worker starts do not use snapshots yet. Everything under "Current callers" was cited from source at `f4492cbeb0f199b0228282c507ae6f8f05b05596`; since step 2, the fresh-start base is Code's `resolve` result rather than `origin/develop` from the worker clone.
+Status: endpoints 1–6 below (health, resolve, snapshot creation, manifest, archive, change submission) are implemented in `beam/apps/atlas_code`. **Publication and release remain proposals.** Runtime can materialize a snapshot, inspect it offline and submit a repository's changes as a sealed Code-private commit with `atlas-runtime snapshot materialize|status|diff|submit` (below). Managed worker starts do not use snapshots yet. Everything under "Current callers" was cited from source at `f4492cbeb0f199b0228282c507ae6f8f05b05596`; since step 2, the fresh-start base is Code's `resolve` result rather than `origin/develop` from the worker clone.
 
 Decisions from Melle that this contract follows:
 - Code is a separate local Elixir service beside Runtime, reached over authenticated loopback HTTP. The same contract can later be hosted on Atlas Server. No VM, Linux, filesystem mount or private Git server is required, and Runtime keeps working without Atlas Server.
@@ -234,11 +234,28 @@ Offline status and diff (implemented, `tools/runtime/snapshot/inspect.go`):
 - **Never written:** neither the destination nor the baseline.
 - **Limits:** every selected file is hashed on each run (no stat cache). Files over 1 MiB are reported without binary/text classification or diff. More than 2000 changed lines gives no text diff. Empty directories are not reported. Hunks can differ from GNU diff on ties.
 
+Folder submission (implemented, `tools/runtime/snapshot/submit.go`):
+- **Command:** `atlas-runtime snapshot submit --dest PATH [--path REPO_PATH] --change-id UUID` submits one repository of a materialized folder. `--path` may be omitted only when the folder has a single repository. The change ID must be a lowercase UUID chosen by the caller; reuse it to repeat or resume.
+- **Identity:** snapshot, repository and base come from the verified record, baseline and manifest (the same checks as `status`). Changes come from the same offline comparison. No Git runs.
+- **Conversion** (paths relative to the repository root):
+  - added or modified files become file writes with their exact bytes and mode; a mode-only change rewrites the same bytes with the new mode;
+  - symlinks are written with their target;
+  - deletions become deletes, and file, directory and link replacements carry the explicit deletes Code requires;
+  - empty directories cannot be represented and are ignored.
+- **Refused locally, never silently omitted:** FIFOs, sockets and devices; `.git` paths; absolute or escaping symlinks; a repository folder replaced by a non-directory; blobs over 64 MiB; a request over 1 MiB. Nothing is sent to Code.
+- **Consistency:** every written file is copied (opened `O_NOFOLLOW`) into a private 0700 folder under `<runtime home>/submissions/`. Entries are built from those copies, and the folder is scanned again. Any difference refuses with `folder … changed during submission; nothing was sent to Code`. Uploads come from the copies, which are removed afterwards. Neither the destination nor the baseline is written, and the baseline is never "advanced".
+- **Flow:** `POST /v1/changes`, `PUT` each missing blob, then `POST …/seal`.
+  - A clean repository returns `state: "clean", commit: null` without contacting Code.
+  - Success returns `{snapshot_id, repository, path, base_commit, change_id, state: "sealed", commit}`.
+  - An identical repeat returns the same commit; an already-sealed change needs only the POST. Changed content under the same ID surfaces Code's `409 conflict`.
+  - Any failure after or during the POST says the change is not confirmed sealed, that nothing was published, and to repeat the same command to resume. A resume uploads only what is still missing.
+  - No local submission record is kept; Code's state answers repeats.
+- **Limits:** a file that changes and changes back between the copy and the rescan is not detected (only identical bytes could pass). Path checks refuse at the first problem rather than listing all. Each Code read times out after 60 s, and a slower seal is reported as unavailable with the resume hint.
+
 Later bounded steps, each a separate assignment:
 1. Use materialized snapshots for worker starts.
-2. Runtime upload of offline changes to Code's change endpoints (Code side implemented).
-3. Orchestrator-authorized publication.
-4. Proof of the full local workflow. Only after that: withdraw worker GitHub access, remove the macOS trustd allowance where verified, then release.
+2. Orchestrator-authorized publication.
+3. Proof of the full local workflow. Only after that: withdraw worker GitHub access, remove the macOS trustd allowance where verified, then release.
 
 Open questions:
 - How the orchestrator token is provisioned to the external coordinator.

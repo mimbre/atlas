@@ -554,7 +554,7 @@ func TestPeerCorrelationRequiresExactTargetsAndNoDispatchOptions(t *testing.T) {
 func TestSnapshotMaterializeNeedsExactFlagsAndNoRuntimeService(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("ATLAS_RUNTIME_HOME", dir)
-	usage := "use snapshot materialize --snapshot sha256:HEX --dest NEW_PATH, or snapshot status|diff --dest PATH [--path REPO_PATH]..."
+	usage := "use snapshot materialize --snapshot sha256:HEX --dest NEW_PATH, snapshot status|diff --dest PATH [--path REPO_PATH]..., or snapshot submit --dest PATH [--path REPO_PATH] --change-id UUID"
 	for _, args := range [][]string{
 		{"snapshot"},
 		{"snapshot", "download"},
@@ -564,6 +564,8 @@ func TestSnapshotMaterializeNeedsExactFlagsAndNoRuntimeService(t *testing.T) {
 		{"snapshot", "status"},
 		{"snapshot", "diff", "--path", "beta"},
 		{"snapshot", "status", "--dest", dir, "extra"},
+		{"snapshot", "submit", "--dest", dir},
+		{"snapshot", "submit", "--change-id", "00000000-0000-0000-0000-000000000000"},
 	} {
 		if _, err := execute(args); err == nil || err.Error() != usage {
 			t.Fatalf("%q: %v", args, err)
@@ -572,6 +574,7 @@ func TestSnapshotMaterializeNeedsExactFlagsAndNoRuntimeService(t *testing.T) {
 	for _, args := range [][]string{
 		{"snapshot", "status", "--snapshot", "sha256:x", "--dest", dir},
 		{"snapshot", "materialize", "--path", "beta", "--dest", dir},
+		{"snapshot", "submit", "--snapshot", "sha256:x", "--dest", dir, "--change-id", "x"},
 	} {
 		if _, err := execute(args); err == nil || !strings.Contains(err.Error(), "flag provided but not defined") {
 			t.Fatalf("%q: %v", args, err)
@@ -589,5 +592,13 @@ func TestSnapshotMaterializeNeedsExactFlagsAndNoRuntimeService(t *testing.T) {
 		if err == nil || !strings.HasPrefix(err.Error(), "no materialization record for ") {
 			t.Fatalf("%s: %v", command, err)
 		}
+	}
+	// Submit validates the change ID before anything else, then needs the materialization record.
+	if _, err = execute([]string{"snapshot", "submit", "--dest", dir, "--change-id", "0000"}); err == nil || err.Error() != "change ID must be a lowercase UUID" {
+		t.Fatalf("got %v", err)
+	}
+	_, err = execute([]string{"snapshot", "submit", "--dest", dir, "--change-id", "00000000-0000-0000-0000-000000000000"})
+	if err == nil || !strings.HasPrefix(err.Error(), "no materialization record for ") {
+		t.Fatalf("got %v", err)
 	}
 }
