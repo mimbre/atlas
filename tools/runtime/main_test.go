@@ -550,3 +550,26 @@ func TestPeerCorrelationRequiresExactTargetsAndNoDispatchOptions(t *testing.T) {
 		}
 	}
 }
+
+func TestSnapshotMaterializeNeedsExactFlagsAndNoRuntimeService(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("ATLAS_RUNTIME_HOME", dir)
+	usage := "use snapshot materialize --snapshot sha256:HEX --dest NEW_PATH"
+	for _, args := range [][]string{
+		{"snapshot"},
+		{"snapshot", "download"},
+		{"snapshot", "materialize", "--snapshot", "sha256:x"},
+		{"snapshot", "materialize", "--dest", filepath.Join(dir, "work")},
+		{"snapshot", "materialize", "--snapshot", "sha256:x", "--dest", filepath.Join(dir, "work"), "extra"},
+	} {
+		if _, err := execute(args); err == nil || err.Error() != usage {
+			t.Fatalf("%q: %v", args, err)
+		}
+	}
+	// Reaches materialization without the Runtime socket; Code is not configured here.
+	id := "sha256:" + strings.Repeat("0", 64)
+	_, err := execute([]string{"snapshot", "materialize", "--snapshot", id, "--dest", filepath.Join(dir, "work")})
+	if err == nil || !strings.HasPrefix(err.Error(), "Code service unavailable: not configured; write ") {
+		t.Fatalf("got %v", err)
+	}
+}

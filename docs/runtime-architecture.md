@@ -35,7 +35,7 @@ Runtime remains local-first, running native agent CLIs on macOS. Neither Linux n
 
 ### Code service: contract (implemented: health, resolve and snapshots)
 
-Status: endpoints 1–5 below (health, resolve, snapshot creation, manifest, archive) are implemented in `beam/apps/atlas_code`. **Changes, publication and release remain proposals.** Runtime does not yet download or materialize snapshots. Everything under "Current callers" was cited from source at `f4492cbeb0f199b0228282c507ae6f8f05b05596`; since step 2, the fresh-start base is Code's `resolve` result rather than `origin/develop` from the worker clone.
+Status: endpoints 1–5 below (health, resolve, snapshot creation, manifest, archive) are implemented in `beam/apps/atlas_code`. **Changes, publication and release remain proposals.** Runtime can materialize a snapshot with `atlas-runtime snapshot materialize` (below), but managed worker starts do not use it yet. Everything under "Current callers" was cited from source at `f4492cbeb0f199b0228282c507ae6f8f05b05596`; since step 2, the fresh-start base is Code's `resolve` result rather than `origin/develop` from the worker clone.
 
 Decisions from Melle that this contract follows:
 - Code is a separate local Elixir service beside Runtime, reached over authenticated loopback HTTP. The same contract can later be hosted on Atlas Server. No VM, Linux, filesystem mount or private Git server is required, and Runtime keeps working without Atlas Server.
@@ -185,8 +185,15 @@ As implemented:
 - **Remaining Git responsibilities:** clone, fetch, origin and dirty checks still run inside the worker's sandboxed clone with the user's `gh` credential helper. Code only runs `ls-remote` through the same helper.
 - **Limits:** Code has no timeout of its own on a hanging `ls-remote` (Runtime gives up after 15 s). Oversized bodies get httpd's HTML 413. Runtime does not check `token_file` permissions. Same-user processes, including workers, can read the token file.
 
+Runtime snapshot materialization (implemented, Go package `tools/runtime/snapshot`):
+- **Command:** `atlas-runtime snapshot materialize --snapshot sha256:<hex> --dest NEW_PATH` runs in the CLI process, not the daemon. It reads `<runtime home>/code.json` and talks to Code with the Go standard library (loopback only, no proxy or redirects). It prints `{"snapshot_id", "destination", "baseline", "repositories"}`.
+- **Verification:** the manifest must re-encode to the requested ID (the same canonical JSON as Code). All repository and entry paths must be safe and non-overlapping, with no `.git`. Symlink targets must resolve inside their repository even through other symlinks; this is stricter than Code, so some Code-accepted snapshots are refused. Every archive member must match its manifest entry's path, kind, size, sha256, mode and link target. Unexpected, duplicate or missing members, hardlinks and other member types are refused.
+- **Writing:** files are created with `O_EXCL|O_NOFOLLOW`, and a directory the run did not create is refused. Everything is staged in a private (0700) folder next to the destination. The folder is published with an exclusive rename (`renameatx_np RENAME_EXCL` on macOS, `renameat2 RENAME_NOREPLACE` on Linux; other platforms are refused). An existing destination is never touched. A failure before publication removes all staging.
+- **Baseline:** an immutable, read-only copy is kept at `<runtime home>/snapshots/<hex>/` (`manifest.json`, `complete`, `tree/`). It is reused for later materializations of the same snapshot. `<runtime home>/materializations/<sha256(dest)>.json` records `{destination, snapshot_id, materialized_at}` after publication. Runtime runs no `git`, and no credentials or Git metadata reach the destination or the baseline.
+- **Limits:** a killed process leaves its 0700 staging folders. A reused baseline is trusted by its `complete` marker, not re-hashed. NFC/NFD name collisions are not modelled. There is no manifest size cap. Linux publishing has only been cross-compiled, not run.
+
 Later bounded steps, each a separate assignment:
-1. Runtime download and materialization of Code snapshots into worker folders, with an immutable baseline.
+1. Use materialized snapshots for worker starts (after the diff step below).
 2. Offline local status/diff in Runtime (Go) against the baseline.
 3. Change upload and sealing.
 4. Orchestrator-authorized publication.

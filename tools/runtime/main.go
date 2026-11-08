@@ -19,6 +19,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/eyra/atlas/tools/runtime/host"
+	"github.com/eyra/atlas/tools/runtime/snapshot"
 	"github.com/eyra/atlas/tools/runtime/workspace"
 )
 
@@ -311,7 +312,7 @@ func execute(args []string) (map[string]any, error) {
 
 func executeTo(args []string, out io.Writer) (map[string]any, error) {
 	if len(args) == 0 {
-		return nil, errors.New("use service start|status|stop, start [--worker NAME] [--questions] --cwd PATH ASSIGNMENT, continue [--worker NAME] [--turn TURN_ID] ASSIGNMENT, answer --worker NAME --turn TURN_ID --question QUESTION_ID --answers JSON_OBJECT, preferences, status [--worker NAME], turns, events [--cursor CURSOR] [--limit N], output [--worker NAME] [--follow | --turn TURN_ID], or stop [--worker NAME]")
+		return nil, errors.New("use service start|status|stop, start [--worker NAME] [--questions] --cwd PATH ASSIGNMENT, continue [--worker NAME] [--turn TURN_ID] ASSIGNMENT, answer --worker NAME --turn TURN_ID --question QUESTION_ID --answers JSON_OBJECT, preferences, status [--worker NAME], turns, events [--cursor CURSOR] [--limit N], output [--worker NAME] [--follow | --turn TURN_ID], stop [--worker NAME], or snapshot materialize --snapshot sha256:HEX --dest NEW_PATH")
 	}
 	dir, err := home()
 	if err != nil {
@@ -334,6 +335,22 @@ func executeTo(args []string, out io.Writer) (map[string]any, error) {
 			return nil, errors.New("use service start|status|stop")
 		}
 		return service(dir, args[1])
+	}
+	if args[0] == "snapshot" {
+		usage := errors.New("use snapshot materialize --snapshot sha256:HEX --dest NEW_PATH")
+		if len(args) < 2 || args[1] != "materialize" {
+			return nil, usage
+		}
+		flags := flag.NewFlagSet("snapshot materialize", flag.ContinueOnError)
+		id := flags.String("snapshot", "", "Code snapshot ID")
+		dest := flags.String("dest", "", "new destination folder")
+		if err = flags.Parse(args[2:]); err != nil {
+			return nil, err
+		}
+		if flags.NArg() != 0 || *id == "" || *dest == "" {
+			return nil, usage
+		}
+		return snapshot.Materialize(dir, *id, *dest)
 	}
 	command := map[string]any{"command": args[0]}
 	switch args[0] {
@@ -755,6 +772,7 @@ func main() {
 		fmt.Println("Lost-response-safe admission: add --request-id ID to start or continue. Reuse exactly that ID and request to inspect recorded admission without launching twice; changed requests conflict. ID matches ^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$. Accepted admission is not verified execution; indeterminate requires operator reconciliation and never auto-resends. recorded_result is the original admission snapshot, not live status.")
 		fmt.Println("Explicit coordinator handoff:\natlas-runtime submit-handoff --worker NAME --turn TURN_ID --handoff JSON_OBJECT\natlas-runtime handoff --worker NAME --turn TURN_ID\nDeclaration fields: kind (completion|pull_request), repository_url, branch, base_sha, head_sha, result, verification, limits, remaining_processes; pull_request requires pr_url, completion forbids it. The last three fields are arrays of strings. Stored provenance is coordinator_submitted_declaration, not authenticated native submission or verified task/PR acceptance. Identical repeats return the original record; replacement conflicts. Execution, merge and next assignment remain separate.")
 		fmt.Println("Explicit coordinator peer correlation (records only; never dispatches work or answers):\natlas-runtime route-peer-question --worker SENDER --turn TURN --question QUESTION --peer-worker PEER --peer-turn SOURCE\natlas-runtime peer-question --worker SENDER --turn TURN --question QUESTION\natlas-runtime bind-peer-reply --worker SENDER --turn TURN --question QUESTION --response-turn RESPONSE\nContinue and answer remain separate explicit commands. New transitions require the exact live pending sender question; reply binding requires the peer's successful continuation of the recorded source. Provenance is coordinator_routed_declaration, not authenticated native peer delivery. Identical routing repeats return original routed evidence; inspection returns current evidence. Conflicting targets or replies refuse.")
+		fmt.Println("Snapshot materialization (Code service required, Runtime service not):\natlas-runtime snapshot materialize --snapshot sha256:HEX --dest NEW_PATH\nVerifies the manifest identity and every archive entry, then publishes the new folder atomically and never replaces an existing path. Keeps a read-only baseline under the Runtime home in snapshots/HEX/ and records the destination in materializations/. No Git runs and no Git metadata is written.")
 		return
 	}
 	result, err := executeTo(os.Args[1:], os.Stdout)
