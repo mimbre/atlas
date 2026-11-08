@@ -324,17 +324,17 @@ go -C tools/runtime build -ldflags "-X main.repoRoot=$PWD" -o "$HOME/.local/bin/
 
 The binary points to this checkout for service startup; rebuild if the checkout moves. Restart an existing daemon after updating the service/adapter code so it loads the new version (stopping the service also stops any active agent). The service is not implemented in Go and does not live inside the client process. Existing Atlas-connected launcher tooling is left untouched.
 
-Development checks use `go -C tools/runtime test ./...`. The remaining Python runner suite and Runtime ExUnit tests build an isolated copy of the same command, so those test runs require Go; they do not reuse or replace the installed client. All native executions run through the CLI's internal `native-host` command; workspace behavior is implemented only in Go. The local Go module has no external dependencies.
+Development checks use `go -C tools/runtime test ./...`. Runtime ExUnit tests build an isolated copy of the same command plus a small Go fake native CLI, so those test runs require Go; they do not reuse or replace the installed client. All native executions run through the CLI's internal `native-host` command; workspace behavior is implemented only in Go. Runtime build, execution and tests do not use Python. The local Go module has no external dependencies.
 
 ## Model-free native sandbox verification
 
-On macOS with Seatbelt, Python 3 and the official Codex CLI installed, run from `beam/apps/atlas_runtime`:
+On macOS with Seatbelt and the official Codex CLI installed, run from `beam/apps/atlas_runtime` with `ATLAS_RUNTIME_EXECUTABLE` pointing at a built `atlas-runtime`:
 
 ```sh
 MIX_ENV=test mix run --no-start ../../../tools/runtime/verify_sandbox.exs
 ```
 
-This opt-in check requires no login or model call and starts no Runtime daemon or Atlas core applications. It uses isolated workspaces and empty Codex homes, then removes its own temporary files. The Runtime adapter and process runner launch a small protocol bridge that reads the actual forwarded `--sandbox` and `--cd` arguments. The bridge maps the two supported modes to Codex's documented [built-in permission profiles](https://developers.openai.com/codex/permissions), `:read-only` and `:workspace`, and invokes the official `codex sandbox` command to execute the same bounded shell write. The bridge reports the native exit status and stderr; it does not simulate denial or perform the write itself.
+This opt-in check requires no login or model call and starts no Runtime daemon or Atlas core applications. It uses isolated workspaces and empty Codex homes, then removes its own temporary files. The Runtime adapter and native host launch a small shell bridge that reads the actual forwarded `--sandbox` and `--cd` arguments. The bridge maps the two supported modes to Codex's documented [built-in permission profiles](https://developers.openai.com/codex/permissions), `:read-only` and `:workspace`, and invokes the official `codex sandbox` command to execute the same bounded shell write. The bridge records the native exit status and stderr; it does not simulate denial or perform the write itself.
 
 Assertions require read-only to produce an actual `Operation not permitted` shell error, exit 1 and unchanged `before\n` bytes; workspace-write must exit 0 and produce exact `after\n` bytes. A wrong forwarded mode changes the native outcome and fails the check. CLI configuration/usage errors cannot pass as a read-only denial. Codex 0.166.0 was exercised; older CLIs lacking these built-in profiles will fail this explicit check rather than silently skip it.
 
@@ -418,6 +418,24 @@ Disposable binary, build and workspaces were removed. No installation, default-d
 - Continuation `turn-80800e1ad1137565` asked and answered a second question with the same session and model.
 - Non-question Claude `turn-4075635c914a84d9`/`turn-e23bf9ee06750462` and Codex `turn-923e9ab0a3b3aff4`/`turn-07160b0e981fda8b` start/continuation passed as regression checks.
 - Cancelling `turn-b26b0a837a2da7fd` while its question was pending invalidated the question and refused a late answer. `service stop` during pending `turn-871fb4d74def2aaa` reaped the group. In both cases the private temp was removed and the lock released.
+
+Disposable binary, build and workspaces were removed. No installation, default-daemon restart or deployment.
+
+2026-11-08: finished removing Python from Runtime.
+
+- Deleted the last Python test modules (`codex_runner_test.py`, `workspace_test_support.py`) and the Python fake native CLIs. Their behaviour now lives in Go workspace/host tests and a Go fake native CLI built by `test_helper.exs`.
+- Removed the internal `workspace lock`/`context`/`dedicated-scope`/`prepare` CLI operations, which had no remaining callers. `native-host` uses those functions in process.
+- Converted the `verify_sandbox.exs` and `worker_control.exs` fixtures to shell.
+
+Checks: Go packages, 284 Runtime ExUnit tests (one platform exclusion), and the model-free sandbox check (2 tests).
+
+Isolated public-CLI proof:
+
+- Codex `turn-d0314bde131ef690`/`turn-643171efa46e5413` and Claude `turn-70ca20929657c458`/`turn-2dbcdb694b1573d6` start/continuation kept session and model.
+- Claude question turns `turn-cfc136e0d3aad0b5` and `turn-e4ba55e19866352a` (continuation) processed answers `BETA_CQ_9855C012` and `ALPHA_CQ_9855C012`.
+- Dedicated-repository Claude `turn-14badf03c32966e0` wrote exactly `NOPY_9855C012\n`.
+- Cancelling `turn-d067a286ce8d4428`, and `service stop` during `turn-73683e65dd14866c`, removed the group and private temp and released the lock.
+- Process trees below the daemon contained only `erl_child_setup`, `atlas-runtime native-host`, `codex`, `claude`, `zsh` and `sleep`, with no Python executable.
 
 Disposable binary, build and workspaces were removed. No installation, default-daemon restart or deployment.
 

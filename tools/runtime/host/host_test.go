@@ -229,6 +229,26 @@ func TestSessionRefusalDiagnostic(t *testing.T) {
 	}
 }
 
+func TestInvalidModelsNeverLaunchNative(t *testing.T) {
+	for _, model := range []string{`""`, `"--dangerously-skip-permissions"`, `"opus --tools Bash"`, `"opus\nx"`,
+		`"opus;touch /tmp/injected"`, `"` + strings.Repeat("x", 201) + `"`, "1", `["opus"]`} {
+		t.Run(model, func(t *testing.T) {
+			directory := t.TempDir()
+			native := fixture(t, directory, "touch \"$0.executed\"\n")
+			args := codexArgs(native, directory)
+			args[3], args[9] = "--prompt stays one argument", model
+			if err := run(args); err == nil || err.Error() != "Model must be a nonempty identifier of at most 200 characters" {
+				t.Fatalf("wanted the model refusal, got %v", err)
+			}
+			for _, path := range []string{native + ".executed", filepath.Join(directory, "stderr.log")} {
+				if _, err := os.Stat(path); err == nil {
+					t.Fatalf("%s exists: validation must precede launch and every artifact", path)
+				}
+			}
+		})
+	}
+}
+
 func TestStopInterruptsGroupAndReportsStopped(t *testing.T) {
 	for _, mode := range []string{"byte", "eof"} {
 		t.Run(mode, func(t *testing.T) {
@@ -426,7 +446,7 @@ func TestManagedRepositoryIsPreparedBeforeNativeEventsAndContinues(t *testing.T)
 	gitIn(t, source, "commit", "--allow-empty", "-qm", "base")
 	url := "https://github.com/test/fixture.git"
 	var response bytes.Buffer
-	if err := workspace.Run([]string{"request", filepath.Join(home, "runtime"), url, "task/first"}, nil, &response); err != nil {
+	if err := workspace.Run([]string{"request", filepath.Join(home, "runtime"), url, "task/first"}, &response); err != nil {
 		t.Fatal(err)
 	}
 	var request struct {

@@ -11,55 +11,7 @@ defmodule AtlasRuntime.NativeQuestionTest do
     File.mkdir_p!(bin)
     File.mkdir_p!(workspace)
     executable = Path.join(bin, "claude")
-    File.write!(executable, "#!#{System.find_executable("python3")}\n" <> ~S"""
-    import json, os, sys, time
-    with open('native.pid', 'w') as file:
-        file.write(str(os.getpid()))
-    def emit(event):
-        print(json.dumps(event), flush=True)
-    def arg(name, default=None):
-        return sys.argv[sys.argv.index(name) + 1] if name in sys.argv else default
-    session = arg('--session-id', arg('--resume', '15113671-40b9-4677-8b2b-c6c1180db993'))
-    model = arg('--model', 'claude-sonnet-4-6')
-    host = '--permission-prompt-tool' in sys.argv
-    init = {'type':'system', 'subtype':'init', 'session_id':session, 'model':model,
-            'tools':['Read','Glob','Grep','AskUserQuestion'] if host else ['Read','Glob','Grep']}
-    result = {'type':'result', 'session_id':session, 'subtype':'success', 'is_error':False, 'result':'done'}
-    if not host:
-        emit(init)
-        emit(result)
-        sys.exit(0)
-    initialize = json.loads(sys.stdin.readline())
-    emit({'type':'control_response', 'response':{'subtype':'success', 'request_id':initialize['request_id'], 'response':{}}})
-    assignment = json.loads(sys.stdin.readline())
-    emit(init)
-    question_input = {'questions':[{'question':'Choose?', 'header':'Choice', 'multiSelect':False,
-                                   'options':[{'label':'A','description':'A'}, {'label':'B','description':'B'}]}]}
-    assistant = {'type':'assistant', 'session_id':session, 'message':{'model':model, 'content':[
-          {'type':'tool_use', 'id':'tool-1', 'name':'AskUserQuestion', 'input':question_input}]}}
-    control = {'type':'control_request', 'request_id':'request-1', 'request':{
-          'subtype':'can_use_tool', 'tool_name':'AskUserQuestion', 'input':question_input,
-          'tool_use_id':'tool-1', 'requires_user_interaction':True}}
-    with open('question-source.json', 'w') as file:
-        json.dump({'assistant':assistant, 'control_request':control, 'native_pid':os.getpid()}, file)
-    emit(assistant)
-    emit(control)
-    response = json.loads(sys.stdin.readline())
-    with open('received-answer.json', 'w') as file:
-        json.dump(response, file)
-    with open('received-answers.jsonl', 'w') as file:
-        file.write(json.dumps(response) + '\n')
-    while not os.path.exists('process-answer'):
-        time.sleep(0.01)
-    emit({'type':'user', 'session_id':session, 'message':{'content':[
-          {'type':'tool_result', 'tool_use_id':'tool-1', 'content':'processed'}]}})
-    emit(result)
-    remaining = sys.stdin.read()
-    with open('received-answers.jsonl', 'a') as file:
-        file.write(remaining)
-    assert remaining == ''
-    """)
-    File.chmod!(executable, 0o700)
+    AtlasRuntime.FakeNative.install!(executable, "question")
     previous = System.fetch_env!("PATH")
     System.put_env("PATH", bin <> ":" <> previous)
     on_exit(fn -> System.put_env("PATH", previous) end)

@@ -11,81 +11,33 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
-	"strconv"
 	"strings"
 	"syscall"
 	"unicode"
 	"unicode/utf8"
 )
 
-func Run(args []string, input io.Reader, output io.Writer) error {
+func Run(args []string, output io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("use workspace path|scope|context|dedicated-scope|request|lock|prepare")
+		return errors.New("use workspace path|scope|request")
 	}
 	var result any
 	var err error
 	switch args[0] {
-	case "path", "scope", "context", "dedicated-scope":
+	case "path", "scope":
 		if len(args) != 2 {
 			return fmt.Errorf("workspace %s requires one path", args[0])
 		}
-		switch args[0] {
-		case "path":
+		if args[0] == "path" {
 			result, err = workspaceResolve(args[1])
-		case "scope":
+		} else {
 			result, err = Scope(args[1])
-		case "context":
-			result, err = Context(args[1])
-		case "dedicated-scope":
-			result = DedicatedScope(args[1])
 		}
 	case "request":
 		if len(args) != 4 {
 			return errors.New("workspace request requires home, URL and branch")
 		}
 		result, err = workspaceRequest(args[1], args[2], args[3])
-	case "lock":
-		if len(args) != 4 || (args[2] != "true" && args[2] != "false") {
-			return errors.New("workspace lock requires path, true|false and socket FD")
-		}
-		fd, parseErr := strconv.Atoi(args[3])
-		if parseErr != nil || fd < 0 {
-			return errors.New("Invalid workspace lock socket FD")
-		}
-		var lock *os.File
-		var created bool
-		if lock, created, err = Lock(args[1], args[2] == "true"); err == nil {
-			// Do not unlock: SCM_RIGHTS shares this open-file description with the receiver.
-			err = syscall.Sendmsg(fd, []byte{0}, syscall.UnixRights(int(lock.Fd())), nil, 0)
-			lock.Close()
-			result = map[string]any{"created": created}
-		}
-	case "prepare":
-		if len(args) != 1 {
-			return errors.New("workspace prepare takes JSON on stdin")
-		}
-		var request struct {
-			Scope         map[string]any `json:"scope"`
-			Repository    map[string]any `json:"repository"`
-			Created       *bool          `json:"created"`
-			CommandPrefix []string       `json:"command_prefix"`
-		}
-		decoder := json.NewDecoder(input)
-		decoder.UseNumber()
-		if err = decoder.Decode(&request); err != nil {
-			return err
-		}
-		var extra any
-		if err = decoder.Decode(&extra); err != io.EOF {
-			if err == nil {
-				return errors.New("workspace prepare requires exactly one JSON value")
-			}
-			return err
-		}
-		if request.Scope == nil || request.Repository == nil || request.Created == nil || len(request.CommandPrefix) == 0 || request.CommandPrefix[0] == "" {
-			return errors.New("workspace prepare requires scope, repository, created and an explicit command_prefix")
-		}
-		result, err = Prepare(request.Scope, request.Repository, *request.Created, request.CommandPrefix)
 	default:
 		return fmt.Errorf("unknown workspace operation: %s", args[0])
 	}

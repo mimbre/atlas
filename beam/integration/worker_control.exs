@@ -262,30 +262,39 @@ defmodule WorkerControlTest do
     alias AtlasRuntime.{Turn, Output, OutputEndpoint}
     command = Path.join(c.tmp_dir, "native-output-fixture")
 
-    File.write!(command, """
-    #!/usr/bin/env python3
-    import json, pathlib, time
-    root = pathlib.Path(__file__).parent
-    def emit(item):
-        print(json.dumps({"type": "item.completed", "item": item}), flush=True)
-    def wait(name):
-        deadline = time.monotonic() + 20
-        while not (root / name).exists():
-            if time.monotonic() > deadline:
-                raise RuntimeError("fixture gate timed out: " + name)
-            time.sleep(0.01)
-    emit({"type": "reasoning", "text": "PRIVATE_REASONING"})
-    emit({"type": "command_execution", "command": "PRIVATE_COMMAND", "aggregated_output": "PRIVATE_RESULT"})
-    emit({"type": "agent_message", "text": "first 界"})
-    for batch in range(11):
-        wait("batch-" + str(batch))
-        for n in range(batch * 100, (batch + 1) * 100):
-            emit({"type": "agent_message", "text": "event-" + str(n)})
-    wait("epoch")
-    emit({"type": "agent_message", "text": "after epoch 界"})
-    wait("finish")
-    emit({"type": "agent_message", "text": "final 界"})
-    print(json.dumps({"type": "turn.completed"}), flush=True)
+    File.write!(command, ~S"""
+    #!/bin/sh
+    root=$(dirname "$0")
+    emit() { printf '{"type":"item.completed","item":%s}\n' "$1"; }
+    wait_for() {
+      tries=0
+      until [ -e "$root/$1" ]; do
+        tries=$((tries + 1))
+        if [ "$tries" -gt 2000 ]; then
+          echo "fixture gate timed out: $1" >&2
+          exit 1
+        fi
+        sleep 0.01
+      done
+    }
+    emit '{"type":"reasoning","text":"PRIVATE_REASONING"}'
+    emit '{"type":"command_execution","command":"PRIVATE_COMMAND","aggregated_output":"PRIVATE_RESULT"}'
+    emit '{"type":"agent_message","text":"first 界"}'
+    batch=0
+    while [ "$batch" -lt 11 ]; do
+      wait_for "batch-$batch"
+      n=$((batch * 100))
+      while [ "$n" -lt $(((batch + 1) * 100)) ]; do
+        emit "{\"type\":\"agent_message\",\"text\":\"event-$n\"}"
+        n=$((n + 1))
+      done
+      batch=$((batch + 1))
+    done
+    wait_for epoch
+    emit '{"type":"agent_message","text":"after epoch 界"}'
+    wait_for finish
+    emit '{"type":"agent_message","text":"final 界"}'
+    printf '%s\n' '{"type":"turn.completed"}'
     """)
 
     File.chmod!(command, 0o700)

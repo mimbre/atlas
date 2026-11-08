@@ -14,59 +14,12 @@ defmodule AtlasRuntime.NativeAdmissionTest do
     previous_path = System.fetch_env!("PATH")
     previous_home = System.get_env("CODEX_HOME")
     System.put_env("CODEX_HOME", Path.join(dir, "codex-home"))
-    python = System.find_executable("python3")
-    for tool <- ["python3", "git", "mkfifo"] do
+    for tool <- ["git", "mkfifo"] do
       File.ln_s!(System.find_executable(tool), Path.join(bin, tool))
     end
 
-    fixture = "#!#{python}\nROOT = #{JSON.encode!(dir)}\n" <> ~S"""
-    import glob, json, os, sys, time, uuid
-    goal = sys.argv[-1]
-    backend = os.path.basename(sys.argv[0])
-    resumed = '--resume' in sys.argv if backend == 'claude' else 'resume' in sys.argv
-    def arg(name, default=None):
-        return sys.argv[sys.argv.index(name) + 1] if name in sys.argv else default
-    if backend == 'codex':
-        os.chdir(arg('--cd'))
-    session = (arg('--resume') if backend == 'claude' else sys.argv[-2]) if resumed else str(uuid.uuid5(uuid.NAMESPACE_URL, os.getcwd() + goal))
-    turn_id = os.path.basename(os.path.dirname(arg('--output-last-message'))) if backend == 'codex' else None
-    records = [json.load(open(path)) for path in glob.glob(os.path.join(ROOT, 'admissions', '*.json'))]
-    record = next((record for record in records if record['request']['assignment'] == goal and (turn_id is None or record['turn_id'] == turn_id)), None)
-    if goal.startswith('admit:'):
-        assert record is not None, 'native command executed without a durable reservation'
-        assert record['binding']['cwd'] == os.path.realpath(os.getcwd())
-        assert record['binding']['session_id'] == (session if resumed else None)
-    if goal == 'admit:journal':
-        os.unlink(os.path.join(ROOT, 'execution-events.json'))
-        os.mkdir(os.path.join(ROOT, 'execution-events.json'))
-    elif goal == 'admit:acceptance':
-        os.mkdir(os.path.join(ROOT, record['record_ref'] + '.tmp'))
-    evidence = {'goal': goal, 'backend': backend, 'resumed': resumed, 'session_id': session,
-                'argv': sys.argv[1:], 'pid': os.getpid(), 'record': record}
-    fd = os.open(os.path.join(ROOT, 'native-starts.jsonl'), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
-    os.write(fd, (json.dumps(evidence) + '\n').encode())
-    os.close(fd)
-    def emit(event):
-        print(json.dumps(event), flush=True)
-    if backend == 'claude':
-        emit({'type': 'system', 'subtype': 'init', 'session_id': session, 'model': arg('--model', 'claude-sonnet-4-6')})
-    else:
-        emit({'type': 'thread.started', 'thread_id': session})
-    while os.path.exists(os.path.join(ROOT, 'hold')):
-        time.sleep(0.01)
-    if backend == 'claude':
-        emit({'type': 'result', 'subtype': 'success', 'is_error': False, 'session_id': session, 'result': 'done'})
-    else:
-        with open(arg('--output-last-message'), 'w') as answer:
-            answer.write('done')
-        emit({'type': 'item.completed', 'item': {'type': 'agent_message', 'text': 'done'}})
-        emit({'type': 'turn.completed'})
-    """
-
     for backend <- ["codex", "claude"] do
-      executable = Path.join(bin, backend)
-      File.write!(executable, fixture)
-      File.chmod!(executable, 0o700)
+      AtlasRuntime.FakeNative.install!(Path.join(bin, backend), "admission", [dir])
     end
 
     System.put_env("PATH", bin)

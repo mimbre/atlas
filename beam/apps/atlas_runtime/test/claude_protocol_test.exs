@@ -26,19 +26,15 @@ defmodule AtlasRuntime.ClaudeProtocolTest do
   defp fake(dir, mode, request \\ @request) do
     {:ok, line, state} = Probe.input(state(), request)
     capture = Path.join(dir, "captured-#{System.unique_integer([:positive])}.jsonl")
-    # Only this private Python fixture can run; no configurable executable or native CLI.
+    # Only this private synthetic fixture can run; no configurable executable or native CLI.
     port =
       Port.open(
-        {:spawn_executable, System.find_executable("python3")},
+        {:spawn_executable, AtlasRuntime.FakeNative.path()},
         [
           :binary,
           :exit_status,
           :stderr_to_stdout,
-          args: [
-            Path.join(__DIR__, "support/fake_claude_protocol.py"),
-            Atom.to_string(mode),
-            capture
-          ]
+          args: ["protocol", Atom.to_string(mode), capture]
         ]
       )
 

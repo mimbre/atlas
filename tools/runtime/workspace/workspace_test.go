@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
-	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -55,14 +54,10 @@ func workspaceTestWrite(t *testing.T, path, text string) {
 	}
 }
 
-func workspaceTestCall(t *testing.T, input any, args ...string) any {
+func workspaceTestCall(t *testing.T, args ...string) any {
 	t.Helper()
-	body, err := json.Marshal(input)
-	if err != nil {
-		t.Fatal(err)
-	}
 	var output bytes.Buffer
-	if err := Run(args, bytes.NewReader(body), &output); err != nil {
+	if err := Run(args, &output); err != nil {
 		t.Fatalf("workspace %v: %v", args, err)
 	}
 	decoder := json.NewDecoder(&output)
@@ -77,14 +72,10 @@ func workspaceTestCall(t *testing.T, input any, args ...string) any {
 	return result
 }
 
-func workspaceTestRefuse(t *testing.T, input any, message string, args ...string) {
+func workspaceTestRefuse(t *testing.T, message string, args ...string) {
 	t.Helper()
-	body, err := json.Marshal(input)
-	if err != nil {
-		t.Fatal(err)
-	}
 	var output bytes.Buffer
-	err = Run(args, bytes.NewReader(body), &output)
+	err := Run(args, &output)
 	if err == nil || !strings.Contains(err.Error(), message) {
 		t.Fatalf("workspace %v: wanted refusal containing %q, got %v", args, message, err)
 	}
@@ -93,11 +84,59 @@ func workspaceTestRefuse(t *testing.T, input any, message string, args ...string
 	}
 }
 
+// workspaceTestDecode round-trips value through JSON; exact numbers match Native host arguments.
+func workspaceTestDecode(t *testing.T, value any, exact bool) any {
+	t.Helper()
+	body, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	if exact {
+		decoder.UseNumber()
+	}
+	var result any
+	if err := decoder.Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	return result
+}
+
+// workspaceTestRefused fails unless err is a refusal containing message; empty refusal expects success.
+func workspaceTestRefused(t *testing.T, err error, refusal string) {
+	t.Helper()
+	if refusal == "" && err != nil {
+		t.Fatal(err)
+	}
+	if refusal != "" && (err == nil || !strings.Contains(err.Error(), refusal)) {
+		t.Fatalf("wanted refusal containing %q, got %v", refusal, err)
+	}
+}
+
+func workspaceTestContext(t *testing.T, path, refusal string) any {
+	t.Helper()
+	context, err := Context(path)
+	workspaceTestRefused(t, err, refusal)
+	return workspaceTestDecode(t, context, false)
+}
+
+func workspaceTestPrepare(t *testing.T, input map[string]any, refusal string) any {
+	t.Helper()
+	request := workspaceTestDecode(t, input, true).(map[string]any)
+	var prefix []string
+	for _, arg := range request["command_prefix"].([]any) {
+		prefix = append(prefix, arg.(string))
+	}
+	prepared, err := Prepare(request["scope"].(map[string]any), request["repository"].(map[string]any), request["created"].(bool), prefix)
+	workspaceTestRefused(t, err, refusal)
+	return workspaceTestDecode(t, prepared, false)
+}
+
 func TestWorkspaceCanonicalPathsAndMetadata(t *testing.T) {
 	root := workspaceTestRoot(t)
 	repo := filepath.Join(root, "repo")
 	workspaceTestGit(t, root, "init", "-q", repo)
-	scope := workspaceTestCall(t, nil, "scope", repo).(map[string]any)
+	scope := workspaceTestCall(t, "scope", repo).(map[string]any)
 	want := map[string]any{
 		"profile": "dedicated-repository", "version": float64(1), "root": repo,
 		"git_dir": filepath.Join(repo, ".git"), "network_hosts": []any{"github.com", "api.github.com"},
@@ -109,10 +148,14 @@ func TestWorkspaceCanonicalPathsAndMetadata(t *testing.T) {
 	if err := os.Symlink(repo, alias); err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{alias, repo + "/../repo", alias + "/../repo"} {
-		workspaceTestRefuse(t, nil, "canonical root", "scope", path)
+	child := filepath.Join(repo, "child")
+	if err := os.Mkdir(child, 0700); err != nil {
+		t.Fatal(err)
 	}
-	if got := workspaceTestCall(t, nil, "path", alias+"/missing/../future/child"); got != filepath.Join(repo, "future", "child") {
+	for _, path := range []string{alias, repo + "/../repo", alias + "/../repo", child} {
+		workspaceTestRefuse(t, "canonical root", "scope", path)
+	}
+	if got := workspaceTestCall(t, "path", alias+"/missing/../future/child"); got != filepath.Join(repo, "future", "child") {
 		t.Fatalf("nonexistent suffix resolved to %v", got)
 	}
 	deep := filepath.Join(repo, "deep")
@@ -123,12 +166,12 @@ func TestWorkspaceCanonicalPathsAndMetadata(t *testing.T) {
 	if err := os.Symlink(deep, nestedAlias); err != nil {
 		t.Fatal(err)
 	}
-	if got := workspaceTestCall(t, nil, "path", nestedAlias+"/../future"); got != filepath.Join(repo, "future") {
+	if got := workspaceTestCall(t, "path", nestedAlias+"/../future"); got != filepath.Join(repo, "future") {
 		t.Fatalf("resolved .. before following symlink: %v", got)
 	}
-	workspaceTestRefuse(t, nil, "", "path", "bad\x00path")
+	workspaceTestRefuse(t, "", "path", "bad\x00path")
 
-	for _, kind := range []string{"alternates", "symlink", "hardlink", "project config"} {
+	for _, kind := range []string{"alternates", "symlink", "hardlink", "project config", "parent project config"} {
 		t.Run(kind, func(t *testing.T) {
 			var path string
 			switch kind {
@@ -151,10 +194,39 @@ func TestWorkspaceCanonicalPathsAndMetadata(t *testing.T) {
 				}
 				path = filepath.Join(repo, ".codex", "config.toml")
 				workspaceTestWrite(t, path, "sandbox_mode = \"read-only\"\n")
+			case "parent project config":
+				if err := os.Mkdir(filepath.Join(root, ".codex"), 0700); err != nil {
+					t.Fatal(err)
+				}
+				path = filepath.Join(root, ".codex", "config.toml")
+				workspaceTestWrite(t, path, "sandbox_mode = \"read-only\"\n")
+				// The user's own Codex home config is not a project config.
+				workspaceTestCall(t, "scope", repo)
+				t.Setenv("CODEX_HOME", filepath.Join(root, "other-codex"))
 			}
 			t.Cleanup(func() { os.Remove(path) })
-			workspaceTestRefuse(t, nil, "Dedicated", "scope", repo)
+			workspaceTestRefuse(t, "Dedicated", "scope", repo)
 		})
+	}
+	workspaceTestGit(t, repo, "commit", "--allow-empty", "-qm", "initial")
+	worktree := filepath.Join(root, "worktree")
+	workspaceTestGit(t, repo, "worktree", "add", "-q", "-b", "other", worktree)
+	workspaceTestRefuse(t, "canonical root", "scope", worktree)
+	workspaceTestRefuse(t, "cannot share Git metadata", "scope", repo)
+}
+
+func TestWorkspaceRequestRejectsUntrustedRepositoryAndBranch(t *testing.T) {
+	home := filepath.Join(workspaceTestRoot(t), "runtime")
+	url := "https://github.com/test/fixture.git"
+	for _, test := range []struct{ url, branch, message string }{
+		{"file:///tmp/repo", "task/new", "HTTPS github.com"},
+		{"https://example.com/test/repo", "task/new", "HTTPS github.com"},
+		{"https://github.com/test/../repo", "task/new", "HTTPS github.com"},
+		{url, "develop", "other than develop"},
+		{url, "../branch", "other than develop"},
+		{url, "--force", "other than develop"},
+	} {
+		workspaceTestRefuse(t, test.message, "request", home, test.url, test.branch)
 	}
 }
 
@@ -167,7 +239,7 @@ func TestWorkspaceManagedGitFreshBaseAndContinuation(t *testing.T) {
 	workspaceTestGit(t, source, "commit", "-qm", "base")
 	url := "https://github.com/test/fixture.git"
 	home := filepath.Join(root, "runtime")
-	request := workspaceTestCall(t, nil, "request", home, url, "task/first").(map[string]any)
+	request := workspaceTestCall(t, "request", home, url, "task/first").(map[string]any)
 	scope := request["permissions"].(map[string]any)
 	repo := scope["root"].(string)
 	if err := os.MkdirAll(repo, 0700); err != nil {
@@ -198,7 +270,7 @@ exec git -C "$root" "$@"
 		return map[string]any{"scope": scope, "repository": repository, "created": created,
 			"command_prefix": []string{bridge, repo, source, url}}
 	}
-	first := workspaceTestCall(t, input(request["repository"], true), "prepare").(map[string]any)
+	first := workspaceTestPrepare(t, input(request["repository"], true), "").(map[string]any)
 	initial := workspaceTestGit(t, source, "rev-parse", "HEAD")
 	if first["base_sha"] != initial {
 		t.Fatalf("clone base = %v, want %s", first["base_sha"], initial)
@@ -208,7 +280,7 @@ exec git -C "$root" "$@"
 	workspaceTestGit(t, source, "commit", "--allow-empty", "-qm", "new develop")
 	latest := workspaceTestGit(t, source, "rev-parse", "HEAD")
 	second := map[string]any{"url": url, "branch": "task/second"}
-	prepared := workspaceTestCall(t, input(second, false), "prepare").(map[string]any)
+	prepared := workspaceTestPrepare(t, input(second, false), "").(map[string]any)
 	if prepared["base_sha"] != latest || workspaceTestGit(t, repo, "rev-parse", "HEAD") != latest || workspaceTestGit(t, repo, "rev-parse", "task/first") != previous {
 		t.Fatal("fresh task did not use fetched develop while preserving previous task")
 	}
@@ -219,7 +291,7 @@ exec git -C "$root" "$@"
 	// Presence, not truthiness, selects continuation; preserve caller-owned fields.
 	prepared["base_sha"] = nil
 	prepared["extra"] = map[string]any{"keep": "context"}
-	continued := workspaceTestCall(t, input(prepared, false), "prepare")
+	continued := workspaceTestPrepare(t, input(prepared, false), "")
 	if !reflect.DeepEqual(continued, prepared) {
 		t.Fatalf("continuation changed repository record: %#v", continued)
 	}
@@ -227,9 +299,9 @@ exec git -C "$root" "$@"
 		t.Fatal("continuation fetched or reset repository")
 	}
 	fresh := map[string]any{"url": url, "branch": "task/third"}
-	workspaceTestRefuse(t, input(fresh, false), "uncommitted work", "prepare")
+	workspaceTestPrepare(t, input(fresh, false), "uncommitted work")
 	workspaceTestGit(t, repo, "checkout", "-qb", "different-task")
-	workspaceTestRefuse(t, input(prepared, false), "Saved repository branch changed", "prepare")
+	workspaceTestPrepare(t, input(prepared, false), "Saved repository branch changed")
 	if workspaceTestGit(t, repo, "branch", "--show-current") != "different-task" {
 		t.Fatal("continuation switched branch")
 	}
@@ -240,62 +312,46 @@ exec git -C "$root" "$@"
 		}
 	}
 	scope["unknown_policy"] = true
-	workspaceTestRefuse(t, input(fresh, false), "Managed repository request changed", "prepare")
+	workspaceTestPrepare(t, input(fresh, false), "Managed repository request changed")
 	delete(scope, "unknown_policy")
+	// Untracked and tracked changes each refuse a fresh task on their own.
 	workspaceTestWrite(t, filepath.Join(repo, "state.txt"), "base\n")
+	workspaceTestPrepare(t, input(fresh, false), "uncommitted work")
 	if err := os.Remove(filepath.Join(repo, "unfinished.txt")); err != nil {
 		t.Fatal(err)
 	}
-	workspaceTestRefuse(t, input(second, false), "Task branch already exists", "prepare")
+	workspaceTestWrite(t, filepath.Join(repo, "state.txt"), "unfinished tracked work\n")
+	workspaceTestPrepare(t, input(fresh, false), "uncommitted work")
+	workspaceTestWrite(t, filepath.Join(repo, "state.txt"), "base\n")
+	workspaceTestPrepare(t, input(second, false), "Task branch already exists")
 	workspaceTestGit(t, source, "branch", "task/remote")
-	workspaceTestRefuse(t, input(map[string]any{"url": url, "branch": "task/remote"}, false), "Task branch already exists remotely", "prepare")
+	workspaceTestPrepare(t, input(map[string]any{"url": url, "branch": "task/remote"}, false), "Task branch already exists remotely")
 	workspaceTestGit(t, repo, "remote", "set-url", "origin", "https://github.com/other/repo.git")
-	workspaceTestRefuse(t, input(fresh, false), "origin does not match", "prepare")
+	workspaceTestPrepare(t, input(fresh, false), "origin does not match")
 	if err := os.Remove(filepath.Join(repo, ".git", "atlas-runtime-repository.json")); err != nil {
 		t.Fatal(err)
 	}
-	workspaceTestRefuse(t, input(fresh, false), "unmanaged or mismatched", "prepare")
+	workspaceTestPrepare(t, input(fresh, false), "unmanaged or mismatched")
 	if workspaceTestGit(t, repo, "rev-parse", "HEAD") != latest || workspaceTestGit(t, repo, "branch", "--show-current") != "different-task" {
 		t.Fatal("refusal changed task HEAD or branch")
 	}
 }
 
-func TestWorkspaceLockDescriptorOwnsRepositoryUntilReceiverCloses(t *testing.T) {
+func TestWorkspaceLockOwnsRepositoryUntilClosed(t *testing.T) {
 	root := workspaceTestRoot(t)
 	repo := filepath.Join(root, "repositories", "new")
-	sockets, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
-	if err != nil {
-		t.Fatal(err)
+	lock, created, err := Lock(repo, true)
+	if err != nil || !created {
+		t.Fatalf("new repository not locked and reported created: %v %v", created, err)
 	}
-	defer syscall.Close(sockets[0])
-	defer syscall.Close(sockets[1])
-	result := workspaceTestCall(t, nil, "lock", repo, "true", strconv.Itoa(sockets[0])).(map[string]any)
-	if result["created"] != true {
-		t.Fatalf("new repository not reported created: %#v", result)
-	}
-	payload := make([]byte, 1)
-	control := make([]byte, syscall.CmsgSpace(4))
-	n, controlN, flags, _, err := syscall.Recvmsg(sockets[1], payload, control, syscall.MSG_DONTWAIT)
-	if err != nil || n != 1 || flags&syscall.MSG_CTRUNC != 0 {
-		t.Fatalf("receiving lock descriptor: n=%d flags=%d error=%v", n, flags, err)
-	}
-	messages, err := syscall.ParseSocketControlMessage(control[:controlN])
-	if err != nil || len(messages) != 1 {
-		t.Fatalf("lock control messages: %v, %v", messages, err)
-	}
-	fds, err := syscall.ParseUnixRights(&messages[0])
-	if err != nil || len(fds) != 1 {
-		t.Fatalf("lock descriptors: %v, %v", fds, err)
-	}
-	received := os.NewFile(uintptr(fds[0]), "received-workspace-lock")
-	defer received.Close()
-	info, err := received.Stat()
+	defer lock.Close()
+	info, err := lock.Stat()
 	if err != nil || !info.IsDir() {
-		t.Fatalf("transferred descriptor is not repository directory: %v", err)
+		t.Fatalf("lock is not the repository directory: %v", err)
 	}
 	actual, err := os.Stat(repo)
 	if err != nil || !os.SameFile(info, actual) {
-		t.Fatalf("transferred wrong directory: %v", err)
+		t.Fatalf("locked wrong directory: %v", err)
 	}
 	contender, err := os.Open(repo)
 	if err != nil {
@@ -303,15 +359,26 @@ func TestWorkspaceLockDescriptorOwnsRepositoryUntilReceiverCloses(t *testing.T) 
 	}
 	defer contender.Close()
 	if err := syscall.Flock(int(contender.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); !errors.Is(err, syscall.EWOULDBLOCK) {
-		t.Fatalf("receiver must retain sender's lock: %v", err)
+		t.Fatalf("owner must hold the lock: %v", err)
 	}
-	workspaceTestRefuse(t, nil, "active Runtime owner", "lock", repo, "false", strconv.Itoa(sockets[0]))
-	if err := received.Close(); err != nil {
+	if _, _, err := Lock(repo, false); err == nil || !strings.Contains(err.Error(), "active Runtime owner") {
+		t.Fatalf("second owner admitted: %v", err)
+	}
+	if err := lock.Close(); err != nil {
 		t.Fatal(err)
 	}
 	if err := syscall.Flock(int(contender.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		t.Fatalf("sender leaked ownership after receiver closed: %v", err)
+		t.Fatalf("closing the owner leaked ownership: %v", err)
 	}
+	if _, _, err := Lock(repo, false); err == nil || !strings.Contains(err.Error(), "active Runtime owner") {
+		t.Fatalf("an existing flock owner must block acquisition: %v", err)
+	}
+	contender.Close()
+	again, created, err := Lock(repo, false)
+	if err != nil || created {
+		t.Fatalf("released repository not reacquired as existing: %v %v", created, err)
+	}
+	again.Close()
 }
 
 func TestWorkspaceContextIdentityAndUnfinishedFiles(t *testing.T) {
@@ -322,7 +389,7 @@ func TestWorkspaceContextIdentityAndUnfinishedFiles(t *testing.T) {
 		"cwd": repo,
 		"git": map[string]any{"root": repo, "branch": "refs/heads/feature/context", "origin": []any{}},
 	}
-	if got := workspaceTestCall(t, nil, "context", repo); !reflect.DeepEqual(got, want) {
+	if got := workspaceTestContext(t, repo, ""); !reflect.DeepEqual(got, want) {
 		t.Fatalf("unborn branch context = %#v, want %#v", got, want)
 	}
 	workspaceTestWrite(t, filepath.Join(repo, "tracked"), "committed\n")
@@ -330,7 +397,7 @@ func TestWorkspaceContextIdentityAndUnfinishedFiles(t *testing.T) {
 	workspaceTestGit(t, repo, "commit", "-qm", "initial")
 	initial := workspaceTestGit(t, repo, "rev-parse", "HEAD")
 	workspaceTestGit(t, repo, "commit", "--allow-empty", "-qm", "same branch")
-	if got := workspaceTestCall(t, nil, "context", repo); !reflect.DeepEqual(got, want) {
+	if got := workspaceTestContext(t, repo, ""); !reflect.DeepEqual(got, want) {
 		t.Fatalf("commit on same branch changed context: %#v", got)
 	}
 	workspaceTestGit(t, repo, "config", "--add", "remote.origin.url", "https://example.invalid/first")
@@ -363,7 +430,7 @@ func TestWorkspaceContextIdentityAndUnfinishedFiles(t *testing.T) {
 		} else if path == alias+"/.." {
 			want["cwd"] = filepath.Dir(deep)
 		}
-		if got := workspaceTestCall(t, nil, "context", path); !reflect.DeepEqual(got, want) {
+		if got := workspaceTestContext(t, path, ""); !reflect.DeepEqual(got, want) {
 			t.Fatalf("context %q = %#v, want %#v", path, got, want)
 		}
 	}
@@ -376,7 +443,7 @@ func TestWorkspaceContextIdentityAndUnfinishedFiles(t *testing.T) {
 	workspaceTestGit(t, repo, "checkout", "--detach", "-q", initial)
 	want["cwd"] = repo
 	want["git"].(map[string]any)["branch"] = initial
-	if got := workspaceTestCall(t, nil, "context", repo); !reflect.DeepEqual(got, want) {
+	if got := workspaceTestContext(t, repo, ""); !reflect.DeepEqual(got, want) {
 		t.Fatalf("detached context = %#v, want %#v", got, want)
 	}
 	linked := filepath.Join(root, "linked")
@@ -384,7 +451,7 @@ func TestWorkspaceContextIdentityAndUnfinishedFiles(t *testing.T) {
 	want["cwd"] = linked
 	want["git"].(map[string]any)["root"] = linked
 	want["git"].(map[string]any)["branch"] = "refs/heads/linked"
-	if got := workspaceTestCall(t, nil, "context", linked); !reflect.DeepEqual(got, want) {
+	if got := workspaceTestContext(t, linked, ""); !reflect.DeepEqual(got, want) {
 		t.Fatalf("linked worktree context = %#v, want %#v", got, want)
 	}
 }
@@ -401,7 +468,7 @@ func TestWorkspaceContextOriginLines(t *testing.T) {
 			"origin": []any{"", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", ""},
 		},
 	}
-	if got := workspaceTestCall(t, nil, "context", root); !reflect.DeepEqual(got, want) {
+	if got := workspaceTestContext(t, root, ""); !reflect.DeepEqual(got, want) {
 		t.Fatalf("origin lines = %#v, want %#v", got, want)
 	}
 }
@@ -410,7 +477,7 @@ func TestWorkspaceContextPlainAndBrokenGitDirectories(t *testing.T) {
 	root := workspaceTestRoot(t)
 	for _, path := range []string{root, filepath.Join(root, "missing", "child")} {
 		want := map[string]any{"cwd": path, "git": nil}
-		if got := workspaceTestCall(t, nil, "context", path); !reflect.DeepEqual(got, want) {
+		if got := workspaceTestContext(t, path, ""); !reflect.DeepEqual(got, want) {
 			t.Fatalf("plain context = %#v, want %#v", got, want)
 		}
 	}
@@ -443,7 +510,7 @@ func TestWorkspaceContextPlainAndBrokenGitDirectories(t *testing.T) {
 			unfinished := filepath.Join(nested, "unfinished")
 			workspaceTestWrite(t, unfinished, "keep unfinished\x00bytes\n")
 			for _, path := range []string{repo, nested, filepath.Join(nested, "missing")} {
-				workspaceTestRefuse(t, nil, "Cannot inspect Claude working directory", "context", path)
+				workspaceTestContext(t, path, "Cannot inspect Claude working directory")
 			}
 			if got, err := os.ReadFile(unfinished); err != nil || string(got) != "keep unfinished\x00bytes\n" {
 				t.Fatalf("refusal changed unfinished bytes: %q, %v", got, err)
@@ -482,20 +549,20 @@ func TestWorkspaceContextInspectionFailures(t *testing.T) {
 	} {
 		t.Run(failure.command, func(t *testing.T) {
 			t.Setenv("CONTEXT_FAIL", failure.command)
-			workspaceTestRefuse(t, nil, failure.message, "context", repo)
+			workspaceTestContext(t, repo, failure.message)
 		})
 	}
 	for _, stream := range []string{"stdout", "stderr"} {
 		t.Run("invalid UTF-8 "+stream, func(t *testing.T) {
 			t.Setenv("CONTEXT_INVALID_UTF8", stream)
-			workspaceTestRefuse(t, nil, "Cannot decode Claude Git output as UTF-8", "context", repo)
+			workspaceTestContext(t, repo, "Cannot decode Claude Git output as UTF-8")
 		})
 	}
 	workspaceTestGit(t, repo, "checkout", "--detach", "-q")
 	t.Setenv("CONTEXT_FAIL", "rev-parse:HEAD")
-	workspaceTestRefuse(t, nil, "Cannot inspect Claude repository identity", "context", repo)
+	workspaceTestContext(t, repo, "Cannot inspect Claude repository identity")
 	t.Setenv("PATH", filepath.Join(root, "no-git"))
-	workspaceTestRefuse(t, nil, "git", "context", repo)
+	workspaceTestContext(t, repo, "git")
 }
 
 func TestWorkspaceContextUnreadableGitMetadata(t *testing.T) {
@@ -509,5 +576,5 @@ func TestWorkspaceContextUnreadableGitMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.Chmod(config, 0600) })
-	workspaceTestRefuse(t, nil, "Cannot inspect Claude working directory", "context", root)
+	workspaceTestContext(t, root, "Cannot inspect Claude working directory")
 }

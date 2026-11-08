@@ -6,66 +6,6 @@ defmodule AtlasRuntime.PeerQuestionServiceTest do
 
   @moduletag capture_log: true
   @other "turn-0000000000000001"
-  @fixture ~S"""
-  # Synthetic Claude protocol fixture: never calls a provider.
-  import json
-  import os
-  import sys
-  import time
-  from pathlib import Path
-
-  root = Path(os.environ.get("PEER_RECORD_FIXTURE_ROOT", os.getcwd()))
-  root.mkdir(parents=True, exist_ok=True)
-
-  def log(name, value):
-      with (root / name).open("a") as file:
-          file.write(json.dumps(value) + "\n")
-
-  def read_input():
-      line = sys.stdin.readline()
-      if not line:
-          raise SystemExit(0)
-      value = json.loads(line)
-      log("fixture-inputs.jsonl", value)
-      return value
-
-  def emit(value):
-      print(json.dumps(value), flush=True)
-
-  def arg(name, default=None):
-      return sys.argv[sys.argv.index(name) + 1] if name in sys.argv else default
-
-  session = arg("--session-id", arg("--resume", "15113671-40b9-4677-8b2b-c6c1180db993"))
-  model = arg("--model", "claude-sonnet-4-6")
-  host = "--permission-prompt-tool" in sys.argv
-  log("fixture-launches.jsonl", {"argv": sys.argv, "pid": os.getpid(), "cwd": os.getcwd(), "session_id": session})
-  init = {"type": "system", "subtype": "init", "session_id": session, "model": model,
-          "tools": ["Read", "Glob", "Grep", "AskUserQuestion"] if host else ["Read", "Glob", "Grep"]}
-  result = {"type": "result", "session_id": session, "subtype": "success", "is_error": False, "result": "Synthetic fixture completed"}
-  if host:
-      initialize = read_input()
-      emit({"type": "control_response", "response": {"subtype": "success", "request_id": initialize["request_id"], "response": {}}})
-      read_input()
-  emit(init)
-  if not host or "--resume" in sys.argv:
-      emit(result)
-      raise SystemExit(0)
-  question = {"questions": [{"question": "Choose?", "header": "Choice", "multiSelect": False,
-                             "options": [{"label": "A", "description": "A"}, {"label": "B", "description": "B"}]}]}
-  emit({"type": "assistant", "session_id": session, "message": {"model": model, "content": [
-      {"type": "tool_use", "id": "tool-1", "name": "AskUserQuestion", "input": question}]}})
-  emit({"type": "control_request", "request_id": "request-1", "request": {
-      "subtype": "can_use_tool", "tool_name": "AskUserQuestion", "input": question,
-      "tool_use_id": "tool-1", "requires_user_interaction": True}})
-  answer = read_input()
-  log("fixture-answers.jsonl", answer)
-  while (root / "hold-answer").exists():
-      time.sleep(0.01)
-  emit({"type": "user", "session_id": session, "message": {"content": [
-      {"type": "tool_result", "tool_use_id": "tool-1", "content": "processed"}]}})
-  emit(result)
-  sys.stdin.read()
-  """
 
   setup do
     dir = Path.join("/tmp", "apq-#{Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)}")
@@ -74,8 +14,7 @@ defmodule AtlasRuntime.PeerQuestionServiceTest do
     peer_workspace = Path.join(dir, "peer")
     Enum.each([bin, sender_workspace, peer_workspace], &File.mkdir_p!/1)
     executable = Path.join(bin, "claude")
-    File.write!(executable, "#!#{System.find_executable("python3")}\n" <> @fixture)
-    File.chmod!(executable, 0o700)
+    AtlasRuntime.FakeNative.install!(executable, "peer")
     previous_path = System.fetch_env!("PATH")
     System.put_env("PATH", bin <> ":" <> previous_path)
     on_exit(fn ->

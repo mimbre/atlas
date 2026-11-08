@@ -13,7 +13,6 @@ defmodule AtlasRuntime.NativeSandboxVerification do
     on_exit(fn -> File.rm_rf!(dir) end)
     assert File.exists?("/usr/bin/sandbox-exec"), "This retained check requires macOS Seatbelt"
     native = System.find_executable("codex") || flunk("Install the official Codex CLI")
-    assert System.find_executable("python3"), "Python 3 is required by this script's bridge fixture"
     {version, 0} = System.cmd(native, ["--version"])
     IO.puts("Native sandbox verification: #{String.trim(version)}")
     workspace = Path.join(dir, "workspace") |> Path.expand()
@@ -22,32 +21,41 @@ defmodule AtlasRuntime.NativeSandboxVerification do
     File.mkdir_p!(config)
     File.write!(Path.join(workspace, "proof.txt"), "before\n")
     bridge = Path.join(dir, "sandbox-probe") |> Path.expand()
+    shell = &("'" <> String.replace(&1, "'", "'\\''") <> "'")
+    evidence = Path.join(dir, "native") |> Path.expand()
 
     # `sandbox` requires permission profiles in Codex 0.166.0. Built-ins are
     # :read-only and :workspace, documented at developers.openai.com/codex/permissions.
     # Do not read the user's Codex home or launch `codex exec`/a model here.
     File.write!(bridge, """
-    #!/usr/bin/env python3
-    import json, os, subprocess, sys
-    from pathlib import Path
-    args = sys.argv[1:]
-    mode = args[args.index('--sandbox') + 1]
-    workspace = args[args.index('--cd') + 1]
-    profiles = {'read-only': ':read-only', 'workspace-write': ':workspace'}
-    result = subprocess.run(
-        [#{JSON.encode!(native)}, 'sandbox', '-P', profiles[mode], '-C', workspace,
-         '--', '/bin/sh', '-c', "printf 'after\\n' > proof.txt"],
-        env=dict(os.environ, CODEX_HOME=#{JSON.encode!(config)}, LANG='C', LC_ALL='C'),
-        capture_output=True, text=True, timeout=10)
-    evidence = {'exit': result.returncode, 'stderr': result.stderr, 'stdout': result.stdout}
-    Path(#{JSON.encode!(Path.join(dir, "native-result.json"))}).write_text(json.dumps(evidence))
-    sys.stderr.write(result.stderr)
-    print(json.dumps({'type': 'turn.completed' if result.returncode == 0 else 'turn.failed'}), flush=True)
-    sys.exit(result.returncode)
+    #!/bin/sh
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --sandbox) mode=$2 ;;
+        --cd) workspace=$2 ;;
+      esac
+      shift
+    done
+    case "$mode" in
+      read-only) profile=:read-only ;;
+      workspace-write) profile=:workspace ;;
+      *) exit 2 ;;
+    esac
+    CODEX_HOME=#{shell.(config)} LANG=C LC_ALL=C #{shell.(native)} sandbox -P "$profile" -C "$workspace" \\
+      -- /bin/sh -c "printf 'after\\\\n' > proof.txt" >#{shell.(evidence <> "-stdout")} 2>#{shell.(evidence <> "-stderr")}
+    code=$?
+    printf '%s' "$code" >#{shell.(evidence <> "-exit")}
+    cat #{shell.(evidence <> "-stderr")} >&2
+    if [ "$code" -eq 0 ]; then
+      printf '%s\\n' '{"type":"turn.completed"}'
+    else
+      printf '%s\\n' '{"type":"turn.failed"}'
+    fi
+    exit "$code"
     """)
 
     File.chmod!(bridge, 0o700)
-    %{workspace: workspace, bridge: bridge}
+    %{workspace: workspace, bridge: bridge, evidence: evidence}
   end
 
   for mode <- ["read-only", "workspace-write"] do
@@ -69,8 +77,10 @@ defmodule AtlasRuntime.NativeSandboxVerification do
       ref = Process.monitor(pid)
       assert_receive {:DOWN, ^ref, :process, ^pid, reason}, 15_000
 
-      result =
-        context.tmp_dir |> Path.join("native-result.json") |> File.read!() |> JSON.decode!()
+      result = %{
+        "exit" => String.to_integer(File.read!(context.evidence <> "-exit")),
+        "stderr" => File.read!(context.evidence <> "-stderr")
+      }
 
       bytes = File.read!(Path.join(context.workspace, "proof.txt"))
 
