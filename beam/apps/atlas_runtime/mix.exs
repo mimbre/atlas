@@ -17,7 +17,7 @@ defmodule AtlasRuntime.MixProject do
   end
 
   def application do
-    [extra_applications: [:logger], mod: {AtlasRuntime.Application, []}]
+    [extra_applications: [:logger, :inets], mod: {AtlasRuntime.Application, []}]
   end
 
   defp elixirc_paths(:test), do: ["lib", "test/support"]

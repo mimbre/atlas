@@ -486,9 +486,10 @@ printf '%s\n' '{"type":"thread.started","thread_id":"native-session"}' '{"type":
 		return records
 	}
 
+	base := gitIn(t, source, "rev-parse", "HEAD")
+	request.Repository["resolved_commit"] = base
 	records := launch("", request.Repository)
 	prepared := records[1]["repository"].(map[string]any)
-	base := gitIn(t, source, "rev-parse", "HEAD")
 	if prepared["base_sha"] != base || gitIn(t, root, "branch", "--show-current") != "task/first" {
 		t.Fatalf("fresh task branch not prepared at the fetched base: %v", prepared)
 	}
