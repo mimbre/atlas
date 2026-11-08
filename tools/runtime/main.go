@@ -739,7 +739,7 @@ func followOutput(out io.Writer, worker string) error {
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "workspace" {
-		if err := workspace.Run(os.Args[2:], os.Stdin, os.Stdout); err != nil {
+		if err := workspace.Run(os.Args[2:], os.Stdout); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}

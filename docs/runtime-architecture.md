@@ -22,7 +22,7 @@ Not every domain concept needs a separate layer, application, process or service
 
 Decision from Melle: GitHub access should be centralized, not independently available to every agent. This is a planned architecture direction, not an expansion of the current workspace-to-Go migration.
 
-Runtime remains local-first, running native agent CLIs on macOS. Neither Linux nor a VM is required. The target implementation stack is Elixir and Go; remove Python incrementally, with no Rust planned.
+Runtime remains local-first, running native agent CLIs on macOS. Neither Linux nor a VM is required. The implementation stack is Elixir and Go; Python has been removed from Runtime, and no Rust is planned.
 
 ### Access boundaries
 
@@ -146,7 +146,7 @@ Separate infrastructure contracts cover workspace preparation, execution hosting
 
 Provider-specific sandbox configuration may require provider-specific translation, but the authorized scope and enforcement contract must remain explicit. An adapter must not expand permissions to make an operation succeed.
 
-The target implementation is Elixir and Go: Elixir owns lifecycle and state; Go owns the native integration responsibilities as their boundaries are established. The finished architecture contains no Python and introduces no Rust. Python remains temporarily while responsibilities move out of the mixed runner one bounded, runnable slice at a time. A language rewrite is not a substitute for establishing the boundary first.
+The implementation is Elixir and Go: Elixir owns lifecycle and state; Go owns the native integration responsibilities. Python was removed one bounded, runnable slice at a time and is no longer part of Runtime build, execution or tests; no Rust is introduced. A language rewrite is not a substitute for establishing the boundary first.
 
 ### 5. Entry points: how callers reach Runtime
 
@@ -204,7 +204,7 @@ The launching CLI passes its own executable path to the daemon through `ATLAS_RU
 
 Preparation accepts the existing scope/repository records, creation flag and explicit sandbox command prefix. Go owns Git arguments and validation, not provider selection or sandbox translation. It returns the prepared record, including fetched base SHA, or refuses without resetting, stashing or overwriting work. Git subprocesses inherit the existing execution process group.
 
-`atlas-runtime workspace context PATH` returns canonical `cwd` and either `git: null` for a plain directory or the repository root, full symbolic branch (detached HEAD uses its revision), and ordered origin URLs. Broken Git metadata and inspection failures refuse rather than becoming a plain-directory identity. Discovery is read-only and does not acquire or release ownership. The native host's Claude provider calls the same discovery in process, adds the unchanged permission scope, compares the saved context and writes the same `claude-context.json` before native execution.
+The workspace package's `Context` returns canonical `cwd` and either `git: null` for a plain directory or the repository root, full symbolic branch (detached HEAD uses its revision), and ordered origin URLs. Broken Git metadata and inspection failures refuse rather than becoming a plain-directory identity. Discovery is read-only and does not acquire or release ownership. The native host's Claude provider calls it in process, adds the unchanged permission scope, compares the saved context and writes the same `claude-context.json` before native execution. The internal `workspace` CLI exposes only the `path`, `scope` and `request` queries Elixir admission uses; preparation, context and locking run in process inside `native-host`.
 
 The workspace and native-host Go translations are complete; Runtime execution no longer uses Python. Lifecycle and durable state stay in Elixir.
 

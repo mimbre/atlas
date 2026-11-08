@@ -116,22 +116,27 @@ defmodule AtlasRuntime.CodexModelTest do
   end
 
   # The child writes stale and current turn contexts where its own environment points.
+  # The current context is stamped a minute after the script is written, so after launch.
   defp native_evidence(home_expression, workspace) do
+    stamp = DateTime.utc_now() |> DateTime.add(60) |> DateTime.to_iso8601()
+
+    records =
+      Enum.map_join(
+        [
+          %{"type" => "session_meta", "payload" => %{"id" => @session}},
+          %{"type" => "turn_context", "timestamp" => "2020-01-01T00:00:00Z",
+            "payload" => %{"cwd" => workspace, "model" => "stale-model"}},
+          %{"type" => "turn_context", "timestamp" => stamp,
+            "payload" => %{"cwd" => workspace, "model" => "native-confirmed"}}
+        ],
+        &(JSON.encode!(&1) <> "\n")
+      )
+
     """
-    python3 - <<'EOF'
-    import json, os
-    from datetime import datetime, timezone
-    from pathlib import Path
-    home = Path(#{home_expression})
-    path = home / 'sessions/2026/11/08' / 'rollout-2026-11-08T10-00-00-#{@session}.jsonl'
-    path.parent.mkdir(parents=True, exist_ok=True)
-    records = [{'type': 'session_meta', 'payload': {'id': '#{@session}'}},
-               {'type': 'turn_context', 'timestamp': '2020-01-01T00:00:00Z',
-                'payload': {'cwd': '#{workspace}', 'model': 'stale-model'}},
-               {'type': 'turn_context', 'timestamp': datetime.now(timezone.utc).isoformat(),
-                'payload': {'cwd': '#{workspace}', 'model': 'native-confirmed'}}]
-    path.write_text(''.join(json.dumps(record) + '\\n' for record in records))
-    EOF
+    sessions="#{home_expression}/sessions/2026/11/08"
+    mkdir -p "$sessions"
+    cat > "$sessions/rollout-2026-11-08T10-00-00-#{@session}.jsonl" <<'EOF'
+    #{records}EOF
     printf '%s\\n' '{"type":"thread.started","thread_id":"#{@session}"}'
     """
   end
@@ -172,7 +177,7 @@ defmodule AtlasRuntime.CodexModelTest do
       {:ok, pid} =
         launch(
           dir,
-          native_evidence("os.environ['CODEX_HOME']", workspace) <>
+          native_evidence("$CODEX_HOME", workspace) <>
             ~S"""
             printf '%s\n' '{"type":"turn.completed"}'
             """,
@@ -198,7 +203,7 @@ defmodule AtlasRuntime.CodexModelTest do
       {:ok, pid} =
         launch(
           dir,
-          native_evidence("os.environ['HOME'] + '/.codex'", workspace) <> "exit 3\n",
+          native_evidence("$HOME/.codex", workspace) <> "exit 3\n",
           %{}
         )
 
@@ -218,7 +223,7 @@ defmodule AtlasRuntime.CodexModelTest do
       {:ok, pid} =
         launch(
           dir,
-          native_evidence("os.environ['CODEX_HOME']", workspace) <> "touch #{ready}\nsleep 60\n",
+          native_evidence("$CODEX_HOME", workspace) <> "touch #{ready}\nsleep 60\n",
           %{}
         )
 

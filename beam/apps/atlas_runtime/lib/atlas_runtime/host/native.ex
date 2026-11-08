@@ -78,7 +78,7 @@ defmodule AtlasRuntime.Agent.Native do
       File.mkdir_p!(folder)
 
       kept =
-        ~w(HOME USER LOGNAME PATH TMPDIR LANG LC_ALL LC_CTYPE CODEX_HOME CLAUDE_CONFIG_DIR ATLAS_RUNTIME_EXECUTABLE)
+        ~w(HOME USER LOGNAME PATH TMPDIR LANG LC_ALL LC_CTYPE CODEX_HOME CLAUDE_CONFIG_DIR)
 
       unset =
         for {key, _} <- System.get_env(), key not in kept, do: {String.to_charlist(key), false}

@@ -17,6 +17,7 @@ previous = System.get_env("ATLAS_RUNTIME_EXECUTABLE")
 
 ExUnit.after_suite(fn _ ->
   File.rm_rf!(folder)
+  System.delete_env("ATLAS_RUNTIME_FAKE_NATIVE")
 
   if previous,
     do: System.put_env("ATLAS_RUNTIME_EXECUTABLE", previous),
@@ -31,4 +32,14 @@ case System.cmd(
      ) do
   {_, 0} -> System.put_env("ATLAS_RUNTIME_EXECUTABLE", executable)
   {output, _} -> raise("Building Runtime workspace command failed:\n#{output}")
+end
+
+fake = Path.join(folder, "fake-native")
+
+case System.cmd("go", ["build", "-o", fake, "main.go"],
+       cd: Path.join(__DIR__, "support/fake_native"),
+       stderr_to_stdout: true
+     ) do
+  {_, 0} -> System.put_env("ATLAS_RUNTIME_FAKE_NATIVE", fake)
+  {output, _} -> raise("Building the synthetic native CLI failed:\n#{output}")
 end
