@@ -1,9 +1,10 @@
 // Package host owns one native Codex or Claude CLI process group for the Elixir Runtime:
-// launch, synchronous session confirmation, stdin stop control and cleanup.
+// launch, synchronous session confirmation, Claude question transport, stdin control and cleanup.
 package host
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -71,8 +72,8 @@ func run(args []string) (err error) {
 			return err
 		}
 	}
-	scope, repository, model, resumeContext, questions := values[0], values[1], values[2], values[3], values[4]
-	enabled, ok := questions.(bool)
+	scope, repository, model, resumeContext := values[0], values[1], values[2], values[3]
+	enabled, ok := values[4].(bool)
 	if !ok || (enabled && backend != "claude") {
 		return errors.New("Questions require a boolean opt-in and the Claude backend")
 	}
@@ -82,10 +83,6 @@ func run(args []string) (err error) {
 	}
 	if backend != "codex" && backend != "claude" {
 		return errors.New("Backend must be codex or claude")
-	}
-	if enabled {
-		// Claude questions still run in the Python native host.
-		return errors.New("Claude questions are not supported by native-host")
 	}
 	if backend == "claude" {
 		if err = claudeValidate(scope, sandbox, session, model, resumeContext); err != nil {
@@ -110,6 +107,7 @@ func run(args []string) (err error) {
 		event(map[string]any) error
 		complete(stopped bool) error
 	}
+	questionSession := ""
 	if backend == "codex" {
 		permissions := []string{"--sandbox", sandbox}
 		if scope != nil {
@@ -120,7 +118,12 @@ func run(args []string) (err error) {
 		command = codexCommand(executable, workspacePath, folder, goal, permissions, session, modelName)
 		protocol = &codexProtocol{session: session}
 	} else {
-		command = claudeCommand(executable, goal, scope, session, modelName)
+		if enabled {
+			if questionSession = session; questionSession == "" {
+				questionSession = uuidString(uuid4())
+			}
+		}
+		command = claudeCommand(executable, goal, scope, session, modelName, questionSession)
 		protocol = &claudeProtocol{session: session, model: modelName}
 	}
 
@@ -145,8 +148,12 @@ func run(args []string) (err error) {
 	var leader *process
 	var lock *os.File
 	var nativeTemporary *string
+	var questions *questionHost
 	groupKilled := false
 	defer func() {
+		if questions != nil {
+			questions.cancel()
+		}
 		if leader != nil {
 			// Signal every descendant once; a second kill can hit orphan zombies on macOS.
 			if !groupKilled {
@@ -225,10 +232,24 @@ func run(args []string) (err error) {
 	if backend == "claude" {
 		child.Dir, child.Env = workspacePath, environment
 	}
+	// Question answers go to native stdin through an explicit pipe the loop writes without blocking.
+	var nativeInput, stdin *os.File
+	if enabled {
+		if nativeInput, stdin, err = os.Pipe(); err != nil {
+			return err
+		}
+		child.Stdin = nativeInput
+	}
 	startedAt := time.Now()
 	err = child.Start()
 	writer.Close()
+	if nativeInput != nil {
+		nativeInput.Close()
+	}
 	if err != nil {
+		if stdin != nil {
+			stdin.Close()
+		}
 		return err
 	}
 	leader = &process{pid: child.Process.Pid}
@@ -262,34 +283,58 @@ func run(args []string) (err error) {
 	if err = emit(started); err != nil {
 		return err
 	}
+	if enabled {
+		resumeModel := ""
+		if session != "" {
+			resumeModel = modelName
+		}
+		questions = &questionHost{session: questionSession, goal: goal,
+			tools: append(strings.Split(claudeTools(scope), ","), "AskUserQuestion"), resumeModel: resumeModel,
+			nativePID: leader.pid, initializeID: "initialize-" + hex.EncodeToString(uuid4()),
+			send:  func(record map[string]any) error { return writeNative(stdin, record) },
+			close: func() { stdin.Close() }, emit: emit}
+		if err = questions.start(); err != nil {
+			return err
+		}
+	}
 
 	// Readers only move bytes; this goroutine owns every state transition.
 	type chunk struct {
 		data []byte
 		err  error
 	}
-	outputs := make(chan chunk)
-	go func() {
+	pump := func(file *os.File, size int, chunks chan<- chunk) {
 		for {
-			buffer := make([]byte, 65536)
-			n, err := reader.Read(buffer)
-			outputs <- chunk{buffer[:n], err}
+			buffer := make([]byte, size)
+			n, err := file.Read(buffer)
+			chunks <- chunk{buffer[:n], err}
 			if err != nil {
 				return
 			}
 		}
-	}()
-	control := make(chan error, 1)
-	go func() {
-		_, err := os.Stdin.Read(make([]byte, 4096))
-		control <- err
-	}()
+	}
+	outputs, controls := make(chan chunk), make(chan chunk)
+	go pump(reader, 65536, outputs)
+	go pump(os.Stdin, 4096, controls)
 
 	stopped := false
+	var deadline <-chan time.Time
 	parse := func(line []byte) error {
 		record, err := jsonRecord(line, recordLimit)
 		if err != nil || stopped {
 			return err
+		}
+		// Question checks run before provider confirmation; both precede forwarding.
+		if questions != nil && record["type"] != "runtime.repository_prepared" {
+			if err = questions.event(record); err != nil {
+				return err
+			}
+			if questions.finished {
+				deadline = time.After(3 * time.Second)
+			}
+			if record["type"] == "control_response" {
+				return nil
+			}
 		}
 		if err = protocol.event(record); err != nil {
 			return err
@@ -299,17 +344,48 @@ func run(args []string) (err error) {
 		}
 		return emitRaw(`{"type":"runtime.event","event":`, line, "}")
 	}
-	var deadline <-chan time.Time
-	var partial []byte
+	var partial, controlPartial []byte
 	for outputs != nil {
 		select {
-		case err = <-control:
-			// Codex has no questions: any control byte or EOF stops the turn.
-			control = nil
-			if err != nil && err != io.EOF {
-				return err
+		case read := <-controls:
+			if read.err != nil && read.err != io.EOF {
+				return read.err
 			}
+			// EOF always stops; without questions so does any control byte.
+			stop := read.err != nil || questions == nil
+			if !stop {
+				controlPartial = append(controlPartial, read.data...)
+				for {
+					index := bytes.IndexByte(controlPartial, '\n')
+					if index < 0 {
+						break
+					}
+					line := controlPartial[:index]
+					controlPartial = controlPartial[index+1:]
+					if string(line) == "stop" {
+						stop = true
+						break
+					}
+					command, err := jsonRecord(line, 32768)
+					if err != nil {
+						return err
+					}
+					if err = questions.answer(command); err != nil {
+						return err
+					}
+				}
+				if len(controlPartial) > 32768 {
+					return errors.New("Runtime control record exceeds 32 KiB")
+				}
+			}
+			if !stop {
+				continue
+			}
+			controls = nil
 			stopped = true
+			if questions != nil {
+				questions.cancel()
+			}
 			deadline = time.After(3 * time.Second)
 			if err = leader.signalGroup(syscall.SIGINT); err != nil {
 				return err
@@ -354,6 +430,9 @@ func run(args []string) (err error) {
 		if err = parse(partial); err != nil {
 			return err
 		}
+	}
+	if questions != nil && !questions.finished && !stopped {
+		return errors.New("Native question transport ended before its result")
 	}
 	// EOF can precede the leader's exit; do not turn a clean exit into SIGKILL.
 	exited, err := leader.wait(3 * time.Second)

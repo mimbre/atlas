@@ -96,20 +96,38 @@ func pythonRepr(text string) string {
 	return builder.String() + quote
 }
 
-// claudeCommand builds the official Claude CLI argv without questions; an empty model keeps Claude's default.
-func claudeCommand(executable, goal string, scope any, session, model string) []string {
-	tools := "Read,Glob,Grep"
+// claudeTools are the native tools Claude may use without asking.
+func claudeTools(scope any) string {
 	if scope != nil {
-		tools = "Bash,Read,Glob,Grep"
+		return "Bash,Read,Glob,Grep"
 	}
+	return "Read,Glob,Grep"
+}
+
+// claudeCommand builds the official Claude CLI argv; an empty model keeps Claude's default.
+// A question session selects the host-answered stream-json query, whose goal goes over stdin.
+func claudeCommand(executable, goal string, scope any, session, model, questionSession string) []string {
+	tools := claudeTools(scope)
 	command := []string{executable, "--print", "--output-format", "stream-json", "--verbose",
-		"--restricted", "--safe-mode", "--strict-mcp-config", "--no-chrome",
-		"--tools", tools, "--allowedTools", tools, "--permission-mode", "dontAsk", "--permission-prompts", "none"}
+		"--restricted", "--safe-mode", "--strict-mcp-config", "--no-chrome"}
+	if questionSession != "" {
+		command = append(command, "--tools", tools+",AskUserQuestion", "--allowedTools", tools,
+			"--input-format", "stream-json", "--permission-mode", "manual",
+			"--permission-prompts", "host", "--permission-prompt-tool", "stdio")
+	} else {
+		command = append(command, "--tools", tools, "--allowedTools", tools,
+			"--permission-mode", "dontAsk", "--permission-prompts", "none")
+	}
 	if session != "" {
 		command = append(command, "--resume", session)
+	} else if questionSession != "" {
+		command = append(command, "--session-id", questionSession)
 	}
 	if model != "" {
 		command = append(command, "--model", model)
+	}
+	if questionSession != "" {
+		return command
 	}
 	return append(command, "--", goal)
 }
@@ -139,10 +157,7 @@ func (protocol *claudeProtocol) event(record map[string]any) error {
 			}
 			actual = fields["model"]
 		}
-		name, isString := actual.(string)
-		// Native init keeps the context-window option; assistant records use the base model ID.
-		if truthy(actual) && actual != "<synthetic>" &&
-			!(isString && (name == protocol.model || protocol.model == name+"[1m]")) {
+		if truthy(actual) && actual != "<synthetic>" && !assistantModelMatches(protocol.model, actual) {
 			return errors.New("Claude resumed with a different model")
 		}
 	}

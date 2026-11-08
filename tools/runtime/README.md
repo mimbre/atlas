@@ -198,7 +198,7 @@ The opt-in uses native stream input and `manual`/`host` permissions with the std
 
 Real isolated public-CLI proof on 2026-11-07 with Claude 2.1.280 / `claude-opus-5-5`: read-only turn `turn-04a7f0a8940de9dd` asked, accepted a newly generated custom answer and returned `657050 + 37 = 657087` in the same execution. Write-scoped turn `turn-d4d47e2afce4f490` asked before any edit, then used one successful Bash call to write exactly `native-answer-d7a74a7277c4\n`; sibling and `.git/config` writes received `PermissionError` and preserved original bytes. Wrong worker/turn/question and mismatched answer keys refused.
 
-After daemon restart, continuation `turn-9dc6eb32607cfb71` retained the original session/model and opt-in, asked a fresh question, then stopped while pending; a late answer refused. All three native process groups, the write-scoped private temp and both isolated daemons were absent afterward. Focused checks passed: 49 ExUnit tests, 45 Python runner tests and the Go CLI suite. Run both Python modules with `python3 -m unittest beam/apps/atlas_runtime/test/codex_runner_test.py beam/apps/atlas_runtime/test/claude_question_runner_test.py`. No default installation, Atlas integration or comprehensive native-version/network certification was performed.
+After daemon restart, continuation `turn-9dc6eb32607cfb71` retained the original session/model and opt-in, asked a fresh question, then stopped while pending; a late answer refused. All three native process groups, the write-scoped private temp and both isolated daemons were absent afterward. Focused checks passed: 49 ExUnit tests, 45 Python runner tests and the Go CLI suite. The question transport has since moved to the Go native host; its behavior tests run with `go -C tools/runtime test ./...`. No default installation, Atlas integration or comprehensive native-version/network certification was performed.
 
 Claude's documented [`[1m]` context-window option](https://code.claude.com/docs/en/model-config.md) can remain in native initialization (`claude-opus-5-5[1m]`) while assistant records name its base model (`claude-opus-5-5`). Question-host and continuation checks accept only that exact base-model representation difference, not arbitrary aliases, other modifiers or different models. Initialization/session and resumed configuration checks remain exact. Runtime retains the initialized `[1m]` value for status and saved continuation rather than silently replacing its context option with the assistant's base ID. Native artifacts preserve both original representations.
 
@@ -312,7 +312,7 @@ atlas-runtime output --turn turn-0123456789abcdef
 
 History survives daemon restart, but `status` still starts idle and plain `continue` does not select saved history. Only explicit `continue --turn ID` selects a saved successful conversation. Older artifact folders without metadata remain readable with state `unknown`; missing assignment/timestamp/session fields are not guessed. A saved `running` turn no longer owned by this daemon is shown as `unknown` with `recorded_state: running`, not claimed to be active or successful. No automatic restart, crash recovery, retention/deletion policy or server connection is introduced.
 
-Requires the normal Elixir/OTP/Mix toolchain and the selected official CLI (`codex` or `claude`) on PATH; Claude with `--questions` also requires Python 3. First service start compiles Runtime and Bus into its own build directory. `ATLAS_RUNTIME_HOME=/absolute/path` selects an isolated instance; use it consistently across commands. Directory aliases are resolved before building, including macOS `/tmp` → `/private/tmp`, so Mix's relative `priv` links resolve to the actual runner.
+Requires the normal Elixir/OTP/Mix toolchain and the selected official CLI (`codex` or `claude`) on PATH. First service start compiles Runtime and Bus into its own build directory. `ATLAS_RUNTIME_HOME=/absolute/path` selects an isolated instance; use it consistently across commands. Directory aliases are resolved before building, including macOS `/tmp` → `/private/tmp`, so Mix's relative `priv` links resolve correctly.
 
 ## Install
 
@@ -324,7 +324,7 @@ go -C tools/runtime build -ldflags "-X main.repoRoot=$PWD" -o "$HOME/.local/bin/
 
 The binary points to this checkout for service startup; rebuild if the checkout moves. Restart an existing daemon after updating the service/adapter code so it loads the new version (stopping the service also stops any active agent). The service is not implemented in Go and does not live inside the client process. Existing Atlas-connected launcher tooling is left untouched.
 
-Development checks use `go -C tools/runtime test ./...`. Python runner suites and Runtime ExUnit tests build an isolated copy of the same command, so those test runs require Go; they do not reuse or replace the installed client. Codex and question-disabled Claude run through the CLI's internal `native-host` command; Claude with `--questions` still uses the Python runner. Workspace behavior is implemented only in Go. The local Go module has no external dependencies.
+Development checks use `go -C tools/runtime test ./...`. The remaining Python runner suite and Runtime ExUnit tests build an isolated copy of the same command, so those test runs require Go; they do not reuse or replace the installed client. All native executions run through the CLI's internal `native-host` command; workspace behavior is implemented only in Go. The local Go module has no external dependencies.
 
 ## Model-free native sandbox verification
 
@@ -408,6 +408,16 @@ Real isolated proof used freshly fetched base `0b9c492d481f2fd6198df6f7c243c0b85
 - After restart, continuation `turn-112d8f2dfc6aa35a`, with a replaced saved session, failed as `{:claude_failed, 1, nil}` with `Native runner: Claude resume ended without confirming its session`. A mismatched init session or model is proven by Go tests only.
 - `ps` showed `atlas-runtime native-host` as the Claude group leader's parent. Cancelling `turn-0d6bfa87c7669a0e` and running `service stop` during `turn-2b8b5437285b68cc` each removed the group and private temp and released the lock.
 - Python question regression `turn-a9fa7bcfe5593b52` delivered and processed its answer. An earlier attempt, `turn-c63fd0f0a5ffe383`, was correctly refused when the provider's safety classifier switched the assistant model.
+
+Disposable binary, build and workspaces were removed. No installation, default-daemon restart or deployment.
+
+2026-11-08: moved the Claude question transport to the Go `native-host`. Every Claude and Codex execution now runs there, and the `priv/runtime` Python runner was deleted. The interaction contract is unchanged: bounded `stop`/answer control, question identity and validation, delivered/rejected/processed records and their order, strict session/model identity checks before forwarding, a 1 MiB bound and 3 s stall deadline on native stdin, and stop/EOF handling. Go packages (ported question host and process cases, plus write-stall cleanup with and without a dedicated scope), the remaining Python runner module (14 tests) and 109 focused ExUnit tests passed. Isolated public-CLI proof:
+
+- Concurrent question workers: read-only `turn-aae7b1b309a4d87d` and managed dedicated-repository `turn-bd8cd39891bb046c`, both hosted by `atlas-runtime native-host`. An answer to one worker's question submitted through the other was refused.
+- Both answers were delivered and processed, with correct final answers.
+- Continuation `turn-80800e1ad1137565` asked and answered a second question with the same session and model.
+- Non-question Claude `turn-4075635c914a84d9`/`turn-e23bf9ee06750462` and Codex `turn-923e9ab0a3b3aff4`/`turn-07160b0e981fda8b` start/continuation passed as regression checks.
+- Cancelling `turn-b26b0a837a2da7fd` while its question was pending invalidated the question and refused a late answer. `service stop` during pending `turn-871fb4d74def2aaa` reaped the group. In both cases the private temp was removed and the lock released.
 
 Disposable binary, build and workspaces were removed. No installation, default-daemon restart or deployment.
 

@@ -171,17 +171,10 @@ beam/apps/atlas_runtime/lib/atlas_runtime/
   providers/{agent,input,native_events,claude,fake_inbox,stub}.ex
   integrations/atlas_server/{talk,output_endpoint,broker,commands}.ex
 
-beam/apps/atlas_runtime/priv/runtime/
-  entrypoint.py
-  protocol.py
-  host/{process,assignment,sandbox}.py
-  providers/{claude,claude_questions}.py
-  workspaces/client.py
-
 tools/runtime/
   go.mod
   main.go
-  host/{host,protocol,codex,claude,host_test,claude_test}.go
+  host/{host,protocol,codex,claude,claude_questions}.go and their tests
   workspace/{workspace,workspace_test}.go
 ```
 
@@ -194,28 +187,26 @@ Dependencies and responsibilities:
 - `Persistence.History` owns recovery, saved-turn ownership checks, historical projections, output reads and ordered terminal checkpoints. Record modules retain their bounded storage, outboxes and publication rules. Persistence does not dispatch commands.
 - `Workspaces` calls the launching executable's Go workspace command directly. Admission no longer depends on the native provider host for path, scope or repository-request validation.
 - The native host delegates pending-question validation, timers and delivery evidence to `Interactions.NativeQuestion`, and native identity/output/result interpretation to `Providers.NativeEvents`. `Agent.Native` writes Claude's `answer.txt` from each forwarded string result before terminal notification; a failed write fails the turn. Codex still writes its answer natively. `Providers.Codex` reads Codex model evidence from this invocation's native rollout records, using the launch time, workspace and Codex home the native host reports for its child. The lookup runs on the host's non-stopped process-end record, so identity is recorded before terminal completion. The host clears question controls on terminal provider state; provider interpretation does not own cancellation.
-- `Agent.Native` spawns Codex and question-disabled Claude through the launching executable's internal `atlas-runtime native-host` (Go package `tools/runtime/host`). Question-enabled Claude still goes through the thin Python entrypoint. Both hosts receive the same positional arguments and speak the same stdout records, stop control and `Native runner:` diagnostics. Each owns its process group, control transport, JSONL framing, sandbox arguments and settings, private temp, pre-exec workspace preparation, scope and saved-context checks, directory-lock lifetime, cleanup and launch metadata. Each confirms the provider session and model synchronously before forwarding a record, so refusals never reach Elixir. The Go host calls the `workspace` package in process, including cwd/Git identity discovery. It removes Claude's private temp and only then releases the lock, after the group is reaped. The Python host keeps only the Claude question route: its command construction, the question protocol and the shared sandbox/context helpers it still calls.
+- `Agent.Native` spawns every native execution through the launching executable's internal `atlas-runtime native-host` (Go package `tools/runtime/host`). Python is no longer part of Runtime execution. The host receives positional arguments and speaks stdout records, stop/answer control and `Native runner:` diagnostics. It owns the process group, control transport, JSONL framing, sandbox arguments and settings, Claude private temp, pre-exec workspace preparation, scope and saved-context checks, directory-lock lifetime, cleanup and launch metadata. In its single event loop, each native record goes through the Claude question transport first and provider session/model confirmation second, and is forwarded only after both. Refusals therefore never reach Elixir. Answers from Elixir are handled in the same loop and written to native stdin under the existing 1 MiB bound and 3 s stall deadline. The host calls the `workspace` package in process, including cwd/Git identity discovery. It removes Claude's private temp and only then releases the lock, after the group is reaped.
 - The Go CLI imports the dependency-free local `workspace` package. That package does not import the CLI or choose a provider.
 
 `Engine`, `Turn`, engine settings and test-environment fault injection belong to execution lifecycle, not a `connected/` mode bucket. `Guidance` owns exact-attempt queued-input reconciliation; `Output` owns bounded ephemeral public-output retention, not durable history. They live under `interactions/`. The existing provider and proof adapters live beside the `Agent` contract in `providers/`.
 
 Only actual Atlas communication remains under `integrations/atlas_server/`: State read/fact transport (`Talk`), the address-validated Bus/BFF output endpoint, the Atlas command broker, and Atlas-only command setup. `Commands` owns Atlas prompts, help discovery, bridge configuration and the confined command environment/wrapper/profile previously embedded in the Claude adapter. The adapter retains Claude argv, event interpretation and process lifecycle, consumes that setup, and has no forwarding copies of the extracted helpers. The command setup uses the broker and never calls the provider; the output endpoint reads the independent output buffer.
 
-These execution paths remain distinct. `Engine` reconciles ownership and leases through Atlas facts and starts `Turn`; standalone `Service` admits explicitly requested native executions and stores its own history. Grouping them by responsibility does not add a shared workflow engine, unify queued guidance with native questions, or enable either protocol on the other adapter. Existing module APIs for unchanged responsibilities remain stable. Standalone startup still requires neither Atlas Server nor Flow, and its native host/Python implementation is unchanged by this correction.
+These execution paths remain distinct. `Engine` reconciles ownership and leases through Atlas facts and starts `Turn`; standalone `Service` admits explicitly requested native executions and stores its own history. Grouping them by responsibility does not add a shared workflow engine, unify queued guidance with native questions, or enable either protocol on the other adapter. Existing module APIs for unchanged responsibilities remain stable. Standalone startup still requires neither Atlas Server nor Flow.
 
 ## Implemented workspace boundary
 
 Workspace preparation, identity discovery and ownership live in `tools/runtime/workspace/workspace.go`, exposed through internal `atlas-runtime workspace` operations. The package owns canonical-path and repository-request validation, exclusive repository locking, clone/fetch/fresh-branch preparation and continuation preservation. Both Claude and Codex use the same workspace implementation.
 
-The launching CLI passes its own executable path to the daemon through `ATLAS_RUNTIME_EXECUTABLE`; workspace calls never discover a different installed binary or compile code during execution. Elixir invokes the Go command directly for admission queries. `priv/runtime/workspaces/client.py` only transports the runner requests and receives the ownership descriptor; the superseded Python workspace implementation is removed.
+The launching CLI passes its own executable path to the daemon through `ATLAS_RUNTIME_EXECUTABLE`; workspace calls never discover a different installed binary or compile code during execution. Elixir invokes the Go command directly for admission queries, and the native host links the same package.
 
 Preparation accepts the existing scope/repository records, creation flag and explicit sandbox command prefix. Go owns Git arguments and validation, not provider selection or sandbox translation. It returns the prepared record, including fetched base SHA, or refuses without resetting, stashing or overwriting work. Git subprocesses inherit the existing execution process group.
 
-`atlas-runtime workspace context PATH` returns canonical `cwd` and either `git: null` for a plain directory or the repository root, full symbolic branch (detached HEAD uses its revision), and ordered origin URLs. Broken Git metadata and inspection failures refuse rather than becoming a plain-directory identity. Discovery is read-only and does not acquire or release ownership. Claude's existing Python adapter adds the unchanged permission scope, compares the saved context and writes the same `claude-context.json` before native execution; no provider persistence or permission authority moved to Go.
+`atlas-runtime workspace context PATH` returns canonical `cwd` and either `git: null` for a plain directory or the repository root, full symbolic branch (detached HEAD uses its revision), and ordered origin URLs. Broken Git metadata and inspection failures refuse rather than becoming a plain-directory identity. Discovery is read-only and does not acquire or release ownership. The native host's Claude provider calls the same discovery in process, adds the unchanged permission scope, compares the saved context and writes the same `claude-context.json` before native execution.
 
-For Claude's Python runner, Go transfers the locked directory descriptor over a local Unix socket using `SCM_RIGHTS`. The helper exits; the original runner retains the same open-file-description lock until its existing native process-group cleanup completes. The Go native host takes the same lock in process. No new supervisor, lock-file protocol or persistent helper is introduced.
-
-The workspace Go translation is complete. Codex and question-disabled Claude no longer use Python; the remaining Python host serves only question-enabled Claude and moves to the Go host in a later slice. Lifecycle and durable state stay in Elixir.
+The workspace and native-host Go translations are complete; Runtime execution no longer uses Python. Lifecycle and durable state stay in Elixir.
 
 The shared provider capability and interaction contract remains a separate architectural goal. Claude-only question admission is still explicit, and Codex question support is not part of this extraction. Execution identity, permission checks, error handling, delivery evidence and durable records retain their existing contracts. The proposed centralized GitHub/Code OTP application above remains future work, not an implemented service or dependency.
 
