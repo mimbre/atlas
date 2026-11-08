@@ -18,6 +18,43 @@ Not every domain concept needs a separate layer, application, process or service
 
 **Console and other clients present state and request permitted operations.** The temporary external coordinator uses the same Runtime interface that Atlas Server should consume. Neither Markdown instructions nor model output authorize workflow transitions.
 
+## Planned local isolation and centralized GitHub access
+
+Decision from Melle: GitHub access should be centralized, not independently available to every agent. This is a planned architecture direction, not an expansion of the current workspace-to-Go migration.
+
+Runtime remains local-first, running native agent CLIs on macOS. Neither Linux nor a VM is required. The target implementation stack is Elixir and Go; remove Python incrementally, with no Rust planned.
+
+### Access boundaries
+
+- Agents receive assigned repository workspaces and private temporary storage, not unrestricted access to the user's home directory, SSH keys or cloud credentials. Worktrees alone are not isolation boundaries.
+- Agents may edit, test and perform permitted local Git operations. GitHub credentials and direct authenticated GitHub access belong to a trusted local component outside agent execution sandboxes.
+- Centralize GitHub reads and writes required by the workflow, including repository acquisition/fetch, push and PR operations. Workspace preparation requests remote operations through that boundary rather than exposing credentials to agent processes.
+- Expose specific operations with validated repository, branch and execution context, not arbitrary shell commands or a generic authenticated HTTP proxy. Apply repository/account restrictions and narrowly scoped credentials.
+- Keep permission configuration and credential material outside agent-writable locations. Agents cannot expand their own permissions.
+- Atlas Server or the external coordinator still owns workflow authorization, acceptance, merge and release decisions. The local component executes authorized GitHub operations; centralizing credentials does not transfer orchestration to Runtime.
+
+### Proposed Code application
+
+Code is a proposed reusable Elixir OTP application for centralized code-hosting provider operations and credentials, including GitHub access. It can be embedded in a standalone Runtime release or an Atlas Server release; independent deployment is optional later, not required now. Runtime continues to own local workspaces. Orchestration remains outside Code, and standalone Runtime must not require Server or Flow.
+
+OTP application boundaries organize responsibilities and dependencies; they are not OS security isolation. Flow, Bus and State packaging follows explicit dependencies rather than a requirement to distribute every layer independently. This migration introduces no Code application or centralized-access implementation.
+
+### TLS relationship and limits
+
+The current macOS Claude trust-service allowance is a verified compatibility fix, not the final isolation design. A trusted GitHub component could perform certificate verification outside the agent sandbox, allowing removal of that allowance from agents if no other required tools depend on it. Verify those dependencies before removal; never disable TLS verification.
+
+Centralized access reduces credential exposure but is not sufficient by itself to prevent data leaving the machine. Its operation surface must not permit arbitrary destinations, repositories or accounts. Approved publishing operations can still transmit workspace content; authorization must constrain where and what may be published.
+
+### Later implementation sequence
+
+1. Inventory current GitHub callers and credential paths, including workspace acquisition and agent commands.
+2. Introduce the smallest local GitHub operation boundary using existing Runtime contracts and components; no separate daemon or framework unless required.
+3. Migrate every caller, remove agent credential inheritance and direct authenticated GitHub paths, and enforce the boundary in the execution environment rather than relying on prompts.
+4. Exercise normal clone/fetch/push/PR behavior and refusals for unauthorized repositories, branches and operations. Verify agents cannot read the centralized credentials.
+5. Check remaining tool dependencies on macOS trust services and remove the agent allowance only where real behavior still works.
+
+Open implementation details: exact operation contract, credential source/scopes and enforceable native macOS read/network restrictions. These require code inspection and runtime proof; this document does not claim they are implemented.
+
 ## Domain concepts
 
 | Concept | Responsibility and boundary |
@@ -130,18 +167,22 @@ Observed boundary problems:
 - `Service` checks for Claude directly when admitting or handling questions.
 - `Service` calls `Agent.Native.answer` directly.
 - Provider differences are handled in branches inside shared native code.
-- Workspace validation, ownership and Git preparation now live in `native_workspace.py`; the Python runner still combines sandbox setup, process execution and native protocol translation.
+- Workspace validation, ownership acquisition and Git preparation now live in `tools/runtime/workspace.go`; the Python runner still combines sandbox setup, process execution and native protocol translation.
 - Provider-neutral public command names therefore do not establish a complete provider-neutral implementation boundary.
 
 These observations concern the inspected standalone path. They are not a complete audit of the separate connected Engine/Turn path, and this proposal does not claim those paths already share one implementation.
 
 ## First architectural move
 
-The first implemented boundary is workspace preparation and ownership in `beam/apps/atlas_runtime/priv/native_workspace.py`. It owns dedicated-root and repository-request validation, exclusive repository locking, clone/fetch/fresh-branch preparation and continuation preservation. Both Claude and Codex use this same implementation. Existing Elixir admission and lifecycle APIs are unchanged.
+The workspace preparation and ownership boundary is implemented in `tools/runtime/workspace.go`, exposed through internal `atlas-runtime workspace` operations. It owns canonical-path and repository-request validation, exclusive repository locking, clone/fetch/fresh-branch preparation and continuation preservation. Both Claude and Codex use the same implementation. Existing Elixir admission and lifecycle APIs are unchanged.
 
-The runner supplies an explicit sandbox command prefix to `prepare_repository(scope, repository, created, command_prefix)`. The workspace module owns Git arguments and workspace validation, not provider selection or sandbox translation. It returns the prepared repository record, including the fetched base SHA, or refuses without silently resetting, stashing or overwriting work. The runner retains the returned ownership descriptor until execution ends.
+The launching CLI passes its own executable path to the daemon through `ATLAS_RUNTIME_EXECUTABLE`; workspace calls never discover a different installed binary or compile code during execution. Elixir invokes the Go command directly for admission queries. `workspace_client.py` only transports the remaining runner requests and receives the ownership descriptor; the superseded Python workspace implementation is removed.
 
-The next Go migration slice is this workspace responsibility, preserving its request/scope/repository records, exact refusal semantics, exclusive ownership lifetime and sandboxed Git execution. Translate that boundary rather than porting the whole runner. Provider protocol and host-process separation remain subsequent work; lifecycle and durable state stay in Elixir.
+Preparation accepts the existing scope/repository records, creation flag and explicit sandbox command prefix. Go owns Git arguments and validation, not provider selection or sandbox translation. It returns the prepared record, including fetched base SHA, or refuses without resetting, stashing or overwriting work. Git subprocesses inherit the existing execution process group.
+
+For ownership, Go transfers the locked directory descriptor over a local Unix socket using `SCM_RIGHTS`. The helper exits; the original runner retains the same open-file-description lock until its existing native process-group cleanup completes. No new supervisor, lock-file protocol or persistent helper is introduced.
+
+This completes the workspace Go translation, not the whole Python removal. Subsequent provider-protocol and host-process migrations must establish their own bounded contracts; lifecycle and durable state stay in Elixir.
 
 The shared provider capability and interaction contract remains a separate architectural goal. Codex question support is not part of this extraction. Preserve execution identity, permission checks, error handling, delivery evidence and durable records; do not claim provider parity before exercising the same consumer-visible behavior through both adapters.
 

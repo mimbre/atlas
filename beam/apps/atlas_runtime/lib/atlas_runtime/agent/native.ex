@@ -51,18 +51,17 @@ defmodule AtlasRuntime.Agent.Native do
   defp bounded_text?(text),
     do: is_binary(text) and byte_size(text) <= 4_096 and String.valid?(text) and String.trim(text) != ""
 
-  def permission_scope(workspace), do: runner_request(["--permission-scope", workspace])
+  def permission_scope(workspace), do: workspace_request(["scope", workspace])
 
-  def workspace_path(workspace), do: runner_request(["--workspace-path", workspace])
+  def workspace_path(workspace), do: workspace_request(["path", workspace])
 
   def repository_request(home, url, branch),
-    do: runner_request(["--repository-request", home, url, branch])
+    do: workspace_request(["request", home, url, branch])
 
-  defp runner_request(args) do
-    helper = Path.join(:code.priv_dir(:atlas_runtime), "native_runner.py")
-    python = System.find_executable("python3") || raise("Python 3 is required")
+  defp workspace_request(args) do
+    executable = System.fetch_env!("ATLAS_RUNTIME_EXECUTABLE")
 
-    case System.cmd(python, [helper | args], stderr_to_stdout: true) do
+    case System.cmd(executable, ["workspace" | args], stderr_to_stdout: true) do
       {scope, 0} -> JSON.decode!(scope)
       {error, _} -> raise(String.trim(error))
     end
@@ -108,7 +107,9 @@ defmodule AtlasRuntime.Agent.Native do
          (is_nil(session) || (is_binary(session) && session != "")) do
       File.mkdir_p!(folder)
       helper = Path.join(:code.priv_dir(:atlas_runtime), "native_runner.py")
-      kept = ~w(HOME USER LOGNAME PATH TMPDIR LANG LC_ALL LC_CTYPE CODEX_HOME CLAUDE_CONFIG_DIR)
+
+      kept =
+        ~w(HOME USER LOGNAME PATH TMPDIR LANG LC_ALL LC_CTYPE CODEX_HOME CLAUDE_CONFIG_DIR ATLAS_RUNTIME_EXECUTABLE)
 
       unset =
         for {key, _} <- System.get_env(), key not in kept, do: {String.to_charlist(key), false}
