@@ -447,6 +447,14 @@ func TestWorkspaceFolderScopeVerifiesMaterializationWithoutGit(t *testing.T) {
 		t.Fatal(err)
 	}
 	workspaceTestRefuse(t, "canonical path", "folder-scope", filepath.Join(root, "alias", "work"), home)
+	// A folder inside, equal to or containing the Runtime home is refused, even when recorded or aliased.
+	workspaceTestMaterialize(t, home, filepath.Join(home, "work"))
+	for _, overlap := range []string{filepath.Join(home, "work"), home, root, filepath.Join(root, "alias", "runtime", "work")} {
+		if _, err := FolderScope(overlap, home); err == nil ||
+			err.Error() != "Materialized folder "+overlap+" overlaps the Runtime home "+home+"; materialize it outside the Runtime home" {
+			t.Fatalf("overlapping folder %s: %v", overlap, err)
+		}
+	}
 
 	// A Git work tree here or above would make the trusted native CLI run Git.
 	outer := filepath.Join(root, "outer")

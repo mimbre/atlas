@@ -314,7 +314,7 @@ func admission(root string, argv []string) {
 		check(os.Mkdir(filepath.Join(root, record["record_ref"].(string)+".tmp"), 0777))
 	}
 	evidence := map[string]any{"goal": goal, "backend": backend, "resumed": resumed, "session_id": session,
-		"argv": argv[1:], "pid": os.Getpid(), "record": record}
+		"argv": argv[1:], "pid": os.Getpid(), "record": record, "executable": os.Getenv("ATLAS_RUNTIME_EXECUTABLE")}
 	appendFile(filepath.Join(root, "native-starts.jsonl"), encode(evidence))
 	if backend == "claude" {
 		emit(map[string]any{"type": "system", "subtype": "init", "session_id": session, "model": arg(argv, "--model", "claude-sonnet-4-6")})

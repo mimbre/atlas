@@ -112,6 +112,16 @@ func run(args []string) (err error) {
 	folderScope, _ := scope.(map[string]any)
 	folderProfile := folderScope["profile"] == "materialized-folder"
 	runtimeHome, _ := folderScope["home"].(string)
+	// Workers inspect their folder with exactly this host's executable: "$ATLAS_RUNTIME_EXECUTABLE".
+	inspector := ""
+	if folderProfile {
+		if inspector, err = os.Executable(); err == nil {
+			inspector, err = filepath.EvalSymlinks(inspector)
+		}
+		if err != nil {
+			return err
+		}
+	}
 	// Codex workers get an owned scratch under the Runtime home; Claude's is its private temp.
 	scratch := ""
 	if folderProfile && backend == "codex" {
@@ -120,7 +130,7 @@ func run(args []string) (err error) {
 	if backend == "codex" {
 		permissions := []string{"--sandbox", sandbox}
 		if scope != nil {
-			if permissions, err = permissionArguments(scope, scratch); err != nil {
+			if permissions, err = permissionArguments(scope, scratch, inspector); err != nil {
 				return err
 			}
 		}
@@ -235,7 +245,7 @@ func run(args []string) (err error) {
 		if folderProfile {
 			// HOME/scratch/<turn> would exceed Claude's 44-byte child-temp limit.
 			scratch = temporary
-			settings, err = claudeFolderSettings(folderScope, temporary, home)
+			settings, err = claudeFolderSettings(folderScope, temporary, home, inspector)
 		} else {
 			settings, err = claudeRepositorySettings(scope, temporary)
 		}
@@ -246,15 +256,12 @@ func run(args []string) (err error) {
 		environment = append(os.Environ(), "CLAUDE_CODE_TMPDIR="+temporary)
 	}
 	if folderProfile {
-		self, err := os.Executable()
-		if err != nil {
-			return err
-		}
 		if environment == nil {
 			environment = os.Environ()
 		}
 		// Workers inspect their folder with this executable against this home's record and baseline.
-		environment = append(environment, "PATH="+filepath.Dir(self)+":"+os.Getenv("PATH"), "ATLAS_RUNTIME_HOME="+runtimeHome)
+		environment = append(environment, "PATH="+filepath.Dir(inspector)+":"+os.Getenv("PATH"),
+			"ATLAS_RUNTIME_HOME="+runtimeHome, "ATLAS_RUNTIME_EXECUTABLE="+inspector)
 		for _, cache := range [][2]string{{"TMPDIR", "tmp"}, {"GOCACHE", "go-build"}, {"GOTMPDIR", "go-tmp"},
 			{"XDG_CACHE_HOME", "cache"}, {"npm_config_cache", "npm"}} {
 			path := filepath.Join(scratch, cache[1])
@@ -558,7 +565,7 @@ func executeAssignment(args []string) error {
 				return errors.New("Managed repository preparation requires the installed Codex sandbox")
 			}
 		}
-		permissions, err := permissionArguments(scope, "")
+		permissions, err := permissionArguments(scope, "", "")
 		if err != nil {
 			return err
 		}

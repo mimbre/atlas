@@ -59,7 +59,8 @@ func TestFolderProfileArgumentsAreTheEnforcementContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	scratch := filepath.Join(home, "scratch", "turn-1")
-	args, err := folderArguments(scope, scratch, user)
+	inspector := filepath.Join(user, "bin", "atlas-runtime")
+	args, err := folderArguments(scope, scratch, user, inspector)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,19 +77,35 @@ func TestFolderProfileArgumentsAreTheEnforcementContract(t *testing.T) {
 	if !slices.Equal(args, want) {
 		t.Fatalf("got  %q\nwant %q", args, want)
 	}
-	if routed, err := permissionArguments(scope, scratch); err != nil || !slices.Equal(routed, want) {
+	if routed, err := permissionArguments(scope, scratch, inspector); err != nil || !slices.Equal(routed, want) {
 		t.Fatalf("profile dispatch differs: %q %v", routed, err)
 	}
 	for _, unknown := range []any{map[string]any{"profile": "other", "root": dest}, map[string]any{"root": dest}} {
-		if _, err := permissionArguments(unknown, scratch); err == nil || err.Error() != "Unknown permission profile" {
+		if _, err := permissionArguments(unknown, scratch, inspector); err == nil || err.Error() != "Unknown permission profile" {
 			t.Fatalf("unknown profile accepted: %v", err)
+		}
+	}
+	// An inspector inside the denied home gets read on exactly that file; workers must not be able to replace it.
+	inside := filepath.Join(home, "atlas-runtime")
+	if args, err = folderArguments(scope, scratch, user, inside); err != nil {
+		t.Fatal(err)
+	}
+	granted := `permissions={atlas_folder={extends=":read-only",filesystem={` + strings.Join(append(filesystem, q(inside)+`="read"`), ",") + `},network={enabled=false}}}`
+	if !slices.Equal(args, append(want[:3:3], granted)) {
+		t.Fatalf("inspector grant: got %q\nwant %q", args, granted)
+	}
+	for _, writable := range []string{dest, scratch} {
+		executable := filepath.Join(writable, "atlas-runtime")
+		if _, err := folderArguments(scope, scratch, user, executable); err == nil || err.Error() != "Runtime executable "+executable+
+			" is inside worker-writable "+writable+"; install atlas-runtime outside the materialized folder and worker temp" {
+			t.Fatalf("writable inspector accepted: %v", err)
 		}
 	}
 	// A token directory that contains the writable folder cannot be denied without denying the folder.
 	if err := os.WriteFile(filepath.Join(home, "code.json"), []byte(fmt.Sprintf(`{"token_file":%q}`, filepath.Join(user, "t"))), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := folderArguments(scope, scratch, user); err == nil || !strings.Contains(err.Error(), "Code token directory") {
+	if _, err := folderArguments(scope, scratch, user, inspector); err == nil || !strings.Contains(err.Error(), "Code token directory") {
 		t.Fatalf("token directory containing the folder accepted: %v", err)
 	}
 }
@@ -121,6 +138,8 @@ sleep 60 </dev/null >/dev/null 2>&1 &
 wait
 `)
 	scratch := filepath.Join(home, "scratch", filepath.Base(folder))
+	// A stale inherited value must not reach the worker; the host supplies its own executable.
+	t.Setenv("ATLAS_RUNTIME_EXECUTABLE", "/stale/atlas-runtime")
 	host := startHost(t, scopedArgs(t, native, dest, folder, scope))
 	started := host.record(t)
 	if event := host.record(t); event["type"] != "runtime.event" {
@@ -159,9 +178,10 @@ wait
 		t.Fatal(err)
 	}
 	self, _ := os.Executable()
+	self, _ = filepath.EvalSymlinks(self)
 	for _, want := range []string{"TMPDIR=" + scratch + "/tmp", "GOCACHE=" + scratch + "/go-build", "GOTMPDIR=" + scratch + "/go-tmp",
 		"XDG_CACHE_HOME=" + scratch + "/cache", "npm_config_cache=" + scratch + "/npm", "ATLAS_RUNTIME_HOME=" + home,
-		"PATH=" + filepath.Dir(self) + ":"} {
+		"PATH=" + filepath.Dir(self) + ":", "ATLAS_RUNTIME_EXECUTABLE=" + self + "\n"} {
 		if !strings.Contains(string(environment), "\n"+want) && !strings.HasPrefix(string(environment), want) {
 			t.Fatalf("worker environment lacks %q:\n%s", want, environment)
 		}
@@ -227,6 +247,35 @@ func TestFolderLaunchRefusesChangedScope(t *testing.T) {
 	}
 }
 
+func TestFolderLaunchRefusesAnInspectorWorkersCanReplace(t *testing.T) {
+	dest, home, folder, native, _, scope := folderLaunch(t, "touch \"$0.executed\"\n")
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	binary, err := os.ReadFile(self)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inside := filepath.Join(dest, "atlas-runtime")
+	if err = os.WriteFile(inside, binary, 0700); err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command(inside, append([]string{"native-host"}, scopedArgs(t, native, dest, folder, scope)...)...)
+	command.Env = append(os.Environ(), "ATLAS_NATIVE_HOST_TEST=1")
+	out, err := command.CombinedOutput()
+	want := "Runtime executable " + inside + " is inside worker-writable " + dest + "; install atlas-runtime outside the materialized folder and worker temp"
+	if err == nil || !strings.Contains(string(out), want) {
+		t.Fatalf("inspector inside the folder not refused: %v %s", err, out)
+	}
+	if _, err := os.Stat(native + ".executed"); err == nil {
+		t.Fatal("native CLI executed despite a refusal")
+	}
+	if _, err := os.Stat(filepath.Join(home, "scratch", filepath.Base(folder))); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("refused launch left scratch: %v", err)
+	}
+}
+
 // claudeFolder materializes a folder outside every system temp root, beneath the real home
 // whose private temp path fits the 44-byte limit, with a logging Git first on PATH.
 func claudeFolder(t *testing.T) (dest, home, gitLog string, scope map[string]any) {
@@ -272,7 +321,8 @@ func TestClaudeFolderSettingsAreTheEnforcementContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	temporary := "/u/.ac-12345678"
-	encoded, err := claudeFolderSettings(scope, temporary, user)
+	inspector := filepath.Join(user, "bin", "atlas-runtime")
+	encoded, err := claudeFolderSettings(scope, temporary, user, inspector)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,13 +346,27 @@ func TestClaudeFolderSettingsAreTheEnforcementContract(t *testing.T) {
 		rules = append(rules, "Read(/"+path+")")
 	}
 	q := func(values ...string) string { body, _ := json.Marshal(values); return string(body) }
-	want := `{"sandbox":{"enabled":true,"failIfUnavailable":true,"allowUnsandboxedCommands":false,"excludedCommands":[],` +
-		`"filesystem":{"allowWrite":` + q(dest, temporary) + `,"denyWrite":` + q(append(append(roots, protected...), record, baseline)...) +
-		`,"denyRead":` + q(protected...) + `,"allowRead":` + q(record, baseline, user+"/.claude/shell-snapshots", user+"/.claude/session-env") +
-		`},"network":{"allowedDomains":[],"strictAllowlist":true,"allowAllUnixSockets":false,"allowLocalBinding":false}},` +
-		`"permissions":{"deny":` + q(rules...) + `}}`
-	if encoded != want {
-		t.Fatalf("got  %s\nwant %s", encoded, want)
+	want := func(granted ...string) string {
+		return `{"sandbox":{"enabled":true,"failIfUnavailable":true,"allowUnsandboxedCommands":false,"excludedCommands":[],` +
+			`"filesystem":{"allowWrite":` + q(dest, temporary) + `,"denyWrite":` + q(append(append(roots, protected...), record, baseline)...) +
+			`,"denyRead":` + q(protected...) + `,"allowRead":` + q(append([]string{record, baseline, user + "/.claude/shell-snapshots", user + "/.claude/session-env"}, granted...)...) +
+			`},"network":{"allowedDomains":[],"strictAllowlist":true,"allowAllUnixSockets":false,"allowLocalBinding":false}},` +
+			`"permissions":{"deny":` + q(rules...) + `}}`
+	}
+	if encoded != want() {
+		t.Fatalf("got  %s\nwant %s", encoded, want())
+	}
+	// An inspector inside the denied home gets read on exactly that file; workers must not be able to replace it.
+	inside := filepath.Join(home, "atlas-runtime")
+	if encoded, err = claudeFolderSettings(scope, temporary, user, inside); err != nil || encoded != want(inside) {
+		t.Fatalf("inspector grant: %v\ngot  %s\nwant %s", err, encoded, want(inside))
+	}
+	for _, writable := range []string{dest, temporary} {
+		executable := filepath.Join(writable, "atlas-runtime")
+		if _, err := claudeFolderSettings(scope, temporary, user, executable); err == nil || err.Error() != "Runtime executable "+executable+
+			" is inside worker-writable "+writable+"; install atlas-runtime outside the materialized folder and worker temp" {
+			t.Fatalf("writable inspector accepted: %v", err)
+		}
 	}
 
 	incomplete := map[string]any{}
@@ -311,10 +375,10 @@ func TestClaudeFolderSettingsAreTheEnforcementContract(t *testing.T) {
 			incomplete[key] = value
 		}
 	}
-	if _, err := claudeFolderSettings(incomplete, temporary, user); err == nil || err.Error() != "Materialized folder scope is incomplete" {
+	if _, err := claudeFolderSettings(incomplete, temporary, user, inspector); err == nil || err.Error() != "Materialized folder scope is incomplete" {
 		t.Fatalf("incomplete scope accepted: %v", err)
 	}
-	if _, err := claudeFolderSettings(scope, "/"+strings.Repeat("x", 44), user); err == nil ||
+	if _, err := claudeFolderSettings(scope, "/"+strings.Repeat("x", 44), user, inspector); err == nil ||
 		err.Error() != "Claude private native temp path exceeds the 44-byte child-temp limit" {
 		t.Fatalf("long private temp accepted: %v", err)
 	}
@@ -322,11 +386,11 @@ func TestClaudeFolderSettingsAreTheEnforcementContract(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "code.json"), []byte(fmt.Sprintf(`{"token_file":%q}`, filepath.Join(user, "t"))), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := claudeFolderSettings(scope, temporary, user); err == nil || err.Error() != "Protected path "+user+" contains "+dest {
+	if _, err := claudeFolderSettings(scope, temporary, user, inspector); err == nil || err.Error() != "Protected path "+user+" contains "+dest {
 		t.Fatalf("token directory containing the folder accepted: %v", err)
 	}
 	t.Setenv("TMPDIR", user)
-	if _, err := claudeFolderSettings(scope, temporary, user); err == nil ||
+	if _, err := claudeFolderSettings(scope, temporary, user, inspector); err == nil ||
 		err.Error() != "Claude materialized folders must be outside system temporary directories" {
 		t.Fatalf("folder inside a system temp root accepted: %v", err)
 	}
@@ -343,6 +407,8 @@ test -f "${0%/native}/claude-context.json" || exit 9
 printf '%s\n' '{"type":"result","result":"done"}'
 `)
 	args := claudeScopedArgs(t, native, dest, folder, scope)
+	// A stale inherited value must not reach the worker; the host supplies its own executable.
+	t.Setenv("ATLAS_RUNTIME_EXECUTABLE", "/stale/atlas-runtime")
 	host := startHost(t, args)
 	records, code := host.finish(t)
 	if code != 0 || records[len(records)-1]["exit_code"] != 0.0 {
@@ -362,9 +428,10 @@ printf '%s\n' '{"type":"result","result":"done"}'
 		t.Fatalf("private temp %q is not under the user home", temporary)
 	}
 	self, _ := os.Executable()
+	self, _ = filepath.EvalSymlinks(self)
 	for _, want := range []string{"TMPDIR=" + temporary + "/tmp", "GOCACHE=" + temporary + "/go-build", "GOTMPDIR=" + temporary + "/go-tmp",
 		"XDG_CACHE_HOME=" + temporary + "/cache", "npm_config_cache=" + temporary + "/npm", "ATLAS_RUNTIME_HOME=" + home,
-		"PATH=" + filepath.Dir(self) + ":"} {
+		"PATH=" + filepath.Dir(self) + ":", "ATLAS_RUNTIME_EXECUTABLE=" + self + "\n"} {
 		if !strings.Contains(string(environment), "\n"+want) && !strings.HasPrefix(string(environment), want) {
 			t.Fatalf("worker environment lacks %q:\n%s", want, environment)
 		}
@@ -470,18 +537,24 @@ printf '%s\n' '{"type":"system","subtype":"init","session_id":"`+claudeSession+`
 
 // TestFolderProfileIsEnforcedByInstalledCodexSandbox runs real worker commands under the
 // installed Codex seatbelt with the exact profile arguments; fake user and Runtime homes hold sentinels.
+// The inspector lives inside the denied Runtime home, like the dedicated deployment's binary, and an
+// older stale `atlas-runtime` comes first on PATH.
 func TestFolderProfileIsEnforcedByInstalledCodexSandbox(t *testing.T) {
 	codex, err := exec.LookPath("codex")
 	if runtime.GOOS != "darwin" || err != nil {
 		t.Skip("requires the installed Codex CLI on macOS")
 	}
-	bin := t.TempDir()
-	if out, err := exec.Command("go", "build", "-o", filepath.Join(bin, "atlas-runtime"), "github.com/eyra/atlas/tools/runtime").CombinedOutput(); err != nil {
-		t.Fatalf("build: %v %s", err, out)
-	}
 	user := isolatedHome(t)
 	home, dest := filepath.Join(user, "runtime"), filepath.Join(user, "work")
 	scope := materialize(t, home, dest)
+	inspector := filepath.Join(home, "atlas-runtime")
+	if out, err := exec.Command("go", "build", "-o", inspector, "github.com/eyra/atlas/tools/runtime").CombinedOutput(); err != nil {
+		t.Fatalf("build: %v %s", err, out)
+	}
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "atlas-runtime"), []byte("#!/bin/sh\necho STALE-CLI\nexit 3\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
 	token := filepath.Join(user, "code-home", "runtime.token")
 	sentinels := map[string]string{
 		token:                                             "TOKEN-SENTINEL",
@@ -504,11 +577,12 @@ func TestFolderProfileIsEnforcedByInstalledCodexSandbox(t *testing.T) {
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("reachable")) }))
 	defer server.Close()
-	args, err := folderArguments(scope, scratch, user)
+	args, err := folderArguments(scope, scratch, user, inspector)
 	if err != nil {
 		t.Fatal(err)
 	}
-	environment := append(os.Environ(), "ATLAS_RUNTIME_HOME="+home, "TMPDIR="+filepath.Join(scratch, "tmp"), "PATH="+bin+":"+os.Getenv("PATH"))
+	environment := append(os.Environ(), "ATLAS_RUNTIME_HOME="+home, "ATLAS_RUNTIME_EXECUTABLE="+inspector,
+		"TMPDIR="+filepath.Join(scratch, "tmp"), "PATH="+bin+":"+os.Getenv("PATH"))
 	shell := func(sandboxed bool, script string) (string, error) {
 		command := exec.Command("sh", "-c", script)
 		if sandboxed {
@@ -527,6 +601,7 @@ func TestFolderProfileIsEnforcedByInstalledCodexSandbox(t *testing.T) {
 		{`echo scratch > "$TMPDIR/f" && cat "$TMPDIR/f"`, true},
 		{fmt.Sprintf("cat %q %q/manifest.json %q/complete", record, baseline, baseline), true},
 		{fmt.Sprintf("cat %q", filepath.Join(home, "code.json")), false},
+		{fmt.Sprintf("ls %q", home), false},
 		{fmt.Sprintf("cat %q", token), false},
 		{fmt.Sprintf("ls %q", filepath.Dir(token)), false},
 		{fmt.Sprintf("cat %q", filepath.Join(user, ".ssh", "id")), false},
@@ -547,12 +622,19 @@ func TestFolderProfileIsEnforcedByInstalledCodexSandbox(t *testing.T) {
 			t.Fatalf("sandboxed %q leaked a sentinel: %s", probe.script, out)
 		}
 	}
-	out, err := shell(true, "atlas-runtime snapshot status --dest "+dest)
+	// Bare `atlas-runtime` resolves to the stale CLI; the explicit inspector runs from inside the denied home.
+	if out, err := shell(true, "atlas-runtime snapshot status --dest "+dest); err == nil || !strings.Contains(out, "STALE-CLI") {
+		t.Fatalf("PATH did not select the stale CLI: %v %s", err, out)
+	}
+	out, err := shell(true, `"$ATLAS_RUNTIME_EXECUTABLE" snapshot status --dest `+dest)
 	if err != nil || !strings.Contains(out, `"path":"repo/new.txt"`) || !strings.Contains(out, `"change":"added"`) {
 		t.Fatalf("sandboxed snapshot status: %v %s", err, out)
 	}
-	if out, err = shell(true, "atlas-runtime snapshot diff --dest "+dest); err != nil || !strings.Contains(out, "+edit") {
+	if out, err = shell(true, `"$ATLAS_RUNTIME_EXECUTABLE" snapshot diff --dest `+dest); err != nil || !strings.Contains(out, "+edit") {
 		t.Fatalf("sandboxed snapshot diff: %v %s", err, out)
+	}
+	if out, err = shell(true, fmt.Sprintf("cat %q", filepath.Join(home, "code.json"))); err == nil || strings.Contains(out, "token_file") {
+		t.Fatalf("inspector grant exposed its sibling: %v %s", err, out)
 	}
 	// Positive controls: the same reads and request succeed outside the sandbox.
 	for _, script := range []string{

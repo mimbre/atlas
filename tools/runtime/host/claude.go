@@ -274,18 +274,22 @@ func claudeRepositorySettings(scope any, temporary string) (string, error) {
 // write only the folder and the private temp, read the snapshot record and baseline, deny
 // Git metadata, the Runtime home, the Code token and user credentials under user, no network.
 // Read deny rules cover the native Read/Glob/Grep tools; Claude also merges them into the
-// sandbox's denyRead, which is listed explicitly for the Bash sandbox as well.
-func claudeFolderSettings(scope map[string]any, temporary, user string) (string, error) {
+// sandbox's denyRead, which is listed explicitly for the Bash sandbox as well. Bash may
+// read (and so execute) the inspector even inside a denied path.
+func claudeFolderSettings(scope map[string]any, temporary, user, inspector string) (string, error) {
 	root, _ := scope["root"].(string)
 	home, _ := scope["home"].(string)
 	record, _ := scope["record"].(string)
 	baseline, _ := scope["baseline"].(string)
 	repositories, _ := scope["repositories"].([]any)
-	if root == "" || home == "" || record == "" || baseline == "" || len(repositories) == 0 {
+	if root == "" || home == "" || record == "" || baseline == "" || len(repositories) == 0 || inspector == "" {
 		return "", errors.New("Materialized folder scope is incomplete")
 	}
 	roots, err := claudeTemporaryRoots(root, temporary, "Claude materialized folders")
 	if err != nil {
+		return "", err
+	}
+	if err = writableInspector(inspector, root, temporary); err != nil {
 		return "", err
 	}
 	protected := []string{home, filepath.Join(root, ".git")}
@@ -344,6 +348,10 @@ func claudeFolderSettings(scope map[string]any, temporary, user string) (string,
 		return "", err
 	}
 	allowRead := []string{record, baseline, filepath.Join(resolved, "shell-snapshots"), filepath.Join(resolved, "session-env")}
+	// The sandbox's allowRead wins over its denyRead; grant only the inspector itself.
+	if slices.ContainsFunc(protected, func(path string) bool { return within(path, inspector) }) {
+		allowRead = append(allowRead, inspector)
+	}
 	settings := claudeSettings{
 		Sandbox: claudeSandbox{true, true, false, []string{},
 			claudeFilesystem{AllowWrite: []string{root, temporary},
