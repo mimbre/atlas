@@ -52,7 +52,7 @@ func (e changeEntry) MarshalJSON() ([]byte, error) {
 // Submit sends the changes of one repository in the folder dest, published by Materialize,
 // to Code as change id and seals them into a private commit. path selects the repository and
 // may be empty when there is only one. It writes to neither the folder nor its baseline;
-// a clean repository makes no request.
+// a clean repository makes no request. A folder with an active Runtime owner is refused.
 func Submit(home, dest, path, id string) (map[string]any, error) {
 	if !changeID.MatchString(id) {
 		return nil, errors.New("change ID must be a lowercase UUID")
@@ -61,6 +61,11 @@ func Submit(home, dest, path, id string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	lock, err := own(f.dest)
+	if err != nil {
+		return nil, err
+	}
+	defer lock.Close()
 	if path == "" {
 		if len(f.m.Repositories) != 1 {
 			known := []string{}
@@ -133,6 +138,24 @@ func Submit(home, dest, path, id string) (map[string]any, error) {
 	}
 	result["state"], result["commit"] = "sealed", commit
 	return result, nil
+}
+
+// own takes the exclusive flock a Runtime host holds on its folder until its process group is
+// reaped, so the folder is not captured while a worker may write to it. It never waits; closing
+// the returned directory releases the lock.
+func own(dest string) (*os.File, error) {
+	lock, err := os.OpenFile(dest, os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return nil, fmt.Errorf("cannot submit %s: %v", dest, reason(err))
+	}
+	if err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		lock.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
+			return nil, fmt.Errorf("folder %s has an active Runtime owner; nothing was sent to Code, run the command again after it stops", dest)
+		}
+		return nil, err
+	}
+	return lock, nil
 }
 
 // ancestors refuses an existing folder above repository r that is no longer a real directory:

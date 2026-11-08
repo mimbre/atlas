@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -510,6 +511,147 @@ func TestReplacedRepositoryAncestorIsRefused(t *testing.T) {
 		must(t, err)
 		if result["state"] != "sealed" || !reflect.DeepEqual(code.entries[changeA], []map[string]any{deleted("a.txt")}) {
 			t.Fatalf("got %v %v", result, code.entries)
+		}
+	})
+}
+
+// contend tries the nonblocking exclusive flock a Runtime host holds on dest and reports
+// whether it was free; an acquired lock is released at once.
+func contend(t *testing.T, dest string) bool {
+	t.Helper()
+	contender, err := os.Open(dest)
+	must(t, err)
+	defer contender.Close()
+	err = syscall.Flock(int(contender.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+	if errors.Is(err, syscall.EWOULDBLOCK) {
+		return false
+	}
+	must(t, err)
+	return true
+}
+
+// A host owns its folder with an exclusive flock until its process group is reaped; a submission
+// takes the same lock first, so it never captures a folder a worker may still be writing.
+func TestSubmitOwnsTheFolderLock(t *testing.T) {
+	t.Run("an active owner refuses before Code", func(t *testing.T) {
+		f, code, id, dest := submitFixture(t, false, memberA, memberRun, memberL)
+		must(t, os.WriteFile(filepath.Join(dest, "one", "a.txt"), []byte("changed"), 0644))
+		owner, err := os.Open(dest)
+		must(t, err)
+		must(t, syscall.Flock(int(owner.Fd()), syscall.LOCK_EX|syscall.LOCK_NB))
+		baseline := filepath.Join(f.home, "snapshots", strings.TrimPrefix(id, "sha256:"))
+		before, base := state(t, dest), state(t, baseline)
+		afterCapture = func() { t.Error("captured while another owner held the folder") }
+		t.Cleanup(func() { afterCapture = func() {} })
+		result, err := Submit(f.home, dest, "one", changeA)
+		if err == nil || err.Error() != "folder "+dest+" has an active Runtime owner; nothing was sent to Code, run the command again after it stops" {
+			t.Fatalf("got %v, %v", result, err)
+		}
+		if len(code.log) != 0 {
+			t.Fatalf("Code was called: %v", code.log)
+		}
+		equal(t, state(t, dest), before)
+		equal(t, state(t, baseline), base)
+		noTemporaries(t, f.home)
+		if contend(t, dest) {
+			t.Fatal("the refused submission took the owner's lock")
+		}
+
+		// Once the owner is gone, the same command submits normally.
+		afterCapture = func() {}
+		must(t, owner.Close())
+		result, err = Submit(f.home, dest, "one", changeA)
+		must(t, err)
+		if result["state"] != "sealed" || !reflect.DeepEqual(code.entries[changeA], []map[string]any{written("a.txt", "100644", "changed")}) {
+			t.Fatalf("got %v %v", result, code.entries)
+		}
+		if !contend(t, dest) {
+			t.Fatal("a sealed submission kept the lock")
+		}
+	})
+
+	t.Run("an active owner refuses even a clean folder", func(t *testing.T) {
+		f, code, _, dest := submitFixture(t, false, memberA)
+		owner, err := os.Open(dest)
+		must(t, err)
+		defer owner.Close()
+		must(t, syscall.Flock(int(owner.Fd()), syscall.LOCK_EX|syscall.LOCK_NB))
+		if _, err := Submit(f.home, dest, "", changeA); err == nil || !strings.Contains(err.Error(), "has an active Runtime owner") || len(code.log) != 0 {
+			t.Fatalf("got %v, log %v", err, code.log)
+		}
+	})
+
+	t.Run("held from capture through seal", func(t *testing.T) {
+		f, code, _, dest := submitFixture(t, false, memberA)
+		must(t, os.WriteFile(filepath.Join(dest, "one", "a.txt"), []byte("changed"), 0644))
+		held := map[string]bool{}
+		afterCapture = func() { held["capture"] = !contend(t, dest) }
+		t.Cleanup(func() { afterCapture = func() {} })
+		f.hook = func(w http.ResponseWriter, r *http.Request) bool {
+			held[r.Method+" "+r.URL.Path] = !contend(t, dest)
+			return code.handle(w, r)
+		}
+		result, err := Submit(f.home, dest, "one", changeA)
+		must(t, err)
+		want := map[string]bool{"capture": true, "POST /v1/changes": true, "PUT /v1/changes/" + changeA + "/blobs/" + code.entries[changeA][0]["sha256"].(string): true, "POST /v1/changes/" + changeA + "/seal": true}
+		if result["state"] != "sealed" || !reflect.DeepEqual(held, want) {
+			t.Fatalf("lock held at %v, want %v (%v)", held, want, result)
+		}
+		if !contend(t, dest) {
+			t.Fatal("a sealed submission kept the lock")
+		}
+	})
+
+	t.Run("released on every other return", func(t *testing.T) {
+		f, code, _, dest := submitFixture(t, true, memberA)
+		at := func(path string) string { return filepath.Join(dest, path) }
+		for _, test := range []struct {
+			name string
+			run  func() error
+		}{
+			{"clean", func() error {
+				result, err := Submit(f.home, dest, "one", changeA)
+				if err == nil && result["state"] != "clean" {
+					t.Errorf("not clean: %v", result)
+				}
+				return err
+			}},
+			{"local refusal", func() error {
+				must(t, syscall.Mkfifo(at("one/pipe"), 0644))
+				defer os.Remove(at("one/pipe"))
+				if _, err := Submit(f.home, dest, "one", changeA); err == nil || !strings.Contains(err.Error(), "not a FIFO") {
+					t.Errorf("FIFO not refused: %v", err)
+				}
+				return nil
+			}},
+			{"unknown path", func() error {
+				if _, err := Submit(f.home, dest, "three", changeA); err == nil {
+					t.Error("unknown path admitted")
+				}
+				return nil
+			}},
+			{"changed during submission", func() error {
+				must(t, os.WriteFile(at("one/a.txt"), []byte("first"), 0644))
+				afterCapture = func() { must(t, os.WriteFile(at("one/a.txt"), []byte("second"), 0644)) }
+				defer func() { afterCapture = func() {} }()
+				if _, err := Submit(f.home, dest, "one", changeA); err == nil || !strings.Contains(err.Error(), "changed during submission") {
+					t.Errorf("change not refused: %v", err)
+				}
+				return nil
+			}},
+			{"Code failure", func() error {
+				code.failPut = code.puts + 1
+				defer func() { code.failPut = 0 }()
+				if _, err := Submit(f.home, dest, "one", changeA); err == nil || !strings.Contains(err.Error(), "to resume") {
+					t.Errorf("failure not reported: %v", err)
+				}
+				return nil
+			}},
+		} {
+			must(t, test.run())
+			if !contend(t, dest) {
+				t.Fatalf("%s kept the lock", test.name)
+			}
 		}
 	})
 }

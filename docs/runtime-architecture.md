@@ -259,6 +259,7 @@ Offline status and diff (implemented, `tools/runtime/snapshot/inspect.go`):
 
 Folder submission (implemented, `tools/runtime/snapshot/submit.go`):
 - **Command:** `atlas-runtime snapshot submit --dest PATH [--path REPO_PATH] --change-id UUID` submits one repository of a materialized folder. `--path` may be omitted only when the folder has a single repository. The change ID must be a lowercase UUID chosen by the caller; reuse it to repeat or resume.
+- **Ownership:** after verifying the record and before scanning the folder, submit takes the same nonblocking exclusive `flock` on the destination directory that `native-host` holds until its process group is reaped. It keeps the lock through capture, upload and seal, and releases it on every return. While another owner holds it, submit refuses with `folder … has an active Runtime owner; nothing was sent to Code` (even for a clean folder) and never waits or retries.
 - **Identity:** snapshot, repository and base come from the verified record, baseline and manifest (the same checks as `status`). Changes come from the same offline comparison. No Git runs.
 - **Conversion** (paths relative to the repository root):
   - added or modified files become file writes with their exact bytes and mode; a mode-only change rewrites the same bytes with the new mode;
