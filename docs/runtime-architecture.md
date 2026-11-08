@@ -175,12 +175,13 @@ beam/apps/atlas_runtime/priv/runtime/
   entrypoint.py
   protocol.py
   host/{process,assignment,sandbox}.py
-  providers/{claude,claude_questions,codex}.py
+  providers/{claude,claude_questions}.py
   workspaces/client.py
 
 tools/runtime/
   go.mod
   main.go
+  host/{host,protocol,codex,host_test}.go
   workspace/{workspace,workspace_test}.go
 ```
 
@@ -192,8 +193,8 @@ Dependencies and responsibilities:
 - `Service` selects backends and admits, starts and stops executions. Interaction commands own question admission, native delivery and peer correlation; handoff commands own declaration submission and inspection. Neither operation module calls back into `Service`.
 - `Persistence.History` owns recovery, saved-turn ownership checks, historical projections, output reads and ordered terminal checkpoints. Record modules retain their bounded storage, outboxes and publication rules. Persistence does not dispatch commands.
 - `Workspaces` calls the launching executable's Go workspace command directly. Admission no longer depends on the native provider host for path, scope or repository-request validation.
-- The native host delegates pending-question validation, timers and delivery evidence to `Interactions.NativeQuestion`, and native identity/output/result interpretation to `Providers.NativeEvents`. `Agent.Native` writes Claude's `answer.txt` from each forwarded string result before terminal notification; a failed write fails the turn. Codex still writes its answer natively. `Providers.Codex` reads Codex model evidence from this invocation's native rollout records, using the launch time, workspace and Codex home the Python host reports for its child. The lookup runs on the host's non-stopped process-end record, so identity is recorded before terminal completion. The host clears question controls on terminal provider state; provider interpretation does not own cancellation.
-- The thin Python entrypoint calls the host process loop. Host modules own process groups, control transport, sandbox mechanics, workspace ownership lifetime, cleanup and launch metadata. Provider modules own native command construction, question protocol, saved-context comparison/persistence and native session confirmation; Claude delegates cwd/Git identity discovery to Go. Both depend on the shared protocol codec; provider modules do not import host lifecycle code.
+- The native host delegates pending-question validation, timers and delivery evidence to `Interactions.NativeQuestion`, and native identity/output/result interpretation to `Providers.NativeEvents`. `Agent.Native` writes Claude's `answer.txt` from each forwarded string result before terminal notification; a failed write fails the turn. Codex still writes its answer natively. `Providers.Codex` reads Codex model evidence from this invocation's native rollout records, using the launch time, workspace and Codex home the native host reports for its child. The lookup runs on the host's non-stopped process-end record, so identity is recorded before terminal completion. The host clears question controls on terminal provider state; provider interpretation does not own cancellation.
+- `Agent.Native` spawns Codex through the launching executable's internal `atlas-runtime native-host` (Go package `tools/runtime/host`), and Claude through the thin Python entrypoint. Both receive the same positional arguments and speak the same stdout records, stop control and `Native runner:` diagnostics. Each host owns its process group, control transport, JSONL framing, sandbox arguments, pre-exec workspace preparation and scope check, directory-lock lifetime, cleanup and launch metadata. Each confirms the provider session synchronously before forwarding a record, so refusals never reach Elixir. The Go host calls the `workspace` package in process and holds the lock until its group is reaped. The Python host still owns Claude command construction, private temp and settings, the question protocol, saved-context comparison/persistence and Claude session confirmation; Claude delegates cwd/Git identity discovery to Go.
 - The Go CLI imports the dependency-free local `workspace` package. That package does not import the CLI or choose a provider.
 
 `Engine`, `Turn`, engine settings and test-environment fault injection belong to execution lifecycle, not a `connected/` mode bucket. `Guidance` owns exact-attempt queued-input reconciliation; `Output` owns bounded ephemeral public-output retention, not durable history. They live under `interactions/`. The existing provider and proof adapters live beside the `Agent` contract in `providers/`.
@@ -212,9 +213,9 @@ Preparation accepts the existing scope/repository records, creation flag and exp
 
 `atlas-runtime workspace context PATH` returns canonical `cwd` and either `git: null` for a plain directory or the repository root, full symbolic branch (detached HEAD uses its revision), and ordered origin URLs. Broken Git metadata and inspection failures refuse rather than becoming a plain-directory identity. Discovery is read-only and does not acquire or release ownership. Claude's existing Python adapter adds the unchanged permission scope, compares the saved context and writes the same `claude-context.json` before native execution; no provider persistence or permission authority moved to Go.
 
-For ownership, Go transfers the locked directory descriptor over a local Unix socket using `SCM_RIGHTS`. The helper exits; the original runner retains the same open-file-description lock until its existing native process-group cleanup completes. No new supervisor, lock-file protocol or persistent helper is introduced.
+For Claude's Python runner, Go transfers the locked directory descriptor over a local Unix socket using `SCM_RIGHTS`. The helper exits; the original runner retains the same open-file-description lock until its existing native process-group cleanup completes. The Go native host takes the same lock in process. No new supervisor, lock-file protocol or persistent helper is introduced.
 
-The workspace Go translation is complete. This responsibility split deliberately retains the remaining Python host/provider implementation; it is not another language migration. Lifecycle and durable state stay in Elixir.
+The workspace Go translation is complete, and Codex execution no longer uses Python. The remaining Python host serves only Claude; it moves to the Go host in later slices. Lifecycle and durable state stay in Elixir.
 
 The shared provider capability and interaction contract remains a separate architectural goal. Claude-only question admission is still explicit, and Codex question support is not part of this extraction. Execution identity, permission checks, error handling, delivery evidence and durable records retain their existing contracts. The proposed centralized GitHub/Code OTP application above remains future work, not an implemented service or dependency.
 

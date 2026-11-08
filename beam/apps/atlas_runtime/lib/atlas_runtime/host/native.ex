@@ -6,8 +6,9 @@ defmodule AtlasRuntime.Agent.Native do
   repository Bash execution, including managed provisioning and explicit saved continuation.
   Claude questions require explicit `questions_enabled: true`; answer delivery
   acknowledges a native stdin write, while processed evidence requires a tool result.
-  Requires explicit `command`, `workspace` and `goal` agent settings. The Python
-  runner owns a process group and reaps it on stop or parent loss. JSONL output,
+  Requires explicit `command`, `workspace` and `goal` agent settings. The native
+  host (Go `atlas-runtime native-host` for Codex, the Python runner for Claude)
+  owns a process group and reaps it on stop or parent loss. JSONL output,
   stderr and the final answer stay under `turns_dir/<turn key>`. Guidance is not
   supported. Success requires a successful native result and clean process exit.
   """
@@ -43,7 +44,6 @@ defmodule AtlasRuntime.Agent.Native do
     settings = Keyword.fetch!(opts, :agent)
     folder = Path.join(Keyword.fetch!(opts, :turns_dir), turn.key)
     command = settings["command"] && System.find_executable(settings["command"])
-    python = System.find_executable("python3")
     workspace = settings["workspace"]
     goal = settings["goal"]
     sandbox = Map.get(settings, "sandbox", "read-only")
@@ -54,6 +54,14 @@ defmodule AtlasRuntime.Agent.Native do
     model = settings["model"]
     resume_context = settings["resume_context"]
     questions_enabled = Map.get(settings, "questions_enabled", false)
+
+    # Codex runs in the Go host of the launching CLI; Claude stays on the Python runner.
+    {host, host_args} =
+      if backend == "codex",
+        do: {System.get_env("ATLAS_RUNTIME_EXECUTABLE"), ["native-host"]},
+        else:
+          {System.find_executable("python3"),
+           [Path.join(:code.priv_dir(:atlas_runtime), "runtime/entrypoint.py")]}
 
     valid_model =
       is_nil(model) ||
@@ -66,14 +74,13 @@ defmodule AtlasRuntime.Agent.Native do
            ((sandbox == "read-only" && is_nil(scope) && is_nil(repository)) ||
               (is_nil(sandbox) && is_map(scope) && scope["profile"] == "dedicated-repository")))
 
-    if command && python &&
+    if command && host &&
          AtlasRuntime.Workspaces.valid_request?(workspace, sandbox, scope, repository) &&
          is_binary(goal) && String.trim(goal) != "" && supported &&
          valid_model && is_boolean(questions_enabled) &&
          (not questions_enabled or backend == "claude") &&
          (is_nil(session) || (is_binary(session) && session != "")) do
       File.mkdir_p!(folder)
-      helper = Path.join(:code.priv_dir(:atlas_runtime), "runtime/entrypoint.py")
 
       kept =
         ~w(HOME USER LOGNAME PATH TMPDIR LANG LC_ALL LC_CTYPE CODEX_HOME CLAUDE_CONFIG_DIR ATLAS_RUNTIME_EXECUTABLE)
@@ -82,26 +89,26 @@ defmodule AtlasRuntime.Agent.Native do
         for {key, _} <- System.get_env(), key not in kept, do: {String.to_charlist(key), false}
 
       port =
-        Port.open({:spawn_executable, python}, [
+        Port.open({:spawn_executable, host}, [
           :binary,
           :exit_status,
           {:line, 65_536},
           {:args,
-           [
-             helper,
-             command,
-             Path.expand(workspace),
-             Path.expand(folder),
-             goal,
-             sandbox || "",
-             session || "",
-             JSON.encode!(scope),
-             JSON.encode!(repository),
-             backend,
-             JSON.encode!(model),
-             JSON.encode!(resume_context),
-             JSON.encode!(questions_enabled)
-           ]},
+           host_args ++
+             [
+               command,
+               Path.expand(workspace),
+               Path.expand(folder),
+               goal,
+               sandbox || "",
+               session || "",
+               JSON.encode!(scope),
+               JSON.encode!(repository),
+               backend,
+               JSON.encode!(model),
+               JSON.encode!(resume_context),
+               JSON.encode!(questions_enabled)
+             ]},
           {:env, unset}
         ])
 
@@ -127,7 +134,7 @@ defmodule AtlasRuntime.Agent.Native do
          stopping: nil
        }}
     else
-      {:stop, :native_requires_supported_backend_permissions_command_workspace_goal_and_python}
+      {:stop, :native_requires_supported_backend_permissions_command_workspace_goal_and_host}
     end
   end
 

@@ -14,8 +14,8 @@ import uuid
 
 from runtime.host.assignment import execute_assignment
 from runtime.protocol import emit, json_record, write_native
-from runtime.host.sandbox import claude_repository_settings, permission_arguments
-from runtime.providers import claude, codex
+from runtime.host.sandbox import claude_repository_settings
+from runtime.providers import claude
 from runtime.providers.claude_questions import QuestionProtocol
 from runtime.workspaces import client as workspace_client
 
@@ -39,10 +39,9 @@ def signal_group(process, sig):
 
 
 def main(entrypoint):
-    if len(sys.argv) > 9 and sys.argv[1] == '--execute-assignment':
+    if len(sys.argv) > 8 and sys.argv[1] == '--execute-assignment':
         execute_assignment(sys.argv[2], json.loads(sys.argv[3]), json.loads(sys.argv[4]),
-                           json.loads(sys.argv[5]), sys.argv[6], sys.argv[7],
-                           json.loads(sys.argv[8]), sys.argv[9:])
+                           json.loads(sys.argv[5]), sys.argv[6], json.loads(sys.argv[7]), sys.argv[8:])
         return
     executable, workspace, folder, goal, sandbox, session, *extra = sys.argv[1:]
     scope = json.loads(extra[0]) if extra else None
@@ -56,30 +55,22 @@ def main(entrypoint):
     if model is not None and (not isinstance(model, str) or
                               not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:/\[\]-]{0,199}', model)):
         raise ValueError('Model must be a nonempty identifier of at most 200 characters')
-    if backend not in ('codex', 'claude'):
-        raise ValueError('Backend must be codex or claude')
-    if backend == 'claude':
-        claude.validate(scope, sandbox, session, model, expected_context)
+    if backend != 'claude':
+        # Codex runs in the Go native host (atlas-runtime native-host).
+        raise ValueError('Backend must be claude')
+    claude.validate(scope, sandbox, session, model, expected_context)
     if len(extra) > 6 or (scope is None and sandbox not in ('read-only', 'workspace-write')):
         raise ValueError('Sandbox must be read-only or workspace-write')
     if repository is not None and (scope != workspace_client.request('dedicated-scope', workspace) or
                                    bool(session) != ('base_sha' in repository)):
         raise ValueError('Managed repository context does not match this start or continuation')
-    if scope is not None:
-        if sandbox:
-            raise ValueError('Dedicated repository permissions conflict with sandbox')
-        permissions = permission_arguments(scope)
-    else:
-        permissions = ['--sandbox', sandbox]
+    if scope is not None and sandbox:
+        raise ValueError('Dedicated repository permissions conflict with sandbox')
     folder = Path(folder)
     question_session = session or str(uuid.uuid4()) if questions_enabled else None
-    if backend == 'claude':
-        command, tools = claude.build_command(
-            executable, goal, scope, session, model, questions_enabled, question_session)
-        protocol = claude.Protocol(session, model)
-    else:
-        command = codex.build_command(executable, workspace, folder, goal, permissions, session, model)
-        protocol = codex.Protocol(session)
+    command, tools = claude.build_command(
+        executable, goal, scope, session, model, questions_enabled, question_session)
+    protocol = claude.Protocol(session, model)
 
     def forward(event):
         nonlocal deadline
@@ -118,31 +109,25 @@ def main(entrypoint):
                 except Exception as error:
                     errors.write(str(error).encode())
                     raise
-                if backend == 'claude' and scope is not None:
+                if scope is not None:
                     if repository is None and scope != workspace_client.request('scope', workspace):
                         raise ValueError('Dedicated repository permission scope changed')
                     native_temporary = tempfile.mkdtemp(prefix='.ac-', dir=Path.home().resolve())
                     command[1:1] = ['--settings', json.dumps(
                         claude_repository_settings(scope, native_temporary))]
                     environment = dict(os.environ, CLAUDE_CODE_TMPDIR=native_temporary)
-            if scope is not None or backend == 'claude':
-                command = [sys.executable, str(entrypoint), '--execute-assignment',
-                           workspace, json.dumps(scope), json.dumps(repository), json.dumps(created),
-                           backend, str(folder), json.dumps(expected_context), *command]
+            command = [sys.executable, str(entrypoint), '--execute-assignment',
+                       workspace, json.dumps(scope), json.dumps(repository), json.dumps(created),
+                       str(folder), json.dumps(expected_context), *command]
             started_at = datetime.now(timezone.utc)
             process = subprocess.Popen(command, stdin=subprocess.PIPE if questions_enabled else subprocess.DEVNULL,
                                        stdout=subprocess.PIPE,
                                        stderr=errors, start_new_session=True,
-                                       cwd=workspace if backend == 'claude' else None, env=environment)
+                                       cwd=workspace, env=environment)
             (folder / 'process.json').write_text(json.dumps({
                 'pid': process.pid, 'command': command, 'native_temporary': native_temporary}))
-            started = {'type': 'runtime.process_started', 'pid': process.pid,
-                       'started_at': started_at.isoformat()}
-            if backend == 'codex':
-                # The Codex child inherits this environment; Runtime reads its rollout evidence.
-                started.update(workspace=workspace,
-                               codex_home=str(Path(os.environ.get('CODEX_HOME', Path.home() / '.codex'))))
-            emit(started)
+            emit({'type': 'runtime.process_started', 'pid': process.pid,
+                  'started_at': started_at.isoformat()})
             selector.register(sys.stdin, selectors.EVENT_READ, 'control')
             selector.register(process.stdout, selectors.EVENT_READ, 'output')
             if questions_enabled:

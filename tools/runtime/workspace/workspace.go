@@ -33,11 +33,11 @@ func Run(args []string, input io.Reader, output io.Writer) error {
 		case "path":
 			result, err = workspaceResolve(args[1])
 		case "scope":
-			result, err = workspaceScope(args[1])
+			result, err = Scope(args[1])
 		case "context":
 			result, err = workspaceContext(args[1])
 		case "dedicated-scope":
-			result = workspaceDedicatedScope(workspacePath(args[1]))
+			result = DedicatedScope(args[1])
 		}
 	case "request":
 		if len(args) != 4 {
@@ -52,7 +52,14 @@ func Run(args []string, input io.Reader, output io.Writer) error {
 		if parseErr != nil || fd < 0 {
 			return errors.New("Invalid workspace lock socket FD")
 		}
-		result, err = workspaceLock(args[1], args[2] == "true", fd)
+		var lock *os.File
+		var created bool
+		if lock, created, err = Lock(args[1], args[2] == "true"); err == nil {
+			// Do not unlock: SCM_RIGHTS shares this open-file description with the receiver.
+			err = syscall.Sendmsg(fd, []byte{0}, syscall.UnixRights(int(lock.Fd())), nil, 0)
+			lock.Close()
+			result = map[string]any{"created": created}
+		}
 	case "prepare":
 		if len(args) != 1 {
 			return errors.New("workspace prepare takes JSON on stdin")
@@ -78,7 +85,7 @@ func Run(args []string, input io.Reader, output io.Writer) error {
 		if request.Scope == nil || request.Repository == nil || request.Created == nil || len(request.CommandPrefix) == 0 || request.CommandPrefix[0] == "" {
 			return errors.New("workspace prepare requires scope, repository, created and an explicit command_prefix")
 		}
-		result, err = workspacePrepare(request.Scope, request.Repository, *request.Created, request.CommandPrefix)
+		result, err = Prepare(request.Scope, request.Repository, *request.Created, request.CommandPrefix)
 	default:
 		return fmt.Errorf("unknown workspace operation: %s", args[0])
 	}
@@ -178,6 +185,11 @@ func workspaceResolveParts(root string, parts []string, active map[string]bool) 
 		}
 	}
 	return root, nil
+}
+
+// DedicatedScope is the permission scope of a repository rooted at path, without inspecting it.
+func DedicatedScope(path string) map[string]any {
+	return workspaceDedicatedScope(workspacePath(path))
 }
 
 func workspaceDedicatedScope(root string) map[string]any {
@@ -323,7 +335,7 @@ func workspaceExists(path string) (bool, error) {
 	return err == nil, err
 }
 
-func workspaceScope(workspace string) (map[string]any, error) {
+func Scope(workspace string) (map[string]any, error) {
 	root, err := workspaceAbsolute(workspace)
 	if err != nil {
 		return nil, err
@@ -425,7 +437,8 @@ func workspaceScope(workspace string) (map[string]any, error) {
 	return workspaceDedicatedScope(root), nil
 }
 
-func workspaceLock(path string, create bool, socketFD int) (map[string]any, error) {
+// Lock flocks the repository directory; the caller owns the lock until it closes the file.
+func Lock(path string, create bool) (*os.File, bool, error) {
 	root := workspacePath(path)
 	canonical := func() error {
 		resolved, err := workspaceResolve(root)
@@ -438,41 +451,37 @@ func workspaceLock(path string, create bool, socketFD int) (map[string]any, erro
 		return nil
 	}
 	if err := canonical(); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	created := false
 	if create {
 		if err := os.MkdirAll(filepath.Dir(root), 0777); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		if err := os.Mkdir(root, 0777); err == nil {
 			created = true
 		} else if !os.IsExist(err) {
-			return nil, err
+			return nil, false, err
 		}
 	}
 	if err := canonical(); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	lock, err := os.Open(root)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	defer lock.Close()
 	if err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		lock.Close()
 		if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
-			return nil, errors.New("Repository already has an active Runtime owner")
+			return nil, false, errors.New("Repository already has an active Runtime owner")
 		}
-		return nil, err
+		return nil, false, err
 	}
-	// Do not unlock: SCM_RIGHTS shares this open-file description with the receiver.
-	if err = syscall.Sendmsg(socketFD, []byte{0}, syscall.UnixRights(int(lock.Fd())), nil, 0); err != nil {
-		return nil, err
-	}
-	return map[string]any{"created": created}, nil
+	return lock, created, nil
 }
 
-func workspaceJSONEqual(left, right any) bool {
+func JSONEqual(left, right any) bool {
 	switch value := left.(type) {
 	case map[string]any:
 		other, ok := right.(map[string]any)
@@ -481,7 +490,7 @@ func workspaceJSONEqual(left, right any) bool {
 		}
 		for key, item := range value {
 			otherItem, present := other[key]
-			if !present || !workspaceJSONEqual(item, otherItem) {
+			if !present || !JSONEqual(item, otherItem) {
 				return false
 			}
 		}
@@ -492,7 +501,7 @@ func workspaceJSONEqual(left, right any) bool {
 			return false
 		}
 		for index, item := range value {
-			if !workspaceJSONEqual(item, other[index]) {
+			if !JSONEqual(item, other[index]) {
 				return false
 			}
 		}
@@ -526,7 +535,7 @@ func workspaceJSONEqual(left, right any) bool {
 	}
 }
 
-func workspacePrepare(scope, repository map[string]any, created bool, prefix []string) (map[string]any, error) {
+func Prepare(scope, repository map[string]any, created bool, prefix []string) (map[string]any, error) {
 	root, rootOK := scope["root"].(string)
 	url, urlOK := repository["url"].(string)
 	branch, branchOK := repository["branch"].(string)
@@ -545,7 +554,7 @@ func workspacePrepare(scope, repository map[string]any, created bool, prefix []s
 	if err != nil {
 		return nil, err
 	}
-	if !workspaceJSONEqual(expected, map[string]any{"permissions": scope, "repository": map[string]any{"url": url, "branch": branch}}) {
+	if !JSONEqual(expected, map[string]any{"permissions": scope, "repository": map[string]any{"url": url, "branch": branch}}) {
 		return nil, errors.New("Managed repository request changed")
 	}
 	marker := filepath.Join(root, ".git/atlas-runtime-repository.json")
@@ -573,7 +582,7 @@ func workspacePrepare(scope, repository map[string]any, created bool, prefix []s
 		if _, _, err = git(true, "clone", "--origin", "origin", "--branch", "develop", url, "."); err != nil {
 			return nil, err
 		}
-		if _, err = workspaceScope(root); err != nil {
+		if _, err = Scope(root); err != nil {
 			return nil, err
 		}
 		data, err := json.Marshal(identity)
@@ -605,10 +614,10 @@ func workspacePrepare(scope, repository map[string]any, created bool, prefix []s
 			}
 			return nil, err
 		}
-		if !workspaceJSONEqual(identity, saved) {
+		if !JSONEqual(identity, saved) {
 			return nil, errors.New("Refusing an unmanaged or mismatched repository")
 		}
-		if _, err = workspaceScope(root); err != nil {
+		if _, err = Scope(root); err != nil {
 			return nil, err
 		}
 		origin, _, err := git(true, "remote", "get-url", "origin")
