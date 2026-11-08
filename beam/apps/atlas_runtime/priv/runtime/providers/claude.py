@@ -27,21 +27,15 @@ def save_context(workspace, scope, folder, expected_context):
     (Path(folder) / 'claude-context.json').write_text(json.dumps(actual))
 
 
-def build_command(executable, goal, scope, session, model, questions_enabled, question_session):
-    model_arguments = ['--model', model] if model is not None else []
+def build_command(executable, scope, session, model, question_session):
     tools = 'Bash,Read,Glob,Grep' if scope is not None else 'Read,Glob,Grep'
     command = [executable, '--print', '--output-format', 'stream-json', '--verbose',
                '--restricted', '--safe-mode', '--strict-mcp-config', '--no-chrome',
-               '--tools', tools + (',AskUserQuestion' if questions_enabled else ''),
-               '--allowedTools', tools]
-    if questions_enabled:
-        command += ['--input-format', 'stream-json', '--permission-mode', 'manual',
-                    '--permission-prompts', 'host', '--permission-prompt-tool', 'stdio',
-                    *(['--resume', session] if session else ['--session-id', question_session]),
-                    *model_arguments]
-    else:
-        command += ['--permission-mode', 'dontAsk', '--permission-prompts', 'none',
-                    *(['--resume', session] if session else []), *model_arguments, '--', goal]
+               '--tools', tools + ',AskUserQuestion', '--allowedTools', tools,
+               '--input-format', 'stream-json', '--permission-mode', 'manual',
+               '--permission-prompts', 'host', '--permission-prompt-tool', 'stdio',
+               *(['--resume', session] if session else ['--session-id', question_session]),
+               *(['--model', model] if model is not None else [])]
     return command, tools
 
 

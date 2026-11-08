@@ -35,7 +35,7 @@ func Run(args []string, input io.Reader, output io.Writer) error {
 		case "scope":
 			result, err = Scope(args[1])
 		case "context":
-			result, err = workspaceContext(args[1])
+			result, err = Context(args[1])
 		case "dedicated-scope":
 			result = DedicatedScope(args[1])
 		}
@@ -220,7 +220,8 @@ func workspaceRun(argv []string, env []string) (string, string, int, error) {
 	return text(stdout.String()), text(stderr.String()), code, nil
 }
 
-func workspaceContext(path string) (map[string]any, error) {
+// Context is the Claude working directory and repository identity saved for continuation.
+func Context(path string) (map[string]any, error) {
 	root, err := workspaceResolve(path)
 	if err != nil {
 		return nil, err
