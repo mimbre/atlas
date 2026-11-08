@@ -110,10 +110,11 @@ func run(args []string) (err error) {
 	questionSession := ""
 	// A materialized-folder turn needs no pre-exec child: no Git and no repository preparation.
 	folderScope, _ := scope.(map[string]any)
-	folderProfile := backend == "codex" && folderScope["profile"] == "materialized-folder"
+	folderProfile := folderScope["profile"] == "materialized-folder"
 	runtimeHome, _ := folderScope["home"].(string)
+	// Codex workers get an owned scratch under the Runtime home; Claude's is its private temp.
 	scratch := ""
-	if folderProfile {
+	if folderProfile && backend == "codex" {
 		scratch = filepath.Join(runtimeHome, "scratch", filepath.Base(folder))
 	}
 	if backend == "codex" {
@@ -196,33 +197,20 @@ func run(args []string) (err error) {
 		if err == nil && !workspace.JSONEqual(current, scope) {
 			err = errors.New("Materialized folder permission scope changed")
 		}
-		if err == nil {
+		if err == nil && backend == "codex" {
 			if err = os.MkdirAll(filepath.Dir(scratch), 0700); err == nil {
-				err = os.Mkdir(scratch, 0700)
+				if err = os.Mkdir(scratch, 0700); err == nil {
+					nativeTemporary = &scratch
+				}
 			}
 		}
 		if err != nil {
 			errorsFile.WriteString(err.Error())
 			return err
 		}
-		nativeTemporary = &scratch
-		self, err := os.Executable()
-		if err != nil {
-			return err
-		}
-		// Workers inspect their folder with this executable against this home's record and baseline.
-		environment = append(os.Environ(), "PATH="+filepath.Dir(self)+":"+os.Getenv("PATH"), "ATLAS_RUNTIME_HOME="+runtimeHome)
-		for _, cache := range [][2]string{{"TMPDIR", "tmp"}, {"GOCACHE", "go-build"}, {"GOTMPDIR", "go-tmp"},
-			{"XDG_CACHE_HOME", "cache"}, {"npm_config_cache", "npm"}} {
-			path := filepath.Join(scratch, cache[1])
-			if err = os.Mkdir(path, 0700); err != nil {
-				return err
-			}
-			environment = append(environment, cache[0]+"="+path)
-		}
 	}
 	if scope != nil && backend == "claude" {
-		if repository == nil {
+		if repository == nil && !folderProfile {
 			current, err := workspace.Scope(workspacePath)
 			if err != nil {
 				return err
@@ -243,15 +231,47 @@ func run(args []string) (err error) {
 			return err
 		}
 		nativeTemporary = &temporary
-		settings, err := claudeRepositorySettings(scope, temporary)
+		var settings string
+		if folderProfile {
+			// HOME/scratch/<turn> would exceed Claude's 44-byte child-temp limit.
+			scratch = temporary
+			settings, err = claudeFolderSettings(folderScope, temporary, home)
+		} else {
+			settings, err = claudeRepositorySettings(scope, temporary)
+		}
 		if err != nil {
 			return err
 		}
 		command = slices.Insert(command, 1, "--settings", settings)
 		environment = append(os.Environ(), "CLAUDE_CODE_TMPDIR="+temporary)
 	}
-	// Claude always saves its context in the pre-exec child; Codex only needs it for a scope.
-	if (scope != nil && !folderProfile) || backend == "claude" {
+	if folderProfile {
+		self, err := os.Executable()
+		if err != nil {
+			return err
+		}
+		if environment == nil {
+			environment = os.Environ()
+		}
+		// Workers inspect their folder with this executable against this home's record and baseline.
+		environment = append(environment, "PATH="+filepath.Dir(self)+":"+os.Getenv("PATH"), "ATLAS_RUNTIME_HOME="+runtimeHome)
+		for _, cache := range [][2]string{{"TMPDIR", "tmp"}, {"GOCACHE", "go-build"}, {"GOTMPDIR", "go-tmp"},
+			{"XDG_CACHE_HOME", "cache"}, {"npm_config_cache", "npm"}} {
+			path := filepath.Join(scratch, cache[1])
+			if err = os.Mkdir(path, 0700); err != nil {
+				return err
+			}
+			environment = append(environment, cache[0]+"="+path)
+		}
+		if backend == "claude" {
+			if err = saveContext(workspacePath, scope, folder, resumeContext); err != nil {
+				errorsFile.WriteString(err.Error())
+				return err
+			}
+		}
+	}
+	// Outside materialized folders Claude saves its context in the pre-exec child; Codex only needs it for a scope.
+	if !folderProfile && (scope != nil || backend == "claude") {
 		self, err := os.Executable()
 		if err != nil {
 			return err

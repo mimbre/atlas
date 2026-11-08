@@ -352,7 +352,7 @@ defmodule AtlasRuntime.CommandAdmissionsTest do
     end
   end
 
-  test "materialized-folder binding retains exactly the verified Codex folder scope", context do
+  test "materialized-folder binding retains exactly the verified folder scope for either backend", context do
     cwd = context.request["cwd"]
     request = context.request |> Map.delete("sandbox") |> Map.put("permissions", "materialized-folder")
     assert Admissions.canonical(request) == request
@@ -369,9 +369,13 @@ defmodule AtlasRuntime.CommandAdmissionsTest do
     record = Admissions.reserve(Path.join(context.dir, "folder"), "Request_1", request, binding, @turn, run)
     assert Admissions.load(Path.join(context.dir, "folder"), "Request_1") == record
     assert record["binding"]["permissions"] == scope
+    claude = %{binding | "backend" => "claude", "questions_enabled" => true}
+    claude_request = request |> Map.put("backend", "claude") |> Map.put("questions_enabled", true)
+    claude_run = %{run | backend: "claude", questions_enabled: true}
+    claude_record = Admissions.reserve(Path.join(context.dir, "claude"), "Request_1", claude_request, claude, @turn, claude_run)
+    assert claude_record["binding"]["permissions"] == scope
 
     for {bad_request, bad_binding} <- [
-          {request, %{binding | "backend" => "claude"}},
           {request, %{binding | "repository" => %{"url" => "u", "branch" => "b"}}},
           {request, %{binding | "permissions" => Map.put(scope, "git_dir", Path.join(cwd, ".git"))}},
           {request, %{binding | "permissions" => Map.delete(scope, "home")}},

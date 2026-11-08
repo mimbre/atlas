@@ -29,10 +29,10 @@ var platform = runtime.GOOS
 // claudeValidate keeps the Python check order, including uuid.UUID's own parse errors.
 func claudeValidate(scope any, sandbox, session string, model, expectedContext any) error {
 	if scope == nil && sandbox != "read-only" {
-		return errors.New("Claude requires read-only or dedicated-repository execution")
+		return errors.New("Claude requires read-only, dedicated-repository or materialized-folder execution")
 	}
-	if fields, _ := scope.(map[string]any); scope != nil && fields["profile"] != "dedicated-repository" {
-		return errors.New("Claude supports only the dedicated-repository permission profile")
+	if fields, _ := scope.(map[string]any); scope != nil && fields["profile"] != "dedicated-repository" && fields["profile"] != "materialized-folder" {
+		return errors.New("Claude supports only the dedicated-repository and materialized-folder permission profiles")
 	}
 	if session == "" {
 		return nil
@@ -212,6 +212,40 @@ func truthy(value any) bool {
 	return true
 }
 
+// claudeNetwork, claudeFilesystem and claudeSandbox are Claude's `--settings` sandbox keys.
+type claudeNetwork struct {
+	AllowedDomains      any      `json:"allowedDomains"`
+	StrictAllowlist     bool     `json:"strictAllowlist,omitempty"`
+	AllowAllUnixSockets bool     `json:"allowAllUnixSockets"`
+	AllowLocalBinding   bool     `json:"allowLocalBinding"`
+	AllowMachLookup     []string `json:"allowMachLookup,omitempty"`
+}
+
+type claudeFilesystem struct {
+	AllowWrite []string `json:"allowWrite"`
+	DenyWrite  []string `json:"denyWrite"`
+	DenyRead   []string `json:"denyRead,omitempty"`
+	AllowRead  []string `json:"allowRead,omitempty"`
+}
+
+type claudeSandbox struct {
+	Enabled                  bool             `json:"enabled"`
+	FailIfUnavailable        bool             `json:"failIfUnavailable"`
+	AllowUnsandboxedCommands bool             `json:"allowUnsandboxedCommands"`
+	ExcludedCommands         []string         `json:"excludedCommands"`
+	Filesystem               claudeFilesystem `json:"filesystem"`
+	Network                  claudeNetwork    `json:"network"`
+}
+
+type claudePermissions struct {
+	Deny []string `json:"deny"`
+}
+
+type claudeSettings struct {
+	Sandbox     claudeSandbox      `json:"sandbox"`
+	Permissions *claudePermissions `json:"permissions,omitempty"`
+}
+
 // claudeRepositorySettings is the native sandbox for a dedicated repository plus its private temp.
 func claudeRepositorySettings(scope any, temporary string) (string, error) {
 	fields, _ := scope.(map[string]any)
@@ -220,15 +254,118 @@ func claudeRepositorySettings(scope any, temporary string) (string, error) {
 		return "", errors.New("Dedicated repository scope requires a root path")
 	}
 	root = filepath.Clean(root)
-	system, err := temporaryDirectory()
+	deny, err := claudeTemporaryRoots(root, temporary, "Claude dedicated repositories")
 	if err != nil {
 		return "", err
+	}
+	for _, name := range []string{".agents", ".codex", ".aws", ".claude", ".git/config", ".git/hooks"} {
+		deny = append(deny, filepath.Join(root, name))
+	}
+	settings := claudeSettings{Sandbox: claudeSandbox{true, true, false, []string{},
+		claudeFilesystem{AllowWrite: []string{root, temporary}, DenyWrite: deny},
+		claudeNetwork{AllowedDomains: fields["network_hosts"]}}}
+	if platform == "darwin" {
+		settings.Sandbox.Network.AllowMachLookup = []string{"com.apple.trustd.agent"}
+	}
+	return encodeSettings(settings)
+}
+
+// claudeFolderSettings is the native sandbox and file-tool policy of a materialized folder:
+// write only the folder and the private temp, read the snapshot record and baseline, deny
+// Git metadata, the Runtime home, the Code token and user credentials under user, no network.
+// Read deny rules cover the native Read/Glob/Grep tools; Claude also merges them into the
+// sandbox's denyRead, which is listed explicitly for the Bash sandbox as well.
+func claudeFolderSettings(scope map[string]any, temporary, user string) (string, error) {
+	root, _ := scope["root"].(string)
+	home, _ := scope["home"].(string)
+	record, _ := scope["record"].(string)
+	baseline, _ := scope["baseline"].(string)
+	repositories, _ := scope["repositories"].([]any)
+	if root == "" || home == "" || record == "" || baseline == "" || len(repositories) == 0 {
+		return "", errors.New("Materialized folder scope is incomplete")
+	}
+	roots, err := claudeTemporaryRoots(root, temporary, "Claude materialized folders")
+	if err != nil {
+		return "", err
+	}
+	protected := []string{home, filepath.Join(root, ".git")}
+	for _, repository := range repositories {
+		path, ok := repository.(string)
+		if !ok {
+			return "", errors.New("Materialized folder scope is incomplete")
+		}
+		protected = append(protected, filepath.Join(root, path, ".git"))
+	}
+	token, err := codeToken(home)
+	if err != nil {
+		return "", err
+	}
+	if token != "" {
+		protected = append(protected, token, filepath.Dir(token))
+	}
+	configuration := os.Getenv("CLAUDE_CONFIG_DIR")
+	if configuration == "" {
+		configuration = filepath.Join(user, ".claude")
+	}
+	credentials := []string{configuration}
+	for _, name := range credentialPaths {
+		credentials = append(credentials, filepath.Join(user, name))
+	}
+	if codexHome := os.Getenv("CODEX_HOME"); codexHome != "" {
+		credentials = append(credentials, codexHome)
+	}
+	for _, credential := range credentials {
+		path, err := resolvePath(credential)
+		if err != nil {
+			return "", err
+		}
+		if !slices.Contains(protected, path) {
+			protected = append(protected, path)
+		}
+	}
+	// Claude's deny wins over its allow, so a protected path cannot contain a writable one.
+	for _, path := range protected {
+		for _, writable := range []string{root, temporary} {
+			if writable == path || strings.HasPrefix(writable, path+"/") {
+				return "", fmt.Errorf("Protected path %s contains %s", path, writable)
+			}
+		}
+	}
+	// shortcut: absolute paths go into rules unescaped; a path with glob characters or
+	// parentheses would need Claude's rule escaping, add it if Runtime homes ever contain them.
+	rules := make([]string, len(protected))
+	for index, path := range protected {
+		rules[index] = "Read(/" + path + ")" // `//` marks an absolute path in Claude rules.
+	}
+	// Claude's Bash sources its shell snapshot from the config dir; Claude itself re-opens
+	// these two for blockReadsOutsideWorkingDirectories.
+	resolved, err := resolvePath(configuration)
+	if err != nil {
+		return "", err
+	}
+	allowRead := []string{record, baseline, filepath.Join(resolved, "shell-snapshots"), filepath.Join(resolved, "session-env")}
+	settings := claudeSettings{
+		Sandbox: claudeSandbox{true, true, false, []string{},
+			claudeFilesystem{AllowWrite: []string{root, temporary},
+				DenyWrite: append(append(roots, protected...), record, baseline), DenyRead: protected, AllowRead: allowRead},
+			claudeNetwork{AllowedDomains: []string{}, StrictAllowlist: true}},
+		Permissions: &claudePermissions{rules},
+	}
+	return encodeSettings(settings)
+}
+
+// claudeTemporaryRoots are the sorted system temp roots whose writes Claude's sandbox denies;
+// root must lie outside them and the private temp must fit Claude's child-temp limit.
+func claudeTemporaryRoots(root, temporary, subject string) ([]string, error) {
+	system, err := temporaryDirectory()
+	if err != nil {
+		return nil, err
 	}
 	var roots []string
 	for _, path := range []string{"/tmp", "/var/tmp", system} {
 		resolved, err := resolvePath(path)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		if !slices.Contains(roots, resolved) {
 			roots = append(roots, resolved)
@@ -237,47 +374,21 @@ func claudeRepositorySettings(scope any, temporary string) (string, error) {
 	slices.Sort(roots)
 	for _, path := range roots {
 		if root == path || strings.HasPrefix(root, strings.TrimSuffix(path, "/")+"/") {
-			return "", errors.New("Claude dedicated repositories must be outside system temporary directories")
+			return nil, errors.New(subject + " must be outside system temporary directories")
 		}
 	}
 	// Claude 2.1.280 redirects longer child-temp paths to shared /tmp/claude-<uid>.
 	if len(filepath.Join(temporary, "claude-"+strconv.Itoa(os.Getuid()))) > 44 {
-		return "", errors.New("Claude private native temp path exceeds the 44-byte child-temp limit")
+		return nil, errors.New("Claude private native temp path exceeds the 44-byte child-temp limit")
 	}
-	deny := roots
-	for _, name := range []string{".agents", ".codex", ".aws", ".claude", ".git/config", ".git/hooks"} {
-		deny = append(deny, filepath.Join(root, name))
-	}
-	type network struct {
-		AllowedDomains      any      `json:"allowedDomains"`
-		AllowAllUnixSockets bool     `json:"allowAllUnixSockets"`
-		AllowLocalBinding   bool     `json:"allowLocalBinding"`
-		AllowMachLookup     []string `json:"allowMachLookup,omitempty"`
-	}
-	type filesystem struct {
-		AllowWrite []string `json:"allowWrite"`
-		DenyWrite  []string `json:"denyWrite"`
-	}
-	type sandbox struct {
-		Enabled                  bool       `json:"enabled"`
-		FailIfUnavailable        bool       `json:"failIfUnavailable"`
-		AllowUnsandboxedCommands bool       `json:"allowUnsandboxedCommands"`
-		ExcludedCommands         []string   `json:"excludedCommands"`
-		Filesystem               filesystem `json:"filesystem"`
-		Network                  network    `json:"network"`
-	}
-	settings := struct {
-		Sandbox sandbox `json:"sandbox"`
-	}{sandbox{true, true, false, []string{},
-		filesystem{[]string{root, temporary}, deny},
-		network{AllowedDomains: fields["network_hosts"]}}}
-	if platform == "darwin" {
-		settings.Sandbox.Network.AllowMachLookup = []string{"com.apple.trustd.agent"}
-	}
+	return roots, nil
+}
+
+func encodeSettings(settings claudeSettings) (string, error) {
 	var encoded bytes.Buffer
 	encoder := json.NewEncoder(&encoded)
 	encoder.SetEscapeHTML(false)
-	if err = encoder.Encode(settings); err != nil {
+	if err := encoder.Encode(settings); err != nil {
 		return "", err
 	}
 	return strings.TrimSuffix(encoded.String(), "\n"), nil
@@ -385,10 +496,14 @@ func makeTemporary(directory string) (string, error) {
 
 // saveContext records the working directory, repository identity and permission scope,
 // refusing a continuation whose saved context drifted; it never writes on failure.
+// A materialized folder runs no Git: its verified scope is its whole identity.
 func saveContext(workspacePath string, scope any, folder string, expected any) error {
-	actual, err := workspace.Context(workspacePath)
-	if err != nil {
-		return err
+	actual := map[string]any{"cwd": workspacePath, "git": nil}
+	if fields, _ := scope.(map[string]any); fields["profile"] != "materialized-folder" {
+		var err error
+		if actual, err = workspace.Context(workspacePath); err != nil {
+			return err
+		}
 	}
 	actual["permissions"] = scope
 	encoded, err := json.Marshal(actual)

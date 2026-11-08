@@ -655,8 +655,9 @@ type questionRun struct {
 	repository      string
 }
 
-// launchQuestions starts the host with the test binary as fake native Claude.
-func launchQuestions(t *testing.T, mode string, scoped bool, goal string) *questionRun {
+// launchQuestions starts the host with the test binary as fake native Claude, read-only for an
+// empty profile, else in a dedicated repository or materialized folder.
+func launchQuestions(t *testing.T, mode string, profile string, goal string) *questionRun {
 	t.Helper()
 	self, err := os.Executable()
 	if err != nil {
@@ -667,10 +668,15 @@ func launchQuestions(t *testing.T, mode string, scoped bool, goal string) *quest
 	t.Setenv("ATLAS_QUESTION_CHILD", filepath.Join(run.scratch, "child.pid"))
 	t.Setenv("ATLAS_QUESTION_SOURCE", filepath.Join(run.scratch, "question-source.json"))
 	args := claudeArgs(self, run.folder)
-	if scoped {
+	switch profile {
+	case "dedicated-repository":
 		_, repository, scope := claudeRepository(t)
 		run.repository = repository
 		args = claudeScopedArgs(t, self, repository, run.folder, scope)
+	case "materialized-folder":
+		dest, _, _, scope := claudeFolder(t)
+		run.repository = dest
+		args = claudeScopedArgs(t, self, dest, run.folder, scope)
 	}
 	args[3], args[11] = goal, "true"
 	run.host = startHost(t, args)
@@ -740,9 +746,9 @@ func (run *questionRun) ended(t *testing.T, success bool) []map[string]any {
 
 func TestReadOnlyAndScopedQueryDeliveryProcessingAndCleanup(t *testing.T) {
 	var previous map[string]any
-	for _, scoped := range []bool{false, true} {
-		t.Run(strconv.FormatBool(scoped), func(t *testing.T) {
-			run := launchQuestions(t, "success", scoped, "fixture assignment")
+	for _, profile := range []string{"", "dedicated-repository", "materialized-folder"} {
+		t.Run(profile, func(t *testing.T) {
+			run := launchQuestions(t, "success", profile, "fixture assignment")
 			record, before := run.until(t, "runtime.question")
 			question := record["question"].(map[string]any)
 			identifier := question["id"].(string)
@@ -812,7 +818,7 @@ func TestReadOnlyAndScopedQueryDeliveryProcessingAndCleanup(t *testing.T) {
 }
 
 func TestTerminalInputEOFDeadlineKillsGroupOnce(t *testing.T) {
-	run := launchQuestions(t, "result-hang", false, "fixture assignment")
+	run := launchQuestions(t, "result-hang", "", "fixture assignment")
 	record, _ := run.until(t, "runtime.question")
 	run.send(t, record["question"].(map[string]any)["id"].(string))
 	run.until(t, "runtime.answer_processed")
@@ -825,7 +831,7 @@ func TestTerminalInputEOFDeadlineKillsGroupOnce(t *testing.T) {
 func TestStopAndParentEOFCancelPendingOwnedGroup(t *testing.T) {
 	for _, control := range []string{"stop\n", ""} {
 		t.Run(strconv.Quote(control), func(t *testing.T) {
-			run := launchQuestions(t, "pending", false, "fixture assignment")
+			run := launchQuestions(t, "pending", "", "fixture assignment")
 			_, before := run.until(t, "runtime.question")
 			if control == "" {
 				run.host.stdin.Close()
@@ -850,7 +856,7 @@ func TestMalformedUnknownAndDuplicateKeyControlCancelGroup(t *testing.T) {
 		strings.Repeat("x", 40000):                                                            "Runtime control record exceeds 32 KiB",
 	} {
 		t.Run(fmt.Sprintf("%.40s", control), func(t *testing.T) {
-			run := launchQuestions(t, "pending", false, "fixture assignment")
+			run := launchQuestions(t, "pending", "", "fixture assignment")
 			run.until(t, "runtime.question")
 			run.host.stdin.Write([]byte(control))
 			run.ended(t, false)
@@ -871,7 +877,7 @@ func TestTransportLossCancelAndEarlyResultNeverClaimProcessing(t *testing.T) {
 		"early-result":     "Native result ended without processing its question",
 	} {
 		t.Run(mode, func(t *testing.T) {
-			run := launchQuestions(t, mode, false, "fixture assignment")
+			run := launchQuestions(t, mode, "", "fixture assignment")
 			record, before := run.until(t, "runtime.question")
 			identifier := record["question"].(map[string]any)["id"].(string)
 			if mode == "input-loss" {
@@ -893,10 +899,10 @@ func TestTransportLossCancelAndEarlyResultNeverClaimProcessing(t *testing.T) {
 }
 
 func TestStalledNativeInputFailsWithinBoundAndCleansUp(t *testing.T) {
-	for _, scoped := range []bool{false, true} {
-		t.Run(strconv.FormatBool(scoped), func(t *testing.T) {
+	for _, profile := range []string{"", "dedicated-repository", "materialized-folder"} {
+		t.Run(profile, func(t *testing.T) {
 			// The assignment is larger than any pipe buffer, and the fixture never reads it.
-			run := launchQuestions(t, "stall", scoped, strings.Repeat("x", 512*1024))
+			run := launchQuestions(t, "stall", profile, strings.Repeat("x", 512*1024))
 			started := time.Now()
 			records := run.ended(t, false)
 			if elapsed := time.Since(started); elapsed < 3*time.Second || elapsed > 8*time.Second {

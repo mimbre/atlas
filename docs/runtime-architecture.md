@@ -201,7 +201,7 @@ Snapshots as implemented:
    - **Limits:**
      - All publications are serialized by one lock, including remote calls.
      - A failed publication's branch claim is permanent.
-     - Real GitHub PR creation has only been exercised against a fixture `gh`, not GitHub. The real Atlas end-to-end publication is a separate coordinator task.
+     - The fixture tests prove PR creation and adoption only against a fixture `gh`. The coordinator's real local cycle then published real PR #178 through Code from a Runtime-submitted sealed change (`dfaa38cc96fa209b9696ce1a621ec50ae811274a`), verified the exact head and merged it at `760891d6b9bf13fb87d0a12f79afbf99f564087e` (evidence `/Users/melle/.dv-mtwh41yj/verification/local-development-cycle.json`). That proves publication, not worker-profile security.
 8. **Release.** `POST /v1/releases`, orchestrator token only.
    - Request: `{"release_id", "pr_url", "expected_head": "<sha>"}`.
    - Code merges only if the PR head equals `expected_head` and GitHub reports it mergeable; otherwise `409 conflict`.
@@ -275,8 +275,8 @@ Folder submission (implemented, `tools/runtime/snapshot/submit.go`):
   - No local submission record is kept; Code's state answers repeats.
 - **Limits:** a file that changes and changes back between the copy and the rescan is not detected (only identical bytes could pass). Path checks refuse at the first problem rather than listing all. Each Code read times out after 60 s, and a slower seal is reported as unavailable with the resume hint.
 
-Codex materialized-folder profile (implemented, Codex only):
-- **Command:** `atlas-runtime start --worker W --backend codex --cwd DEST --permissions materialized-folder ASSIGNMENT`, where `DEST` is a folder produced by `snapshot materialize`. It cannot be combined with `--sandbox` or `--repo`/`--branch`. Claude refuses it with the existing capability error; there is no fallback to broader permissions. Legacy `dedicated-repository` is unchanged.
+Materialized-folder profile (implemented for Codex and Claude):
+- **Command:** `atlas-runtime start --worker W --backend codex|claude --cwd DEST --permissions materialized-folder ASSIGNMENT`, where `DEST` is a folder produced by `snapshot materialize`. It cannot be combined with `--sandbox` or `--repo`/`--branch`. Claude also accepts `--questions` with it. There is no fallback to broader permissions, and legacy `dedicated-repository` is unchanged.
 - **Scope without Git:** the internal `atlas-runtime workspace folder-scope DEST HOME` verifies the materialization exactly as `snapshot status` does. It refuses a non-canonical `DEST`, a `.git` entry in `DEST` or any ancestor (so the trusted native Codex never finds a Git repository), and project or ancestor `.codex/config.toml`. The scope binds `{profile, version, root, snapshot_id, repositories, home, record, baseline}`. Start, continuation and the native host recompute it and require equality, so a re-recorded or replaced snapshot refuses continuation. No Git, Code request or pre-exec wrapper runs, and the directory lock is held until the process group is reaped.
 - **Effective Codex profile** (`extends=":read-only"`, `network.enabled=false`, no proxy):
   - `DEST` and a private `HOME/scratch/<turn>` are writable;
@@ -292,8 +292,27 @@ Codex materialized-folder profile (implemented, Codex only):
   - Workers can create `.git` in unmapped subfolders; these are reported by `status`.
   - This is provider-sandbox confinement, not hostile-host isolation.
 
+Claude with the materialized-folder profile:
+- **Same scope, lock and continuation identity as Codex.** The Runtime host runs no Git and no pre-exec child. `claude-context.json` is written Git-free as `{cwd: DEST, git: null, permissions: scope}` and compared on continuation, so a rebound snapshot is refused. Native session/model confirmation and opt-in questions are unchanged.
+- **Temp:** Claude's existing private temp (`~/.ac-XXXXXXXX`, under the 44-byte child-temp limit) is used as `CLAUDE_CODE_TMPDIR`, `TMPDIR` and cache base. It is removed after reaping. `DEST` inside a system temp root, or inside a protected path, is refused.
+- **Tools:** `Bash,Read,Glob,Grep`, plus `AskUserQuestion` with `--questions`. Edits go through Bash; the file tools are confined to the working directory by `--restricted`.
+- **Settings** (`--settings`):
+  - sandbox enabled, `failIfUnavailable`, no unsandboxed commands;
+  - `allowWrite` = `DEST` and the private temp;
+  - `denyWrite` = system temp roots, the protected paths, and the record and baseline;
+  - `denyRead` = the protected paths: the Runtime home, `DEST/.git` and each `DEST/<repo>/.git`, the Code token file and its directory, `~/.claude`, `~/.claude.json`, `~/.codex`, `~/.config/gh`, `~/.ssh`, `~/.aws`, `~/.docker`, `~/Library/Keychains`, `~/.git-credentials`, `~/.config/git`, `~/.netrc`, `~/.gitconfig` and the default Runtime home;
+  - `allowRead` = this snapshot's record and baseline, plus `~/.claude/shell-snapshots` and `~/.claude/session-env`, which Claude's Bash needs;
+  - network: empty `allowedDomains` with `strictAllowlist`, no local binding or Unix sockets, no trustd allowance;
+  - `permissions.deny` holds a `Read(//path)` rule for each protected path, which also governs Read/Glob/Grep.
+- **Limits (in addition to the shared deny-list limits):**
+  - The trusted native Claude CLI itself runs `git remote`/`git ls-files` probes in `DEST` at each launch. They find no repository, but they are Git invocations by the provider, not by Runtime.
+  - Claude creates `DEST/.claude/.cc-writes`, which `snapshot status` without `--path` reports.
+  - `shell-snapshots` (the user's shell aliases and functions) are readable.
+  - Claude Code blocks long foreground `sleep`-style commands on its own.
+  - Verified with Claude Code 2.1.280.
+
 Later bounded steps, each a separate assignment:
-1. Use materialized snapshots for worker starts automatically (orchestration), and the equivalent Claude profile.
+1. Use materialized snapshots for worker starts automatically (orchestration).
 2. Proof of the full local workflow, including real GitHub publication through Code. Only after that: withdraw worker GitHub access, remove the macOS trustd allowance where verified, then release (endpoint 8).
 
 Open questions:

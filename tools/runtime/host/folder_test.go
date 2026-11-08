@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -195,7 +196,7 @@ printf '%s\n' '{"type":"thread.started","thread_id":"native-session"}' '{"type":
 	}
 }
 
-func TestFolderLaunchRefusesChangedScopeAndClaude(t *testing.T) {
+func TestFolderLaunchRefusesChangedScope(t *testing.T) {
 	dest, home, folder, native, gitLog, scope := folderLaunch(t, "touch \"$0.executed\"\n")
 	changed := map[string]any{}
 	for key, value := range scope {
@@ -210,12 +211,6 @@ func TestFolderLaunchRefusesChangedScopeAndClaude(t *testing.T) {
 	if diagnostic, _ := os.ReadFile(filepath.Join(folder, "stderr.log")); string(diagnostic) != "Materialized folder permission scope changed" {
 		t.Fatalf("refusal must reach stderr.log: %q", diagnostic)
 	}
-	args := scopedArgs(t, native, dest, folder, scope)
-	args[8] = "claude"
-	host = startHost(t, args)
-	if _, code := host.finish(t); code != 1 || !strings.Contains(host.stderr.String(), "Claude supports only the dedicated-repository permission profile") {
-		t.Fatalf("Claude accepted the folder profile: code=%d stderr=%s", code, host.stderr.String())
-	}
 	if _, err := os.Stat(native + ".executed"); err == nil {
 		t.Fatal("native CLI executed despite a refusal")
 	}
@@ -225,6 +220,247 @@ func TestFolderLaunchRefusesChangedScopeAndClaude(t *testing.T) {
 	lock, _, err := workspace.Lock(dest, false)
 	if err != nil {
 		t.Fatalf("refused launch kept the lock: %v", err)
+	}
+	lock.Close()
+	if log, err := os.ReadFile(gitLog); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Git ran: %s %v", log, err)
+	}
+}
+
+// claudeFolder materializes a folder outside every system temp root, beneath the real home
+// whose private temp path fits the 44-byte limit, with a logging Git first on PATH.
+func claudeFolder(t *testing.T) (dest, home, gitLog string, scope map[string]any) {
+	t.Helper()
+	user, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if user, err = filepath.EvalSymlinks(user); err != nil {
+		t.Fatal(err)
+	}
+	if len(user+"/.ac-xxxxxxxx/claude-"+strconv.Itoa(os.Getuid())) > 44 {
+		t.Skipf("home %s is too long for a Claude private temp", user)
+	}
+	// The user's Codex home stays the Codex home, not a project config above the folder.
+	t.Setenv("CODEX_HOME", filepath.Join(user, ".codex"))
+	root, err := os.MkdirTemp(user, ".atlas-host-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(root) })
+	home, dest = filepath.Join(root, "runtime"), filepath.Join(root, "work")
+	scope = materialize(t, home, dest)
+	shims := t.TempDir()
+	gitLog = filepath.Join(shims, "git.log")
+	if err := os.WriteFile(filepath.Join(shims, "git"), []byte("#!/bin/sh\necho \"$@\" >> "+gitLog+"\nexit 1\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", shims+":"+os.Getenv("PATH"))
+	return
+}
+
+func TestClaudeFolderSettingsAreTheEnforcementContract(t *testing.T) {
+	user := isolatedHome(t)
+	// Claude denies writes below system temp roots; keep the fake user's folder outside TMPDIR.
+	system := t.TempDir()
+	t.Setenv("TMPDIR", system)
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	home, dest := filepath.Join(user, "runtime"), filepath.Join(user, "work")
+	scope := materialize(t, home, dest)
+	token := filepath.Join(user, "code-home", "runtime.token")
+	if err := os.WriteFile(filepath.Join(home, "code.json"), []byte(fmt.Sprintf(`{"url":"http://127.0.0.1:1","token_file":%q}`, token)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	temporary := "/u/.ac-12345678"
+	encoded, err := claudeFolderSettings(scope, temporary, user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var roots []string
+	for _, path := range []string{"/tmp", "/var/tmp", system} {
+		resolved, _ := resolvePath(path)
+		if !slices.Contains(roots, resolved) {
+			roots = append(roots, resolved)
+		}
+	}
+	slices.Sort(roots)
+	record, baseline := scope["record"].(string), scope["baseline"].(string)
+	protected := []string{home, dest + "/.git", dest + "/repo/.git", token, filepath.Dir(token), user + "/.claude"}
+	for _, name := range credentialPaths {
+		if name != ".claude" {
+			protected = append(protected, filepath.Join(user, name))
+		}
+	}
+	var rules []string
+	for _, path := range protected {
+		rules = append(rules, "Read(/"+path+")")
+	}
+	q := func(values ...string) string { body, _ := json.Marshal(values); return string(body) }
+	want := `{"sandbox":{"enabled":true,"failIfUnavailable":true,"allowUnsandboxedCommands":false,"excludedCommands":[],` +
+		`"filesystem":{"allowWrite":` + q(dest, temporary) + `,"denyWrite":` + q(append(append(roots, protected...), record, baseline)...) +
+		`,"denyRead":` + q(protected...) + `,"allowRead":` + q(record, baseline, user+"/.claude/shell-snapshots", user+"/.claude/session-env") +
+		`},"network":{"allowedDomains":[],"strictAllowlist":true,"allowAllUnixSockets":false,"allowLocalBinding":false}},` +
+		`"permissions":{"deny":` + q(rules...) + `}}`
+	if encoded != want {
+		t.Fatalf("got  %s\nwant %s", encoded, want)
+	}
+
+	incomplete := map[string]any{}
+	for key, value := range scope {
+		if key != "record" {
+			incomplete[key] = value
+		}
+	}
+	if _, err := claudeFolderSettings(incomplete, temporary, user); err == nil || err.Error() != "Materialized folder scope is incomplete" {
+		t.Fatalf("incomplete scope accepted: %v", err)
+	}
+	if _, err := claudeFolderSettings(scope, "/"+strings.Repeat("x", 44), user); err == nil ||
+		err.Error() != "Claude private native temp path exceeds the 44-byte child-temp limit" {
+		t.Fatalf("long private temp accepted: %v", err)
+	}
+	// A protected token directory containing the folder would also deny writing it.
+	if err := os.WriteFile(filepath.Join(home, "code.json"), []byte(fmt.Sprintf(`{"token_file":%q}`, filepath.Join(user, "t"))), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := claudeFolderSettings(scope, temporary, user); err == nil || err.Error() != "Protected path "+user+" contains "+dest {
+		t.Fatalf("token directory containing the folder accepted: %v", err)
+	}
+	t.Setenv("TMPDIR", user)
+	if _, err := claudeFolderSettings(scope, temporary, user); err == nil ||
+		err.Error() != "Claude materialized folders must be outside system temporary directories" {
+		t.Fatalf("folder inside a system temp root accepted: %v", err)
+	}
+}
+
+func TestClaudeFolderLaunchRunsNoGitAndBindsTheScopeContext(t *testing.T) {
+	dest, home, gitLog, scope := claudeFolder(t)
+	user := filepath.Dir(filepath.Dir(dest))
+	folder := t.TempDir()
+	native := fixture(t, folder, `env > "$0.env"
+printf '%s\n' "$@" > "$0.args"
+pwd -P > "$0.cwd"
+test -f "${0%/native}/claude-context.json" || exit 9
+printf '%s\n' '{"type":"result","result":"done"}'
+`)
+	args := claudeScopedArgs(t, native, dest, folder, scope)
+	host := startHost(t, args)
+	records, code := host.finish(t)
+	if code != 0 || records[len(records)-1]["exit_code"] != 0.0 {
+		t.Fatalf("code=%d records=%v stderr=%s", code, records, host.stderr.String())
+	}
+	environment, err := os.ReadFile(native + ".env")
+	if err != nil {
+		t.Fatal(err)
+	}
+	temporary := ""
+	for _, line := range strings.Split(string(environment), "\n") {
+		if value, found := strings.CutPrefix(line, "CLAUDE_CODE_TMPDIR="); found {
+			temporary = value
+		}
+	}
+	if filepath.Dir(temporary) != user || !strings.HasPrefix(filepath.Base(temporary), ".ac-") {
+		t.Fatalf("private temp %q is not under the user home", temporary)
+	}
+	self, _ := os.Executable()
+	for _, want := range []string{"TMPDIR=" + temporary + "/tmp", "GOCACHE=" + temporary + "/go-build", "GOTMPDIR=" + temporary + "/go-tmp",
+		"XDG_CACHE_HOME=" + temporary + "/cache", "npm_config_cache=" + temporary + "/npm", "ATLAS_RUNTIME_HOME=" + home,
+		"PATH=" + filepath.Dir(self) + ":"} {
+		if !strings.Contains(string(environment), "\n"+want) && !strings.HasPrefix(string(environment), want) {
+			t.Fatalf("worker environment lacks %q:\n%s", want, environment)
+		}
+	}
+	argv, _ := os.ReadFile(native + ".args")
+	lines := strings.Split(string(argv), "\n")
+	var settings struct {
+		Sandbox struct {
+			Filesystem struct{ AllowWrite, DenyRead []string }
+		}
+		Permissions struct{ Deny []string }
+	}
+	if index := slices.Index(lines, "--settings"); index < 0 || json.Unmarshal([]byte(lines[index+1]), &settings) != nil ||
+		!slices.Equal(settings.Sandbox.Filesystem.AllowWrite, []string{dest, temporary}) ||
+		!slices.Contains(settings.Sandbox.Filesystem.DenyRead, home) || !slices.Contains(settings.Permissions.Deny, "Read(/"+dest+"/repo/.git)") {
+		t.Fatalf("settings in argv %q", argv)
+	}
+	if !slices.Contains(lines, "Bash,Read,Glob,Grep") || slices.Contains(lines, "Edit") {
+		t.Fatalf("tools in argv %q", argv)
+	}
+	if cwd, _ := os.ReadFile(native + ".cwd"); string(cwd) != dest+"\n" {
+		t.Fatalf("native must run in the folder: %q", cwd)
+	}
+	var process struct {
+		Command         []string `json:"command"`
+		NativeTemporary string   `json:"native_temporary"`
+	}
+	raw, _ := os.ReadFile(filepath.Join(folder, "process.json"))
+	// The native CLI is the group leader itself: no pre-exec child, so no Git context discovery.
+	if json.Unmarshal(raw, &process) != nil || process.Command[0] != native || process.NativeTemporary != temporary {
+		t.Fatalf("process evidence %s", raw)
+	}
+	if _, err := os.Stat(temporary); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("private temp survived the reaped group: %v", err)
+	}
+	data, _ := os.ReadFile(filepath.Join(folder, "claude-context.json"))
+	saved, err := argument(string(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, _ := argument(encode(t, map[string]any{"cwd": dest, "git": nil, "permissions": scope}))
+	if !workspace.JSONEqual(saved, want) {
+		t.Fatalf("saved context %s", data)
+	}
+
+	// Continuation resumes the confirmed session against the same scope context, still without Git.
+	fixture(t, folder, `printf '%s\n' "$@" > "$0.args"
+printf '%s\n' '{"type":"system","subtype":"init","session_id":"`+claudeSession+`","model":"m"}' '{"type":"result","result":"done"}'
+`)
+	args[5], args[9], args[10] = claudeSession, `"m"`, encode(t, saved)
+	host = startHost(t, args)
+	if records, code = host.finish(t); code != 0 || records[len(records)-1]["exit_code"] != 0.0 {
+		t.Fatalf("continuation failed: code=%d records=%v stderr=%s", code, records, host.stderr.String())
+	}
+	if argv, _ := os.ReadFile(native + ".args"); !strings.Contains(string(argv), "--resume\n"+claudeSession+"\n") {
+		t.Fatalf("continuation argv %s", argv)
+	}
+
+	// A drifted saved context or a rebound snapshot refuses before the native CLI runs.
+	fixture(t, folder, "touch \"$0.executed\"\n")
+	changed := map[string]any{}
+	for key, value := range scope {
+		changed[key] = value
+	}
+	changed["snapshot_id"] = "sha256:" + strings.Repeat("0", 64)
+	before, _ := filepath.Glob(filepath.Join(user, ".ac-*"))
+	for _, refusal := range []struct {
+		scope   map[string]any
+		context any
+		message string
+	}{
+		{scope, map[string]any{"cwd": dest, "git": nil, "permissions": nil}, "Saved Claude working directory, repository identity or permission scope changed"},
+		{changed, saved, "Materialized folder permission scope changed"},
+	} {
+		args := claudeScopedArgs(t, native, dest, folder, refusal.scope)
+		args[5], args[9], args[10] = claudeSession, `"m"`, encode(t, refusal.context)
+		host := startHost(t, args)
+		if records, code := host.finish(t); code != 1 || len(records) != 0 || host.stderr.String() != "Native runner: "+refusal.message+"\n" {
+			t.Fatalf("%s: code=%d records=%v stderr=%q", refusal.message, code, records, host.stderr.String())
+		}
+		if diagnostic, _ := os.ReadFile(filepath.Join(folder, "stderr.log")); string(diagnostic) != refusal.message {
+			t.Fatalf("refusal must reach stderr.log: %q", diagnostic)
+		}
+	}
+	if _, err := os.Stat(native + ".executed"); err == nil {
+		t.Fatal("native CLI executed despite a refusal")
+	}
+	if after, _ := filepath.Glob(filepath.Join(user, ".ac-*")); !slices.Equal(after, before) {
+		t.Fatalf("refused launch left a private temp: %v", after)
+	}
+	if after, _ := os.ReadFile(filepath.Join(folder, "claude-context.json")); string(after) != string(data) {
+		t.Fatalf("refusal rewrote the saved context: %s", after)
+	}
+	lock, _, err := workspace.Lock(dest, false)
+	if err != nil {
+		t.Fatalf("lock not released: %v", err)
 	}
 	lock.Close()
 	if log, err := os.ReadFile(gitLog); !errors.Is(err, os.ErrNotExist) {
