@@ -15,7 +15,24 @@ The driving agent is the external local orchestrator when Atlas Server is absent
 - Provider/model execution policy, local availability and local cost constraints belong to Runtime. The orchestrator supplies task requirements and explicit authorized overrides, not a duplicate fallback engine.
 - Route worker questions through the orchestrator. Do not assume direct peer chat, peer dispatch or authority to assign other workers.
 
-Ordinary-folder snapshot materialization, offline inspection, submission and Code publication are implemented. The strict folder-only sandbox profile is still being implemented: ordinary folders and these instructions do not prove credential isolation or prevent access to external Git metadata. Managed repository starts do not yet use snapshots. Read `skill://atlas-runtime`, `docs/runtime-architecture.md` and the installed CLI README before operations; inspect capabilities and report exact gaps without inventing flags or silently substituting a Git-enabled worker profile.
+Snapshot materialization, offline inspection, submission, Code publication and the `materialized-folder` worker profile for Codex and Claude are implemented. Managed repository starts do not yet use snapshots. Read `skill://atlas-runtime`, `docs/runtime-architecture.md` and the selected installation's CLI README before operations; inspect that installation's capabilities and report exact gaps without inventing flags or silently substituting a Git-enabled worker profile.
+
+Local Runtime plus local Code plus this external orchestrator is a first-class standalone mode. It requires neither Atlas Server nor Tailscale; remote Code remains optional future work.
+
+## Materialized-folder workers
+
+Use the selected current Runtime installation; do not assume every installed `atlas-runtime` supports this profile (older shared binaries lack it).
+
+```sh
+atlas-runtime snapshot materialize --snapshot sha256:HEX --dest DEST   # DEST outside the Runtime home
+atlas-runtime start --worker W --backend codex --cwd DEST --permissions materialized-folder "ACK-only assignment ..."
+```
+
+- Use `--backend claude` (optionally with `--questions`) for Claude. The profile cannot be combined with `--sandbox` or `--repo`/`--branch`, and there is no fallback to broader permissions.
+- `DEST` must be a folder produced by `snapshot materialize` outside the Runtime home. A folder that equals, lies inside or contains the home is refused before launch, and a saved turn there cannot continue.
+- Workers inspect only through the exact inspector contract: `"$ATLAS_RUNTIME_EXECUTABLE" snapshot status --dest DEST [--path atlas]` and `"$ATLAS_RUNTIME_EXECUTABLE" snapshot diff --dest DEST [--path atlas]`. A bare `atlas-runtime` is not the contract: a login shell can select another installation that fails inside the sandbox.
+- The profile denies Git metadata, the Runtime home (except this snapshot's record and baseline and the inspector executable), the Code token, the listed credential paths and network. Runtime start and continuation run no Git and make no Code request, so Code may be stopped while the worker runs.
+- **Limits:** credential protection is a deny-list, not hostile-host isolation; secrets in unlisted locations (for example `~/.npmrc` or `~/.kube`) may remain readable. The native Claude CLI makes its own harmless `git remote`/`git ls-files` probes in `DEST` at launch; they find no repository and give the worker no repository metadata. Claude may create scratch metadata outside the mapped repository; inspect unfiltered status rather than assuming it appears on every run.
 
 ## Start and resume
 
@@ -49,9 +66,9 @@ Record the matching ACK before marking the assignment active. At a task boundary
 ## Local Runtime + Code workflow
 
 1. The external orchestrator uses Code's separate local APIs: `POST /v1/revisions/resolve` for exact commits, then `POST /v1/snapshots` with repository, commit and relative path entries. Preserve snapshot/repository/base identities in the assignment.
-2. Run `atlas-runtime snapshot materialize --snapshot sha256:<hex> --dest NEW_PATH`. Runtime verifies the manifest/archives, produces one or more ordinary repository folders without Git metadata and retains an immutable baseline outside the destination. It refuses an existing destination. Supply the resulting folder paths and scopes to the worker; the worker only edits/tests them and returns changed paths and evidence, then stops.
-3. After delivery, the orchestrator inspects `atlas-runtime snapshot status --dest PATH [--path REPO_PATH]...` and `atlas-runtime snapshot diff --dest PATH [--path REPO_PATH]...`. Both work offline without Code, Git or a daemon. Verify scope and behavior before accepting the delivery.
-4. Submit with `atlas-runtime snapshot submit --dest PATH [--path REPO_PATH] --change-id UUID`. Choose a lowercase UUID; `--path` is required for multi-repository materializations, with one repository per submit. Submission seals a Code-private commit whose parent is the exact snapshot base; it does not publish, reset worker files or advance the baseline. A clean result has no commit. Preserve the change ID and exact command for reconciliation/resume; changed content under the same ID conflicts.
+2. Run `atlas-runtime snapshot materialize --snapshot sha256:<hex> --dest NEW_PATH`. Runtime verifies the manifest/archives, produces one or more ordinary repository folders without Git metadata and retains an immutable baseline outside the destination. It refuses an existing destination. Start the worker on it with the materialized-folder profile above and supply the folder paths and scopes; the worker only edits/tests them and returns changed paths and evidence, then stops.
+3. After delivery, the orchestrator inspects `atlas-runtime snapshot status --dest PATH [--path REPO_PATH]...` and `atlas-runtime snapshot diff --dest PATH [--path REPO_PATH]...`. Both work offline without Code, Git or a daemon. Verify scope and behavior before accepting the delivery; a worker's own inspector output is evidence, not acceptance.
+4. The orchestrator, never a worker, submits with `atlas-runtime snapshot submit --dest PATH [--path REPO_PATH] --change-id UUID`. Choose a lowercase UUID; `--path` is required for multi-repository materializations, with one repository per submit. Submission seals a Code-private commit whose parent is the exact snapshot base; it does not publish, reset worker files or advance the baseline. A clean result has no commit. Preserve the change ID and exact command for reconciliation/resume; changed content under the same ID conflicts.
 5. The orchestrator alone calls `POST /v1/publications` with its separate orchestrator token, caller-chosen `publication_id`, sealed `change_id`, new `work/…` branch and optional `pull_request: {base, title, body}`. Attribute the PR body as required by project policy. Code creates the branch at the sealed commit and optionally opens the PR; it never moves an existing branch or silently rebases.
 6. Preserve Runtime request IDs, change/publication IDs, exact request bodies and returned commit/PR evidence. Inspect errors and partial effects before retrying: `publication_incomplete` can mean the branch was pushed but PR creation failed. An identical request with the same ID resumes recorded work; do not blindly retry with fresh IDs or changed bodies.
 7. The coordinator verifies the exact PR head against the sealed commit and merges under project policy. The release endpoint remains proposed; there is no automatic merge or invented release CLI. Prepare the next assignment from the required integrated base only after integration.
