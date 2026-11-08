@@ -7,9 +7,9 @@ from runtime.providers import claude
 from runtime.workspaces import client as workspace_client
 
 
-def execute_assignment(workspace, scope, repository, created, backend, folder, expected_context, command):
+def execute_assignment(workspace, scope, repository, created, folder, expected_context, command):
     if repository is not None:
-        executable = shutil.which('codex') if backend == 'claude' else command[0]
+        executable = shutil.which('codex')
         if executable is None:
             raise ValueError('Managed repository preparation requires the installed Codex sandbox')
         command_prefix = [executable, 'sandbox', '-P', 'atlas_repository', '-C', workspace,
@@ -20,6 +20,5 @@ def execute_assignment(workspace, scope, repository, created, backend, folder, e
         emit({'type': 'runtime.repository_prepared', 'repository': prepared})
     if scope is not None and scope != workspace_client.request('scope', workspace):
         raise ValueError('Dedicated repository permission scope changed')
-    if backend == 'claude':
-        claude.save_context(workspace, scope, folder, expected_context)
+    claude.save_context(workspace, scope, folder, expected_context)
     os.execv(command[0], command)

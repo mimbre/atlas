@@ -26,6 +26,12 @@ def setUpModule():
     setup_workspace_cli()
 
 
+def codex_host(native, workspace, folder, goal, sandbox, session, model='null'):
+    """Native's argv for Codex, which runs in the Go host built by setup_workspace_cli."""
+    return [os.environ['ATLAS_RUNTIME_EXECUTABLE'], 'native-host', str(native), str(workspace),
+            str(folder), goal, sandbox, session, 'null', 'null', 'codex', model, 'null', 'false']
+
+
 class ClaudeRepositoryLifecycleTest(unittest.TestCase):
     def setUp(self):
         self.folder = tempfile.TemporaryDirectory(prefix='.runtime-claude-scope-', dir=Path.home())
@@ -168,7 +174,7 @@ class ClaudeRepositoryLifecycleTest(unittest.TestCase):
 
         with patch.object(assignment.os, 'execv', side_effect=native_execution) as execute:
             assignment.execute_assignment(
-                str(self.repo), self.scope, None, False, 'claude',
+                str(self.repo), self.scope, None, False,
                 str(self.root), saved, ['/fixture-native'])
         execute.assert_called_once_with('/fixture-native', ['/fixture-native'])
         self.assertEqual(unfinished.read_bytes(), b'keep this work\n\x00\xff')
@@ -192,7 +198,7 @@ class ClaudeRepositoryLifecycleTest(unittest.TestCase):
                             ValueError, 'Saved Claude working directory, repository identity or permission scope changed'):
                         assignment.execute_assignment(
                             str(self.repo), None if drift == 'scope' else self.scope,
-                            None, False, 'claude', str(self.root), saved, ['/must-not-execute'])
+                            None, False, str(self.root), saved, ['/must-not-execute'])
                 execute.assert_not_called()
                 self.assertEqual(context_path.read_bytes(), saved_bytes)
                 self.assertEqual(unfinished.read_bytes(), b'keep this work\n\x00\xff')
@@ -212,7 +218,7 @@ class ClaudeRepositoryLifecycleTest(unittest.TestCase):
                 with patch.object(assignment.os, 'execv') as execute:
                     with self.assertRaisesRegex(ValueError, 'Cannot inspect Claude working directory'):
                         assignment.execute_assignment(
-                            str(self.repo), None, None, False, 'claude',
+                            str(self.repo), None, None, False,
                             str(self.root), expected, ['/must-not-execute'])
                 execute.assert_not_called()
                 if expected is None:
@@ -228,7 +234,7 @@ class NativeModelTest(unittest.TestCase):
         self.addCleanup(self.folder.cleanup)
         self.root = Path(self.folder.name).resolve()
 
-    def launch(self, extra, session=''):
+    def launch(self, model, session=''):
         native = self.root / 'native'
         native.write_text(
             f'#!{sys.executable}\n'
@@ -237,8 +243,7 @@ class NativeModelTest(unittest.TestCase):
             'print(\'{"type":"turn.completed"}\', flush=True)\n')
         native.chmod(0o700)
         process = subprocess.Popen(
-            [sys.executable, str(HELPER), str(native), str(self.root), str(self.root),
-             '--prompt stays one argument', 'read-only', session, *extra],
+            codex_host(native, self.root, self.root, '--prompt stays one argument', 'read-only', session, model),
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         try:
             process.wait(timeout=5)  # Keep control stdin open; EOF would cancel the turn.
@@ -255,7 +260,7 @@ class NativeModelTest(unittest.TestCase):
         for model in ('', '--dangerously-skip-permissions', 'opus --tools Bash', 'opus\nx',
                       'opus;touch /tmp/injected', 'x' * 201, 1, ['opus']):
             with self.subTest(model=model):
-                code, events, error = self.launch(['null', 'null', 'codex', json.dumps(model)])
+                code, events, error = self.launch(json.dumps(model))
                 self.assertEqual(code, 1)
                 self.assertIn('Model must be', error)
                 self.assertEqual(events, [])
@@ -354,8 +359,7 @@ class CleanupTest(unittest.TestCase):
                 'printf \'%s\\n\' \'{"type":"turn.completed"}\'\n')
             native.chmod(0o700)
             process = subprocess.Popen(
-                [sys.executable, str(HELPER), str(native), folder, folder,
-                 'bounded session mismatch', 'read-only', 'expected-session'],
+                codex_host(native, folder, folder, 'bounded session mismatch', 'read-only', 'expected-session'),
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 text=True)
             try:
@@ -554,7 +558,7 @@ class ProvisioningTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'installed Codex sandbox'):
                 assignment.execute_assignment(
                     str(self.repo), self.request['permissions'], self.request['repository'],
-                    False, 'claude', str(self.root), None, ['/missing-claude'])
+                    False, str(self.root), None, ['/missing-claude'])
         self.assertEqual(self.git(self.repo, 'rev-parse', 'HEAD'), head)
         self.assertEqual(self.git(self.repo, 'branch', '--show-current'), 'task/first')
 
