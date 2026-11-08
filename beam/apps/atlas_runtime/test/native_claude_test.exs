@@ -73,6 +73,40 @@ defmodule AtlasRuntime.NativeClaudeTest do
     assert File.read!(Path.join(dir, "turns/claude-turn/stream.jsonl")) =~ "private reasoning"
   end
 
+  test "each result overwrites the answer before terminal notification, errors included", %{
+    tmp_dir: dir
+  } do
+    answer = Path.join(dir, "turns/claude-turn/answer.txt")
+    first = %{@result | "result" => "First draft."}
+
+    {:ok, pid} = launch(dir, [@init, first, @result])
+    ref = Process.monitor(pid)
+    assert_receive {:agent, ^pid, {:ended, "Read the sample."}}, 5_000
+    assert File.read!(answer) == "Read the sample."
+    assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
+
+    error = %{
+      @result
+      | "subtype" => "error_during_execution",
+        "is_error" => true,
+        "result" => "Native failure text."
+    }
+
+    {:ok, pid} = launch(dir, [@init, @result, error])
+    ref = Process.monitor(pid)
+    assert_receive {:DOWN, ^ref, :process, ^pid, {:claude_failed, 0, 0}}, 5_000
+    refute_received {:agent, ^pid, {:ended, _}}
+    assert File.read!(answer) == "Native failure text."
+  end
+
+  test "an unsaved answer cannot complete the turn", %{tmp_dir: dir} do
+    File.mkdir_p!(Path.join(dir, "turns/claude-turn/answer.txt"))
+    {:ok, pid} = launch(dir, [@init, @result])
+    ref = Process.monitor(pid)
+    assert_receive {:DOWN, ^ref, :process, ^pid, {:claude_failed, 0, 0}}, 5_000
+    refute_received {:agent, ^pid, {:ended, _}}
+  end
+
   test "zero exit cannot mask errors, missing identity or another vendor's terminal events", %{
     tmp_dir: dir
   } do
@@ -185,7 +219,10 @@ defmodule AtlasRuntime.NativeClaudeTest do
     {:ok, first} = launch(dir, [init, @result])
     first_ref = Process.monitor(first)
     assert_receive {:DOWN, ^first_ref, :process, ^first, :normal}, 5_000
-    context = Path.join(dir, "turns/claude-turn/claude-context.json") |> File.read!() |> JSON.decode!()
+
+    context =
+      Path.join(dir, "turns/claude-turn/claude-context.json") |> File.read!() |> JSON.decode!()
+
     settings = %{"session_id" => session, "model" => @init["model"], "resume_context" => context}
 
     {:ok, resumed} = launch(dir, [init, @result], settings)
@@ -206,24 +243,35 @@ defmodule AtlasRuntime.NativeClaudeTest do
     end
   end
 
-  test "assistant base model preserves the native context modifier for continuation", %{tmp_dir: dir} do
+  test "assistant base model preserves the native context modifier for continuation", %{
+    tmp_dir: dir
+  } do
     session = "a1a1b578-c3b5-7972-9664-1d250bf64cdf"
     model = "claude-opus-5-5[1m]"
     init = Map.merge(@init, %{"session_id" => session, "model" => model})
-    assistant = %{"type" => "assistant", "session_id" => session,
-      "message" => %{"model" => "claude-opus-5-5", "content" => []}}
+
+    assistant = %{
+      "type" => "assistant",
+      "session_id" => session,
+      "message" => %{"model" => "claude-opus-5-5", "content" => []}
+    }
+
     {:ok, first} = launch(dir, [init, assistant, @result])
     first_ref = Process.monitor(first)
     assert_receive {:agent, ^first, {:identity, "claude", ^model}}, 5_000
     assert_receive {:DOWN, ^first_ref, :process, ^first, :normal}, 5_000
     refute_received {:agent, ^first, {:identity, "claude", "claude-opus-5-5"}}
-    context = Path.join(dir, "turns/claude-turn/claude-context.json") |> File.read!() |> JSON.decode!()
+
+    context =
+      Path.join(dir, "turns/claude-turn/claude-context.json") |> File.read!() |> JSON.decode!()
+
     settings = %{"session_id" => session, "model" => model, "resume_context" => context}
     {:ok, resumed} = launch(dir, [init, assistant, @result], settings)
     resumed_ref = Process.monitor(resumed)
     assert_receive {:DOWN, ^resumed_ref, :process, ^resumed, :normal}, 5_000
     assert_receive {:agent, ^resumed, {:identity, "claude", ^model}}
     refute_received {:agent, ^resumed, {:identity, "claude", "claude-opus-5-5"}}
+
     for events <- [
           [Map.put(init, "model", "claude-opus-5-5"), assistant, @result],
           [init, put_in(assistant, ["message", "model"], "claude-sonnet-5-5"), @result]
@@ -235,9 +283,10 @@ defmodule AtlasRuntime.NativeClaudeTest do
     end
   end
 
-  test "unsupported permissions, unscoped provisioning, resume and unknown vendors never launch", %{
-    tmp_dir: dir
-  } do
+  test "unsupported permissions, unscoped provisioning, resume and unknown vendors never launch",
+       %{
+         tmp_dir: dir
+       } do
     for settings <- [
           %{"sandbox" => "workspace-write"},
           %{"sandbox" => nil, "permissions" => %{"root" => dir}},
@@ -270,7 +319,9 @@ defmodule AtlasRuntime.NativeClaudeTest do
     end
   end
 
-  test "workspace launch validation permits only existing or scoped provisioned workspaces", %{tmp_dir: dir} do
+  test "workspace launch validation permits only existing or scoped provisioned workspaces", %{
+    tmp_dir: dir
+  } do
     alias AtlasRuntime.Workspaces
     missing = Path.join(dir, "not-provisioned")
     scope = %{"profile" => "dedicated-repository", "root" => missing}

@@ -46,8 +46,8 @@ def build_command(executable, goal, scope, session, model, questions_enabled, qu
 
 
 class Protocol:
-    def __init__(self, session, model, folder):
-        self.session, self.model, self.folder = session, model, folder
+    def __init__(self, session, model):
+        self.session, self.model = session, model
         self.session_seen = False
 
     def event(self, event):
@@ -60,8 +60,6 @@ class Protocol:
                 actual = event.get('message', {}).get('model')
                 if actual and actual != '<synthetic>' and not assistant_model_matches(self.model, actual):
                     raise ValueError('Claude resumed with a different model')
-        if event.get('type') == 'result' and isinstance(event.get('result'), str):
-            (self.folder / 'answer.txt').write_text(event['result'])
 
     def complete(self, stopped):
         if self.session and not self.session_seen and not stopped:

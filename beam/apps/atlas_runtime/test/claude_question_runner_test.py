@@ -490,7 +490,8 @@ class QuestionProcessTest(unittest.TestCase):
                 processed_event = self.next_event('runtime.answer_processed')
                 self.assertEqual(processed_event['question_id'], identifier)
                 self.ended(True)
-                self.assertEqual((self.root / 'answer.txt').read_text(), 'fixture completed')
+                self.assertIn('fixture completed', [
+                    event['event'].get('result') for event in self.events if event['type'] == 'runtime.event'])
                 self.cleanup_process()
                 self.process = None
                 self.events = []

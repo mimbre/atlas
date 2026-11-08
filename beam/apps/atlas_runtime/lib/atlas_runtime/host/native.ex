@@ -14,6 +14,8 @@ defmodule AtlasRuntime.Agent.Native do
   use GenServer
   @behaviour AtlasRuntime.Agent
 
+  require Logger
+
   alias AtlasRuntime.Interactions.NativeQuestion
   alias AtlasRuntime.Providers.NativeEvents
 
@@ -109,6 +111,7 @@ defmodule AtlasRuntime.Agent.Native do
        %{
          owner: owner,
          backend: backend,
+         folder: folder,
          question: NativeQuestion.new(questions_enabled),
          model: nil,
          session: nil,
@@ -228,12 +231,31 @@ defmodule AtlasRuntime.Agent.Native do
        do: %{state | question: NativeQuestion.consume(record, state.question, state.owner)}
 
   defp consume(record, state) do
-    state = NativeEvents.consume(record, state)
+    state = record |> persist_answer(state) |> then(&NativeEvents.consume(record, &1))
 
     if state.completed or state.failed,
       do: %{state | question: NativeQuestion.clear(state.question)},
       else: state
   end
+
+  # Claude's final text is the turn answer, overwritten by each forwarded result
+  # before terminal notification. Codex writes its own through --output-last-message.
+  defp persist_answer(
+         %{"type" => "runtime.event", "event" => %{"type" => "result", "result" => text}},
+         %{backend: "claude"} = state
+       )
+       when is_binary(text) do
+    case File.write(Path.join(state.folder, "answer.txt"), text) do
+      :ok ->
+        state
+
+      {:error, reason} ->
+        Logger.warning("native: cannot save the Claude answer: #{inspect(reason)}")
+        %{state | failed: true}
+    end
+  end
+
+  defp persist_answer(_, state), do: state
 
   @impl true
   def terminate(_, state) do

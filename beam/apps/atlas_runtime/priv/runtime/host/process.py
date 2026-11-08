@@ -76,7 +76,7 @@ def main(entrypoint):
     if backend == 'claude':
         command, tools = claude.build_command(
             executable, goal, scope, session, model, questions_enabled, question_session)
-        protocol = claude.Protocol(session, model, folder)
+        protocol = claude.Protocol(session, model)
     else:
         command = codex.build_command(executable, workspace, folder, goal, permissions, session, model)
         protocol = codex.Protocol(session)
