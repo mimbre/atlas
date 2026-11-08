@@ -1,6 +1,6 @@
 defmodule AtlasRuntime.CommandAdmissions do
   @moduledoc "Immutable command admissions; an indeterminate reservation never implies native delivery."
-  alias AtlasRuntime.Agent.Native
+  alias AtlasRuntime.Workspaces
 
   defmodule StorageError do
     defexception [:message]
@@ -18,7 +18,7 @@ defmodule AtlasRuntime.CommandAdmissions do
     bounded!(request, @request_bytes, "Command request")
 
     if Map.has_key?(request, "cwd") do
-      cwd = Native.workspace_path(request["cwd"])
+      cwd = Workspaces.workspace_path(request["cwd"])
       request = Map.put(request, "cwd", cwd)
       bounded!(request, @request_bytes, "Command request")
       request

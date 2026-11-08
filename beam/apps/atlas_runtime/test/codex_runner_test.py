@@ -2,7 +2,6 @@
 import errno
 from datetime import datetime, timezone
 import fcntl
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -15,14 +14,13 @@ import unittest
 from unittest.mock import patch
 
 
-HELPER = Path(__file__).resolve().parents[1] / 'priv' / 'native_runner.py'
-sys.path.insert(0, str(HELPER.parent))
-import workspace_client
+HELPER = Path(__file__).resolve().parents[1] / 'priv' / 'runtime' / 'entrypoint.py'
+sys.path.insert(0, str(HELPER.parent.parent))
+from runtime.host import assignment, process as process_host, sandbox
+from runtime.providers import claude, codex
+from runtime.workspaces import client as workspace_client
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from workspace_test_support import setup_workspace_cli
-spec = importlib.util.spec_from_file_location('native_runner', HELPER)
-runner = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(runner)
 
 
 def setUpModule():
@@ -116,7 +114,7 @@ class ClaudeRepositoryLifecycleTest(unittest.TestCase):
     def test_system_temp_repository_cannot_bypass_native_temp_denial(self):
         with tempfile.TemporaryDirectory() as directory:
             with self.assertRaisesRegex(ValueError, 'outside system temporary directories'):
-                runner.claude_repository_settings(
+                sandbox.claude_repository_settings(
                     workspace_client.request('dedicated-scope', Path(directory).resolve()), '/private-owned')
 
     def test_native_temp_byte_limit_fails_closed_before_fallback(self):
@@ -125,16 +123,16 @@ class ClaudeRepositoryLifecycleTest(unittest.TestCase):
             temporary = '/' + 'x' * (44 - suffix - 1 + extra)
             if extra:
                 with self.assertRaisesRegex(ValueError, '44-byte'):
-                    runner.claude_repository_settings(self.scope, temporary)
+                    sandbox.claude_repository_settings(self.scope, temporary)
             else:
-                runner.claude_repository_settings(self.scope, temporary)
+                sandbox.claude_repository_settings(self.scope, temporary)
         with self.assertRaisesRegex(ValueError, '44-byte'):
-            runner.claude_repository_settings(self.scope, '/' + 'é' * 22)
+            sandbox.claude_repository_settings(self.scope, '/' + 'é' * 22)
 
     def test_trust_service_access_is_macos_only_and_exact(self):
         for platform in ('darwin', 'linux'):
-            with self.subTest(platform=platform), patch.object(runner.sys, 'platform', platform):
-                settings = runner.claude_repository_settings(self.scope, '/private-owned')
+            with self.subTest(platform=platform), patch.object(sandbox.sys, 'platform', platform):
+                settings = sandbox.claude_repository_settings(self.scope, '/private-owned')
                 network = settings['sandbox']['network']
                 if platform == 'darwin':
                     self.assertEqual(network['allowMachLookup'], ['com.apple.trustd.agent'])
@@ -155,15 +153,15 @@ class ClaudeRepositoryLifecycleTest(unittest.TestCase):
                 process.wait()
 
     def test_saved_claude_context_preserves_work_but_refuses_git_identity_drift(self):
-        saved = runner.claude_context(str(self.repo), self.scope)
+        saved = claude.context(str(self.repo), self.scope)
         (self.repo / 'unfinished.txt').write_text('keep this work\n')
-        self.assertEqual(runner.claude_context(str(self.repo), self.scope), saved)
+        self.assertEqual(claude.context(str(self.repo), self.scope), saved)
         for args in (
                 ['symbolic-ref', 'HEAD', 'refs/heads/other'],
                 ['remote', 'add', 'origin', 'https://github.com/other/repo.git']):
             subprocess.run(['git', '-C', str(self.repo), *args], check=True)
             with self.assertRaisesRegex(ValueError, 'repository identity'):
-                runner.execute_assignment(
+                assignment.execute_assignment(
                     str(self.repo), self.scope, None, False, 'claude',
                     str(self.root), saved, ['/must-not-execute'])
             subprocess.run(['git', '-C', str(self.repo), 'symbolic-ref', 'HEAD',
@@ -173,7 +171,7 @@ class ClaudeRepositoryLifecycleTest(unittest.TestCase):
     def test_unreadable_git_identity_is_not_treated_as_a_non_repository(self):
         (self.repo / '.git/config').write_text('invalid git configuration\n')
         with self.assertRaisesRegex(ValueError, 'Cannot inspect Claude working directory'):
-            runner.claude_context(str(self.repo), None)
+            claude.context(str(self.repo), None)
 
 
 class NativeModelTest(unittest.TestCase):
@@ -200,7 +198,7 @@ class NativeModelTest(unittest.TestCase):
         self.artifact.write_text(''.join(json.dumps(record) + '\n' for record in records))
 
     def model(self):
-        return runner.codex_model(self.session, str(self.root), self.started)
+        return codex.model(self.session, str(self.root), self.started)
 
     def test_native_turn_context_not_requested_model_confirms_identity(self):
         # Shape and model from native Codex 0.166.0 rollout, with fixture-only cwd.
@@ -229,7 +227,7 @@ class NativeModelTest(unittest.TestCase):
             self.assertIsNone(self.model())
         self.artifact.write_text('{truncated')
         self.assertIsNone(self.model())
-        self.assertIsNone(runner.codex_model('../../*', str(self.root), self.started))
+        self.assertIsNone(codex.model('../../*', str(self.root), self.started))
 
     def launch(self, extra, session='', artifact=False):
         native = self.root / 'native'
@@ -306,7 +304,7 @@ class CleanupTest(unittest.TestCase):
         process = subprocess.Popen(['/bin/sh', '-c', 'exit 0'], start_new_session=True)
         try:
             self.wait_zombie(process.pid)
-            runner.signal_group(process, signal.SIGKILL)
+            process_host.signal_group(process, signal.SIGKILL)
             self.assertEqual(process.wait(timeout=5), 0)
             self.assert_dead(process.pid)
         finally:
@@ -319,7 +317,7 @@ class CleanupTest(unittest.TestCase):
         try:
             child = int(process.stdout.readline())
             self.wait_zombie(process.pid)
-            runner.signal_group(process, signal.SIGKILL)
+            process_host.signal_group(process, signal.SIGKILL)
             self.assertEqual(process.wait(timeout=5), 0)
             self.assert_dead(child)
         finally:
@@ -338,10 +336,10 @@ class CleanupTest(unittest.TestCase):
         process = subprocess.Popen(['/bin/sleep', '10'], start_new_session=True)
         try:
             started = time.monotonic()
-            with patch.object(runner.os, 'killpg',
+            with patch.object(process_host.os, 'killpg',
                               side_effect=PermissionError(errno.EPERM, 'injected denial')):
                 with self.assertRaises(PermissionError):
-                    runner.signal_group(process, signal.SIGKILL)
+                    process_host.signal_group(process, signal.SIGKILL)
             self.assertLess(time.monotonic() - started, 6)
             self.assertIsNone(process.poll(), 'Permission failure must not claim the leader exited')
         finally:
@@ -354,10 +352,10 @@ class CleanupTest(unittest.TestCase):
             self.wait_zombie(process.pid)
             # Keep denying even after wait() reaps the owned leader. ESRCH is
             # harmless, but this second EPERM must remain a visible failure.
-            with patch.object(runner.os, 'killpg',
+            with patch.object(process_host.os, 'killpg',
                               side_effect=PermissionError(errno.EPERM, 'injected denial')):
                 with self.assertRaises(PermissionError):
-                    runner.signal_group(process, signal.SIGKILL)
+                    process_host.signal_group(process, signal.SIGKILL)
             self.assertEqual(process.returncode, 0, 'Owned leader must still be reaped')
             self.assert_dead(process.pid)
         finally:
@@ -569,9 +567,9 @@ class ProvisioningTest(unittest.TestCase):
 
     def test_claude_provisioning_without_codex_sandbox_preserves_repository(self):
         head = self.git(self.repo, 'rev-parse', 'HEAD')
-        with patch.object(runner.shutil, 'which', return_value=None):
+        with patch.object(assignment.shutil, 'which', return_value=None):
             with self.assertRaisesRegex(ValueError, 'installed Codex sandbox'):
-                runner.execute_assignment(
+                assignment.execute_assignment(
                     str(self.repo), self.request['permissions'], self.request['repository'],
                     False, 'claude', str(self.root), None, ['/missing-claude'])
         self.assertEqual(self.git(self.repo, 'rev-parse', 'HEAD'), head)

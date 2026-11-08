@@ -12,8 +12,8 @@ def setup_workspace_cli():
     unittest.addModuleCleanup(folder.cleanup)
     root = Path(__file__).resolve().parents[4]
     executable = str(Path(folder.name) / 'atlas-runtime')
-    subprocess.run(['go', 'build', '-o', executable, 'tools/runtime/main.go',
-                    'tools/runtime/workspace.go'], cwd=root, check=True)
+    subprocess.run(['go', '-C', 'tools/runtime', 'build', '-o', executable, '.'],
+                   cwd=root, check=True)
     environment = patch.dict(os.environ, {'ATLAS_RUNTIME_EXECUTABLE': executable})
     environment.start()
     unittest.addModuleCleanup(environment.stop)

@@ -67,7 +67,7 @@ jobs:
         with:
           go-version: "1.25"
           cache: false
-      - run: go test ../tools/runtime/*.go
+      - run: go -C ../tools/runtime test ./...
       - run: python3 -m pip install -r ../rela/scripts/requirements.txt
       - run: mix compile --warnings-as-errors
       - run: mix format --check-formatted

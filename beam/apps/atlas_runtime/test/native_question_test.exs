@@ -1,6 +1,7 @@
 defmodule AtlasRuntime.NativeQuestionTest do
   use ExUnit.Case, async: false
   alias AtlasRuntime.Agent.Native
+  alias AtlasRuntime.Interactions.NativeQuestion
   alias AtlasRuntime.{BackendPolicy, ExecutionEvents, Service}
   @moduletag :tmp_dir
 
@@ -108,15 +109,12 @@ defmodule AtlasRuntime.NativeQuestionTest do
     assert_receive {:agent, ^pid, {:question, question}}, 5_000
     assert question.questions |> hd() |> Map.fetch!("question") == "Choose?"
     assert_source(question, context.workspace)
-    assert :sys.get_state(pid).pending_question == question
     assert {:error, :no_matching_pending_question} = Native.answer(pid, "question-dead", %{"Choose?" => "A"})
     assert {:error, :invalid_answers} = Native.answer(pid, question.id, %{"Choose?" => " "})
     assert {:ok, %{question_id: id, status: "delivered"}} = Native.answer(pid, question.id, %{"Choose?" => "fresh answer"})
     assert id == question.id
     assert_receive {:agent, ^pid, {:answer, %{question_id: ^id, status: "delivered"}}}
     refute_receive {:agent, ^pid, {:answer, %{status: "processed"}}}, 30
-    assert :sys.get_state(pid).pending_question == nil
-    assert :sys.get_state(pid).last_answer.status == "delivered"
     assert {:error, :no_matching_pending_question} = Native.answer(pid, id, %{"Choose?" => "duplicate"})
     assert {:error, :no_matching_pending_question} = Native.answer(pid, id, %{"Choose?" => "fresh answer"})
     File.write!(Path.join(context.workspace, "process-answer"), "")
@@ -150,11 +148,12 @@ defmodule AtlasRuntime.NativeQuestionTest do
     for terminal <- [:stop, :terminate] do
       tag = make_ref()
       timer = Process.send_after(self(), :unused_timeout, 60_000)
-      state = %{port: nil, pending_question: %{id: "question-ab"},
-                answer_waiter: {"question-ab", {self(), tag}, timer}, stopping: nil}
+      question = %{NativeQuestion.new(true) | pending: %{id: "question-ab"},
+                   waiter: {"question-ab", {self(), tag}, timer}}
+      state = %{port: nil, question: question, stopping: nil}
       case terminal do
         :stop ->
-          assert {:noreply, %{pending_question: nil, answer_waiter: nil}} =
+          assert {:noreply, %{question: %{pending: nil, waiter: nil}}} =
                    Native.handle_call(:stop, {self(), make_ref()}, state)
         :terminate -> Native.terminate(:lost, state)
       end
@@ -169,8 +168,9 @@ defmodule AtlasRuntime.NativeQuestionTest do
     tag = make_ref()
     timer = Process.send_after(self(), :unused_timeout, 60_000)
     question = %{id: "question-ab", questions: [%{"question" => "Choose?"}]}
-    state = %{port: port, owner: self(), partial: "", pending_question: question,
-              answer_waiter: {question.id, {self(), tag}, timer}, last_answer: nil, stopping: nil}
+    pending = %{NativeQuestion.new(true) | pending: question,
+                waiter: {question.id, {self(), tag}, timer}}
+    state = %{port: port, owner: self(), partial: "", question: pending, stopping: nil}
     event = fn type, id, extra ->
       record = Map.merge(%{"type" => type, "question_id" => id}, extra)
       {port, {:data, {:eol, JSON.encode!(record)}}}
@@ -182,23 +182,22 @@ defmodule AtlasRuntime.NativeQuestionTest do
     assert {:noreply, rejected} =
              Native.handle_info(event.("runtime.answer_rejected", question.id, %{"error" => "refused"}), state)
     assert_receive {^tag, {:error, "refused"}}
-    assert rejected.pending_question == question
-    assert rejected.answer_waiter == nil
-    assert rejected.last_answer == nil
+    assert rejected.question.pending == question
+    assert rejected.question.waiter == nil
+    assert rejected.question.last_answer == nil
     refute_received {:agent, _, {:answer, _}}
-    timeout_state = %{state | answer_waiter: {question.id, {self(), tag}, timer}}
-    assert {:stop, :answer_delivery_timeout, %{pending_question: nil, answer_waiter: nil}} =
-             Native.handle_info({:answer_timeout, question.id}, timeout_state)
+    assert {:stop, :answer_delivery_timeout, %{question: %{pending: nil, waiter: nil}}} =
+             Native.handle_info({:answer_timeout, question.id}, state)
     assert_receive {^tag, {:error, :native_question_cancelled}}
   end
 
   test "answer bounds use UTF-8 bytes and the complete encoded object", _context do
     questions = Enum.map(1..4, &%{"question" => "Question #{&1}?"})
     question = %{questions: questions}
-    assert :ok = Native.validate_answers(question, Map.new(questions, &{&1["question"], "yes"}))
-    assert {:error, :invalid_answers} = Native.validate_answers(question, Map.new(questions, &{&1["question"], String.duplicate("x", 4096)}))
-    assert {:error, :invalid_answers} = Native.validate_answers(%{questions: [%{"question" => "Q?"}]}, %{"Q?" => String.duplicate("é", 2049)})
-    assert {:error, :invalid_answers} = Native.validate_answers(%{questions: [%{"question" => "Q?"}]}, %{"Q?" => <<255>>})
+    assert :ok = NativeQuestion.validate_answers(question, Map.new(questions, &{&1["question"], "yes"}))
+    assert {:error, :invalid_answers} = NativeQuestion.validate_answers(question, Map.new(questions, &{&1["question"], String.duplicate("x", 4096)}))
+    assert {:error, :invalid_answers} = NativeQuestion.validate_answers(%{questions: [%{"question" => "Q?"}]}, %{"Q?" => String.duplicate("é", 2049)})
+    assert {:error, :invalid_answers} = NativeQuestion.validate_answers(%{questions: [%{"question" => "Q?"}]}, %{"Q?" => <<255>>})
   end
 
   defp call(state, request) do

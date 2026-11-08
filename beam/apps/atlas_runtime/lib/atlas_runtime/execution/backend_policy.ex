@@ -4,6 +4,20 @@ defmodule AtlasRuntime.BackendPolicy do
 
   def empty, do: @empty
 
+  def load(dir) do
+    case File.read(Path.join(dir, "backends.json")) do
+      {:ok, bytes} -> validate!(JSON.decode!(bytes))
+      {:error, :enoent} -> empty()
+      {:error, reason} -> raise("Cannot read backend policy: #{inspect(reason)}")
+    end
+  end
+
+  def persist(dir, policy) do
+    path = Path.join(dir, "backends.json")
+    File.write!(path <> ".tmp", JSON.encode!(policy))
+    File.rename!(path <> ".tmp", path)
+  end
+
   def validate!(policy) when is_map(policy) do
     if Map.keys(policy) -- Map.keys(@empty) != [], do: raise("Unknown backend policy fields")
     policy = Map.merge(@empty, policy)
