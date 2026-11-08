@@ -136,7 +136,13 @@ def main(entrypoint):
                                        cwd=workspace if backend == 'claude' else None, env=environment)
             (folder / 'process.json').write_text(json.dumps({
                 'pid': process.pid, 'command': command, 'native_temporary': native_temporary}))
-            emit({'type': 'runtime.process_started', 'pid': process.pid})
+            started = {'type': 'runtime.process_started', 'pid': process.pid,
+                       'started_at': started_at.isoformat()}
+            if backend == 'codex':
+                # The Codex child inherits this environment; Runtime reads its rollout evidence.
+                started.update(workspace=workspace,
+                               codex_home=str(Path(os.environ.get('CODEX_HOME', Path.home() / '.codex'))))
+            emit(started)
             selector.register(sys.stdin, selectors.EVENT_READ, 'control')
             selector.register(process.stdout, selectors.EVENT_READ, 'output')
             if questions_enabled:
@@ -203,7 +209,7 @@ def main(entrypoint):
                             signal_group(process, signal.SIGKILL)
                             group_killed = True
                         code = process.wait()
-                    protocol.complete(workspace, started_at, stopped)
+                    protocol.complete(stopped)
                     emit({'type': 'runtime.process_ended', 'exit_code': code, 'stopped': stopped})
                     return
     finally:
