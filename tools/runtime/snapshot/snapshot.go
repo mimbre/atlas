@@ -207,8 +207,10 @@ type code struct {
 	client     *http.Client
 }
 
+var errUnavailable = errors.New("Code service unavailable")
+
 func unavailable(format string, args ...any) error {
-	return fmt.Errorf("Code service unavailable: "+format, args...)
+	return fmt.Errorf("%w: "+format, append([]any{errUnavailable}, args...)...)
 }
 
 // connect reads <home>/code.json, the configuration Runtime's Elixir Code client uses.
@@ -272,12 +274,13 @@ func (c idle) Read(b []byte) (int, error) {
 	return c.Conn.Read(b)
 }
 
-// get returns the body of a 200 response; error text never contains the token.
-func (c *code) get(path, what string) (io.ReadCloser, error) {
-	request, err := http.NewRequest(http.MethodGet, c.url+path, nil)
+// send returns the body of a 200 response; error text never contains the token.
+func (c *code) send(method, path string, body io.Reader, size int64, what string) (io.ReadCloser, error) {
+	request, err := http.NewRequest(method, c.url+path, body)
 	if err != nil {
 		return nil, unavailable("%v", err)
 	}
+	request.ContentLength = size
 	request.Header.Set("Authorization", "Bearer "+c.token)
 	response, err := c.client.Do(request)
 	if err != nil {
@@ -300,7 +303,7 @@ func (c *code) get(path, what string) (io.ReadCloser, error) {
 }
 
 func (c *code) manifest(id string) (*manifest, error) {
-	body, err := c.get("/v1/snapshots/"+id+"/manifest", "snapshot "+id)
+	body, err := c.send(http.MethodGet, "/v1/snapshots/"+id+"/manifest", nil, 0, "snapshot "+id)
 	if err != nil {
 		return nil, err
 	}
@@ -538,7 +541,7 @@ func complete(baseline string) (bool, error) {
 
 func (c *code) archive(id, root string, entries map[string]*entry, seen map[string]bool, trees []*tree) error {
 	what := "snapshot " + id + " archive " + root
-	body, err := c.get("/v1/snapshots/"+id+"/archive?path="+url.QueryEscape(root), what)
+	body, err := c.send(http.MethodGet, "/v1/snapshots/"+id+"/archive?path="+url.QueryEscape(root), nil, 0, what)
 	if err != nil {
 		return err
 	}
