@@ -18,10 +18,15 @@ import (
 	"github.com/eyra/atlas/tools/runtime/workspace"
 )
 
-// The test binary doubles as the host, including its self-spawned pre-exec child.
+// The test binary doubles as the host, including its self-spawned pre-exec child,
+// and as the fake native Claude CLI for question transport fixtures.
 func TestMain(m *testing.M) {
 	if os.Getenv("ATLAS_NATIVE_HOST_TEST") == "1" && len(os.Args) > 1 && os.Args[1] == "native-host" {
 		Main(os.Args[2:])
+	}
+	if mode := os.Getenv("ATLAS_QUESTION_FIXTURE"); mode != "" {
+		questionFixture(mode)
+		os.Exit(0)
 	}
 	os.Exit(m.Run())
 }

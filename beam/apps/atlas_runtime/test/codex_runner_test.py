@@ -1,25 +1,17 @@
-"""Owned-process cleanup regressions; injected permission errors are labelled."""
-import errno
+"""Owned-process and workspace regressions through the actual Go host and workspace commands."""
 import fcntl
 import json
 import os
 from pathlib import Path
-import signal
 import subprocess
 import sys
 import tempfile
-import time
 import unittest
-from unittest.mock import patch
 
 
-HELPER = Path(__file__).resolve().parents[1] / 'priv' / 'runtime' / 'entrypoint.py'
-sys.path.insert(0, str(HELPER.parent.parent))
-from runtime.host import assignment, process as process_host, sandbox
-from runtime.providers import claude
-from runtime.workspaces import client as workspace_client
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from workspace_test_support import setup_workspace_cli
+import workspace_test_support as workspace_client
 
 
 def setUpModule():
@@ -118,34 +110,6 @@ class ClaudeRepositoryLifecycleTest(unittest.TestCase):
             for stream in (process.stdin, process.stdout, process.stderr):
                 stream.close()
 
-    def test_system_temp_repository_cannot_bypass_native_temp_denial(self):
-        with tempfile.TemporaryDirectory() as directory:
-            with self.assertRaisesRegex(ValueError, 'outside system temporary directories'):
-                sandbox.claude_repository_settings(
-                    workspace_client.request('dedicated-scope', Path(directory).resolve()), '/private-owned')
-
-    def test_native_temp_byte_limit_fails_closed_before_fallback(self):
-        suffix = len(os.fsencode(f'/claude-{os.getuid()}'))
-        for extra in (0, 1):
-            temporary = '/' + 'x' * (44 - suffix - 1 + extra)
-            if extra:
-                with self.assertRaisesRegex(ValueError, '44-byte'):
-                    sandbox.claude_repository_settings(self.scope, temporary)
-            else:
-                sandbox.claude_repository_settings(self.scope, temporary)
-        with self.assertRaisesRegex(ValueError, '44-byte'):
-            sandbox.claude_repository_settings(self.scope, '/' + 'é' * 22)
-
-    def test_trust_service_access_is_macos_only_and_exact(self):
-        for platform in ('darwin', 'linux'):
-            with self.subTest(platform=platform), patch.object(sandbox.sys, 'platform', platform):
-                settings = sandbox.claude_repository_settings(self.scope, '/private-owned')
-                network = settings['sandbox']['network']
-                if platform == 'darwin':
-                    self.assertEqual(network['allowMachLookup'], ['com.apple.trustd.agent'])
-                else:
-                    self.assertNotIn('allowMachLookup', network)
-
     def test_long_home_refuses_native_and_removes_created_temp(self):
         process = self.launch(self.scope, home=self.root)
         try:
@@ -158,76 +122,6 @@ class ClaudeRepositoryLifecycleTest(unittest.TestCase):
             if process.poll() is None:
                 process.kill()
                 process.wait()
-
-    def test_matching_saved_claude_context_is_written_before_native_execution(self):
-        unfinished = self.repo / 'unfinished.txt'
-        unfinished.write_bytes(b'keep this work\n\x00\xff')
-        claude.save_context(str(self.repo), self.scope, str(self.root), None)
-        context_path = self.root / 'claude-context.json'
-        saved = json.loads(context_path.read_text())
-        self.assertEqual(set(saved), {'cwd', 'permissions', 'git'})
-        self.assertEqual(saved['cwd'], str(self.repo))
-        self.assertEqual(saved['permissions'], self.scope)
-        self.assertEqual(saved['git']['root'], str(self.repo))
-        context_path.unlink()
-
-        def native_execution(executable, command):
-            self.assertEqual(json.loads(context_path.read_text()), saved)
-
-        with patch.object(assignment.os, 'execv', side_effect=native_execution) as execute:
-            assignment.execute_assignment(
-                str(self.repo), self.scope, None, False,
-                str(self.root), saved, ['/fixture-native'])
-        execute.assert_called_once_with('/fixture-native', ['/fixture-native'])
-        self.assertEqual(unfinished.read_bytes(), b'keep this work\n\x00\xff')
-
-    def test_saved_claude_context_drift_refuses_before_native_execution(self):
-        unfinished = self.repo / 'unfinished.txt'
-        unfinished.write_bytes(b'keep this work\n\x00\xff')
-        context_path = self.root / 'claude-context.json'
-        for drift, args in (
-                ('branch', ['symbolic-ref', 'HEAD', 'refs/heads/other']),
-                ('origin', ['remote', 'add', 'origin', 'https://github.com/other/repo.git']),
-                ('scope', [])):
-            with self.subTest(drift=drift):
-                claude.save_context(str(self.repo), self.scope, str(self.root), None)
-                saved_bytes = context_path.read_bytes()
-                saved = json.loads(saved_bytes)
-                if args:
-                    subprocess.run(['git', '-C', str(self.repo), *args], check=True)
-                with patch.object(assignment.os, 'execv') as execute:
-                    with self.assertRaisesRegex(
-                            ValueError, 'Saved Claude working directory, repository identity or permission scope changed'):
-                        assignment.execute_assignment(
-                            str(self.repo), None if drift == 'scope' else self.scope,
-                            None, False, str(self.root), saved, ['/must-not-execute'])
-                execute.assert_not_called()
-                self.assertEqual(context_path.read_bytes(), saved_bytes)
-                self.assertEqual(unfinished.read_bytes(), b'keep this work\n\x00\xff')
-
-    def test_failed_context_discovery_never_saves_or_executes(self):
-        unfinished = self.repo / 'unfinished.txt'
-        unfinished.write_bytes(b'keep this work\n\x00\xff')
-        context_path = self.root / 'claude-context.json'
-        claude.save_context(str(self.repo), None, str(self.root), None)
-        saved_bytes = context_path.read_bytes()
-        saved = json.loads(saved_bytes)
-        (self.repo / '.git/config').write_text('invalid git configuration\n')
-        for expected in (saved, None):
-            with self.subTest(saved=expected is not None):
-                if expected is None:
-                    context_path.unlink()
-                with patch.object(assignment.os, 'execv') as execute:
-                    with self.assertRaisesRegex(ValueError, 'Cannot inspect Claude working directory'):
-                        assignment.execute_assignment(
-                            str(self.repo), None, None, False,
-                            str(self.root), expected, ['/must-not-execute'])
-                execute.assert_not_called()
-                if expected is None:
-                    self.assertFalse(context_path.exists())
-                else:
-                    self.assertEqual(context_path.read_bytes(), saved_bytes)
-                self.assertEqual(unfinished.read_bytes(), b'keep this work\n\x00\xff')
 
 
 class NativeModelTest(unittest.TestCase):
@@ -271,86 +165,6 @@ class NativeModelTest(unittest.TestCase):
 
 @unittest.skipUnless(os.name == 'posix', 'Runner process groups require POSIX')
 class CleanupTest(unittest.TestCase):
-    def wait_zombie(self, pid):
-        # Do not poll/wait the Popen here: the regression requires an unreaped leader.
-        for _ in range(200):
-            state = subprocess.run(['ps', '-p', str(pid), '-o', 'stat='],
-                                   capture_output=True, text=True, check=False).stdout.strip()
-            if state.startswith('Z'):
-                return
-            time.sleep(.01)
-        self.fail(f'Owned leader {pid} did not become a zombie')
-
-    def assert_dead(self, pid):
-        for _ in range(200):
-            state = subprocess.run(['ps', '-p', str(pid), '-o', 'stat='],
-                                   capture_output=True, text=True, check=False).stdout.strip()
-            if not state or state.startswith('Z'):
-                return
-            time.sleep(.01)
-        self.fail(f'Owned descendant {pid} is still running')
-
-    def test_signalling_unreaped_exited_leader_does_not_mask_failure(self):
-        process = subprocess.Popen(['/bin/sh', '-c', 'exit 0'], start_new_session=True)
-        try:
-            self.wait_zombie(process.pid)
-            process_host.signal_group(process, signal.SIGKILL)
-            self.assertEqual(process.wait(timeout=5), 0)
-            self.assert_dead(process.pid)
-        finally:
-            process.wait(timeout=5)
-
-    def test_exited_leader_does_not_exempt_live_descendants_from_cleanup(self):
-        process = subprocess.Popen(
-            ['/bin/sh', '-c', 'sleep 60 </dev/null >/dev/null 2>&1 & echo $!'],
-            stdout=subprocess.PIPE, text=True, start_new_session=True)
-        try:
-            child = int(process.stdout.readline())
-            self.wait_zombie(process.pid)
-            process_host.signal_group(process, signal.SIGKILL)
-            self.assertEqual(process.wait(timeout=5), 0)
-            self.assert_dead(child)
-        finally:
-            # Reap the leader before final cleanup so a failing regression cannot
-            # itself leave an unreaped child or a sleeping owned descendant.
-            process.wait(timeout=5)
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            process.stdout.close()
-
-    def test_denied_signal_to_live_leader_fails_within_bound(self):
-        # The child outlives the cleanup bound but self-expires if waiting regresses.
-        # Never try to cause a real EPERM by signalling a foreign process.
-        process = subprocess.Popen(['/bin/sleep', '10'], start_new_session=True)
-        try:
-            started = time.monotonic()
-            with patch.object(process_host.os, 'killpg',
-                              side_effect=PermissionError(errno.EPERM, 'injected denial')):
-                with self.assertRaises(PermissionError):
-                    process_host.signal_group(process, signal.SIGKILL)
-            self.assertLess(time.monotonic() - started, 6)
-            self.assertIsNone(process.poll(), 'Permission failure must not claim the leader exited')
-        finally:
-            process.kill()
-            process.wait(timeout=5)
-
-    def test_persistent_denial_after_reaping_is_not_cleanup_success(self):
-        process = subprocess.Popen(['/bin/sh', '-c', 'exit 0'], start_new_session=True)
-        try:
-            self.wait_zombie(process.pid)
-            # Keep denying even after wait() reaps the owned leader. ESRCH is
-            # harmless, but this second EPERM must remain a visible failure.
-            with patch.object(process_host.os, 'killpg',
-                              side_effect=PermissionError(errno.EPERM, 'injected denial')):
-                with self.assertRaises(PermissionError):
-                    process_host.signal_group(process, signal.SIGKILL)
-            self.assertEqual(process.returncode, 0, 'Owned leader must still be reaped')
-            self.assert_dead(process.pid)
-        finally:
-            process.wait(timeout=5)
-
     def test_runner_reports_original_native_session_failure(self):
         with tempfile.TemporaryDirectory(prefix='runtime-cleanup-') as folder:
             root = Path(folder)
@@ -553,16 +367,6 @@ class ProvisioningTest(unittest.TestCase):
             os.close(acquired)
         released, created = workspace_client.acquire(str(self.repo), False)
         os.close(released)
-
-    def test_claude_provisioning_without_codex_sandbox_preserves_repository(self):
-        head = self.git(self.repo, 'rev-parse', 'HEAD')
-        with patch.object(assignment.shutil, 'which', return_value=None):
-            with self.assertRaisesRegex(ValueError, 'installed Codex sandbox'):
-                assignment.execute_assignment(
-                    str(self.repo), self.request['permissions'], self.request['repository'],
-                    False, str(self.root), None, ['/missing-claude'])
-        self.assertEqual(self.git(self.repo, 'rev-parse', 'HEAD'), head)
-        self.assertEqual(self.git(self.repo, 'branch', '--show-current'), 'task/first')
 
     def test_untrusted_repository_and_branch_inputs_are_rejected(self):
         for url, branch in (

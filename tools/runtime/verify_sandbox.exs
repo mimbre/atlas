@@ -13,7 +13,7 @@ defmodule AtlasRuntime.NativeSandboxVerification do
     on_exit(fn -> File.rm_rf!(dir) end)
     assert File.exists?("/usr/bin/sandbox-exec"), "This retained check requires macOS Seatbelt"
     native = System.find_executable("codex") || flunk("Install the official Codex CLI")
-    assert System.find_executable("python3"), "Python 3 is required by the adapter"
+    assert System.find_executable("python3"), "Python 3 is required by this script's bridge fixture"
     {version, 0} = System.cmd(native, ["--version"])
     IO.puts("Native sandbox verification: #{String.trim(version)}")
     workspace = Path.join(dir, "workspace") |> Path.expand()

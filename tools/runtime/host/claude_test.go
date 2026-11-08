@@ -55,7 +55,6 @@ func TestClaudeValidationKeepsPythonOrderAndMessages(t *testing.T) {
 		{"boolean opt-in precedes model", map[int]string{9: `""`, 11: "1"}, "Questions require a boolean opt-in and the Claude backend"},
 		{"model precedes backend", map[int]string{8: "other", 9: `"--x"`}, "Model must be a nonempty identifier of at most 200 characters"},
 		{"unknown backend", map[int]string{8: "other"}, "Backend must be codex or claude"},
-		{"questions stay on Python", map[int]string{4: "workspace-write", 11: "true"}, "Claude questions are not supported by native-host"},
 		{"write needs a scope", map[int]string{4: "workspace-write"}, "Claude requires read-only or dedicated-repository execution"},
 		{"unparsable session", map[int]string{5: "not-a-uuid"}, "badly formed hexadecimal UUID string"},
 		{"non-hex session", map[int]string{5: strings.Repeat("z", 32)}, "invalid literal for int() with base 16: '" + strings.Repeat("z", 32) + "'"},
