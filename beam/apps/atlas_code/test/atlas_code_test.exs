@@ -119,7 +119,10 @@ defmodule AtlasCodeTest do
   end
 
   test "missing or wrong bearer tokens are unauthorized without echoing them", %{port: port} do
-    body = JSON.encode!(%{"repository" => "github.com/test/fixture", "ref" => "develop"})
+    change = "/v1/changes/00000000-0000-4000-8000-000000000000"
+    json = JSON.encode!(%{"repository" => "github.com/test/fixture", "ref" => "develop"})
+    # Larger than one 64 KiB chunk, so the token is checked on the first streamed piece.
+    big = :binary.copy("x", 200_000)
 
     for headers <- [
           [],
@@ -132,8 +135,12 @@ defmodule AtlasCodeTest do
             {:get, "/v1/other"},
             {:post, "/v1/snapshots"},
             {:get, "/v1/snapshots/sha256:#{String.duplicate("0", 64)}/manifest"},
-            {:get, "/v1/snapshots/sha256:#{String.duplicate("0", 64)}/archive?path=app"}
-          ] do
+            {:get, "/v1/snapshots/sha256:#{String.duplicate("0", 64)}/archive?path=app"},
+            {:post, "/v1/changes"},
+            {:put, "#{change}/blobs/#{String.duplicate("0", 64)}"},
+            {:post, "#{change}/seal"}
+          ],
+          body <- [json, big] do
         {status, reply} = send_request(port, method, path, body, headers)
         assert status == 401
         assert reply =~ ~s("unauthorized")
@@ -151,7 +158,7 @@ defmodule AtlasCodeTest do
   end
 
   describe "snapshots" do
-    setup %{tmp_dir: dir, home: home} do
+    setup %{tmp_dir: dir} do
       app =
         fixture(dir, "app", fn source ->
           File.mkdir_p!(Path.join(source, "bin"))
@@ -200,19 +207,8 @@ defmodule AtlasCodeTest do
             into: %{},
             do: {"github.com/test/#{name}", "file://" <> source}
 
-      snapshots_home = Path.join(dir, "snapshots-home")
-      File.mkdir!(snapshots_home)
-
-      File.write!(
-        Path.join(snapshots_home, "config.json"),
-        JSON.encode!(%{"port" => 0, "repositories" => repositories})
-      )
-
-      File.cp!(Path.join(home, "runtime.token"), Path.join(snapshots_home, "runtime.token"))
-      File.chmod!(Path.join(snapshots_home, "runtime.token"), 0o600)
-      {:ok, pid, port} = AtlasCode.start(snapshots_home)
-      on_exit(fn -> AtlasCode.stop(pid) end)
-      %{port: port, app: app, docs: docs, bad: bad, home: snapshots_home}
+      {home, port} = serve(dir, "snapshots-home", repositories)
+      %{port: port, app: app, docs: docs, bad: bad, home: home}
     end
 
     test "two repositories at exact commits give a stable ID, a manifest of blob bytes and exact archives",
@@ -438,6 +434,301 @@ defmodule AtlasCodeTest do
     end
   end
 
+  describe "changes" do
+    setup %{tmp_dir: dir} do
+      {source, base} =
+        fixture(dir, "app", fn source ->
+          for {path, bytes} <- [
+                {"README.md", "hello\n"},
+                {"bin/run.sh", "#!/bin/sh\necho hi\n"},
+                {"data/blob.bin", <<0, 1, 2, 255>>},
+                {"dir/a.txt", "a\n"},
+                {"dir/b.txt", "b\n"},
+                {"old", "old\n"},
+                # Line-ending filters must not touch submitted bytes.
+                {".gitattributes", "*.txt text eol=crlf\n"}
+              ] do
+            File.mkdir_p!(Path.dirname(Path.join(source, path)))
+            File.write!(Path.join(source, path), bytes)
+          end
+
+          File.mkdir_p!(Path.join(source, "lib"))
+          File.ln_s!("../README.md", Path.join(source, "lib/link"))
+        end)
+
+      {home, port} =
+        serve(dir, "changes-home", %{
+          "github.com/test/app" => "file://" <> source,
+          "github.com/test/other" => "file://" <> source
+        })
+
+      {200, %{"snapshot_id" => snapshot_id}} =
+        snapshot(port, [%{"repository" => "github.com/test/app", "commit" => base, "path" => "app"}])
+
+      # The source branch moves on after the snapshot; changes still build on the snapshot base.
+      File.write!(Path.join(source, "later.txt"), "later\n")
+      git(source, ["add", "-A"])
+      git(source, ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "later"])
+
+      [cache] = Path.wildcard(Path.join([home, "cache", "*.git"]))
+
+      change = fn id, entries ->
+        %{
+          "change_id" => id,
+          "snapshot_id" => snapshot_id,
+          "repository" => "github.com/test/app",
+          "base_commit" => base,
+          "entries" => entries
+        }
+      end
+
+      %{port: port, home: home, source: source, base: base, cache: cache, change: change}
+    end
+
+    test "a mixed change uploads, seals onto the exact base and stays private", %{
+      port: port,
+      source: source,
+      base: base,
+      cache: cache,
+      change: change
+    } do
+      id = "7d444840-9dc0-11d1-b245-5ffdce74fad2"
+      big = :crypto.strong_rand_bytes(200_000)
+
+      files = %{
+        "README.md" => "hello again\n",
+        "assets/big.bin" => big,
+        "assets/logo.bin" => <<0, 255, 1, 254, 0>>,
+        "notes.txt" => "one\r\ntwo\r\n",
+        "dir" => "a file where a directory was\n",
+        "old/new.txt" => "a directory where a file was\n"
+      }
+
+      script = "#!/bin/sh\necho hi\n"
+
+      entries =
+        Enum.map(files, fn {path, bytes} -> write(path, bytes) end) ++
+          [
+            write("bin/run.sh", script, "100755"),
+            symlink("lib/link", "../bin/run.sh"),
+            symlink("docs/readme", "../README.md")
+          ] ++
+          for(path <- ["data/blob.bin", "dir/a.txt", "dir/b.txt", "old"], do: delete(path))
+
+      source_refs = git(source, ["for-each-ref"])
+      heads = git(cache, ["for-each-ref", "refs/heads"])
+      expected = [script | Map.values(files)] |> Enum.map(&hex/1) |> Enum.uniq() |> Enum.sort()
+
+      assert {200, %{"change_id" => ^id, "state" => "open", "missing" => ^expected} = open} =
+               submit(port, change.(id, entries))
+
+      refute Map.has_key?(open, "commit")
+      # Entry order does not matter; any other body under the same ID conflicts.
+      assert {200, ^open} = submit(port, change.(id, Enum.reverse(entries)))
+
+      assert {409, %{"error" => %{"code" => "conflict"}}} =
+               submit(port, change.(id, tl(entries)))
+
+      assert {422,
+              %{"error" => %{"code" => "incomplete_upload", "details" => %{"missing" => ^expected}}}} =
+               seal(port, id)
+
+      readme = files["README.md"]
+
+      assert {400, %{"error" => %{"code" => "invalid_request"}}} =
+               upload(port, id, hex(readme), String.duplicate("x", byte_size(readme)))
+
+      assert {400, %{"error" => %{"code" => "invalid_request"}}} =
+               upload(port, id, hex(readme), readme <> "x")
+
+      assert {404, %{"error" => %{"code" => "not_found"}}} =
+               upload(port, id, hex("unreferenced"), "unreferenced")
+
+      remaining = expected -- [hex(readme)]
+      assert {200, %{"state" => "open", "missing" => ^remaining}} = upload(port, id, hex(readme), readme)
+      assert {200, %{"missing" => ^remaining}} = upload(port, id, hex(readme), readme)
+
+      for bytes <- [script | Map.values(files)] do
+        assert {200, %{"state" => "open"}} = upload(port, id, hex(bytes), bytes)
+      end
+
+      assert {200, %{"state" => "open", "missing" => []}} = submit(port, change.(id, entries))
+
+      assert {200, %{"change_id" => ^id, "state" => "sealed", "missing" => [], "commit" => commit} =
+                sealed} = seal(port, id)
+
+      assert {200, ^sealed} = seal(port, id)
+      assert {200, ^sealed} = submit(port, change.(id, entries))
+
+      # Exactly one parent, the snapshot base, although the source branch has moved on.
+      assert git(cache, ["rev-parse", commit <> "^@"]) == base <> "\n"
+      refute git(source, ["rev-parse", "develop"]) == base <> "\n"
+      assert git(cache, ["rev-parse", "refs/atlas/changes/" <> id]) == commit <> "\n"
+
+      assert git(cache, ["log", "-1", "--format=%an <%ae>|%cn <%ce>|%s", commit]) ==
+               "Atlas Code <atlas-code@localhost>|Atlas Code <atlas-code@localhost>|Atlas change #{id}\n"
+
+      tree =
+        for record <-
+              cache
+              |> git(["ls-tree", "-r", "-z", "--full-tree", commit])
+              |> :binary.split(<<0>>, [:global, :trim_all]),
+            into: %{} do
+          [meta, path] = :binary.split(record, "\t")
+          [mode, "blob", oid] = String.split(meta, " ")
+          {path, {mode, git(cache, ["cat-file", "blob", oid])}}
+        end
+
+      assert tree ==
+               files
+               |> Map.new(fn {path, bytes} -> {path, {"100644", bytes}} end)
+               |> Map.merge(%{
+                 ".gitattributes" => {"100644", "*.txt text eol=crlf\n"},
+                 "bin/run.sh" => {"100755", script},
+                 "lib/link" => {"120000", "../bin/run.sh"},
+                 "docs/readme" => {"120000", "../README.md"}
+               })
+
+      # Nothing was published: no remote ref moved and the remote never received the commit.
+      assert git(cache, ["for-each-ref", "refs/heads"]) == heads
+      assert git(source, ["for-each-ref"]) == source_refs
+      assert {_, status} = System.cmd("git", ["cat-file", "-e", commit], cd: source, stderr_to_stdout: true)
+      assert status != 0
+    end
+
+    test "base mismatches, unknown targets and unsafe or conflicting entries are refused", %{
+      port: port,
+      home: home,
+      change: change
+    } do
+      id = "1b4e28ba-2fa1-11d2-883f-0016d3cca427"
+      ok = [write("README.md", "x\n")]
+
+      assert {409, %{"error" => %{"code" => "base_mismatch"}}} =
+               submit(port, %{change.(id, ok) | "base_commit" => String.duplicate("a", 40)})
+
+      assert {404, %{"error" => %{"code" => "not_found"}}} =
+               submit(port, %{change.(id, ok) | "snapshot_id" => "sha256:" <> String.duplicate("0", 64)})
+
+      assert {404, %{"error" => %{"code" => "not_found", "details" => %{"repository" => _}}}} =
+               submit(port, %{change.(id, ok) | "repository" => "github.com/test/other"})
+
+      assert {403, %{"error" => %{"code" => "forbidden"}}} =
+               submit(port, %{change.(id, ok) | "repository" => "github.com/test/denied"})
+
+      for bad <- ["x", String.upcase(id), id <> "0"] do
+        assert {400, %{"error" => %{"code" => "invalid_request"}}} =
+                 submit(port, change.(bad, ok))
+      end
+
+      for path <- ["../x", "/abs", "a//b", ".git/config", "x/.GIT", "a\\b", ""] do
+        assert {400, %{"error" => %{"code" => "invalid_request", "details" => %{"path" => ^path}}}} =
+                 submit(port, change.(id, [write(path, "x")]))
+      end
+
+      for entries <- [
+            [],
+            [write("a", "x"), write("a", "x")],
+            [Map.delete(write("a", "x"), "kind")],
+            [Map.put(write("a", "x"), "extra", 1)],
+            [%{write("a", "x") | "mode" => "100664"}],
+            [%{write("a", "x") | "size" => 64 * 1024 * 1024 + 1}],
+            [%{write("a", "x") | "sha256" => String.upcase(hex("x"))}],
+            [%{symlink("a", "README.md") | "sha256" => hex("other")}],
+            [%{symlink("a", "README.md") | "size" => 1}],
+            [write("a", "x"), %{write("b", "x") | "size" => 2}],
+            # Deletes must name base files or symlinks, never directories or absent paths.
+            [delete("missing")],
+            [delete("dir")],
+            # Replacing a directory or a file needs explicit deletes of the base paths.
+            [write("dir", "x")],
+            [delete("dir/a.txt"), write("dir", "x")],
+            [write("README.md/x", "x")],
+            [write("lib/link/x", "x")],
+            [write("new", "x"), write("new/x", "x")]
+          ] do
+        assert {400, %{"error" => %{"code" => "invalid_request"}}} =
+                 submit(port, change.(id, entries))
+      end
+
+      assert {400, %{"error" => %{"details" => %{"paths" => ["dir", "dir/b.txt"]}}}} =
+               submit(port, change.(id, [delete("dir/a.txt"), write("dir", "x")]))
+
+      for target <- ["../../x", "/etc/passwd", "../.."] do
+        assert {422,
+                %{
+                  "error" => %{
+                    "code" => "unsupported_content",
+                    "details" => %{"entries" => [%{"path" => "lib/up", "reason" => "symlink_target"}]}
+                  }
+                }} = submit(port, change.(id, [symlink("lib/up", target)]))
+      end
+
+      refute File.exists?(Path.join([home, "changes", id]))
+
+      for {method, path} <- [{:put, "/blobs/#{hex("x")}"}, {:post, "/seal"}] do
+        assert {404, %{"error" => %{"code" => "not_found"}}} =
+                 raw(port, method, "/v1/changes/#{id}" <> path, "x")
+
+        assert {400, %{"error" => %{"code" => "invalid_request"}}} =
+                 raw(port, method, "/v1/changes/x" <> path, "x")
+      end
+
+      assert {405, %{"error" => %{"code" => "method_not_allowed"}}} =
+               request(port, :get, "/v1/changes")
+
+      # JSON endpoints keep their own small limits even though blob uploads may be large.
+      assert {413, %{"error" => %{"code" => "payload_too_large"}}} =
+               raw(port, :post, "/v1/snapshots", :binary.copy(" ", 20_000))
+
+      assert {413, %{"error" => %{"code" => "payload_too_large"}}} =
+               raw(port, :post, "/v1/changes", :binary.copy(" ", 1024 * 1024 + 1))
+    end
+  end
+
+  defp serve(dir, name, repositories) do
+    home = Path.join(dir, name)
+    File.mkdir!(home)
+
+    File.write!(
+      Path.join(home, "config.json"),
+      JSON.encode!(%{"port" => 0, "repositories" => repositories})
+    )
+
+    File.write!(Path.join(home, "runtime.token"), @token <> "\n")
+    File.chmod!(Path.join(home, "runtime.token"), 0o600)
+    {:ok, pid, port} = AtlasCode.start(home)
+    on_exit(fn -> AtlasCode.stop(pid) end)
+    {home, port}
+  end
+
+  defp write(path, bytes, mode \\ "100644"),
+    do: %{
+      "path" => path,
+      "op" => "write",
+      "kind" => "file",
+      "mode" => mode,
+      "size" => byte_size(bytes),
+      "sha256" => hex(bytes)
+    }
+
+  defp symlink(path, target),
+    do: %{
+      "path" => path,
+      "op" => "write",
+      "kind" => "symlink",
+      "mode" => "120000",
+      "target" => target,
+      "size" => byte_size(target),
+      "sha256" => hex(target)
+    }
+
+  defp delete(path), do: %{"path" => path, "op" => "delete"}
+  defp hex(bytes), do: Base.encode16(:crypto.hash(:sha256, bytes), case: :lower)
+  defp submit(port, change), do: raw(port, :post, "/v1/changes", JSON.encode!(change))
+  defp upload(port, id, digest, bytes), do: raw(port, :put, "/v1/changes/#{id}/blobs/#{digest}", bytes)
+  defp seal(port, id), do: raw(port, :post, "/v1/changes/#{id}/seal", "")
+
   defp fixture(dir, name, build) do
     source = Path.join(dir, name)
     git(dir, ["init", "-q", "-b", "develop", source])
@@ -476,7 +767,9 @@ defmodule AtlasCodeTest do
     url = ~c"http://127.0.0.1:#{port}#{path}"
 
     request =
-      if method == :post, do: {url, headers, ~c"application/json", body}, else: {url, headers}
+      if method in [:post, :put],
+        do: {url, headers, ~c"application/json", body},
+        else: {url, headers}
 
     {:ok, {{_, status, _}, _, reply}} =
       :httpc.request(method, request, [timeout: 10_000, ssl: []], body_format: :binary)

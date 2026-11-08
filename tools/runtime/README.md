@@ -461,6 +461,23 @@ Evidence: `/Users/melle/.ac-mt-uz2po9t1/materialization-evidence.json`. No insta
 
 Evidence: `/Users/melle/.ac-od-l2jz2wti/offline-status-diff-evidence.json`. No installation, daemon restart or deployment.
 
+2026-11-08: added Code change submission (`POST /v1/changes`, `PUT /v1/changes/{id}/blobs/{sha256}`, `POST /v1/changes/{id}/seal`). Runtime does not upload yet. `atlas_code` tests (10) passed. Isolated HTTP proof against a separate Code process:
+
+- Fixture `app` was snapshotted at `5571cb34743e1fe55e539d17083cd5bb584f086b`; its source `develop` then advanced to `efdef920d16100017897d094b31af0aaef3b70a6`.
+- The change combined a text edit, a binary edit, a delete, `tool.sh` becoming 100755, a symlink retarget, a new symlink, and `dir/` replaced by a file with explicit deletes.
+- Request checks:
+  - a reordered repeat returned the same state;
+  - a different body got 409 `conflict`, and the advanced base got 409 `base_mismatch`;
+  - replacing `dir` without deleting its files got 400;
+  - a wrong token got 401;
+  - an early seal got 422 `incomplete_upload`.
+- Upload checks: wrong size 400, wrong digest at the same size 400, unreferenced digest 404, repeat 200.
+- Seal produced `32c8d528028fe1e4845f879255948b47126d9f94`. Its only parent is the snapshot base, its tree matches the intended bytes, modes and symlink targets exactly, and `refs/atlas/changes/<id>` points at it.
+- A repeated seal and a repeated POST returned the same commit.
+- The cache `refs/heads/develop` and all fixture-remote refs were unchanged, and the commit is absent from the remote.
+
+Evidence: `/Users/melle/.ac-cs-tzajs3ev/change-submission-evidence.json`. No installation, daemon restart or deployment.
+
 2026-11-08: moved Claude `answer.txt` persistence from the Python provider into `AtlasRuntime.Agent.Native`. Session/model confirmation stays in Python, before records are forwarded. Each forwarded string result, error results included, overwrites the artifact before terminal notification; a failed write fails the turn. Focused native, admission, service, question, Codex and protocol ExUnit tests (84) and both Python runner modules (20 and 25) passed. In an isolated daemon, real Claude start `turn-3db17cd9af722dda` and saved continuation `turn-c8b6c3fe665d9d34` (same session/model/repository) had their saved answers returned by `output --turn`, including the question-dependent `ANSWER_BETA`; that answer was delivered and processed. Cancelled continuation `turn-3b52fce43ea74d83` wrote no answer, released its lock and removed its group/private temp. The daemon stopped; disposable binary/build/clone were removed. No installation, default-daemon restart or deployment.
 
 2026-11-08: moved Codex native hosting from the Python runner to the Go `atlas-runtime native-host` command. It keeps the same arguments, stdout records, stop control, diagnostics and artifacts; Claude stays on Python. Go packages (including race-checked host tests), both Python runner modules (25 and 20 tests) and 73 focused ExUnit tests passed. Isolated public-CLI proof ran two concurrent workers: read-only Codex `turn-1bbf325ed9afb4fb` and workspace-write `turn-3d84605e2fdd9249`, which created the requested file. Read-only continuation `turn-6b86db84a3a3f16a` kept session and model `gpt-6.1-sol` from rollout evidence. Managed repository start `turn-9c691e7ce2885bf2` provisioned a fresh branch at the fetched base, and continuation `turn-a8edc3e54d5fc863` read preserved unfinished bytes. During cancelled managed continuation `turn-c4c332cb95dfda73`, `ps` showed `atlas-runtime native-host` as the parent of the Codex group leader; stopping it released the directory lock and removed the group. After restart, saved-turn continuation `turn-4b4bfccadc4c3f53`, with a replaced session ID, failed as `{:codex_failed, 1, nil}` with `Native runner: Codex resume ended without confirming its session`. `service stop` during active managed turn `turn-09242c1c516e2cc5` reaped its group and released the lock. Claude start `turn-09052cd5ed27150b` with a delivered and processed question still ran on Python. Disposable binary, build and workspaces were removed. No installation, default-daemon restart or deployment.
