@@ -510,6 +510,11 @@ func Prepare(scope, repository map[string]any, created bool, prefix []string) (m
 	if !JSONEqual(expected, map[string]any{"permissions": scope, "repository": map[string]any{"url": url, "branch": branch}}) {
 		return nil, errors.New("Managed repository request changed")
 	}
+	_, continuation := repository["base_sha"]
+	resolved, _ := repository["resolved_commit"].(string)
+	if !continuation && !regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`).MatchString(resolved) {
+		return nil, errors.New("Managed repository request has no commit resolved by Code")
+	}
 	marker := filepath.Join(root, ".git/atlas-runtime-repository.json")
 	identity := map[string]any{"version": json.Number("1"), "url": url}
 	env := os.Environ()
@@ -581,7 +586,7 @@ func Prepare(scope, repository map[string]any, created bool, prefix []string) (m
 			return nil, errors.New("Managed repository origin does not match the request")
 		}
 	}
-	if _, present := repository["base_sha"]; present {
+	if continuation {
 		current, _, err := git(true, "branch", "--show-current")
 		if err != nil {
 			return nil, err
@@ -615,14 +620,18 @@ func Prepare(scope, repository map[string]any, created bool, prefix []string) (m
 	if code != 1 {
 		return nil, errors.New("Task branch already exists remotely or cannot be checked")
 	}
-	base, _, err := git(true, "rev-parse", "--verify", "refs/remotes/origin/develop^{commit}")
+	base, _, err := git(false, "rev-parse", "--verify", "--quiet", resolved+"^{commit}")
 	if err != nil {
 		return nil, err
 	}
-	base = strings.TrimSpace(base)
-	if _, _, err = git(true, "checkout", "--no-overwrite-ignore", "--no-track", "-b", branch, base); err != nil {
+	if strings.TrimSpace(base) != resolved {
+		return nil, fmt.Errorf("Commit %s resolved by Code is not in the fetched repository", resolved)
+	}
+	if _, _, err = git(true, "checkout", "--no-overwrite-ignore", "--no-track", "-b", branch, resolved); err != nil {
 		return nil, err
 	}
-	repository["base_sha"] = base
+	// The saved record keeps today's continuation shape: base_sha replaces the request-only field.
+	delete(repository, "resolved_commit")
+	repository["base_sha"] = resolved
 	return repository, nil
 }

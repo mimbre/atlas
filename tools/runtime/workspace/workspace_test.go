@@ -270,19 +270,32 @@ exec git -C "$root" "$@"
 		return map[string]any{"scope": scope, "repository": repository, "created": created,
 			"command_prefix": []string{bridge, repo, source, url}}
 	}
-	first := workspaceTestPrepare(t, input(request["repository"], true), "").(map[string]any)
 	initial := workspaceTestGit(t, source, "rev-parse", "HEAD")
-	if first["base_sha"] != initial {
-		t.Fatalf("clone base = %v, want %s", first["base_sha"], initial)
+	workspaceTestPrepare(t, input(request["repository"], true), "no commit resolved by Code")
+	workspaceTestPrepare(t, input(map[string]any{"url": url, "branch": "task/first", "resolved_commit": "abc"}, true), "no commit resolved by Code")
+	if entries, err := os.ReadDir(repo); err != nil || len(entries) != 0 {
+		t.Fatalf("refusal without a resolved commit cloned: %v %v", entries, err)
+	}
+	first := workspaceTestPrepare(t, input(map[string]any{"url": url, "branch": "task/first", "resolved_commit": initial}, true), "").(map[string]any)
+	if _, present := first["resolved_commit"]; present || first["base_sha"] != initial {
+		t.Fatalf("clone base = %v, want %s", first, initial)
 	}
 	workspaceTestGit(t, repo, "commit", "--allow-empty", "-qm", "prior task")
 	previous := workspaceTestGit(t, repo, "rev-parse", "HEAD")
 	workspaceTestGit(t, source, "commit", "--allow-empty", "-qm", "new develop")
 	latest := workspaceTestGit(t, source, "rev-parse", "HEAD")
-	second := map[string]any{"url": url, "branch": "task/second"}
+	// Code resolved latest; develop moves again before preparation fetches.
+	workspaceTestGit(t, source, "commit", "--allow-empty", "-qm", "after resolution")
+	moved := workspaceTestGit(t, source, "rev-parse", "HEAD")
+	second := map[string]any{"url": url, "branch": "task/second", "resolved_commit": latest}
 	prepared := workspaceTestPrepare(t, input(second, false), "").(map[string]any)
-	if prepared["base_sha"] != latest || workspaceTestGit(t, repo, "rev-parse", "HEAD") != latest || workspaceTestGit(t, repo, "rev-parse", "task/first") != previous {
-		t.Fatal("fresh task did not use fetched develop while preserving previous task")
+	if prepared["base_sha"] != latest || workspaceTestGit(t, repo, "rev-parse", "HEAD") != latest || workspaceTestGit(t, repo, "rev-parse", "task/first") != previous ||
+		workspaceTestGit(t, repo, "rev-parse", "origin/develop") != moved {
+		t.Fatal("fresh task did not use the resolved commit while preserving previous task")
+	}
+	workspaceTestPrepare(t, input(map[string]any{"url": url, "branch": "task/missing", "resolved_commit": strings.Repeat("0", 40)}, false), "not in the fetched repository")
+	if workspaceTestGit(t, repo, "branch", "--show-current") != "task/second" {
+		t.Fatal("missing resolved commit changed the checked-out branch")
 	}
 
 	workspaceTestWrite(t, filepath.Join(repo, "state.txt"), "unfinished tracked work\n")
@@ -295,10 +308,10 @@ exec git -C "$root" "$@"
 	if !reflect.DeepEqual(continued, prepared) {
 		t.Fatalf("continuation changed repository record: %#v", continued)
 	}
-	if workspaceTestGit(t, repo, "rev-parse", "HEAD") != latest || workspaceTestGit(t, repo, "rev-parse", "origin/develop") != latest {
+	if workspaceTestGit(t, repo, "rev-parse", "HEAD") != latest || workspaceTestGit(t, repo, "rev-parse", "origin/develop") != moved {
 		t.Fatal("continuation fetched or reset repository")
 	}
-	fresh := map[string]any{"url": url, "branch": "task/third"}
+	fresh := map[string]any{"url": url, "branch": "task/third", "resolved_commit": latest}
 	workspaceTestPrepare(t, input(fresh, false), "uncommitted work")
 	workspaceTestGit(t, repo, "checkout", "-qb", "different-task")
 	workspaceTestPrepare(t, input(prepared, false), "Saved repository branch changed")
@@ -325,7 +338,7 @@ exec git -C "$root" "$@"
 	workspaceTestWrite(t, filepath.Join(repo, "state.txt"), "base\n")
 	workspaceTestPrepare(t, input(second, false), "Task branch already exists")
 	workspaceTestGit(t, source, "branch", "task/remote")
-	workspaceTestPrepare(t, input(map[string]any{"url": url, "branch": "task/remote"}, false), "Task branch already exists remotely")
+	workspaceTestPrepare(t, input(map[string]any{"url": url, "branch": "task/remote", "resolved_commit": latest}, false), "Task branch already exists remotely")
 	workspaceTestGit(t, repo, "remote", "set-url", "origin", "https://github.com/other/repo.git")
 	workspaceTestPrepare(t, input(fresh, false), "origin does not match")
 	if err := os.Remove(filepath.Join(repo, ".git", "atlas-runtime-repository.json")); err != nil {

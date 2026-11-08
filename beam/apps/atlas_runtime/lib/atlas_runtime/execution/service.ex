@@ -177,7 +177,10 @@ defmodule AtlasRuntime.Service do
       do: raise("Repository provisioning cannot be combined with cwd or sandbox")
     prepared = Workspaces.repository_request(Path.join([state.dir, "workers", worker_id]), url, branch)
     scope = prepared["permissions"]
-    start_turn(assignment, scope["root"], nil, scope, nil, state, worker_id, prepared["repository"], selection, nil, Map.get(request, "questions_enabled", false), admission)
+    # Code resolves the exact base before anything is reserved, cloned or launched.
+    commit = Workspaces.Code.resolve!(state.dir, prepared["repository"]["url"], "develop")
+    repository = Map.put(prepared["repository"], "resolved_commit", commit)
+    start_turn(assignment, scope["root"], nil, scope, nil, state, worker_id, repository, selection, nil, Map.get(request, "questions_enabled", false), admission)
   end
 
   defp worker_command(%{"command" => "start", "cwd" => cwd, "assignment" => assignment} = request,

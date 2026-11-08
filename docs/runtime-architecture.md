@@ -33,9 +33,9 @@ Runtime remains local-first, running native agent CLIs on macOS. Neither Linux n
 - Keep permission configuration and credential material outside agent-writable locations. Agents cannot expand their own permissions.
 - Atlas Server or the external coordinator still owns workflow authorization, acceptance, merge and release decisions. The local component executes authorized GitHub operations; centralizing credentials does not transfer orchestration to Runtime.
 
-### Code service: proposed contract (step 1, not implemented)
+### Code service: contract (step 2 implemented: health and resolve only)
 
-Status: proposal. **None of the endpoints below exist.** Everything under "Current callers" is implemented today and cited from source at `f4492cbeb0f199b0228282c507ae6f8f05b05596`.
+Status: `GET /v1/health` and `POST /v1/revisions/resolve` are implemented in `beam/apps/atlas_code`. **Every other endpoint below remains a proposal.** Everything under "Current callers" was cited from source at `f4492cbeb0f199b0228282c507ae6f8f05b05596`; since step 2, the fresh-start base is Code's `resolve` result rather than `origin/develop` from the worker clone.
 
 Decisions from Melle that this contract follows:
 - Code is a separate local Elixir service beside Runtime, reached over authenticated loopback HTTP. The same contract can later be hosted on Atlas Server. No VM, Linux, filesystem mount or private Git server is required, and Runtime keeps working without Atlas Server.
@@ -145,7 +145,7 @@ Responses are JSON, except archive and blob bodies, which are bytes.
 
 All mutating requests carry caller-chosen IDs. A repeated identical request returns the recorded result, the same rule as Runtime admissions.
 
-#### Step 2: smallest runnable extraction (proposed next slice)
+#### Step 2: smallest runnable extraction (implemented)
 
 Scope:
 - A new `beam/apps/atlas_code` application, started as its own local service (its own home, port and token files). It does not start Runtime.
@@ -161,6 +161,15 @@ Acceptance proof:
 - With Code stopped, the same start fails with the explicit error, with no clone and no native process.
 - Wrong token and a disallowed repository are refused.
 - Continuation of an existing managed turn still works with Code stopped.
+
+As implemented:
+- **Startup:** `cd beam/apps/atlas_code && ATLAS_CODE_HOME=/abs/home mix atlas_code.server`. It runs as its own BEAM process, binds only `127.0.0.1`, prints `Code ready on 127.0.0.1:PORT` and starts no Runtime, Bus or State.
+- **Code configuration:** `$ATLAS_CODE_HOME/config.json` is `{"port": N, "repositories": {"github.com/OWNER/REPO": "<git remote URL or path>"}}`. Its keys are the allow-list.
+- **Token:** `$ATLAS_CODE_HOME/runtime.token` must be a regular file with mode 0600 or stricter, otherwise start is refused. Only the orchestrator token remains unimplemented.
+- **Runtime configuration:** Runtime reads `<runtime state dir>/code.json`, i.e. `{"url": "http://127.0.0.1:PORT", "token_file": "/abs/path"}`. The Go CLI strips `ATLAS_*` from the daemon environment, which is why this is a file rather than environment variables.
+- **Managed start:** Runtime resolves `develop` of the normalized repository before reserving an admission or creating anything. The fresh repository record carries `resolved_commit`. `Prepare` checks that commit exists after its existing fetch, branches from it, and saves it as `base_sha`. Saved runs and continuations keep `{url, branch, base_sha}`.
+- **Remaining Git responsibilities:** clone, fetch, origin and dirty checks still run inside the worker's sandboxed clone with the user's `gh` credential helper. Code only runs `ls-remote` through the same helper.
+- **Limits:** Code has no timeout of its own on a hanging `ls-remote` (Runtime gives up after 15 s). Oversized bodies get httpd's HTML 413. Runtime does not check `token_file` permissions. Same-user processes, including workers, can read the token file.
 
 Later bounded steps, each a separate assignment:
 1. Snapshot creation and archive in Code, plus Runtime materialization into worker folders with an immutable baseline.

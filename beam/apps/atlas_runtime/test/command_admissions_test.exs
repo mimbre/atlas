@@ -327,14 +327,29 @@ defmodule AtlasRuntime.CommandAdmissionsTest do
         "branch" => "task/admission"})
     scope = %{"profile" => "dedicated-repository", "version" => 1, "root" => cwd,
       "git_dir" => Path.join(cwd, ".git"), "network_hosts" => ["github.com", "api.github.com"]}
-    repository = %{"url" => "https://github.com/owner/repo.git", "branch" => "task/admission"}
-    binding = %{context.binding | "sandbox" => nil, "permissions" => scope, "repository" => repository}
-    run = Map.merge(context.run, %{sandbox: nil, permissions: scope, repository: repository})
-    record = Admissions.reserve(context.dir, "Request_1", request, binding, @turn, run)
-    assert load(context) == record
-    accepted = Admissions.accept(context.dir, record, run)
-    assert load(context) == accepted
-    assert accepted["binding"]["permissions"] == scope
+    resolved = %{"url" => "https://github.com/owner/repo.git", "branch" => "task/admission",
+      "resolved_commit" => String.duplicate("b", 40)}
+    # Admissions saved before Code carried only url and branch; they stay loadable.
+    for {repository, index} <- Enum.with_index([resolved, Map.delete(resolved, "resolved_commit")]) do
+      dir = Path.join(context.dir, "managed-#{index}")
+      binding = %{context.binding | "sandbox" => nil, "permissions" => scope, "repository" => repository}
+      run = Map.merge(context.run, %{sandbox: nil, permissions: scope, repository: repository})
+      record = Admissions.reserve(dir, "Request_1", request, binding, @turn, run)
+      assert Admissions.load(dir, "Request_1") == record
+      accepted = Admissions.accept(dir, record, run)
+      assert Admissions.load(dir, "Request_1") == accepted
+      assert accepted["binding"]["permissions"] == scope
+      assert accepted["binding"]["repository"] == repository
+    end
+
+    for bad <- [Map.put(resolved, "resolved_commit", "not-a-commit"), Map.put(resolved, "resolved_commit", nil),
+                Map.put(resolved, "base_sha", String.duplicate("a", 40))] do
+      binding = %{context.binding | "sandbox" => nil, "permissions" => scope, "repository" => bad}
+      run = Map.merge(context.run, %{sandbox: nil, permissions: scope, repository: bad})
+      assert_raise Admissions.StorageError, fn ->
+        Admissions.reserve(Path.join(context.dir, "bad"), "Request_1", request, binding, @turn, run)
+      end
+    end
   end
 
   test "managed saved continuation preserves base revision and rejects unrelated metadata", context do

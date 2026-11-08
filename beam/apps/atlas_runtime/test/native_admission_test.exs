@@ -277,6 +277,67 @@ defmodule AtlasRuntime.NativeAdmissionTest do
     assert launches(context.dir) == []
   end
 
+  test "managed start refuses before reservation, clone or launch unless Code resolves", context do
+    # Managed paths must be symlink-free; the macOS temporary directory is behind /var.
+    real = AtlasRuntime.Workspaces.workspace_path(context.dir)
+    context = %{context | dir: real, service: launch_service(real)}
+    request = %{"command" => "start", "request_id" => "managed", "assignment" => "admit:managed",
+      "repository" => "https://github.com/Owner/Repo", "branch" => "task/code", "permissions" => "dedicated-repository"}
+    token = Path.join(context.dir, "code.token")
+    File.write!(token, "secret-token\n")
+    configure = fn port ->
+      File.write!(Path.join(context.dir, "code.json"),
+        JSON.encode!(%{"url" => "http://127.0.0.1:#{port}", "token_file" => token}))
+    end
+    untouched = fn ->
+      refute File.exists?(Path.join(context.dir, "admissions/managed.json"))
+      refute File.exists?(Path.join(context.dir, "workers"))
+      assert launches(context.dir) == []
+    end
+
+    assert command_error(context.service, request) =~ "Code service unavailable: not configured"
+    untouched.()
+
+    {:ok, listener} = :gen_tcp.listen(0, ip: {127, 0, 0, 1})
+    {:ok, closed} = :inet.port(listener)
+    :gen_tcp.close(listener)
+    configure.(closed)
+    error = command_error(context.service, request)
+    assert error =~ "Code service unavailable:"
+    refute error =~ "secret-token"
+    untouched.()
+
+    for {status, code} <- [{401, "unauthorized"}, {403, "forbidden"}, {404, "unknown_ref"}, {503, "provider_unavailable"}] do
+      {stub, port} = AtlasRuntime.CodeStub.start(status, %{"error" => %{"code" => code, "message" => "no", "details" => %{}}})
+      configure.(port)
+      error = command_error(context.service, request)
+      assert error =~ "Code refused develop of github.com/owner/repo: #{status} #{code}"
+      refute error =~ "secret-token"
+      :inets.stop(:httpd, stub)
+      untouched.()
+    end
+
+    commit = String.duplicate("c", 40)
+    {stub, port} = AtlasRuntime.CodeStub.start(200, %{"repository" => "github.com/owner/repo", "ref" => "other", "commit" => commit})
+    configure.(port)
+    assert command_error(context.service, request) =~ "Code service unavailable: invalid reply"
+    :inets.stop(:httpd, stub)
+    untouched.()
+
+    {stub, port} = AtlasRuntime.CodeStub.start(200, %{"repository" => "github.com/owner/repo", "ref" => "develop", "commit" => commit})
+    configure.(port)
+    reply = call(context.service, request)
+    assert_received {:code_request, headers, body}
+    assert {~c"authorization", ~c"Bearer secret-token"} in headers
+    assert JSON.decode!(body) == %{"repository" => "github.com/owner/repo", "ref" => "develop"}
+    assert CommandAdmissions.load(context.dir, "managed")["binding"]["repository"] ==
+             %{"url" => "https://github.com/owner/repo.git", "branch" => "task/code", "resolved_commit" => commit}
+    assert call(context.service, request) == reply
+    :inets.stop(:httpd, stub)
+    # The fixture cannot clone; wait for that preparation failure before cleanup.
+    await(fn -> call(context.service, %{"command" => "status"})[:state] not in [nil, "running"] end)
+  end
+
   test "worker and workspace collisions still refuse new IDs while identical admission replays", context do
     File.write!(Path.join(context.dir, "hold"), "")
     request = start_request(context, "active", %{"worker_id" => "alpha"})
