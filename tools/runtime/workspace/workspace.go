@@ -1,4 +1,4 @@
-package main
+package workspace
 
 import (
 	"bytes"
@@ -16,7 +16,7 @@ import (
 	"syscall"
 )
 
-func workspaceCommand(args []string, input io.Reader, output io.Writer) error {
+func Run(args []string, input io.Reader, output io.Writer) error {
 	if len(args) == 0 {
 		return errors.New("use workspace path|scope|dedicated-scope|request|lock|prepare")
 	}

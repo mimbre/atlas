@@ -156,35 +156,62 @@ Transport-specific parsing and presentation remain at the edge. A truncated stat
 
 ## Current implementation versus this target
 
-The inspected standalone path is:
+The current standalone layout separates executable ownership and durable operations without changing languages:
 
-`Go CLI → AtlasRuntime.Service → Agent.Native → native_runner.py → provider CLI`
+```text
+beam/apps/atlas_runtime/lib/atlas_runtime/
+  application.ex
+  entrypoints/socket.ex
+  execution/{service,command_admissions,backend_policy,identity}.ex
+  interactions/{commands,native_question,question_records,peer_question_records}.ex
+  handoffs/{commands,handoff_records}.ex
+  persistence/{history,execution_events}.ex
+  workspaces/workspace.ex
+  host/native.ex
+  providers/{agent,input,native_events}.ex
+  connected/{engine,turn,guidance,talk,settings,faults,output,output_endpoint}.ex
+  connected/adapters/{claude,claude/broker,fake_inbox,stub}.ex
 
-Durable admission, question, peer-correlation, handoff and event modules support the service. There is an existing `AtlasRuntime.Agent` behaviour, but its lifecycle/guidance interface does not expose the standalone question/answer contract.
+beam/apps/atlas_runtime/priv/runtime/
+  entrypoint.py
+  protocol.py
+  host/{process,assignment,sandbox}.py
+  providers/{claude,claude_questions,codex}.py
+  workspaces/client.py
 
-Observed boundary problems:
+tools/runtime/
+  go.mod
+  main.go
+  workspace/{workspace,workspace_test}.go
+```
 
-- `Service` checks for Claude directly when admitting or handling questions.
-- `Service` calls `Agent.Native.answer` directly.
-- Provider differences are handled in branches inside shared native code.
-- Workspace validation, ownership acquisition and Git preparation now live in `tools/runtime/workspace.go`; the Python runner still combines sandbox setup, process execution and native protocol translation.
-- Provider-neutral public command names therefore do not establish a complete provider-neutral implementation boundary.
+Existing public Elixir module names remain stable where their contracts remain valid. The standalone `AtlasRuntime.Service` is still the serialized execution owner, and `AtlasRuntime.Agent.Native` still owns its port, process monitoring and cancellation. Their source locations no longer imply that socket framing, workspace validation, provider interpretation and every durable operation belong inside those two modules.
 
-These observations concern the inspected standalone path. They are not a complete audit of the separate connected Engine/Turn path, and this proposal does not claim those paths already share one implementation.
+Dependencies and responsibilities:
 
-## First architectural move
+- The Go CLI sends commands through `Entrypoints.Socket` to `Service`. Socket framing, connection ownership and response-before-shutdown remain at the edge.
+- `Service` selects backends and admits, starts and stops executions. Interaction commands own question admission, native delivery and peer correlation; handoff commands own declaration submission and inspection. Neither operation module calls back into `Service`.
+- `Persistence.History` owns recovery, saved-turn ownership checks, historical projections, output reads and ordered terminal checkpoints. Record modules retain their bounded storage, outboxes and publication rules. Persistence does not dispatch commands.
+- `Workspaces` calls the launching executable's Go workspace command directly. Admission no longer depends on the native provider host for path, scope or repository-request validation.
+- The native host delegates pending-question validation, timers and delivery evidence to `Interactions.NativeQuestion`, and native identity/output/result interpretation to `Providers.NativeEvents`. The host clears question controls on terminal provider state; provider interpretation does not own cancellation.
+- The thin Python entrypoint calls the host process loop. Host modules own process groups, control transport, sandbox mechanics, workspace ownership lifetime and cleanup. Provider modules own native command construction, question protocol, resume context and model/session interpretation. Both depend on the shared protocol codec; provider modules do not import host lifecycle code.
+- The Go CLI imports the dependency-free local `workspace` package. That package does not import the CLI or choose a provider.
 
-The workspace preparation and ownership boundary is implemented in `tools/runtime/workspace.go`, exposed through internal `atlas-runtime workspace` operations. It owns canonical-path and repository-request validation, exclusive repository locking, clone/fetch/fresh-branch preparation and continuation preservation. Both Claude and Codex use the same implementation. Existing Elixir admission and lifecycle APIs are unchanged.
+The connected Engine/Turn/guidance/output path and its existing adapters are grouped explicitly under `connected/`. Its existing `Agent` behaviour and input contract remain under `providers/`; their module APIs and connected behavior are unchanged. This is not a claim that the connected and standalone paths already share one interaction contract. Standalone startup still requires neither Atlas Server nor Flow.
 
-The launching CLI passes its own executable path to the daemon through `ATLAS_RUNTIME_EXECUTABLE`; workspace calls never discover a different installed binary or compile code during execution. Elixir invokes the Go command directly for admission queries. `workspace_client.py` only transports the remaining runner requests and receives the ownership descriptor; the superseded Python workspace implementation is removed.
+## Implemented workspace boundary
+
+Workspace preparation and ownership live in `tools/runtime/workspace/workspace.go`, exposed through internal `atlas-runtime workspace` operations. The package owns canonical-path and repository-request validation, exclusive repository locking, clone/fetch/fresh-branch preparation and continuation preservation. Both Claude and Codex use the same implementation.
+
+The launching CLI passes its own executable path to the daemon through `ATLAS_RUNTIME_EXECUTABLE`; workspace calls never discover a different installed binary or compile code during execution. Elixir invokes the Go command directly for admission queries. `priv/runtime/workspaces/client.py` only transports the runner requests and receives the ownership descriptor; the superseded Python workspace implementation is removed.
 
 Preparation accepts the existing scope/repository records, creation flag and explicit sandbox command prefix. Go owns Git arguments and validation, not provider selection or sandbox translation. It returns the prepared record, including fetched base SHA, or refuses without resetting, stashing or overwriting work. Git subprocesses inherit the existing execution process group.
 
 For ownership, Go transfers the locked directory descriptor over a local Unix socket using `SCM_RIGHTS`. The helper exits; the original runner retains the same open-file-description lock until its existing native process-group cleanup completes. No new supervisor, lock-file protocol or persistent helper is introduced.
 
-This completes the workspace Go translation, not the whole Python removal. Subsequent provider-protocol and host-process migrations must establish their own bounded contracts; lifecycle and durable state stay in Elixir.
+The workspace Go translation is complete. This responsibility split deliberately retains the remaining Python host/provider implementation; it is not another language migration. Lifecycle and durable state stay in Elixir.
 
-The shared provider capability and interaction contract remains a separate architectural goal. Codex question support is not part of this extraction. Preserve execution identity, permission checks, error handling, delivery evidence and durable records; do not claim provider parity before exercising the same consumer-visible behavior through both adapters.
+The shared provider capability and interaction contract remains a separate architectural goal. Claude-only question admission is still explicit, and Codex question support is not part of this extraction. Execution identity, permission checks, error handling, delivery evidence and durable records retain their existing contracts. The proposed centralized GitHub/Code OTP application above remains future work, not an implemented service or dependency.
 
 ## Authorized macOS Claude TLS allowance
 

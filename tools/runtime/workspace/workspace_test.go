@@ -1,4 +1,4 @@
-package main
+package workspace
 
 import (
 	"bytes"
@@ -62,7 +62,7 @@ func workspaceTestCall(t *testing.T, input any, args ...string) any {
 		t.Fatal(err)
 	}
 	var output bytes.Buffer
-	if err := workspaceCommand(args, bytes.NewReader(body), &output); err != nil {
+	if err := Run(args, bytes.NewReader(body), &output); err != nil {
 		t.Fatalf("workspace %v: %v", args, err)
 	}
 	decoder := json.NewDecoder(&output)
@@ -84,7 +84,7 @@ func workspaceTestRefuse(t *testing.T, input any, message string, args ...string
 		t.Fatal(err)
 	}
 	var output bytes.Buffer
-	err = workspaceCommand(args, bytes.NewReader(body), &output)
+	err = Run(args, bytes.NewReader(body), &output)
 	if err == nil || !strings.Contains(err.Error(), message) {
 		t.Fatalf("workspace %v: wanted refusal containing %q, got %v", args, message, err)
 	}

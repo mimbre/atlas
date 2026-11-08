@@ -1,7 +1,6 @@
 """Deterministic host/owned-process fixtures, not live-provider or model-consumption proof."""
 import copy
 from contextlib import redirect_stdout
-import importlib.util
 import io
 import json
 import os
@@ -15,14 +14,13 @@ import time
 import unittest
 
 
-HELPER = Path(__file__).resolve().parents[1] / 'priv' / 'native_runner.py'
-sys.path.insert(0, str(HELPER.parent))
-import workspace_client
+HELPER = Path(__file__).resolve().parents[1] / 'priv' / 'runtime' / 'entrypoint.py'
+sys.path.insert(0, str(HELPER.parent.parent))
+from runtime.protocol import emit, json_record
+from runtime.providers.claude_questions import QuestionProtocol
+from runtime.workspaces import client as workspace_client
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from workspace_test_support import setup_workspace_cli
-spec = importlib.util.spec_from_file_location('question_native_runner', HELPER)
-runner = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(runner)
 SESSION = '15113671-40b9-4677-8b2b-c6c1180db993'
 MODEL = 'fixture-model'
 TOOLS = ['Read', 'Glob', 'Grep', 'AskUserQuestion']
@@ -63,7 +61,7 @@ class QuestionHostTest(unittest.TestCase):
         self.redirect = redirect_stdout(self.output)
         self.redirect.__enter__()
         self.addCleanup(self.redirect.__exit__, None, None, None)
-        self.host = runner.QuestionHost(SESSION, 'one assignment', self.sent.append,
+        self.host = QuestionProtocol(SESSION, 'one assignment', self.sent.append,
                                         self.close, TOOLS, native_pid=7319)
         self.host.start()
         self.host.event({'type': 'control_response', 'response': {
@@ -201,7 +199,7 @@ class QuestionHostTest(unittest.TestCase):
                              'model': MODEL, 'tools': TOOLS, 'permissionMode': 'bypassPermissions'})
 
     def test_resume_model_must_match_native_init(self):
-        host = runner.QuestionHost(SESSION, 'assignment', self.sent.append, self.close,
+        host = QuestionProtocol(SESSION, 'assignment', self.sent.append, self.close,
                                    TOOLS, native_pid=7319, resume_model='saved-model')
         host.event({'type': 'control_response', 'response': {
             'subtype': 'success', 'request_id': host.initialize_id, 'response': {}}})
@@ -212,7 +210,7 @@ class QuestionHostTest(unittest.TestCase):
     def test_context_modifier_keeps_exact_init_and_accepts_only_same_assistant_model(self):
         configured = 'claude-opus-5-5[1m]'
         for resume_model in (None, configured):
-            host = runner.QuestionHost(SESSION, 'assignment', self.sent.append, self.close,
+            host = QuestionProtocol(SESSION, 'assignment', self.sent.append, self.close,
                                        TOOLS, native_pid=7319, resume_model=resume_model)
             host.event({'type': 'control_response', 'response': {
                 'subtype': 'success', 'request_id': host.initialize_id, 'response': {}}})
@@ -260,7 +258,7 @@ class QuestionHostTest(unittest.TestCase):
                     {'questions': [dict(QUESTION, multiSelect=1)]}]
         for value in variants:
             with self.subTest(value=repr(value)[:100]), self.assertRaises(ValueError):
-                runner.QuestionHost.question_input(value)
+                QuestionProtocol.question_input(value)
 
     def test_cancel_clears_state_and_rejects_late_answer(self):
         identifier = self.pending()
@@ -305,7 +303,7 @@ class QuestionHostTest(unittest.TestCase):
         for record in (b'{"x":"' + b'a' * 32768 + b'"}\n',
                        b'{"command":"answer","command":"stop"}', b'[]'):
             with self.assertRaises(ValueError):
-                runner.json_record(record, 32768)
+                json_record(record, 32768)
 
 
 def fixture_native():
@@ -323,12 +321,12 @@ def fixture_native():
     session = args[args.index('--session-id') + 1]
     initial = json.loads(sys.stdin.readline())
     assert initial['request'] == {'subtype': 'initialize'}
-    runner.emit({'type': 'control_response', 'response': {
+    emit({'type': 'control_response', 'response': {
         'subtype': 'success', 'request_id': initial['request_id'], 'response': {}}})
     assignment = json.loads(sys.stdin.readline())
     assert assignment == {'type': 'user', 'session_id': session, 'parent_tool_use_id': None,
                           'message': {'role': 'user', 'content': 'fixture assignment'}}
-    runner.emit({'type': 'system', 'subtype': 'init', 'session_id': session,
+    emit({'type': 'system', 'subtype': 'init', 'session_id': session,
                  'model': MODEL, 'tools': tools})
     # Descendant ignores SIGINT; runner must reap the complete owned process group.
     descendant = subprocess.Popen([sys.executable, '-c',
@@ -339,8 +337,8 @@ def fixture_native():
     source, control = assistant(session), request()
     Path(os.environ['ATLAS_QUESTION_SOURCE']).write_text(json.dumps({
         'assistant': source, 'control_request': control, 'native_pid': os.getpid()}))
-    runner.emit(source)
-    runner.emit(control)
+    emit(source)
+    emit(control)
     if mode == 'output-loss':
         os.close(sys.stdout.fileno())
         time.sleep(30)
@@ -354,12 +352,12 @@ def fixture_native():
         time.sleep(30)
         return
     if mode == 'native-cancel':
-        runner.emit({'type': 'control_cancel_request', 'request_id': 'request-1'})
+        emit({'type': 'control_cancel_request', 'request_id': 'request-1'})
         time.sleep(30)
         return
     if mode == 'input-loss':
         os.close(sys.stdin.fileno())
-        runner.emit({'type': 'fixture.input_closed'})
+        emit({'type': 'fixture.input_closed'})
         time.sleep(30)
         return
     response = sys.stdin.readline()
@@ -371,8 +369,8 @@ def fixture_native():
             'behavior': 'allow', 'updatedInput': {'questions': [QUESTION],
                                                 'answers': {'Which value?': '436849'}}}}}
     if mode != 'early-result':
-        runner.emit(processed(session))
-    runner.emit({'type': 'result', 'session_id': session, 'result': 'fixture completed'})
+        emit(processed(session))
+    emit({'type': 'result', 'session_id': session, 'result': 'fixture completed'})
     assert sys.stdin.read() == ''  # No successor assignment after this query's terminal result.
     if mode == 'result-hang':
         time.sleep(30)

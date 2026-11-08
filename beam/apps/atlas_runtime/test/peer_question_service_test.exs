@@ -179,9 +179,6 @@ defmodule AtlasRuntime.PeerQuestionServiceTest do
     %{workers: workers, files: Map.new(files, &{&1, File.read!(&1)}),
       dispatch_counts: Map.new(Enum.filter(files, &String.ends_with?(&1, ".jsonl")), fn path ->
         {path, path |> File.read!() |> String.split("\n", trim: true) |> length()}
-      end),
-      native: Map.new(workers, fn {id, worker} ->
-        {id, if(is_pid(worker.agent), do: :sys.get_state(worker.agent).pending_question)}
       end)}
   end
 

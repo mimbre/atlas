@@ -1,6 +1,7 @@
 defmodule AtlasRuntime.QuestionRecords do
   @moduledoc "Per-question admission and evidence with a bounded execution-event outbox."
-  alias AtlasRuntime.{ExecutionEvents, Agent.Native}
+  alias AtlasRuntime.ExecutionEvents
+  alias AtlasRuntime.Interactions.NativeQuestion
 
   defmodule StorageError do
     defexception [:message]
@@ -191,7 +192,7 @@ defmodule AtlasRuntime.QuestionRecords do
           record["outcome"] == if(record["active"], do: "pending", else: "invalidated"),
           do: raise("Invalid pending question record")
       "accepted" ->
-        unless Native.validate_answers(%{questions: questions}, record["answers"]) == :ok and
+        unless NativeQuestion.validate_answers(%{questions: questions}, record["answers"]) == :ok and
           record["transport"] in ["unknown", "delivered"] and record["processing"] in ["unknown", "processed"] and
           record["outcome"] in ["unknown", "processed"], do: raise("Invalid accepted question record")
     end
@@ -214,7 +215,7 @@ defmodule AtlasRuntime.QuestionRecords do
 
   defp valid_questions?(questions) when is_list(questions) and length(questions) in 1..4 do
     Enum.all?(questions, &(is_map(&1) and is_binary(&1["question"]))) and
-      Native.validate_answers(%{questions: questions}, Map.new(questions, &{&1["question"], "valid"})) == :ok
+      NativeQuestion.validate_answers(%{questions: questions}, Map.new(questions, &{&1["question"], "valid"})) == :ok
   end
   defp valid_questions?(_), do: false
 

@@ -2,7 +2,7 @@ defmodule AtlasRuntime.ServiceTest do
   use ExUnit.Case, async: true
 
   alias AtlasRuntime.{BackendPolicy, ExecutionEvents, QuestionRecords, Service}
-  alias AtlasRuntime.Agent.Native
+  alias AtlasRuntime.Workspaces
 
   @moduletag :tmp_dir
 
@@ -80,6 +80,38 @@ defmodule AtlasRuntime.ServiceTest do
     File.mkdir_p!(folder)
     File.write!(Path.join(folder, "turn.json"), JSON.encode!(values))
     id
+  end
+
+  test "interaction commands own admission and delivery without the service coordinator", %{state: state} do
+    alias AtlasRuntime.Interactions.Commands
+    state = worker(state, "alpha", 1, backend: "claude", questions_enabled: true)
+    worker = state.workers["alpha"]
+    {run, journal} = Commands.observe({:question, question()}, worker.run, "alpha", state.dir, state.events)
+    workers = Map.put(state.workers, "alpha", %{worker | run: run})
+    request = %{"command" => "answer", "worker_id" => "alpha", "turn_id" => run.id,
+      "question_id" => "question-ab12", "answers" => %{"Choose?" => "yes"}}
+    {evidence, journal, workers} = Commands.execute(request, state.dir, journal, workers)
+    assert evidence.admission == "accepted"
+    assert evidence.transport == "delivered"
+    assert workers["alpha"].run.pending_question == nil
+    assert_received {:answer_write, "question-ab12", %{"Choose?" => "yes"}}
+    assert {^evidence, ^journal, ^workers} = Commands.execute(request, state.dir, journal, workers)
+    refute_received {:answer_write, _, _}
+  end
+
+  test "history owns current and saved projections without the service coordinator", %{state: state} do
+    alias AtlasRuntime.Persistence.History
+    state = worker(state, "alpha", 1)
+    id = state.workers["alpha"].run.id
+    assert History.historical(id, state.dir, state.workers)["state"] == "running"
+    saved = History.historical(id, state.dir, %{})
+    assert saved["state"] == "unknown"
+    assert saved["recorded_state"] == "running"
+    assert %{turns: [^saved]} = History.list(state.dir, %{})
+    assert History.owned_saved_turn!(state.dir, id, "alpha")["state"] == "running"
+    assert_raise RuntimeError, "Turn belongs to worker alpha, not beta", fn ->
+      History.owned_saved_turn!(state.dir, id, "beta")
+    end
   end
 
   test "empty and sole-worker defaults never choose by activity", %{state: state} do
@@ -253,7 +285,7 @@ defmodule AtlasRuntime.ServiceTest do
     File.mkdir_p!(nested)
     alias_path = Path.join(state.dir, "alias")
     File.ln_s!(root, alias_path)
-    state = worker(state, "alpha", 1, cwd: Native.workspace_path(root))
+    state = worker(state, "alpha", 1, cwd: Workspaces.workspace_path(root))
 
     for cwd <- [root, nested, state.dir, alias_path, Path.join(alias_path, "nested")],
         sandbox <- ["read-only", "workspace-write"] do
@@ -262,7 +294,7 @@ defmodule AtlasRuntime.ServiceTest do
     end
 
     old = saved(state, 2, %{"worker_id" => "beta", "state" => "finished", "session_id" => "saved-session",
-                            "cwd" => Native.workspace_path(nested), "sandbox" => "read-only"})
+                            "cwd" => Workspaces.workspace_path(nested), "sandbox" => "read-only"})
     error(state, %{"command" => "continue", "turn_id" => old, "assignment" => "next"},
           "Workspace overlaps active worker alpha")
     assert events(state) == []

@@ -16,6 +16,17 @@ defmodule AtlasRuntime.BackendPolicyTest do
 
   defp blocked, do: Policy.record_quota(configured(), evidence(), "native-quota-turn", @now)
 
+  @tag :tmp_dir
+  test "policy owns atomic persistence and validates saved preferences", %{tmp_dir: dir} do
+    assert Policy.load(dir) == Policy.empty()
+    policy = blocked()
+    assert :ok = Policy.persist(dir, policy)
+    assert Policy.load(dir) == policy
+    refute File.exists?(Path.join(dir, "backends.json.tmp"))
+    File.write!(Path.join(dir, "backends.json"), JSON.encode!(%{"unexpected" => true}))
+    assert_raise RuntimeError, "Unknown backend policy fields", fn -> Policy.load(dir) end
+  end
+
   test "default, preferred and explicit selection retain the requested model without claiming native identity" do
     assert Policy.select(Policy.empty(), nil, %{}, @now) == %{
              "requested" => %{"backend" => "codex", "model" => nil},

@@ -25,7 +25,7 @@ end)
 
 case System.cmd(
        "go",
-       ["build", "-o", executable, "tools/runtime/main.go", "tools/runtime/workspace.go"],
+       ["-C", "tools/runtime", "build", "-o", executable, "."],
        cd: root,
        stderr_to_stdout: true
      ) do

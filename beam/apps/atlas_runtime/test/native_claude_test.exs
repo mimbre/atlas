@@ -270,6 +270,22 @@ defmodule AtlasRuntime.NativeClaudeTest do
     end
   end
 
+  test "workspace launch validation permits only existing or scoped provisioned workspaces", %{tmp_dir: dir} do
+    alias AtlasRuntime.Workspaces
+    missing = Path.join(dir, "not-provisioned")
+    scope = %{"profile" => "dedicated-repository", "root" => missing}
+    repository = %{"url" => "https://github.com/eyra/atlas.git"}
+
+    assert Workspaces.valid_request?(dir, "read-only", nil, nil)
+    assert Workspaces.valid_request?(dir, "workspace-write", nil, nil)
+    assert Workspaces.valid_request?(missing, nil, scope, repository)
+    refute Workspaces.valid_request?(missing, "read-only", nil, nil)
+    refute Workspaces.valid_request?(missing, nil, nil, repository)
+    refute Workspaces.valid_request?(dir, "read-only", scope, nil)
+    refute Workspaces.valid_request?(dir, nil, nil, nil)
+    refute Workspaces.valid_request?(nil, nil, scope, repository)
+  end
+
   defp drain(pid) do
     receive do
       {:agent, ^pid, event} -> [event | drain(pid)]
