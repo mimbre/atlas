@@ -190,6 +190,7 @@ defmodule AtlasRuntime.ClaudeTest do
   end
 
   @tag :sandbox
+  @tag skip: AtlasRuntime.TestHost.missing(:nested_sandbox)
   test "in the sandbox the agent's commands run bash and the turn's atlas, and no more",
        %{tmp_dir: dir} do
     {folder, o, env} = turn_files(dir)

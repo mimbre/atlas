@@ -2,7 +2,7 @@ defmodule AtlasRuntime.LifecycleControlTest do
   @moduledoc "Stop, kill, latch and continuation through the real Service and native host with a scripted fake Codex."
   use ExUnit.Case, async: false
 
-  alias AtlasRuntime.{ExecutionEvents, Service}
+  alias AtlasRuntime.{ExecutionEvents, Service, TestHost}
 
   @moduletag capture_log: true
 
@@ -124,6 +124,8 @@ defmodule AtlasRuntime.LifecycleControlTest do
   defp pid(context, name),
     do: context.dir |> Path.join(name <> ".pid") |> File.read!() |> String.trim()
 
+  # A zombie is not alive. Tests that call this need TestHost's :process_listing, since a
+  # denied ps answers as for a PID that does not exist.
   defp alive?(pid) do
     case System.cmd("ps", ["-p", pid, "-o", "stat="], stderr_to_stdout: true) do
       {state, 0} -> not String.starts_with?(String.trim(state), "Z")
@@ -138,6 +140,7 @@ defmodule AtlasRuntime.LifecycleControlTest do
         & &1["kind"]
       )
 
+  @tag skip: TestHost.missing(:process_listing)
   test "cooperative stop latches; release starts nothing; continuation keeps human edits",
        context do
     run = start(context, "alpha", "edit")
@@ -196,6 +199,7 @@ defmodule AtlasRuntime.LifecycleControlTest do
            ]
   end
 
+  @tag skip: TestHost.missing(:process_listing)
   test "an ignored interrupt stays stopping without escalation until an explicit kill", context do
     run = start(context, "alpha", "ignore")
     assert %{state: "stopping"} = control(context, "stop", run)
@@ -226,6 +230,7 @@ defmodule AtlasRuntime.LifecycleControlTest do
     assert kinds(context) == ["execution_accepted", "execution_killed"]
   end
 
+  @tag skip: TestHost.missing(:process_listing)
   test "a surviving descendant keeps the turn stopping; kill reaps it; duplicates converge",
        context do
     run = start(context, "alpha", "child")

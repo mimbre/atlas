@@ -1,11 +1,11 @@
 defmodule AtlasRuntime.Entrypoints.SocketTest do
   use ExUnit.Case, async: true
   alias AtlasRuntime.Entrypoints.Socket
+  alias AtlasRuntime.TestHost
 
   test "socket owns framing, rejects noncommands and requests shutdown after replying" do
-    dir = Path.join("/tmp", "atlas-runtime-socket-#{System.unique_integer([:positive])}")
-    File.mkdir!(dir)
-    on_exit(fn -> File.rm_rf!(dir) end)
+    # A Unix socket path is short (104 bytes on macOS); TestHost picks a short enough temp.
+    dir = TestHost.short_dir!("ars", "/runtime.sock")
     acceptor = Socket.start(dir, self())
     path = Path.join(dir, "runtime.sock")
 

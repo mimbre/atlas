@@ -1,7 +1,7 @@
 defmodule AtlasRuntime.NativeAdmissionTest do
   use ExUnit.Case, async: false
 
-  alias AtlasRuntime.{BackendPolicy, CommandAdmissions, Service}
+  alias AtlasRuntime.{BackendPolicy, CommandAdmissions, Service, TestHost}
 
   @moduletag capture_log: true
 
@@ -19,6 +19,10 @@ defmodule AtlasRuntime.NativeAdmissionTest do
     previous_path = System.fetch_env!("PATH")
     previous_home = System.get_env("CODEX_HOME")
     System.put_env("CODEX_HOME", Path.join(dir, "codex-home"))
+    # Git reads no user configuration: the host's Git checks stay the same with or without
+    # a ~/.gitconfig, including where reading it is denied.
+    previous_git_config = System.get_env("GIT_CONFIG_GLOBAL")
+    System.put_env("GIT_CONFIG_GLOBAL", "/dev/null")
 
     for tool <- ["git", "mkfifo"] do
       File.ln_s!(System.find_executable(tool), Path.join(bin, tool))
@@ -36,6 +40,10 @@ defmodule AtlasRuntime.NativeAdmissionTest do
       if previous_home,
         do: System.put_env("CODEX_HOME", previous_home),
         else: System.delete_env("CODEX_HOME")
+
+      if previous_git_config,
+        do: System.put_env("GIT_CONFIG_GLOBAL", previous_git_config),
+        else: System.delete_env("GIT_CONFIG_GLOBAL")
 
       File.rm_rf!(dir)
     end)
@@ -759,6 +767,7 @@ defmodule AtlasRuntime.NativeAdmissionTest do
     refute File.exists?(git_log)
   end
 
+  @tag skip: TestHost.missing(:home_private_temp)
   test "Claude materialized-folder binds the snapshot scope as its Git-free context and never rebinds",
        context do
     real = AtlasRuntime.Workspaces.workspace_path(context.dir)

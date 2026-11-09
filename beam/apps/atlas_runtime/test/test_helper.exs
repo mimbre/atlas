@@ -16,6 +16,10 @@ executable = Path.join(folder, "atlas-runtime")
 previous = System.get_env("ATLAS_RUNTIME_EXECUTABLE")
 
 ExUnit.after_suite(fn _ ->
+  # ExUnit counts skips without their reasons; a host capability skip says what was missing.
+  for {capability, reason} <- AtlasRuntime.TestHost.missing_report(),
+      do: IO.puts("Skipped tests needing #{capability}: #{reason}")
+
   File.rm_rf!(folder)
   System.delete_env("ATLAS_RUNTIME_FAKE_NATIVE")
 
