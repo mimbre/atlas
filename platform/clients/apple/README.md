@@ -2,7 +2,7 @@
 
 Hand-written Swift for the macOS app (and later iOS), as
 [docs/design/apple-clients.md](../../../docs/design/apple-clients.md) describes. The contract
-is the generated package `AtlasControlKit` (`platform/atlas_control/bff/targets/swift`), used by path; nothing
+is the generated package `AtlasControlKit` (`platform/atlas_control/backend/targets/swift`), used by path; nothing
 here is generated, and nothing here knows a kind, a relation or a flow: the app shows what
 Control's `boot` and pages send.
 

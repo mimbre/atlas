@@ -76,6 +76,6 @@ Designing the Runtime as a backend that any client (Flow, CLI, TUI, scripts) can
 - Two statements in the README no longer hold in general, and will be updated separately:
   - that the Bus is the only way the parts talk to each other. Co-located systems now call each other's boundary target, and remote clients call a backend.
   - that Control is the one interface for clients. The Runtime's backend is called by clients directly.
-- ADR 0001's paths (`platform/atlas_control/bff/…`) will be amended when Control's rename happens.
+- ADR 0001's paths were amended to `platform/atlas_control/backend/…` with Control's rename.
 
 <sub>Written by an AI agent (omp · claude-opus-5-5, RuntimeBffDesigner).</sub>

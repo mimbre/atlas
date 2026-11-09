@@ -661,7 +661,7 @@ defmodule AtlasControl.Pages do
     |> Enum.sort_by(fn {_, _, link} -> if link["late"] == true, do: 0, else: 1 end)
   end
 
-  # What is assigned to the client, calm by default and detail on demand (platform/atlas_control/bff/README.md):
+  # What is assigned to the client, calm by default and detail on demand (platform/atlas_control/backend/README.md):
   # an Overview of the counts, the list without technical noise, and each row's technical
   # details in a Details section a client folds until asked (`details_action/0`).
   defp assigned(m, _by, answers, marked) do
@@ -695,7 +695,7 @@ defmodule AtlasControl.Pages do
   end
 
   @doc """
-  A calm page's technical details (platform/atlas_control/bff/README.md): `{content, markup}` to add to the page,
+  A calm page's technical details (platform/atlas_control/backend/README.md): `{content, markup}` to add to the page,
   one pair per row in list order in an `item` `details` titled "Technical details" inside a
   collapsible `section` titled "Details"; nothing when there are no pairs. A page with
   them offers `details_action/0`.
@@ -743,7 +743,7 @@ defmodule AtlasControl.Pages do
   end
 
   @doc """
-  A calm page's Overview (platform/atlas_control/bff/README.md): an `item` titled "Overview" with one pair per
+  A calm page's Overview (platform/atlas_control/backend/README.md): an `item` titled "Overview" with one pair per
   `{label, count}`; the first, the main count, always, the others only when some are.
   """
   def summary([main | more]) do

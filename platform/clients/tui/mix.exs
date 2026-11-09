@@ -2,8 +2,8 @@ defmodule AtlasTui.MixProject do
   use Mix.Project
 
   # A client of Control, not part of the BEAM platform: it shares no code with it and
-  # knows only Control's contract (platform/atlas_control/bff/contract), read at compile time into
-  # lib/atlas_tui/blocks.ex, with the generator that reads it (platform/atlas_control/bff/generator).
+  # knows only Control's contract (platform/atlas_control/backend/contract), read at compile time into
+  # lib/atlas_tui/blocks.ex, with the generator that reads it (platform/atlas_control/backend/generator).
   def project do
     [
       app: :atlas_tui,
@@ -11,7 +11,7 @@ defmodule AtlasTui.MixProject do
       elixir: "~> 1.18",
       start_permanent: false,
       deps: [
-        {:atlas_bff_contract, path: "../../atlas_control/bff/contract"},
+        {:atlas_bff_contract, path: "../../atlas_control/backend/contract"},
         {:atlas_control_transport, path: "../transport"}
       ]
     ]

@@ -1,7 +1,7 @@
 defmodule AtlasAgent.Client do
   @moduledoc """
   One connection to Control of an environment, speaking its protocol
-  (`platform/atlas_control/bff/README.md`) as the TUI does: hello, open a path, submit a form. It waits
+  (`platform/atlas_control/backend/README.md`) as the TUI does: hello, open a path, submit a form. It waits
   for what it asked and passes over the rest (hints, notices, reconciles).
 
   Everything it knows comes from Control's pages: a form names the fields it asks and
