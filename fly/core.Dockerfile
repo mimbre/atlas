@@ -11,6 +11,7 @@ COPY bff/generator /src/bff/generator
 COPY bff/contract /src/bff/contract
 COPY flow/generator /src/flow/generator
 COPY flow/targets/atlas/flows.json /src/flow/targets/atlas/flows.json
+COPY flow/targets/test/atlas/flows.json /src/flow/targets/test/atlas/flows.json
 COPY beam /src/beam
 WORKDIR /src/beam
 RUN mix compile --warnings-as-errors && mix release atlas
@@ -29,6 +30,7 @@ COPY --from=build /src/beam/_build/prod/rel/atlas /app/release
 # rela must not load flows (D-0068).
 COPY rela/schema.yaml rela/data-entry.yaml rela/atlas.json rela/atlas.manifest.json rela/flows.yaml rela/flow-runtime.json /app/rela/
 COPY rela/modules /app/rela/modules
+COPY flow/targets/test/rela/flows.yaml /app/flow/targets/test/rela/flows.yaml
 COPY rela/compositions /app/rela/compositions
 COPY rela/scripts/verify.py /app/rela/scripts/verify.py
 RUN python3 /app/rela/scripts/verify.py /app/rela

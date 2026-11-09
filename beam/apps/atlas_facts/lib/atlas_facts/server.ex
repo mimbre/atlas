@@ -137,7 +137,31 @@ defmodule AtlasFacts.Server do
     if AtlasFacts.FlowInputs.kind?(state.description || %{}, envelope.kind) and input_protocol? do
       flow_input(envelope, content, state)
     else
-      dispatch_ordinary(envelope, content, state)
+      capture =
+        if envelope.class == "fact",
+          do:
+            AtlasFacts.FlowInputs.capture(
+              AtlasFacts.Collections.uncached(state.rela),
+              state.description || %{},
+              envelope,
+              content
+            ),
+          else: :ordinary
+
+      case capture do
+        {:capture, input} ->
+          flow_input(
+            %{envelope | kind: state.description["flow_runtime"]["inputs"]["kind"]},
+            input,
+            state
+          )
+
+        {:error, reason} ->
+          refusal(envelope, reason, state)
+
+        :ordinary ->
+          dispatch_ordinary(envelope, content, state)
+      end
     end
   end
 

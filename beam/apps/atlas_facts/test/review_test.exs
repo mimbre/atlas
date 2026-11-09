@@ -25,6 +25,48 @@ defmodule AtlasFacts.ReviewTest do
 
   defp fact(key, values, links \\ %{}), do: %{key: key, properties: values, links: links}
 
+  test "ordered review rules flag unverified anchors, clear on confirmation and prioritize replacement" do
+    rule = @d["relations"]["printed_from"]["review"]
+
+    d =
+      put_in(@d, ["relations", "printed_from", "review"], [
+        rule,
+        %{"field" => "unverified", "value" => true, "label" => "Unverified template"}
+      ])
+
+    label = fact("L-1", %{}, %{"printed_from" => ["T-1"]})
+
+    for {status, flag, expected} <- [
+          {"used", true, "Unverified template"},
+          {"used", false, nil},
+          {"replaced", false, rule["label"]}
+        ] do
+      lists = %{"template" => [fact("T-1", %{"status" => status, "unverified" => flag})]}
+      assert (Review.of(d, lists, "label", label) || %{})["label"] == expected
+    end
+
+    assert Review.needs(d, "label") == ["template"]
+  end
+
+  test "an own-field flag is visible only while it holds" do
+    d =
+      Map.put(@d, "flow_runtime", %{
+        "flags" => %{
+          "template" => %{"field" => "unverified", "value" => true, "label" => "Red flag"}
+        }
+      })
+
+    assert {:ok, [%{review: %{"label" => "Red flag"}}]} =
+             Review.annotate(d, "template", [fact("T-1", %{"unverified" => true})], fn _ ->
+               flunk("no reads")
+             end)
+
+    assert {:ok, [%{review: nil}]} =
+             Review.annotate(d, "template", [fact("T-1", %{"unverified" => false})], fn _ ->
+               flunk("no reads")
+             end)
+  end
+
   test "to be reviewed while a fact it points at has the value; why is said" do
     lists = %{
       "template" => [fact("T-1", %{"status" => "replaced"}), fact("T-2", %{"status" => "used"})]

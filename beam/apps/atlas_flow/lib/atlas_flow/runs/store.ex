@@ -2,6 +2,7 @@ defmodule AtlasFlow.Runs.Store do
   @moduledoc "One writer reconciles durable cursors through Facts before sending entry writes."
   alias AtlasFlow.Runs.Run
   alias AtlasFlow.Talk
+  alias AtlasFlow.Activities.Gate
 
   @structured ~w(deadlines pending last_input)
 
@@ -77,18 +78,12 @@ defmodule AtlasFlow.Runs.Store do
         |> Enum.group_by(&{&1["flow"], &1["subject_kind"], &1["subject_key"]})
         |> Enum.map(fn {_, group} -> Enum.max_by(group, & &1["generation"]) end)
 
-      drifted = Enum.find(runs, &(&1["definition_sha256"] != Run.digest(flows[&1["flow"]])))
-
-      if drifted do
-        {:error, {:definition_changed, drifted["key"]}}
-      else
-        Enum.reduce_while(runs, {:ok, []}, fn run, {:ok, acc} ->
-          case drain(config, run["key"], flows[run["flow"]], now, 32) do
-            {:ok, restored} -> {:cont, {:ok, [restored | acc]}}
-            error -> {:halt, error}
-          end
-        end)
-      end
+      Enum.reduce_while(runs, {:ok, []}, fn run, {:ok, acc} ->
+        case drain(config, run["key"], flows[run["flow"]], now, 32) do
+          {:ok, restored} -> {:cont, {:ok, [restored | acc]}}
+          error -> {:halt, error}
+        end
+      end)
     else
       other -> {:error, {:runs_unavailable, other}}
     end
@@ -156,45 +151,130 @@ defmodule AtlasFlow.Runs.Store do
 
   defp drain(config, key, flow, now, remaining) do
     with {:ok, %{} = fact} <- fetch(config, key),
-         {:ok, run} <- decode(config, fact),
-         true <- run["definition_sha256"] == Run.digest(flow) do
-      case run["pending"]["writes"] do
-        [write | rest] ->
-          case Talk.put(write["kind"], write["content"], write["id"]) do
-            {:stored, _} ->
-              updated = put_in(run, ["pending", "writes"], rest)
-              advance(config, fact, run, updated, flow, now, remaining)
+         {:ok, run} <- decode(config, fact) do
+      if run["definition_sha256"] != Run.digest(flow) do
+        migrations = config["selection"][run["flow"]]["migrations"] || []
 
-            error ->
-              {:error, {:pending, error}}
-          end
+        case Run.migrate(run, flow, migrations, now) do
+          {:ok, updated} -> advance(config, fact, run, updated, flow, now, remaining)
+          _ -> {:error, {:definition_changed, key}}
+        end
+      else
+        case run["pending"]["writes"] do
+          [write | rest] ->
+            case Talk.put(write["kind"], write["content"], write["id"]) do
+              {:stored, _} ->
+                updated = put_in(run, ["pending", "writes"], rest)
+                advance(config, fact, run, updated, flow, now, remaining)
 
-        [] ->
-          with :ok <- consume_input(config["inputs"], run),
-               {:ok, inputs} <- read_inputs(config["inputs"], run) do
-            # Recover prepared writes first, then fetch the subject's current ETag.
-            case Talk.transition_read(run["subject_kind"], %{
-                   "key" => run["subject_key"],
-                   "plain" => true
-                 }) do
-              %{"fact" => %{} = subject} = answer ->
-                subject =
-                  Map.put(subject, "position", answer["position"] || subject["position"] || 0)
-
-                with {:ok, updated} <- Run.step(run, flow, subject, now, inputs) do
-                  if updated == run,
-                    do: {:ok, run},
-                    else: advance(config, fact, run, updated, flow, now, remaining)
-                end
-
-              other ->
-                {:error, {:subject_unavailable, other}}
+              error ->
+                {:error, {:pending, error}}
             end
-          end
+
+          [] ->
+            with :ok <- consume_input(config["inputs"], run),
+                 {:ok, inputs} <- read_inputs(config["inputs"], run) do
+              # Recover prepared writes first, then fetch the subject's current ETag.
+              case Talk.transition_read(run["subject_kind"], %{
+                     "key" => run["subject_key"],
+                     "plain" => true
+                   }) do
+                %{"fact" => %{} = subject} = answer ->
+                  subject =
+                    Map.put(subject, "position", answer["position"] || subject["position"] || 0)
+
+                  with {:ok, updated} <- next(config, run, flow, subject, now, inputs) do
+                    if updated == run,
+                      do: {:ok, run},
+                      else: advance(config, fact, run, updated, flow, now, remaining)
+                  end
+
+                other ->
+                  {:error, {:subject_unavailable, other}}
+              end
+            end
+        end
       end
     else
       false -> {:error, {:definition_changed, key}}
       other -> {:error, {:invalid_run, key, other}}
+    end
+  end
+
+  defp next(config, run, flow, subject, now, inputs) do
+    state = flow["states"][run["state"]]
+    review = config["selection"][run["flow"]]["verification"]
+    verdict = run["pending"]["verdict"]
+
+    cond do
+      state != nil and state["kind"] == "gate" and run["status"] == "active" ->
+        gate_next(run, flow, subject, now, state["spec"])
+
+      state != nil and
+          Enum.any?(inputs, fn i ->
+            Enum.any?(state["branches"], fn b ->
+              (b["roles"] || []) != [] and AtlasFlow.Runs.Inputs.eligible?(i, run, subject, b)
+            end)
+          end) ->
+        Run.step(run, flow, subject, now, inputs)
+
+      run["status"] == "active" and verdict != nil and
+        is_map(verdict["fingerprint_definition"]) and
+          AtlasBus.SubjectFingerprint.of(subject, verdict["fingerprint_definition"]) !=
+            verdict["fingerprint"] ->
+        Run.refresh_gate(run, flow, subject, now)
+
+      review != nil and subject["values"][review["field"]] == true and
+          run["pending"]["verdict"] != nil ->
+        verdict = run["pending"]["verdict"]
+
+        case Talk.transition_read(review["kind"], %{"key" => verdict["recorded"], "plain" => true}) do
+          %{"fact" => %{} = fact} ->
+            if Enum.any?(review["relations"], &(List.wrap(fact["links"][&1]) != [])) do
+              write = %{
+                "id" => Run.digest({run["key"], verdict["recorded"], "verified"}),
+                "kind" => run["subject_kind"],
+                "content" => %{
+                  "op" => "change",
+                  "key" => run["subject_key"],
+                  "by" => "flow",
+                  "values" => %{review["field"] => false}
+                }
+              }
+
+              {:ok, put_in(run, ["pending", "writes"], [write])}
+            else
+              Run.step(run, flow, subject, now, inputs)
+            end
+
+          other ->
+            {:error, {:review_unavailable, other}}
+        end
+
+      true ->
+        Run.step(run, flow, subject, now, inputs)
+    end
+  end
+
+  defp gate_next(run, flow, subject, now, spec) do
+    intent = run["pending"]["gate"]
+
+    cond do
+      intent == nil ->
+        {:ok, put_in(run, ["pending", "gate"], Gate.intent(run, spec))}
+
+      intent["request"] == nil ->
+        with {:ok, reply} <- Talk.gate("prepare", intent),
+             {:ok, frozen} <- Gate.freeze(intent, reply),
+             do: {:ok, put_in(run, ["pending", "gate"], frozen)}
+
+      AtlasBus.SubjectFingerprint.of(subject, intent["request"]["fingerprint_definition"]) !=
+          intent["request"]["fingerprint"] ->
+        Run.restart_gate(run, flow, subject, now)
+
+      true ->
+        with {:ok, reply} <- Talk.gate("decide", intent),
+             do: Run.gate_result(run, flow, subject, now, reply)
     end
   end
 

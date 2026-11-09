@@ -21,6 +21,8 @@ defmodule AtlasGates.Request do
     :subject,
     :fingerprint,
     :evidence_digest,
+    :activity_id,
+    :activity_digest,
     evidence: %{},
     allowed_outcomes: [],
     links: %{}
@@ -59,6 +61,8 @@ defmodule AtlasGates.Request do
         fingerprint: attrs["fingerprint"],
         evidence: attrs["evidence"],
         evidence_digest: attrs["evidence_digest"],
+        activity_id: attrs["activity_id"],
+        activity_digest: attrs["activity_digest"],
         allowed_outcomes: allowed,
         links: links
       }
@@ -69,7 +73,9 @@ defmodule AtlasGates.Request do
 
   @doc "The values that identify the decision; a recorded verdict with all of them is this request's."
   def identity(%__MODULE__{} = r),
-    do: [r.gate, r.gate_version, r.rule_version, r.subject, r.fingerprint, r.evidence_digest]
+    do:
+      [r.gate, r.gate_version, r.rule_version, r.subject, r.fingerprint, r.evidence_digest] ++
+        if(r.activity_id, do: [r.activity_id, r.activity_digest], else: [])
 
   @doc "The verdict a gate gives when it cannot decide by itself: its decide map's verdict for an error."
   def safe_verdict(gate), do: get_in(gate, ["decide", "error"])

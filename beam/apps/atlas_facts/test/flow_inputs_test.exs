@@ -173,6 +173,111 @@ defmodule AtlasFacts.FlowInputsTest do
              submit(c, c.v |> Map.put("request_id", "choice-2") |> Map.put("entry", 2))
   end
 
+  test "ordinary Control choices are captured before writing, replayed across entries and bind links",
+       c do
+    d =
+      put_in(c.d, ["flow_runtime", "selection"], %{
+        "sort" => %{"subject" => "box", "choices" => ["choice"]}
+      })
+
+    e = %{Envelope.new("fact", "box", id: "captured") | sender: "control/session-test"}
+    content = %{"op" => "change", "key" => "B-1", "by" => "ada", "values" => %{"choice" => "yes"}}
+    assert {:capture, request} = FlowInputs.capture(c.rela, d, e, content)
+    assert request["values"]["source_version"] == c.v["source_version"]
+    assert {:ok, input} = submit(%{c | d: d}, request["values"])
+    assert input["links"] == %{}
+    {:ok, current} = Rela.get(c.rela, "cursors", "R-1")
+
+    {:ok, []} =
+      Rela.change(
+        c.rela,
+        "cursors",
+        "R-1",
+        %{"entry" => 2, "status" => "completed"},
+        current.version,
+        %{}
+      )
+
+    assert {:capture, ^request} = FlowInputs.capture(c.rela, d, e, content)
+
+    assert {:error, :request_conflict} =
+             FlowInputs.capture(
+               c.rela,
+               d,
+               e,
+               Map.put(content, "links", %{"chosen_by" => ["other"]})
+             )
+
+    assert {:error, :input_authority} =
+             FlowInputs.capture(c.rela, d, %{e | sender: "client"}, content)
+  end
+
+  test "a choice after the deadline or outside a waiting state writes nothing", c do
+    {:ok, current} = Rela.get(c.rela, "cursors", "R-1")
+
+    {:ok, []} =
+      Rela.change(
+        c.rela,
+        "cursors",
+        "R-1",
+        %{
+          "deadlines" =>
+            JSON.encode!(%{"version" => 1, "timers" => [%{"due" => "2026-11-11T23:59:59Z"}]})
+        },
+        current.version,
+        %{}
+      )
+
+    assert {:error, :stale_or_unauthorized_input} = submit(c)
+    {:ok, current} = Rela.get(c.rela, "cursors", "R-1")
+
+    {:ok, []} =
+      Rela.change(
+        c.rela,
+        "cursors",
+        "R-1",
+        %{"deadlines" => JSON.encode!(%{"timers" => []}), "state" => "routing"},
+        current.version,
+        %{}
+      )
+
+    d = put_in(c.d, ["flow_runtime", "selection"], %{"sort" => %{"choice_states" => ["waiting"]}})
+    assert {:error, :stale_or_unauthorized_input} = submit(%{c | d: d})
+    assert {:ok, []} = Rela.list(c.rela, "choices")
+    assert {:ok, subject} = Rela.get(c.rela, "boxes", "B-1")
+    assert subject.properties["choice"] == "none"
+  end
+
+  test "capture retains optimistic field checks after a separate association write", c do
+    d =
+      put_in(c.d, ["flow_runtime", "selection"], %{
+        "sort" => %{"subject" => "box", "choices" => ["choice"]}
+      })
+
+    {:ok, []} =
+      Rela.change(c.rela, "boxes", "B-1", %{"phase" => "later"}, c.v["source_version"], %{})
+
+    {:ok, fresh} = Rela.get(c.rela, "boxes", "B-1")
+    e = %{Envelope.new("fact", "box") | sender: "control/session-test"}
+
+    content = %{
+      "op" => "change",
+      "key" => "B-1",
+      "by" => "ada",
+      "version" => c.v["source_version"],
+      "values" => %{"choice" => "yes"},
+      "was" => %{"choice" => "none"}
+    }
+
+    assert {:capture, request} = FlowInputs.capture(c.rela, d, e, content)
+    assert request["values"]["source_version"] == fresh.version
+
+    assert {:capture, stale} =
+             FlowInputs.capture(c.rela, d, e, put_in(content, ["was", "choice"], "other"))
+
+    assert stale["values"]["source_version"] == c.v["source_version"]
+  end
+
   test "restart recovers a persisted prepare and refuses ambiguous recovery", c do
     assert {:error, :interrupted} =
              submit(c, nil, "ada", "control/session-test", fn _, _, _ ->

@@ -76,6 +76,36 @@ defmodule AtlasFacts.FlowRuntimeTest do
                put_in(config, ["selection", "ship"], config["selection"]["sort"])
              )
   end
+
+  test "presentation templates apply only to targets the composition declares" do
+    {description, config} = fixture()
+
+    description =
+      Map.put(description, "relations", %{"anchor" => %{"from" => ["cursor"], "to" => ["box"]}})
+
+    rule = %{"field" => "phase", "value" => "first", "label" => "Check anchor"}
+
+    config =
+      config
+      |> Map.put("reviews", %{"anchor" => [rule], "absent" => [rule]})
+      |> Map.put("flags", %{"box" => rule, "absent" => rule})
+
+    assert :ok = FlowRuntime.validate(description, config)
+    assert {:ok, merged} = FlowRuntime.describe(description, %{"flow_runtime" => config})
+    assert merged["flow_runtime"]["reviews"] == %{"anchor" => [rule]}
+    assert merged["flow_runtime"]["flags"] == %{"box" => rule}
+    refute Map.has_key?(merged["relations"], "absent")
+    assert merged["relations"]["anchor"]["review"] == [rule]
+    assert merged["flow_runtime"]["selection"] == config["selection"]
+
+    for bad <- [
+          put_in(config, ["reviews", "anchor"], [Map.put(rule, "field", "unknown")]),
+          put_in(config, ["flags", "box", "field"], "unknown"),
+          Map.put(config, "reviews", [])
+        ] do
+      assert {:error, _} = FlowRuntime.describe(description, %{"flow_runtime" => bad})
+    end
+  end
 end
 
 defmodule AtlasFacts.FlowRuntimeWriterTest do

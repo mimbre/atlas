@@ -45,6 +45,16 @@ defmodule AtlasFacts.Guards do
     spec = get_in(description, ["entities", kind]) || %{}
     rules = Map.take(spec, ["requires", "authority", "frozen", "replaces", "layering", "sealed"])
 
+    machine = get_in(description, ["flow_runtime", "writer"])
+
+    writers =
+      for {field, p} <- spec["properties"] || %{},
+          machine != nil and p["set_by"] == [machine["by"]],
+          into: %{},
+          do: {field, machine}
+
+    rules = if writers == %{}, do: rules, else: Map.put(rules, "field_writers", writers)
+
     rules =
       case description["flow_runtime"] do
         %{"kind" => ^kind, "writer" => writer} -> Map.put(rules, "machine_writer", writer)
@@ -96,7 +106,8 @@ defmodule AtlasFacts.Guards do
 
     fetch = env["fetch"] || fn _ -> nil end
 
-    with :ok <- machine_writer(rules["machine_writer"], env),
+    with :ok <- field_writers(rules["field_writers"] || %{}, values, env),
+         :ok <- machine_writer(rules["machine_writer"], env),
          :ok <- sealed(rules["sealed"], op, key, current, values, links),
          :ok <- frozen(rules["frozen"], op, key, current, values, links) do
       if op == "delete" do
@@ -115,6 +126,16 @@ defmodule AtlasFacts.Guards do
         if reasons == [], do: :ok, else: {:refused, reasons}
       end
     end
+  end
+
+  defp field_writers(writers, values, env) do
+    refused =
+      for {field, writer} <- writers,
+          Map.has_key?(values, field),
+          machine_writer(writer, env) != :ok,
+          do: field
+
+    if refused == [], do: :ok, else: {:refused, ["protected fields: #{Enum.join(refused, ", ")}"]}
   end
 
   @doc """

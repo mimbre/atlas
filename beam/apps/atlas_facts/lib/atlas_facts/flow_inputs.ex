@@ -3,10 +3,104 @@ defmodule AtlasFacts.FlowInputs do
   alias AtlasFacts.{Description, Rela}
   alias AtlasBus.Digest
 
-  @fields ~w(request_id run flow subject_kind subject_key generation entry source_version subject_version actor roles changed_fields payload_digest status position prepared_at applied_at)
-  @structured ~w(roles changed_fields)
+  @fields ~w(request_id run flow subject_kind subject_key generation entry source_version subject_version actor roles changed_fields links payload_digest status position prepared_at applied_at)
+  @structured ~w(roles changed_fields links)
   def fields, do: @fields
   def kind?(d, kind), do: get_in(d, ["flow_runtime", "inputs", "kind"]) == kind
+
+  def capture(rela, d, e, %{"op" => "change", "by" => actor, "key" => _key} = content) do
+    c = d["flow_runtime"]
+
+    selection =
+      c &&
+        Enum.find(c["selection"], fn {_, s} ->
+          s["subject"] == e.kind and
+            Enum.any?(s["choices"] || [], &Map.has_key?(content["values"] || %{}, &1))
+        end)
+
+    if selection && String.starts_with?(e.sender || "", "control/session-") do
+      case Rela.get(rela, plural(d), identity(e.id)) do
+        {:ok, fact} ->
+          value = decode(d, fact)
+
+          if value["actor"] == actor and value["changed_fields"] == content["values"] and
+               (value["links"] || %{}) == (content["links"] || %{}) do
+            {:capture,
+             %{
+               "op" => "submit",
+               "by" => actor,
+               "values" => %{
+                 "request_id" => e.id,
+                 "run" => value["run"],
+                 "entry" => value["entry"],
+                 "source_version" => value["source_version"],
+                 "changed_fields" => value["changed_fields"],
+                 "links" => value["links"] || %{}
+               }
+             }}
+          else
+            {:error, :request_conflict}
+          end
+
+        {:error, :not_found} ->
+          capture_new(rela, d, e, content, selection)
+
+        other ->
+          other
+      end
+    else
+      if selection, do: {:error, :input_authority}, else: :ordinary
+    end
+  end
+
+  def capture(_, _, _, _), do: :ordinary
+
+  defp capture_new(rela, d, e, content, selection) do
+    c = d["flow_runtime"]
+    key = content["key"]
+
+    with {:ok, facts} <- Rela.list(rela, Description.kind(d, c["kind"])["plural"]),
+         run when not is_nil(run) <-
+           Enum.find(facts, fn f ->
+             f.properties[c["fields"]["subject_key"]] == key and
+               f.properties[c["fields"]["flow"]] == elem(selection, 0) and
+               f.properties[c["fields"]["status"]] == "active"
+           end),
+         {:ok, subject} <- Rela.get(rela, Description.kind(d, e.kind)["plural"], key) do
+      seen = content["was"] || %{}
+
+      unchanged =
+        Enum.all?(content["values"] || %{}, fn {field, _} ->
+          Map.has_key?(seen, field) and seen[field] == subject.properties[field]
+        end) and
+          Enum.all?(content["links"] || %{}, fn {relation, _} ->
+            Map.has_key?(seen, relation) and
+              Enum.sort(List.wrap(seen[relation])) == Enum.sort(subject.links[relation] || [])
+          end)
+
+      source_version =
+        if content["version"] == nil or content["version"] == subject.version or unchanged,
+          do: subject.version,
+          else: content["version"]
+
+      {:capture,
+       %{
+         "op" => "submit",
+         "by" => content["by"],
+         "values" => %{
+           "request_id" => e.id,
+           "run" => run.key,
+           "entry" => run.properties[c["fields"]["entry"]],
+           "source_version" => source_version,
+           "changed_fields" => content["values"] || %{},
+           "links" => content["links"] || %{}
+         }
+       }}
+    else
+      {:error, reason} -> {:error, reason}
+      _ -> :ordinary
+    end
+  end
 
   def validate(_d, nil), do: :ok
 
@@ -82,7 +176,9 @@ defmodule AtlasFacts.FlowInputs do
          true <-
            is_binary(e.sender) and String.starts_with?(e.sender, "control/session-") and
              is_binary(actor) and actor != "",
-         true <- Enum.sort(Map.keys(v)) == ~w(changed_fields entry request_id run source_version),
+         true <-
+           Enum.sort(Map.keys(Map.delete(v, "links"))) ==
+             ~w(changed_fields entry request_id run source_version),
          true <-
            is_binary(v["request_id"]) and v["request_id"] != "" and is_map(v["changed_fields"]) and
              map_size(v["changed_fields"]) > 0,
@@ -180,9 +276,17 @@ defmodule AtlasFacts.FlowInputs do
     with true <-
            run["status"] == "active" and run["entry"] == v["entry"] and
              run["pending"]["writes"] == [],
+         true <- choice_state?(d, run),
+         true <- before_deadline?(run, now.()),
          {:ok, subject} <- subject(rela, d, run),
          true <- subject.version == v["source_version"],
-         roles = roles(d, run["subject_kind"], subject, actor),
+         roles =
+           roles(
+             d,
+             run["subject_kind"],
+             %{subject | links: Map.merge(subject.links, v["links"] || %{})},
+             actor
+           ),
          true <- roles != [],
          :ok <-
            write.authorize.(
@@ -192,6 +296,7 @@ defmodule AtlasFacts.FlowInputs do
                "key" => run["subject_key"],
                "version" => v["source_version"],
                "values" => v["changed_fields"],
+               "links" => v["links"] || %{},
                "by" => actor
              },
              v["request_id"]
@@ -211,6 +316,7 @@ defmodule AtlasFacts.FlowInputs do
           "actor" => actor,
           "roles" => roles,
           "changed_fields" => v["changed_fields"],
+          "links" => v["links"] || %{},
           "payload_digest" => digest,
           "status" => "prepared",
           "position" => position.(),
@@ -225,6 +331,18 @@ defmodule AtlasFacts.FlowInputs do
       false -> {:error, :stale_or_unauthorized_input}
       error -> error
     end
+  end
+
+  defp choice_state?(d, run) do
+    states = get_in(d, ["flow_runtime", "selection", run["flow"], "choice_states"])
+    states == nil or run["state"] in states
+  end
+
+  defp before_deadline?(run, now) do
+    Enum.all?(get_in(run, ["deadlines", "timers"]) || [], fn t ->
+      {:ok, due, _} = DateTime.from_iso8601(t["due"])
+      DateTime.compare(now, due) != :gt
+    end)
   end
 
   defp roles(d, kind, subject, actor) do
@@ -266,7 +384,10 @@ defmodule AtlasFacts.FlowInputs do
 
   defp apply_subject(subject, value, write) do
     matches =
-      Enum.all?(value["changed_fields"], fn {field, v} -> subject.properties[field] == v end)
+      Enum.all?(value["changed_fields"], fn {field, v} -> subject.properties[field] == v end) and
+        Enum.all?(value["links"] || %{}, fn {relation, keys} ->
+          Enum.sort(subject.links[relation] || []) == Enum.sort(keys)
+        end)
 
     if subject.version == value["source_version"] or matches do
       # The receiver binds the same request id to this exact payload, including
@@ -277,6 +398,7 @@ defmodule AtlasFacts.FlowInputs do
           "op" => "change",
           "key" => value["subject_key"],
           "values" => value["changed_fields"],
+          "links" => value["links"] || %{},
           "version" => value["source_version"],
           "by" => value["actor"]
         },
@@ -297,6 +419,10 @@ defmodule AtlasFacts.FlowInputs do
        values
        |> Map.put("key", key)
        |> Map.update!("pending", &JSON.decode!/1)
+       |> Map.update("deadlines", %{"version" => 1, "timers" => []}, fn
+         nil -> %{"version" => 1, "timers" => []}
+         text -> JSON.decode!(text)
+       end)
        |> Map.update!("last_input", &JSON.decode!/1)}
     end
   end
@@ -321,10 +447,11 @@ defmodule AtlasFacts.FlowInputs do
     do:
       Map.new(d["flow_runtime"]["inputs"]["fields"], fn {slot, field} ->
         {slot,
-         if(slot in @structured,
-           do: structured!(fact.properties[field]),
-           else: fact.properties[field]
-         )}
+         cond do
+           slot == "links" and fact.properties[field] == nil -> %{}
+           slot in @structured -> structured!(fact.properties[field])
+           true -> fact.properties[field]
+         end}
       end)
       |> Map.put("key", fact.key)
 

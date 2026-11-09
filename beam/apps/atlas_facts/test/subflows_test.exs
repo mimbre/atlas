@@ -3,6 +3,18 @@ defmodule AtlasFacts.SubflowsTest do
 
   alias AtlasFacts.Subflows
 
+  test "Facts describes the same concrete environment pair that the runner selects" do
+    root = Path.expand("../../../../flow/targets", __DIR__)
+    test_yaml = File.read!(Path.join(root, "test/rela/flows.yaml"))
+    prod_yaml = File.read!(Path.join(root, "rela/flows.yaml"))
+    assert Subflows.Test.check_rela_flows(test_yaml) == :ok
+    assert Subflows.Prod.check_rela_flows(prod_yaml) == :ok
+    assert {:error, _} = Subflows.Test.check_rela_flows(prod_yaml)
+    assert {:error, _} = Subflows.Prod.check_rela_flows(test_yaml)
+    expected = if AtlasBus.environment() == "test", do: Subflows.Test, else: Subflows.Prod
+    assert Subflows.flows() == expected.flows()
+  end
+
   # A neutral description: letters, assigned through a desk to a clerk or a team.
   @description %{
     "entities" => %{

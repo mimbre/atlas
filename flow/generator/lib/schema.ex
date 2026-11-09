@@ -816,7 +816,18 @@ defmodule AtlasFlowGenerator.Schema do
     }
 
     owned = for p <- owner_problems(get.(:owner), "subflow #{name}: "), do: {at.(:owner), p}
-    {flow, problems ++ owned}
+
+    fixed_timers =
+      for s <- built,
+          match?({:gate, _}, s.mechanism),
+          b <- s.branches,
+          b.when == "entity.gate_result == 'person_always'",
+          target <- built,
+          target.name == b.to,
+          target.timers != [],
+          do: {target.line, "a person_always destination cannot have a timer"}
+
+    {flow, problems ++ owned ++ fixed_timers}
   end
 
   # The default owner as `%{kind:, key:}`, as an assignee is named.
@@ -864,6 +875,14 @@ defmodule AtlasFlowGenerator.Schema do
 
   defp default_problems(other, pre),
     do: [pre <> "default must be {kind, key}, such as {:team, :desk}; got #{inspect(other)}"]
+
+  defp valid_period?({:gate_limit, name}, gates),
+    do: Enum.any?(gates, &(&1.name == name and is_list(&1[:answer_within])))
+
+  defp valid_period?(period, _) when is_binary(period),
+    do: Regex.match?(~r/\A[1-9][0-9]*(ms|s|m|h|d)\z/, period)
+
+  defp valid_period?(_, _), do: false
 
   defp build_state(%{name: name, opts: opts, final: final?, line: line, items: items}, gates) do
     state = %{
@@ -967,11 +986,12 @@ defmodule AtlasFlowGenerator.Schema do
     {%{s | creates: s.creates ++ [create]}, []}
   end
 
-  defp put({:timer, name, period, opts}, s, _gates) do
+  defp put({:timer, name, period, opts}, s, gates) do
     timer = %{name: name, period: period, to: opts[:to], since: opts[:since], label: opts[:label]}
 
     problems =
       [
+        not valid_period?(period, gates) && "timer #{name} has an invalid period or gate limit",
         opts[:to] == nil && "timer #{name} needs to: a state",
         not valid_name?(name) && "timer name #{name} is not a valid name",
         Enum.any?(s.timers, &(&1.name == name)) && "timer #{name} is defined twice"

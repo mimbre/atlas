@@ -13,6 +13,7 @@ defmodule Atlas.MixProject do
           applications: [
             atlas_bus: :permanent,
             atlas_facts: :permanent,
+            atlas_gates: :permanent,
             atlas_flow: :permanent,
             atlas_runtime: :permanent,
             atlas_control: :permanent
