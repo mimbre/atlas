@@ -4,6 +4,7 @@ defmodule AtlasFlow.Runs.Run do
   alias AtlasFlow.Runs.{Conditions, Inputs}
   alias AtlasFlow.Activities.Gate
   alias AtlasFlow.Activities.Pass
+  alias AtlasFlow.Activities.Effect
 
   # Definitions are published JSON data; stable internal request identities retain
   # their existing term encoding so pending writes keep their idempotency keys.
@@ -35,6 +36,7 @@ defmodule AtlasFlow.Runs.Run do
     safe =
       state != nil and Map.has_key?(flow["states"], state) and run["pending"]["writes"] == [] and
         run["pending"]["gate"] == nil and run["pending"]["pass"] == nil and
+        run["pending"]["effect"] == nil and
         run["deadlines"]["timers"] == []
 
     original = run
@@ -136,6 +138,7 @@ defmodule AtlasFlow.Runs.Run do
     do: is_binary(g) and is_integer(v)
 
   defp valid_activity?(%{"kind" => "pass", "spec" => spec}), do: Pass.valid?(spec)
+  defp valid_activity?(%{"kind" => "effect", "spec" => spec}), do: Effect.valid?(spec)
 
   defp valid_activity?(s), do: not Map.has_key?(s, "kind")
 
@@ -166,6 +169,39 @@ defmodule AtlasFlow.Runs.Run do
        })}
     else
       _ -> {:error, :invalid_pass_result}
+    end
+  end
+
+  @doc """
+  Enter the branch for a fenced effect reply. The record and subject writes join the
+  entry's pending writes with stable ids, so a partial replay completes them exactly once.
+  """
+  def effect_result(run, flow, subject, now, reply) do
+    spec = flow["states"][run["state"]]["spec"]
+    intent = run["pending"]["effect"]
+
+    with {:ok, result} <- Effect.validate_reply(intent, reply),
+         true <- result["status"] in ["done", "refused"],
+         branch when not is_nil(branch) <-
+           Enum.find(
+             flow["states"][run["state"]]["branches"],
+             &Conditions.matches?(&1["when"], %{spec["field"] => result["status"]})
+           ) do
+      writes = Effect.writes(intent, spec, run, result)
+      record = %{"request" => intent["request"], "result" => result}
+
+      {:ok,
+       enter(run, flow, branch["to"], now, true, subject)
+       |> update_in(["pending", "writes"], &(writes ++ &1))
+       |> update_in(["pending"], &Map.update(&1, "effects", [record], fn l -> l ++ [record] end))
+       |> Map.put("last_input", %{
+         "version" => 1,
+         "effect" => result["id"],
+         "status" => result["status"],
+         "reference" => result["reference"]
+       })}
+    else
+      _ -> {:error, :invalid_effect_result}
     end
   end
 
@@ -341,7 +377,8 @@ defmodule AtlasFlow.Runs.Run do
       run["status"] != "active" ->
         {:ok, run}
 
-      run["pending"]["writes"] != [] or flow["states"][run["state"]]["kind"] in ["gate", "pass"] ->
+      run["pending"]["writes"] != [] or
+          flow["states"][run["state"]]["kind"] in ["gate", "pass", "effect"] ->
         {:ok, run}
 
       true ->
@@ -491,10 +528,13 @@ defmodule AtlasFlow.Runs.Run do
       "entered_at" => DateTime.to_iso8601(now),
       "status" => if(state["final"], do: "completed", else: "active"),
       "pending" =>
-        Map.merge(Map.take(run["pending"] || %{}, ["verdict", "migrations", "passes"]), %{
-          "version" => 1,
-          "writes" => writes ++ creates
-        }),
+        Map.merge(
+          Map.take(run["pending"] || %{}, ["verdict", "migrations", "passes", "effects"]),
+          %{
+            "version" => 1,
+            "writes" => writes ++ creates
+          }
+        ),
       "deadlines" => %{"version" => 1, "timers" => timers}
     })
   rescue
