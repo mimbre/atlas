@@ -376,7 +376,8 @@ func init() {
 	}
 }
 
-// codexConfig refuses project, ancestor or system Codex config that root would load.
+// codexConfig refuses project, ancestor or system Codex config that root would load; a config it
+// cannot check counts as present.
 func codexConfig(root, subject string) error {
 	codexHome, present := os.LookupEnv("CODEX_HOME")
 	if !present {
@@ -397,7 +398,7 @@ func codexConfig(root, subject string) error {
 		if config != ignored {
 			exists, err := workspaceExists(config)
 			if err != nil {
-				return err
+				return fmt.Errorf("%w: %w", refused, err)
 			}
 			if exists {
 				return refused
@@ -410,7 +411,7 @@ func codexConfig(root, subject string) error {
 	if config := "/etc/codex/config.toml"; config != ignored {
 		exists, err := workspaceExists(config)
 		if err != nil {
-			return err
+			return fmt.Errorf("%w: %w", refused, err)
 		}
 		if exists {
 			return refused

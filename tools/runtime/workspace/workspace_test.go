@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -117,6 +118,32 @@ func workspaceTestRefused(t *testing.T, err error, refusal string) {
 	}
 }
 
+// workspaceTestUnreadableCodex makes root/.codex mode 000 until the test ends and returns it.
+func workspaceTestUnreadableCodex(t *testing.T, root string) string {
+	t.Helper()
+	if os.Geteuid() == 0 {
+		t.Skip("root can stat below a mode-000 directory")
+	}
+	codex := filepath.Join(root, ".codex")
+	if err := os.MkdirAll(codex, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(codex, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(codex, 0700) })
+	return codex
+}
+
+// workspaceTestUncheckedConfig fails unless err refuses subject for the config it could not stat in codex.
+func workspaceTestUncheckedConfig(t *testing.T, err error, subject, codex string) {
+	t.Helper()
+	want := subject + " cannot load project or system Codex config: stat " + filepath.Join(codex, "config.toml") + ": "
+	if err == nil || !strings.Contains(err.Error(), want) || !errors.Is(err, fs.ErrPermission) {
+		t.Fatalf("wanted refusal containing %q wrapping a permission error, got %v", want, err)
+	}
+}
+
 func workspaceTestContext(t *testing.T, path, refusal string) any {
 	t.Helper()
 	context, err := Context(path)
@@ -212,6 +239,14 @@ func TestWorkspaceCanonicalPathsAndMetadata(t *testing.T) {
 			workspaceTestRefuse(t, "Dedicated", "scope", repo)
 		})
 	}
+	t.Run("unreadable parent config", func(t *testing.T) {
+		codex := workspaceTestUnreadableCodex(t, root)
+		// The user's own Codex home config is never checked, so it cannot refuse.
+		workspaceTestCall(t, "scope", repo)
+		t.Setenv("CODEX_HOME", filepath.Join(root, "other-codex"))
+		_, err := Scope(repo)
+		workspaceTestUncheckedConfig(t, err, "Dedicated repository", codex)
+	})
 	workspaceTestGit(t, repo, "commit", "--allow-empty", "-qm", "initial")
 	worktree := filepath.Join(root, "worktree")
 	workspaceTestGit(t, repo, "worktree", "add", "-q", "-b", "other", worktree)
@@ -472,6 +507,13 @@ func TestWorkspaceFolderScopeVerifiesMaterializationWithoutGit(t *testing.T) {
 	if err := os.RemoveAll(filepath.Join(dest, ".codex")); err != nil {
 		t.Fatal(err)
 	}
+	// Snapshot verification walks dest first, so the unreadable config is above it.
+	t.Run("unreadable parent config", func(t *testing.T) {
+		codex := workspaceTestUnreadableCodex(t, root)
+		t.Setenv("CODEX_HOME", filepath.Join(root, "other-codex"))
+		_, err := FolderScope(dest, home)
+		workspaceTestUncheckedConfig(t, err, "Materialized folder", codex)
+	})
 
 	// The record binds the folder to its snapshot; another destination or snapshot is refused.
 	workspaceTestWrite(t, record, fmt.Sprintf(`{"destination":"/elsewhere","snapshot_id":%q}`, id))
