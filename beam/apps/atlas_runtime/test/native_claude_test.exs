@@ -19,6 +19,7 @@ defmodule AtlasRuntime.NativeClaudeTest do
           |> File.read!()
           |> JSON.decode!()
 
+  # Monitored as it starts, so a fast-exiting fixture is seen with its own exit reason.
   defp launch(dir, events, settings \\ %{}) do
     command = Path.join(dir, "native-fixture")
 
@@ -30,7 +31,7 @@ defmodule AtlasRuntime.NativeClaudeTest do
 
     File.chmod!(command, 0o700)
 
-    Native.start(%{key: "claude-turn"},
+    Native.start_monitor(%{key: "claude-turn"},
       turns_dir: Path.join(dir, "turns"),
       agent:
         Map.merge(
@@ -59,8 +60,7 @@ defmodule AtlasRuntime.NativeClaudeTest do
       }
     }
 
-    {:ok, pid} = launch(dir, [@init, assistant, @result])
-    ref = Process.monitor(pid)
+    {:ok, {pid, ref}} = launch(dir, [@init, assistant, @result])
     assert_receive {:agent, ^pid, {:session, "claude-session"}}, 5_000
     assert_receive {:agent, ^pid, {:identity, "claude", "claude-sonnet-4-6"}}
     assert_receive {:agent, ^pid, {:ended, "Read the sample."}}, 5_000
@@ -79,8 +79,7 @@ defmodule AtlasRuntime.NativeClaudeTest do
     answer = Path.join(dir, "turns/claude-turn/answer.txt")
     first = %{@result | "result" => "First draft."}
 
-    {:ok, pid} = launch(dir, [@init, first, @result])
-    ref = Process.monitor(pid)
+    {:ok, {pid, ref}} = launch(dir, [@init, first, @result])
     assert_receive {:agent, ^pid, {:ended, "Read the sample."}}, 5_000
     assert File.read!(answer) == "Read the sample."
     assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
@@ -92,8 +91,7 @@ defmodule AtlasRuntime.NativeClaudeTest do
         "result" => "Native failure text."
     }
 
-    {:ok, pid} = launch(dir, [@init, @result, error])
-    ref = Process.monitor(pid)
+    {:ok, {pid, ref}} = launch(dir, [@init, @result, error])
     assert_receive {:DOWN, ^ref, :process, ^pid, {:claude_failed, 0, 0}}, 5_000
     refute_received {:agent, ^pid, {:ended, _}}
     assert File.read!(answer) == "Native failure text."
@@ -101,8 +99,7 @@ defmodule AtlasRuntime.NativeClaudeTest do
 
   test "an unsaved answer cannot complete the turn", %{tmp_dir: dir} do
     File.mkdir_p!(Path.join(dir, "turns/claude-turn/answer.txt"))
-    {:ok, pid} = launch(dir, [@init, @result])
-    ref = Process.monitor(pid)
+    {:ok, {pid, ref}} = launch(dir, [@init, @result])
     assert_receive {:DOWN, ^ref, :process, ^pid, {:claude_failed, 0, 0}}, 5_000
     refute_received {:agent, ^pid, {:ended, _}}
   end
@@ -124,8 +121,7 @@ defmodule AtlasRuntime.NativeClaudeTest do
     for {events, index} <- Enum.with_index(cases) do
       folder = Path.join(dir, Integer.to_string(index))
       File.mkdir_p!(folder)
-      {:ok, pid} = launch(folder, events)
-      ref = Process.monitor(pid)
+      {:ok, {pid, ref}} = launch(folder, events)
       assert_receive {:DOWN, ^ref, :process, ^pid, {:claude_failed, 0, 0}}, 5_000
       refute_received {:agent, ^pid, {:ended, _}}
     end
@@ -141,8 +137,7 @@ defmodule AtlasRuntime.NativeClaudeTest do
       "message" => %{"model" => "<synthetic>", "content" => []}
     }
 
-    {:ok, pid} = launch(dir, [init, synthetic, @result], %{"model" => "opus[1m]"})
-    ref = Process.monitor(pid)
+    {:ok, {pid, ref}} = launch(dir, [init, synthetic, @result], %{"model" => "opus[1m]"})
     assert_receive {:agent, ^pid, {:identity, "claude", "claude-opus-5-5[1m]"}}, 5_000
     assert_receive {:DOWN, ^ref, :process, ^pid, :normal}, 5_000
     refute_received {:agent, ^pid, {:identity, _, _}}
@@ -162,10 +157,9 @@ defmodule AtlasRuntime.NativeClaudeTest do
       }
     }
 
-    {:ok, pid} =
+    {:ok, {pid, ref}} =
       launch(dir, [init, @weekly, synthetic, @weekly, Map.put(@result, "is_error", true)])
 
-    ref = Process.monitor(pid)
     evidence = @weekly["rate_limit_info"]
     assert_receive {:agent, ^pid, {:quota, ^evidence}}, 5_000
     assert_receive {:DOWN, ^ref, :process, ^pid, {:claude_failed, 0, 0}}, 5_000
@@ -195,8 +189,7 @@ defmodule AtlasRuntime.NativeClaudeTest do
       %{"type" => "rate_limit_event", "rate_limit_info" => nil}
     ]
 
-    {:ok, pid} = launch(dir, [@init | events] ++ [Map.put(@result, "is_error", true)])
-    ref = Process.monitor(pid)
+    {:ok, {pid, ref}} = launch(dir, [@init | events] ++ [Map.put(@result, "is_error", true)])
     assert_receive {:DOWN, ^ref, :process, ^pid, {:claude_failed, 0, 0}}, 5_000
     refute_received {:agent, ^pid, {:quota, _}}
   end
@@ -206,8 +199,7 @@ defmodule AtlasRuntime.NativeClaudeTest do
       folder = Path.join(dir, Integer.to_string(index))
       File.mkdir_p!(folder)
       event = put_in(@weekly, ["rate_limit_info", "resetsAt"], reset)
-      {:ok, pid} = launch(folder, [@init, event, Map.put(@result, "is_error", true)])
-      ref = Process.monitor(pid)
+      {:ok, {pid, ref}} = launch(folder, [@init, event, Map.put(@result, "is_error", true)])
       assert_receive {:agent, ^pid, {:quota, %{"resetsAt" => nil}}}, 5_000
       assert_receive {:DOWN, ^ref, :process, ^pid, {:claude_failed, 0, 0}}, 5_000
     end
@@ -216,8 +208,7 @@ defmodule AtlasRuntime.NativeClaudeTest do
   test "Claude resume requires the exact native session and model", %{tmp_dir: dir} do
     session = "a1a1b578-c3b5-7972-9664-1d250bf64cdf"
     init = Map.put(@init, "session_id", session)
-    {:ok, first} = launch(dir, [init, @result])
-    first_ref = Process.monitor(first)
+    {:ok, {first, first_ref}} = launch(dir, [init, @result])
     assert_receive {:DOWN, ^first_ref, :process, ^first, :normal}, 5_000
 
     context =
@@ -225,8 +216,7 @@ defmodule AtlasRuntime.NativeClaudeTest do
 
     settings = %{"session_id" => session, "model" => @init["model"], "resume_context" => context}
 
-    {:ok, resumed} = launch(dir, [init, @result], settings)
-    resumed_ref = Process.monitor(resumed)
+    {:ok, {resumed, resumed_ref}} = launch(dir, [init, @result], settings)
     assert_receive {:agent, ^resumed, {:session, ^session}}, 5_000
     assert_receive {:DOWN, ^resumed_ref, :process, ^resumed, :normal}, 5_000
 
@@ -236,8 +226,7 @@ defmodule AtlasRuntime.NativeClaudeTest do
           [@result],
           [%{"type" => "error", "error" => "Session not found"}]
         ] do
-      {:ok, failed} = launch(dir, events, settings)
-      failed_ref = Process.monitor(failed)
+      {:ok, {failed, failed_ref}} = launch(dir, events, settings)
       assert_receive {:DOWN, ^failed_ref, :process, ^failed, {:claude_failed, 1, _}}, 5_000
       refute_receive {:agent, ^failed, {:ended, _}}
     end
@@ -256,8 +245,7 @@ defmodule AtlasRuntime.NativeClaudeTest do
       "message" => %{"model" => "claude-opus-5-5", "content" => []}
     }
 
-    {:ok, first} = launch(dir, [init, assistant, @result])
-    first_ref = Process.monitor(first)
+    {:ok, {first, first_ref}} = launch(dir, [init, assistant, @result])
     assert_receive {:agent, ^first, {:identity, "claude", ^model}}, 5_000
     assert_receive {:DOWN, ^first_ref, :process, ^first, :normal}, 5_000
     refute_received {:agent, ^first, {:identity, "claude", "claude-opus-5-5"}}
@@ -266,8 +254,7 @@ defmodule AtlasRuntime.NativeClaudeTest do
       Path.join(dir, "turns/claude-turn/claude-context.json") |> File.read!() |> JSON.decode!()
 
     settings = %{"session_id" => session, "model" => model, "resume_context" => context}
-    {:ok, resumed} = launch(dir, [init, assistant, @result], settings)
-    resumed_ref = Process.monitor(resumed)
+    {:ok, {resumed, resumed_ref}} = launch(dir, [init, assistant, @result], settings)
     assert_receive {:DOWN, ^resumed_ref, :process, ^resumed, :normal}, 5_000
     assert_receive {:agent, ^resumed, {:identity, "claude", ^model}}
     refute_received {:agent, ^resumed, {:identity, "claude", "claude-opus-5-5"}}
@@ -276,8 +263,7 @@ defmodule AtlasRuntime.NativeClaudeTest do
           [Map.put(init, "model", "claude-opus-5-5"), assistant, @result],
           [init, put_in(assistant, ["message", "model"], "claude-sonnet-5-5"), @result]
         ] do
-      {:ok, failed} = launch(dir, events, settings)
-      failed_ref = Process.monitor(failed)
+      {:ok, {failed, failed_ref}} = launch(dir, events, settings)
       assert_receive {:DOWN, ^failed_ref, :process, ^failed, {:claude_failed, 1, _}}, 5_000
       refute_received {:agent, ^failed, {:ended, _}}
     end
