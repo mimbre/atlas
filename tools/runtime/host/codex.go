@@ -77,12 +77,46 @@ func repositoryArguments(fields map[string]any) ([]string, error) {
 var credentialPaths = []string{".codex", ".config/gh", ".ssh", ".aws", ".docker", "Library/Keychains", ".git-credentials",
 	".config/git", ".netrc", ".claude", ".claude.json", ".local/state/atlas-runtime", ".gitconfig", ".erlang.cookie"}
 
+// homeReadNames are the toolchain locations, relative to the user home, that materialized-folder
+// workers may read in their otherwise denied home: asdf (the shims' targets) and its fallback
+// .tool-versions, Mix archives and the Hex package cache, and the Go module cache, which
+// GOMODCACHE does not redirect.
+var homeReadNames = []string{".asdf", ".tool-versions", ".hex", ".mix", "go/pkg/mod"}
+
+// homeReadable are the paths a materialized-folder worker may read inside the denied user home:
+// each PATH directory and each homeReadNames entry, resolved through symlinks. Paths outside user,
+// user itself, and paths inside a denied or writable path are left out, so a re-allow never
+// re-opens a denied path; a denied path inside a re-allowed one stays denied as the more specific rule.
+func homeReadable(user string, denied, writable []string) ([]string, error) {
+	covered := append(slices.Clone(denied), writable...)
+	candidates := filepath.SplitList(os.Getenv("PATH"))
+	for _, name := range homeReadNames {
+		candidates = append(candidates, filepath.Join(user, name))
+	}
+	var readable []string
+	for _, candidate := range candidates {
+		if !filepath.IsAbs(candidate) {
+			continue
+		}
+		path, err := resolvePath(candidate)
+		if err != nil {
+			return nil, err
+		}
+		if path == user || !within(user, path) || slices.Contains(readable, path) ||
+			slices.ContainsFunc(covered, func(other string) bool { return within(other, path) }) {
+			continue
+		}
+		readable = append(readable, path)
+	}
+	return readable, nil
+}
+
 // folderArguments translates a materialized-folder scope into the Codex permission profile:
-// write only the folder and scratch, read only the snapshot record and baseline, deny Git
-// metadata, the Runtime home, the Code token and user credentials under user, loopback networking
-// only: the network proxy allows no domain, so external connections fail. Unix-domain sockets
-// bind and connect only inside scratch. Workers may read (and so execute) the inspector even
-// inside a denied path.
+// write only the folder and scratch, deny the user home except the homeReadable toolchain paths
+// (read-only), read only the snapshot record and baseline, deny Git metadata, the Runtime home,
+// the Code token and user credentials under user, loopback networking only: the network proxy
+// allows no domain, so external connections fail. Unix-domain sockets bind and connect only
+// inside scratch. Workers may read (and so execute) the inspector even inside a denied path.
 func folderArguments(scope map[string]any, scratch, user, inspector string) ([]string, error) {
 	root, _ := scope["root"].(string)
 	home, _ := scope["home"].(string)
@@ -95,7 +129,11 @@ func folderArguments(scope map[string]any, scratch, user, inspector string) ([]s
 	if err := writableInspector(inspector, root, scratch); err != nil {
 		return nil, err
 	}
-	entries := [][2]string{{root, "write"}, {scratch, "write"}, {home, "none"}, {record, "read"}, {baseline, "read"},
+	user, err := resolvePath(user)
+	if err != nil {
+		return nil, err
+	}
+	entries := [][2]string{{root, "write"}, {scratch, "write"}, {user, "none"}, {home, "none"}, {record, "read"}, {baseline, "read"},
 		{filepath.Join(root, ".git"), "none"}}
 	// Status, diff and submit of a prepared folder read its minimal result, never its diagnostics.
 	for _, file := range []string{snapshot.RebindMarker(home, root), snapshot.PreparationResult(home, root)} {
@@ -116,6 +154,20 @@ func folderArguments(scope map[string]any, scratch, user, inspector string) ([]s
 	if err != nil {
 		return nil, err
 	}
+	var none []string
+	for _, entry := range append(slices.Clone(entries), denied...) {
+		if entry[1] == "none" && entry[0] != user {
+			none = append(none, entry[0])
+		}
+	}
+	readable, err := homeReadable(user, none, []string{root, scratch})
+	if err != nil {
+		return nil, err
+	}
+	for _, path := range readable {
+		entries = append(entries, [2]string{path, "read"})
+	}
+	// The credential denies come last; as more specific paths they win inside a re-allowed toolchain path.
 	entries = append(entries, denied...)
 	// Seatbelt lets a specific file read win inside a denied directory; grant only the inspector itself.
 	for _, entry := range entries {

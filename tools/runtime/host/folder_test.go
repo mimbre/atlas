@@ -51,6 +51,27 @@ func materialize(t *testing.T, home, dest string) map[string]any {
 	return scope
 }
 
+// homePath sets a worker PATH with toolchain entries inside user (one through a symlink), one that
+// contains a credential path, and entries that must not be re-allowed: user itself, a path inside
+// the denied Runtime home, one inside the writable folder, one outside user and a relative one.
+// It returns the re-allowed home paths in profile order.
+func homePath(t *testing.T, user, home, dest string) []string {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(user, "tools", "bin"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(user, "tools", "bin"), filepath.Join(user, "linkbin")); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", strings.Join([]string{filepath.Join(user, ".asdf", "shims"), filepath.Join(user, "linkbin"), "/usr/bin", user,
+		filepath.Join(home, "bin"), filepath.Join(dest, "bin"), filepath.Join(user, ".config"), "bin", filepath.Join(user, ".asdf", "shims")}, ":"))
+	readable := []string{filepath.Join(user, ".asdf", "shims"), filepath.Join(user, "tools", "bin"), filepath.Join(user, ".config")}
+	for _, name := range []string{".asdf", ".tool-versions", ".hex", ".mix", "go/pkg/mod"} {
+		readable = append(readable, filepath.Join(user, name))
+	}
+	return readable
+}
+
 func TestFolderProfileArgumentsAreTheEnforcementContract(t *testing.T) {
 	user := isolatedHome(t)
 	home := filepath.Join(user, "runtime")
@@ -60,26 +81,35 @@ func TestFolderProfileArgumentsAreTheEnforcementContract(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "code.json"), []byte(fmt.Sprintf(`{"url":"http://127.0.0.1:1","token_file":%q}`, token)), 0600); err != nil {
 		t.Fatal(err)
 	}
+	readable := homePath(t, user, home, dest)
 	scratch := filepath.Join(home, "scratch", "turn-1")
+	// The inspector lies in the denied user home (the folder DEST does too), so it gets read on exactly that file.
 	inspector := filepath.Join(user, "bin", "atlas-runtime")
 	args, err := folderArguments(scope, scratch, user, inspector)
 	if err != nil {
 		t.Fatal(err)
 	}
 	q := func(path string) string { body, _ := json.Marshal(path); return string(body) }
-	filesystem := []string{q(dest) + `="write"`, q(scratch) + `="write"`, q(home) + `="none"`,
+	filesystem := []string{q(dest) + `="write"`, q(scratch) + `="write"`, q(user) + `="none"`, q(home) + `="none"`,
 		q(scope["record"].(string)) + `="read"`, q(scope["baseline"].(string)) + `="read"`,
-		q(dest+"/.git") + `="none"`, q(dest+"/repo/.git") + `="none"`,
-		q(token) + `="none"`, q(filepath.Dir(token)) + `="none"`}
+		q(dest+"/.git") + `="none"`, q(dest+"/repo/.git") + `="none"`}
+	for _, path := range readable {
+		filesystem = append(filesystem, q(path)+`="read"`)
+	}
+	// The credential denies follow the re-allows; ~/.config/gh stays denied inside the re-allowed ~/.config.
+	filesystem = append(filesystem, q(token)+`="none"`, q(filepath.Dir(token))+`="none"`)
 	for _, name := range credentialPaths {
 		filesystem = append(filesystem, q(filepath.Join(user, name))+`="none"`)
 	}
 	network := `network={enabled=true,allow_local_binding=true,unix_sockets={` + q(scratch) + `="allow"}}`
 	want := []string{"-c", `default_permissions="atlas_folder"`, "-c",
-		`permissions={atlas_folder={extends=":read-only",filesystem={` + strings.Join(filesystem, ",") + `},` + network + `}}`,
+		`permissions={atlas_folder={extends=":read-only",filesystem={` + strings.Join(append(slices.Clone(filesystem), q(inspector)+`="read"`), ",") + `},` + network + `}}`,
 		"-c", "features.network_proxy=true"}
 	if !slices.Equal(args, want) {
 		t.Fatalf("got  %q\nwant %q", args, want)
+	}
+	if !strings.Contains(want[3], q(filepath.Join(user, ".config", "gh"))+`="none"`) || strings.Contains(want[3], q(filepath.Join(user, "linkbin"))) {
+		t.Fatal("contract fixture lost the credential deny or kept the unresolved symlink")
 	}
 	if routed, err := permissionArguments(scope, scratch, inspector); err != nil || !slices.Equal(routed, want) {
 		t.Fatalf("profile dispatch differs: %q %v", routed, err)
@@ -94,7 +124,7 @@ func TestFolderProfileArgumentsAreTheEnforcementContract(t *testing.T) {
 	if args, err = folderArguments(scope, scratch, user, inside); err != nil {
 		t.Fatal(err)
 	}
-	granted := `permissions={atlas_folder={extends=":read-only",filesystem={` + strings.Join(append(filesystem, q(inside)+`="read"`), ",") + `},` + network + `}}`
+	granted := `permissions={atlas_folder={extends=":read-only",filesystem={` + strings.Join(append(slices.Clone(filesystem), q(inside)+`="read"`), ",") + `},` + network + `}}`
 	if !slices.Equal(args, append(want[:3:3], granted, "-c", "features.network_proxy=true")) {
 		t.Fatalf("inspector grant: got %q\nwant %q", args, granted)
 	}
@@ -340,6 +370,7 @@ func TestClaudeFolderSettingsAreTheEnforcementContract(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "code.json"), []byte(fmt.Sprintf(`{"url":"http://127.0.0.1:1","token_file":%q}`, token)), 0600); err != nil {
 		t.Fatal(err)
 	}
+	readable := homePath(t, user, home, dest)
 	temporary := "/u/.ac-12345678"
 	inspector := filepath.Join(user, "bin", "atlas-runtime")
 	encoded, err := claudeFolderSettings(scope, temporary, user, inspector)
@@ -366,21 +397,29 @@ func TestClaudeFolderSettingsAreTheEnforcementContract(t *testing.T) {
 		rules = append(rules, "Read(/"+path+")")
 	}
 	q := func(values ...string) string { body, _ := json.Marshal(values); return string(body) }
-	want := func(granted ...string) string {
+	// The home is denied to Bash reads only (not in denyWrite or Read rules, which would deny DEST below it);
+	// DEST, the private temp and the toolchain paths are re-allowed, and the inspector inside the home too.
+	want := func(inspector string, marker ...string) string {
+		allowRead := append(append([]string{record, baseline, user + "/.claude/shell-snapshots", user + "/.claude/session-env"}, marker...), dest, temporary)
 		return `{"sandbox":{"enabled":true,"failIfUnavailable":true,"allowUnsandboxedCommands":false,"excludedCommands":[],` +
 			`"filesystem":{"allowWrite":` + q(dest, temporary) + `,"denyWrite":` + q(append(append(roots, protected...), record, baseline)...) +
-			`,"denyRead":` + q(protected...) + `,"allowRead":` + q(append([]string{record, baseline, user + "/.claude/shell-snapshots", user + "/.claude/session-env"}, granted...)...) +
+			`,"denyRead":` + q(append([]string{user}, protected...)...) + `,"allowRead":` + q(append(append(allowRead, readable...), inspector)...) +
 			`},"network":{"allowedDomains":[],"strictAllowlist":true,"allowUnixSockets":` + q(temporary) +
 			`,"allowAllUnixSockets":false,"allowLocalBinding":true}},` +
 			`"permissions":{"deny":` + q(rules...) + `}}`
 	}
-	if encoded != want() {
-		t.Fatalf("got  %s\nwant %s", encoded, want())
+	if encoded != want(inspector) {
+		t.Fatalf("got  %s\nwant %s", encoded, want(inspector))
 	}
 	// An inspector inside the denied home gets read on exactly that file; workers must not be able to replace it.
 	inside := filepath.Join(home, "atlas-runtime")
 	if encoded, err = claudeFolderSettings(scope, temporary, user, inside); err != nil || encoded != want(inside) {
 		t.Fatalf("inspector grant: %v\ngot  %s\nwant %s", err, encoded, want(inside))
+	}
+	// Outside the user home and every protected path the inspector is readable anyway.
+	if encoded, err = claudeFolderSettings(scope, temporary, user, "/opt/atlas/atlas-runtime"); err != nil ||
+		encoded != strings.Replace(want(""), `,""]`, `]`, 1) {
+		t.Fatalf("inspector outside the home granted: %v\n%s", err, encoded)
 	}
 	// A rebound folder's worker reads the rebind's done marker for status and diff, never its journal.
 	marker := snapshot.RebindMarker(scope["home"].(string), scope["root"].(string))
@@ -393,7 +432,7 @@ func TestClaudeFolderSettingsAreTheEnforcementContract(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(filepath.Dir(marker), "journal.json"), []byte(`{"phase":"done"}`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	rebound := strings.Replace(want(marker), q(baseline)[1:]+`,"denyRead"`, q(baseline, marker)[1:]+`,"denyRead"`, 1)
+	rebound := strings.Replace(want(inspector, marker), q(baseline)[1:]+`,"denyRead"`, q(baseline, marker)[1:]+`,"denyRead"`, 1)
 	if encoded, err = claudeFolderSettings(scope, temporary, user, inspector); err != nil || encoded != rebound {
 		t.Fatalf("done marker grant: %v\ngot  %s\nwant %s", err, encoded, rebound)
 	}
@@ -602,6 +641,10 @@ func TestFolderProfileIsEnforcedByInstalledCodexSandbox(t *testing.T) {
 		filepath.Join(user, ".ssh", "id"):                 "SSH-SENTINEL",
 		filepath.Join(user, ".codex", "auth.json"):        "AUTH-SENTINEL",
 		filepath.Join(user, ".config", "gh", "hosts.yml"): "GH-SENTINEL",
+		filepath.Join(user, ".npmrc"):                     "NPMRC-SENTINEL",
+		filepath.Join(user, "Documents", "notes.txt"):     "DOCUMENTS-SENTINEL",
+		filepath.Join(user, ".asdf", "installs", "tool"):  "toolchain",
+		filepath.Join(user, ".hex", "cache"):              "toolchain",
 	}
 	for path, body := range sentinels {
 		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
@@ -653,6 +696,13 @@ func TestFolderProfileIsEnforcedByInstalledCodexSandbox(t *testing.T) {
 		{fmt.Sprintf("cat %q", filepath.Join(user, ".ssh", "id")), false},
 		{fmt.Sprintf("cat %q", filepath.Join(user, ".codex", "auth.json")), false},
 		{fmt.Sprintf("cat %q", filepath.Join(user, ".config", "gh", "hosts.yml")), false},
+		// The user home is denied except the toolchain paths, which are read-only; DEST below it stays writable.
+		{fmt.Sprintf("cat %q", filepath.Join(user, ".npmrc")), false},
+		{fmt.Sprintf("ls %q", filepath.Join(user, "Documents")), false},
+		{fmt.Sprintf("ls %q", user), false},
+		{fmt.Sprintf("cat %q %q", filepath.Join(user, ".asdf", "installs", "tool"), filepath.Join(user, ".hex", "cache")), true},
+		{fmt.Sprintf("touch %q", filepath.Join(user, ".asdf", "planted")), false},
+		{fmt.Sprintf("touch %q", filepath.Join(user, "planted")), false},
 		{fmt.Sprintf("echo x > %q", record), false},
 		{fmt.Sprintf("touch %q", filepath.Join(home, "planted")), false},
 		{"mkdir repo/.git", false},
@@ -693,7 +743,7 @@ func TestFolderProfileIsEnforcedByInstalledCodexSandbox(t *testing.T) {
 	}
 	// Positive controls: the same reads and request succeed outside the sandbox.
 	for _, script := range []string{
-		fmt.Sprintf("cat %q %q %q", filepath.Join(home, "code.json"), token, filepath.Join(user, ".ssh", "id")),
+		fmt.Sprintf("cat %q %q %q %q", filepath.Join(home, "code.json"), token, filepath.Join(user, ".ssh", "id"), filepath.Join(user, ".npmrc")),
 		"curl -sS -m 5 " + server.URL,
 		unixSocket(fmt.Sprintf("%q", dest)),
 	} {

@@ -220,19 +220,7 @@ func materialized(dest string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	parent, err := filepath.EvalSymlinks(filepath.Dir(dest))
-	if err != nil {
-		return "", fmt.Errorf("destination %s does not exist: %v", dest, reason(err))
-	}
-	dest = filepath.Join(parent, filepath.Base(dest))
-	info, err := os.Lstat(dest)
-	if err != nil {
-		return "", fmt.Errorf("destination %s does not exist: %v", dest, reason(err))
-	}
-	if !info.IsDir() {
-		return "", fmt.Errorf("destination %s is not a directory", dest)
-	}
-	return dest, nil
+	return canonicalDirectory(dest)
 }
 
 // errPredates marks a baseline whose manifest predates revision handles: only Rebind reads it.

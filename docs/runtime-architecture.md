@@ -329,9 +329,10 @@ Materialized-folder profile (implemented for Codex and Claude):
 - **Scope without Git:** the internal `atlas-runtime workspace folder-scope DEST HOME` verifies the materialization exactly as `snapshot status` does. It refuses a non-canonical `DEST`, a `.git` entry in `DEST` or any ancestor (so the trusted native Codex never finds a Git repository), and project or ancestor `.codex/config.toml`. The scope binds `{profile, version, root, snapshot_id, repositories, home, record, baseline}`. Start, continuation and the native host recompute it and require equality, so a re-recorded or replaced snapshot refuses continuation. No Git, Code request or pre-exec wrapper runs, and the directory lock is held until the process group is reaped.
 - **Effective Codex profile** (`extends=":read-only"`, `network={enabled=true,allow_local_binding=true,unix_sockets={"<scratch>"="allow"}}` with no allowed domains, `features.network_proxy=true`):
   - `DEST` and a private `HOME/scratch/<turn>` are writable;
+  - the user home is `none`, except read access to the home read allow-list: every `PATH` directory under it, `~/.asdf`, `~/.tool-versions`, `~/.hex`, `~/.mix` and `~/go/pkg/mod`, resolved through symlinks, leaving out any entry inside a denied or writable path (see `tools/runtime/README.md`);
   - the Runtime `HOME` is `none`, except read access to this snapshot's record and baseline and, when present, this folder's exact rebind done marker;
   - `DEST/.git` and each `DEST/<repo>/.git` are `none`;
-  - the Code token file and its directory (from `code.json`), `$CODEX_HOME`, and known credential paths are `none`: `~/.codex`, `~/.config/gh`, `~/.ssh`, `~/.aws`, `~/.docker`, `~/Library/Keychains`, `~/.git-credentials`, `~/.config/git`, `~/.netrc`, `~/.gitconfig`, `~/.erlang.cookie`, `~/.claude`, `~/.claude.json`, and the default Runtime home.
+  - listed after the re-allows and, as more specific paths, denied inside them too: the Code token file and its directory (from `code.json`), `$CODEX_HOME`, and known credential paths are `none`: `~/.codex`, `~/.config/gh`, `~/.ssh`, `~/.aws`, `~/.docker`, `~/Library/Keychains`, `~/.git-credentials`, `~/.config/git`, `~/.netrc`, `~/.gitconfig`, `~/.erlang.cookie`, `~/.claude`, `~/.claude.json`, and the default Runtime home.
 
   Paths are resolved through symlinks before mapping. `process.json` records the exact arguments.
 - **Network boundary (both backends, always on, no per-assignment switch):** workers get local loopback networking; external network stays blocked.
@@ -349,7 +350,7 @@ Materialized-folder profile (implemented for Codex and Claude):
   - Planned future isolation (phase 2) runs workers as a separate macOS user; until then this limit stands.
 - **Worker environment:** the existing minimal environment, plus `ATLAS_RUNTIME_EXECUTABLE` (the inspector contract), `ATLAS_RUNTIME_HOME`, the executable's directory prepended to `PATH` (convenience only), and `TMPDIR`/`GOCACHE`/`GOTMPDIR`/`XDG_CACHE_HOME`/`npm_config_cache` in the scratch folder, which is removed after reaping. `snapshot status|diff` do not create or chmod the Runtime home, so they work read-only inside the sandbox.
 - **Limits:**
-  - The base is still `:read-only`, so credential protection is a deny-list: secrets in unlisted locations (for example `~/.npmrc` or `~/.kube`) stay readable, and other non-credential home files are readable.
+  - The user home is denied except the home read allow-list, and the credential deny-list applies on top. Secrets inside a re-allowed toolchain path, and world-readable data outside the home (`/opt/homebrew`, `/Users/Shared`, `/tmp`), stay readable. Shell startup files in the home are unreadable.
   - `GOMODCACHE` is not redirected, so builds need modules already cached.
   - Workers can create `.git` in unmapped subfolders; these are reported by `status`.
   - This is provider-sandbox confinement, not hostile-host isolation.
@@ -362,8 +363,8 @@ Claude with the materialized-folder profile:
   - sandbox enabled, `failIfUnavailable`, no unsandboxed commands;
   - `allowWrite` = `DEST` and the private temp;
   - `denyWrite` = system temp roots, the protected paths, and the record and baseline;
-  - `denyRead` = the protected paths: the Runtime home, `DEST/.git` and each `DEST/<repo>/.git`, the Code token file and its directory, `~/.claude`, `~/.claude.json`, `~/.codex`, `~/.config/gh`, `~/.ssh`, `~/.aws`, `~/.docker`, `~/Library/Keychains`, `~/.git-credentials`, `~/.config/git`, `~/.netrc`, `~/.gitconfig`, `~/.erlang.cookie` and the default Runtime home;
-  - `allowRead` = this snapshot's record and baseline, `~/.claude/shell-snapshots` and `~/.claude/session-env` (which Claude's Bash needs), the rebind's done marker when the folder was rebound (also in `denyWrite`), and the inspector executable when it lies inside a protected path;
+  - `denyRead` = the user home (Bash sandbox only: it is not in `denyWrite` or the `Read` rules, which would also deny `DEST` below it), then the protected paths: the Runtime home, `DEST/.git` and each `DEST/<repo>/.git`, the Code token file and its directory, `~/.claude`, `~/.claude.json`, `~/.codex`, `~/.config/gh`, `~/.ssh`, `~/.aws`, `~/.docker`, `~/Library/Keychains`, `~/.git-credentials`, `~/.config/git`, `~/.netrc`, `~/.gitconfig`, `~/.erlang.cookie` and the default Runtime home;
+  - `allowRead` = this snapshot's record and baseline, `~/.claude/shell-snapshots` and `~/.claude/session-env` (which Claude's Bash needs), the rebind's done marker when the folder was rebound (also in `denyWrite`), `DEST`, the private temp, the home read allow-list as for Codex, and the inspector executable when it lies inside the user home or a protected path. The sandbox re-applies a protected path nested inside an `allowRead` path after its allows, so `DEST/.git` and credential paths stay denied;
   - network: empty `allowedDomains` with `strictAllowlist`, `allowLocalBinding` for loopback, `allowUnixSockets` = the private temp only (macOS only; `allowAllUnixSockets` stays false), no trustd allowance. The shared network and Unix-socket boundaries and the accepted limit apply; loopback connect and Unix sockets under Claude are not yet verified;
   - `permissions.deny` holds a `Read(//path)` rule for each protected path, which also governs Read/Glob/Grep.
 - **Limits (in addition to the shared deny-list limits):**
