@@ -273,7 +273,11 @@ defmodule AtlasFlow.Sorts.Written do
   end
 
   defmodule Integrate do
-    @moduledoc "Integrates the box's artifact once its fingerprint is approved."
+    @moduledoc """
+    Integrates the box's artifact once its title is approved (its check, through the
+    composition's link, wrote `verdict: yes`); discarded by hand (`result: no`) while
+    nothing was asked yet.
+    """
     use RelaDSL.Schema
 
     subflow :sort, subject: :box do
@@ -283,6 +287,8 @@ defmodule AtlasFlow.Sorts.Written do
       initial(:publishing)
 
       state :publishing do
+        branch(to: :discarded, when: "entity.result == 'no'")
+
         effect(:publish,
           contract: 1,
           name: "publish",
@@ -293,7 +299,8 @@ defmodule AtlasFlow.Sorts.Written do
           outputs: [reference: "artifact"],
           records: [kind: "crate", relation: "in_box", outputs: [label: "reference"]],
           target: "artifact",
-          approved: "approved",
+          approved: "title",
+          approving: [verdict: ["yes"]],
           on: [done: :done, refused: :stuck]
         )
 
@@ -305,6 +312,7 @@ defmodule AtlasFlow.Sorts.Written do
       end
 
       final(:done)
+      final(:discarded)
     end
   end
 

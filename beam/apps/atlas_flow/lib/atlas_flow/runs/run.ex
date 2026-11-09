@@ -181,6 +181,26 @@ defmodule AtlasFlow.Runs.Run do
     end
   end
 
+  @doc """
+  An effect's state before its request is frozen: entered where the first of its plain
+  branches (those of no role) that holds on `subject` leads, `{:ok, run}`, as a state
+  without a mechanism is; `:stay` when none holds, its entry writes are not acknowledged
+  yet, or a request is frozen (then only the service's answer moves it).
+  """
+  def unfrozen(run, flow, subject, now) do
+    with "active" <- run["status"],
+         [] <- run["pending"]["writes"],
+         nil <- run["pending"]["effect"],
+         {:effect, _} <- flow.mechanism(run["state"]),
+         {:to, to} <- flow.next(run["state"], subject["values"] || %{}, nil) do
+      {:ok,
+       enter(run, flow, to, now, true, subject)
+       |> input(subject, %{"branch" => to, "subject_version" => subject["version"]})}
+    else
+      _ -> :stay
+    end
+  end
+
   def gate_result(run, flow, subject, now, answer) do
     with {:ok, result} <- Gate.result(run["pending"]["gate"], answer),
          true <-

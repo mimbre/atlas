@@ -31,7 +31,9 @@ defmodule Model.GoldenTest do
   # Slice 7: pr_review and pr_test lose their pass and take superseded as written (were
   # f8969c0536e1442b and c3eae1a7a5eeea98).
   # Slice 8: pull_request loses its integrate effect and its creates; merged ends it from
-  # every open state (was 1235a3dae3c7e42b).
+  # every open state (was 1235a3dae3c7e42b). Its integrate effect is back, through Code's
+  # receiver, with blocked and its exits (was 0684c47a59a3e818); integrating keeps its
+  # exits by hand until Code is asked (was 055e91cc0de49ead).
   # Slice 9: issue keeps author and done; passes, smart gates, publish and timers wait
   # for their receivers (was 5e2320f6db243534).
   # Slice 10: design_and_accept keeps designing, design_review, redesign and accepted,
@@ -43,7 +45,7 @@ defmodule Model.GoldenTest do
   # and a new open use case sends it back from to_test (was 8dc48c7180394ded).
   @versions [
     {"issue", [issue: "de930a7511675ac8"]},
-    {"pull_request", [pull_request: "0684c47a59a3e818"]},
+    {"pull_request", [pull_request: "0ef9fa7df6aab982"]},
     {"pr_review", [pr_review: "9d16908ccca4b854"]},
     {"pr_test", [pr_test: "816eaa1d9ee76d3b"]},
     {"use_case",
@@ -194,8 +196,9 @@ defmodule Model.GoldenTest do
     assert Enum.sort(Map.keys(design)) == ["accepted", "design_review", "designing", "redesign"]
     refute Enum.any?(Map.values(design), &Map.has_key?(&1, "kind"))
 
-    # The integrate effect waits for a Code receiver; the gate stays for Code (slice 8).
-    refute Map.has_key?(flows["pull_request"]["states"]["integrating"], "kind")
+    # The integrate effect, through Code's receiver; the gate stays, the rule Code keeps.
+    assert %{"kind" => "effect", "spec" => %{"service" => "code", "operation" => "integrate"}} =
+             flows["pull_request"]["states"]["integrating"]
 
     assert %{"flavor" => "rule", "purpose" => "flow", "rule" => %{"all" => [_, _, _]}} =
              Committed.gates()["integrate"]

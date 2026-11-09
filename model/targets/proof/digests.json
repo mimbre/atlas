@@ -409,10 +409,21 @@
     },
     "pull_request": {
       "prod": {
-        "digest": "e183d55ea7eb411d29dd812053dff89078b4ef131068a3223d40c22617bffbd0",
+        "digest": "9e9822b579c9f85bd577c278b2c8a10ee7be7d04ee029e12ad8bf790cdc703de",
         "history": [
           {
             "digest": "0d65d9a4aa1cdf916e022547e3f4a1974505cd94c349e9809f1a441f13cd8335",
+            "states": [
+              "blocked",
+              "changes_requested",
+              "checking",
+              "closed",
+              "integrated",
+              "integrating"
+            ]
+          },
+          {
+            "digest": "9e9822b579c9f85bd577c278b2c8a10ee7be7d04ee029e12ad8bf790cdc703de",
             "states": [
               "blocked",
               "changes_requested",
@@ -434,6 +445,7 @@
           }
         ],
         "states": [
+          "blocked",
           "changes_requested",
           "checking",
           "closed",
@@ -442,10 +454,21 @@
         ]
       },
       "test": {
-        "digest": "e183d55ea7eb411d29dd812053dff89078b4ef131068a3223d40c22617bffbd0",
+        "digest": "9e9822b579c9f85bd577c278b2c8a10ee7be7d04ee029e12ad8bf790cdc703de",
         "history": [
           {
             "digest": "0d65d9a4aa1cdf916e022547e3f4a1974505cd94c349e9809f1a441f13cd8335",
+            "states": [
+              "blocked",
+              "changes_requested",
+              "checking",
+              "closed",
+              "integrated",
+              "integrating"
+            ]
+          },
+          {
+            "digest": "9e9822b579c9f85bd577c278b2c8a10ee7be7d04ee029e12ad8bf790cdc703de",
             "states": [
               "blocked",
               "changes_requested",
@@ -467,6 +490,7 @@
           }
         ],
         "states": [
+          "blocked",
           "changes_requested",
           "checking",
           "closed",
