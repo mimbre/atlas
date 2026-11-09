@@ -53,8 +53,8 @@ Prod gets the same two apps as test, on a private network of its own (`eyra-atla
 
 | | App | Machine | Data |
 |---|---|---|---|
-| Core | `eyra-atlas` | shared-cpu-1x, 256 MB, ams | volume `core_data` at `/data` (Facts' own: `/data/beam`) |
-| rela | `eyra-atlas-rela` | shared-cpu-1x, 256 MB, ams | volume `rela_data` at `/data` (`/data/rela`) |
+| Core | `eyra-atlas` | shared-cpu-1x, 512 MB, ams (`fly/prod/core.toml`) | volume `core_data` at `/data` (Facts' own: `/data/beam`) |
+| rela | `eyra-atlas-rela` | performance-1x, 2048 MB, ams (`fly/prod/rela.toml`) | volume `rela_data` at `/data` (`/data/rela`) |
 
 A merge to master deploys prod (CI job `deploy-prod`, `fly/deploy.sh prod`). It works as test's:
 1. The description check on rela's machine; nothing is deployed when the data does not fit.
