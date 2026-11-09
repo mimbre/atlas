@@ -15,7 +15,9 @@ defmodule AtlasRuntime.Agent.Native do
   released its lock. Parent loss keeps the host's bounded interrupt-then-kill cleanup.
   JSONL output, stderr and the final answer
   stay under `turns_dir/<turn key>`. Guidance is not
-  supported. Success requires a successful native result and clean process exit.
+  supported. Success requires a successful native result and clean process exit; a Codex
+  turn whose stderr reported tool router errors and that executed no tool fails with
+  `{:codex_failed, "every tool call failed before execution: …"}` even on exit 0.
   """
   use GenServer
   @behaviour AtlasRuntime.Agent
@@ -161,6 +163,8 @@ defmodule AtlasRuntime.Agent.Native do
          partial: "",
          completed: false,
          failed: false,
+         tool_seen: false,
+         router_error: nil,
          result: nil,
          process_exit: nil,
          ended_control: nil,
@@ -256,6 +260,10 @@ defmodule AtlasRuntime.Agent.Native do
 
         {:stop, :normal, %{state | port: nil}}
 
+      # Otherwise clean, so the precise reason replaces the generic one.
+      reason = status == 0 and state.process_exit == 0 and NativeEvents.dispatch_failure(state) ->
+        {:stop, {:codex_failed, reason}, %{state | port: nil}}
+
       true ->
         failure = if state.backend == "codex", do: :codex_failed, else: :claude_failed
         {:stop, {failure, status, state.process_exit}, %{state | port: nil}}
@@ -266,6 +274,7 @@ defmodule AtlasRuntime.Agent.Native do
 
   defp successful?(state) do
     state.process_exit == 0 and state.completed and not state.failed and
+      is_nil(NativeEvents.dispatch_failure(state)) and
       (state.backend == "codex" or (is_binary(state.model) and is_binary(state.session)))
   end
 
