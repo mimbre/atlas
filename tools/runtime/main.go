@@ -312,7 +312,7 @@ func execute(args []string) (map[string]any, error) {
 
 func executeTo(args []string, out io.Writer) (map[string]any, error) {
 	if len(args) == 0 {
-		return nil, errors.New("use service start|status|stop, start [--worker NAME] [--questions] --cwd PATH ASSIGNMENT, continue [--worker NAME] [--turn TURN_ID] ASSIGNMENT, answer --worker NAME --turn TURN_ID --question QUESTION_ID --answers JSON_OBJECT, preferences, status [--worker NAME], turns, events [--cursor CURSOR] [--limit N], output [--worker NAME] [--follow | --turn TURN_ID], stop [--worker NAME], snapshot materialize --snapshot sha256:HEX --dest NEW_PATH, snapshot prepare --dest PATH --npm-ci REPO_PATH[/SUBDIR], snapshot status|diff --dest PATH [--path REPO_PATH]..., snapshot submit --dest PATH [--path REPO_PATH] --change-id UUID, or snapshot rebind --dest PATH")
+		return nil, errors.New("use service start|status|stop, start [--worker NAME] [--questions] --cwd PATH ASSIGNMENT, continue [--worker NAME] [--turn TURN_ID] ASSIGNMENT, answer --worker NAME --turn TURN_ID --question QUESTION_ID --answers JSON_OBJECT, preferences, status [--worker NAME], turns, events [--cursor CURSOR] [--limit N], output [--worker NAME] [--follow | --turn TURN_ID], stop [--worker NAME], snapshot materialize --snapshot sha256:HEX --dest NEW_PATH, snapshot prepare --dest PATH --npm-ci REPO_PATH[/SUBDIR] | --npm-run REPO_PATH[/SUBDIR] --script NAME --output REPO_PATH/OUT..., snapshot status|diff --dest PATH [--path REPO_PATH]..., snapshot submit --dest PATH [--path REPO_PATH] --change-id UUID, or snapshot rebind --dest PATH")
 	}
 	dir, err := home()
 	if err != nil {
@@ -344,18 +344,25 @@ func executeTo(args []string, out io.Writer) (map[string]any, error) {
 		return service(dir, args[1])
 	}
 	if args[0] == "snapshot" {
-		usage := errors.New("use snapshot materialize --snapshot sha256:HEX --dest NEW_PATH, snapshot prepare --dest PATH --npm-ci REPO_PATH[/SUBDIR], snapshot status|diff --dest PATH [--path REPO_PATH]..., snapshot submit --dest PATH [--path REPO_PATH] --change-id UUID, or snapshot rebind --dest PATH")
+		usage := errors.New("use snapshot materialize --snapshot sha256:HEX --dest NEW_PATH, snapshot prepare --dest PATH --npm-ci REPO_PATH[/SUBDIR] | --npm-run REPO_PATH[/SUBDIR] --script NAME --output REPO_PATH/OUT..., snapshot status|diff --dest PATH [--path REPO_PATH]..., snapshot submit --dest PATH [--path REPO_PATH] --change-id UUID, or snapshot rebind --dest PATH")
 		if len(args) < 2 || args[1] != "materialize" && args[1] != "prepare" && args[1] != "status" && args[1] != "diff" && args[1] != "submit" && args[1] != "rebind" {
 			return nil, usage
 		}
 		flags := flag.NewFlagSet("snapshot "+args[1], flag.ContinueOnError)
 		dest := flags.String("dest", "", "materialized destination folder")
 		id, path, paths := new(string), new(string), []string{}
+		run, script := new(string), new(string)
 		switch args[1] {
 		case "materialize":
 			id = flags.String("snapshot", "", "Code snapshot ID")
 		case "prepare":
 			path = flags.String("npm-ci", "", "tracked package folder whose package-lock.json npm ci installs")
+			run = flags.String("npm-run", "", "package folder, after its --npm-ci, whose tracked script runs offline")
+			script = flags.String("script", "", "tracked package.json script that --npm-run runs")
+			flags.Func("output", "repository path the --npm-run script writes; repeat for each", func(value string) error {
+				paths = append(paths, value)
+				return nil
+			})
 		case "submit":
 			path = flags.String("path", "", "materialized repository path; optional with one repository")
 			id = flags.String("change-id", "", "caller-chosen lowercase UUID; repeat it to resume")
@@ -369,13 +376,20 @@ func executeTo(args []string, out io.Writer) (map[string]any, error) {
 		if err = flags.Parse(args[2:]); err != nil {
 			return nil, err
 		}
-		if flags.NArg() != 0 || *dest == "" || (args[1] == "materialize" || args[1] == "submit") && *id == "" || args[1] == "prepare" && *path == "" {
+		if flags.NArg() != 0 || *dest == "" || (args[1] == "materialize" || args[1] == "submit") && *id == "" {
+			return nil, usage
+		}
+		// A preparation is exactly one npm-ci, or one npm-run with its script and outputs.
+		if args[1] == "prepare" && ((*path == "") == (*run == "") || *path != "" && (*script != "" || len(paths) > 0) || *run != "" && (*script == "" || len(paths) == 0)) {
 			return nil, usage
 		}
 		switch args[1] {
 		case "materialize":
 			return snapshot.Materialize(dir, *id, *dest)
 		case "prepare":
+			if *run != "" {
+				return host.PrepareRun(dir, *dest, *run, *script, paths)
+			}
 			return host.Prepare(dir, *dest, *path)
 		case "submit":
 			return snapshot.Submit(dir, *dest, *path, *id)
@@ -805,7 +819,7 @@ func main() {
 		fmt.Println("Explicit coordinator handoff:\natlas-runtime submit-handoff --worker NAME --turn TURN_ID --handoff JSON_OBJECT\natlas-runtime handoff --worker NAME --turn TURN_ID\nDeclaration fields: kind (completion|pull_request), repository_url, branch, base_sha, head_sha, result, verification, limits, remaining_processes; pull_request requires pr_url, completion forbids it. The last three fields are arrays of strings. Stored provenance is coordinator_submitted_declaration, not authenticated native submission or verified task/PR acceptance. Identical repeats return the original record; replacement conflicts. Execution, merge and next assignment remain separate.")
 		fmt.Println("Explicit coordinator peer correlation (records only; never dispatches work or answers):\natlas-runtime route-peer-question --worker SENDER --turn TURN --question QUESTION --peer-worker PEER --peer-turn SOURCE\natlas-runtime peer-question --worker SENDER --turn TURN --question QUESTION\natlas-runtime bind-peer-reply --worker SENDER --turn TURN --question QUESTION --response-turn RESPONSE\nContinue and answer remain separate explicit commands. New transitions require the exact live pending sender question; reply binding requires the peer's successful continuation of the recorded source. Provenance is coordinator_routed_declaration, not authenticated native peer delivery. Identical routing repeats return original routed evidence; inspection returns current evidence. Conflicting targets or replies refuse.")
 		fmt.Println("Snapshot materialization (Code service required, Runtime service not):\natlas-runtime snapshot materialize --snapshot sha256:HEX --dest NEW_PATH\nVerifies the manifest identity and every archive entry, then publishes the new folder atomically and never replaces an existing path. Keeps a read-only baseline under the Runtime home in snapshots/HEX/ and records the destination in materializations/. No Git runs and no Git metadata is written.")
-		fmt.Println("Snapshot preparation (Runtime service, Code and Git not; npm and the installed Codex sandbox required):\natlas-runtime snapshot prepare --dest PATH --npm-ci REPO_PATH[/SUBDIR]\nRuns the one explicit preparation of a freshly materialized, unchanged folder: npm ci --ignore-scripts --no-audit --no-fund in that tracked package folder, from its tracked package-lock.json, which must pin every package to https://registry.npmjs.org/ with a sha512 integrity. No project .npmrc. Runs in the Codex sandbox, which writes only the folder's node_modules and an owned scratch and reaches only registry.npmjs.org, with a scrubbed environment and empty npm user and global configuration. Holds the folder lock that workers and submissions take; refuses while either runs. Kills the process group after 10 minutes and keeps 1 MiB of each of stdout and stderr; nothing is retried. Records a minimal result workers can read and private diagnostics they cannot under the Runtime home in preparations/. Status, diff and submit then skip the node_modules directory. A failed or interrupted preparation keeps the folder and diagnostics and makes the folder not ready: workers refuse it, status, diff and submit still work, and the recovery is a fresh materialization. A repeat reports the recorded result without running again; a result that is not ready exits nonzero.")
+		fmt.Println("Snapshot preparation (Runtime service, Code and Git not; npm and the installed Codex sandbox required):\natlas-runtime snapshot prepare --dest PATH --npm-ci REPO_PATH[/SUBDIR]\nRuns the one explicit preparation of a freshly materialized, unchanged folder: npm ci --ignore-scripts --no-audit --no-fund in that tracked package folder, from its tracked package-lock.json, which must pin every package to https://registry.npmjs.org/ with a sha512 integrity. No project .npmrc. Runs in the Codex sandbox, which writes only the folder's node_modules and an owned scratch and reaches only registry.npmjs.org, with a scrubbed environment and empty npm user and global configuration. Holds the folder lock that workers and submissions take; refuses while either runs. Kills the process group after 10 minutes and keeps 1 MiB of each of stdout and stderr; nothing is retried. Records a minimal result workers can read and private diagnostics they cannot under the Runtime home in preparations/. Status, diff and submit then skip the node_modules directory. A failed or interrupted preparation keeps the folder and diagnostics and makes the folder not ready: workers refuse it, status, diff and submit still work, and the recovery is a fresh materialization. A repeat reports the recorded result without running again; a result that is not ready exits nonzero.\natlas-runtime snapshot prepare --dest PATH --npm-run REPO_PATH[/SUBDIR] --script NAME --output REPO_PATH/OUT [--output REPO_PATH/OUT]...\nRuns, at most once and only after a succeeded --npm-ci of the same package in an otherwise unchanged folder, npm run --ignore-scripts --offline NAME for a script in the tracked package.json: no pre- or post-scripts. Runs in the Codex sandbox with no network, writing only the declared outputs and an owned scratch; node_modules and the rest of the folder are read-only. Outputs are paths in the package's repository, outside node_modules and the package manifests, not nested and not containing the package folder; an existing one, and every folder above it, is a real directory or, for the output itself, a regular file. Afterwards every tracked file, regenerated ones included, must be byte- and mode-identical to the snapshot, or the preparation fails (changed). Status, diff and submit skip only declared outputs that hold no tracked path, while they are real directories. Same lock, timeout, log cap, environment, records (diagnostics in private/npm-run) and readiness as --npm-ci; node must be on PATH.")
 		fmt.Println("Offline snapshot inspection (no Code, Runtime service or Git):\natlas-runtime snapshot status --dest PATH [--path REPO_PATH]...\natlas-runtime snapshot diff --dest PATH [--path REPO_PATH]...\nCompares a materialized folder with its verified baseline and writes to neither. Reports added, deleted, modified (binary flagged), mode, symlink and kind changes sorted by path; diff adds a unified diff per text content change. Symlinks are compared, never followed. --path selects repository paths; without it, files outside every repository are reported as added. Files over 1 MiB are not classified or diffed. Missing or invalid records or baselines fail.")
 		fmt.Println("Snapshot change submission (Code service required, Runtime service and Git not):\natlas-runtime snapshot submit --dest PATH [--path REPO_PATH] --change-id UUID\nSends one materialized repository's changes from its verified baseline to Code as a change based on the snapshot's revision and seals it; the result names the sealed revision, nothing is reviewed or integrated. --path may be omitted only with one repository. A clean repository returns state clean and sends nothing. Written files are captured into a private copy and the folder is scanned again before anything is sent; a folder that changed meanwhile is refused. FIFOs, sockets, devices, .git paths, symlinks leaving the repository and files over 64 MiB are refused; empty directories cannot be represented. Repeating the same command and change ID resumes an incomplete submission or returns the sealed revision; different content under the same ID is a conflict. Writes to neither the folder nor its baseline.")
 		fmt.Println("Snapshot rebind (Code required, Runtime service stopped):\natlas-runtime snapshot rebind --dest PATH\nMoves a folder materialized before revision handles to the successor snapshot Code names for it, which must have exactly the same entries, repositories and paths. Copies a new baseline from the old one with every file re-hashed, then switches the saved turns bound to the folder's exact old scope, their Claude contexts and the materialization record, so they still continue; admissions, process logs, events and other turns are untouched. Never writes the folder. Backs up every original and journals each step under rebinds/; an interrupted rebind resumes when repeated, and until then the folder's status, diff, submit and scope refuse. Refuses while the Runtime service runs or may be starting, or while a worker owns the folder. A folder that already uses revision handles reports state current. Status, diff and submit of an older folder refuse until it is rebound.")

@@ -129,18 +129,25 @@ func folderArguments(scope map[string]any, scratch, user, inspector string) ([]s
 const setupProfile = "atlas_setup"
 
 // setupArguments translates a materialized-folder scope into the Codex permission profile of its
-// npm-ci preparation: write only the declared output and the owned scratch, keep the rest of the
-// folder read-only, deny Git metadata, the Runtime home (its records and diagnostics included), the
-// Code token, the worker credential paths and ~/.npmrc, and reach only the public npm registry
-// through Codex's network proxy.
-func setupArguments(scope map[string]any, output, scratch, user string) ([]string, error) {
+// preparation: write only the writable outputs and the owned scratch, keep the rest of the folder
+// read-only, deny Git metadata, the Runtime home (its records and diagnostics included), the Code
+// token, the worker credential paths and ~/.npmrc. With network an npm-ci reaches only the public npm
+// registry through Codex's network proxy; without, an npm-run has no network at all.
+func setupArguments(scope map[string]any, writable []string, scratch, user string, network bool) ([]string, error) {
 	root, _ := scope["root"].(string)
 	home, _ := scope["home"].(string)
 	repositories, _ := scope["repositories"].([]any)
-	if root == "" || home == "" || len(repositories) == 0 || !within(root, output) || output == root || scratch == "" {
+	if root == "" || home == "" || len(repositories) == 0 || len(writable) == 0 || scratch == "" {
 		return nil, errors.New("Materialized folder scope is incomplete")
 	}
-	entries := [][2]string{{output, "write"}, {scratch, "write"}, {home, "none"}, {filepath.Join(root, ".git"), "none"}}
+	var entries [][2]string
+	for _, output := range writable {
+		if !within(root, output) || output == root {
+			return nil, errors.New("Materialized folder scope is incomplete")
+		}
+		entries = append(entries, [2]string{output, "write"})
+	}
+	entries = append(entries, [2]string{scratch, "write"}, [2]string{home, "none"}, [2]string{filepath.Join(root, ".git"), "none"})
 	for _, repository := range repositories {
 		path, ok := repository.(string)
 		if !ok {
@@ -148,9 +155,12 @@ func setupArguments(scope map[string]any, output, scratch, user string) ([]strin
 		}
 		entries = append(entries, [2]string{filepath.Join(root, path, ".git"), "none"})
 	}
-	denied, err := deniedEntries(home, user, []string{".npmrc"}, output, scratch)
+	denied, err := deniedEntries(home, user, []string{".npmrc"}, append(slices.Clone(writable), scratch)...)
 	if err != nil {
 		return nil, err
+	}
+	if !network {
+		return profileArguments(setupProfile, append(entries, denied...), "network={enabled=false}")
 	}
 	arguments, err := profileArguments(setupProfile, append(entries, denied...), `network={enabled=true,domains={"`+snapshot.NPMRegistry+`"="allow"}}`)
 	if err != nil {

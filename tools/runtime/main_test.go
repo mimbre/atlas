@@ -557,7 +557,7 @@ func TestPeerCorrelationRequiresExactTargetsAndNoDispatchOptions(t *testing.T) {
 func TestSnapshotMaterializeNeedsExactFlagsAndNoRuntimeService(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("ATLAS_RUNTIME_HOME", dir)
-	usage := "use snapshot materialize --snapshot sha256:HEX --dest NEW_PATH, snapshot prepare --dest PATH --npm-ci REPO_PATH[/SUBDIR], snapshot status|diff --dest PATH [--path REPO_PATH]..., snapshot submit --dest PATH [--path REPO_PATH] --change-id UUID, or snapshot rebind --dest PATH"
+	usage := "use snapshot materialize --snapshot sha256:HEX --dest NEW_PATH, snapshot prepare --dest PATH --npm-ci REPO_PATH[/SUBDIR] | --npm-run REPO_PATH[/SUBDIR] --script NAME --output REPO_PATH/OUT..., snapshot status|diff --dest PATH [--path REPO_PATH]..., snapshot submit --dest PATH [--path REPO_PATH] --change-id UUID, or snapshot rebind --dest PATH"
 	for _, args := range [][]string{
 		{"snapshot"},
 		{"snapshot", "download"},
@@ -574,6 +574,12 @@ func TestSnapshotMaterializeNeedsExactFlagsAndNoRuntimeService(t *testing.T) {
 		{"snapshot", "prepare", "--dest", dir},
 		{"snapshot", "prepare", "--npm-ci", "repo/app"},
 		{"snapshot", "prepare", "--dest", dir, "--npm-ci", "repo/app", "extra"},
+		{"snapshot", "prepare", "--dest", dir, "--npm-ci", "repo/app", "--npm-run", "repo/app", "--script", "build", "--output", "repo/out"},
+		{"snapshot", "prepare", "--dest", dir, "--npm-ci", "repo/app", "--script", "build"},
+		{"snapshot", "prepare", "--dest", dir, "--npm-ci", "repo/app", "--output", "repo/out"},
+		{"snapshot", "prepare", "--dest", dir, "--npm-run", "repo/app", "--output", "repo/out"},
+		{"snapshot", "prepare", "--dest", dir, "--npm-run", "repo/app", "--script", "build"},
+		{"snapshot", "prepare", "--dest", dir, "--script", "build", "--output", "repo/out"},
 	} {
 		if _, err := execute(args); err == nil || err.Error() != usage {
 			t.Fatalf("%q: %v", args, err)
@@ -586,6 +592,8 @@ func TestSnapshotMaterializeNeedsExactFlagsAndNoRuntimeService(t *testing.T) {
 		{"snapshot", "rebind", "--path", "beta", "--dest", dir},
 		{"snapshot", "prepare", "--path", "beta", "--dest", dir, "--npm-ci", "repo/app"},
 		{"snapshot", "prepare", "--dest", dir, "--npm-ci", "repo/app", "--retries", "2"},
+		{"snapshot", "status", "--dest", dir, "--output", "repo/out"},
+		{"snapshot", "submit", "--dest", dir, "--change-id", "x", "--script", "build"},
 	} {
 		if _, err := execute(args); err == nil || !strings.Contains(err.Error(), "flag provided but not defined") {
 			t.Fatalf("%q: %v", args, err)
@@ -600,6 +608,9 @@ func TestSnapshotMaterializeNeedsExactFlagsAndNoRuntimeService(t *testing.T) {
 	// Preparation reaches the folder without the Runtime socket; this one, outside the home, was never materialized.
 	if _, err = execute([]string{"snapshot", "prepare", "--dest", t.TempDir(), "--npm-ci", "repo/app"}); err == nil || !strings.HasPrefix(err.Error(), "no materialization record for ") {
 		t.Fatalf("prepare: %v", err)
+	}
+	if _, err = execute([]string{"snapshot", "prepare", "--dest", t.TempDir(), "--npm-run", "repo/app", "--script", "build", "--output", "repo/out"}); err == nil || !strings.HasPrefix(err.Error(), "no materialization record for ") {
+		t.Fatalf("prepare run: %v", err)
 	}
 	// Rebind reaches the folder without the Runtime socket; this one was never materialized.
 	if _, err = execute([]string{"snapshot", "rebind", "--dest", dir}); err == nil || !strings.HasPrefix(err.Error(), "no materialization record for ") {

@@ -92,6 +92,16 @@ func TestPreparedOutputIsSkippedOnlyAsARealDirectory(t *testing.T) {
 	}
 }
 
+// run is the JSON of a version 2 npm-run result of one/app with outputs, after an npm-ci in state,
+// or with no npm-ci when state is empty; it formats with the destination and snapshot ID.
+func run(outputs, state string) string {
+	previous := ""
+	if state != "" {
+		previous = `,"previous":{"version":1,"destination":%[1]q,"snapshot_id":%[2]q,"kind":"npm-ci","path":"one/app","outputs":["one/app/node_modules"],"state":"` + state + `","started_at":"x"}`
+	}
+	return `{"version":2,"destination":%[1]q,"snapshot_id":%[2]q,"kind":"npm-run","path":"one/app","script":"build","outputs":` + outputs + `,"state":"succeeded","started_at":"x"` + previous + `}`
+}
+
 func TestPreparationResultsFailClosed(t *testing.T) {
 	for _, test := range []struct {
 		name, result, want string
@@ -102,6 +112,12 @@ func TestPreparationResultsFailClosed(t *testing.T) {
 		{"undeclared output", `{"version":1,"destination":%q,"snapshot_id":%q,"kind":"npm-ci","path":"one/app","outputs":["one/app"],"state":"succeeded","started_at":"x"}`, "invalid preparation result", false},
 		{"unknown field", `{"version":1,"destination":%q,"snapshot_id":%q,"kind":"npm-ci","path":"one/app","outputs":["one/app/node_modules"],"state":"succeeded","started_at":"x","log":"y"}`, "invalid preparation result", false},
 		{"package outside repositories", `{"version":1,"destination":%q,"snapshot_id":%q,"kind":"npm-ci","path":"other","outputs":["other/node_modules"],"state":"succeeded","started_at":"x"}`, "in no repository", false},
+		{"version 1 with a script", `{"version":1,"destination":%q,"snapshot_id":%q,"kind":"npm-ci","path":"one/app","script":"build","outputs":["one/app/node_modules"],"state":"succeeded","started_at":"x"}`, "invalid preparation result", false},
+		{"run without its npm-ci", run(`["one/app/dist"]`, ""), "invalid preparation result", false},
+		{"run after a failed npm-ci", run(`["one/app/dist"]`, "failed"), "invalid preparation result", false},
+		{"run with unsorted outputs", run(`["one/app/dist","one/app/.build"]`, "succeeded"), "invalid preparation result", false},
+		{"run writing node_modules", run(`["one/app/node_modules/x"]`, "succeeded"), "invalid preparation result", false},
+		{"run output in no repository", run(`["other"]`, "succeeded"), "names output other outside the repository of one/app", false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			files := map[string]string{"app/package.json": "{}\n"}
@@ -145,5 +161,40 @@ func TestBeginPreparationNeverReplacesARecord(t *testing.T) {
 	}
 	if entries, _ := os.ReadDir(filepath.Join(home, "preparations")); len(entries) != 1 {
 		t.Fatalf("a refused claim left staging behind: %v", entries)
+	}
+}
+
+func TestRunOutputsAreExcludedOnlyWhileWhollyUntracked(t *testing.T) {
+	home, dest, id := localFolder(t, map[string]string{"app/package.json": "{}\n", "app/dist/app.css": "built\n"})
+	prepared(t, home, dest, id)
+	installed, err := LoadPreparation(home, dest)
+	must(t, err)
+	p := &Preparation{Version: 2, Destination: dest, SnapshotID: id, Kind: "npm-run", Path: "one/app", Script: "build", Outputs: []string{"one/app/.build", "one/app/dist"},
+		State: "running", StartedAt: "2026-11-09T00:02:00Z", Previous: installed}
+	must(t, BeginRun(home, p, map[string]any{"private": true}))
+	if err := BeginRun(home, p, nil); err == nil || !strings.Contains(err.Error(), "already has an npm-run preparation record") {
+		t.Fatalf("got %v", err)
+	}
+	p.State, p.EndedAt = "succeeded", "2026-11-09T00:03:00Z"
+	must(t, FinishPreparation(home, p))
+	for _, dir := range []string{filepath.Join(dest, "one", "app", "node_modules", "pkg"), filepath.Join(dest, "one", "app", ".build", "tmp")} {
+		must(t, os.MkdirAll(dir, 0755))
+		must(t, os.WriteFile(filepath.Join(dir, "x.js"), []byte("x\n"), 0644))
+	}
+	for _, diffs := range []bool{false, true} {
+		result, changes := inspect(t, home, dest, nil, diffs)
+		want := "map[excluded:[one/app/node_modules one/app/.build] kind:npm-run outputs:[one/app/.build one/app/dist] path:one/app ready:true script:build state:succeeded]"
+		if result["clean"] != true || len(changes) != 0 || fmt.Sprint(result["preparation"]) != want {
+			t.Fatalf("diffs=%v: %v", diffs, result)
+		}
+	}
+	if submitted, err := Submit(home, dest, "", changeUUID); err != nil || submitted["state"] != "clean" {
+		t.Fatalf("got %v %v", submitted, err)
+	}
+	// The tracked output is not excluded: a file added there and an edit to its tracked file are changes.
+	must(t, os.WriteFile(filepath.Join(dest, "one", "app", "dist", "new.css"), []byte("x\n"), 0644))
+	must(t, os.WriteFile(filepath.Join(dest, "one", "app", "dist", "app.css"), []byte("other\n"), 0644))
+	if _, changes := inspect(t, home, dest, nil, false); len(changes) != 2 || changes[0].Path != "one/app/dist/app.css" || changes[1].Path != "one/app/dist/new.css" {
+		t.Fatalf("got %v", changes)
 	}
 }

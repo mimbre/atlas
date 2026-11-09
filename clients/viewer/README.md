@@ -65,8 +65,12 @@ A Runtime worker folder gets these dependencies from the orchestrator before the
 `atlas-runtime snapshot prepare --dest DEST --npm-ci atlas/clients/viewer/assets` (where the snapshot mounts
 Atlas at `atlas`; scripts disabled, public
 registry only; see [the Runtime CLI](../../tools/runtime/README.md#explicit-folder-preparation-npm-ci)).
-Workers have no network for `npm ci` themselves. Running `npm run build` as declared, network-off setup is a
-later step.
+Workers have no network for `npm ci` themselves. The orchestrator can then prove the committed assets rebuild
+from the snapshot, with no network, by running the build as a declared preparation:
+`atlas-runtime snapshot prepare --dest DEST --npm-run atlas/clients/viewer/assets --script build --output
+atlas/clients/viewer/priv/static/app.css --output atlas/clients/viewer/priv/static/prism --output
+atlas/clients/viewer/assets/.build`. It fails unless `app.css` and `prism/` come out byte-identical to the
+committed files ([details](../../tools/runtime/README.md#network-off-generation-npm-run)).
 
 `build.js` inlines Prism's `css/base.css` and `css/components.css` with their `@import`s,
 copies every `url()` asset they reference into `priv/static/prism/`, rewrites those URLs to

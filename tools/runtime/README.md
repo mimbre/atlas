@@ -292,7 +292,7 @@ atlas-runtime snapshot prepare --dest /abs/assignment --npm-ci atlas/clients/vie
 atlas-runtime start --worker NAME --backend claude --cwd /abs/assignment --permissions materialized-folder "Assignment"
 ```
 
-The orchestrator authorizes setup by running `prepare` before the worker starts; Runtime never detects or runs setup by itself, and a folder that is never prepared works exactly as before. This first slice has one form: install the tracked lockfile of one package folder. Repository commands that generate assets or code (such as `npm run build`) are not part of it.
+The orchestrator authorizes setup by running `prepare` before the worker starts; Runtime never detects or runs setup by itself, and a folder that is never prepared works exactly as before. There are two forms, in this order: install the tracked lockfile of one package folder, then at most one declared, network-off script of that package ([below](#network-off-generation-npm-run)).
 
 - **What runs:** exactly `npm ci --ignore-scripts --no-audit --no-fund` in `REPO_PATH[/SUBDIR]`. No lifecycle script of the package or its dependencies runs, so no repository or package code runs while the registry is reachable. The command runs in the CLI process: no daemon, Code request, Git or model call.
 - **Refused before anything runs or is recorded:**
@@ -317,7 +317,28 @@ The orchestrator authorizes setup by running `prepare` before the worker starts;
 - **Exclusion:** status, diff and submit skip the output only while it is a real directory, in any state, and only because the result names it and the snapshot tracks nothing under it. Nothing is followed: a symlink in its place is reported as an added link, and submit refuses one leaving the repository. Files a worker puts in `node_modules` are not published.
 - **Workers:** the folder scope is unchanged, so Elixir admission and saved turns are unaffected. Codex and Claude worker profiles additionally read only `result.json`.
 
-Verified on 2026-11-09: Go tests using stand-in Codex and npm commands cover the scrubbed environment, disabled lifecycle scripts, 1 MiB log cap, result records, status/diff/submit agreement, failures, interruption, timeout, tracked-file protection, refusals and shared lock. The coordinator also passed `TestSetupProfileIsEnforcedByInstalledCodexSandbox` outside the worker sandbox, including its direct network positive control and denied network/write probes. A real registry install through Codex's proxy installed 74 packages; offline use succeeded and all 550 tracked files remained unchanged. These checks do not establish which macOS trust services are necessary.
+Verified on 2026-11-09 (step 11a): Go tests using stand-in Codex and npm commands cover the scrubbed environment, disabled lifecycle scripts, 1 MiB log cap, result records, status/diff/submit agreement, failures, interruption, timeout, tracked-file protection, refusals and shared lock. The coordinator also passed `TestSetupProfileIsEnforcedByInstalledCodexSandbox` outside the worker sandbox, including its direct network positive control and denied network/write probes. A real registry install through Codex's proxy installed 74 packages; offline use succeeded and all 550 tracked files remained unchanged. These checks do not establish which macOS trust services are necessary.
+
+### Network-off generation (npm run)
+
+```sh
+atlas-runtime snapshot prepare --dest /abs/assignment --npm-ci atlas/clients/viewer/assets
+atlas-runtime snapshot prepare --dest /abs/assignment --npm-run atlas/clients/viewer/assets --script build \
+  --output atlas/clients/viewer/priv/static/app.css --output atlas/clients/viewer/priv/static/prism --output atlas/clients/viewer/assets/.build
+```
+
+A strict, reproducible preparation, not a rebuild after edits: it regenerates exactly the snapshot's files with the installed dependencies, so a worker starts in a folder whose generated files were proven to come from its sources.
+
+- **What runs:** exactly `npm run --ignore-scripts --offline NAME` in the package folder, for a `NAME` in the tracked `package.json` `scripts`; npm runs none of its pre- or post-scripts. Once per folder, only after a succeeded `--npm-ci` of the same package.
+- **Outputs:** every path the script writes is declared with `--output`, repeated. Each is a path in the package's repository, not nested in another, outside `node_modules` and the package's `package.json`/`package-lock.json`, and does not contain the package folder. An existing output and every folder above it is a real directory, or, for the output itself, a regular tracked or new file; nothing is a symlink. The script may write, overwrite and clear inside a declared output, but cannot remove the output path itself, so a build empties a declared directory in place rather than deleting and recreating it.
+- **Refused before anything runs or is recorded:** no succeeded npm-ci of the package, an untracked script, an invalid output, a project `.npmrc`, a folder changed since materialization (outside `node_modules`), a folder already holding an npm-run, or one held by a worker, a submission or another preparation. `node` must be on PATH outside the folder.
+- **Boundary:** the same `atlas_setup` profile and deny-list as npm-ci, with `network={enabled=false}` and no network proxy. It writes only the declared outputs and the owned scratch; `node_modules` and the rest of the folder are read-only. Same scrubbed environment and empty npm configuration, plus `npm_config_offline=true`.
+- **Strict outcome:** afterwards every tracked file, the regenerated ones included, must be byte- and mode-identical to the snapshot, and nothing may be added outside the excluded outputs; otherwise the run fails with reason `changed`, and the outcome names the changes.
+- **Exclusion:** status, diff and submit additionally skip only the declared outputs that hold no tracked path (for the viewer, `assets/.build`), while each is a real directory. A declared output that holds tracked paths (`app.css`, `prism`) is never excluded: its files stay ordinary tracked changes.
+- **Records and lifecycle:** the same lock, timeout, log cap, readiness and recovery as npm-ci. `result.json` becomes version 2 (`kind` `npm-run`, `script`, sorted `outputs`, and the npm-ci as `previous`), written as `running` before npm starts. The run's private request, process, logs and outcome are in `private/npm-run/`, created exclusively. Version 1 results stay valid.
+- **Repeat:** the same run, with its outputs in any order, reports its recorded result without running again; repeating the npm-ci reports the npm-ci's. Any other npm-ci or run is refused.
+
+Tests (step 11b, 2026-11-09): Go tests with stand-in Codex, npm and node cover the exact arguments and offline environment, regeneration with a clean status, diff and submit, exclusion of only untracked outputs, failures for a changed, re-moded or removed tracked output, a file outside the outputs and a failing script, every refusal, repeats, the shared lock, an interrupted claim, and version 1 and 2 record validation. `TestRunProfileIsEnforcedByInstalledCodexSandbox` probes the network-off profile under the installed Codex sandbox; it, the host-level tests and a real viewer build need a run outside the worker sandbox, where its Codex home check and loopback listening are denied; only the snapshot-level tests ran inside it.
 
 ## Claude scoped repository writes
 

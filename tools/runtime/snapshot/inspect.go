@@ -69,7 +69,11 @@ func Inspect(home, dest string, paths []string, diffs bool) (map[string]any, err
 	}
 	result := map[string]any{"snapshot_id": f.id, "destination": f.dest, "clean": len(changes) == 0, "changes": changes}
 	if p := f.preparation; p != nil {
-		result["preparation"] = map[string]any{"kind": p.Kind, "path": p.Path, "outputs": p.Outputs, "state": p.State, "ready": p.Ready()}
+		summary := map[string]any{"kind": p.Kind, "path": p.Path, "outputs": p.Outputs, "state": p.State, "ready": p.Ready()}
+		if p.Kind == "npm-run" {
+			summary["script"], summary["excluded"] = p.Script, p.excluded
+		}
+		result["preparation"] = summary
 	}
 	return result, nil
 }
@@ -162,7 +166,7 @@ func (f *folder) changes(paths []string, diffs bool) ([]change, error) {
 			return err
 		}
 		rel = filepath.ToSlash(rel)
-		// A preparation's output holds no tracked path; status, diff and submit all skip it.
+		// An excluded preparation output holds no tracked path; status, diff and submit all skip it.
 		if f.excluded(rel, d) {
 			return filepath.SkipDir
 		}

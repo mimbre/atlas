@@ -359,7 +359,7 @@ Claude with the materialized-folder profile:
   - Claude Code blocks long foreground `sleep`-style commands on its own.
   - Verified with Claude Code 2.1.280.
 
-Folder preparation (step 11a implemented, `tools/runtime/host/prepare.go`, `tools/runtime/snapshot/prepare.go`):
+Folder preparation (steps 11a and 11b implemented, `tools/runtime/host/prepare.go`, `tools/runtime/snapshot/prepare.go`):
 - **Command:** `atlas-runtime snapshot prepare --dest DEST --npm-ci REPO_PATH[/SUBDIR]`, run by the orchestrator before a worker starts. It runs in the CLI process: no daemon, Code request, Git or model call. Code only supplies the snapshot. There is no detection, cache service, retry or scheduling.
 - **One fixed command:** `npm ci --ignore-scripts --no-audit --no-fund`, a download of integrity-pinned tarballs that runs no repository or package code. The lockfile must name only `https://registry.npmjs.org/` tarballs with sha512 integrity. A project `.npmrc` is refused. The folder must be unchanged since materialization; the snapshot tracks nothing under `node_modules`.
 - **Boundary:** Codex profile `atlas_setup`, based on `:read-only`.
@@ -372,7 +372,11 @@ Folder preparation (step 11a implemented, `tools/runtime/host/prepare.go`, `tool
 - **Records:** `preparations/<sha256(dest)>/result.json` is minimal and worker-readable, claimed by an exclusive rename before npm starts. `private/` holds the request, process, logs and outcome. Workers can write neither.
 - **Readiness and exclusion:** `FolderScope` refuses a `failed` or leftover `running` result; `FolderScopeBeforePreparation` keeps the earlier checks. The scope's keys are unchanged, so Elixir admission is untouched. Status, diff and submit skip the derived output only while it is a real directory with no tracked entries, and follow no symlink. Recovery from a result that is not ready is a fresh materialization.
 - **Verified:** a real registry install through Codex's proxy installed 74 packages, offline use succeeded, and all 550 tracked files remained unchanged. The installed Codex sandbox enforcement test passed outside the worker sandbox, including a direct network positive control. The necessity of individual macOS trust services remains unproven.
-- **Step 11b (required before step 11 is complete):** network-off, explicitly declared repository commands that generate assets or code beyond dependency installation, such as the viewer's `npm run build`.
+- **Network-off generation (step 11b):** `atlas-runtime snapshot prepare --dest DEST --npm-run REPO_PATH[/SUBDIR] --script NAME --output REPO_PATH/OUT...`, at most once and only after a succeeded npm-ci of the same package.
+  - Runs exactly `npm run --ignore-scripts --offline NAME` for a script in the tracked `package.json`, in `atlas_setup` with `network={enabled=false}` and no proxy. Writes only the declared outputs and the scratch; `node_modules` stays read-only.
+  - Outputs lie in the package's repository, are not nested, avoid `node_modules` and the manifests, do not contain the package, and are real paths.
+  - Strict: afterwards every tracked file, regenerated ones included, is byte- and mode-identical to the snapshot, or the run fails (`changed`). It proves generated files reproduce; it is not a rebuild after edits.
+  - Only outputs holding no tracked path are excluded from status, diff and submit. `result.json` version 2 records the run with its npm-ci as `previous`; its diagnostics are in `private/npm-run/`. Version 1 results stay valid. The lock, timeout, log cap, readiness, repeat and recovery rules are those of npm-ci.
 
 Later bounded steps, each a separate assignment:
 1. Use materialized snapshots for worker starts automatically (orchestration).

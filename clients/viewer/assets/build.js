@@ -6,6 +6,9 @@
 // /assets/prism/…, rather than trusting Tailwind to resolve them. The build fails on a
 // remote, absolute or missing asset, an unresolvable or conditional import, a version
 // other than the pinned ones, or output that lacks the Prism classes the viewer uses.
+//
+// priv/static/prism/ and .build/ are emptied in place, never removed: a declared Runtime
+// preparation may write and clear inside its outputs but not remove the output paths themselves.
 "use strict";
 
 const fs = require("fs");
@@ -22,6 +25,12 @@ const here = __dirname;
 const staticDir = path.join(here, "..", "priv", "static");
 const assetDir = path.join(staticDir, "prism");
 const buildDir = path.join(here, ".build");
+
+// emptyDir makes dir an empty directory, keeping dir itself.
+function emptyDir(dir) {
+  fs.mkdirSync(dir, { recursive: true });
+  for (const name of fs.readdirSync(dir)) fs.rmSync(path.join(dir, name), { recursive: true, force: true });
+}
 
 function fail(message) {
   console.error("build.js: " + message);
@@ -90,9 +99,8 @@ function inline(file, seen = new Set()) {
     .replace(/\u0000(\d+)\u0000/g, (_, index) => inline(imports[Number(index)], seen));
 }
 
-fs.rmSync(assetDir, { recursive: true, force: true });
-fs.rmSync(buildDir, { recursive: true, force: true });
-fs.mkdirSync(buildDir, { recursive: true });
+emptyDir(assetDir);
+emptyDir(buildDir);
 
 fs.mkdirSync(path.join(assetDir, "fonts"), { recursive: true });
 for (const license of ["LICENSE", "fonts/OFL.txt"]) {
@@ -127,5 +135,5 @@ for (const [, , reference] of built.matchAll(URL_PATTERN)) {
   const file = path.join(assetDir, ...reference.slice("/assets/prism/".length).split(/[?#]/)[0].split("/").map(decodeURIComponent));
   if (!fs.existsSync(file)) fail(`built CSS references missing ${reference}`);
 }
-fs.rmSync(buildDir, { recursive: true, force: true });
+emptyDir(buildDir);
 console.log(`build.js: wrote ${path.relative(here, output)} and ${path.relative(here, assetDir)}/ from ${PRISM} ${VERSIONS[PRISM]}`);

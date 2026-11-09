@@ -542,7 +542,7 @@ func TestSetupProfileIsEnforcedByInstalledCodexSandbox(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("REACHABLE-SENTINEL")) }))
 	defer server.Close()
 	directory := filepath.Join(dest, "repo", "app")
-	args, err := setupArguments(scope, filepath.Join(directory, "node_modules"), scratch, user)
+	args, err := setupArguments(scope, []string{filepath.Join(directory, "node_modules")}, scratch, user, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -582,6 +582,364 @@ func TestSetupProfileIsEnforcedByInstalledCodexSandbox(t *testing.T) {
 		t.Fatal("a tracked file changed")
 	}
 	// Positive control: the same request reaches the server outside the sandbox.
+	if out, err := exec.Command("curl", "-sS", "--fail", "-m", "5", server.URL).CombinedOutput(); err != nil || !strings.Contains(string(out), "REACHABLE-SENTINEL") {
+		t.Fatalf("unsandboxed control failed: %v %s", err, out)
+	}
+}
+
+// runPackageJSON declares the build script an npm-run preparation runs, beside lifecycle scripts it must not.
+const runPackageJSON = `{"name":"assets","private":true,"scripts":{"preinstall":"touch SCRIPT-RAN","prebuild":"touch PRE-RAN","build":"node build.js"},"devDependencies":{"left-pad":"1.3.0"}}`
+
+// runOutputs are the viewer-like outputs of the build: two tracked generated paths beside the
+// tracked page, and an untracked temporary folder in the package.
+var runOutputs = []string{"repo/static/prism", "repo/app/.build", "repo/static/app.css"}
+
+// runFiles is a repository whose package app builds the tracked static/app.css and static/prism.
+func runFiles() map[string]string {
+	files := packageFiles()
+	files["app/package.json"] = runPackageJSON
+	files["app/build.js"] = "build()\n"
+	files["static/index.html"] = "<html>\n"
+	files["static/app.css"] = "built\n"
+	files["static/prism/LICENSE"] = "MIT\n"
+	return files
+}
+
+// regenerate is a build that rewrites its tracked outputs exactly as the snapshot has them.
+const regenerate = `rm -rf ../static/prism/*
+mkdir -p ../static/prism .build
+printf 'MIT\n' > ../static/prism/LICENSE
+printf 'built\n' > ../static/app.css
+echo entry > .build/entry.css`
+
+// runTools is preparationTools with a stand-in node, whose npm runs ci on ci and run on run.
+func runTools(t *testing.T, ci, run string) (runs string) {
+	t.Helper()
+	runs = preparationTools(t, "case \"$1\" in\nci)\n"+ci+"\n;;\nrun)\necho \"args $*\"\nenv\n"+run+"\n;;\nesac\n")
+	if err := os.WriteFile(filepath.Join(filepath.Dir(runs), "node"), []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	return runs
+}
+
+func TestRunPreparationRegeneratesTrackedOutputsOffline(t *testing.T) {
+	user, home, dest := preparationFolder(t, runFiles())
+	t.Setenv("NPM_TOKEN", "NPM-SENTINEL")
+	runs := runTools(t, "mkdir -p node_modules/tool", regenerate)
+	// A run needs a succeeded npm-ci of its package first.
+	if _, err := PrepareRun(home, dest, "repo/app", "build", runOutputs); err == nil || !strings.Contains(err.Error(), "requires a succeeded --npm-ci preparation of repo/app") || runCount(t, runs) != 0 {
+		t.Fatalf("a run without npm-ci: %v", err)
+	}
+	if _, err := Prepare(home, dest, "repo/app"); err != nil {
+		t.Fatal(err)
+	}
+	result, err := PrepareRun(home, dest, "repo/app", "build", runOutputs)
+	sorted := []string{"repo/app/.build", "repo/static/app.css", "repo/static/prism"}
+	if err != nil || result["ready"] != true || result["kind"] != "npm-run" || result["script"] != "build" || !slices.Equal(result["outputs"].([]string), sorted) ||
+		*result["exit_code"].(*int) != 0 || runCount(t, runs) != 2 {
+		t.Fatalf("got %v %v", result, err)
+	}
+	for _, name := range []string{"SCRIPT-RAN", "PRE-RAN"} {
+		if _, err := os.Lstat(filepath.Join(dest, "repo", "app", name)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("%s: a lifecycle script ran", name)
+		}
+	}
+
+	// The run has its own private diagnostics beside the npm-ci's: exact arguments, offline, scrubbed.
+	diagnostics := filepath.Join(snapshot.PreparationDiagnostics(home, dest), "npm-run")
+	if result["diagnostics"] != diagnostics {
+		t.Fatalf("diagnostics: %v", result["diagnostics"])
+	}
+	log := readText(t, filepath.Join(diagnostics, "stdout.log"))
+	if !strings.Contains(log, "args run --ignore-scripts --offline build\n") || !strings.Contains(log, "npm_config_offline=true\n") || strings.Contains(log, "SENTINEL") {
+		t.Fatalf("npm run log: %s", log)
+	}
+	if request := readText(t, filepath.Join(diagnostics, "request.json")); !strings.Contains(request, `"script":"build"`) || !strings.Contains(request, `"--offline"`) {
+		t.Fatalf("request: %s", request)
+	}
+	if request := readText(t, filepath.Join(snapshot.PreparationDiagnostics(home, dest), "request.json")); !strings.Contains(request, `"ci"`) {
+		t.Fatalf("the npm-ci request was not kept: %s", request)
+	}
+
+	// The worker-readable result names the run and the npm-ci it follows, and nothing private.
+	raw := readText(t, snapshot.PreparationResult(home, dest))
+	var worker map[string]any
+	if err = json.Unmarshal([]byte(raw), &worker); err != nil {
+		t.Fatal(err)
+	}
+	keys := []string{}
+	for key := range worker {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	if !slices.Equal(keys, []string{"destination", "ended_at", "exit_code", "kind", "outputs", "path", "previous", "script", "snapshot_id", "started_at", "state", "version"}) ||
+		strings.Contains(raw, "npm_config") || strings.Contains(raw, "SENTINEL") || strings.Contains(raw, "codex") {
+		t.Fatalf("worker-readable result: %s", raw)
+	}
+
+	// Status, diff and submit agree: only node_modules and the untracked .build are skipped.
+	for _, diffs := range []bool{false, true} {
+		inspection, err := snapshot.Inspect(home, dest, nil, diffs)
+		want := "map[excluded:[repo/app/node_modules repo/app/.build] kind:npm-run outputs:[repo/app/.build repo/static/app.css repo/static/prism] path:repo/app ready:true script:build state:succeeded]"
+		if err != nil || inspection["clean"] != true || fmt.Sprint(inspection["preparation"]) != want {
+			t.Fatalf("diffs=%v: %v %v", diffs, inspection, err)
+		}
+	}
+	if submitted, err := snapshot.Submit(home, dest, "", uuid); err != nil || submitted["state"] != "clean" {
+		t.Fatalf("submit must find nothing to send, without Code: %v %v", submitted, err)
+	}
+	// A tracked output is never excluded: a file added in it is an ordinary change.
+	extra := filepath.Join(dest, "repo", "static", "prism", "extra.txt")
+	if err = os.WriteFile(extra, []byte("x\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if inspection, err := snapshot.Inspect(home, dest, nil, false); err != nil || changesJSON(t, inspection) != `[{"repository":"github.com/test/repo","path":"repo/static/prism/extra.txt","change":"added"}]` {
+		t.Fatalf("got %v %v", inspection, err)
+	}
+	if err = os.Remove(extra); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = workspace.FolderScope(dest, home); err != nil {
+		t.Fatalf("workers refuse the prepared folder: %v", err)
+	}
+
+	// Repeats, in any output order, report the recorded outcomes; another run is refused.
+	again, err := PrepareRun(home, dest, "repo/app", "build", sorted)
+	if err != nil || again["ended_at"] != result["ended_at"] || runCount(t, runs) != 2 {
+		t.Fatalf("repeat: %v %v", again, err)
+	}
+	if installed, err := Prepare(home, dest, "repo/app"); err != nil || installed["kind"] != "npm-ci" || runCount(t, runs) != 2 {
+		t.Fatalf("npm-ci repeat: %v %v", installed, err)
+	}
+	for _, other := range []struct {
+		script  string
+		outputs []string
+	}{{"build", []string{"repo/static/app.css"}}, {"lint", runOutputs}} {
+		if _, err = PrepareRun(home, dest, "repo/app", other.script, other.outputs); err == nil || !strings.Contains(err.Error(), "a folder is prepared once") || runCount(t, runs) != 2 {
+			t.Fatalf("another run %v: %v", other, err)
+		}
+	}
+
+	// The run's profile has no network and writes only its outputs and scratch; node_modules stays read-only.
+	scope, err := workspace.FolderScopeBeforePreparation(dest, home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	args, err := setupArguments(scope, []string{filepath.Join(dest, "repo", "static", "app.css")}, filepath.Join(home, "scratch", "x"), user, false)
+	profile := strings.Join(args, " ")
+	if err != nil || !strings.Contains(profile, "network={enabled=false}") || strings.Contains(profile, "network_proxy") || strings.Contains(profile, snapshot.NPMRegistry) ||
+		strings.Contains(profile, "node_modules") || strings.Count(profile, `="write"`) != 2 {
+		t.Fatalf("run profile: %s %v", profile, err)
+	}
+}
+
+func TestRunPreparationThatChangesFilesFails(t *testing.T) {
+	for _, test := range []struct {
+		name, run, reason, change string
+	}{
+		{"changed tracked output", "printf 'different\\n' > ../static/app.css", "changed", `"path":"repo/static/app.css","change":"modified"`},
+		{"executable tracked output", regenerate + "\nchmod +x ../static/app.css", "changed", `"path":"repo/static/app.css","change":"mode"`},
+		{"removed tracked output", "rm ../static/prism/LICENSE", "changed", `"path":"repo/static/prism/LICENSE","change":"deleted"`},
+		{"file outside the outputs", regenerate + "\necho x > README.md", "changed", `"path":"repo/app/README.md","change":"modified"`},
+		{"untracked output that is not a directory", "echo x > .build", "changed", `"path":"repo/app/.build","change":"added"`},
+		{"failing script", "echo 'build failed' >&2\nexit 4", "exit", ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, home, dest := preparationFolder(t, runFiles())
+			runs := runTools(t, "mkdir -p node_modules/tool", test.run)
+			if _, err := Prepare(home, dest, "repo/app"); err != nil {
+				t.Fatal(err)
+			}
+			_, err := PrepareRun(home, dest, "repo/app", "build", runOutputs)
+			result := notReady(t, err, "failed")
+			if result["reason"] != test.reason || result["script"] != "build" {
+				t.Fatalf("got %v", result)
+			}
+			diagnostics := filepath.Join(snapshot.PreparationDiagnostics(home, dest), "npm-run")
+			if outcome := readText(t, filepath.Join(diagnostics, "outcome.json")); test.change != "" && !strings.Contains(outcome, strings.ReplaceAll(test.change, `"`, `\"`)) {
+				t.Fatalf("outcome does not name the change: %s", outcome)
+			}
+			// Workers refuse the folder with the same explanation; status still reports the change.
+			if _, scopeErr := workspace.FolderScope(dest, home); scopeErr == nil || scopeErr.Error() != err.Error() || !strings.Contains(err.Error(), "npm-run preparation of repo/app (script build) failed") {
+				t.Fatalf("worker scope: %v", scopeErr)
+			}
+			inspection, err := snapshot.Inspect(home, dest, nil, false)
+			if err != nil || !strings.Contains(changesJSON(t, inspection), test.change) || inspection["preparation"].(map[string]any)["state"] != "failed" {
+				t.Fatalf("status: %v %v", inspection, err)
+			}
+			// A repeat reports the failure and never retries.
+			_, err = PrepareRun(home, dest, "repo/app", "build", runOutputs)
+			notReady(t, err, "failed")
+			if runCount(t, runs) != 2 {
+				t.Fatal("a failed run was retried")
+			}
+		})
+	}
+}
+
+func TestRunPreparationRefusesBeforeRunningAnything(t *testing.T) {
+	for _, test := range []struct {
+		name, ci, script, want string
+		outputs                []string
+		change                 func(dest string) error
+	}{
+		{"no npm-ci", "", "build", "requires a succeeded --npm-ci preparation of repo/app", runOutputs, nil},
+		{"failed npm-ci", "exit 1", "build", "requires a succeeded --npm-ci preparation of repo/app", runOutputs, nil},
+		{"untracked script", "mkdir node_modules", "deploy", `script "deploy" is not in the tracked repo/app/package.json`, runOutputs, nil},
+		{"script name", "mkdir node_modules", "-x", `--script "-x" is not a package.json script name`, runOutputs, nil},
+		{"no outputs", "mkdir node_modules", "build", "declares no --output", nil, nil},
+		{"node_modules output", "mkdir node_modules", "build", "overlaps repo/app/node_modules", []string{"repo/app/node_modules/.cache"}, nil},
+		{"package folder output", "mkdir node_modules", "build", "", []string{"repo/app"}, nil},
+		{"repository output", "mkdir node_modules", "build", "", []string{"repo"}, nil},
+		{"manifest output", "mkdir node_modules", "build", "is the package's own manifest", []string{"repo/app/package-lock.json"}, nil},
+		{"parent output", "mkdir node_modules", "build", "is not a relative path inside the destination", []string{"repo/app/../static"}, nil},
+		{"Git output", "mkdir node_modules", "build", "is not a relative path inside the destination", []string{"repo/.git/hooks"}, nil},
+		{"duplicate output", "mkdir node_modules", "build", "--output repo/static/app.css is declared twice", []string{"repo/static/app.css", "repo/static/app.css"}, nil},
+		{"nested outputs", "mkdir node_modules", "build", "--output repo/static/app.css is inside --output repo/static", []string{"repo/static", "repo/static/app.css"}, nil},
+		{"output outside repositories", "mkdir node_modules", "build", "--output elsewhere is outside the repository of repo/app", []string{"elsewhere"}, nil},
+		{"symlinked output folder", "mkdir node_modules", "build", "repo/static/link is not a real directory", []string{"repo/static/link/x"},
+			func(dest string) error { return os.Symlink("..", filepath.Join(dest, "repo", "static", "link")) }},
+		{"changed folder", "mkdir node_modules", "build", "has 1 change(s) since it was materialized, first modified repo/app/README.md", runOutputs,
+			func(dest string) error {
+				return os.WriteFile(filepath.Join(dest, "repo", "app", "README.md"), []byte("edited\n"), 0600)
+			}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, home, dest := preparationFolder(t, runFiles())
+			runs := runTools(t, test.ci, regenerate)
+			installed := 0
+			if test.ci != "" {
+				Prepare(home, dest, "repo/app")
+				installed = 1
+			}
+			if test.change != nil {
+				if err := test.change(dest); err != nil {
+					t.Fatal(err)
+				}
+			}
+			before, _ := os.ReadFile(snapshot.PreparationResult(home, dest))
+			if _, err := PrepareRun(home, dest, "repo/app", test.script, test.outputs); err == nil || (test.want != "" && !strings.Contains(err.Error(), test.want)) {
+				t.Fatalf("got %v, want %q", err, test.want)
+			}
+			after, _ := os.ReadFile(snapshot.PreparationResult(home, dest))
+			if _, err := os.Lstat(filepath.Join(snapshot.PreparationDiagnostics(home, dest), "npm-run")); !errors.Is(err, os.ErrNotExist) || string(after) != string(before) || runCount(t, runs) != installed {
+				t.Fatalf("a refused run recorded or ran something: %v", err)
+			}
+		})
+	}
+	t.Run("missing node", func(t *testing.T) {
+		_, home, dest := preparationFolder(t, runFiles())
+		runs := runTools(t, "mkdir node_modules", regenerate)
+		if _, err := Prepare(home, dest, "repo/app"); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Remove(filepath.Join(filepath.Dir(runs), "node")); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := PrepareRun(home, dest, "repo/app", "build", runOutputs); err == nil || !strings.Contains(err.Error(), "requires node on PATH") || runCount(t, runs) != 1 {
+			t.Fatalf("got %v", err)
+		}
+	})
+}
+
+func TestRunPreparationTakesTheFolderLockAndRecordsBeforeRunning(t *testing.T) {
+	_, home, dest := preparationFolder(t, runFiles())
+	runs := runTools(t, "mkdir node_modules", regenerate)
+	if _, err := Prepare(home, dest, "repo/app"); err != nil {
+		t.Fatal(err)
+	}
+	worker, _, err := workspace.Lock(dest, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = PrepareRun(home, dest, "repo/app", "build", runOutputs); err == nil || !strings.Contains(err.Error(), "has an active Runtime owner") {
+		t.Fatalf("got %v", err)
+	}
+	worker.Close()
+	if _, err = os.Lstat(filepath.Join(snapshot.PreparationDiagnostics(home, dest), "npm-run")); !errors.Is(err, os.ErrNotExist) || runCount(t, runs) != 1 {
+		t.Fatal("a refused run recorded or ran something")
+	}
+	// A run killed after its claim leaves only its running result: not ready, never run again.
+	plan, err := snapshot.PlanNPMRun(home, dest, "repo/app", "build", runOutputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = snapshot.BeginRun(home, plan, map[string]any{}); err != nil {
+		t.Fatal(err)
+	}
+	if err = snapshot.BeginRun(home, plan, map[string]any{}); err == nil || !strings.Contains(err.Error(), "already has an npm-run preparation record") {
+		t.Fatalf("a second claim: %v", err)
+	}
+	if _, err = workspace.FolderScope(dest, home); err == nil || !strings.Contains(err.Error(), "has no recorded outcome") {
+		t.Fatalf("worker scope: %v", err)
+	}
+	_, err = PrepareRun(home, dest, "repo/app", "build", runOutputs)
+	notReady(t, err, "running")
+	if runCount(t, runs) != 1 {
+		t.Fatal("an uncertain run was run again")
+	}
+}
+
+// TestRunProfileIsEnforcedByInstalledCodexSandbox runs probes under the installed Codex seatbelt
+// with the exact network-off run profile.
+func TestRunProfileIsEnforcedByInstalledCodexSandbox(t *testing.T) {
+	codex, err := exec.LookPath("codex")
+	if runtime.GOOS != "darwin" || err != nil {
+		t.Skip("requires the installed Codex CLI on macOS")
+	}
+	user, home, dest := preparationFolder(t, runFiles())
+	scope, err := workspace.FolderScopeBeforePreparation(dest, home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(user, ".npmrc"), []byte("NPMRC-SENTINEL"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	directory := filepath.Join(dest, "repo", "app")
+	if err = os.MkdirAll(filepath.Join(directory, "node_modules", "tool"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	scratch := filepath.Join(home, "scratch", "prepare-run-sandbox")
+	if err = os.MkdirAll(scratch, 0700); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("REACHABLE-SENTINEL")) }))
+	defer server.Close()
+	var writable []string
+	for _, output := range runOutputs {
+		writable = append(writable, filepath.Join(dest, output))
+	}
+	args, err := setupArguments(scope, writable, scratch, user, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, probe := range []struct {
+		script  string
+		allowed bool
+	}{
+		{"printf 'built\\n' > ../static/app.css && rm -rf ../static/prism/* && mkdir -p .build && echo x > .build/entry.css", true},
+		{fmt.Sprintf("echo ok > %q", filepath.Join(scratch, "f")), true},
+		{"cat node_modules/../package.json", true},
+		{"echo x > node_modules/tool/index.js", false},
+		{"echo x > ../static/index.html", false},
+		{"echo x > build.js", false},
+		// A declared output may be cleared, never removed.
+		{"rm -rf ../static/prism", false},
+		{fmt.Sprintf("cat %q", filepath.Join(user, ".npmrc")), false},
+		{fmt.Sprintf("cat %q", snapshot.PreparationResult(home, dest)), false},
+		{"curl -sS --fail -m 5 " + server.URL, false},
+	} {
+		command := exec.Command(codex, append(append([]string{"sandbox", "-P", setupProfile, "-C", directory}, args...), "--", "sh", "-c", probe.script)...)
+		command.Dir = directory
+		out, err := command.CombinedOutput()
+		t.Logf("sandboxed %q: err=%v output=%q", probe.script, err, out)
+		if (err == nil) != probe.allowed {
+			t.Fatalf("sandboxed %q: allowed=%v want %v: %s", probe.script, err == nil, probe.allowed, out)
+		}
+		if !probe.allowed && strings.Contains(string(out), "SENTINEL") {
+			t.Fatalf("sandboxed %q leaked a sentinel: %s", probe.script, out)
+		}
+	}
 	if out, err := exec.Command("curl", "-sS", "--fail", "-m", "5", server.URL).CombinedOutput(); err != nil || !strings.Contains(string(out), "REACHABLE-SENTINEL") {
 		t.Fatalf("unsandboxed control failed: %v %s", err, out)
 	}

@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"syscall"
 	"time"
 
@@ -27,6 +28,10 @@ var prepareTimeout = 10 * time.Minute
 // npmArguments are the only preparation command: a clean install of the tracked lockfile without
 // lifecycle scripts, so no repository or package code runs while the registry is reachable.
 var npmArguments = []string{"ci", "--ignore-scripts", "--no-audit", "--no-fund"}
+
+// runArguments precede the script of an npm-run preparation: npm runs exactly that declared script,
+// none of its pre- or post-scripts, offline, while the sandbox has no network.
+var runArguments = []string{"run", "--ignore-scripts", "--offline"}
 
 // preparationKept is all a preparation inherits from the caller's environment; tokens, API keys and
 // npm_config_* settings never reach npm. HOME and CODEX_HOME are kept for the trusted Codex launcher.
@@ -47,6 +52,24 @@ func (failure *PreparationFailure) Result() map[string]any { return failure.resu
 // that workers and submissions take, so none of them overlap, and runs nothing but npm ci, in the
 // installed Codex sandbox, in an owned process group that is reaped before it returns.
 func Prepare(home, dest, path string) (map[string]any, error) {
+	return prepare(home, dest, path, "", nil)
+}
+
+// PrepareRun runs the one explicit npm-run preparation of the tracked script in path after its
+// succeeded npm-ci, or reports its recorded outcome when the same run was already run. Like Prepare
+// it holds the folder lock and runs in the installed Codex sandbox, here with no network, writing
+// only the declared outputs and an owned scratch. Afterwards every tracked file, the regenerated
+// ones included, must be byte- and mode-identical to the snapshot.
+func PrepareRun(home, dest, path, script string, outputs []string) (map[string]any, error) {
+	return prepare(home, dest, path, script, outputs)
+}
+
+// prepare runs an npm-ci of path, or with a script an npm-run of it.
+func prepare(home, dest, path, script string, outputs []string) (map[string]any, error) {
+	kind := "npm-ci"
+	if script != "" {
+		kind = "npm-run"
+	}
 	scope, err := workspace.FolderScopeBeforePreparation(dest, home)
 	if err != nil {
 		return nil, err
@@ -69,19 +92,30 @@ func Prepare(home, dest, path string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	var step *snapshot.Preparation
 	if recorded != nil {
-		if recorded.Kind != "npm-ci" || recorded.Path != path {
-			return nil, fmt.Errorf("%s already has a %s preparation of %s; a folder is prepared once, materialize the snapshot into a fresh folder for another", root, recorded.Kind, recorded.Path)
+		step = recorded.Step(kind)
+	}
+	if step != nil {
+		if step.Path != path || step.Script != script || kind == "npm-run" && !slices.Equal(step.Outputs, slices.Sorted(slices.Values(outputs))) {
+			return nil, fmt.Errorf("%s already has a %s; a folder is prepared once, with one npm-ci and at most one npm-run after it; materialize the snapshot into a fresh folder for another", root, step.Describe())
 		}
 		// A repeat reports the recorded outcome and never runs again.
-		return preparationOutcome(home, recorded)
+		return preparationOutcome(home, step)
 	}
-	plan, err := snapshot.PlanNPMCI(home, root, path)
+	var plan *snapshot.Preparation
+	required := [][2]string{{"codex", "Preparation requires the installed Codex sandbox (codex on PATH)"}, {"npm", "Preparation requires npm on PATH"}}
+	if kind == "npm-ci" {
+		plan, err = snapshot.PlanNPMCI(home, root, path)
+	} else {
+		plan, err = snapshot.PlanNPMRun(home, root, path, script, outputs)
+		required = append(required, [2]string{"node", "Preparation requires node on PATH"})
+	}
 	if err != nil {
 		return nil, err
 	}
 	tools := map[string]string{}
-	for _, tool := range [][2]string{{"codex", "Preparation requires the installed Codex sandbox (codex on PATH)"}, {"npm", "Preparation requires npm on PATH"}} {
+	for _, tool := range required {
 		name := tool[0]
 		found, err := exec.LookPath(name)
 		if err != nil || !filepath.IsAbs(found) {
@@ -111,8 +145,11 @@ func Prepare(home, dest, path string) (map[string]any, error) {
 		return nil, err
 	}
 	defer os.RemoveAll(scratch)
-	output := filepath.Join(root, plan.Outputs[0])
-	arguments, err := setupArguments(scope, output, scratch, user)
+	writable := []string{}
+	for _, output := range plan.Outputs {
+		writable = append(writable, filepath.Join(root, output))
+	}
+	arguments, err := setupArguments(scope, writable, scratch, user, kind == "npm-ci")
 	if err != nil {
 		return nil, err
 	}
@@ -122,21 +159,32 @@ func Prepare(home, dest, path string) (map[string]any, error) {
 	}
 	directory := filepath.Join(root, path)
 	command := append(append([]string{tools["codex"], "sandbox", "-P", setupProfile, "-C", directory}, arguments...), "--", tools["npm"])
-	command = append(command, npmArguments...)
-	request := map[string]any{"destination": root, "kind": plan.Kind, "path": path, "command": command, "environment": environment,
-		"timeout_seconds": int(prepareTimeout / time.Second), "log_limit_bytes": prepareLogLimit}
-	if err = snapshot.BeginPreparation(home, plan, request); err != nil {
+	request := map[string]any{"destination": root, "kind": plan.Kind, "path": path, "timeout_seconds": int(prepareTimeout / time.Second), "log_limit_bytes": prepareLogLimit}
+	if kind == "npm-ci" {
+		command = append(command, npmArguments...)
+	} else {
+		command = append(append(command, runArguments...), script)
+		environment = append(environment, "npm_config_offline=true")
+		request["script"], request["outputs"] = script, plan.Outputs
+	}
+	request["command"], request["environment"] = command, environment
+	if kind == "npm-ci" {
+		err = snapshot.BeginPreparation(home, plan, request)
+	} else {
+		err = snapshot.BeginRun(home, plan, request)
+	}
+	if err != nil {
 		return nil, err
 	}
 
-	diagnostics := snapshot.PreparationDiagnostics(home, root)
+	diagnostics := plan.Diagnostics(home)
 	run := runPreparation(command, directory, environment, diagnostics)
 	plan.State, plan.Reason, plan.ExitCode = "failed", run.reason, run.code
 	var problem error = run.err
 	if run.reason == "" {
 		plan.Reason = "exit"
 		if *run.code == 0 {
-			problem = checkPrepared(home, root, output)
+			problem = checkPrepared(home, root, plan)
 			if problem == nil {
 				plan.State, plan.Reason = "succeeded", ""
 			} else {
@@ -163,7 +211,10 @@ func Prepare(home, dest, path string) (map[string]any, error) {
 func preparationOutcome(home string, p *snapshot.Preparation) (map[string]any, error) {
 	result := map[string]any{"destination": p.Destination, "snapshot_id": p.SnapshotID, "kind": p.Kind, "path": p.Path,
 		"outputs": p.Outputs, "state": p.State, "ready": p.Ready(), "reason": nil, "exit_code": p.ExitCode,
-		"started_at": p.StartedAt, "ended_at": nil, "diagnostics": snapshot.PreparationDiagnostics(home, p.Destination)}
+		"started_at": p.StartedAt, "ended_at": nil, "diagnostics": p.Diagnostics(home)}
+	if p.Script != "" {
+		result["script"] = p.Script
+	}
 	if p.Reason != "" {
 		result["reason"] = p.Reason
 	}
@@ -176,13 +227,17 @@ func preparationOutcome(home string, p *snapshot.Preparation) (map[string]any, e
 	return nil, &PreparationFailure{result, p.NotReady(home)}
 }
 
-// checkPrepared requires the finished preparation to have changed nothing but its output, which
-// is absent or a real directory.
-func checkPrepared(home, root, output string) error {
-	if info, err := os.Lstat(output); err == nil && !info.IsDir() {
-		return fmt.Errorf("%s is not a directory", output)
-	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
+// checkPrepared requires the finished preparation p to have changed nothing but its excluded
+// outputs: an npm-ci output is absent or a real directory, and an npm-run left every tracked file,
+// those it regenerated included, identical to the snapshot.
+func checkPrepared(home, root string, p *snapshot.Preparation) error {
+	if p.Kind == "npm-ci" {
+		output := filepath.Join(root, p.Outputs[0])
+		if info, err := os.Lstat(output); err == nil && !info.IsDir() {
+			return fmt.Errorf("%s is not a directory", output)
+		} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
 	}
 	inspection, err := snapshot.Inspect(home, root, nil, false)
 	if err != nil {
