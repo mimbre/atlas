@@ -21,8 +21,12 @@ Console pages keep native content and append actual `console_action` blocks:
 `context`. Scope context equals legend context. Scope may also contain `on` (native
 source block ID) and `row` (list row id, otherwise its to). Existing page action
 labels, keys and targets are projected without replacing their source identity.
-Stable identity hashes page/context/source/row/operation, independent of label,
-position and revision. Every projected page gets a fresh actions_revision nonce.
+Stable identity hashes page/context/source/row/operation/keys, independent of label,
+position and revision. The keys are part of it because one call may be bound to
+several declared keys (a decision's recommended choice is both `0` and `1`), each
+its own action. A navigation action loses any key the page's own view actions use,
+so its ID (Back's, for example) may differ from page to page. Every projected page
+gets a fresh actions_revision nonce.
 
 Operations are typed data from the finite vocabulary in
 `AtlasBFFContract.Console.operations/0`. Local operations contain only name; open

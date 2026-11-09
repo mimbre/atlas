@@ -23,6 +23,15 @@ defmodule AtlasBFFContract.Blocks do
         field :links, {:list, :link}
       end
 
+      defblock :single_choice do
+        field :question, :string, required: true
+        field :options, {:list, :choice_option}, required: true
+        field :recommended, :string, required: true
+        field :rationale, :string, required: true
+        field :revision, :string, required: true
+        field :instructions, :string
+      end
+
       # Submitting sends the inputs' values to the endpoint `submit_to` names.
       defblock :form do
         field :title, :string, required: true

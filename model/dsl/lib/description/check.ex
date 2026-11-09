@@ -363,7 +363,7 @@ defmodule RelaDSL.Description.Check do
 
     keys(
       spec,
-      ~w(top primary plural_label start create properties completion progress connector agent order by_hand late actions counts requires authority frozen replaces layering sealed delete_error),
+      ~w(top primary plural_label start create properties completion progress connector agent order by_hand late actions counts requires authority frozen replaces layering sealed delete_error decision_options),
       path
     ) ++
       navigation(spec["start"], at.("start")) ++
@@ -416,12 +416,85 @@ defmodule RelaDSL.Description.Check do
           values(ctx, kind, r["when"], at.("requires")) ++
           Enum.flat_map(List.wrap(r["fields"]), &field(ctx, kind, &1, at.("requires")))
       end) ++
+      decision_options(ctx, kind, spec["decision_options"], at.("decision_options")) ++
       authority(ctx, kind, spec["authority"], at.("authority")) ++
       layering(ctx, kind, spec["layering"], at.("layering")) ++
       frozen(ctx, kind, spec["frozen"], at.("frozen")) ++
       sealed(ctx, kind, spec["sealed"], at.("sealed")) ++
       replaces(ctx, kind, spec["replaces"], at.("replaces"))
   end
+
+  defp decision_options(_ctx, _kind, nil, _path), do: []
+
+  defp decision_options(ctx, kind, rule, path) when is_map(rule) do
+    names = ~w(definition selected snapshot revision history)
+    status = rule["status"]
+    adopt = rule["adopt"]
+    legacy = rule["legacy_fingerprint"]
+
+    keys(
+      rule,
+      names ++
+        ~w(answered_at answered_by status adopt content content_links legacy_fingerprint errors),
+      path
+    ) ++
+      Enum.flat_map(names, &field(ctx, kind, rule[&1], path)) ++
+      Enum.flat_map(names, fn key ->
+        if get_in(ctx.entities, [kind, "properties", rule[key], "type"]) == "string",
+          do: [],
+          else: p(path, :decision_options, [kind], "decision_options fields must be strings")
+      end) ++
+      if(Enum.uniq(Enum.map(names, &rule[&1])) == Enum.map(names, &rule[&1]),
+        do: [],
+        else: p(path, :decision_options, [kind], "decision_options fields must be distinct")
+      ) ++
+      field(ctx, kind, rule["answered_at"], path) ++
+      relation(ctx, rule["answered_by"], kind, path ++ ["answered_by"]) ++
+      keys(status, ~w(field open adopt decline superseded replaceable), path ++ ["status"]) ++
+      if(is_map(status), do: field(ctx, kind, status["field"], path), else: []) ++
+      keys(adopt, ~w(rule consequences), path ++ ["adopt"]) ++
+      if(is_map(adopt),
+        do: Enum.flat_map(Map.values(adopt), &field(ctx, kind, &1, path)),
+        else: []
+      ) ++
+      Enum.flat_map(rule["content"] || [], &field(ctx, kind, &1, path)) ++
+      Enum.flat_map(rule["content_links"] || [], &relation(ctx, &1, path)) ++
+      if(legacy == nil,
+        do: [],
+        else:
+          keys(legacy, ~w(fields relations), path ++ ["legacy_fingerprint"]) ++
+            Enum.flat_map(
+              if(is_map(legacy), do: legacy["fields"] || [], else: []),
+              &field(ctx, kind, &1, path)
+            ) ++
+            Enum.flat_map(
+              if(is_map(legacy), do: legacy["relations"] || [], else: []),
+              &relation(ctx, &1, path)
+            )
+      ) ++
+      if(rule["errors"] == nil,
+        do: [],
+        else:
+          keys(
+            rule["errors"],
+            ~w(invalid not_json removed unselected changed selection),
+            path ++ ["errors"]
+          ) ++
+            if(is_map(rule["errors"]) and Enum.all?(Map.values(rule["errors"]), &text?/1),
+              do: [],
+              else: p(path, :decision_options, [kind], "decision_options errors must be texts")
+            )
+      )
+  end
+
+  defp decision_options(_ctx, kind, _rule, path),
+    do:
+      p(
+        path,
+        :decision_options,
+        [kind],
+        "decision_options requires its definition, selection, snapshot and revision fields"
+      )
 
   defp navigation(nil, _path), do: []
 

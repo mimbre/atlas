@@ -84,6 +84,7 @@ defmodule RelaDSL.Control.Rules do
   def todo(flow, fact, parts, viewer) do
     case owner_view(flow, fact, parts, viewer) do
       {written, %{"todo" => %{} = todo} = view} ->
+        todo = decision_todo(flow, fact, todo)
         origin = get_in(written, ["origins", flow.owner_relation]) || %{}
 
         section = shown_section(todo["section"], fact)
@@ -98,8 +99,9 @@ defmodule RelaDSL.Control.Rules do
           },
           instructions: todo["instructions"],
           section: section,
-          answers: Enum.map(answers(todo), &answer_view/1),
-          words: flow.words
+          answers: presented_answers(todo),
+          words: flow.words,
+          choice: todo["single_choice"]
         }
 
       _ ->
@@ -157,6 +159,7 @@ defmodule RelaDSL.Control.Rules do
            %{"fact" => %{} = fact} <- item,
            {_written, %{"todo" => %{} = todo}} <-
              owner_view(flow, fact, item["parts"] || %{}, viewer) do
+        todo = decision_todo(flow, fact, todo)
         Enum.find(answers(todo), &(&1["key"] == name and is_map(&1["change"])))
       else
         _ -> nil
@@ -206,6 +209,53 @@ defmodule RelaDSL.Control.Rules do
   end
 
   defp answers(todo), do: for(%{"key" => _, "label" => _} = a <- todo["answers"] || [], do: a)
+
+  defp decision_todo(flow, fact, todo) do
+    rule = flow[:decision_options]
+    text = rule && get_in(fact, ["values", rule["definition"]])
+
+    if text not in [nil, ""] and RelaDSL.DecisionOptions.open?(rule, fact) do
+      offered = RelaDSL.DecisionOptions.answers(rule, fact)
+
+      case RelaDSL.DecisionOptions.decode(rule, text) do
+        {:ok, definition} ->
+          # The question and recommendation only; how keys select a choice is Control's.
+          instructions =
+            definition["question"] <>
+              "\nRecommended: " <>
+              hd(RelaDSL.DecisionOptions.ordered(definition))["text"] <>
+              " — " <>
+              definition["rationale"]
+
+          todo
+          |> Map.put("answers", offered)
+          |> Map.put("instructions", instructions)
+          |> Map.put("decision_options", true)
+          |> Map.put(
+            "single_choice",
+            Map.put(definition, "revision", RelaDSL.DecisionOptions.revision(rule, text, fact))
+          )
+
+        _ ->
+          Map.put(todo, "answers", [])
+      end
+    else
+      todo
+    end
+  end
+
+  defp presented_answers(%{"decision_options" => true} = todo) do
+    answers(todo)
+    |> Enum.with_index(1)
+    |> Enum.map(fn {a, index} ->
+      answer_view(a)
+      |> Map.put(:name, a["key"])
+      |> Map.put(:key, Integer.to_string(index))
+      |> Map.put(:details, a["details"])
+    end)
+  end
+
+  defp presented_answers(todo), do: Enum.map(answers(todo), &answer_view/1)
 
   defp answer_view(a),
     do: %{

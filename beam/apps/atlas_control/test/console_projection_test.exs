@@ -114,6 +114,56 @@ defmodule AtlasControl.ConsoleProjectionTest do
            )
   end
 
+  # A recommended choice is offered under two keys that submit the same call (`0` and `1`).
+  test "two keys bound to one call are two actions of one projection, each submitting it" do
+    call = %{
+      "endpoint" => "answer",
+      "params" => %{"kind" => "widget", "key" => "W", "answer" => "a"}
+    }
+
+    page = %{
+      "path" => "/k/widget/W",
+      "blocks" => [
+        %{
+          "id" => "item",
+          "type" => "item",
+          "props" => %{
+            "title" => "Widget W",
+            "fields" => [],
+            "actions" =>
+              for {key, label} <- [{"1", "Use A"}, {"2", "Use B"}, {"0", "Recommended: Use A"}] do
+                answer = if key == "2", do: put_in(call, ["params", "answer"], "b"), else: call
+
+                %{
+                  "label" => label,
+                  "key" => key,
+                  "to" => "/k/widget/W/answer/x",
+                  "submit_to" => answer
+                }
+              end
+          }
+        }
+      ],
+      "markup" => []
+    }
+
+    assert {:ok, projected} = AtlasControl.Console.project(page, 1)
+    assert {:ok, projection} = Console.compile(projected)
+    at = %{path: "/k/widget/W", context: "browse", generation: 1, on: "item", row: nil}
+
+    [zero, one, two] =
+      for key <- ~w(0 1 2) do
+        assert {:ok, event} = Console.capture(projection, key, at)
+        assert {:ok, action} = Console.resolve(projection, event, at)
+        action
+      end
+
+    refute zero["id"] == one["id"]
+    assert zero["props"]["operation"] == %{"name" => "invoke", "call" => call}
+    assert one["props"]["operation"] == zero["props"]["operation"]
+    refute two["props"]["operation"] == zero["props"]["operation"]
+  end
+
   test "captured actions are denied after any page context row or generation change" do
     {:ok, page} = AtlasControl.Console.project(native(), 2)
     {:ok, p} = Console.compile(page)

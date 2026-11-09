@@ -1,7 +1,7 @@
 defmodule AtlasBFFContract.Models.Presentation do
   @moduledoc "Shared block, Console and session payload models."
   use AtlasBFF.Schema
-  version "0.16.0"
+  version "0.17.0"
   models_from(AtlasBFFContract.Models.Workers)
 
   # Something the user can do from a block: open `to`. `key` is the key a keyboard
@@ -10,6 +10,21 @@ defmodule AtlasBFFContract.Models.Presentation do
     field :label, :string, required: true
     field :key, :string, required: true
     field :to, :string, required: true
+    field :submit_to, :call
+  end
+
+  # Semantic single-choice data is independent of keyboard shortcuts and renderers.
+  defmodel :choice_option do
+    field :id, :string, required: true
+    field :text, :string, required: true
+    field :details, :string, required: true
+    field :effect, :string, required: true
+    field :rule, :string, required: true
+    field :consequences, :string, required: true
+    field :answer, :call, required: true
+    # The answer is given with a note saying why (a decline), as a form asks it.
+    field :note, :boolean
+    field :shortcut, :string
   end
 
   # A web address the user can open outside the client, in a browser: `url`. `key` is
@@ -100,6 +115,7 @@ defmodule AtlasBFFContract.Models.Presentation do
     field :execution, :runtime_execution
     field :cursor, :string
     field :interaction_source, :string
+    field :call, :call
   end
 
   defmodel :console_scope do

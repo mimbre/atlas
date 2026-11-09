@@ -38,6 +38,7 @@ defmodule AtlasTui.Console do
             legend: nil,
             viewport: {100, 30},
             action_error: nil,
+            key_buffer: "",
             generation: 0
 
   @history_limit 100

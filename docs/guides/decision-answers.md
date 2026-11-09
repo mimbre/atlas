@@ -1,5 +1,10 @@
 # Decide from Assigned to you: accept or reject a decision
 
+A decision created with [single-choice options](decision-options.md) is decided by
+selecting an option, and `0` aliases recommended choice `1`. This guide describes the
+a/f answers of a decision without options: one created without them, or a historical
+one. Existing records are not rewritten to manufacture alternatives or selections.
+
 A proposed decision that its decider gate gives to a person (`for_person`, or
 `for_person_always` for a fixed person rule) is that person's: it is on their
 **Assigned to you**, and its page offers the answers. The answers come from the
