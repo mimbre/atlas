@@ -83,12 +83,40 @@ defmodule AtlasBFFContract.Wire.Control.Session do
     ]
   }
 
-  defoperation :open, %{
+  # Exact stored data for subject-derived evidence; no page labels or form filtering.
+  defoperation :facts_read, %{
     channel: :control,
     direction: :request,
-    request: %{select: %{"op" => "open"}, required: %{"to" => :string}},
-    replies: [@open]
+    request: %{
+      select: %{"op" => "facts_read"},
+      required: %{"kind" => :string},
+      optional: %{"key" => :string}
+    },
+    replies: [
+      %{
+        name: :result,
+        select: %{"op" => "facts_read"},
+        absent: ["error"],
+        effect: :complete,
+        required: %{"data" => :map}
+      },
+      %{
+        name: :error,
+        select: %{"op" => "facts_read"},
+        present: ["error"],
+        effect: :error,
+        required: %{"error" => :string}
+      }
+    ]
   }
+
+  defoperation :open,
+               %{
+                 channel: :control,
+                 direction: :request,
+                 request: %{select: %{"op" => "open"}, required: %{"to" => :string}},
+                 replies: [@open]
+               }
 
   defoperation :submit, %{
     channel: :control,
@@ -239,4 +267,10 @@ defmodule AtlasBFFContract.Wire.Control.Session do
     request: %{select: %{"op" => "stop"}},
     replies: [@plan, @notice]
   }
+end
+
+defmodule AtlasBFFContract.Wire.Control.Session.Protocol do
+  use AtlasBFF.Targets.Protocol,
+    contract: AtlasBFFContract.Wire.Control.Session,
+    channel: :control
 end

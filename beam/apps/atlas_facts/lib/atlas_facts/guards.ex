@@ -17,6 +17,10 @@ defmodule AtlasFacts.Guards do
     (shaped as `when`; a value it already has is not set) is the decision itself: it is
     stored only when its writer (the write's `by`) is the fact `by` links to, or one of
     `also`, and that fact may decide it as above (`writer_error` says why not).
+  With `decider` instead, `kind` is always allowed and `agent_kind` is allowed only
+  by a fresh agent verdict. The `verdict` environment callback looks up the newest
+  verdict by gate and subject; the guard binds its fingerprint to the candidate write.
+
   - `layering`: `%{"relation", "field", "not", "error"}`: a fact whose `field` is a key of
     `not` may not link through `relation` to a fact whose `field` is one of that key's
     values, nor may a fact take a value in `not` while such a fact links to it
@@ -69,6 +73,27 @@ defmodule AtlasFacts.Guards do
 
   def check(rules, op, key, current, values, links, env) do
     kind_of = env["kind_of"] || fn _, _ -> nil end
+    verdict = env["verdict"] || fn _, _ -> nil end
+    authority_rule = rules["authority"]
+
+    authority_rule =
+      case authority_rule do
+        %{"decider" => config} ->
+          # Bind the verdict to the candidate write, so editing a deciding field in the
+          # acceptance itself cannot reuse authority for the old subject.
+          fact = after_write(current, values, links)
+          newest = verdict.(config["gate"], key)
+
+          fresh =
+            is_map(newest) and
+              newest["fingerprint"] == AtlasBus.SubjectFingerprint.of(fact, config["fingerprint"])
+
+          Map.put(authority_rule, "decider_outcome", if(fresh, do: newest["verdict"]))
+
+        other ->
+          other
+      end
+
     fetch = env["fetch"] || fn _ -> nil end
 
     with :ok <- machine_writer(rules["machine_writer"], env),
@@ -82,8 +107,8 @@ defmodule AtlasFacts.Guards do
         reasons =
           only_target(rules["only_target"], current, links, env["writer"]) ++
             requires(rules["requires"], fact) ++
-            authority(rules["authority"], fact, kind_of) ++
-            decides(rules["authority"], current, values, fact, env["writer"], kind_of) ++
+            authority(authority_rule, fact, kind_of) ++
+            decides(authority_rule, current, values, fact, env["writer"], kind_of) ++
             replaces(rules["replaces"], key, fact, fetch) ++
             layering(rules["layering"], key, current, fact, fetch, env["incoming"])
 
@@ -213,6 +238,20 @@ defmodule AtlasFacts.Guards do
 
   # The fact `by` links to may decide it: of `kind`, or delegated where nothing leaves it to
   # `kind` alone.
+  defp may_decide?(%{"decider" => _, "by" => by, "kind" => kind} = rule, fact, kind_of) do
+    case List.wrap(get_in(fact, ["links", by])) do
+      [one] ->
+        actor_kind = kind_of.(by, one)
+
+        actor_kind == kind or
+          (actor_kind in List.wrap(rule["agent_kind"]) and
+             rule["decider_outcome"] in ["agent", "agent_unverified"])
+
+      _ ->
+        false
+    end
+  end
+
   defp may_decide?(%{"by" => by, "kind" => kind} = rule, fact, kind_of) do
     only_kind? = Enum.any?(List.wrap(rule["only_kind_when"]), &holds?(&1, fact["values"]))
     delegated? = List.wrap(get_in(fact, ["links", rule["delegated_by"] || ""])) != []

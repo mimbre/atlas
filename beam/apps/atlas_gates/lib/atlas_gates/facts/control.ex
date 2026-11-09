@@ -2,7 +2,8 @@ defmodule AtlasGates.Facts.Control do
   @moduledoc """
   Records verdicts through Control with the `atlas` client, for a caller that is not in a
   node with the core's Bus: `atlas put <kind> --<field> <value> … --link <relation>=<key>`
-  and `atlas list` / `atlas get`, each with `--env` and `--json`. Control makes the key (the
+  and `atlas list` / `atlas get`, each with `--env` and `--json`. Subject evidence uses
+  `atlas facts <kind|_> [key]`, which retains exact stored values and links. Control makes the key (the
   next number) and writes the fact over the Bus to Facts, under the same rules as any
   other write.
 
@@ -22,6 +23,19 @@ defmodule AtlasGates.Facts.Control do
   end
 
   @impl true
+  def fetch(state, kind, key) do
+    args = ["facts", kind || "_", key] |> Enum.reject(&is_nil/1)
+
+    case call(state, args) do
+      {:ok, %{"fact" => fact}} -> {:ok, fact}
+      {:ok, %{"facts" => facts}} -> {:ok, facts}
+      {:ok, other} -> {:error, "atlas facts answered #{inspect(other)}"}
+      error -> error
+    end
+  end
+
+  @impl true
+
   def find(state, kind, identity) do
     with {:ok, rows} when is_list(rows) <- call(state, ["list", kind]) do
       Enum.reduce_while(rows, {:ok, nil}, fn row, acc ->

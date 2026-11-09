@@ -86,8 +86,10 @@ class AssemblyTest(unittest.TestCase):
             lambda d: d['requires'][0]['when'].update({'force': ['unknown']}),
             lambda d: d['authority'].update({'by': 'missing'}),
             lambda d: d['authority'].update({'kind': 'decision'}),
-            lambda d: d['authority'].update({'delegated_by': 'missing'}),
-            lambda d: d['authority']['only_kind_when'].append({'category': ['unknown']}),
+            lambda d: d['authority']['decider'].update({'relation': 'missing'}),
+            lambda d: d['authority']['decider']['fingerprint']['fields'].append('missing'),
+            lambda d: d['authority']['decider'].update({'kind': 'decision'}),
+            lambda d: d['authority'].update({'agent_kind': 'decision'}),
             lambda d: d['frozen']['only'].update({'status': ['unknown']}),
             lambda d: d['frozen'].update({'except': {}}),
             lambda d: d['replaces'].update({'relation': 'decided_by'}),
@@ -223,6 +225,8 @@ class AssemblyTest(unittest.TestCase):
             extra = assemble.read(target / 'atlas.json')
             self.assertNotIn('test_and_accept', extra.get('flows', {}))
             if profile == 'foundation':
+                self.assertEqual(schema['relations']['about']['to'], ['decision'])
+                self.assertEqual(extra['entities']['decision']['authority']['decider']['relation'], 'about')
                 self.assertNotIn('issue', schema['entities'])
                 self.assertNotIn('pull_request', schema['entities'])
                 self.assertNotIn('agent_request', schema['entities'])

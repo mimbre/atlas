@@ -52,6 +52,27 @@ defmodule AtlasAgent.TransportTest do
     %Client{socket: socket, env: "test"}
   end
 
+  test "exact fact reads retain values and relation keys and report failures" do
+    data = %{
+      "fact" => %{"key" => "X", "values" => %{"ready" => true}, "links" => %{"replaces" => ["Y"]}}
+    }
+
+    peer(
+      fn socket ->
+        assert receive_line(socket) == %{"op" => "facts_read", "kind" => "_", "key" => "X"}
+        send_line(socket, %{"op" => "facts_read", "data" => data})
+        assert receive_line(socket) == %{"op" => "facts_read", "kind" => "unknown"}
+        send_line(socket, %{"op" => "facts_read", "error" => "unknown kind"})
+      end,
+      fn port ->
+        client = raw(port)
+        assert Client.facts(client, "_", "X") == {:ok, data}
+        assert Client.facts(client, "unknown", nil) == {:error, "unknown kind"}
+        Client.close(client)
+      end
+    )
+  end
+
   test "open and submit preserve envelope, cause, refusal extraction and unsolicited traffic" do
     peer(
       fn socket ->

@@ -64,6 +64,15 @@ defmodule AtlasE2E.AtlasCommandTest do
     end
   end
 
+  test "exact fact reads reach the environment guard before connecting" do
+    assert {out, 1} =
+             atlas(["facts", "_", "W-1", "--env", "prod"], [
+               {"ATLAS_ENV_FILE", private_file("test")}
+             ])
+
+    assert out =~ "is for test, not prod"
+  end
+
   test "the TUI rejects surface selectors without reserving generic entity properties" do
     for value <- ["console", "legacy", "unknown"],
         args <- [["--surface", value], ["--surface=#{value}"]],

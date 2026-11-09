@@ -59,6 +59,29 @@ defmodule AtlasControl.SessionTest do
     use AtlasBFF.Targets.Protocol, contract: AtlasBFFContract.Contract, channel: :control
   end
 
+  test "exact fact reads preserve named values and links for evidence", %{port: port} do
+    FakeStore.put("W-01", %{"title" => "A", "done" => false}, "widget", %{"made_by" => ["M-1"]})
+    socket = client(port)
+    on_exit(fn -> :gen_tcp.close(socket) end)
+    next(socket, "page")
+    put(socket, Protocol.request(:facts_read, kind: "_", key: "W-01"))
+    reply = next(socket, "facts_read")
+    assert {:reply, %{effect: :complete}} = Protocol.classify(:facts_read, reply)
+
+    assert %{
+             "fact" => %{
+               "key" => "W-01",
+               "values" => %{"title" => "A", "done" => false},
+               "links" => %{"made_by" => ["M-1"]}
+             }
+           } = reply["data"]
+
+    put(socket, Protocol.request(:facts_read, kind: "widget"))
+    assert %{"data" => %{"facts" => [%{"key" => "W-01"}]}} = next(socket, "facts_read")
+    put(socket, Protocol.request(:facts_read, kind: "not-a-kind"))
+    assert %{"error" => _} = next(socket, "facts_read")
+  end
+
   test "actual session envelopes match the declared reply classifiers", %{port: port} do
     a = client(port)
     b = client(port)

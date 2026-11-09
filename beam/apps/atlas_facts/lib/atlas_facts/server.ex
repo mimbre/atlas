@@ -715,6 +715,17 @@ defmodule AtlasFacts.Server do
         "writer" => writer,
         "sender" => state[:sender],
         "kind_of" => &linked_kind(state, &1, &2),
+        "verdict" => fn gate, subject ->
+          config = get_in(rules, ["authority", "decider"]) || %{}
+
+          AtlasFacts.Decider.lookup(
+            state.description,
+            AtlasFacts.Collections.uncached(state.rela),
+            config,
+            gate,
+            subject
+          )
+        end,
         "fetch" => fn old ->
           case Rela.get(state.rela, spec["plural"], old) do
             {:ok, fact} -> fact.properties

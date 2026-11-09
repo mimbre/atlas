@@ -1,6 +1,8 @@
+Code.require_file("../../../beam/apps/atlas_bus/lib/atlas_bus/digest.ex", __DIR__)
+Code.require_file("../../../beam/apps/atlas_bus/lib/atlas_bus/subject_fingerprint.ex", __DIR__)
 # Exercise the pure platform evaluators against the contract without starting any apps
 # or adding a production dependency from declarations to runtime services.
-for file <- ["digest", "definitions", "request", "rules", "verdict"] do
+for file <- ["definitions", "request", "rules", "verdict"] do
   Code.require_file("../../../beam/apps/atlas_gates/lib/atlas_gates/#{file}.ex", __DIR__)
 end
 
@@ -9,7 +11,8 @@ Code.require_file("../../../beam/apps/atlas_flow/lib/atlas_flow/runs/run.ex", __
 
 defmodule AtlasFlowContract.DeciderTest do
   use ExUnit.Case, async: true
-  alias AtlasGates.{Definitions, Digest, Request, Rules, Verdict}
+  alias AtlasGates.{Definitions, Request, Rules, Verdict}
+  alias AtlasBus.Digest
 
   test "the status bridge observes authorized status without resetting or deciding it" do
     [flow] = AtlasFlowContract.Decision.__flows__()
@@ -151,7 +154,7 @@ defmodule AtlasFlowContract.DeciderTest do
     end
   end
 
-  test "person/agent split matches the existing authority guard for the complete classification matrix" do
+  test "fresh verdict enforcement preserves the prior split for the complete classification matrix" do
     description = JSON.decode!(File.read!("../../rela/atlas.json"))
     authority = get_in(description, ["entities", "decision", "authority"])
     schema = File.read!("../../rela/modules/foundation/schema.yaml")
@@ -172,6 +175,13 @@ defmodule AtlasFlowContract.DeciderTest do
 
     for {category, reversibility, force, delegated} = combination <- combinations do
       fields = %{"category" => category, "reversibility" => reversibility, "force" => force}
+      result = ask(evidence(Map.merge(fields, %{"forces" => [force], "delegated" => delegated})))
+
+      expected_agent =
+        category not in ["product", "security"] and reversibility != "one_way" and
+          force != "principle" and delegated
+
+      assert result.outcome == "agent" == expected_agent
       # Same write inputs as GuardsTest: create accepted, named writer, singleton
       # decider/delegation links, and kind_of callback for both possible actors.
       permitted = fn kind ->
@@ -185,12 +195,24 @@ defmodule AtlasFlowContract.DeciderTest do
           nil,
           Map.put(fields, "status", "accepted"),
           links,
-          %{"writer" => "writer", "kind_of" => fn _, _ -> kind end}
+          %{
+            "writer" => "writer",
+            "kind_of" => fn _, _ -> kind end,
+            "verdict" => fn "accept_decision", "D-example" ->
+              %{
+                "verdict" => result.outcome,
+                "fingerprint" =>
+                  AtlasBus.SubjectFingerprint.of(
+                    %{"values" => fields, "links" => links},
+                    authority["decider"]["fingerprint"]
+                  )
+              }
+            end
+          }
         ) == :ok
       end
 
       assert permitted.("person")
-      result = ask(evidence(Map.merge(fields, %{"forces" => [force], "delegated" => delegated})))
 
       assert result.outcome in ["agent", "agent_unverified"] == permitted.("agent"),
              "authority parity: #{inspect(combination)}"
@@ -199,9 +221,48 @@ defmodule AtlasFlowContract.DeciderTest do
 
   test "the gate declares the decided limits, v1 and fixed prefix" do
     {:ok, gate} = Definitions.fetch("accept_decision")
+    description = JSON.decode!(File.read!("../../rela/atlas.json"))
+    authority = get_in(description, ["entities", "decision", "authority"])
+    refute Map.has_key?(authority, "only_kind_when")
+    refute Map.has_key?(authority, "delegated_by")
+    assert authority["decider"]["fingerprint"] == gate["fingerprint"]
     assert gate["version"] == 1
     assert gate["flavor"] == "rule"
     assert gate["answer_within"] == %{"test" => "5m", "prod" => "48h"}
     assert :ok = Definitions.check_fixed(gate)
+  end
+
+  test "each decider verdict and the stale default enforce the acceptance table" do
+    authority =
+      JSON.decode!(File.read!("../../rela/atlas.json"))["entities"]["decision"]["authority"]
+
+    fact = %{"values" => %{"title" => "Example", "force" => "principle"}, "links" => %{}}
+    fingerprint = AtlasBus.SubjectFingerprint.of(fact, authority["decider"]["fingerprint"])
+
+    for outcome <- [nil, "person_always", "person", "agent", "agent_unverified"],
+        actor <- ["person", "agent"],
+        fresh <- [true, false] do
+      verdict =
+        if outcome,
+          do: %{"verdict" => outcome, "fingerprint" => if(fresh, do: fingerprint, else: "old")}
+
+      result =
+        AtlasFacts.Guards.check(
+          %{"authority" => authority},
+          "change",
+          "D-example",
+          fact,
+          %{"status" => "accepted"},
+          %{"decided_by" => ["writer"]},
+          %{
+            "writer" => "writer",
+            "kind_of" => fn _, _ -> actor end,
+            "verdict" => fn _, _ -> verdict end
+          }
+        )
+
+      assert result == :ok ==
+               (actor == "person" or (fresh and outcome in ["agent", "agent_unverified"]))
+    end
   end
 end

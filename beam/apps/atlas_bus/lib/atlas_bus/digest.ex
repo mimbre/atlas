@@ -1,4 +1,4 @@
-defmodule AtlasGates.Digest do
+defmodule AtlasBus.Digest do
   @moduledoc """
   Content digests, `sha256:` and lowercase hex: of bytes as they are (an evidence snapshot),
   or of a term as canonical JSON (object keys sorted), so the same data always gives the

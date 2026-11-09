@@ -598,6 +598,9 @@ defmodule AtlasFlowGenerator.Schema do
           do: Map.put(gate, :answer_within, opts[:answer_within]),
           else: gate
 
+      gate =
+        if opts[:fingerprint], do: Map.put(gate, :fingerprint, opts[:fingerprint]), else: gate
+
       fixed_problems = [
         (opts[:fixed] != nil and fixed == nil) &&
           "gate #{name}: fixed names unknown defrules #{opts[:fixed]}",

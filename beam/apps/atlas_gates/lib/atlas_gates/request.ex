@@ -28,7 +28,7 @@ defmodule AtlasGates.Request do
 
   @type t :: %__MODULE__{}
 
-  alias AtlasGates.Digest
+  alias AtlasBus.Digest
 
   @doc """
   A request for the gate `name` of `gates` (by default the generated definitions), from

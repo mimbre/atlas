@@ -13,6 +13,7 @@
 #   atlas turn [--json]                      the current turn, its item and what to do
 #   atlas turn end <outcome>                 record its outcome; Runtime ends the turn
 #   atlas get <key> [--json]                 one item, and what hangs under it
+#   atlas facts <kind|_> [<key>] --json      exact stored values and links for gate evidence
 #   atlas list <kind> [--json]               the items of a kind
 #   atlas set <key> <field>=<text> ...       change, e.g. `atlas set IS-Atlas-12 stage=design`
 #   atlas put <kind> [--in <key>] --title <text> --description-file <path>   create
@@ -80,7 +81,7 @@ cmd=tui
 case "${1:-}" in -*|"") ;; *) cmd="$1"; shift ;; esac
 # A word that is not a command here (operating is atlas-ops) shows the usage and runs nothing.
 case "$cmd" in
-  tui|turn|put|set|get|list|delete|tools|plan|steer|help|migrate-done-owner|discover) ;;
+  tui|turn|put|set|get|facts|list|delete|tools|plan|steer|help|migrate-done-owner|discover) ;;
   *) usage ;;
 esac
 take_env "$@"
@@ -133,7 +134,7 @@ if [ -n "$fly_app" ]; then
   on_fly="$env runs on Fly ($fly_app and $fly_rela_app); a merge to $branch deploys it"
   case "$cmd" in
     migrate-done-owner) echo "atlas: the migration reads rela on this Mac; $on_fly. Migrate a copy: docs/guides/test-on-fly.md, \"A migration\"" >&2; exit 1 ;;
-    turn|put|set|get|list|delete|tools|plan|steer|help) ensure_tunnel ;;
+    turn|put|set|get|facts|list|delete|tools|plan|steer|help) ensure_tunnel ;;
   esac
 fi
 
@@ -158,7 +159,7 @@ case "$cmd" in
     exit $status
     ;;
   # The clients run in their own folders; a path the caller gives is read from where they called.
-  turn|put|set|get|list|delete|tools|plan|steer|help)
+  turn|put|set|get|facts|list|delete|tools|plan|steer|help)
     # `atlas help` (not --json) starts with this script's own commands; `atlas help <kind>`
     # shows that kind only.
     kind_named=""

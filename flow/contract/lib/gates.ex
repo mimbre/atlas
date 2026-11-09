@@ -86,6 +86,10 @@ defmodule AtlasFlowContract.Gates do
     flavor: :rule,
     purpose: :decider,
     fixed: :person_always,
+    fingerprint: [
+      fields: [:title, :decision, :category, :scope, :reversibility, :force],
+      relations: [:supersedes]
+    ],
     evidence: [
       forces: [{:field, :force}, {:linked, :supersedes, :force}],
       category: {:field, :category},
