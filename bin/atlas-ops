@@ -233,6 +233,9 @@ case "$cmd" in
     echo "rela $env: answering at $rela_url"
     clean_build
     cd "$root/products/software_factory"
+    # The Runtime's backend brings Hex packages (Plug, Bandit) as mix.lock pins them; with
+    # them present this changes nothing.
+    mix deps.get --check-locked >&2
     exec mix run --no-halt
     ;;
   stop)

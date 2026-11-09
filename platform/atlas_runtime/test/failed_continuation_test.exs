@@ -1,7 +1,7 @@
 defmodule AtlasRuntime.FailedContinuationTest do
   use ExUnit.Case, async: false
 
-  alias AtlasRuntime.{BackendPolicy, ExecutionEvents, FakeNative, Service, Workspaces}
+  alias AtlasRuntime.{ExecutionEvents, FakeNative, Service, Workspaces}
 
   @moduletag :tmp_dir
 
@@ -15,7 +15,6 @@ defmodule AtlasRuntime.FailedContinuationTest do
 
     state = %{
       dir: dir,
-      policy: BackendPolicy.empty(),
       events: ExecutionEvents.open(dir),
       workers: %{},
       stopping: false
@@ -105,12 +104,17 @@ defmodule AtlasRuntime.FailedContinuationTest do
   test "failed Codex turns resume their confirmed session through either selector", %{
     state: initial
   } do
+    # The workspace is outside the Runtime home: the native host refuses the home itself.
+    work = initial.dir <> "-work"
+    File.mkdir_p!(work)
+    on_exit(fn -> File.rm_rf(work) end)
+
     for selector <- [:worker, :turn] do
       {started, state} =
         call(initial, %{
           "command" => "start",
           "worker_id" => "alpha",
-          "cwd" => initial.dir,
+          "cwd" => work,
           "assignment" => "plain:fail"
         })
 
@@ -157,7 +161,7 @@ defmodule AtlasRuntime.FailedContinuationTest do
       assert last["resumed"]
       assert "resume" in last["argv"]
       assert Enum.take(last["argv"], -2) == [source.session_id, "plain:next"]
-      assert Workspaces.workspace_path(initial.dir) == source.cwd
+      assert Workspaces.workspace_path(work) == source.cwd
     end
   end
 

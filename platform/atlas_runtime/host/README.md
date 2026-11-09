@@ -1,6 +1,6 @@
 # Runtime service and CLI
 
-One Go command-line client, a separate Elixir Runtime daemon, and explicitly targeted concurrent native workers. Each worker has at most one active execution. Codex remains the default without configured preferences; Claude requires explicit selection or an explicit preference. No Atlas server connection, unless explicitly opted into [lifecycle reporting](#optional-atlas-server-lifecycle-reporting), and no orchestration. Runtime and Bus are the only Atlas applications started; Facts, Flow, Control and Rela are not started.
+One Go command-line client, a separate Elixir Runtime daemon, and explicitly targeted concurrent native workers. Each worker has at most one active execution. A start that names a profile resolves through the local [model policy](#model-policy); one that names neither a profile nor a backend still runs Codex. No Atlas server connection, unless explicitly opted into [lifecycle reporting](#optional-atlas-server-lifecycle-reporting), and no orchestration. Runtime and Bus are the only Atlas applications started; Facts, Flow, Control and Rela are not started.
 
 ```sh
 atlas-runtime service start
@@ -68,7 +68,7 @@ atlas-runtime continue --request-id task-42-next --turn turn-0123456789abcdef "E
 
 `--request-id` is optional and caller-supplied; Runtime never generates an ID or retries a command automatically. IDs match `[A-Za-z0-9][A-Za-z0-9_-]{0,63}` and share one namespace across start/continue in the selected Runtime home. Existing commands without an ID retain their response and execution behavior.
 
-If the response is lost, repeat the same command with the same ID. Its recorded admission returns without launching or resuming again, including while running, after completion, and after daemon restart. Assignment bytes remain exact; cwd aliases resolve canonically; omitted read-only sandbox and disabled-question defaults normalize. Explicit versus omitted worker, source turn and backend selectors remain distinct. The first admission pins the resolved worker/source turn, cwd, scope, repository and provider/model/session settings. Later worker registrations, saved-turn changes, preferences and quota changes do not redirect a repeated command. Different valid caller intent under the same ID conflicts; malformed requests refuse. A new ID represents a separate explicit assignment, not recovery of a lost reply.
+If the response is lost, repeat the same command with the same ID. Its recorded admission returns without launching or resuming again, including while running, after completion, and after daemon restart. Assignment bytes remain exact; cwd aliases resolve canonically; omitted read-only sandbox and disabled-question defaults normalize. Explicit versus omitted worker, source turn and backend selectors remain distinct. The first admission pins the resolved worker/source turn, cwd, scope, repository and provider/model/session settings. Later worker registrations, saved-turn changes, policy and quota changes do not redirect a repeated command. Different valid caller intent under the same ID conflicts; malformed requests refuse. A new ID represents a separate explicit assignment, not recovery of a lost reply.
 
 ID-bearing responses contain `request_id`, `admission`, `worker_id`, `turn_id`, `source_turn_id`, `recorded_result` and `requires_reconciliation`. `accepted` means native startup returned and Runtime persisted the turn/lifecycle admission before acknowledging. `recorded_result` is the immutable original admission snapshot, **not current status or verified task success**. Use targeted `status`, `output --turn`, `turns` and events for later evidence. New turn metadata also retains `request_id`.
 
@@ -187,6 +187,8 @@ atlas-runtime start --cwd /path/to/project --sandbox workspace-write "Make the r
 ```
 
 Codex web search is explicitly disabled for `read-only`, `workspace-write`, `materialized-folder` and `review-packet` workers, whose profiles block external network access. The network-enabled `dedicated-repository` profile enables live web search. Command networking keeps each profile's existing restrictions.
+
+**Runtime home deny (every profile).** Every worker profile denies the Runtime home (its sockets `runtime.sock` and `read.sock`, turn records, `code.json`) and the Code token file and directory named by `code.json`: no read, no write, no Unix-socket connect. Service passes its home to the native host as `ATLAS_RUNTIME_HOME`; the host removes the variable before the native CLI starts and, when it is absent (direct adapter use), denies the default `~/.local/state/atlas-runtime`. Codex `read-only` and `workspace-write` run as the explicit permission profiles `atlas_read_only` and `atlas_workspace_write`: the built-in `:read-only` and `:workspace` plus these denies, without network. A workspace below the Runtime home (or the token directory) keeps the mode's access to it as the more specific path; one that is the home or the token directory is refused. Claude read-only then omits the rule for the containing directory, and `--restricted` keeps its file tools in the workspace. `dedicated-repository` adds the denies to `atlas_repository` (see below); `materialized-folder` and `review-packet` already had them. Claude read-only adds `Read(//…)` deny rules for its file tools.
 
 The `--sandbox` option accepts only `read-only` and `workspace-write` for Codex. Status and output report the selected mode. A read-only denial never automatically escalates permissions. Both standalone backends reuse `AtlasRuntime.Agent.Native` and its owned process-group runner; no credentials are copied, no global native settings change, and no API fallback. Guidance, queues, multi-agent scheduling and Atlas hookup remain outside this step.
 
@@ -467,7 +469,7 @@ Removes a packet folder once its review is over. Offline: no Code, Runtime servi
 
 ## Claude scoped repository writes
 
-Select Claude repository writes explicitly with `atlas-runtime start --backend claude --cwd /canonical/independent/repository --permissions dedicated-repository "Edit the assigned file and create a local commit"`, or use managed `--repo` provisioning below. This reuses independent-root validation and owned directory locking. It enables Bash alongside read-only Read/Glob/Grep, never Edit/Write. Native settings require sandbox availability, disable unsandboxed escape and excluded commands, retain the existing GitHub domain list, and deny writes to `.agents`, `.codex`, `.aws`, `.claude`, `.git/config` and `.git/hooks`. Generic workspace-write remains refused.
+Select Claude repository writes explicitly with `atlas-runtime start --backend claude --cwd /canonical/independent/repository --permissions dedicated-repository "Edit the assigned file and create a local commit"`, or use managed `--repo` provisioning below. This reuses independent-root validation and owned directory locking. It enables Bash alongside read-only Read/Glob/Grep, never Edit/Write. Native settings require sandbox availability, disable unsandboxed escape and excluded commands, retain the existing GitHub domain list, and deny writes to `.agents`, `.codex`, `.aws`, `.claude`, `.git/config` and `.git/hooks`. The Runtime home and the Code token with its directory are in `denyRead`, `denyWrite` and `Read(//…)` deny rules. Claude's denies win over its allows, so when the home contains the repository (managed `--repo` provisioning puts it under `workers/`), the home is in `denyRead` only with the repository in `allowRead`: Bash writes stay limited to the repository and private temp, and `--restricted` confines the file tools to the repository. A repository that is the Runtime home or the Code token directory is refused; one inside the token directory is handled like one inside the home, and the token file itself stays denied. Generic workspace-write remains refused.
 
 On macOS, dedicated-repository settings explicitly allow Mach lookup of `com.apple.trustd.agent` so native `gh` can validate TLS certificates. TLS verification stays enabled; all other sandbox settings stay unchanged. This service access applies to **every sandboxed command**, not just `gh`. Service-mediated networking makes effective isolation weaker than a strict GitHub-only network boundary. Other platforms receive no Mach lookup allowance.
 
@@ -481,24 +483,85 @@ Real public-CLI proof on 2026-11-07: turn `turn-b894577aa26ff18b`, native Claude
 
 The proof used isolated Runtime state, after the trusted weekly reset; no default install, daemon restart, merge or deployment occurred. Push/PR operations from Claude, provisioning, continuation, comprehensive network isolation and arbitrary shell commands were not verified by this proof. Native source/version changes can alter temp routing and require new verification.
 
-## Local backend preference
+## Model policy
 
-Configure the supported Claude-then-Codex pair for future assignments, optionally selecting native models:
+Two files in the Runtime home replace `backends.json` (design `2026-11-16-runtime-backend.md` §6, §7):
 
-```sh
-atlas-runtime preferences --preferred claude --preferred-model 'claude-opus-5-5[1m]' --fallback codex --fallback-model gpt-6.1-sol
-atlas-runtime preferences
-atlas-runtime start --cwd /path/to/project "Read the project"
-atlas-runtime preferences --reenable claude
+- **`policy.json`** is human-owned. Edit it locally and raise `version` on every change; no command writes it. It is read again for every start, so a change applies to every turn not yet started. A missing or invalid file permits no profile start (`policy_forbids`).
+- **`availability.json`** holds quota evidence per harness. Runtime records exact native weekly-quota evidence there; a human may mark a harness out, or re-enable one, by editing it locally while no start is pending.
+
+`atlas-runtime preferences` only reads: it shows both files, any policy error, per-profile availability, the slots and the buffer size. Any write (`--preferred`, `--fallback`, `--reenable`) is refused.
+
+### `policy.json`
+
+```json
+{
+  "version": 1, "changed_by": "operator", "changed_at": "2026-11-16T09:00:00Z",
+  "slots": ["dev1", "dev2", "dev3", "dev4", "dev5", "dev6"],
+  "buffer_size": 6,
+  "profiles": {
+    "deep_coding": {
+      "permissions": ["dedicated-repository", "materialized-folder", "workspace-write"],
+      "cost_classes": ["standard", "high"],
+      "options": [
+        {"provider": "anthropic", "harness": "claude", "model": "claude-opus-5-5"},
+        {"provider": "openai", "harness": "codex", "model": "gpt-6.1-sol"}
+      ],
+      "limits": {"max_duration": 14400}
+    }
+  }
+}
 ```
 
-Omit either model flag to use that CLI's native default. Model availability remains the native provider's decision; an unavailable model fails without retry. `preferences` reports configuration, retained quota evidence and current `claude_eligible`. Configuration and evidence persist atomically in `backends.json` beneath the selected Runtime home and survive daemon restarts. Invalid persisted policy fails visibly instead of silently selecting another backend.
+| Field | Rule |
+|---|---|
+| `version` | required positive integer; recorded as `policy_version` |
+| `changed_by`, `changed_at` | optional strings |
+| `slots` | optional non-empty list of distinct worker names; default `["default"]` |
+| `buffer_size` | optional non-negative integer; default one per slot |
+| `independence` | optional `{"different_from": "conversation"\|"model"\|"provider"}`; not applied before S4 |
+| `profiles.<name>.permissions` | non-empty subset of `dedicated-repository`, `materialized-folder`, `workspace-write`, `read-only`, `review-packet` |
+| `profiles.<name>.cost_classes` | non-empty subset of `low`, `standard`, `high` |
+| `profiles.<name>.options` | ordered, non-empty list of distinct `{provider, harness, model}`; `harness` is `claude` or `codex` |
+| `profiles.<name>.limits` | optional `{"max_duration": seconds}`; otherwise `deep_coding` 4 h, `independent_review` 1 h, `light_work` 30 min, any other 4 h |
 
-Only a structured native Claude `rate_limit_event` with rejected `seven_day`, no active overage and no allowed overage can make Claude ineligible. The quota record retains native evidence, source turn ID, observation time and explicit re-enablement time. Generic authentication/network/provider errors, text mentioning limits and other quota windows do not change eligibility. A positive numeric native `resetsAt` restores eligibility at that Unix timestamp; missing/invalid reset evidence remains `null` and requires explicit re-enablement. Localized text such as “1pm” is never parsed. Re-enablement retains evidence; a later confirmed weekly rejection disables eligibility again.
+Unknown fields make the file invalid.
 
-An eligible preference selects Claude. Confirmed weekly unavailability selects Codex only for a subsequent explicit `start`; the failed Claude turn remains failed and is never replayed. `start --backend claude` or `--backend codex` bypasses eligibility selection, using the configured model for that backend when present, and never falls back. An incapable selected backend is refused before execution, without weakening permissions or marking capability errors as quota. For example, an eligible Claude preference cannot accept a workspace-write assignment; explicitly select Codex instead.
+**Resolution.** A start that names `profile` and `cost_class` resolves mechanically:
 
-Turn metadata separates `requested_model` from native-confirmed `model`. `selection` records `requested`, `selected`, `reason` (`default`, `preferred`, `explicit`, `confirmed_weekly_quota` or `continuation`) and the source quota record when applicable. Continuation retains its saved provider and model regardless of changed preferences or quota eligibility; Claude requires a confirmed model rather than falling back to a requested alias. No scheduler, queue, automatic assignment or generic provider registry is introduced.
+1. The profile must exist, and must list the workspace permission and the cost class. Otherwise: `policy_forbids`.
+2. A resume selects the source turn's option with reason `continuation` if the profile still lists it. Otherwise: `resume_unavailable`.
+3. Options are walked in order. An option is skipped when its harness cannot serve the permission (`unsupported_permission`: Claude has no `workspace-write`), when it is not installed (`not_installed`), or when `availability.json` marks it out (`quota`).
+4. The first option left wins: reason `preferred` if it is the first option, otherwise `fallback`, with the skipped options and why.
+5. If nothing is left and an option was skipped for quota, the result is `profile_unavailable` with the earliest known return time. Otherwise it is `no_permitted_option`. Runtime never improvises.
+
+The turn's `selection` records `profile`, `policy_version`, `option`, `reason` and `skipped`, plus `requested`/`selected` `{backend, model}`. A start that names `--backend` instead keeps its former meaning until the work commands move (Flow passes and the CLI): exactly that backend, never a fallback, with the policy's model for that harness when all its options agree, otherwise the native default (reason `explicit`). Without either, the former preference pair (imported from `backends.json`, see below) applies until the CLI moves: its preferred Claude target (reason `preferred`), or its Codex fallback while Claude's weekly quota is out (reason `confirmed_weekly_quota`, with the quota entry); without a pair, Codex runs (reason `default`). A backend that cannot serve the requested permission is refused before execution.
+
+### `availability.json`
+
+```json
+{
+  "format_version": 1,
+  "quota": {
+    "claude": {"evidence": {"status": "rejected", "rateLimitType": "seven_day", "resetsAt": 1794052800, "...": "..."},
+               "turn_id": "turn-0123456789abcdef", "observed_at": 1794050000, "reenabled_at": null},
+    "codex": {"evidence": {"source": "operator", "note": "no credits", "resetsAt": null},
+              "turn_id": null, "observed_at": 1794050000, "reenabled_at": null}
+  }
+}
+```
+
+Each entry keeps the former `claude_quota` shape. Native evidence (Claude only) is a structured `rate_limit_event` with rejected `seven_day`, no active overage and no allowed overage. Generic authentication, network or provider errors, text that mentions limits, and other quota windows are never quota. Operator evidence is `{"source": "operator", "note", "resetsAt"}` with a `null` `turn_id`.
+
+A harness is out until its positive numeric `resetsAt` (Unix seconds) has passed, or until `reenabled_at` is set. A missing or unparseable reset stays `null` and requires a re-enable; localized text such as "1pm" is never parsed. Re-enabling keeps the evidence, and a later confirmed rejection disables the harness again. Invalid evidence fails the start visibly instead of selecting another option.
+
+At service start, the `claude_quota` of an existing `backends.json` is imported once into a new `availability.json`, together with its `preferred`/`fallback` pair as `"preferences": {"preferred": {"backend": "claude", "model"}, "fallback": {"backend": "codex", "model"}}`. `backends.json` is not read again. The pair serves only starts that name neither a profile nor a backend.
+
+### S1 mini policy
+
+On the Mac mini, `deep_coding` lists `claude-opus-5-5` first and Codex second. While Codex has no credits, it is marked out in `availability.json` with the operator entry above. `deep_coding` therefore resolves to Claude (`preferred`), and to `profile_unavailable` while Claude's weekly quota is also out. Remove the Codex entry, or set its `reenabled_at`, once credits return.
+
+Turn metadata separates `requested_model` from native-confirmed `model`. The first normalized model a top-level native record reports is the turn's `model`; subagent records (`parent_tool_use_id`) never count. A later top-level record with a different model records `model_changed` (`first`, `reported`, `at`) and stops the turn the way `stop` does, so the slot stays latched until `release`. Continuation keeps its saved provider and model whatever the policy or quota now says; Claude requires a confirmed model rather than falling back to a requested alias.
 
 ## Codex dedicated repository permissions
 
@@ -508,7 +571,7 @@ For an explicitly authorized Git/PR assignment in an **independent clone**, opt 
 atlas-runtime start --cwd /canonical/path/to/independent-clone --permissions dedicated-repository "Complete the assigned change and create its PR"
 ```
 
-This cannot be combined with `--sandbox`. It permits writes only beneath the canonical repository root, including its own `.git`, while retaining read-only `.agents`, `.codex` and `.aws` paths. Outside writes, including system temporary directories and home caches, remain denied; tools needing writable caches must use repository-local paths. Existing read access is unchanged. Command networking uses Codex's enforced proxy and allows only `github.com` and `api.github.com`; no unrestricted network fallback is provided.
+This cannot be combined with `--sandbox`. It permits writes only beneath the canonical repository root, including its own `.git`, while retaining read-only `.agents`, `.codex` and `.aws` paths. Outside writes, including system temporary directories and home caches, remain denied; tools needing writable caches must use repository-local paths. Existing read access is unchanged, except that the Runtime home and the Code token with its directory are denied (`none`); a managed repository below the home stays writable as the more specific path. Because Codex cannot even `lstat` below a `none` path and Git `lstat`s every ancestor of its worktree, a home (or token directory) containing the repository is not denied whole: every entry existing at launch in it and in each directory down to the repository is denied unless it lies on that ancestor chain, and `runtime.sock`, `read.sock`, `turns`, `code.json`, `server.json`, `backends.json`, `policy.json`, `availability.json`, `service.log`, `service.lock`, `passes`, `snapshots`, `materializations`, `scratch` and the Code token are denied by path even when absent at launch. The ancestor directories' names stay listable, and other entries created in them after launch are not covered. Known limit: another worker's managed repository created under `workers/<id>` after this turn launched stays readable to it, because only entries existing at launch are denied. A repository inside one of those named entries is refused. Command networking uses Codex's enforced proxy and allows only `github.com` and `api.github.com`; no unrestricted network fallback is provided.
 
 Validation refuses linked worktrees, non-root/aliased paths, external/shared Git metadata, object alternates, metadata symlinks and shared hardlinks. Project/ancestor and system Codex configuration files are refused because legacy sandbox settings can override a native profile; the ignored user config is exempt. Use an independent remote clone, not a local clone with shared objects. Validation runs before launch and again before native execution.
 
@@ -657,7 +720,7 @@ On macOS with Seatbelt and the official Codex CLI installed, run from `platform/
 MIX_ENV=test mix run --no-start host/verify_sandbox.exs
 ```
 
-This opt-in check requires no login or model call and starts no Runtime daemon or Atlas core applications. It uses isolated workspaces and empty Codex homes, then removes its own temporary files. The Runtime adapter and native host launch a small shell bridge that reads the actual forwarded `--sandbox` and `--cd` arguments. The bridge maps the two supported modes to Codex's documented [built-in permission profiles](https://developers.openai.com/codex/permissions), `:read-only` and `:workspace`, and invokes the official `codex sandbox` command to execute the same bounded shell write. The bridge records the native exit status and stderr; it does not simulate denial or perform the write itself.
+This opt-in check requires no login or model call and starts no Runtime daemon or Atlas core applications. It uses isolated workspaces and empty Codex homes, then removes its own temporary files. The Runtime adapter and native host launch a small shell bridge that reads the actual forwarded permission profile (`default_permissions` and its `permissions` table) and `--cd` arguments. The host forwards each mode as an explicit profile, `atlas_read_only` or `atlas_workspace_write`, extending Codex's documented [built-in permission profiles](https://developers.openai.com/codex/permissions) `:read-only` and `:workspace` with the Runtime home deny; the bridge invokes the official `codex sandbox` command with exactly that profile to execute the same bounded shell write. The bridge records the native exit status and stderr; it does not simulate denial or perform the write itself.
 
 Assertions require read-only to produce an actual `Operation not permitted` shell error, exit 1 and unchanged `before\n` bytes; workspace-write must exit 0 and produce exact `after\n` bytes. A wrong forwarded mode changes the native outcome and fails the check. CLI configuration/usage errors cannot pass as a read-only denial. Codex 0.166.0 was exercised; older CLIs lacking these built-in profiles will fail this explicit check rather than silently skip it.
 

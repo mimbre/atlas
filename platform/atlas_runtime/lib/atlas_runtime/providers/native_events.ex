@@ -96,7 +96,10 @@ defmodule AtlasRuntime.Providers.NativeEvents do
   end
 
   def consume(
-        %{"type" => "runtime.event", "event" => %{"type" => "assistant", "message" => message}},
+        %{
+          "type" => "runtime.event",
+          "event" => %{"type" => "assistant", "message" => message} = event
+        },
         %{backend: "claude"} = state
       )
       when is_map(message) do
@@ -119,7 +122,8 @@ defmodule AtlasRuntime.Providers.NativeEvents do
       end)
 
     AtlasRuntime.Agent.emit(state.owner, "claude: assistant activity", parts)
-    identify(state, message["model"])
+    # Only a top-level record names the turn's model; a subagent's never counts (D29).
+    if is_nil(event["parent_tool_use_id"]), do: identify(state, message["model"]), else: state
   end
 
   def consume(

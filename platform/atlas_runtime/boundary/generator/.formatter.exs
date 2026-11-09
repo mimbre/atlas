@@ -1,4 +1,4 @@
-# The schema DSL reads without parentheses, in a contract and in tests.
+# The schema and mappings DSLs read without parentheses, in a contract and in tests.
 schema_dsl = [
   version: 1,
   defmodel: 2,
@@ -6,7 +6,9 @@ schema_dsl = [
   field: 2,
   field: 3,
   invalid_input: 1,
-  invalid_input: 2
+  invalid_input: 2,
+  defmapping: 2,
+  defmapping: 3
 ]
 
 [

@@ -269,6 +269,11 @@ jobs:
           key: rela-26.11.3-linux_amd64
       - run: platform/atlas_facts/rela/scripts/start-test.sh install
         working-directory: .
+      # It compiles platform/atlas_runtime as a path dependency, so needs its Hex dependencies
+      # (Plug, Bandit) too, as products/software_factory/mix.lock pins them: the model has no
+      # lock of its own. Hex and rebar (telemetry builds with rebar3) first.
+      - run: mix local.hex --force && mix local.rebar --force
+      - run: cp ../../mix.lock mix.lock && mix deps.get --check-locked
       - run: mix compile --warnings-as-errors
       - run: mix format --check-formatted
       # Fails when a file of the Rela project (products/software_factory/model/targets/rela) or of products/software_factory/model/targets differs from what
@@ -304,6 +309,9 @@ jobs:
         id: keys
         run: node platform/ops/ci/tested-tree.mjs keys
         working-directory: .
+      # It compiles platform/atlas_runtime as a path dependency (Plug, Bandit), as
+      # products/software_factory/mix.lock pins them.
+      - run: cp ../../mix.lock mix.lock && mix local.hex --force && mix local.rebar --force && mix deps.get --check-locked
       # Fails when a subflow's run identity changed without a migration the base can
       # approve (its digests.json). record-tested-base keys its record on what this job checked.
       - name: The run identities against the base
@@ -312,6 +320,64 @@ jobs:
         run: |
           [ -n "$BASE" ] || { echo "::error::The base $CI_BASE is no commit of this repository"; exit 1; }
           mix model.gen --check --base "$BASE"
+
+  runtime-backend-generator:
+    name: Runtime backend generator on its own
+    needs: tested-tree
+    if: ${{ !cancelled() && needs.tested-tree.outputs.tested != 'true' }}
+    runs-on: ubuntu-latest
+    env:
+      MIX_ENV: test
+    defaults:
+      run:
+        working-directory: platform/atlas_runtime/backend/generator
+    steps:
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28"
+          elixir-version: "1.18"
+      - name: The generator holds none of the Runtime's values
+        run: |
+          if grep -rniE 'AtlasRuntime\b|AtlasRuntimeBoundary|/v1/work|backend\.sock|runtime\.sock|work_id|choose_slot|\.\./contract' lib test mix.exs; then
+            echo "::error::platform/atlas_runtime/backend/generator mentions the Runtime's values. Keep them in platform/atlas_runtime/backend/contract."
+            exit 1
+          fi
+      # Plug, for its tests only, as its own mix.lock pins it. Hex and rebar (telemetry) first.
+      - run: mix local.hex --force && mix local.rebar --force
+      - run: mix deps.get --check-locked
+      # Compiled and tested without platform/atlas_runtime/backend/contract, on a neutral example.
+      - run: mix compile --warnings-as-errors
+      - run: mix format --check-formatted
+      - run: mix test --warnings-as-errors
+
+  runtime-backend-contract:
+    name: Runtime backend contract
+    needs: tested-tree
+    if: ${{ !cancelled() && needs.tested-tree.outputs.tested != 'true' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: platform/atlas_runtime/backend/contract
+    steps:
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28"
+          elixir-version: "1.18"
+      - name: The backend contract never depends on the Runtime's private model
+        run: |
+          if grep -nE 'atlas_runtime_model|model/' mix.exs; then
+            echo "::error::platform/atlas_runtime/backend/contract depends on the model. It carries the boundary only."
+            exit 1
+          fi
+      # Path dependencies only (../generator, ../../boundary/contract): no Hex package.
+      - run: mix deps.get
+      - run: mix compile --warnings-as-errors
+      - run: mix format --check-formatted
+      # Fails when a file in platform/atlas_runtime/backend/targets differs from what the contract generates, or is left over (none in S1).
+      - run: mix runtime_backend.gen --check
+      - run: mix test
 
   beam:
     name: Bus, Facts, Control
@@ -333,6 +399,10 @@ jobs:
         with:
           go-version: "1.25"
           cache: false
+      # Hex and rebar (telemetry builds with rebar3), then the umbrella's Hex dependencies as
+      # mix.lock pins them: the host's service test builds the umbrella too.
+      - run: mix local.hex --force && mix local.rebar --force
+      - run: mix deps.get --check-locked
       - run: go -C ../../platform/atlas_runtime/host test ./...
       - run: python3 -m pip install -r ../../platform/atlas_facts/rela/scripts/requirements.txt
       - run: mix compile --warnings-as-errors
@@ -412,6 +482,10 @@ jobs:
         with:
           path: .rela-bin
           key: rela-26.11.3-linux_amd64
+      # The scenarios compile and run the umbrella (products/software_factory): its Hex
+      # dependencies as mix.lock pins them. Hex and rebar (telemetry builds with rebar3) first.
+      - run: mix local.hex --force && mix local.rebar --force && mix deps.get --check-locked
+        working-directory: products/software_factory
       - run: mix compile --warnings-as-errors && mix format --check-formatted
         working-directory: products/software_factory/e2e
       # bin/atlas itself: prod by default, test only when asked; bin/atlas-dev e2e never on prod.
@@ -475,7 +549,7 @@ jobs:
   # run tested it itself, and never from a fork.
   record-tested-tree:
     name: Record the tested tree
-    needs: [tested-tree, generator, runtime-boundary-generator, runtime-boundary-contract, contract, runtime-model, model-dsl, model-contract, beam, tui, agent, e2e, swift, apple]
+    needs: [tested-tree, generator, runtime-boundary-generator, runtime-boundary-contract, contract, runtime-model, model-dsl, model-contract, beam, tui, agent, e2e, swift, apple, runtime-backend-generator, runtime-backend-contract]
     if: >-
       needs.tested-tree.outputs.tested != 'true' && needs.tested-tree.outputs.tree != ''
       && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
@@ -538,7 +612,7 @@ jobs:
   # deploy token (fly tokens create deploy -a <app>).
   deploy-test:
     name: Deploy test on Fly, and a smoke check
-    needs: [tested-tree, generator, contract, model-dsl, model-contract, model-base, beam, tui, agent]
+    needs: [tested-tree, generator, contract, model-dsl, model-contract, model-base, beam, tui, agent, runtime-backend-generator, runtime-backend-contract]
     if: >-
       ${{ !cancelled()
       && github.event_name == 'push' && github.ref == 'refs/heads/develop'
@@ -575,7 +649,7 @@ jobs:
 
   deploy-prod:
     name: Deploy prod on Fly, and a smoke check
-    needs: [tested-tree, generator, contract, model-dsl, model-contract, model-base, beam, tui, agent, e2e]
+    needs: [tested-tree, generator, contract, model-dsl, model-contract, model-base, beam, tui, agent, e2e, runtime-backend-generator, runtime-backend-contract]
     if: >-
       ${{ !cancelled()
       && github.event_name == 'push' && github.ref == 'refs/heads/master'
