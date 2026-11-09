@@ -3,6 +3,10 @@ defmodule AtlasTui.Console do
   Persistent native shell and handshake lifecycle. Boot is independent of page
   content: compatibility pages cannot replace local drafts, and failed boot never
   replaces the last good navigation. Effects use the ordinary Control endpoints.
+
+  Back is the user's own way here, not the parent a page names: `open/2` remembers
+  the page left (its selected row and scroll) in `history`, `back/1` returns to the
+  newest one. Switching tabs, or a boot that reopens the start, starts afresh.
   """
   alias AtlasTui.{Blocks, Model, Protocol, WorkerConversation}
 
@@ -17,11 +21,17 @@ defmodule AtlasTui.Console do
             restoring: false,
             active: nil,
             selections: %{},
+            # The pages the user came from, newest first: `%{path, row, scroll, scrolls, part}`.
+            history: [],
+            # The page `back/1` is on its way to, restored as it was left when it arrives.
+            returning: nil,
             projection: nil,
             legend: nil,
             viewport: {100, 30},
             action_error: nil,
             generation: 0
+
+  @history_limit 100
 
   def new, do: %__MODULE__{}
 
@@ -101,7 +111,9 @@ defmodule AtlasTui.Console do
               | phase: :content,
                 expected: target,
                 in_flight: target,
-                restoring: draft?(model)
+                restoring: draft?(model),
+                history: if(draft?(model), do: console.history, else: []),
+                returning: nil
             }
 
             {%{model | console: console}, [{:send, Protocol.request(:open, %{"to" => target})}]}
@@ -113,7 +125,7 @@ defmodule AtlasTui.Console do
                 !Enum.any?(shell["tabs"], &(&1["to"] == model.path))
 
             if removed_index && !draft?(model) && is_nil(console.expected),
-              do: navigate(model, shell["initial_to"]),
+              do: navigate(afresh(model), shell["initial_to"]),
               else: {model, []}
           end
 
@@ -212,17 +224,17 @@ defmodule AtlasTui.Console do
           {model, message} = AtlasTui.Interactions.install(model, message)
           updated = Model.message(model, message)
 
-          selected =
+          updated =
             if message["path"] != model.path,
-              do: restored_selection(updated),
-              else: stable_selection(model, updated)
+              do: arrive(updated),
+              else: %{updated | selected: stable_selection(model, updated)}
 
           updated = %{
             updated
-            | selected: selected,
-              console: %{
+            | console: %{
                 updated.console
                 | phase: :ready,
+                  returning: nil,
                   expected: nil,
                   in_flight: nil,
                   restoring: false
@@ -278,7 +290,7 @@ defmodule AtlasTui.Console do
       tabs = console.shell["tabs"]
       index = Enum.find_index(tabs, &(&1["id"] == console.active)) || 0
       target = Enum.at(tabs, Integer.mod(index + step, length(tabs)))
-      navigate(model, target["to"])
+      navigate(afresh(model), target["to"])
     else
       {model, []}
     end
@@ -302,6 +314,64 @@ defmodule AtlasTui.Console do
     else
       {model, []}
     end
+  end
+
+  @doc "Opens `target` from this page, which `back/1` then returns to as it is left."
+  def open(model, target) do
+    if is_binary(model.path) and is_binary(target) and target != model.path and
+         match?({:ok, _, _}, Blocks.match(target)),
+       do: navigate(remember(model), target),
+       else: navigate(model, target)
+  end
+
+  @doc "Back to the page the user came from, in their own history; at its root, nothing."
+  def back(%{console: %{history: [entry | rest]} = console} = model),
+    do: navigate(%{model | console: %{console | history: rest, returning: entry}}, entry.path)
+
+  def back(model), do: {model, []}
+
+  @doc "Whether `back/1` has a page to return to."
+  def back?(model), do: model.console.history != []
+
+  defp afresh(model), do: %{model | console: %{model.console | history: [], returning: nil}}
+
+  # The page left, newest first. Leaving it again (from the same page) replaces it.
+  defp remember(model) do
+    entry = %{
+      path: model.path,
+      row: row_identity(Enum.at(Model.rows(model), model.selected)),
+      scroll: model.scroll,
+      scrolls: model.scrolls,
+      part: model.part
+    }
+
+    history =
+      case model.console.history do
+        [%{path: path} | rest] when path == model.path -> [entry | rest]
+        history -> [entry | history]
+      end
+
+    %{model | console: %{model.console | history: Enum.take(history, @history_limit)}}
+  end
+
+  # A page at a new path: the one back/1 returns to, or the newest page left (a form's
+  # cancel or a stored change returns there), as it was left; else as its tab was left.
+  defp arrive(model) do
+    case model.console do
+      %{returning: %{path: path} = entry} when path == model.path ->
+        restore(model, entry)
+
+      %{history: [%{path: path} = entry | rest]} = console when path == model.path ->
+        restore(%{model | console: %{console | history: rest}}, entry)
+
+      _ ->
+        %{model | selected: restored_selection(model)}
+    end
+  end
+
+  defp restore(model, entry) do
+    selected = Enum.find_index(Model.rows(model), &(row_identity(&1) == entry.row)) || 0
+    %{model | selected: selected, scroll: entry.scroll, scrolls: entry.scrolls, part: entry.part}
   end
 
   defp sync_active(%{console: %{shell: nil}} = model), do: model

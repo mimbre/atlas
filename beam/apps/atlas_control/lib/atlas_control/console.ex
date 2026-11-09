@@ -150,7 +150,8 @@ defmodule AtlasControl.Console do
       command("Previous row", ["Up", "k"], "list_previous", available: rows?),
       command("Next row", ["Down", "j"], "list_next", available: rows?),
       command("Open selected", ["Enter", "Right"], "open_selected", available: rows?),
-      command("Back", ["Esc", "Left", "b"], "back", available: is_binary(page["back"])),
+      # Back is the client's own history, which only the client knows (not the page's parent).
+      command("Back", ["Esc", "Left", "b"], "back"),
       command("Refresh", ["r"], "refresh"),
       command("Keys", ["?"], "legend_open"),
       command("Ask an agent", [":"], "agent_ask"),

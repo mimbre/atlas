@@ -197,7 +197,9 @@ defmodule AtlasTuiTest do
     m = model(widgets)
     assert screen(m) =~ "Widgets · 2"
     assert {_, [{:send, %{"op" => "open", "to" => "/k/widget/W-2"}}]} = press(m, [:down, :enter])
-    assert {_, [{:send, %{"op" => "open", "to" => "/"}}]} = press(m, [:esc])
+    # Back is the user's own way (AtlasTui.GoingBackTest), not the parent Control names:
+    # a list shown first has none.
+    assert press(m, [:esc]) == {m, []}
   end
 
   test "a link opens its web address: the item's, and the selected row's" do

@@ -46,9 +46,6 @@ defmodule AtlasTui.ConsoleProjectionFixture do
           name when name in ["list_next", "list_previous", "open_selected"] ->
             put_in(action, ["props", "available"], rows != [])
 
-          "back" ->
-            put_in(action, ["props", "available"], page["back"] != nil)
-
           _ ->
             action
         end

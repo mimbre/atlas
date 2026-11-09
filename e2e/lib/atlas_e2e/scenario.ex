@@ -247,9 +247,12 @@ defmodule AtlasE2E.Scenario do
     end
   end
 
-  @doc "Return through Console's declared Back/Cancel actions to the user's start page."
+  @doc """
+  Return through Console's declared Back/Cancel actions to the user's start page. Back
+  retraces the TUI's own history, which keeps at most 100 pages.
+  """
   def start_page(tui) do
-    Enum.reduce_while(1..20, nil, fn _, _ ->
+    Enum.reduce_while(1..101, nil, fn _, _ ->
       screen = ready(tui)
 
       if screen =~ "? Keys" do
