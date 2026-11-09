@@ -34,6 +34,14 @@ defmodule AtlasFlowGenerator.RelaTest do
     assert label.("yes") == ~s(    label: "yes")
     assert label.("a: b") == ~s(    label: "a: b")
     assert label.("x #1") == ~s(    label: "x #1")
+    # A comma is plain as a block value (a flow's or state's label), quoted in a branch.
+    assert label.("Build, test and accept") == "    label: Build, test and accept"
+
+    [draft | rest] = flow.states
+    [branch | others] = draft.branches
+    draft = %{draft | branches: [%{branch | label: "Late, again"} | others]}
+    yaml = Rela.flows_yaml([%{flow | states: [draft | rest]}])
+    assert yaml =~ ~s(label: "Late, again", when:)
   end
 
   test "the check project has each subject with what its subflows read and set, and their roles" do

@@ -25,6 +25,20 @@ def without_ledger(schema):
         schema.get('types', {}).pop(name, None)
     for name in ('design', 'design_status'):
         schema['entities']['use_case']['properties'].pop(name)
+    # The fields the flows (flows.yaml) read and write, and the review and test of a pull request.
+    for kind in ('pr_review', 'pr_test'):
+        schema['entities'].pop(kind)
+    for name in ('review_of', 'test_of'):
+        schema['relations'].pop(name)
+    flow_fields = {
+        'issue': ('pass_result', 'gate_result', 'effect_result', 'pr_outcome'),
+        'pull_request': ('review_outcome', 'test_outcome', 'update', 'integration'),
+        'scene': ('children', 'open_children', 'verdict', 'pass_result'),
+        'use_case': ('children', 'open_children', 'verdict', 'pass_result', 'gate_result'),
+    }
+    for kind, names in flow_fields.items():
+        for name in names:
+            schema['entities'][kind]['properties'].pop(name)
     return schema
 
 

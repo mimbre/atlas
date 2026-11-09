@@ -5,14 +5,18 @@
     "compositions/atlas-eyra/sources.json": "7f7e4a79381dca7c78f1a25f98c0262392ff5737cb4de25b38b579970b783d2a",
     "data-entry.yaml": "afe3e95d13e4cd9f52b43b3dc518d2922ba01283e8bfb5c31964ee43d1829cdc",
     "modules/eyra/atlas.json": "1dd88fec422b9b4a9bc4b6c519c4f1e0aadf236e93acc231324aa21ae04019c0",
-    "modules/eyra/schema.yaml": "85940b0a6e9ecc75016d310d7f61c47642d7b1dd12af7562b74a49168eff37b4",
+    "modules/eyra/schema.yaml": "101cc888c6a51291b2ce74cff33c0d2cd510817d4e464781f4f2a29b81abd080",
     "modules/foundation/atlas.json": "593157ab0fb184d01f05237089ced328016ce38b32107763c5b69d8b69f06c83",
     "modules/foundation/audit/atlas.json": "18c2651218628dd09e350ce3305f05d62ad1cb82b9294dd608acb973b0a70bac",
     "modules/foundation/audit/schema.yaml": "64a7f9538b11ac3fb8cd2b9a2597d29211803e7accfe43f04495a0c934e18dc6",
-    "modules/foundation/schema.yaml": "a4639534225a27d838ab2ca62c41b33d5b29721f478c10f95d2aa6023b87686b",
+    "modules/foundation/schema.yaml": "70815d65e1455b028b23c17117564d36b3966af9ab7fb3b660c2625b9d5346d6",
     "modules/software/atlas.json": "1f1a1ff4ed50cccb4bfc6d9449817f983abfaf6872edfc4e13c47578b2de77a7",
-    "modules/software/schema.yaml": "f5e47096cedc7ab4649b98f0123da1855bce2c0aae3fd941d330e323726c251b",
+    "modules/software/schema.yaml": "a81cc96c0cfc941877d3a68505a43eecb05461ffbc1ce61b132000ab4d53b4e2",
     "schema.yaml": "b260c86c9729cde43c8de97db05f377ae427ee76f502a4e374f32a2da0bce350"
   },
-  "output_sha256": "083edc60e61c56bbc32ef4abda6bc31ab55759d72032574463dc968aef269727"
+  "output_sha256": "083edc60e61c56bbc32ef4abda6bc31ab55759d72032574463dc968aef269727",
+  "flows": {
+    "source": "flow/targets/rela/flows.yaml",
+    "sha256": "1c06852915c01b8a18d9186aed8b0b4ea21aa3f238143588e3a70cb7c6dafed2"
+  }
 }

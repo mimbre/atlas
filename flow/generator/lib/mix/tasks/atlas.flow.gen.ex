@@ -10,12 +10,15 @@ defmodule Mix.Tasks.Atlas.Flow.Gen do
         contract: MyFlows,
         gates: MyFlows.Gates,
         targets: [rela: "../targets/rela", atlas: "../targets/atlas", diagrams: "../targets/diagrams"],
+        rela_project: "../../rela",
         root: "../.."
 
   `contract` and `gates` (optional, default the contract) use
   `AtlasFlowGenerator.Schema`; the task reads only the contract's `__flows__/0` and the
   gates' `__gates__/0`. `root` (optional, default the project's folder) is what the
-  header's path to the contract file is relative to. The targets:
+  header's paths to the contract files are relative to: the header names the files of
+  the subflows (and gates), after the composition's file when the contract is one. The
+  targets:
 
     * `rela`: `flows.yaml`, every subflow in Rela's format (`AtlasFlowGenerator.Rela`);
     * `atlas`: `flows.json`, what Atlas runs them by, and every gate
@@ -23,9 +26,12 @@ defmodule Mix.Tasks.Atlas.Flow.Gen do
     * `diagrams`: `<subflow>.md` for each subflow, its state diagram as Rela draws it.
 
   **Rela.** When `ATLAS_RELA_BIN` names the folder holding the pinned `rela` (26.11.2;
-  the same variable the assembler uses), the task runs `rela flow validate` on the
-  generated `flows.yaml` and fails on what Rela refuses, then draws each diagram with
-  `rela flow show`. Without it, nothing is validated and diagrams are neither drawn nor
+  the same variable the assembler uses), the task runs Rela on the generated
+  `flows.yaml` and fails on what Rela refuses, then draws each diagram with
+  `rela flow show`. With `rela_project` (optional) naming a Rela description, Rela
+  validates the whole description in a temporary copy, the generated `flows.yaml` in
+  place of its own; without it, `rela flow validate` runs in a scratch project
+  derived from the subflows (`AtlasFlowGenerator.Rela.check/4`). Without it, nothing is validated and diagrams are neither drawn nor
   compared; the task says so. It still fails on a missing or left-over diagram.
 
   Every file starts with an `AtlasFlowGenerator.Header`. A file without exactly that
@@ -51,8 +57,17 @@ defmodule Mix.Tasks.Atlas.Flow.Gen do
     gates = Application.get_env(:atlas_flow_generator, :gates, contract).__gates__()
     root = Path.expand(Application.get_env(:atlas_flow_generator, :root, "."))
 
+    # A composition is the root of what was generated, so its file is named first.
+    composed =
+      if function_exported?(contract, :__composition__, 0),
+        do: [contract.__composition__()],
+        else: []
+
     source = fn items ->
-      items |> Enum.map(&Path.relative_to(&1.file, root)) |> Enum.uniq() |> Enum.join(", ")
+      (composed ++ items)
+      |> Enum.map(&Path.relative_to(&1.file, root))
+      |> Enum.uniq()
+      |> Enum.join(", ")
     end
 
     flows_source = source.(flows)
@@ -83,7 +98,7 @@ defmodule Mix.Tasks.Atlas.Flow.Gen do
              "the diagrams were neither drawn nor compared"}
 
         binary ->
-          case Rela.check(binary, yaml, flows) do
+          case Rela.check(binary, yaml, flows, project: rela_project()) do
             {:ok, shown} ->
               drawn =
                 for {path, one} <- Enum.zip(diagram_paths, shown),
@@ -172,6 +187,11 @@ defmodule Mix.Tasks.Atlas.Flow.Gen do
           do: binary,
           else: Mix.raise("ATLAS_RELA_BIN: no rela at #{binary}")
     end
+  end
+
+  defp rela_project do
+    with dir when is_binary(dir) <- Application.get_env(:atlas_flow_generator, :rela_project),
+         do: Path.expand(dir)
   end
 
   defp contract! do

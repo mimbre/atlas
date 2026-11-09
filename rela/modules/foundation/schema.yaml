@@ -366,6 +366,9 @@ entities:
       no_work:
         type: boolean
         description: True when carrying it out needs no work; it then waits for none
+      verdict:
+        type: string
+        description: 'Flow: the verdict of whoever may decide it (none, accept, reject)'
   gate_verdict:
     label: Gate verdict
     plural: gate_verdicts

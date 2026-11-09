@@ -232,7 +232,9 @@ defmodule Mix.Tasks.Atlas.Flow.GenTest do
   end
 
   test "the writers and the task read only a contract's data, not the format's internals" do
-    for path <- Path.wildcard("lib/**/*.ex") -- ["lib/schema.ex"] do
+    # The format is lib/schema.ex and lib/schema/ (the composition); the rest only reads data.
+    for path <-
+          Path.wildcard("lib/**/*.ex") -- ["lib/schema.ex" | Path.wildcard("lib/schema/**/*.ex")] do
       code = path |> File.read!() |> String.replace(~r/@(module)?doc\s+"""(?s:.*?)"""/, "")
       refute code =~ "AtlasFlowGenerator.Schema", "#{path} calls into AtlasFlowGenerator.Schema"
     end

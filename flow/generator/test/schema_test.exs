@@ -147,6 +147,51 @@ defmodule AtlasFlowGenerator.SchemaTest do
       end
     end
 
+    test "a result may lead to a state with a label for its branch" do
+      [flow] =
+        compile!("""
+        subflow :f, subject: :t do
+          run_as "system:x"
+          start :create
+          initial :a
+          state :a do
+            pass :writer, on: [delivered: :b, failed: {:b, "It failed; someone looks"}]
+          end
+          final :b
+        end
+        """).__flows__()
+
+      assert [
+               %{branches: [%{to: :b, label: nil}, %{to: :b, label: "It failed; someone looks"}]}
+               | _
+             ] =
+               flow.states
+    end
+
+    test "people working with a pass keep the state working; reset: false sets nothing" do
+      [flow] =
+        compile!("""
+        subflow :f, subject: :t do
+          start :create
+          initial :a
+          state :a do
+            pass :signer, with_person: true, writes: :none
+            wait_for [:signer], on: :signed, reset: false, yes: :b
+            timer :late, "1d", to: :c
+          end
+          state :c do
+            wait_for [:boss, :signer], on: :signed, reset: false, yes: :b
+          end
+          final :b
+        end
+        """).__flows__()
+
+      [a, c, _] = flow.states
+      assert %{status: nil, waiting_for: ["signer"], set: []} = a
+      assert %{status: :input_required, waiting_for: ["boss", "signer"], set: []} = c
+      assert Enum.map(c.branches, & &1.roles) == [["boss", "signer"]]
+    end
+
     test "a pass a person answers (writes: :none) adds no reset or writer branch" do
       [flow] =
         compile!("""

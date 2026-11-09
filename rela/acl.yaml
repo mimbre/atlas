@@ -1,0 +1,42 @@
+# The roles the flows (flows.yaml, generated from flow/contract) name, so rela can check
+# them: `rela --project rela validate` checks every role a flow names and the grants of
+# its run_as. Rela defines and checks the flows; Atlas Flow runs them (D-0068).
+#
+# This file is not part of the selected closure that startup and packaging copy into a
+# running rela (scripts/config.py): rela-server keeps running without access control on
+# its loopback or private bind, and with no flows.yaml (start-test.sh). Who holds a role
+# is not decided here: the people come with the owner role work (Flow DSL design, 8).
+roles:
+  # Atlas Flow (system:atlas-flow) writes each mechanism's result and moves the runs.
+  atlas-flow:
+    read: ["*"]
+    update: [issue, pull_request, pr_review, pr_test, use_case, scene, decision]
+  # The principal flows run their outputs as: resets, created reviews and tests.
+  sf-flow:
+    read: ["*"]
+    create: [pr_review, pr_test]
+    update: [issue, pull_request, pr_review, pr_test, use_case, scene, decision]
+  maintainer:
+    read: ["*"]
+    update: [issue, pull_request, pr_review, pr_test, use_case]
+  reviewer:
+    read: ["*"]
+    update: [pr_review]
+  tester:
+    read: ["*"]
+    update: [pr_test]
+  acceptor:
+    read: ["*"]
+    update: [use_case, scene]
+  decider:
+    read: ["*"]
+    update: [decision]
+  principle_authority:
+    read: ["*"]
+    update: [decision]
+  delegate:
+    read: ["*"]
+    update: [decision]
+assignments:
+  system:atlas-flow: atlas-flow
+  system:sf-flow: sf-flow

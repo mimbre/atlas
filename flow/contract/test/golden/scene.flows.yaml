@@ -1,0 +1,45 @@
+# Software: Scene. Replaces today's test_and_accept for scenes.
+# children and open_children are kept by the Atlas link on the use case flow.
+flows:
+  test_and_accept_scene:
+    label: Build, test and accept
+    subject: scene
+    run_as: system:sf-flow
+    per_subject: one
+    start:
+      - on: create
+    initial: break_down
+    states:
+      break_down:
+        label: Break it down into use cases
+        on:
+          change:
+            - { to: building, roles: [atlas-flow], when: "entity.children > 0" }
+      building:
+        label: Build it
+        on:
+          change:
+            - { to: break_down, roles: [atlas-flow], when: "entity.children == 0" }
+            - { to: to_test, roles: [atlas-flow], when: "entity.open_children == 0" }
+      to_test:
+        label: Test it
+        status: input_required
+        waiting_for: [acceptor]
+        outputs:
+          - set: { properties: { verdict: none } }
+        on:
+          change:
+            - { to: accepted, roles: [acceptor], when: "entity.verdict == 'accept'" }
+            - { to: rework, roles: [acceptor], when: "entity.verdict == 'reject'" }
+      rework:
+        label: Rework it
+        outputs:
+          - set: { properties: { pass_result: none } }
+        on:
+          change:
+            - { to: building, roles: [atlas-flow], when: "entity.open_children > 0" }
+            - { to: to_test, roles: [atlas-flow], when: "entity.pass_result == 'delivered'" }
+            - { to: to_test, roles: [atlas-flow], label: Rework failed; the acceptor decides, when: "entity.pass_result == 'failed'" }
+      accepted:
+        label: Accepted
+        final: true
