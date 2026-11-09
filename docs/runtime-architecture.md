@@ -18,6 +18,21 @@ Not every domain concept needs a separate layer, application, process or service
 
 **Console and other clients present state and request permitted operations.** The temporary external coordinator uses the same Runtime interface that Atlas Server should consume. Neither Markdown instructions nor model output authorize workflow transitions.
 
+### Target rule: interactions are channel messages
+
+**Interactions are channel messages.** Everything a person or agent says to another (guidance, questions and answers, questions between workers, handoffs, review findings, rework input, PR comments) is stored as a message in a Rela Channel on the work item it is about, never in a custom entity or record. Conversations run over the protocol: which execution and attempt may receive a message, fencing, and the receipts that prove arrival are Atlas protocol records, never channel messages. They carry the message's id and digest, do not hold its text, and never interpret it. Message text never decides anything: Flow and Runtime act only on typed operations.
+
+**Rela is about the data, never about the delivery.** Delivery to an exact execution, exact-attempt fencing and receipts are Atlas's protocol. Receipts are protocol knowledge: Atlas stores them, for history and learning, and never in a channel, not even as quiet messages.
+
+Conversations run over the protocol:
+- **Conversation:** messages in a Rela Channel on the work item. This is data.
+- **Protocol:** delivery to an exact execution, fencing and receipts. This is Atlas knowledge, stored by Atlas.
+- **Participants:** workers on a Runtime, people in Console.
+
+The protocol carries a message reference (the message's id and its digest) and never interprets the content. The conversation does not know how it was delivered.
+
+Status: this is the target rule, not today's behaviour. Today guidance is stored in the Rela entity `interaction`, with `worker_execution` and `interaction_receipt` beside it (see [contracts/guidance.md](contracts/guidance.md)), and Runtime keeps worker questions and answers, questions between workers and handoffs in Runtime-local records. These stores predate the rule and migrate as the channels migration design specifies. Until each migration step lands, the contracts in this repository describe the current stores.
+
 ## Planned local isolation and centralized GitHub access
 
 Decision: GitHub access should be centralized, not independently available to every agent. This is a planned architecture direction, not an expansion of the current workspace-to-Go migration.
