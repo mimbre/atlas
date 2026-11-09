@@ -8,8 +8,15 @@
 # wait; any other open one starts its checks); the run, not the legacy flow, owns every
 # pull request; restart while waiting moves nothing; a failed test sends it back; a new
 # revision starts the checks again and the replaced revision's late verdict counts for
-# nothing; review and test on the current revision together lead to the merge, once,
-# across a Facts restart between the verdict and its reconcile; the merge by hand ends it.
+# nothing; review and test on the current revision together lead to integrating, once,
+# across a Facts restart between the verdict and its reconcile.
+# The integrate effect, through Code's receiver (AtlasCode.Effects.Endpoint on this Bus,
+# with a fake GitHub): the receiver passes Flow's effect contract; an approved, tested
+# revision that is pushed over on GitHub is refused (blocked) and nothing is merged; new
+# evidence for the new head checks and integrates it again; behind its base, it is
+# updated, CI is waited for on the update, not on the revision alone; a failure between
+# GitHub's merge and its outcome, with Flow and Facts restarted, gives
+# one merge and one outcome; an import that is approved and passed waits blocked.
 # Slice 9: issues are imported as the table says (one whose pull request reported its merge
 # completes as it was; every other, in Specification as on test and prod, starts building,
 # with nothing written on it); the run owns every issue; an issue whose pull request is in
@@ -17,7 +24,10 @@
 # link; changes requested on its pull request are written to it once and it builds on; the
 # merge of its pull request ends it, once, in the reconcile that ends the pull request.
 import ExUnit.Assertions
-alias AtlasFlow.{ManualClock, Talk}
+alias AtlasBus.Digest
+alias AtlasCode.{Effects, FakeGitHub}
+alias AtlasFlow.{EffectReceiverContract, ManualClock, Talk}
+alias AtlasFlow.Activities.Effect
 alias AtlasFlow.Runs.Store
 [dir, bin] = System.argv()
 root = Path.expand("../..", __DIR__)
@@ -87,6 +97,32 @@ try do
 
   assert Enum.sort(Map.keys(config["selection"])) ==
            ~w(decide design_and_accept issue pr_review pr_test pull_request test_and_accept_scene test_and_accept_use_case)
+
+  # GitHub, faked: the base branch and the commits the pull request will have.
+  {:ok, gh} = FakeGitHub.start_link()
+  FakeGitHub.commit(gh, "base")
+  FakeGitHub.branch(gh, "main", "base")
+  r1 = FakeGitHub.commit(gh, "r1", ["base"])
+  r2 = FakeGitHub.commit(gh, "r2", ["r1"])
+
+  # Code's receiver of the integrate effect, on this Bus, as the core starts it
+  # (AtlasCode.Application).
+  code = %{
+    "dir" => Path.join(dir, "code"),
+    "github" => {FakeGitHub, FakeGitHub.config(gh)},
+    "repositories" => ["eyra/atlas"]
+  }
+
+  {:ok, _code} =
+    Supervisor.start_link([{AtlasCode.Effects.Endpoint, code}], strategy: :one_for_one)
+
+  # Acknowledgement barrier, no timer wait: every request and answer sent was handled.
+  drain = fn ->
+    _ = :sys.get_state(AtlasCode.Effects.Endpoint)
+    _ = :sys.get_state(AtlasFlow.Activities.Effect.Inbox)
+  end
+
+  merges = fn -> for {:merge, _, _} = w <- FakeGitHub.writes(gh), do: w end
 
   # Each reconcile runs in a fresh Flow process: Flow keeps nothing, only Facts does.
   reconcile = fn ->
@@ -196,14 +232,15 @@ try do
   ready =
     pull_request.(9103, %{
       "state" => "open",
-      "revision" => "r1",
+      "revision" => r1,
       "review_outcome" => "approved",
       "test_outcome" => "passed"
     })
 
-  open = pull_request.(9104, %{"state" => "open", "revision" => "r1"})
-  review_r1 = review.(open, %{"revision" => "r1"})
-  test_r1 = test.(open, %{"revision" => "r1"})
+  open = pull_request.(9104, %{"state" => "open", "revision" => r1})
+  FakeGitHub.put_pull(gh, 9104, %{"head" => r1})
+  review_r1 = review.(open, %{"revision" => r1})
+  test_r1 = test.(open, %{"revision" => r1})
   history = [merged, closed, ready]
 
   # Slice 9. The issues as on test and prod today: in Specification, with nothing a flow
@@ -243,7 +280,8 @@ try do
   assert {:ok, runs} = reconcile.()
   assert summary.(pr_run.(runs, merged)) == {"integrated", "completed", 1}
   assert summary.(pr_run.(runs, closed)) == {"closed", "completed", 1}
-  assert summary.(pr_run.(runs, ready)) == {"integrating", "active", 1}
+  # Approved and passed, imported: it waits blocked; an import never integrates.
+  assert summary.(pr_run.(runs, ready)) == {"blocked", "active", 1}
   for key <- history, do: assert(pr_run.(runs, key)["last_input"]["import"] == true)
   # Imports wrote nothing on the pull requests they imported.
   for {key, fact} <- before, do: assert(read.("pull_request", key)["version"] == fact["version"])
@@ -323,8 +361,10 @@ try do
   put.("pull_request", %{
     "op" => "change",
     "key" => open,
-    "values" => %{"revision" => "r2", "update" => "updated"}
+    "values" => %{"revision" => r2, "update" => "updated"}
   })
+
+  FakeGitHub.set_pull(gh, 9104, %{"head" => r2})
 
   for {kind, key} <- [{"pr_review", review_r1}, {"pr_test", test_r1}],
       do: put.(kind, %{"op" => "change", "key" => key, "values" => %{"superseded" => true}})
@@ -347,8 +387,8 @@ try do
   assert outcomes.(open)["review_outcome"] == "none"
 
   # The review and test of r2: the review alone is not enough.
-  review_r2 = review.(open, %{"revision" => "r2"})
-  test_r2 = test.(open, %{"revision" => "r2"})
+  review_r2 = review.(open, %{"revision" => r2})
+  test_r2 = test.(open, %{"revision" => r2})
   assert {:ok, _} = reconcile.()
   verdict.("pr_review", review_r2, "reviewer-1", "approved")
   assert {:ok, runs} = reconcile.()
@@ -366,23 +406,259 @@ try do
   assert Enum.map(merge["pending"]["composition"]["links"], fn {field, s} ->
            {field, s["current"]}
          end)
-         |> Enum.sort() == [{"review_outcome", "r2"}, {"test_outcome", "r2"}]
+         |> Enum.sort() == [{"review_outcome", r2}, {"test_outcome", r2}]
+
+  # Code's receiver passes Flow's effect contract, on a request frozen from this very
+  # definition for a pull request whose CI is green (its own journal and GitHub).
+  {:ok, probe_gh} = FakeGitHub.start_link()
+  FakeGitHub.commit(probe_gh, "r2", [])
+  FakeGitHub.branch(probe_gh, "main", "r2")
+  FakeGitHub.put_pull(probe_gh, 9104, %{"head" => r2})
+  FakeGitHub.ci(probe_gh, r2, :success)
+
+  probe =
+    Effects.new(
+      dir: Path.join(dir, "code-probe"),
+      github: {FakeGitHub, FakeGitHub.config(probe_gh)},
+      repositories: ["eyra/atlas"]
+    )
+
+  {:effect, spec} = flows["pull_request"].mechanism("integrating")
+
+  {:ok, %{"request" => probe_request}} =
+    Effect.freeze(
+      %{"key" => "probe", "entry" => 1, "pending" => merge["pending"]},
+      spec,
+      read.("pull_request", open),
+      Effect.receivers(),
+      for(l <- config["composition"]["links"], l["parent_subject"] == "pull_request", do: l)
+    )
+
+  assert :ok = EffectReceiverContract.check!(&Effects.handle(probe, &1), [probe_request])
+  assert length(FakeGitHub.writes(probe_gh)) == 1
+
+  # A genuinely delayed merge completes only after a refused retry. Recover from the
+  # real journal in a fresh receiver, and replay its eventual success exactly once.
+  delayed = Map.put(probe_request, "id", Digest.of_term("delayed-native") |> String.slice(7, 64))
+
+  probe_call = fn receiver, operation ->
+    Effects.handle(receiver, %{
+      "operation" => operation,
+      "request" => delayed,
+      "digest" => Digest.of_term(delayed)
+    })
+  end
+
+  FakeGitHub.set_pull(probe_gh, 9104, %{
+    "state" => "open",
+    "merged" => false,
+    "merge_commit" => nil
+  })
+
+  FakeGitHub.fail(probe_gh, :merge, :delayed)
+  assert %{"status" => "working"} = probe_call.(probe, "submit")
+  FakeGitHub.fail(probe_gh, :merge, {:refused, "no_token"})
+  recovered = Effects.new(dir: probe.dir, github: probe.github, repositories: probe.repositories)
+  assert %{"status" => "working"} = probe_call.(recovered, "lookup")
+  assert [{:ok, delayed_sha}] = FakeGitHub.complete_merges(probe_gh)
+
+  assert %{"status" => "done", "reference" => ^delayed_sha} =
+           delayed_done = probe_call.(recovered, "lookup")
+
+  assert probe_call.(probe, "submit") == delayed_done
+  assert length(FakeGitHub.writes(probe_gh)) == 2
+
+  # Its run approved r2 (its review and test were of r2): Code is asked to integrate r2,
+  # the request stored in the run before it is sent. CI on r2 is still running: Code says
+  # so, which is no answer, and Flow waits.
+  {:ok, _} = reconcile.()
+  drain.()
+  assert {:ok, runs} = reconcile.()
+  asked = pr_run.(runs, open)
+  assert summary.(asked) == {"integrating", "active", 4}
+  requested = asked["pending"]["effect"]["request"]
+
+  assert {requested["payload"], requested["target"]} ==
+           {%{"revision" => r2}, read.("pull_request", open)["values"]["url"]}
+
+  assert read.("pull_request", open)["values"]["integration"] == "none"
+  assert FakeGitHub.writes(gh) == []
 
   # Once: a restart and another reconcile neither move nor write it again.
   facts = restart.(facts)
   version = read.("pull_request", open)["version"]
   assert {:ok, runs} = reconcile.()
-  assert pr_run.(runs, open) == merge
+  assert summary.(pr_run.(runs, open)) == summary.(asked)
+  assert pr_run.(runs, open)["pending"]["effect"]["request"] == requested
   assert read.("pull_request", open)["version"] == version
 
-  # Merged by hand: it ends, once; history stays as it was.
-  put.("pull_request", %{"op" => "change", "key" => open, "values" => %{"state" => "merged"}})
+  # Ask again at the manual clock's retry, and take the answer.
+  ask = fn ->
+    ManualClock.advance(clock, 1000)
+    {:ok, _} = reconcile.()
+    drain.()
+    reconcile.()
+  end
+
+  # Someone pushes r3 over it on GitHub; Atlas has no review or test of r3. Code refuses:
+  # the head is not the revision it was asked about. Nothing is merged.
+  r3 = FakeGitHub.commit(gh, "r3", ["r2"])
+  FakeGitHub.set_pull(gh, 9104, %{"head" => r3})
+  FakeGitHub.ci(gh, r3, :success)
+  assert {:ok, runs} = ask.()
+  blocked = pr_run.(runs, open)
+  assert summary.(blocked) == {"blocked", "active", 5}
+
+  assert [
+           %{
+             "request" => ^requested,
+             "result" => %{"status" => "refused", "reason" => "stale_revision"}
+           }
+         ] =
+           blocked["pending"]["effects"]
+
+  assert read.("pull_request", open)["values"]["integration"] == "refused"
+  assert FakeGitHub.writes(gh) == []
+  # Blocked, its issue hears nothing new; a reconcile moves nothing.
+  assert issue_run.(runs, building) == rebuilding
   assert {:ok, runs} = reconcile.()
-  assert summary.(pr_run.(runs, open)) == {"integrated", "completed", 5}
+  assert pr_run.(runs, open) == blocked
+
+  # New evidence: r3 is reported, its review and test start again and both hold for r3.
+  put.("pull_request", %{
+    "op" => "change",
+    "key" => open,
+    "values" => %{"revision" => r3, "update" => "updated"}
+  })
+
+  for {kind, key} <- [{"pr_review", review_r2}, {"pr_test", test_r2}],
+      do: put.(kind, %{"op" => "change", "key" => key, "values" => %{"superseded" => true}})
+
+  assert {:ok, runs} = reconcile.()
+  assert summary.(pr_run.(runs, open)) == {"checking", "active", 6}
+  review_r3 = review.(open, %{"revision" => r3})
+  test_r3 = test.(open, %{"revision" => r3})
+  assert {:ok, _} = reconcile.()
+  verdict.("pr_review", review_r3, "reviewer-1", "approved")
+  verdict.("pr_test", test_r3, "tester-1", "passed")
+
+  # Meanwhile its base moved on: r3 is behind it.
+  base2 = FakeGitHub.commit(gh, "base 2", ["base"])
+  FakeGitHub.branch(gh, "main", "base 2")
+  assert {:ok, runs} = reconcile.()
+  assert summary.(pr_run.(runs, open)) == {"integrating", "active", 7}
+  {:ok, _} = reconcile.()
+  drain.()
+  assert {:ok, runs} = reconcile.()
+  second = pr_run.(runs, open)["pending"]["effect"]["request"]
+  assert second["payload"] == %{"revision" => r3} and second["id"] != requested["id"]
+
+  # Code asks GitHub to update it from its base, fenced by r3; GitHub does so later.
+  assert [{:update_branch, 9104, ^r3}] = FakeGitHub.writes(gh)
+  FakeGitHub.apply_updates(gh)
+  update = FakeGitHub.get_pull(gh, 9104)["head"]
+  assert {:ok, [^r3, ^base2]} = FakeGitHub.parents(FakeGitHub.config(gh), "eyra/atlas", update)
+  # CI on r3 alone (green above) is not CI on the update: still integrating.
+  assert {:ok, runs} = ask.()
+  assert summary.(pr_run.(runs, open)) == {"integrating", "active", 7}
+  assert merges.() == []
+
+  # A timed-out attempt remains uncertain through a later refusal and a Facts/Flow
+  # restart. Flow keeps the same request, without recording a refused integration.
+  FakeGitHub.ci(gh, update, :success)
+  FakeGitHub.fail(gh, :merge, :unavailable)
+  assert {:ok, _} = ask.()
+  assert merges.() == []
+  FakeGitHub.fail(gh, :merge, {:refused, "no_token"})
+  assert {:ok, runs} = ask.()
+  assert summary.(pr_run.(runs, open)) == {"integrating", "active", 7}
+  assert pr_run.(runs, open)["pending"]["effect"]["request"] == second
+  assert read.("pull_request", open)["values"]["integration"] == "none"
+  assert length(FakeGitHub.merge_attempts(gh)) == 2
+  :ok = Application.stop(:atlas_flow)
+  {:ok, _} = Application.ensure_all_started(:atlas_flow)
+  facts = restart.(facts)
+
+  # A later page contains failed/pending statuses; no new merge may be attempted.
+  visible = for i <- 1..30, do: %{"context" => "green-#{i}", "state" => "success"}
+
+  for state <- ["failure", "pending", "success"] do
+    FakeGitHub.ci(
+      gh,
+      update,
+      {:evidence, %{"check_runs" => [], "total_count" => 0},
+       %{"state" => state, "total_count" => 31, "statuses" => visible}}
+    )
+
+    assert {:ok, runs} = ask.()
+    assert summary.(pr_run.(runs, open)) == {"integrating", "active", 7}
+    assert pr_run.(runs, open)["pending"]["effect"]["request"] == second
+    assert length(FakeGitHub.merge_attempts(gh)) == 2
+    assert read.("pull_request", open)["values"]["integration"] == "none"
+  end
+
+  # Green CI alone is insufficient if the base advanced meanwhile. No branch update
+  # is safe while an earlier merge might still complete.
+  FakeGitHub.ci(gh, update, :success)
+  FakeGitHub.commit(gh, "base 3", ["base 2"])
+  FakeGitHub.branch(gh, "main", "base 3")
+  assert {:ok, _} = ask.()
+  assert length(FakeGitHub.merge_attempts(gh)) == 2
+  assert [{:update_branch, 9104, ^r3}] = FakeGitHub.writes(gh)
+  FakeGitHub.branch(gh, "main", "base 2")
+
+  # With fresh green CI and a current base, handling fails after the retried merge,
+  # before its outcome write. The existing exception/recovery proof still applies.
+  FakeGitHub.fail(gh, :merge, :crash)
+  receiver = Process.whereis(AtlasCode.Effects.Endpoint)
+  ManualClock.advance(clock, 1000)
+  {:ok, _} = reconcile.()
+  drain.()
+  # The endpoint contains the failure and answers working; the core stays up.
+  assert Process.whereis(AtlasCode.Effects.Endpoint) == receiver
+  assert Process.alive?(receiver)
+  assert [{:merge, 9104, ^update}] = merges.()
+  assert read.("pull_request", open)["values"]["integration"] == "none"
+
+  # Flow got no terminal answer. Flow and Facts restart; Code keeps its uncertain journal.
+  :ok = Application.stop(:atlas_flow)
+  {:ok, _} = Application.ensure_all_started(:atlas_flow)
+  facts = restart.(facts)
+  assert {:ok, runs} = reconcile.()
+  assert summary.(pr_run.(runs, open)) == {"integrating", "active", 7}
+  assert pr_run.(runs, open)["pending"]["effect"]["request"] == second
+
+  # Asked again by lookup: merged, at the update, once.
+  assert {:ok, runs} = ask.()
+  integrated = pr_run.(runs, open)
+  assert summary.(integrated) == {"integrated", "completed", 8}
+  merged_at = FakeGitHub.get_pull(gh, 9104)["merge_commit"]
+
+  assert [
+           _,
+           %{
+             "request" => ^second,
+             "result" => %{"status" => "done", "reference" => ^merged_at} = result
+           }
+         ] =
+           integrated["pending"]["effects"]
+
+  assert result["outputs"] == %{"sha" => merged_at, "head" => update}
+  assert result["digest"] == Digest.of_term(second)
+  assert read.("pull_request", open)["values"]["integration"] == "done"
+  assert length(merges.()) == 1
+
   # Its issue is done in the same reconcile, through the link, once.
   assert summary.(issue_run.(runs, building)) == {"done", "completed", 3}
   assert read.("issue", building)["values"]["pr_outcome"] == "integrated"
+
+  # Settled: another restart, retry deadline and reconcile change nothing and ask nothing.
+  :ok = Application.stop(:atlas_flow)
+  {:ok, _} = Application.ensure_all_started(:atlas_flow)
+  ManualClock.advance(clock, 60_000)
   assert {:ok, settled} = reconcile.()
+  drain.()
+  assert length(FakeGitHub.writes(gh)) == 2
 
   for key <- [open | history],
       do: assert(pr_run.(settled, key) == pr_run.(runs, key))
@@ -398,8 +674,13 @@ try do
 
   IO.puts(
     "flow-delivery native proof: imports, one writer, restart while waiting, changes " <>
-      "requested, new revision with the replaced verdict ignored, merge once, merged; issues " <>
-      "imported, building, done through the link once ok"
+      "requested, new revision with the replaced verdict ignored; Code's receiver passes the " <>
+      "effect contract, a pushed-over head is refused with nothing merged, new evidence " <>
+      "integrates the new head after updating it from its base and CI on the update; " <>
+      "delayed completion survives a refused retry; uncertain retries survive refusal/restart " <>
+      "and wait for complete CI and a current base; a crash " <>
+      "between GitHub's merge and the outcome gives one merge (#{merged_at}); issues imported, " <>
+      "building, done through the link once ok"
   )
 after
   System.cmd("/bin/kill", ["-TERM", to_string(os_pid)], stderr_to_stdout: true)

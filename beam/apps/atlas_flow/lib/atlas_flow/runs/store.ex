@@ -843,7 +843,7 @@ defmodule AtlasFlow.Runs.Store do
         pass_next(run, flow, subject, now, elem(mechanism, 1))
 
       match?({:effect, _}, mechanism) ->
-        effect_next(run, flow, subject, now, elem(mechanism, 1))
+        effect_next(config, run, flow, subject, now, elem(mechanism, 1))
 
       match?({:gate, _}, mechanism) ->
         gate_next(run, flow, subject, now, elem(mechanism, 1))
@@ -958,8 +958,11 @@ defmodule AtlasFlow.Runs.Store do
 
   defp pass_assignment(_, subject, _), do: {:ok, subject}
 
-  defp effect_next(run, flow, subject, now, spec) do
+  defp effect_next(config, run, flow, subject, now, spec) do
     intent = run["pending"]["effect"]
+
+    links =
+      for l <- config["composition"]["links"], l["parent_subject"] == run["subject_kind"], do: l
 
     due =
       Enum.find(
@@ -969,10 +972,14 @@ defmodule AtlasFlow.Runs.Store do
 
     cond do
       intent == nil ->
-        # The request is stored before the first attempt; a missing target or approval waits.
-        case Effect.freeze(run, spec, subject) do
-          {:ok, frozen} -> {:ok, put_in(run, ["pending", "effect"], frozen)}
-          {:error, _} -> {:ok, run}
+        # Nothing asked yet: a plain branch that holds moves it as in a state without a
+        # mechanism. Otherwise the request is stored before the first attempt; a missing
+        # target or approval waits, on those branches.
+        with :stay <- Run.unfrozen(run, flow, subject, now) do
+          case Effect.freeze(run, spec, subject, Effect.receivers(), links) do
+            {:ok, frozen} -> {:ok, put_in(run, ["pending", "effect"], frozen)}
+            {:error, _} -> {:ok, run}
+          end
         end
 
       not Effect.current?(intent, subject) ->

@@ -8,6 +8,9 @@ defmodule AtlasCode do
   runtime token or the orchestrator token. Only the orchestrator token may review, update a
   review or integrate.
 
+  The core runs something else from this app: `AtlasCode.Effects`, Code's receiver of
+  Flow's integrate effect, on the Bus. This service never starts it.
+
   Clients see repository names, reference names, `sha256:` snapshot IDs, opaque
   `rev_<64 hex>` revision handles and their own UUIDs. Commits, branches, refs, remote URLs and
   Git output stay inside Code; Git is its only backend.

@@ -3,3 +3,8 @@ ExUnit.start(exclude: if(System.get_env("ATLAS_RELA_BIN") in [nil, ""], do: [:re
 
 # Gates and Flow run the model they are wired to: here, the one under test.
 Application.put_env(:atlas, :model, Model.AtlasEyra)
+
+# Flow told of Code's receiver of integrate effects, as the core's runtime.exs tells it.
+Application.put_env(:atlas_flow, :effect_receivers, %{
+  "code" => %{"contract" => 1, "address" => "code/effects", "operations" => ["integrate"]}
+})

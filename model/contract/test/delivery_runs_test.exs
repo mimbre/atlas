@@ -3,8 +3,9 @@ defmodule Model.DeliveryRunsTest do
   Slice 8: the pull request runs on Flow's durable runs, in place of the legacy flow
   `review_and_merge`. Its selection and takeover of the presentation, the import table
   from the pull request as it was, the review and test it waits for through the
-  composition's links (only those of its current revision), the merge by hand that ends
-  it, and the migration from the base's digest, on the compiled subflow of both
+  composition's links (only those of its current revision), its integration by Code's
+  receiver (approved by its own run's links, of its current revision only), `blocked` and
+  its exits, and the migrations from the base's digests, on the compiled subflow of both
   environments.
 
   Slice 9: the issue too, in place of the legacy flow `build_and_merge`: the same, with
@@ -13,6 +14,7 @@ defmodule Model.DeliveryRunsTest do
   """
   use ExUnit.Case, async: true
 
+  alias AtlasFlow.Activities.Effect
   alias AtlasFlow.Composition.Links
   alias AtlasFlow.Runs.{Run, Store}
 
@@ -22,6 +24,10 @@ defmodule Model.DeliveryRunsTest do
 
   # The digest the base recorded before slice 8 (the same in prod and test).
   @base "0d65d9a4aa1cdf916e022547e3f4a1974505cd94c349e9809f1a441f13cd8335"
+  # And the one slice 8 recorded, merged by hand (the same in prod and test).
+  @by_hand "e183d55ea7eb411d29dd812053dff89078b4ef131068a3223d40c22617bffbd0"
+  @url "https://github.com/o/r/pull/1"
+  @r2 "2222222222222222222222222222222222222222"
 
   # The model as composed, with one subflow's selection changed by the function the calling
   # test puts in its process (`{name, fun}`): what Flow's runner would be given.
@@ -63,6 +69,43 @@ defmodule Model.DeliveryRunsTest do
 
   defp at(run), do: {run["state"], run["status"], run["entry"]}
 
+  # The links its run applied, as the run store records them: the review and the test
+  # current for `revision`, each ended in `states` (approved and passed by default).
+  defp approved(run, revision, states \\ %{}) do
+    states = Map.merge(%{"review_outcome" => "approved", "test_outcome" => "passed"}, states)
+
+    links =
+      Map.new(states, fn {field, state} ->
+        {field, %{"child" => "C-" <> field, "state" => state, "current" => revision}}
+      end)
+
+    put_in(run, ["pending", "composition"], %{"version" => 1, "links" => links})
+  end
+
+  # The composition's links of a pull request, as the run store gives them to the effect.
+  defp links,
+    do: for(l <- Model.AtlasEyra.composition()["links"], l["parent_subject"] == @name, do: l)
+
+  defp freeze(run, spec, values),
+    do: Effect.freeze(run, spec, subject(values), Effect.receivers(), links())
+
+  # Code's answer for the run's frozen request.
+  defp answer(intent, status) do
+    r = intent["request"]
+
+    base = %{
+      "version" => 1,
+      "id" => r["id"],
+      "digest" => intent["digest"],
+      "fingerprint" => r["fingerprint"]
+    }
+
+    if status == "done",
+      do:
+        Map.merge(base, %{"status" => "done", "reference" => "m", "outputs" => %{"sha" => "m"}}),
+      else: Map.merge(base, %{"status" => "refused", "reason" => "ci_failed", "details" => %{}})
+  end
+
   test "selected in both environments, runnable, and the one writer of a pull request" do
     for env <- @envs do
       runner = AtlasFlow.Model.load(Model.AtlasEyra, env, %{"decider" => "someone"})
@@ -73,8 +116,23 @@ defmodule Model.DeliveryRunsTest do
 
       f = flow(env)
       assert Run.validate(f) == :ok
-      # No activity and no create: nothing is dispatched or made for it.
-      assert Enum.all?(f.states(), &(f.mechanism(&1) == nil))
+      # One activity, Code's integrate effect; no create: nothing else is dispatched or made.
+      assert {:effect, spec} = f.mechanism("integrating")
+
+      assert {spec["service"], spec["operation"], spec["target"], spec["approved"]} ==
+               {"code", "integrate", "url", "revision"}
+
+      # Approved by its review approving and its test passing, as their links write them.
+      assert spec["approving"] == %{
+               "review_outcome" => ["approved"],
+               "test_outcome" => ["passed"]
+             }
+
+      assert spec["payload"] == ["revision"] and spec["fingerprint"]["fields"] == ["revision"]
+      assert {spec["field"], spec["outputs"], spec["records"]} == {"integration", nil, nil}
+      # Run only through a receiver Flow is told of (the core's `code` settings).
+      assert Effect.valid?(spec) and not Effect.valid?(spec, %{})
+      assert Enum.all?(f.states() -- ["integrating"], &(f.mechanism(&1) == nil))
       assert for(s <- f.states(), {:create, _} <- f.enter(s, %{}), do: s) == []
 
       # Every pull request, whatever it holds, is the run's: the legacy flow presents none.
@@ -109,7 +167,7 @@ defmodule Model.DeliveryRunsTest do
     assert {_config, nil} = Store.activate(Altered, flows(:test))
   end
 
-  test "every import row; any other open pull request starts its checks" do
+  test "every import row, none integrating; any other open pull request starts its checks" do
     assert selection()["imports"] == [
              %{"when" => %{"state" => ["merged"]}, "state" => "integrated"},
              %{"when" => %{"state" => ["closed"]}, "state" => "closed"},
@@ -120,7 +178,7 @@ defmodule Model.DeliveryRunsTest do
              %{"when" => %{"test_outcome" => ["failed"]}, "state" => "changes_requested"},
              %{
                "when" => %{"review_outcome" => ["approved"], "test_outcome" => ["passed"]},
-               "state" => "integrating"
+               "state" => "blocked"
              }
            ]
 
@@ -139,11 +197,12 @@ defmodule Model.DeliveryRunsTest do
         assert {:ok, ^run} = Run.step(run, flow(env), subject(%{"state" => "open"}), @now)
       end
 
-      # An open one whose outcomes say where it is joins that wait, writing nothing.
+      # An open one whose outcomes say where it is joins that wait, writing nothing; one
+      # approved and passed waits blocked: an import never integrates.
       for {values, state} <- [
             {%{"state" => "open", "review_outcome" => "changes_requested"}, "changes_requested"},
             {%{"state" => "open", "test_outcome" => "failed"}, "changes_requested"},
-            {%{"review_outcome" => "approved", "test_outcome" => "passed"}, "integrating"}
+            {%{"review_outcome" => "approved", "test_outcome" => "passed"}, "blocked"}
           ] do
         run = new(env, values)
         assert at(run) == {state, "active", 1}
@@ -208,8 +267,9 @@ defmodule Model.DeliveryRunsTest do
 
       assert at(merge) == {"integrating", "active", 2}
       assert merge["last_input"]["synthetic"] == "S-1-passed"
-      assert merge["pending"]["writes"] == []
-      assert f.present("integrating", both)["expected"] == "Merge it"
+      # Entering the effect resets its result, as every mechanism's.
+      assert [%{"content" => %{"values" => %{"integration" => "none"}}}] =
+               merge["pending"]["writes"]
 
       for {field, value} <- [{"review_outcome", "changes_requested"}, {"test_outcome", "failed"}] do
         values = Map.put(none, field, value)
@@ -226,10 +286,10 @@ defmodule Model.DeliveryRunsTest do
   end
 
   test "a late result moves nothing once the pull request moved on" do
-    for env <- @envs, state <- ["changes_requested", "integrating"] do
+    for env <- @envs, state <- ["changes_requested", "blocked"] do
       f = flow(env)
       run = new(env, %{"review_outcome" => "approved", "test_outcome" => "passed"})
-      run = if state == "integrating", do: run, else: new(env, %{"test_outcome" => "failed"})
+      run = if state == "blocked", do: run, else: new(env, %{"test_outcome" => "failed"})
       assert run["state"] == state
 
       for late <- [%{"review_outcome" => "approved"}, %{"test_outcome" => "failed"}] do
@@ -237,6 +297,96 @@ defmodule Model.DeliveryRunsTest do
         assert {:ok, same} = Run.synthetic(offered(run, late), f, subject(values), @now)
         assert same == run
       end
+    end
+  end
+
+  test "Code integrates the revision its own run approved, and only that one" do
+    for env <- @envs do
+      f = flow(env)
+      {:effect, spec} = f.mechanism("integrating")
+      both = %{"url" => @url, "review_outcome" => "approved", "test_outcome" => "passed"}
+      at_r2 = Map.put(both, "revision", @r2)
+
+      run =
+        new(env, Map.put(at_r2, "state", "open"))
+        |> sent()
+        |> Map.merge(%{"state" => "integrating", "entry" => 2})
+
+      # Outcomes alone, a review and test of another revision, a revision that moved
+      # after them, or a review or test of r2 that rejected it: nothing is asked of Code.
+      assert {:error, :not_ready} = freeze(run, spec, at_r2)
+      assert {:error, :not_ready} = freeze(approved(run, "r1"), spec, at_r2)
+
+      assert {:error, :not_ready} =
+               freeze(approved(run, @r2), spec, Map.put(both, "revision", "r3"))
+
+      for rejected <- [%{"review_outcome" => "changes_requested"}, %{"test_outcome" => "failed"}],
+          do: assert({:error, :not_ready} = freeze(approved(run, @r2, rejected), spec, at_r2))
+
+      # Its review and test were of r2, and it is at r2: Code is asked to integrate r2.
+      assert {:ok, intent} = freeze(approved(run, @r2), spec, at_r2)
+      r = intent["request"]
+      assert {r["service"], r["operation"], r["target"]} == {"code", "integrate", @url}
+      assert r["payload"] == %{"revision" => @r2}
+      assert r["approved"] == r["fingerprint"]
+
+      assert r["fingerprint"] ==
+               AtlasBus.SubjectFingerprint.of(
+                 %{"values" => r["payload"]},
+                 r["fingerprint_definition"]
+               )
+
+      # Once Code is asked, merging or closing it by hand moves nothing: Code's answer does.
+      waiting = put_in(approved(run, @r2), ["pending", "effect"], intent)
+
+      for changes <- [%{"state" => "merged"}, %{"state" => "closed"}, %{"update" => "updated"}] do
+        values = subject(Map.merge(at_r2, changes))
+        assert {:ok, ^waiting} = Run.step(waiting, f, values, @now)
+        assert :stay = Run.unfrozen(waiting, f, values, @now)
+      end
+
+      assert {:ok, done} =
+               Run.effect_result(waiting, f, subject(at_r2), @now, answer(intent, "done"))
+
+      assert at(done) == {"integrated", "completed", 3}
+
+      assert [%{"content" => %{"values" => %{"integration" => "done"}}}] =
+               done["pending"]["writes"]
+
+      assert [%{"result" => %{"reference" => "m"}}] = done["pending"]["effects"]
+
+      assert {:ok, blocked} =
+               Run.effect_result(waiting, f, subject(at_r2), @now, answer(intent, "refused"))
+
+      assert at(blocked) == {"blocked", "active", 3}
+      assert [%{"result" => %{"reason" => "ci_failed"}}] = blocked["pending"]["effects"]
+    end
+  end
+
+  test "blocked: a retry integrates again, a new revision checks again, by hand it ends" do
+    for env <- @envs do
+      f = flow(env)
+      open = %{"state" => "open", "url" => @url, "revision" => @r2, "integration" => "refused"}
+      blocked = sent(new(env, %{"review_outcome" => "approved", "test_outcome" => "passed"}))
+      assert at(blocked) == {"blocked", "active", 1}
+      assert {:ok, ^blocked} = Run.step(blocked, f, subject(open), @now)
+
+      for {changes, state, status} <- [
+            {%{"integration" => "retry"}, "integrating", "active"},
+            {%{"update" => "updated"}, "checking", "active"},
+            {%{"state" => "merged"}, "integrated", "completed"},
+            {%{"state" => "closed"}, "closed", "completed"}
+          ] do
+        assert {:ok, moved} = Run.step(blocked, f, subject(Map.merge(open, changes)), @now)
+        assert at(moved) == {state, status, 2}
+      end
+
+      # A retry is a new entry: a new request, never the refused one again.
+      {:ok, retried} = Run.step(blocked, f, subject(Map.put(open, "integration", "retry")), @now)
+      {:effect, spec} = f.mechanism("integrating")
+      values = Map.merge(open, %{"review_outcome" => "approved", "test_outcome" => "passed"})
+      {:ok, again} = freeze(approved(retried, @r2), spec, values)
+      refute again["request"]["id"] == Effect.id(blocked, spec)
     end
   end
 
@@ -286,15 +436,53 @@ defmodule Model.DeliveryRunsTest do
     end
   end
 
+  test "until Code is asked, integrating ends by hand; a run never approved does not wait for ever" do
+    for env <- @envs do
+      f = flow(env)
+      # Reached through a retry, with no links of its revision (or links of another one).
+      open = %{"state" => "open", "url" => @url, "revision" => @r2}
+
+      for run <- [
+            new(env, open) |> sent() |> Map.merge(%{"state" => "integrating", "entry" => 2}),
+            new(env, open)
+            |> sent()
+            |> Map.merge(%{"state" => "integrating", "entry" => 2})
+            |> approved("r1")
+          ] do
+        {:effect, spec} = f.mechanism("integrating")
+        assert {:error, :not_ready} = freeze(run, spec, open)
+        assert :stay = Run.unfrozen(run, f, subject(open), @now)
+
+        for {changes, state, status} <- [
+              {%{"state" => "merged"}, "integrated", "completed"},
+              {%{"state" => "closed"}, "closed", "completed"},
+              {%{"update" => "updated"}, "checking", "active"}
+            ] do
+          assert {:ok, moved} = Run.unfrozen(run, f, subject(Map.merge(open, changes)), @now)
+          assert at(moved) == {state, status, 3}
+          assert moved["last_input"]["branch"] == state
+          refute Map.has_key?(moved["pending"], "effect")
+        end
+
+        # Its entry writes not acknowledged yet: nothing moves before them.
+        unsent = put_in(run, ["pending", "writes"], [%{"id" => "w"}])
+        assert :stay = Run.unfrozen(unsent, f, subject(Map.put(open, "state", "merged")), @now)
+      end
+    end
+  end
+
   test "merged or closed ends it from every open state; restarted, a waiting run stays" do
     for env <- @envs do
       f = flow(env)
 
+      # Every open state but integrating, whose exits by hand hold until Code is asked (above).
       waiting = [
         sent(new(env, %{"state" => "open"})),
         new(env, %{"test_outcome" => "failed"}),
         new(env, %{"review_outcome" => "approved", "test_outcome" => "passed"})
       ]
+
+      assert Enum.map(waiting, & &1["state"]) == ~w(checking changes_requested blocked)
 
       for run <- waiting do
         # A restart rebuilds nothing but the compiled subflow: the same run is unmoved.
@@ -314,7 +502,7 @@ defmodule Model.DeliveryRunsTest do
     for env <- @envs do
       f = flow(env)
 
-      for state <- ~w(checking changes_requested integrating) do
+      for state <- ~w(checking changes_requested integrating blocked) do
         assert %{"expected" => text, "why" => why} = f.present(state, %{})
         assert text != "" and why != ""
         assert f.owner(state)["default"] == %{"kind" => "agent", "key" => "coordinator"}
@@ -327,25 +515,67 @@ defmodule Model.DeliveryRunsTest do
     end
   end
 
-  test "the change from the base's digest is a declared state migration, never a re-key" do
+  test "the changes from the base's digests are declared state migrations, never a re-key" do
     for env <- @envs do
       f = flow(env)
-      [m] = selection()["migrations"]
-      assert {m["from"], m["to"]} == {@base, f.digest()}
+      [first, m] = selection()["migrations"]
+      # Slice 8's, kept: its `to` is the `from` of the next one.
+      assert {first["from"], first["to"]} == {@base, @by_hand}
+      assert {m["from"], m["to"]} == {@by_hand, f.digest()}
+      kept = ~w(changes_requested checking closed integrated)
+      assert m["states"] == Map.put(Map.new(kept, &{&1, &1}), "integrating", "blocked")
 
-      assert m["states"] ==
-               Map.put(Map.new(f.states(), &{&1, &1}), "blocked", "integrating")
+      for x <- [first, m],
+          do: refute(Map.has_key?(x, "rekey") or Map.has_key?(x, "preserve_entry"))
 
-      refute Map.has_key?(m, "rekey") or Map.has_key?(m, "preserve_entry")
+      migrations = selection()["migrations"]
 
-      # A quiescent run of the old digest waiting in blocked would wait for the merge.
-      old =
-        new(env, %{"test_outcome" => "failed"})
-        |> Map.merge(%{"definition_sha256" => @base, "state" => "blocked"})
+      old = fn values, state ->
+        new(env, values)
+        |> sent()
+        |> Map.merge(%{"definition_sha256" => @by_hand, "state" => state})
+      end
 
-      assert {:ok, moved} = Run.migrate(old, f, [m], @now)
-      assert at(moved) == {"integrating", "active", 2}
-      assert moved["definition_sha256"] == f.digest()
+      # A run waiting for the merge by hand waits blocked, with links approving its revision
+      # or none: nothing is integrated at the deploy, nothing is written, and merged or
+      # closed by hand still ends it (a retry integrates it).
+      open = %{"state" => "open", "url" => @url, "revision" => @r2}
+
+      for waiting <- [
+            old.(open, "integrating"),
+            old.(open, "integrating") |> approved(@r2)
+          ] do
+        assert {:ok, moved} = Run.migrate(waiting, f, migrations, @now)
+        assert at(moved) == {"blocked", "active", 2}
+        assert moved["definition_sha256"] == f.digest()
+        assert moved["pending"]["writes"] == []
+        assert moved["pending"]["composition"] == waiting["pending"]["composition"]
+        assert f.mechanism("blocked") == nil
+        assert {:ok, ^moved} = Run.step(moved, f, subject(open), @now)
+
+        for {state, final} <- [{"merged", "integrated"}, {"closed", "closed"}] do
+          assert {:ok, ended} = Run.step(moved, f, subject(Map.put(open, "state", state)), @now)
+          assert {ended["state"], ended["status"]} == {final, "completed"}
+        end
+
+        assert {:ok, retried} =
+                 Run.step(moved, f, subject(Map.put(open, "integration", "retry")), @now)
+
+        assert at(retried) == {"integrating", "active", 3}
+      end
+
+      # The others re-enter where they were; history stays as it was.
+      for state <- ~w(checking changes_requested) do
+        assert {:ok, again} = Run.migrate(old.(%{"state" => "open"}, state), f, migrations, @now)
+        assert at(again) == {state, "active", 2}
+      end
+
+      done = new(env, %{"state" => "merged"}) |> Map.put("definition_sha256", @by_hand)
+      assert {:ok, ^done} = Run.migrate(done, f, migrations, @now)
+
+      # No run kept the first digest (none had it); one that did would be refused, blocked.
+      older = old.(%{"state" => "open"}, "blocked") |> Map.put("definition_sha256", @base)
+      assert {:error, :definition_changed} = Run.migrate(older, f, migrations, @now)
     end
   end
 

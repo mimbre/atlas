@@ -48,10 +48,23 @@ flows:
             - { to: checking, when: "entity.update == 'updated'" }
       integrating:
         label: Integrate
+        outputs:
+          - set: { properties: { integration: none } }
         on:
           change:
             - { to: integrated, when: "entity.state == 'merged'" }
             - { to: closed, when: "entity.state == 'closed'" }
+            - { to: checking, when: "entity.update == 'updated'" }
+            - { to: integrated, roles: [atlas-flow], when: "entity.integration == 'done'" }
+            - { to: blocked, roles: [atlas-flow], when: "entity.integration == 'refused'" }
+      blocked:
+        label: Integration blocked
+        on:
+          change:
+            - { to: integrated, when: "entity.state == 'merged'" }
+            - { to: closed, when: "entity.state == 'closed'" }
+            - { to: integrating, when: "entity.integration == 'retry'" }
+            - { to: checking, when: "entity.update == 'updated'" }
       integrated:
         label: Integrated
         final: true

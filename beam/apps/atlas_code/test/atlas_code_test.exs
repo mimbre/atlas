@@ -2301,7 +2301,7 @@ defmodule AtlasCodeTest do
       assert %{"revision" => ^first, "change_id" => "00000000-0000-4000-8000-000000000140"} =
                JSON.decode!(File.read!(Path.join([home, "reviews", uuid(141) <> ".json"])))
 
-      # A person pushed on top of our update after its response was lost: it still counts.
+      # Someone pushed on top of our update after its response was lost: it still counts.
       sealed.(uuid(144), "github.com/test/plain", %{"README.md" => "landed\n"})
       {200, _} = orchestrate(port, "/v1/reviews", review(uuid(145), uuid(144)))
       sealed.(uuid(146), "github.com/test/plain", %{"README.md" => "after\n"})

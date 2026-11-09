@@ -1,7 +1,9 @@
 # Software: pull request. Starts when a pull request is recorded. Its review and
 # test subjects are created by whoever asks for them, for its current revision;
 # their outcomes come back as review_outcome and test_outcome (upward link, Atlas
-# layer). Slice 8: no integrate effect and no creates yet; merged or closed ends it.
+# layer). Integrating is Code's integrate effect (integration: done or refused);
+# until Code is asked it ends by hand too (merged, closed, a new revision);
+# blocked waits for a retry, a new revision, or the merge or close by hand.
 flows:
   pull_request:
     label: Pull request
@@ -32,10 +34,23 @@ flows:
             - { to: checking, when: "entity.update == 'updated'" }
       integrating:
         label: Integrate
+        outputs:
+          - set: { properties: { integration: none } }
         on:
           change:
             - { to: integrated, when: "entity.state == 'merged'" }
             - { to: closed, when: "entity.state == 'closed'" }
+            - { to: checking, when: "entity.update == 'updated'" }
+            - { to: integrated, roles: [atlas-flow], when: "entity.integration == 'done'" }
+            - { to: blocked, roles: [atlas-flow], when: "entity.integration == 'refused'" }
+      blocked:
+        label: Integration blocked
+        on:
+          change:
+            - { to: integrated, when: "entity.state == 'merged'" }
+            - { to: closed, when: "entity.state == 'closed'" }
+            - { to: integrating, when: "entity.integration == 'retry'" }
+            - { to: checking, when: "entity.update == 'updated'" }
       integrated:
         label: Integrated
         final: true
