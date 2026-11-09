@@ -460,6 +460,39 @@ defmodule AtlasBFF.Targets.SwiftTest do
     refute fixtures =~ "of_this_contract_version"
   end
 
+  test "the undecodable test never leaves out or breaks a field the selector names" do
+    # drawn is selected by `mark` being present and by a literal `kind`, both also required
+    # fields: left out, the message would match no case, so neither is a candidate.
+    drawn = %{
+      name: :drawn,
+      select: %{"op" => "drawn", "kind" => "line"},
+      present: ["mark"],
+      effect: :progress,
+      required: %{"block" => :map, "kind" => :string, "mark" => :string}
+    }
+
+    with_drawn = fn drawn ->
+      update_in(@schema.protocol, fn wires ->
+        Enum.map(wires, fn
+          %{name: :sketch} = w -> %{w | replies: [drawn]}
+          w -> w
+        end)
+      end)
+    end
+
+    tests = file("Tests/MyKitTests/ContractTests.swift", with_drawn.(drawn))
+    refute tests =~ "test_side_message_drawn_whose_fields_do_not_decode"
+    refute tests =~ ~s|missing(path: ["mark"])|
+    refute tests =~ ~s|missing(path: ["kind"])|
+
+    # With a required field the selector does not name, that field is the one.
+    drawn = %{drawn | required: Map.put(drawn.required, "size", :integer)}
+    tests = file("Tests/MyKitTests/ContractTests.swift", with_drawn.(drawn))
+    assert tests =~ "func test_side_message_drawn_whose_fields_do_not_decode_is_undecodable()"
+    assert tests =~ ~s|Fallback.Reason.missing(path: ["size"])|
+    assert tests =~ ~s|Fallback.Reason.wrongType(path: ["size"])|
+  end
+
   test "with version_field, the fixtures of a channel whose messages carry it must carry this version" do
     fixtures =
       Swift.files(@schema, package: "MyKit", version_field: "name")

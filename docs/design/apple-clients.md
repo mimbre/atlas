@@ -364,7 +364,8 @@ through a fake `LineConnection` and an injected clock, and asserts its state; vi
 tested through their models, not pixels. Recapture fixtures when the contract changes (a
 new version fails the fixture tests until they are), by
 running a session in a Control test (Gateway on port 0, `FakeStore`, the shop model) that
-writes every line it sent and received, then deleting that test.
+writes every line it sent and received, then deleting that test. The steer fixtures are
+recaptured by hand, from a session of the agent's steer test harness.
 
 **Integration against a real Control.** The e2e (`e2e/`, `AtlasE2E.Instance`) starts a
 private test instance (rela, core and Control on free ports, through `atlas-ops` with
