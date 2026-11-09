@@ -7,14 +7,14 @@ defmodule AtlasTui.PageFreshnessTest do
   """
   use ExUnit.Case, async: true
 
-  alias AtlasTui.{ConsoleProjectionFixture, Model, PageCache, View}
+  alias AtlasTui.{ConsoleProjectionFixture, Model, PageCache, Palette, View}
 
   @tabs [
     %{"id" => "assigned", "label" => "Assigned to you", "to" => "/"},
     %{"id" => "open", "label" => "Open work", "to" => "/k/part"}
   ]
 
-  # A list page; a row is `key` or `{key, pending}`.
+  # A list page; a row is `key`, `{key, pending}` or `{key, pending, detail}`.
   defp list(path, rows, opts) do
     %{
       "op" => "page",
@@ -29,9 +29,16 @@ defmodule AtlasTui.PageFreshnessTest do
             "title" => "List #{path}",
             "rows" =>
               for row <- rows do
-                {key, pending} = if is_tuple(row), do: row, else: {row, nil}
+                {key, pending, detail} =
+                  case row do
+                    {key, pending} -> {key, pending, nil}
+                    {_, _, _} -> row
+                    key -> {key, nil, nil}
+                  end
+
                 to = "/k/widget/#{key}"
                 base = %{"label" => "Widget #{key}", "to" => to, "key" => key}
+                base = if detail, do: Map.put(base, "detail", detail), else: base
                 if pending, do: Map.put(base, "pending", true), else: base
               end
           }
@@ -172,6 +179,69 @@ defmodule AtlasTui.PageFreshnessTest do
 
     m = receive!(m, assigned(~w(W-1 W-2), reason: "hint", position: 2))
     refute screen(m) =~ "being processed"
+  end
+
+  # The segments of the row whose label holds `key`.
+  defp row(model, key) do
+    model
+    |> View.render(90, 20, 5)
+    |> Enum.find(fn line -> Enum.any?(line, fn {_, text} -> text =~ "Widget #{key}" end) end)
+  end
+
+  defp styles(line),
+    do: line |> Enum.reject(fn {_, text} -> String.trim(text) == "" end) |> Enum.map(&elem(&1, 0))
+
+  # SGR for `style` in `theme`, as `View.to_ansi/2` writes it.
+  defp sgr(style, theme), do: style |> Palette.ansi(theme) |> IO.iodata_to_binary()
+  defp ansi(line, theme), do: [line] |> View.to_ansi(theme) |> IO.iodata_to_binary()
+
+  test "a row Control marks pending is muted, but for its mark; a normal row is not" do
+    m = start(assigned(["W-1", {"W-2", true, "d"}, {"W-3", nil, "d"}], position: 1))
+    {m, []} = press(m, :down) |> elem(0) |> press(:down)
+
+    # Label, mark, detail: the mark keeps the pending colour; the rest is muted.
+    assert m |> row("W-2") |> styles() == [:muted, :pending, :muted]
+    refute :muted in styles(row(m, "W-1"))
+    refute :pending in styles(row(m, "W-3"))
+    refute :muted in styles(row(m, "W-3"))
+
+    for theme <- [:light, :dark] do
+      pending = ansi(row(m, "W-2"), theme)
+      assert pending =~ sgr(:muted, theme)
+      assert pending =~ sgr(:pending, theme)
+      assert sgr(:muted, theme) =~ ~r/^\e\[0;2;/
+      refute sgr(:pending, theme) =~ ~r/^\e\[0;2;/
+      refute ansi(row(m, "W-1"), theme) =~ ~r/\e\[0;2;/
+      refute ansi(row(m, "W-3"), theme) =~ ~r/\e\[0;2;/
+    end
+  end
+
+  test "a selected pending row keeps the selection, muted inside it, and its mark" do
+    m = start(assigned(["W-1", {"W-2", true, "d"}], position: 1))
+    {m, []} = press(m, :down)
+    assert selected(m) == "W-2"
+
+    assert m |> row("W-2") |> styles() == [{:selected, :muted}, :pending_selected, :muted]
+
+    for theme <- [:light, :dark] do
+      assert Palette.colors({:selected, :muted}, theme) == Palette.colors(:selected, theme)
+
+      # The mark is the pending yellow, as background: yellow text fails 4.5:1 on selection.
+      {yellow, _} = Palette.colors(:pending, :dark)
+      assert {_, ^yellow} = Palette.colors(:pending_selected, theme)
+
+      line = ansi(row(m, "W-2"), theme)
+      assert line =~ sgr({:selected, :muted}, theme)
+      assert sgr({:selected, :muted}, theme) =~ ~r/^\e\[0;2;/
+      refute line =~ sgr(:selected, theme)
+      assert line =~ sgr(:pending_selected, theme)
+      refute sgr(:pending_selected, theme) =~ ~r/^\e\[0;2;/
+    end
+
+    # Moving off it leaves it muted with its mark, and the new row highlighted as usual.
+    {m, []} = press(m, :up)
+    assert m |> row("W-2") |> styles() == [:muted, :pending, :muted]
+    assert :selected in styles(row(m, "W-1"))
   end
 
   test "a submit changes no row before Control sends a page" do
