@@ -230,8 +230,7 @@ defmodule AtlasControl.RuntimeDiscoveryTest do
     variables = %{
       "ATLAS_ROOT" => root,
       "ATLAS_ENV" => "test",
-      "ATLAS_ENV_FILE" => file,
-      "ATLAS_ROLE" => "core"
+      "ATLAS_ENV_FILE" => file
     }
 
     prior = Map.new(variables, fn {key, _} -> {key, System.get_env(key)} end)

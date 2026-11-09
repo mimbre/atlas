@@ -42,7 +42,7 @@ defmodule Mix.Tasks.AtlasLearn.Report do
         text -> AtlasLearn.Window.moment(text) || Mix.raise("--until must be ISO 8601")
       end
 
-    # Not app.start: the umbrella's runtime.exs belongs to the core and Runtime nodes.
+    # Not app.start: the umbrella's runtime.exs belongs to the core.
     Mix.Task.run("compile")
 
     {:ok, path, _patterns} =

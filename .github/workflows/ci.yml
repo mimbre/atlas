@@ -110,12 +110,6 @@ jobs:
       # Fails when a file in platform/atlas_control/bff/targets differs from what the contract generates, or is left over.
       - run: mix atlas.gen --check
       - run: mix test
-      # platform/ops/tests build atlas-runtime from platform/atlas_runtime/host for its node commands.
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.25"
-          cache: false
-      # platform/ops/tests read the contract compiled above (platform/atlas_control/bff/contract/_build).
       - run: python3 -m unittest discover -s platform/ops/tests -v
         working-directory: .
 
@@ -305,11 +299,6 @@ jobs:
         with:
           otp-version: "28"
           elixir-version: "1.18"
-      # integration/worker_control.exs builds the atlas-runtime native host from platform/atlas_runtime/host.
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.25"
-          cache: false
       - run: python3 -m pip install -r platform/atlas_facts/rela/scripts/requirements.txt
       - run: ATLAS_RELA_BIN="$ATLAS_E2E_RELA_BIN" platform/atlas_facts/rela/scripts/start-test.sh install
       - run: python3 -m unittest discover -s platform/atlas_facts/rela/tests -v

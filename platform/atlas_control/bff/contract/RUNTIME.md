@@ -8,7 +8,7 @@ and worker operations live under `AtlasBFFContract.Wire.Control`. The root
 dispatch and literal CLI bindings; `Wire.Runtime.Types` generates shared structs.
 The JSON target exports the same definitions.
 
-The Runtime node and Control use it; production CLI/Console adapters are to
+The Runtime service and Control use it; production CLI/Console adapters are to
 follow. Declaring a command does not expose an endpoint or grant a permission.
 Services still authenticate identities, authorize targets, report proven
 capabilities, bind request IDs and enforce lifecycle policy. This slice does not
@@ -32,19 +32,6 @@ viewer operation; its adapter must not implicitly start or stop the worker.
 Durable conversation remains on its existing guidance/evidence boundary. Ephemeral
 output uses the separate profile below. Run `mix test` here for executable
 compatibility fixtures; CI runs these with the generated-file check.
-
-## Connection-only local Runtime
-
-The managed `atlas-runtime node start --env test --machine <machine>` path accepts an
-explicit `runtime.agents: {}` declaration. Missing or non-map declarations remain
-invalid. An empty map starts Bus and Runtime's read-only output endpoint without
-starting the reconciliation Engine or any worker/model turns. Status advertises
-local start only after the same configuration validation used by startup.
-
-Identity, credentials and process ownership checks are unchanged. An owned PID or
-boot receipt does not prove an authenticated Bus connection; verify remote endpoint
-registration separately. Use the matching managed stop command (`atlas-runtime node stop`) for the owned
-instance, not the standalone `atlas-runtime service`.
 
 ## Bounded ephemeral output
 

@@ -44,7 +44,6 @@ defmodule AtlasE2E.CompositionTest do
     bin = AtlasE2E.Instance.rela_bin!()
 
     github = AtlasE2E.GitHub.start()
-    File.mkdir_p!(Path.join(dir, "stub"))
 
     settings = %{
       "env" => "test",
@@ -66,13 +65,6 @@ defmodule AtlasE2E.CompositionTest do
           "token_command" => ["echo", AtlasE2E.GitHub.token()],
           "every_seconds" => 1
         }
-      },
-      "runtime" => %{
-        "machine" => "fixture",
-        "agents" => %{"runner" => %{"port" => "stub"}},
-        "stub_dir" => Path.join(dir, "stub"),
-        "round_seconds" => 1,
-        "lease_seconds" => 1
       }
     }
 
@@ -235,7 +227,7 @@ defmodule AtlasE2E.CompositionTest do
     assert before == stored_records(ctx)
   end
 
-  test "incident uses stub turns and merged Issues, with independent person resolution", ctx do
+  test "incident uses merged Issues, with independent person resolution", ctx do
     start(ctx, "incident")
     kinds = command(ctx, ["help"]) |> Enum.map(& &1["kind"])
     assert "incident" in kinds
@@ -250,14 +242,6 @@ defmodule AtlasE2E.CompositionTest do
     incident = command(ctx, ["put", "incident", "--title", "Restore exports"])["key"]
     issue = command(ctx, ["put", "issue", "--in", incident, "--title", "Repair timeout"])["key"]
     assert issue == "IS-Maint-01"
-    eventually(fn -> command(ctx, ["list", "turn"]) != [] end)
-    turn = command(ctx, ["list", "turn"]) |> hd() |> Map.fetch!("key")
-    File.write!(Path.join(ctx.dir, "stub/runner"), "end")
-
-    eventually(fn ->
-      command(ctx, ["get", turn])["fields"] |> Enum.member?(["State", "Ended"])
-    end)
-
     url = "https://github.com/example/incident-fixture/pull/1"
 
     AtlasE2E.GitHub.put(url, %{

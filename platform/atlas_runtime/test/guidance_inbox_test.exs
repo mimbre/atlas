@@ -43,15 +43,10 @@ defmodule AtlasRuntime.GuidanceInboxTest do
     result
   end
 
-  test "existing adapters default unsupported without starting any process" do
-    for adapter <- [Harness.Stub, Harness.Claude] do
-      assert Harness.capabilities(adapter, self()) == {:error, :unsupported}
-      assert Harness.accept(adapter, self(), @request) == {:error, :unsupported}
-      assert Harness.query(adapter, self(), @identity) == {:error, :unsupported}
-    end
-
-    assert Harness.port(%{"port" => "private_fake"}) == nil
-    assert Harness.port(%{"port" => "stub"}) == Harness.Stub
+  test "the live adapter defaults unsupported without starting any process" do
+    assert Harness.capabilities(Harness.Native, self()) == {:error, :unsupported}
+    assert Harness.accept(Harness.Native, self(), @request) == {:error, :unsupported}
+    assert Harness.query(Harness.Native, self(), @identity) == {:error, :unsupported}
   end
 
   test "concurrent duplicate admission has one immutable evidence record", %{tmp_dir: dir} do

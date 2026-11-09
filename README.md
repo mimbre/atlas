@@ -34,7 +34,7 @@ The BEAM side runs the system. rela describes it. Entities, schemas, flows and t
 | `platform/atlas_runtime/viewer/` | The Runtime viewer ([its README](platform/atlas_runtime/viewer/README.md)). |
 | `platform/model/dsl/` | The Rela DSL. |
 | `platform/clients/` | The Console (`tui/`), the agents' command line (`agent/`), the Apple clients (`apple/`) and the optional verified TLS socket transport shared only by the Control CLI and TUI clients (`platform/clients/transport/`). |
-| `platform/ops/` | Images and deploy scripts for the hosted environments, and supporting tools (CI's tested-tree record in `ci/`, the local Runtime node helpers, `plan/`, `orchestrator/`, `tests/`). |
+| `platform/ops/` | Images and deploy scripts for the hosted environments, and supporting tools (CI's tested-tree record in `ci/`, `plan/`, `orchestrator/`, `tests/`). |
 | `products/software_factory/` | The software factory: the umbrella that builds the release (`mix.exs`, `config/`, `integration/`), the model (`model/`: Atlas's domain written in the Rela DSL, by module and concept: kinds, relations, subflows and gates), the files generated from it (`targets/rela/`: rela's description of every entity Atlas knows, see `platform/atlas_facts/rela/README.md`; `targets/model/`), the settings per environment (`environments/`) and the end-to-end test (`products/software_factory/e2e/`). |
 | `bin/atlas` | The `atlas` command, Control's client: the Console, the commands on facts during a turn, and provisioning. `atlas help` lists them. |
 | `bin/atlas-ops` | The `atlas-ops` command: operating an environment (status, logs, restart, the tunnel, data moves, install). |
@@ -65,7 +65,7 @@ Four commands, each with its own purpose:
 - `atlas`: Control's client. The Console (`atlas tui`), the agents' commands on facts, and provisioning (`atlas help`).
 - `atlas-ops`: operating an environment: its processes, logs, tunnel and data.
 - `bin/atlas-dev`: development and test tooling, from the checkout.
-- `atlas-runtime`: the Runtime CLI ([platform/atlas_runtime/host/README.md](platform/atlas_runtime/host/README.md)); `atlas-runtime node` runs this machine as a node of an environment.
+- `atlas-runtime`: the Runtime CLI ([platform/atlas_runtime/host/README.md](platform/atlas_runtime/host/README.md)).
 
 They work on prod by default. Pass `--env test` to work on test. Scripts, tests and agents must always pass `--env test` or a private `ATLAS_ENV_FILE`.
 

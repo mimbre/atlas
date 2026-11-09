@@ -36,8 +36,7 @@
 #   atlas-ops          operating an environment: its processes, logs, tunnel, data moves, and
 #                      installing these commands (`atlas-ops --help`)
 #   bin/atlas-dev      development and test tooling, from the checkout (`bin/atlas-dev --help`)
-#   atlas-runtime      the Runtime CLI, and this machine's Runtime node
-#                      (`atlas-runtime node start|stop|status`; platform/atlas_runtime/host/README.md)
+#   atlas-runtime      the Runtime CLI (platform/atlas_runtime/host/README.md)
 #
 # On Fly (IS-Atlas-26, IS-Atlas-79): an environment whose settings have a "fly" section runs
 # its core and rela on Fly, each environment on its own private network; a merge deploys

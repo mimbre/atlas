@@ -38,7 +38,7 @@ defmodule Atlas.MixProject do
         ],
         # Code alone, for a process supervisor: `bin/atlas_code eval "AtlasCode.Server.run()"`
         # starts it like `mix atlas_code.server` without Mix's startup (platform/atlas_runtime/host/README.md).
-        # No runtime.exs: it belongs to the core and Runtime nodes, as for the mix task.
+        # No runtime.exs: it belongs to the core, as for the mix task.
         atlas_code: [
           applications: [atlas_code: :permanent],
           runtime_config_path: false,

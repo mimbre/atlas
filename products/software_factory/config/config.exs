@@ -2,7 +2,7 @@ import Config
 
 # The Bus hands facts and reads to this endpoint (Facts); it never knows what they mean.
 # Kept "state" (a Bus wire name): it crosses the Bus link as the address and sender of
-# facts, reads and answers to Runtime nodes that run their own checkout and config.
+# facts, reads and answers to the Runtime services linked to the core.
 config :atlas_bus, store: "state", environment: "test"
 
 # Gates records every verdict as a fact of this kind (rela's description defines it); its
