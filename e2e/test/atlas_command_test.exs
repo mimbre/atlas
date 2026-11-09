@@ -403,4 +403,91 @@ defmodule AtlasE2E.AtlasCommandTest do
     assert {out, 1} = ops(["fetch-from-fly", "--to", "/tmp/x", "--env", "test"], local)
     assert out =~ "does not run on Fly"
   end
+
+  # Fly's command line, as fetch-from-fly finds it on PATH: here a stand-in that notes each
+  # call and fails it, except the check for a hold or a pending move: for app A it prints the
+  # file A.check of its folder, when the test wrote one.
+  defp fake_fly do
+    dir = Path.join(System.tmp_dir!(), "atlas-fake-fly-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    calls = Path.join(dir, "calls")
+    fly = Path.join(dir, "fly")
+
+    File.write!(fly, """
+    #!/bin/sh
+    echo "$*" >> '#{calls}'
+    app=""; previous=""
+    for arg in "$@"; do [ "$previous" = -a ] && app="$arg"; previous="$arg"; done
+    case "$*" in
+      *"echo checked"*) [ -f "#{dir}/$app.check" ] && exec cat "#{dir}/$app.check" ;;
+    esac
+    exit 1
+    """)
+
+    File.chmod!(fly, 0o755)
+    on_exit(fn -> File.rm_rf!(dir) end)
+    {dir, calls}
+  end
+
+  defp calls(file), do: if(File.exists?(file), do: File.read!(file), else: "")
+
+  test "fetch-from-fly refuses a wrong call before it reaches Fly or makes its folder" do
+    {fly_dir, calls} = fake_fly()
+    env = [{"ATLAS_ENV_FILE", fly_file()}, {"PATH", fly_dir <> ":" <> System.get_env("PATH")}]
+    to = Path.join(fly_dir, "backup")
+
+    for args <- [["--to", to, "--keep"], ["--to"]] do
+      assert {_, 2} = ops(["fetch-from-fly" | args] ++ ["--env", "test"], env),
+             "fetch-from-fly #{Enum.join(args, " ")}"
+    end
+
+    refute File.exists?(calls)
+    refute File.exists?(to)
+  end
+
+  # A restart would end a hold already there (a migration's) or apply a pending move, so
+  # either one on either app stops the backup before it holds anything.
+  test "fetch-from-fly refuses, before any hold, an app already held or with a pending move" do
+    file = fly_file()
+
+    %{"app" => core, "rela_app" => rela} =
+      file |> File.read!() |> JSON.decode!() |> Map.get("fly")
+
+    clean = "checked\n"
+
+    for {core_check, rela_check, refused?} <- [
+          {"/data/hold\nchecked\n", clean, true},
+          {clean, "/data/incoming/rela.tar.gz\nchecked\n", true},
+          {"/data/incoming/beam.tar.gz\n", clean, true},
+          {nil, clean, true},
+          {clean, clean, false}
+        ] do
+      {fly_dir, calls} = fake_fly()
+
+      for {app, check} <- [{core, core_check}, {rela, rela_check}],
+          check,
+          do: File.write!(Path.join(fly_dir, "#{app}.check"), check)
+
+      env = [{"ATLAS_ENV_FILE", file}, {"PATH", fly_dir <> ":" <> System.get_env("PATH")}]
+      to = Path.join(fly_dir, "backup")
+      assert {out, status} = ops(["fetch-from-fly", "--to", to, "--env", "test"], env)
+      assert status != 0, out
+      held? = calls(calls) =~ "touch /data/hold"
+      assert held? == not refused?, "#{inspect({core_check, rela_check})}: #{calls(calls)}"
+      refute calls(calls) =~ "restart"
+      refute File.exists?(to)
+    end
+  end
+
+  test "fetch-from-fly without Fly's command line refuses and makes no folder" do
+    for dir <- ["/usr/bin", "/bin"],
+        name <- ["fly", "flyctl"],
+        do: refute(File.exists?(Path.join(dir, name)), "#{dir}/#{name} would be real Fly")
+
+    {dir, _calls} = fake_fly()
+    to = Path.join(dir, "backup")
+    env = [{"ATLAS_ENV_FILE", fly_file()}, {"PATH", "/usr/bin:/bin"}]
+    assert {_, 1} = ops(["fetch-from-fly", "--to", to, "--env", "test"], env)
+    refute File.exists?(to)
+  end
 end

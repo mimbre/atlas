@@ -92,6 +92,39 @@ On Fly the connector reads its token from that secret (`connectors.github.token_
 
 There is no Flux connector yet: `flux_id` and `flux_ref` are described as set by a connector, but no code reads Flux, so nothing needs a Flux secret. When one is built, its secret goes on `eyra-atlas` the same way.
 
+### Back up prod's data
+
+`atlas-ops fetch-from-fly` is prod's backup route. It reads the app names from
+`env/prod.json`, so it follows every release; it needs flyctl, logged in (`fly auth login`)
+with access to both prod apps.
+
+```sh
+atlas-ops fetch-from-fly --env prod --to ~/.local/share/atlas/prod-backup-$(date -u +%Y%m%dT%H%M%SZ)
+```
+
+1. First it asks both apps whether they already have a hold (`/data/hold`) or a pending
+   move (`/data/incoming/<name>.tar.gz`, left by an unfinished `move-to-fly`). If either one
+   does, or an app does not answer, it refuses and changes nothing. A restart would end that
+   hold, putting prod back in service in the middle of a migration. It would also apply that
+   move at boot, before the hold check, replacing prod's data. Find out whose hold or move
+   it is and finish that first; never remove it just to make a backup.
+2. Then it holds both apps, the core first, then rela (`/data/hold`, then a restart), so
+   nothing writes while it copies. For about a minute prod serves nothing: Control does not
+   answer, and a linked Runtime loses its Bus link and links again after the release. What
+   the Runtime sends in that minute is not answered; it asks again a few times and then
+   gives up, so start the backup when no turn is running.
+3. It copies `/data/rela` (rela's data) and `/data/beam` (Facts' own) into `<folder>/rela`
+   and `<folder>/beam`, the layout `move-to-fly --from` takes back, and counts the items per
+   kind.
+4. It releases rela, then the core, and waits until both pass their health checks.
+
+The folder must be new or empty. A failure can leave prod held: see "Held" in
+`docs/guides/test-on-fly.md` before anything else. With `--hold` both apps stay held after
+the copy, for a migration (below). The copy carries no checksums. To check it, run
+`atlas-ops move-to-fly --env prod --from <folder> --dry-run`, which checks the description
+fits it and counts it without changing Fly, or restore it to a private instance
+(`ATLAS_ENV_FILE`).
+
 ### Move prod's data, and switch (IS-Atlas-90)
 
 **The coordinator authorizes the maintenance window; keep #61 draft until data checks pass.**

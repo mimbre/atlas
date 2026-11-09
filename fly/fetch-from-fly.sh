@@ -5,6 +5,8 @@
 #
 #   atlas-ops fetch-from-fly --env test|prod --to <folder> [--hold]
 #
+#  0. Refuses, changing nothing, when either app already has a hold (/data/hold) or a
+#     pending move (/data/incoming/*.tar.gz): a restart would end that hold or apply that move.
 #  1. Holds both apps (/data/hold, then a restart; the core first, so nothing writes): the
 #     machines stay up but serve nothing, so the copy is whole.
 #  2. Copies /data/rela and /data/beam into <folder>/rela and <folder>/beam, the layout
@@ -43,6 +45,27 @@ restart() { # app, then: started|passing
   for _ in $(seq 1 60); do "$2" "$1" && return 0; sleep 2; done
   fail "$1 did not come back; see: fly logs -a $1"
 }
+
+# 0. Refuse, before any hold or restart, when an app already has a hold (a migration's
+#    --hold: releasing it here would put that environment back in service mid-migration) or
+#    a pending move, /data/incoming/<name>.tar.gz (a restart applies it at boot, before the
+#    hold check, and replaces the data there). Both apps are asked; the last line, "checked",
+#    shows the answer came whole.
+found=""
+for target in "$app" "$rela_app"; do
+  answer="$(remote "$target" "sh -c 'cd /data && for f in hold incoming/*.tar.gz; do [ -e \$f ] && echo /data/\$f; done; echo checked'" || true)"
+  case "$answer" in *checked) ;; *) fail "could not check $target for a hold or a pending move; nothing was held (is it running? atlas-ops status --env $env)" ;; esac
+  while IFS= read -r path; do
+    case "$path" in
+      checked|"") ;;
+      */hold) found="$found
+  $target holds $path: a hold is in place (a migration under way?); end it with its move-to-fly first" ;;
+      *) found="$found
+  $target has $path: a pending move, which a restart would apply; finish that move first" ;;
+    esac
+  done <<<"$answer"
+done
+[ -z "$found" ] || fail "refusing to hold $env, nothing was changed:$found"
 
 # 1. Hold: the core first, so nothing writes to rela while it is copied.
 for target in "$app" "$rela_app"; do

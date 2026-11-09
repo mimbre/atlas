@@ -1,5 +1,6 @@
 defmodule AtlasBus.LinkTest do
   use ExUnit.Case, async: false
+  require Logger
   alias AtlasBus.{Envelope, Link}
 
   setup do
@@ -41,6 +42,19 @@ defmodule AtlasBus.LinkTest do
       true ->
         Process.sleep(10)
         eventually(fun, n - 1)
+    end
+  end
+
+  # Whether `name`'s entry is gone once each Registry partition has handled what it was sent:
+  # synchronous calls to the partitions, asked again while an exit is still on its way.
+  defp registry_dropped(name, tries \\ 1_000) do
+    for {_, partition, _, _} <- Supervisor.which_children(AtlasBus.Endpoints),
+        do: :sys.get_state(partition)
+
+    cond do
+      Registry.lookup(AtlasBus.Endpoints, name) == [] -> true
+      tries == 0 -> false
+      true -> registry_dropped(name, tries - 1)
     end
   end
 
@@ -435,5 +449,104 @@ defmodule AtlasBus.LinkTest do
       assert log =~ ":synthetic_verifier_crash"
       refute log =~ token
     end
+  end
+
+  # A reply that comes after its link closed finds nobody (the Router drops it). A fact is sent
+  # again with the same id (AtlasRuntime.Talk); sent again over a new link, without waiting for
+  # the attach, it gets its reply: the endpoint is there before what it sends is routed.
+  test "a reply after its link closed is dropped; sent again over a new link, it is delivered",
+       %{port: port} do
+    store = "link-test-store"
+    Application.put_env(:atlas_bus, :store, store)
+    :ok = AtlasBus.attach(store)
+    name = "runtime@laptop/T-late"
+    fact = Envelope.new("fact", "parcel")
+
+    first = connect(port)
+    assert recv(first)["op"] == "welcome"
+    :gen_tcp.send(first, Link.encode("attach", %{"endpoint" => name}))
+    send_remote(first, name, fact)
+    id = fact.id
+    assert_receive {:atlas_bus, %Envelope{id: ^id, sender: ^name} = asked, _}, 1_000
+
+    [{proxy, _}] = Registry.lookup(AtlasBus.Endpoints, name)
+    ref = Process.monitor(proxy)
+    :gen_tcp.close(first)
+    assert_receive {:DOWN, ^ref, :process, ^proxy, _}, 1_000
+    # The Registry drops the entry when it handles the proxy's exit, after that DOWN.
+    assert registry_dropped(name)
+    # The drop is logged, naming the reply, at debug (the Router's level is raised here only).
+    Logger.put_module_level(AtlasBus.Router, :debug)
+    on_exit(fn -> Logger.delete_module_level(AtlasBus.Router) end)
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert :ok =
+                 AtlasBus.send(Envelope.reply(asked, "stored", position: 1), %{"reply" => "late"})
+      end)
+
+    assert log =~ id
+    Logger.delete_module_level(AtlasBus.Router)
+
+    again = connect(port)
+    assert recv(again)["op"] == "welcome"
+    :gen_tcp.send(again, Link.encode("attach", %{"endpoint" => name}))
+    send_remote(again, name, fact)
+    assert_receive {:atlas_bus, %Envelope{id: ^id, sender: ^name} = asked_again, _}, 1_000
+
+    assert :ok =
+             AtlasBus.send(Envelope.reply(asked_again, "stored", position: 1), %{
+               "reply" => "fresh"
+             })
+
+    assert %{"op" => "deliver", "endpoint" => ^name, "envelope" => %{"id" => ^id}} =
+             frame = recv(again)
+
+    assert frame["content"] == %{"reply" => "fresh"}
+    :gen_tcp.close(again)
+  end
+
+  # On (re)connect the client attaches every endpoint before it forwards anything, so the core
+  # knows where each answer goes before the request it answers arrives.
+  test "connecting, the client attaches its endpoints before it forwards a send" do
+    name = "runtime@laptop/T-replay"
+    :ok = AtlasBus.Router.attach(name)
+    {:ok, listener} = :gen_tcp.listen(0, [:binary, packet: :line, active: false])
+    {:ok, port} = :inet.port(listener)
+    test = self()
+
+    core =
+      spawn_link(fn ->
+        {:ok, s} = :gen_tcp.accept(listener)
+        {:ok, _hello} = :gen_tcp.recv(s, 0, 1_000)
+        :ok = :gen_tcp.send(s, Link.encode("welcome", %{}))
+
+        for _ <- 1..2 do
+          {:ok, line} = :gen_tcp.recv(s, 0, 1_000)
+          send(test, {:frame, JSON.decode!(line)})
+        end
+
+        receive do: (:done -> :gen_tcp.close(s))
+      end)
+
+    state = %{
+      settings: %{"host" => "127.0.0.1", "port" => port, "machine" => "laptop"},
+      secret: fn -> "private-test-token" end,
+      socket: nil,
+      refs: %{self() => make_ref()},
+      delay: 2_000,
+      names: %{}
+    }
+
+    assert {:noreply, %{socket: socket} = connected} = Link.Client.handle_info(:connect, state)
+    read = %{Envelope.new("read", "parcel") | sender: name}
+    assert {:noreply, ^connected} = Link.Client.handle_cast({:send, read, %{}}, connected)
+
+    assert_receive {:frame, %{"op" => "attach", "endpoint" => ^name}}, 1_000
+    assert_receive {:frame, %{"op" => "send", "endpoint" => ^name}}, 1_000
+    send(core, :done)
+    :gen_tcp.close(socket)
+    :gen_tcp.close(listener)
+    Registry.unregister(AtlasBus.Endpoints, name)
   end
 end
