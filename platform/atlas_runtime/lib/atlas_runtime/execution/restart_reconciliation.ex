@@ -30,17 +30,15 @@ defmodule AtlasRuntime.Execution.RestartReconciliation do
   def reconcile(dir, events, probe \\ &process_state/2, now \\ DateTime.utc_now()) do
     root = Path.join(dir, "turns")
 
-    case File.ls(root) do
-      {:ok, entries} -> entries |> Enum.filter(&valid_id?/1) |> Enum.sort()
-      {:error, _} -> []
-    end
+    root
+    |> turn_ids()
     |> Enum.reduce(events, fn id, events ->
       folder = Path.join(root, id)
 
       with {:ok, run} <- unfinished(folder, id),
            {:ok, pid, started} <- launch(folder),
            {:gone, why} <- probe.(pid, started) do
-        interrupt(dir, events, folder, run, pid, why, now)
+        interrupt(dir, events, folder, run, "its process (pid #{pid}) is gone: #{why}", now)
       else
         :terminal ->
           events
@@ -50,6 +48,48 @@ defmodule AtlasRuntime.Execution.RestartReconciliation do
           events
       end
     end)
+  end
+
+  @doc """
+  Ends the turn records of `worker_id` under `dir` that a previous service left
+  non-terminal, on a human's `release` of that worker (no probe): their process could not be
+  proven gone at the restart, and the release is the word that nothing of them is left. Each
+  becomes `failed` as `reconcile/4` ends a turn, so it can be continued. Call it only when
+  this service owns no execution on the worker.
+  """
+  def released(dir, events, worker_id, now \\ DateTime.utc_now()) do
+    root = Path.join(dir, "turns")
+
+    root
+    |> turn_ids()
+    |> Enum.reduce(events, fn id, events ->
+      folder = Path.join(root, id)
+
+      case unfinished(folder, id) do
+        {:ok, %{"worker_id" => ^worker_id} = run} ->
+          pid =
+            case launch(folder) do
+              {:ok, pid, _started} -> pid
+              _ -> "unknown"
+            end
+
+          why =
+            "its process (pid #{pid}) was not proven gone; " <>
+              "worker #{worker_id} was released"
+
+          interrupt(dir, events, folder, run, why, now)
+
+        _ ->
+          events
+      end
+    end)
+  end
+
+  defp turn_ids(root) do
+    case File.ls(root) do
+      {:ok, entries} -> entries |> Enum.filter(&valid_id?/1) |> Enum.sort()
+      {:error, _} -> []
+    end
   end
 
   defp unfinished(folder, id) do
@@ -81,7 +121,7 @@ defmodule AtlasRuntime.Execution.RestartReconciliation do
     end
   end
 
-  defp interrupt(dir, events, folder, run, pid, why, now) do
+  defp interrupt(dir, events, folder, run, why, now) do
     ended_at = DateTime.to_iso8601(now)
 
     run =
@@ -89,9 +129,7 @@ defmodule AtlasRuntime.Execution.RestartReconciliation do
         "state" => "failed",
         "recorded_state" => run["state"],
         "pending_question" => nil,
-        "error" =>
-          "interrupted: the Runtime service restarted while the turn ran; " <>
-            "its process (pid #{pid}) is gone: #{why}",
+        "error" => "interrupted: the Runtime service restarted while the turn ran; " <> why,
         "ended_at" => ended_at
       })
 

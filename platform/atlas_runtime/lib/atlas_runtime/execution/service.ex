@@ -232,7 +232,11 @@ defmodule AtlasRuntime.Service do
        when name in ["start", "status", "output", "stop", "kill", "continue"],
        do: worker_request(request, state)
 
-  # Release only clears the worker's admission latch; it starts and resumes nothing.
+  # Release only clears the worker's admission latch; it starts and resumes nothing. It is
+  # also a human's word that nothing of the slot's turn is left: the work core then treats
+  # an attempt there whose end was never confirmed as quiescent (F2), and a turn record a
+  # previous service left running there (its process not proven gone) ends `failed`, so it
+  # can be continued. A turn this service still runs on the worker is never touched.
   defp command(%{"command" => "release"} = request, state) do
     if Map.keys(request) -- ["command", "worker_id"] != [] or
          not Map.has_key?(request, "worker_id"),
@@ -242,18 +246,23 @@ defmodule AtlasRuntime.Service do
     if not valid_worker_id?(id), do: raise("Invalid worker ID")
     latch = History.latch(state.dir, id)
 
-    case Map.get(state.workers, id) do
-      %{agent: agent, run: run} when not is_nil(agent) and not is_nil(latch) ->
-        raise(
-          "Worker #{id} still owns turn #{run.id} (#{run.state}); release after its end is confirmed"
-        )
+    events =
+      case Map.get(state.workers, id) do
+        %{agent: agent, run: run} when not is_nil(agent) and not is_nil(latch) ->
+          raise(
+            "Worker #{id} still owns turn #{run.id} (#{run.state}); release after its end is confirmed"
+          )
 
-      _ ->
-        :ok
-    end
+        %{agent: agent} when not is_nil(agent) ->
+          state.events
+
+        _ ->
+          RestartReconciliation.released(state.dir, state.events, id)
+      end
 
     if latch, do: History.release_latch!(state.dir, id)
-    {%{worker_id: id, released: latch, admission_latch: nil}, state, false}
+    AtlasRuntime.Work.released(id)
+    {%{worker_id: id, released: latch, admission_latch: nil}, %{state | events: events}, false}
   end
 
   defp command(%{"worker_id" => _}, _),
@@ -721,9 +730,10 @@ defmodule AtlasRuntime.Service do
   defp sole_run(_), do: nil
 
   # A profile and cost class resolve through policy.json and availability.json (design §7).
-  # A named backend (the legacy CLI and Flow passes until their cutover) keeps its former
-  # meaning: that backend, never falling back; the model is the policy's for that harness
-  # when unambiguous, else the native default. Neither keeps BackendPolicy's choice until D3.
+  # A named backend (only in-BEAM callers of the Service: since D3 the CLI starts work on
+  # backend.sock, and runtime.sock serves no start) keeps its former meaning: that backend, never falling back; the model is
+  # the policy's for that harness when unambiguous, else the native default. Neither keeps
+  # BackendPolicy's choice (the imported pair).
   defp select_backend(request, state) do
     if Map.has_key?(request, "backend") and is_nil(request["backend"]),
       do: raise("Backend must be codex or claude")

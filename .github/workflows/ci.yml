@@ -465,6 +465,12 @@ jobs:
         with:
           otp-version: "28"
           elixir-version: "1.18"
+      # The Runtime backend scenario (e2e/test/runtime_backend_test.exs) builds the host and
+      # the fake harness with Go; the host's go.mod needs 1.25.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: false
       - run: python3 -m pip install -r platform/atlas_facts/rela/scripts/requirements.txt
       - run: ATLAS_RELA_BIN="$ATLAS_E2E_RELA_BIN" platform/atlas_facts/rela/scripts/start-test.sh install
       - run: python3 -m unittest discover -s platform/atlas_facts/rela/tests -v

@@ -45,6 +45,61 @@ defmodule AtlasRuntime.Entrypoints.SocketTest do
     end
   end
 
+  test "runtime.sock refuses the work commands and still forwards operations and guidance" do
+    dir = TestHost.short_dir!("ars", "/runtime.sock")
+    acceptor = Socket.start(dir, self())
+    path = Path.join(dir, "runtime.sock")
+
+    send_line = fn request ->
+      {:ok, socket} = :gen_tcp.connect({:local, path}, 0, [:binary, active: false, packet: :line])
+      :ok = :gen_tcp.send(socket, JSON.encode!(request) <> "\n")
+      socket
+    end
+
+    try do
+      for {command, place} <- [
+            {"start", "backend.sock"},
+            {"continue", "backend.sock"},
+            {"stop", "backend.sock"},
+            {"kill", "backend.sock"},
+            {"status", "backend.sock"},
+            {"output", "backend.sock"},
+            {"turns", "read.sock"},
+            {"events", "read.sock"}
+          ] do
+        socket = send_line.(%{"command" => command, "worker_id" => "w1"})
+        assert {:ok, reply} = :gen_tcp.recv(socket, 0, 1_000)
+        assert %{"command_error" => error} = JSON.decode!(reply)
+        assert error =~ "#{command} is not served on runtime.sock"
+        assert error =~ place
+        assert {:error, :closed} = :gen_tcp.recv(socket, 0, 1_000)
+        # Refused before the Service is asked: it never sees the command.
+        refute_received {:"$gen_call", _, _}
+      end
+
+      for request <- [
+            %{"command" => "service-status"},
+            %{"command" => "preferences"},
+            %{"command" => "release", "worker_id" => "w1"},
+            %{
+              "command" => "question",
+              "worker_id" => "w1",
+              "turn_id" => "t",
+              "question_id" => "q"
+            }
+          ] do
+        socket = send_line.(request)
+        assert_receive {:"$gen_call", from, ^request}
+        GenServer.reply(from, {%{forwarded: request["command"]}, false})
+        assert {:ok, reply} = :gen_tcp.recv(socket, 0, 1_000)
+        assert JSON.decode!(reply) == %{"forwarded" => request["command"]}
+      end
+    after
+      Process.unlink(acceptor)
+      Process.exit(acceptor, :kill)
+    end
+  end
+
   describe "streams" do
     alias AtlasRuntime.Entrypoints.ReadSocket
 
