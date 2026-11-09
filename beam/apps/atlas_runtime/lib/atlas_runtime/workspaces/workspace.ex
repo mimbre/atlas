@@ -17,6 +17,10 @@ defmodule AtlasRuntime.Workspaces do
   # Materialized under the Runtime home; verified without Git, so the scope is the snapshot identity.
   def folder_scope(workspace, home), do: workspace_request(["folder-scope", workspace, home])
 
+  # A frozen packet tree: the folder scope plus the packet, its findings folder and fingerprint;
+  # refused once the tree or its packet files changed after the freeze.
+  def packet_scope(workspace, home), do: workspace_request(["packet-scope", workspace, home])
+
   def workspace_path(workspace), do: workspace_request(["path", workspace])
 
   def repository_request(home, url, branch),

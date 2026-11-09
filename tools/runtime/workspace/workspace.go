@@ -22,7 +22,7 @@ import (
 
 func Run(args []string, output io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("use workspace path|scope|folder-scope|request")
+		return errors.New("use workspace path|scope|folder-scope|packet-scope|request")
 	}
 	var result any
 	var err error
@@ -41,6 +41,11 @@ func Run(args []string, output io.Writer) error {
 			return errors.New("workspace folder-scope requires destination and Runtime home")
 		}
 		result, err = FolderScope(args[1], args[2])
+	case "packet-scope":
+		if len(args) != 3 {
+			return errors.New("workspace packet-scope requires packet tree and Runtime home")
+		}
+		result, err = PacketScope(args[1], args[2])
 	case "request":
 		if len(args) != 4 {
 			return errors.New("workspace request requires home, URL and branch")
@@ -428,6 +433,18 @@ func FolderScope(dest, home string) (map[string]any, error) {
 		return nil, err
 	}
 	home, root := scope["home"].(string), scope["root"].(string)
+	// A packet tree stays as frozen: only the review-packet profile runs in it.
+	if id, err := snapshot.RecordedPacket(home, root); err != nil {
+		return nil, err
+	} else if id != "" {
+		return nil, fmt.Errorf("Materialized folder %s is the tree of review packet %s; review it with --permissions review-packet", root, id)
+	}
+	return readyScope(scope)
+}
+
+// readyScope refuses a scope whose explicit preparation has not succeeded.
+func readyScope(scope map[string]any) (map[string]any, error) {
+	home, root := scope["home"].(string), scope["root"].(string)
 	preparation, err := snapshot.LoadPreparation(home, root)
 	if err != nil {
 		return nil, err
@@ -483,6 +500,29 @@ func FolderScopeBeforePreparation(dest, home string) (map[string]any, error) {
 		return nil, err
 	}
 	scope["profile"], scope["version"], scope["home"] = "materialized-folder", json.Number("1"), home
+	return scope, nil
+}
+
+// PacketScope is the review-packet permission scope of the packet tree dest: its materialized-folder
+// scope plus the packet folder, its findings folder, the packet ID and the fingerprint. It refuses a
+// tree, packet.json or diff.json that changed after the freeze, so a review never runs on other
+// content than the packet it names.
+func PacketScope(dest, home string) (map[string]any, error) {
+	scope, err := FolderScopeBeforePreparation(dest, home)
+	if err != nil {
+		return nil, err
+	}
+	if scope, err = readyScope(scope); err != nil {
+		return nil, err
+	}
+	packet, err := snapshot.VerifiedPacket(scope["home"].(string), scope["root"].(string))
+	if err != nil {
+		return nil, err
+	}
+	for key, value := range packet {
+		scope[key] = value
+	}
+	scope["profile"] = "review-packet"
 	return scope, nil
 }
 

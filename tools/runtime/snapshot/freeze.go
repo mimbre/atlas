@@ -599,3 +599,80 @@ func recordPacket(home, id string, metadata, diff []byte) error {
 	staging = ""
 	return os.Chmod(PacketDir(home, id), 0555)
 }
+
+// RecordedPacket is the packet ID Freeze recorded for the materialized folder dest, or "" when dest
+// is not a packet tree.
+func RecordedPacket(home, dest string) (string, error) {
+	path := recordPath(home, dest)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("cannot read materialization record %s: %v", path, reason(err))
+	}
+	var r struct {
+		PacketID *string `json:"packet_id"`
+	}
+	if json.Unmarshal(data, &r) != nil || r.PacketID != nil && !changeID.MatchString(*r.PacketID) {
+		return "", fmt.Errorf("invalid materialization record %s for %s", path, dest)
+	}
+	if r.PacketID == nil {
+		return "", nil
+	}
+	return *r.PacketID, nil
+}
+
+// VerifiedPacket checks that tree is the tree of a frozen packet and still holds exactly what was
+// frozen: its record names the packet, the packet's metadata files equal the authoritative copies
+// under the home, and the tree's content has the packet's fingerprint. It returns the packet folder,
+// its findings folder, the packet ID and the fingerprint.
+func VerifiedPacket(home, tree string) (map[string]any, error) {
+	t, err := openFolder(home, tree)
+	if err != nil {
+		return nil, err
+	}
+	id, err := RecordedPacket(home, t.dest)
+	if err != nil {
+		return nil, err
+	}
+	if id == "" {
+		return nil, fmt.Errorf("%s is not the tree of a review packet; review the tree that snapshot freeze made", t.dest)
+	}
+	mismatch := func(what string) error {
+		return fmt.Errorf("review packet %s does not match its record under %s: %s; freeze a new packet", filepath.Dir(t.dest), PacketDir(home, id), what)
+	}
+	data, err := os.ReadFile(filepath.Join(PacketDir(home, id), "packet.json"))
+	if err != nil {
+		return nil, fmt.Errorf("cannot read packet %s: %v", id, reason(err))
+	}
+	var p packet
+	if json.Unmarshal(data, &p) != nil || p.PacketID != id || !fingerprintID.MatchString(p.Fingerprint) {
+		return nil, fmt.Errorf("invalid packet record %s", id)
+	}
+	dir := filepath.Dir(t.dest)
+	if p.Tree != t.dest || p.SnapshotID != t.id || p.Findings != filepath.Join(dir, "findings") {
+		return nil, mismatch("the record names another tree, snapshot or findings folder")
+	}
+	for _, name := range []string{"packet.json", "diff.json"} {
+		recorded, err := os.ReadFile(filepath.Join(PacketDir(home, id), name))
+		if err != nil {
+			return nil, fmt.Errorf("cannot read packet %s: %v", id, reason(err))
+		}
+		if present, err := os.ReadFile(filepath.Join(dir, name)); err != nil || !bytes.Equal(present, recorded) {
+			return nil, mismatch(name + " was changed or removed")
+		}
+	}
+	if info, err := os.Lstat(p.Findings); err != nil || !info.IsDir() {
+		return nil, mismatch("findings is not a directory")
+	}
+	changes, err := t.changes(nil, false)
+	if err != nil {
+		return nil, err
+	}
+	repositories, outside, err := t.packetRepositories(changes)
+	if err != nil {
+		return nil, err
+	}
+	if current := packetFingerprint(t.id, repositories); current != p.Fingerprint || !slices.Equal(outside, p.Outside) {
+		return nil, mismatch(fmt.Sprintf("the tree was modified after the freeze (fingerprint %s, frozen %s)", current, p.Fingerprint))
+	}
+	return map[string]any{"packet": dir, "findings": p.Findings, "packet_id": id, "fingerprint": p.Fingerprint}, nil
+}
