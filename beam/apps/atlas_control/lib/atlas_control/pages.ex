@@ -2304,7 +2304,7 @@ defmodule AtlasControl.Pages do
   @doc """
   How a fact of a kind is created, from the description (`create` in `rela/atlas.json`):
   `ask` (the fields a create form asks for), `id` (`prefix` plus the next free number,
-  zero-padded to `digits`; or made `from` a property, see `key_for/2`) and `defaults`
+  zero-padded to `digits`, from `first` up; or made `from` a property, see `key_for/2`) and `defaults`
   (values for what it does not ask). Without a rule: every field a user may set,
   rela's id prefix, no defaults.
   """
@@ -2316,6 +2316,7 @@ defmodule AtlasControl.Pages do
       ask: rule["ask"] || for({name, prop} <- ordered(spec), settable?(prop), do: name),
       prefix: get_in(rule, ["id", "prefix"]) || prefix,
       digits: get_in(rule, ["id", "digits"]) || 2,
+      first: get_in(rule, ["id", "first"]) || 1,
       from: get_in(rule, ["id", "from"]),
       defaults: rule["defaults"] || %{}
     }
@@ -2357,10 +2358,11 @@ defmodule AtlasControl.Pages do
 
   @doc """
   The next free key of a kind: the rule's prefix plus one more than the highest number
-  among `keys` (and above `after`, when an earlier try was taken).
+  among `keys` (and above `after`, when an earlier try was taken), and never below the
+  rule's `first` (a ledger whose older numbers are kept for facts made later).
   """
   def next_key(spec, keys, after_number \\ 0) do
-    %{prefix: prefix, digits: digits} = create_rule(spec)
+    %{prefix: prefix, digits: digits, first: first} = create_rule(spec)
     {:ok, pattern} = Regex.compile("^" <> Regex.escape(prefix) <> "(\\d+)$")
 
     highest =
@@ -2373,7 +2375,7 @@ defmodule AtlasControl.Pages do
       end)
       |> Enum.max(fn -> 0 end)
 
-    number = max(highest, after_number) + 1
+    number = max(max(highest, after_number) + 1, if(is_integer(first), do: first, else: 1))
     {prefix <> String.pad_leading(Integer.to_string(number), digits, "0"), number}
   end
 

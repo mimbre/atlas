@@ -632,4 +632,108 @@ defmodule AtlasStateTest do
     assert_receive {:hint, %Envelope{class: "stored", kind: "widget", position: 1},
                     %{"key" => "W-1"}}
   end
+
+  # A made-up kind's write rules: a dark or lit widget is never edited except to be lit, and a
+  # dark widget that replaces others lights them in the same write.
+  test "State refuses what a kind's rules forbid, and marks what a stored fact replaces", %{
+    rela: rela,
+    dir: dir
+  } do
+    extra = Path.join(dir, "atlas.json")
+
+    File.write!(
+      extra,
+      JSON.encode!(%{
+        "relations" => %{"replaces" => %{"from" => ["widget"], "to" => ["widget"]}},
+        "entities" => %{
+          "widget" => %{
+            "frozen" => %{
+              "when" => %{"shade" => ["dark", "light"]},
+              "only" => %{"shade" => ["light"]},
+              "error" => "{key} is {value}"
+            },
+            "replaces" => %{
+              "relation" => "replaces",
+              "when" => %{"shade" => ["dark"]},
+              "of" => %{"shade" => ["dark", "light"]},
+              "set" => %{"shade" => "light"},
+              "error" => "{key} is not dark"
+            }
+          }
+        }
+      })
+    )
+
+    stop_supervised!(AtlasState.Server)
+
+    start_supervised!(
+      {AtlasState.Server, rela: {FakeRela, rela}, data_dir: dir, description_extra: extra}
+    )
+
+    assert {"stored", _, _} = fact("create", "W-1", %{"title" => "One", "shade" => "dark"})
+
+    assert {"refused", %{"reasons" => ["W-1 is dark"]}, nil} =
+             fact("change", "W-1", %{"title" => "Edited"})
+
+    assert {"refused", %{"reasons" => ["W-1 is dark"]}, nil} = fact("delete", "W-1")
+
+    assert {"stored", _, _} = fact("create", "W-3", %{"title" => "Three"})
+
+    assert {"refused", %{"reasons" => ["W-3 is not dark"]}, nil} =
+             fact("create", "W-2", %{"title" => "Two", "shade" => "dark"},
+               links: %{"replaces" => ["W-3"]}
+             )
+
+    assert {"stored", _, _} =
+             fact("create", "W-2", %{"title" => "Two", "shade" => "dark"},
+               links: %{"replaces" => ["W-1"]}
+             )
+
+    assert %{"W-1" => {%{"title" => "One", "shade" => "light"}, _}} = FakeRela.facts(rela)
+    assert {"refused", _, nil} = fact("change", "W-1", %{"title" => "Edited"})
+    assert {"stored", _, _} = fact("change", "W-3", %{"title" => "Free"})
+  end
+
+  # A made-up decider: only the maker a widget names makes it dark, as that maker.
+  test "a write that decides is stored only from the one the fact names", %{rela: rela, dir: dir} do
+    extra = Path.join(dir, "atlas.json")
+
+    File.write!(
+      extra,
+      JSON.encode!(%{
+        "entities" => %{
+          "widget" => %{
+            "authority" => %{
+              "when" => %{"shade" => ["dark"]},
+              "by" => "made_by",
+              "kind" => "maker",
+              "writes" => %{"shade" => ["dark"]},
+              "error" => "needs its maker",
+              "writer_error" => "only its maker makes it dark"
+            }
+          }
+        }
+      })
+    )
+
+    stop_supervised!(AtlasState.Server)
+
+    start_supervised!(
+      {AtlasState.Server, rela: {FakeRela, rela}, data_dir: dir, description_extra: extra}
+    )
+
+    assert {"stored", _, _} = fact("create", "M-1", %{"title" => "Maker"}, kind: "maker")
+
+    assert {"stored", _, _} =
+             fact("create", "W-1", %{"title" => "One"}, links: %{"made_by" => ["M-1"]})
+
+    assert {"refused", %{"reasons" => ["only its maker makes it dark"]}, nil} =
+             fact("change", "W-1", %{"shade" => "dark"}, by: "someone")
+
+    assert {"refused", %{"reasons" => ["only its maker makes it dark"]}, nil} =
+             fact("change", "W-1", %{"shade" => "dark"})
+
+    assert {"stored", _, _} = fact("change", "W-1", %{"shade" => "dark"}, by: "M-1")
+    assert %{"W-1" => {%{"shade" => "dark"}, _}} = FakeRela.facts(rela)
+  end
 end

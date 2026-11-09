@@ -35,7 +35,19 @@ defmodule AtlasState.Server do
   require Logger
 
   alias AtlasBus.Envelope
-  alias AtlasState.{Components, Copies, Description, Flows, Late, Ledger, Links, Progress, Rela}
+
+  alias AtlasState.{
+    Components,
+    Copies,
+    Description,
+    Flows,
+    Guards,
+    Late,
+    Ledger,
+    Links,
+    Progress,
+    Rela
+  }
 
   @description "_description"
   @page "_page"
@@ -613,10 +625,15 @@ defmodule AtlasState.Server do
             {:ok, targets} ->
               with {:ok, targets} <- target_kinds(state, op, targets),
                    :ok <- targets_exist(state, op, targets),
-                   :ok <- not_a_part(state, kind, op, key) do
+                   :ok <- not_a_part(state, kind, op, key),
+                   rules = Guards.of(state.description, kind),
+                   :ok <- guarded(state, spec, rules, op, key, values, targets, content["by"]) do
                 parts = Components.of(state.description, kind, key)
                 was = content["was"]
-                write(state, spec, op, key, values, content["version"], targets, was, parts)
+
+                state
+                |> write(spec, op, key, values, content["version"], targets, was, parts)
+                |> replace(state, spec, rules, op, key)
               end
 
             {:error, problems} ->
@@ -634,6 +651,86 @@ defmodule AtlasState.Server do
   end
 
   defp store(state, _kind, _content), do: {{:refused, ["a fact needs an op and a key"]}, state}
+
+  # The kind's write rules (`AtlasState.Guards`), on the fact as it is stored now.
+  defp guarded(_state, _spec, rules, _op, _key, _values, _targets, _writer) when rules == %{},
+    do: :ok
+
+  # `writer`: who sent the write, as Control says (`by`).
+  defp guarded(state, spec, rules, op, key, values, targets, writer) do
+    with {:ok, current} <- current(state, spec, op, key) do
+      values = Map.new(values, fn {k, v} -> {k, if(v == "", do: nil, else: v)} end)
+      links = Map.new(targets, fn {relation, {_kind, keys}} -> {relation, keys} end)
+
+      Guards.check(rules, op, key, current, values, links, %{
+        "writer" => writer,
+        "kind_of" => &linked_kind(state, &1, &2),
+        "fetch" => fn old ->
+          case Rela.get(state.rela, spec["plural"], old) do
+            {:ok, fact} -> fact.properties
+            _ -> nil
+          end
+        end,
+        "incoming" => fn relation ->
+          case Rela.incoming(state.rela, spec["plural"], key, relation) do
+            {:ok, keys} -> keys
+            _ -> []
+          end
+        end
+      })
+    end
+  end
+
+  defp current(_state, _spec, "create", _key), do: {:ok, nil}
+
+  defp current(state, spec, _op, key) do
+    case Rela.get(state.rela, spec["plural"], key) do
+      {:ok, fact} -> {:ok, %{"values" => fact.properties, "links" => fact[:links] || %{}}}
+      {:error, :not_found} -> {:ok, nil}
+      error -> failure(error)
+    end
+  end
+
+  defp linked_kind(state, relation, key) do
+    kinds = get_in(state.description, ["relations", relation, "to"]) || []
+    Enum.find(kinds, &kind_has?(state, &1, key))
+  end
+
+  # A stored fact that replaces others marks them in the same write (`replaces.set`). When
+  # one cannot be marked, the write is not recorded, so sending it again finishes it.
+  defp replace(:stored, state, spec, %{"replaces" => %{"set" => set}} = rules, op, key)
+       when op in ["create", "change"] do
+    fetch = fn old ->
+      case Rela.get(state.rela, spec["plural"], old) do
+        {:ok, fact} -> fact
+        _ -> nil
+      end
+    end
+
+    case fetch.(key) do
+      %{} = fact ->
+        stored = %{"values" => fact.properties, "links" => fact[:links] || %{}}
+
+        rules
+        |> Guards.replaced(stored, &(fetch.(&1) && fetch.(&1).properties))
+        |> Enum.reduce_while(:stored, fn old, :stored ->
+          case Rela.change(state.rela, spec["plural"], old, set, nil, %{}) do
+            {:ok, []} ->
+              {:cont, :stored}
+
+            other ->
+              {:halt,
+               {:unavailable,
+                "#{key} is stored, but #{old} is not marked yet (#{inspect(other)}); send it again"}}
+          end
+        end)
+
+      nil ->
+        {:unavailable, "#{key} is stored, but could not be read again; send it again"}
+    end
+  end
+
+  defp replace(result, _state, _spec, _rules, _op, _key), do: result
 
   defp write(state, spec, op, key, values, version, targets, was, []) do
     if op == "delete",

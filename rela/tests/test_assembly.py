@@ -34,6 +34,19 @@ class AssemblyTest(unittest.TestCase):
             self.assertEqual(prior['entities'].pop(kind), {'top': False, 'by_hand': False})
         prior['runtime']['turn'].pop('attempt')
         prior['entities']['turn']['properties'].pop('attempt')
+        # The decision ledger and the use case design phase, added since the baseline.
+        self.assertTrue(prior['_about'].startswith(self.original['_about']))
+        prior['_about'] = self.original['_about']
+        self.assertEqual(set(prior['entities'].pop('decision')), {'primary', 'order', 'create', 'properties', 'requires', 'authority', 'frozen', 'replaces', 'layering'})
+        self.assertIn('only_target', prior['relations'].pop('decided_by'))
+        self.assertEqual(prior['flows'].pop('decide')['kinds'], ['decision'])
+        self.assertEqual(prior['flows'].pop('design_and_accept')['kinds'], ['use_case'])
+        self.assertEqual(prior['flows']['test_and_accept']['kinds'], ['scene'])
+        prior['flows']['test_and_accept']['kinds'] = ['scene', 'use_case']
+        use_case = prior['entities']['use_case']
+        self.assertEqual(use_case['create']['defaults'].pop('design_status'), 'writing')
+        for name in ('design', 'design_status'):
+            use_case['properties'].pop(name)
         self.assertEqual(prior, self.original)
         assemble.build(self.root, self.manifest, check=True)
         path = self.root / 'modules/foundation/atlas.json'
@@ -55,6 +68,46 @@ class AssemblyTest(unittest.TestCase):
             mutate(bad['shell'])
             with self.assertRaises(config.ConfigError):
                 assemble.validate(bad, self.schema)
+
+    def test_decision_rules_reference_described_fields_and_relations(self):
+        extra = assemble.build(self.root, self.manifest)
+        mutations = [
+            lambda d: d.update({'guards': {}}),
+            lambda d: d['requires'][0]['fields'].append('missing'),
+            lambda d: d['requires'][0]['when'].update({'force': ['unknown']}),
+            lambda d: d['authority'].update({'by': 'missing'}),
+            lambda d: d['authority'].update({'kind': 'decision'}),
+            lambda d: d['authority'].update({'delegated_by': 'missing'}),
+            lambda d: d['authority']['only_kind_when'].append({'category': ['unknown']}),
+            lambda d: d['frozen']['only'].update({'status': ['unknown']}),
+            lambda d: d['frozen'].update({'except': {}}),
+            lambda d: d['replaces'].update({'relation': 'decided_by'}),
+            lambda d: d['replaces']['set'].update({'status': 'unknown'}),
+            lambda d: d['create']['id'].update({'start': 24}),
+            lambda d: d['authority']['writes'].update({'status': ['unknown']}),
+            lambda d: d['layering'].update({'relation': 'decided_by'}),
+            lambda d: d['layering'].update({'field': 'missing'}),
+            lambda d: d['layering']['not'].update({'unknown': ['instance']}),
+            lambda d: d['layering']['not'].update({'platform': ['unknown']}),
+            lambda d: d['layering'].update({'below': {}}),
+        ]
+        for mutate in mutations:
+            bad = copy.deepcopy(extra)
+            mutate(bad['entities']['decision'])
+            with self.assertRaises((config.ConfigError, KeyError)):
+                assemble.validate(bad, self.schema)
+
+    def test_decision_flow_and_design_phase_are_sound(self):
+        extra = assemble.build(self.root, self.manifest)
+        decide = {s['name']: s for s in extra['flows']['decide']['states']}
+        self.assertEqual({n for n, s in decide.items() if s.get('done')}, {'accepted', 'rejected', 'superseded'})
+        self.assertEqual(decide['proposed']['next'], ['accepted', 'rejected'])
+        design = [s['name'] for s in extra['flows']['design_and_accept']['states']]
+        self.assertLess(design.index('design'), design.index('design_review'))
+        self.assertLess(design.index('design_review'), design.index('building'))
+        scene = [s['name'] for s in extra['flows']['test_and_accept']['states']]
+        self.assertNotIn('design', scene)
+        self.assertEqual(scene, [s['name'] for s in self.original['flows']['test_and_accept']['states']])
 
     def test_component_key_templates_are_usable_and_bounded(self):
         for template in ['', ' \t', None, 'x' * 2049]:

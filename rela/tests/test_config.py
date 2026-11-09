@@ -13,6 +13,20 @@ config = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(config)
 
 
+def without_ledger(schema):
+    """The schema without the decision ledger and use case design phase, added since #79."""
+    schema = copy.deepcopy(schema)
+    schema['entities'].pop('decision')
+    for name in ('decided_by', 'delegated_by', 'supersedes', 'follows_from', 'based_on'):
+        schema['relations'].pop(name)
+    schema['relations']['assignment']['from'].remove('decision')
+    for name in ('decision_category', 'decision_scope', 'decision_reversibility', 'decision_force', 'decision_status', 'design_status'):
+        schema.get('types', {}).pop(name, None)
+    for name in ('design', 'design_status'):
+        schema['entities']['use_case']['properties'].pop(name)
+    return schema
+
+
 class SchemaTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -23,7 +37,7 @@ class SchemaTest(unittest.TestCase):
     def test_equivalence_and_property_order(self):
         baseline = yaml.load((ROOT / 'tests/fixtures/baseline-schema.yaml').read_text(), Loader=config.StrictLoader)
         _, resolved = config.closure(self.root)
-        prior = copy.deepcopy(resolved)
+        prior = without_ledger(resolved)
         for kind in ('worker_execution', 'interaction', 'interaction_receipt'):
             self.assertIn(kind, prior['entities'])
             del prior['entities'][kind]
@@ -31,7 +45,7 @@ class SchemaTest(unittest.TestCase):
         self.assertEqual(prior, baseline)
         self.assertEqual(resolved['relations']['turn_on']['label'], 'on')
         for name, entity in baseline['entities'].items():
-            self.assertEqual([p for p in resolved['entities'][name]['properties'] if not (name == 'turn' and p == 'attempt')], list(entity['properties']))
+            self.assertEqual([p for p in prior['entities'][name]['properties'] if not (name == 'turn' and p == 'attempt')], list(entity['properties']))
 
     def test_package_and_include_only_change(self):
         dest = Path(self.tmp.name) / 'data'
@@ -128,13 +142,13 @@ class NativeSchemaTest(unittest.TestCase):
             shutil.copy(ROOT / 'tests/fixtures/baseline-schema.yaml', old / 'schema.yaml')
             shutil.copy(ROOT / 'data-entry.yaml', old / 'data-entry.yaml')
             baseline, current = read_schema(old), read_schema(new)
-            previous = copy.deepcopy(current)
+            previous = without_ledger(current)
             for kind in ('worker_execution', 'interaction', 'interaction_receipt'):
                 del previous['entities'][kind]
             previous['entities']['turn']['properties'].pop('attempt')
             self.assertEqual(previous, baseline)
             for kind, entity in baseline['entities'].items():
-                self.assertEqual([p for p in current['entities'][kind]['properties'] if not (kind == 'turn' and p == 'attempt')], list(entity['properties']))
+                self.assertEqual([p for p in previous['entities'][kind]['properties'] if not (kind == 'turn' and p == 'attempt')], list(entity['properties']))
 
     def test_flat_fly_preflight_on_previous_image(self):
         import os, subprocess

@@ -49,6 +49,14 @@
           "cause": "handed to {to} by {by}"
         }
       }
+    },
+    "decided_by": {
+      "only_target": {
+        "error": "only the one who decides sets decided_by, to themselves",
+        "also": [
+          "migration"
+        ]
+      }
     }
   },
   "entities": {
@@ -193,6 +201,140 @@
     "interaction_receipt": {
       "top": false,
       "by_hand": false
+    },
+    "decision": {
+      "primary": "title",
+      "order": "newest",
+      "create": {
+        "ask": [
+          "title",
+          "decision",
+          "context",
+          "consequences",
+          "category",
+          "scope",
+          "reversibility",
+          "force",
+          "enforced_by"
+        ],
+        "id": {
+          "prefix": "D-",
+          "digits": 4,
+          "first": 24
+        },
+        "defaults": {
+          "status": "proposed"
+        }
+      },
+      "properties": {
+        "decision": {
+          "multiline": true
+        },
+        "context": {
+          "multiline": true
+        },
+        "consequences": {
+          "multiline": true
+        },
+        "enforced_by": {
+          "label": "Enforced by"
+        },
+        "decided_at": {
+          "label": "Decided at"
+        }
+      },
+      "requires": [
+        {
+          "when": {
+            "force": [
+              "principle"
+            ]
+          },
+          "fields": [
+            "enforced_by"
+          ],
+          "error": "a principle names the check that enforces it (enforced_by)"
+        }
+      ],
+      "authority": {
+        "when": {
+          "status": [
+            "accepted"
+          ]
+        },
+        "by": "decided_by",
+        "kind": "person",
+        "only_kind_when": [
+          {
+            "category": [
+              "product",
+              "security"
+            ]
+          },
+          {
+            "reversibility": [
+              "one_way"
+            ]
+          },
+          {
+            "force": [
+              "principle"
+            ]
+          }
+        ],
+        "delegated_by": "delegated_by",
+        "error": "a product, security, one-way or principle decision is accepted by a person; any other by a person, or by an agent with delegated_by",
+        "writes": {
+          "status": [
+            "accepted",
+            "rejected"
+          ]
+        },
+        "writer_error": "only the one decided_by names accepts or rejects it, as themselves; an agent only under delegated_by, and never a product, security, one-way or principle decision"
+      },
+      "frozen": {
+        "when": {
+          "status": [
+            "accepted",
+            "superseded"
+          ]
+        },
+        "only": {
+          "status": [
+            "superseded"
+          ]
+        },
+        "error": "{key} is {value} and is never edited; a newer decision supersedes it"
+      },
+      "replaces": {
+        "relation": "supersedes",
+        "when": {
+          "status": [
+            "accepted"
+          ]
+        },
+        "of": {
+          "status": [
+            "accepted",
+            "superseded"
+          ]
+        },
+        "set": {
+          "status": "superseded"
+        },
+        "error": "{key} is not accepted; only an accepted decision is superseded"
+      },
+      "layering": {
+        "relation": "follows_from",
+        "field": "scope",
+        "not": {
+          "platform": [
+            "software_factory",
+            "instance"
+          ]
+        },
+        "error": "{key} ({value}) may not follow from {other} ({other_value}): a platform decision never depends on a software_factory or instance one"
+      }
     }
   },
   "guidance": {
