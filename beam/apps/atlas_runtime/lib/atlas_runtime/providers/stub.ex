@@ -24,6 +24,11 @@ defmodule AtlasRuntime.Agent.Stub do
   end
 
   @impl AtlasRuntime.Agent
+  def start_monitor(turn, opts) do
+    :gen_server.start_monitor(__MODULE__, {self(), turn, Keyword.get(opts, :stub_dir)}, [])
+  end
+
+  @impl AtlasRuntime.Agent
   def stop(pid) do
     if Process.alive?(pid), do: GenServer.stop(pid, :normal)
     :ok

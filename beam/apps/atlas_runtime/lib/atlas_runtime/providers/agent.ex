@@ -11,7 +11,9 @@ defmodule AtlasRuntime.Agent do
     Output is optional, is not guidance evidence, and does not itself renew a lease;
   - `{:agent, pid, {:ended, why}}`: the agent ended its turn itself.
 
-  An agent that crashes is a process that exits abnormally; the turn monitors it. `stop/1`
+  An agent that crashes is a process that exits abnormally; the turn monitors it, from its
+  start (`start_monitor/3`), so an agent that exits at once is seen with its own reason
+  rather than `:noproc`. `stop/1`
   ends the agent's turn from Runtime's side (silent, too long, no longer the owner).
 
   The ports: `stub` (synthetic), `claude` (Claude Code headless), and `codex`
@@ -20,6 +22,10 @@ defmodule AtlasRuntime.Agent do
 
   @doc "Start the agent for `turn` (`%{key, item, agent}`); messages go to the caller."
   @callback start(turn :: map, opts :: keyword) :: {:ok, pid} | {:error, term}
+
+  @doc "As `start/2`, with the caller's monitor of the started process set atomically."
+  @callback start_monitor(turn :: map, opts :: keyword) ::
+              {:ok, {pid, reference}} | {:error, term}
 
   @doc "End the agent's turn."
   @callback stop(pid) :: :ok
@@ -37,7 +43,8 @@ defmodule AtlasRuntime.Agent do
   @callback close_input(pid) :: :ok | {:error, term}
   @doc "Open historical evidence without starting a model or activating an attempt."
   @callback recover_input(map, keyword) :: {:ok, pid} | {:error, term}
-  @optional_callbacks capabilities: 1,
+  @optional_callbacks start_monitor: 2,
+                      capabilities: 1,
                       accept: 2,
                       query: 2,
                       describe: 2,
@@ -64,6 +71,22 @@ defmodule AtlasRuntime.Agent do
           Code.ensure_loaded?(port) and function_exported?(port, name, arity)
         end
       )
+
+  @doc """
+  Start the agent for `turn`, monitored by the caller from the moment it exists. A port
+  without `start_monitor/2` is started, then monitored: if it exits before the monitor is
+  set, the owner hears `:noproc` instead of its reason.
+  """
+  def start_monitor(port, turn, opts) do
+    if Code.ensure_loaded?(port) and function_exported?(port, :start_monitor, 2) do
+      port.start_monitor(turn, opts)
+    else
+      case port.start(turn, opts) do
+        {:ok, pid} -> {:ok, {pid, Process.monitor(pid)}}
+        other -> other
+      end
+    end
+  end
 
   def stop(port, pid), do: invoke(port, :stop, [pid])
 

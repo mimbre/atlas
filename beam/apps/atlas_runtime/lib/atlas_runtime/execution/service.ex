@@ -786,7 +786,7 @@ defmodule AtlasRuntime.Service do
 
     result =
       try do
-        Native.start(%{key: key}, agent: settings, turns_dir: turns)
+        Native.start_monitor(%{key: key}, agent: settings, turns_dir: turns)
       rescue
         error ->
           if record, do: {:error, error}, else: reraise(error, __STACKTRACE__)
@@ -796,10 +796,10 @@ defmodule AtlasRuntime.Service do
       end
 
     case result do
-      {:ok, pid} ->
+      {:ok, {pid, monitor}} ->
         # Before this call returns, no agent message is handled: the ring precedes all output.
         open_output(run)
-        worker = %{agent: pid, monitor: Process.monitor(pid), run: run}
+        worker = %{agent: pid, monitor: monitor, run: run}
         next = %{state | workers: Map.put(state.workers, worker_id, worker)}
         reply = if record, do: {:admission, record, run}, else: run
         {reply, next, false}

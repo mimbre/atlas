@@ -85,11 +85,12 @@ defmodule AtlasRuntime.Turn do
          true <-
            not Guidance.configured?(state) or match?({:eligible, _}, Guidance.eligible(state)),
          :ok <- prepare_output(guidance),
-         {:ok, agent} <- state.port.start(Guidance.context(state), state.port_opts) do
+         {:ok, {agent, ref}} <-
+           Agent.start_monitor(state.port, Guidance.context(state), state.port_opts) do
       state = %{
         state
         | agent_pid: agent,
-          ref: Process.monitor(agent),
+          ref: ref,
           guidance: guidance,
           output_execution: output_execution(guidance)
       }
