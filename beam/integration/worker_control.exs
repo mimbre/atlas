@@ -427,21 +427,25 @@ defmodule WorkerControlTest do
     {:ok, _} = Supervisor.restart_child(AtlasRuntime.Root, Output)
     File.write!(Path.join(c.tmp_dir, "epoch"), "")
 
-    {reset, after_epoch} =
-      output_until(
-        reconnect,
-        empty,
-        &Enum.any?(&1["events"], fn e -> e["text"] == "after epoch 界" end)
-      )
-
+    # The producer reopens the ring before appending, so the reset may arrive
+    # before the event that caused it: assert the first reply, then drain.
+    {reset, epoch_events} = output_until(reconnect, empty, &Map.has_key?(&1, "reset"))
     assert reset["reset"] == %{"reason" => "epoch_changed"}
     assert reset["view"]["execution"] == target
-    assert Enum.map(after_epoch, & &1["text"]) == ["after epoch 界"]
     refute reset["stream"]["epoch"] == empty["stream"]["epoch"]
+
+    after_epoch? = &Enum.any?(&1["events"], fn e -> e["text"] == "after epoch 界" end)
+
+    {current, after_epoch} =
+      if after_epoch?.(reset),
+        do: {reset, epoch_events},
+        else: output_until(reconnect, reset, after_epoch?, 300, epoch_events)
+
+    assert Enum.map(after_epoch, & &1["text"]) == ["after epoch 界"]
     turn_ref = Process.monitor(turn)
     adapter_ref = Process.monitor(adapter)
     File.write!(Path.join(c.tmp_dir, "finish"), "")
-    {ended, final} = output_until(reconnect, reset, & &1["stream"]["ended"])
+    {ended, final} = output_until(reconnect, current, & &1["stream"]["ended"])
     assert Enum.any?(final, &(&1["text"] == "final 界"))
     assert_receive {:DOWN, ^turn_ref, :process, ^turn, :normal}, 5_000
     assert_receive {:DOWN, ^adapter_ref, :process, ^adapter, :normal}, 5_000
