@@ -3,6 +3,7 @@ defmodule AtlasFlow.Runs.Store do
   alias AtlasFlow.Runs.Run
   alias AtlasFlow.Talk
   alias AtlasFlow.Activities.Gate
+  alias AtlasFlow.Activities.Pass
 
   @structured ~w(deadlines pending last_input)
 
@@ -217,6 +218,9 @@ defmodule AtlasFlow.Runs.Store do
     verdict = run["pending"]["verdict"]
 
     cond do
+      state != nil and state["kind"] == "pass" and run["status"] == "active" ->
+        pass_next(run, flow, subject, now, state["spec"])
+
       state != nil and state["kind"] == "gate" and run["status"] == "active" ->
         gate_next(run, flow, subject, now, state["spec"])
 
@@ -265,6 +269,75 @@ defmodule AtlasFlow.Runs.Store do
         Run.step(run, flow, subject, now, inputs)
     end
   end
+
+  defp pass_next(run, flow, subject, now, spec) do
+    with {:ok, assignment, owner} <- pass_owner(flow["owner"], subject) do
+      intent = run["pending"]["pass"]
+
+      cond do
+        intent == nil ->
+          case Pass.freeze(run, spec, subject, assignment, owner) do
+            {:ok, frozen} -> {:ok, put_in(run, ["pending", "pass"], frozen)}
+            {:error, :invalid_pass_binding} -> {:ok, run}
+          end
+
+        not Pass.current?(intent, subject, assignment, owner) ->
+          {:ok,
+           Map.merge(run, %{
+             "status" => "blocked",
+             "blocked_reason" => "pass binding changed; reconciliation required"
+           })}
+
+        true ->
+          case Pass.poll(intent, now) do
+            {:waiting, updated} ->
+              {:ok, put_in(run, ["pending", "pass"], updated)}
+
+            {:ok, %{"status" => "completed"} = reply} ->
+              Run.pass_result(run, flow, subject, now, reply)
+
+            {:ok, reply} ->
+              {:ok, put_in(run, ["pending", "pass", "execution"], reply["execution"])}
+
+            {:error, :pass_requires_reconciliation} ->
+              {:ok,
+               Map.merge(run, %{
+                 "status" => "blocked",
+                 "blocked_reason" => "Runtime pass requires reconciliation"
+               })}
+
+            {:error, _} ->
+              {:ok, run}
+          end
+      end
+    else
+      # Missing owners or routing data wait, never fall back to another machine.
+      _ -> {:ok, run}
+    end
+  end
+
+  defp pass_owner(binding, subject) do
+    with %{"description" => d} <- Talk.transition_read("_description", %{}),
+         {:ok, assignment} <- pass_assignment(binding, subject, d),
+         [key] <- assignment["links"][binding["relation"]],
+         [kind] <- d["relations"][binding["relation"]]["to"],
+         %{"fact" => %{} = owner} <- Talk.transition_read(kind, %{"key" => key, "plain" => true}) do
+      # Version/position changes alone do not change an assignment binding.
+      {:ok, Map.take(assignment, ~w(key values links)), owner}
+    else
+      _ -> {:error, :owner_unavailable}
+    end
+  end
+
+  defp pass_assignment(%{"via" => via}, subject, d) when is_binary(via) do
+    with [key] <- subject["links"][via],
+         [kind] <- d["relations"][via]["to"],
+         %{"fact" => %{} = assignment} <-
+           Talk.transition_read(kind, %{"key" => key, "plain" => true}),
+         do: {:ok, assignment}
+  end
+
+  defp pass_assignment(_, subject, _), do: {:ok, subject}
 
   defp gate_next(run, flow, subject, now, spec) do
     intent = run["pending"]["gate"]

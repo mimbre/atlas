@@ -21,6 +21,7 @@ defmodule AtlasFlow.Application do
     # One process per open fact, each restarted by itself when it crashes.
     children =
       [
+        AtlasFlow.Activities.Pass.Inbox,
         {Registry, keys: :unique, name: AtlasFlow.Items},
         {DynamicSupervisor, name: AtlasFlow.Supervisor, strategy: :one_for_one}
       ] ++ engine
