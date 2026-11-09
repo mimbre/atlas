@@ -22,7 +22,7 @@ func TestNetworkProfilesSelectCodexWebSearchOnStartAndResume(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	repository, err := repositoryArguments(map[string]any{"root": "/repository"})
+	repository, err := repositoryArguments(map[string]any{"root": "/repository"}, "/runtime-home")
 	if err != nil {
 		t.Fatal(err)
 	}

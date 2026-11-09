@@ -251,7 +251,11 @@ type claudeSettings struct {
 }
 
 // claudeRepositorySettings is the native sandbox for a dedicated repository plus its private temp.
-func claudeRepositorySettings(scope any, temporary string) (string, error) {
+// The Runtime home and the Code token with its directory are denied to Bash reads and writes and to
+// the file tools' Read rules. Claude's denies win over its allows, so a home containing the repository
+// (a managed one) is denied to Bash reads only, with the repository re-allowed there; Bash writes stay
+// limited to allowWrite and --restricted confines the file tools to the repository.
+func claudeRepositorySettings(scope any, temporary, home string) (string, error) {
 	fields, _ := scope.(map[string]any)
 	root, ok := fields["root"].(string)
 	if !ok {
@@ -265,9 +269,24 @@ func claudeRepositorySettings(scope any, temporary string) (string, error) {
 	for _, name := range []string{".agents", ".codex", ".aws", ".claude", ".git/config", ".git/hooks"} {
 		deny = append(deny, filepath.Join(root, name))
 	}
+	denied, err := runtimeEntries(home, root)
+	if err != nil {
+		return "", err
+	}
+	var denyRead, allowRead, rules []string
+	for _, entry := range denied {
+		denyRead = append(denyRead, entry[0])
+		if contained := slices.DeleteFunc([]string{root, temporary}, func(path string) bool { return !within(entry[0], path) }); len(contained) > 0 {
+			allowRead = append(allowRead, contained...)
+			continue
+		}
+		deny = append(deny, entry[0])
+		rules = append(rules, "Read(/"+entry[0]+")") // `//` marks an absolute path in Claude rules.
+	}
 	settings := claudeSettings{Sandbox: claudeSandbox{true, true, false, []string{},
-		claudeFilesystem{AllowWrite: []string{root, temporary}, DenyWrite: deny},
-		claudeNetwork{AllowedDomains: fields["network_hosts"]}, false}}
+		claudeFilesystem{AllowWrite: []string{root, temporary}, DenyWrite: deny, DenyRead: denyRead, AllowRead: allowRead},
+		claudeNetwork{AllowedDomains: fields["network_hosts"]}, false},
+		Permissions: &claudePermissions{rules}}
 	if platform == "darwin" {
 		settings.Sandbox.Network.AllowMachLookup = []string{"com.apple.trustd.agent"}
 	}
@@ -453,7 +472,31 @@ func claudeTemporaryRoots(root, temporary, subject string) ([]string, error) {
 	return roots, nil
 }
 
-func encodeSettings(settings claudeSettings) (string, error) {
+// claudeReadOnlySettings denies a plain read-only turn's file tools (it has no Bash) the Runtime home
+// and the Code token with its directory. A Read rule on a home containing the workspace (resolved
+// through symlinks) would also deny the workspace, so there only --restricted, which confines the file
+// tools to the workspace, keeps them out of the rest of the home.
+func claudeReadOnlySettings(workspace, home string) (string, error) {
+	workspace, err := resolvePath(workspace)
+	if err != nil {
+		return "", err
+	}
+	denied, err := runtimeEntries(home, workspace)
+	if err != nil {
+		return "", err
+	}
+	rules := []string{}
+	for _, entry := range denied {
+		if !within(entry[0], workspace) {
+			rules = append(rules, "Read(/"+entry[0]+")")
+		}
+	}
+	return encodeSettings(struct {
+		Permissions claudePermissions `json:"permissions"`
+	}{claudePermissions{rules}})
+}
+
+func encodeSettings(settings any) (string, error) {
 	var encoded bytes.Buffer
 	encoder := json.NewEncoder(&encoded)
 	encoder.SetEscapeHTML(false)

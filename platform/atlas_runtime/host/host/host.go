@@ -113,6 +113,10 @@ func run(args []string) (err error) {
 	review := folderScope["profile"] == "review-packet"
 	folderProfile := folderScope["profile"] == "materialized-folder" || review
 	runtimeHome, _ := folderScope["home"].(string)
+	deniedHome, err := deniedRuntimeHome(runtimeHome)
+	if err != nil {
+		return err
+	}
 	// Workers inspect their folder with exactly this host's executable: "$ATLAS_RUNTIME_EXECUTABLE".
 	inspector := ""
 	if folderProfile {
@@ -129,11 +133,14 @@ func run(args []string) (err error) {
 		scratch = filepath.Join(runtimeHome, "scratch", filepath.Base(folder))
 	}
 	if backend == "codex" {
-		permissions := []string{"--sandbox", sandbox}
+		var permissions []string
 		if scope != nil {
-			if permissions, err = permissionArguments(scope, scratch, inspector); err != nil {
-				return err
-			}
+			permissions, err = permissionArguments(scope, scratch, inspector, deniedHome)
+		} else {
+			permissions, err = sandboxArguments(sandbox, workspacePath, deniedHome)
+		}
+		if err != nil {
+			return err
 		}
 		command = codexCommand(executable, workspacePath, folder, goal, permissions, session, modelName)
 		protocol = &codexProtocol{session: session}
@@ -262,13 +269,20 @@ func run(args []string) (err error) {
 				settings, err = claudeFolderSettings(folderScope, temporary, home, inspector)
 			}
 		} else {
-			settings, err = claudeRepositorySettings(scope, temporary)
+			settings, err = claudeRepositorySettings(scope, temporary, deniedHome)
 		}
 		if err != nil {
 			return err
 		}
 		command = slices.Insert(command, 1, "--settings", settings)
 		environment = append(os.Environ(), "CLAUDE_CODE_TMPDIR="+temporary)
+	}
+	if scope == nil && backend == "claude" {
+		settings, err := claudeReadOnlySettings(workspacePath, deniedHome)
+		if err != nil {
+			return err
+		}
+		command = slices.Insert(command, 1, "--settings", settings)
 	}
 	if folderProfile {
 		if environment == nil {
@@ -300,6 +314,11 @@ func run(args []string) (err error) {
 		}
 		command = append([]string{self, "native-host", "--execute-assignment", backend, workspacePath,
 			args[6], args[7], strconv.FormatBool(created), folder, args[10]}, command...)
+		// Its repository preparation denies the same Runtime home; it removes the variable before the native CLI.
+		if environment == nil {
+			environment = os.Environ()
+		}
+		environment = append(environment, "ATLAS_RUNTIME_HOME="+deniedHome)
 	}
 
 	reader, writer, err := os.Pipe()
@@ -309,10 +328,10 @@ func run(args []string) (err error) {
 	child := exec.Command(command[0], command[1:]...)
 	child.Stdout, child.Stderr = writer, errorsFile
 	child.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	// A nil environment (a plain Codex turn) inherits this host's, without ATLAS_RUNTIME_HOME.
+	child.Env = environment
 	if backend == "claude" {
-		child.Dir, child.Env = workspacePath, environment
-	} else if folderProfile {
-		child.Env = environment
+		child.Dir = workspacePath
 	}
 	// Question answers go to native stdin through an explicit pipe the loop writes without blocking.
 	var nativeInput, stdin *os.File
@@ -616,6 +635,27 @@ func groupGone(pgid int) (bool, error) {
 	return false, err
 }
 
+// deniedRuntimeHome is the Runtime home a turn denies: a folder scope's own home, else the resolved
+// ATLAS_RUNTIME_HOME the Runtime passes, else the default home. It removes ATLAS_RUNTIME_HOME from
+// this process's environment, so native children only see the one a folder profile sets itself.
+func deniedRuntimeHome(scopeHome string) (string, error) {
+	home := os.Getenv("ATLAS_RUNTIME_HOME")
+	os.Unsetenv("ATLAS_RUNTIME_HOME")
+	if scopeHome != "" {
+		return scopeHome, nil
+	}
+	if home == "" {
+		user, err := homeDirectory()
+		if err != nil {
+			return "", err
+		}
+		home = filepath.Join(user, ".local", "state", "atlas-runtime")
+	} else if !filepath.IsAbs(home) {
+		return "", errors.New("ATLAS_RUNTIME_HOME must be an absolute path")
+	}
+	return resolvePath(home)
+}
+
 // homeDirectory follows Python's Path.home(): HOME when set, else the passwd entry.
 func homeDirectory() (string, error) {
 	if home, present := os.LookupEnv("HOME"); present {
@@ -647,6 +687,10 @@ func executeAssignment(args []string) error {
 		}
 	}
 	scope, _ := values[0].(map[string]any)
+	home, err := deniedRuntimeHome("")
+	if err != nil {
+		return err
+	}
 	if values[1] != nil {
 		repository, _ := values[1].(map[string]any)
 		created, _ := values[2].(bool)
@@ -658,7 +702,7 @@ func executeAssignment(args []string) error {
 				return errors.New("Managed repository preparation requires the installed Codex sandbox")
 			}
 		}
-		permissions, err := permissionArguments(scope, "", "")
+		permissions, err := permissionArguments(scope, "", "", home)
 		if err != nil {
 			return err
 		}

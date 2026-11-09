@@ -26,12 +26,27 @@ func probe(network string) error {
 	return connection.Close()
 }
 
+// dial connects to an existing Unix-domain socket, as a worker would to a Runtime socket.
+func dial(path string) error {
+	connection, err := net.DialTimeout("unix", path, 5*time.Second)
+	if err != nil {
+		return err
+	}
+	return connection.Close()
+}
+
 func main() {
-	if len(os.Args) != 2 || (os.Args[1] != "tcp4" && os.Args[1] != "unix") {
-		fmt.Fprintln(os.Stderr, "usage: socket-probe tcp4|unix")
+	var err error
+	switch {
+	case len(os.Args) == 2 && (os.Args[1] == "tcp4" || os.Args[1] == "unix"):
+		err = probe(os.Args[1])
+	case len(os.Args) == 3 && os.Args[1] == "dial":
+		err = dial(os.Args[2])
+	default:
+		fmt.Fprintln(os.Stderr, "usage: socket-probe tcp4|unix|dial PATH")
 		os.Exit(2)
 	}
-	if err := probe(os.Args[1]); err != nil {
+	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
