@@ -1,0 +1,4 @@
+{"on":"/k/widget/WI-01","op":"ask","request":"two parts"}
+{"op":"run","steps":[{"n":1,"values":{"title":"Uno"}},{"n":2}]}
+{"intent":"overrule","on":"WI-01","op":"ask","request":"again"}
+{"op":"cancel"}
