@@ -4,6 +4,10 @@
       "channel": "mail",
       "initial": "draft",
       "owner": {
+        "default": {
+          "key": "post_room",
+          "kind": "team"
+        },
         "relation": "held_by",
         "via": "desk"
       },
@@ -16,6 +20,9 @@
           "final": false,
           "kind": "pass",
           "label": "Write the draft",
+          "present": {
+            "expected": "Write it"
+          },
           "spec": {
             "mode": "draft",
             "profile": "writer"
@@ -51,7 +58,36 @@
         },
         "stuck": {
           "final": false,
-          "label": "Someone decides"
+          "label": "Someone decides",
+          "owner": {
+            "default": {
+              "key": "editors",
+              "kind": "team"
+            }
+          },
+          "present": {
+            "expected": "Decide on it: {reason}",
+            "todo": {
+              "answers": [
+                {
+                  "key": "r",
+                  "label": "Retry",
+                  "set": "retried_by"
+                },
+                {
+                  "key": "d",
+                  "label": "Drop",
+                  "remove": "retried_by"
+                }
+              ],
+              "instructions": "Read what went wrong, then send it back to the writer or drop it.",
+              "section": {
+                "field": "notes",
+                "heading": "What went wrong"
+              }
+            },
+            "why": "it could not go out"
+          }
         }
       },
       "subject": "letter"

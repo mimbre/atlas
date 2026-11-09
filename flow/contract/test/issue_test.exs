@@ -4,14 +4,19 @@ defmodule AtlasFlowContract.IssueTest do
   alias AtlasFlowContract.Issue
 
   # The Issue subflow as the design describes it (input-definitions/issue.flows.yaml for
-  # the Rela side; the mechanism on each state for the Atlas side). Lines are left out.
+  # the Rela side; the mechanism on each state for the Atlas side; v1 build_and_merge's
+  # one state for its owner and what the owner sees). Lines are left out.
   @flow %{
     name: :issue,
     label: "Issue",
     subject: :issue,
     run_as: "system:sf-flow",
     per_subject: :one,
-    owner: %{via: :assignment, relation: :assigned_to},
+    owner: %{
+      via: :assignment,
+      relation: :assigned_to,
+      default: %{kind: :agent, key: :coordinator}
+    },
     channel: :work,
     start: [%{on: :predicate, when: "entity.stage == 'development'", permission: nil, every: nil}]
   }
@@ -63,7 +68,15 @@ defmodule AtlasFlowContract.IssueTest do
           flow(:delivery_gate, :pass_result, :delivered),
           flow(:needs_person, :pass_result, :failed)
         ],
-        timers: [runtime_wait.("pass")]
+        timers: [runtime_wait.("pass")],
+        present: %{
+          expected: "Build it",
+          why: "its pull request is not merged",
+          instructions:
+            "Build it in one pull request and get that merged; link the pull request to it.",
+          section: nil,
+          answers: []
+        }
       ),
       state(:delivery_gate, "Delivery-evidence gate",
         mechanism: {:gate, %{gate: :delivery_evidence, version: 1}},
@@ -177,7 +190,9 @@ defmodule AtlasFlowContract.IssueTest do
         set: [],
         creates: [],
         branches: [],
-        timers: []
+        timers: [],
+        present: nil,
+        owner: nil
       },
       Map.new(fields)
     )

@@ -5,6 +5,10 @@
       "channel": "debate",
       "initial": "proposed",
       "owner": {
+        "default": {
+          "key": "coordinator",
+          "kind": "agent"
+        },
         "relation": "assigned_to",
         "via": "assignment"
       },
@@ -15,7 +19,14 @@
         },
         "proposed": {
           "final": false,
-          "label": "Proposed"
+          "label": "Proposed",
+          "present": {
+            "expected": "Have it decided",
+            "todo": {
+              "instructions": "Have it accepted or rejected, with decided_by and decided_at. A person accepts a product, security, one-way or principle decision; any other a person, or an agent under delegated_by. A principle names its enforced_by."
+            },
+            "why": "it is proposed"
+          }
         },
         "rejected": {
           "final": true,
@@ -28,6 +39,10 @@
       "channel": "work",
       "initial": "designing",
       "owner": {
+        "default": {
+          "key": "coordinator",
+          "kind": "agent"
+        },
         "relation": "assigned_to",
         "via": "assignment"
       },
@@ -49,6 +64,13 @@
           "final": false,
           "kind": "pass",
           "label": "Design review pass",
+          "present": {
+            "expected": "Have its design reviewed",
+            "todo": {
+              "instructions": "Run a review pass on the Design part: set design_status to approved to go on to break it down and build it, or to changes_requested, with why in the note, to send it back."
+            },
+            "why": "its Design part waits for review"
+          },
           "spec": {
             "diversity": "other_vendor",
             "findings": "required",
@@ -62,6 +84,13 @@
           "final": false,
           "kind": "pass",
           "label": "Design pass",
+          "present": {
+            "expected": "Write its Design part",
+            "todo": {
+              "instructions": "Write the Design part (design), then set design_status to in_review; when the review requested changes, make them first."
+            },
+            "why": "its design is not reviewed yet"
+          },
           "spec": {
             "folder": ["materialize", "target"],
             "freeze": "packet",
@@ -82,6 +111,13 @@
           "final": false,
           "kind": "pass",
           "label": "Design rework pass",
+          "present": {
+            "expected": "Write its Design part",
+            "todo": {
+              "instructions": "Write the Design part (design), then set design_status to in_review; when the review requested changes, make them first."
+            },
+            "why": "its design is not reviewed yet"
+          },
           "spec": {
             "folder": ["continue", "designing"],
             "freeze": "packet",
@@ -102,6 +138,10 @@
       "channel": "work",
       "initial": "author",
       "owner": {
+        "default": {
+          "key": "coordinator",
+          "kind": "agent"
+        },
         "relation": "assigned_to",
         "via": "assignment"
       },
@@ -110,6 +150,13 @@
           "final": false,
           "kind": "pass",
           "label": "Author pass",
+          "present": {
+            "expected": "Build it",
+            "todo": {
+              "instructions": "Build it in one pull request and get that merged; link the pull request to it."
+            },
+            "why": "its pull request is not merged"
+          },
           "spec": {
             "folder": ["materialize", "target"],
             "freeze": "packet",
@@ -271,6 +318,12 @@
     },
     "pull_request": {
       "initial": "checking",
+      "owner": {
+        "default": {
+          "key": "coordinator",
+          "kind": "agent"
+        }
+      },
       "states": {
         "blocked": {
           "final": false,
@@ -282,7 +335,14 @@
         },
         "checking": {
           "final": false,
-          "label": "Review and test"
+          "label": "Review and test",
+          "present": {
+            "expected": "Review and merge it",
+            "todo": {
+              "instructions": "Review the pull request; merge it, or close it."
+            },
+            "why": "it is open"
+          }
         },
         "closed": {
           "final": true,
@@ -311,6 +371,10 @@
     "test_and_accept_scene": {
       "initial": "break_down",
       "owner": {
+        "default": {
+          "key": "coordinator",
+          "kind": "agent"
+        },
         "relation": "assigned_to",
         "via": "assignment"
       },
@@ -323,6 +387,13 @@
           "final": false,
           "kind": "pass",
           "label": "Break it down into use cases",
+          "present": {
+            "expected": "Break it down into use cases and issues",
+            "todo": {
+              "instructions": "Add the use cases under it, and their issues; Flow hands it on to build once something is under it."
+            },
+            "why": "nothing is under it yet"
+          },
           "spec": {
             "mode": "author",
             "profile": "architect",
@@ -331,12 +402,26 @@
         },
         "building": {
           "final": false,
-          "label": "Build it"
+          "label": "Build it",
+          "present": {
+            "expected": "Build it",
+            "todo": {
+              "instructions": "Build what is under it; Flow hands it on for testing once all of it is completed."
+            },
+            "why": "not all under it is completed"
+          }
         },
         "rework": {
           "final": false,
           "kind": "pass",
           "label": "Rework it",
+          "present": {
+            "expected": "Rework: {note}",
+            "todo": {
+              "instructions": "Rework it as the note says; Flow hands it back for testing once all under it is completed."
+            },
+            "why": "reopened"
+          },
           "spec": {
             "input": ["channel", "newest_since_last_pass"],
             "mode": "rework",
@@ -345,7 +430,30 @@
         },
         "to_test": {
           "final": false,
-          "label": "Test it"
+          "label": "Test it",
+          "present": {
+            "expected": "Test it",
+            "todo": {
+              "answers": [
+                {
+                  "key": "a",
+                  "label": "Accept",
+                  "set": "accepted_by"
+                },
+                {
+                  "key": "f",
+                  "label": "Reject",
+                  "remove": "accepted_by"
+                }
+              ],
+              "instructions": "Try the test below, then accept it, or reject it with a note.",
+              "section": {
+                "field": "description",
+                "heading": "Melle can test"
+              }
+            },
+            "why": "all under it is completed"
+          }
         }
       },
       "subject": "scene"
@@ -353,6 +461,10 @@
     "test_and_accept_use_case": {
       "initial": "break_down",
       "owner": {
+        "default": {
+          "key": "coordinator",
+          "kind": "agent"
+        },
         "relation": "assigned_to",
         "via": "assignment"
       },
@@ -365,6 +477,13 @@
           "final": false,
           "kind": "pass",
           "label": "Break it down into issues",
+          "present": {
+            "expected": "Break it down into issues",
+            "todo": {
+              "instructions": "Add the issues under it; Flow hands it on to build once something is under it."
+            },
+            "why": "nothing is under it yet"
+          },
           "spec": {
             "mode": "author",
             "profile": "architect",
@@ -373,12 +492,26 @@
         },
         "building": {
           "final": false,
-          "label": "Build it"
+          "label": "Build it",
+          "present": {
+            "expected": "Build it",
+            "todo": {
+              "instructions": "Build what is under it; Flow hands it on for testing once all of it is completed."
+            },
+            "why": "not all under it is completed"
+          }
         },
         "rework": {
           "final": false,
           "kind": "pass",
           "label": "Rework it",
+          "present": {
+            "expected": "Rework: {note}",
+            "todo": {
+              "instructions": "Rework it as the note says; Flow hands it back for testing once all under it is completed."
+            },
+            "why": "reopened"
+          },
           "spec": {
             "input": ["channel", "newest_since_last_pass"],
             "mode": "rework",
@@ -387,7 +520,30 @@
         },
         "to_test": {
           "final": false,
-          "label": "Test it"
+          "label": "Test it",
+          "present": {
+            "expected": "Test it",
+            "todo": {
+              "answers": [
+                {
+                  "key": "a",
+                  "label": "Accept",
+                  "set": "accepted_by"
+                },
+                {
+                  "key": "f",
+                  "label": "Reject",
+                  "remove": "accepted_by"
+                }
+              ],
+              "instructions": "Try the test below, then accept it, or reject it with a note.",
+              "section": {
+                "field": "description",
+                "heading": "Melle can test"
+              }
+            },
+            "why": "all under it is completed"
+          }
         }
       },
       "subject": "use_case"

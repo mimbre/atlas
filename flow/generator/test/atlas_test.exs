@@ -35,6 +35,41 @@ defmodule AtlasFlowGenerator.AtlasTest do
     assert {data["format"], data["writer"]} == {1, "system:atlas-flow"}
   end
 
+  test "a state presents to its owner as expected, why and todo; the owner has a default" do
+    letter = JSON.decode!(json())["flows"]["letter"]
+
+    assert letter["owner"] == %{
+             "via" => "desk",
+             "relation" => "held_by",
+             "default" => %{"kind" => "team", "key" => "post_room"}
+           }
+
+    assert letter["states"]["stuck"]["present"] == %{
+             "expected" => "Decide on it: {reason}",
+             "why" => "it could not go out",
+             "todo" => %{
+               "instructions" =>
+                 "Read what went wrong, then send it back to the writer or drop it.",
+               "section" => %{"field" => "notes", "heading" => "What went wrong"},
+               "answers" => [
+                 %{"key" => "r", "label" => "Retry", "set" => "retried_by"},
+                 %{"key" => "d", "label" => "Drop", "remove" => "retried_by"}
+               ]
+             }
+           }
+
+    # A state's own owner is written as the subflow's is; the others have none of their own.
+    assert letter["states"]["stuck"]["owner"] == %{
+             "default" => %{"kind" => "team", "key" => "editors"}
+           }
+
+    refute Map.has_key?(letter["states"]["draft"], "owner")
+
+    # No why and no todo: nothing empty is written.
+    assert letter["states"]["draft"]["present"] == %{"expected" => "Write it"}
+    refute Map.has_key?(letter["states"]["proofread"], "present")
+  end
+
   test "a state that names a gate the gates do not hold, or in another version, is refused" do
     [smart, rule] = Example.Gates.__gates__()
 

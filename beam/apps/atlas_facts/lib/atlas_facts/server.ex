@@ -47,7 +47,8 @@ defmodule AtlasFacts.Server do
     Links,
     Progress,
     Rela,
-    Review
+    Review,
+    Subflows
   }
 
   @description "_description"
@@ -356,6 +357,9 @@ defmodule AtlasFacts.Server do
       description = Description.merge(description, extra(state.extra))
 
       # Flow definitions are checked before anyone runs them (rule 4).
+      # The generated subflows, with their owners and what each state shows, checked too.
+      description = Subflows.describe(description)
+
       if is_map(description["flows"]),
         do: {:ok, Map.put(description, "flow_problems", Flows.check(description))},
         else: {:ok, description}

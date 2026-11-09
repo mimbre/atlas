@@ -34,7 +34,7 @@ defmodule AtlasFlowGenerator.SchemaTest do
                subject: :letter,
                run_as: "system:post",
                per_subject: :one,
-               owner: %{via: :desk, relation: :held_by},
+               owner: %{via: :desk, relation: :held_by, default: %{kind: :team, key: :post_room}},
                channel: :mail,
                initial: :draft,
                start: [
@@ -107,6 +107,44 @@ defmodule AtlasFlowGenerator.SchemaTest do
     test "final states carry their outputs and status" do
       assert %{final: true, set: [archived: true], branches: []} = state(:answered)
       assert %{final: true, status: :cancelled} = state(:dropped)
+    end
+
+    test "present is what the owner sees, kept as written" do
+      assert state(:stuck).present == %{
+               expected: "Decide on it: {reason}",
+               why: "it could not go out",
+               instructions: "Read what went wrong, then send it back to the writer or drop it.",
+               section: %{field: :notes, heading: "What went wrong"},
+               answers: [
+                 %{key: "r", label: "Retry", set: :retried_by},
+                 %{key: "d", label: "Drop", remove: :retried_by}
+               ]
+             }
+
+      assert %{expected: "Write it", why: nil, section: nil, answers: []} = state(:draft).present
+      assert state(:proofread).present == nil
+    end
+
+    test "a state may have its own owner; the others have the subflow's" do
+      assert state(:stuck).owner == %{default: %{kind: :team, key: :editors}}
+      assert state(:draft).owner == nil
+    end
+
+    test "an owner may be a default alone" do
+      [flow] =
+        compile!("""
+        subflow :f, subject: :t do # its owner is below
+          owner default: {:team, :desk}
+          start :create
+          initial :a
+          state :a do
+            wait_for [:editor], on: :choice, reset: false, done: :b
+          end
+          final :b
+        end
+        """).__flows__()
+
+      assert flow.owner == %{default: %{kind: :team, key: :desk}}
     end
 
     test "gates are data" do
@@ -742,6 +780,169 @@ defmodule AtlasFlowGenerator.SchemaTest do
       )
     end
 
+    test "an owner that names no one" do
+      refused(
+        owned("owner via: :desk"),
+        2,
+        "subflow f: owner needs relation: (the assignee) or default:"
+      )
+    end
+
+    test "an owner via a type without the relation to the assignee" do
+      refused(
+        owned("owner via: :desk, default: {:team, :desk}"),
+        2,
+        "owner via: desk needs relation:"
+      )
+    end
+
+    test "an owner default that is not {kind, key}" do
+      refused(
+        owned("owner relation: :held_by, default: :desk"),
+        2,
+        "owner default must be {kind, key}"
+      )
+
+      refused(
+        owned(~s|owner default: {:team, "Front Desk"}|),
+        2,
+        ~s|default's key "Front Desk" is not a valid name|
+      )
+    end
+
+    test "an owner with a key it does not know" do
+      refused(owned("owner relation: :held_by, fallback: :desk"), 2, "owner knows no fallback")
+    end
+
+    test "a subflow without an owner; each open state without one of its own is named too" do
+      error =
+        refused(
+          """
+          subflow :f, subject: :t do # no owner
+            start :create
+            initial :a
+            state :a do
+              owner default: {:team, :desk}
+              wait_for [:editor], on: :choice, reset: false, done: :c
+            end
+            state :c do
+              wait_for [:editor], on: :choice, reset: false, done: :b
+            end
+            final :b
+          end
+          """,
+          1,
+          "subflow f: has no owner; give owner relation: (the assignee) or default:"
+        )
+
+      # State c is at fixture line 8, file line 9.
+      assert error.description =~ "line 9: subflow f: state c has no owner"
+      refute error.description =~ "state a has no owner"
+      refute error.description =~ "state b has no owner"
+    end
+
+    test "a state that gives its owner twice is ambiguous" do
+      refused(
+        presented("owner default: {:team, :a}\n    owner relation: :held_by"),
+        6,
+        "state a: gives its owner twice; a state has exactly one owner"
+      )
+    end
+
+    test "a subflow that gives its owner twice is ambiguous" do
+      refused(
+        owned("owner default: {:team, :a}\n  owner relation: :held_by"),
+        2,
+        "subflow f: owner is given more than once"
+      )
+    end
+
+    test "a state's own owner is checked as the subflow's is" do
+      refused(presented("owner via: :desk"), 5, "state a: owner needs relation:")
+    end
+
+    test "a final state that has an owner" do
+      refused(
+        """
+        subflow :f, subject: :t do
+          start :create
+          initial :a
+          state :a do
+            wait_for [:editor], on: :choice, reset: false, done: :b
+          end
+          final :b do
+            owner default: {:team, :desk}
+          end
+        end
+        """,
+        7,
+        "state b: is final, so it has no owner"
+      )
+    end
+
+    test "a state that presents twice" do
+      refused(
+        presented(~s|present expected: "A"\n    present expected: "B"|),
+        6,
+        "state a: presents twice"
+      )
+    end
+
+    test "a present without expected, or with another key" do
+      refused(presented(~s|present why: "late"|), 5, "state a: present needs expected: a text")
+
+      refused(
+        presented(~s|present expected: "A", note: "x"|),
+        5,
+        "state a: present knows no note"
+      )
+    end
+
+    test "a present whose section is not a field and a heading" do
+      refused(
+        presented(~s|present expected: "A", section: [field: :body]|),
+        5,
+        "section: must be [field: name, heading: text]"
+      )
+    end
+
+    test "an answer that sets and removes, or gives a key twice" do
+      refused(
+        presented(
+          ~s|present expected: "A", answers: [[key: "a", label: "A", set: :r, remove: :r]]|
+        ),
+        5,
+        "must be [key:, label:, and set: or remove: a relation]"
+      )
+
+      refused(
+        presented(
+          ~s|present expected: "A", answers: [[key: "a", label: "A", set: :r], [key: "a", label: "B", remove: :r]]|
+        ),
+        5,
+        "present gives answer key a twice"
+      )
+    end
+
+    test "a final state that presents" do
+      refused(
+        """
+        subflow :f, subject: :t do
+          start :create
+          initial :a
+          state :a do
+            wait_for [:editor], on: :choice, reset: false, done: :b
+          end
+          final :b do
+            present expected: "Nothing"
+          end
+        end
+        """,
+        7,
+        "state b: is final, so nothing is presented to an owner"
+      )
+    end
+
     test "a state outside a subflow" do
       refused("state :a do\nend\n", 1, "state belongs inside a subflow")
     end
@@ -772,6 +973,36 @@ defmodule AtlasFlowGenerator.SchemaTest do
   defp state(name), do: Enum.find(hd(Example.__flows__()).states, &(&1.name == name))
   defp branches(state), do: Enum.map(state.branches, &{&1.to, &1.roles, &1.when})
 
+  # A sound subflow with the owner line at line 2.
+  defp owned(owner) do
+    """
+    subflow :f, subject: :t do # its owner is below
+      #{owner}
+      start :create
+      initial :a
+      state :a do
+        wait_for [:editor], on: :choice, reset: false, done: :b
+      end
+      final :b
+    end
+    """
+  end
+
+  # A sound subflow whose state a holds `present`, from line 5.
+  defp presented(present) do
+    """
+    subflow :f, subject: :t do
+      start :create
+      initial :a
+      state :a do
+        #{present}
+        wait_for [:editor], on: :choice, reset: false, done: :b
+      end
+      final :b
+    end
+    """
+  end
+
   defp gated(states) do
     """
     subflow :f, subject: :t do
@@ -800,7 +1031,14 @@ defmodule AtlasFlowGenerator.SchemaTest do
   end
 
   # The body sits at line 1 of the fixture file; `use` is on the same line as defmodule.
+  # Every fixture subflow gets an owner on its subflow line, so its other lines keep
+  # their numbers; one that names its own owner, or none, ends that line with a comment.
   defp compile!(body) do
+    body =
+      String.replace(body, ~r/^(\s*subflow .* do)$/m, "\\1 owner default: {:team, :desk}",
+        global: false
+      )
+
     module = :"Elixir.AtlasFlowGenerator.Fixture#{System.unique_integer([:positive])}"
     file = "fixture_#{System.unique_integer([:positive])}.ex"
 
