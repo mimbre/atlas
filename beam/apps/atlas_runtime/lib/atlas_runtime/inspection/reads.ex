@@ -18,6 +18,7 @@ defmodule AtlasRuntime.Inspection.Reads do
     "turns" => [],
     "turn" => ["turn_id"],
     "events" => ["cursor", "limit"],
+    "follow" => ["cursor"],
     "output" => ["turn_id", "cursor"]
   }
   @required %{"turn" => ["turn_id"], "output" => ["turn_id"]}
@@ -218,5 +219,6 @@ defmodule AtlasRuntime.Inspection.Reads do
   defp message("unknown_turn"), do: "No turn with this ID"
   defp message("invalid_cursor"), do: "Cursor does not identify a position in this stream"
   defp message("output_unavailable"), do: "Output is not retained for this turn"
+  defp message("too_many_followers"), do: "Too many follow connections are open"
   defp message(_), do: "Runtime could not read this state"
 end

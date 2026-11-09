@@ -17,20 +17,34 @@ defmodule AtlasRuntime.Service do
   alias AtlasRuntime.Workspaces
   import AtlasRuntime.Execution.Identity
 
+  # Open read.sock follow connections; more are refused with `too_many_followers`.
+  @followers 32
+
   @doc "Start the service; `server` (without its token) opts into Atlas Server lifecycle reporting."
   def start(dir, server \\ nil),
     do: GenServer.start_link(__MODULE__, {dir, server}, name: __MODULE__)
 
   def init(dir) when is_binary(dir), do: init({dir, nil, []})
   def init({dir, server}), do: init({dir, server, []})
+  def init({dir, server, reporting}), do: init({dir, server, reporting, []})
 
-  # `reporting` is explicit dependency injection for private proof tests (bounded Talk timing).
-  def init({dir, server, reporting}) do
+  # `reporting` and `options` are explicit dependency injection for tests: bounded Talk
+  # timing; `follow:` read.sock follow timing and `halt:` the exit after a service stop.
+  def init({dir, server, reporting, options}) do
     policy = BackendPolicy.load(dir)
     events = History.recover(dir)
     Socket.start(dir, __MODULE__)
-    ReadSocket.start(dir, self())
-    state = %{dir: dir, policy: policy, events: events, workers: %{}, stopping: false}
+    ReadSocket.start(dir, self(), Keyword.get(options, :follow, []))
+
+    state = %{
+      dir: dir,
+      policy: policy,
+      events: events,
+      workers: %{},
+      stopping: false,
+      followers: %{},
+      halt: Keyword.get(options, :halt, &System.stop/1)
+    }
 
     if server do
       {:ok, reporter} = Lifecycle.start(server, reporting)
@@ -40,12 +54,55 @@ defmodule AtlasRuntime.Service do
     end
   end
 
+  # Every callback that grew the journal signals the read.sock followers afterwards. Decided
+  # here, at the boundary, because some paths store new events before `record_changes/2`.
+  def handle_call(request, from, state), do: signal(state, serve_call(request, from, state))
+  def handle_info(message, state), do: signal(state, serve_info(message, state))
+
+  # A fixed-size message per follower and never a wait: each one reads its pages itself.
+  defp signal(previous, result) do
+    next = elem(result, tuple_size(result) - 1)
+    sequence = next.events["sequence"]
+
+    if sequence > previous.events["sequence"],
+      do: Enum.each(Map.keys(followers(next)), &send(&1, {:events_appended, sequence}))
+
+    result
+  end
+
+  defp followers(state), do: Map.get(state, :followers, %{})
+
   # read.sock's admitted reads: answered from the state, which they never change, and never
   # dispatched as commands.
-  def handle_call({:read, op, args}, _from, state),
+  defp serve_call({:read, op, args}, _from, state),
     do: {:reply, Reads.read(op, args, state), state}
 
-  def handle_call(request, _from, state) do
+  # A read.sock follow connection: registration and its first page in one call. Followers are
+  # connection bookkeeping, never persisted or returned.
+  defp serve_call({:follow, pid, cursor}, _from, state) when is_pid(pid) do
+    followers = followers(state)
+    page = fn -> Reads.read("events", %{"cursor" => cursor, "limit" => 100}, state) end
+
+    cond do
+      Map.has_key?(followers, pid) ->
+        {:reply, page.(), state}
+
+      map_size(followers) >= @followers ->
+        {:reply, Reads.error("too_many_followers"), state}
+
+      true ->
+        case page.() do
+          %{"error" => _} = error ->
+            {:reply, error, state}
+
+          reply ->
+            followers = Map.put(followers, pid, Process.monitor(pid))
+            {:reply, reply, Map.put(state, :followers, followers)}
+        end
+    end
+  end
+
+  defp serve_call(request, _from, state) do
     {reply, next, shutdown?} =
       try do
         command(request, state)
@@ -814,14 +871,18 @@ defmodule AtlasRuntime.Service do
     end
   end
 
-  def handle_info({:agent, pid, message}, state) when is_pid(pid) do
+  defp serve_info({:agent, pid, message}, state) when is_pid(pid) do
     case Enum.find(state.workers, fn {_id, worker} -> worker.agent == pid end) do
       nil -> {:noreply, state}
       {id, worker} -> {:noreply, agent_message(message, id, worker, state)}
     end
   end
 
-  def handle_info({:DOWN, ref, :process, pid, reason}, state) do
+  defp serve_info({:DOWN, ref, :process, pid, _reason}, %{followers: followers} = state)
+       when :erlang.map_get(pid, followers) == ref,
+       do: {:noreply, %{state | followers: Map.delete(followers, pid)}}
+
+  defp serve_info({:DOWN, ref, :process, pid, reason}, state) do
     case Enum.find(state.workers, fn {_id, worker} ->
            worker.agent == pid and worker.monitor == ref and is_reference(ref)
          end) do
@@ -850,7 +911,7 @@ defmodule AtlasRuntime.Service do
   end
 
   # Exact correlation: a report changes only the turn with this local ID and attempt.
-  def handle_info({:server_report, turn, attempt, report}, state) do
+  defp serve_info({:server_report, turn, attempt, report}, state) do
     case Enum.find(state.workers, fn {_id, worker} -> worker.run[:id] == turn end) do
       {id, %{run: %{server: %{"attempt" => ^attempt} = server}} = worker} ->
         {:noreply,
@@ -870,14 +931,16 @@ defmodule AtlasRuntime.Service do
     end
   end
 
-  def handle_info(:shutdown, state) do
+  defp serve_info(:shutdown, state) do
+    # Followers write their `end` line best effort; the exit never waits for them.
+    Enum.each(Map.keys(followers(state)), &send(&1, :service_stopping))
     # Ends already asked for get a bounded moment; Server never holds the exit up longer.
     if state[:server], do: Lifecycle.flush(state.server.reporter, 5_000)
-    System.stop(0)
+    Map.get(state, :halt, &System.stop/1).(0)
     {:noreply, state}
   end
 
-  def handle_info(_, state), do: {:noreply, state}
+  defp serve_info(_, state), do: {:noreply, state}
 
   defp agent_message({kind, _} = message, id, worker, state) when kind in [:question, :answer] do
     {run, events} = Interactions.observe(message, worker.run, id, state.dir, state.events)

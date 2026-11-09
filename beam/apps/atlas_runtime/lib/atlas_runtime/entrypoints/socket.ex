@@ -8,7 +8,10 @@ defmodule AtlasRuntime.Entrypoints.Socket do
     end)
   end
 
-  @doc "Serve one JSON line per connection at `path`; `handle` returns `{reply, shutdown?}`."
+  @doc """
+  Serve one JSON line per connection at `path`; `handle` returns `{reply, shutdown?}`, or
+  `{:stream, fun}` to hand the connection to `fun.(socket)`, which then owns and closes it.
+  """
   def serve(path, server, handle) do
     {:ok, listener} =
       :gen_tcp.listen(0, [
@@ -43,10 +46,15 @@ defmodule AtlasRuntime.Entrypoints.Socket do
   defp connection(socket, server, handle) do
     case :gen_tcp.recv(socket, 0, 5_000) do
       {:ok, bytes} ->
-        {reply, shutdown?} = handle.(bytes)
-        :gen_tcp.send(socket, JSON.encode!(reply) <> "\n")
-        :gen_tcp.close(socket)
-        if shutdown?, do: send(server, :shutdown)
+        case handle.(bytes) do
+          {:stream, stream} ->
+            stream.(socket)
+
+          {reply, shutdown?} ->
+            :gen_tcp.send(socket, JSON.encode!(reply) <> "\n")
+            :gen_tcp.close(socket)
+            if shutdown?, do: send(server, :shutdown)
+        end
 
       _ ->
         :gen_tcp.close(socket)
