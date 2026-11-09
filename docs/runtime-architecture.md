@@ -507,6 +507,8 @@ The CLI and Atlas Server-facing transport translate requests into the same appli
 
 Transport-specific parsing and presentation remain at the edge. A truncated status summary must not substitute for full output or a structured handoff record.
 
+The one `atlas-runtime` command has two meanings: its service, worker, turn and snapshot commands drive the standalone service, and `atlas-runtime node start|stop|status` operates this machine as a node of an Atlas environment ([Runtime node](guides/runtime-node.md)). The node group is only a launcher: the node's lifecycle, environment resolution, Fly tunnel and keychain access stay in the checkout's `tools/runtime.py` and `tools/runtime_process.py`, and Go learns none of them. Discovery of a registered node is a Control read, so it is `atlas discover`, not part of `atlas-runtime`.
+
 ## Current implementation versus this target
 
 The current layout groups both execution paths by responsibility without treating their different contracts as interchangeable:

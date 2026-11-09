@@ -149,11 +149,43 @@ def operate(root, client_file, environment, request):
         return dict(report, message='local Runtime lifecycle refused: '+str(error))
 
 
+def resolve_client(root, environment):
+    """The environment's settings file and name, by the rule bin/atlas follows: ATLAS_ENV_FILE
+    (a private instance whose environment is the file's "env"), else env/<env>.json with prod
+    by default. A given environment and the file's "env" must agree."""
+    private = os.environ.get('ATLAS_ENV_FILE', '')
+    if private:
+        settings = Path(private).expanduser()
+    else:
+        environment = environment or 'prod'
+        settings = Path(root)/'env'/(environment+'.json')
+    if not settings.is_file():
+        raise ValueError("no environment '%s' (no %s)" % (environment, settings))
+    settings = settings.resolve()
+    try:
+        named = json.loads(settings.read_text()).get('env')
+    except (OSError, ValueError, AttributeError):
+        raise ValueError('%s is not an environment file' % settings)
+    environment = environment or named
+    if environment not in ('test', 'prod'):
+        raise ValueError("no environment '%s'; use --env test or --env prod" % environment)
+    if named != environment:
+        raise ValueError('%s is for %s, not %s' % (settings, named, environment))
+    return str(settings), environment
+
+
 def main():
-    command, root, client_file, environment, *options = sys.argv[1:]
-    if command in ('runtime-status', 'runtime', 'runtime-stop', 'runtime-start'):
-        action = {'runtime-status': 'status', 'runtime': 'start', 'runtime-start': 'start', 'runtime-stop': 'stop'}[command]
-        return status_cli(root, environment, options, action, client_file)
+    command, root, *rest = sys.argv[1:]
+    # The node operations, as atlas-runtime node launches them: <root> <env or ''> [options].
+    if command in ('runtime-status', 'runtime-start', 'runtime-stop'):
+        environment, *options = rest
+        try:
+            client_file, environment = resolve_client(root, environment)
+        except ValueError as error:
+            print('atlas-runtime node: '+str(error), file=sys.stderr)
+            return 1
+        return status_cli(root, environment, options, command[len('runtime-'):], client_file)
+    client_file, environment, *options = rest
     if command == '_runtime-status-observe':
         print(json.dumps(observe_status(root, environment, json.loads(options[0]), client_file=client_file)))
         return 0

@@ -100,7 +100,7 @@ Preserve both `rela/` and `beam/`, including State's provenance and answered-fac
    build. Never start new-schema rela over data that still needs a migration.
 1. **Freeze every source writer using the OLD client settings.** Keep the operational
    checkout on `fly.in_use=false` through verification. Stop independent Runtime nodes
-   on every agent machine (`atlas runtime-stop --env prod`, when IS-91 is installed),
+   on every agent machine (`atlas-runtime node stop --env prod`, when IS-91 is installed),
    close ordinary clients and stop other automated writers. Core stop alone does not
    stop Runtime. Run `atlas-ops stop --rela --env prod` (the core, then rela) on the
    source. Prevent clients, supervisors and unattended deploys from restarting either

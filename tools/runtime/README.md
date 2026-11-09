@@ -13,6 +13,16 @@ atlas-runtime service stop
 
 Commands return one JSON response, except `output --follow`, which streams JSON lines. `start` returns while the selected native agent runs. `stop` and `kill` control only the exact worker and turn named, not the service; see [Stop, kill and release](#stop-kill-and-release). `service stop` gracefully stops every running worker, then refuses new work and reports `service: "stopping"` until no owned execution remains; it exits nonzero with the workers still pending, and repeating `service stop` completes the shutdown once they ended (or after you kill them). A latch-write failure retains the stops already requested and does not enter the stopping state. `service status` exposes a `workers` map. Single-worker `agent_state`/stop `agent` fields remain available only when unambiguous. No automatic daemon startup, assignment retries or stdin session. Command failures exit nonzero. A successful `status` or `output` query exits zero even for a failed turn, retaining its `state: "failed"`, `error`, ID and artifact location.
 
+## Connected node
+
+`atlas-runtime` has two meanings. Everything below drives the standalone service. `atlas-runtime node` is this machine as a node of an Atlas environment ([Runtime node](../../docs/guides/runtime-node.md)):
+
+```sh
+atlas-runtime node start|stop|status [--env test|prod] [--machine NAME] [--checkout PATH] [--json]
+```
+
+It only launches the node lifecycle of an Atlas checkout (`python3 CHECKOUT/tools/runtime.py runtime-OP CHECKOUT ENV …`), replacing itself, so the output and exit status are the lifecycle's. The checkout is `--checkout`, else `ATLAS_ROOT`, else the `"checkout"` field of the node's `runtime.json` (`ATLAS_RUNTIME_FILE`, else `ATLAS_RUNTIME_HOME/runtime.json`, else `~/.local/share/atlas/ENV-runtime/runtime.json`, prod by default); with none it exits 2. The checkout resolves the environment as `atlas` does (`ATLAS_ENV_FILE`, else `env/ENV.json`; `--env` and the file's `"env"` must agree) and an omitted `--machine` from `runtime.json`. The node uses neither this CLI's Runtime home nor its service; there `ATLAS_RUNTIME_HOME` is the node's instance folder. `ATLAS_RUNTIME_READ_TOKEN` is removed before the launch. Discovery is a Control read: `atlas discover --machine NAME`.
+
 ## Explicit concurrent workers
 
 ```sh

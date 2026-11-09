@@ -197,7 +197,7 @@ defmodule AtlasControl.RuntimeDiscoveryTest do
       {output, code} =
         System.cmd(
           Path.join(root, "bin/atlas"),
-          ["runtime", "discover", "--env", "test", "--machine", "fixture", "--json"],
+          ["discover", "--env", "test", "--machine", "fixture", "--json"],
           env:
             List.keystore(env, "ATLAS_RUNTIME_READ_TOKEN", 0, {"ATLAS_RUNTIME_READ_TOKEN", grant})
         )

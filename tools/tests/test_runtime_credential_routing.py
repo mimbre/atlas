@@ -4,7 +4,11 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import sys
 import unittest
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import runtime_cli
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -22,11 +26,16 @@ with open(os.environ['PRIVATE_ENV_CAPTURE'],'a') as f:
             for command in ['mix','python3']:
                 file=binary/command;file.write_text(stub);file.chmod(0o755)
             env=dict(os.environ,PATH=str(binary)+':/usr/bin:/bin',ATLAS_ENV_FILE=str(settings),ATLAS_NO_UPDATE='1',ATLAS_RUNTIME_READ_TOKEN='private-read-synthetic',PRIVATE_ENV_CAPTURE=str(capture))
-            for words in [['runtime','discover','--machine','fixture'],['runtime','status'],['runtime','start'],['runtime','stop']]:
-                result=subprocess.run([str(ROOT/'bin/atlas'),*words,'--env','test'],env=env,text=True,capture_output=True)
+            # Build before PATH holds only the stubs.
+            cli=runtime_cli.executable()
+            commands=[[str(ROOT/'bin/atlas'),'discover','--machine','fixture']]+[[cli,'node',op,'--checkout',str(ROOT)] for op in ['status','start','stop']]
+            for command in commands:
+                result=subprocess.run([*command,'--env','test'],env=env,text=True,capture_output=True)
                 self.assertEqual(result.returncode,0,result.stderr)
             calls=[json.loads(line) for line in capture.read_text().splitlines()]
             self.assertEqual(sum(call['read_present'] for call in calls),1)
+            # Each node operation reached the checkout's lifecycle, as atlas-runtime node launches it.
+            self.assertEqual([call['command'][:4] for call in calls if call['program']=='python3'],[[str(ROOT/'tools/runtime.py'),'runtime-'+op,str(ROOT),'test'] for op in ['status','start','stop']])
             for call in calls:
                 expected=call['program']=='mix' and call['command'][:2]==['atlas.agent','runtime-discover']
                 self.assertEqual(call['read_present'],expected,call['command'])

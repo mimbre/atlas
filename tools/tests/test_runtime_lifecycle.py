@@ -17,8 +17,8 @@ class LegacySignalRegression(unittest.TestCase):
     def test_legacy_stop_never_uses_pid_only_group_signalling(self):
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary); (base/'runtime.pid').write_text('1234')
-            client = base/'client.json'; client.write_text('{}')
-            with patch.dict(os.environ, ATLAS_RUNTIME_HOME=str(base)), patch.object(sys, 'argv', ['runtime.py', 'runtime-stop', str(ROOT), str(client), 'test']), patch.object(subject.os, 'kill'), patch.object(subject.os, 'killpg') as groups, patch.object(subject.time, 'sleep'), patch.object(subject.subprocess, 'call', return_value=2):
+            client = base/'client.json'; client.write_text('{"env": "test"}')
+            with patch.dict(os.environ, ATLAS_RUNTIME_HOME=str(base), ATLAS_ENV_FILE=str(client)), patch.object(sys, 'argv', ['runtime.py', 'runtime-stop', str(ROOT), 'test']), patch.object(subject.os, 'kill'), patch.object(subject.os, 'killpg') as groups, patch.object(subject.time, 'sleep'), patch.object(subject.subprocess, 'call', return_value=2):
                 try: subject.main()
                 except SystemExit: pass
                 groups.assert_not_called()

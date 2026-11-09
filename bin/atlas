@@ -5,10 +5,9 @@
 #                      Control first (see "On Fly" below). It starts nothing else: for an
 #                      environment on this Mac, start rela and the core with `atlas-ops restart`
 #   atlas tui          the same; open as many as you like, each in its own terminal
-#   atlas runtime       start this machine's Runtime node (local runtime.json required)
-#   atlas runtime-stop, atlas runtime-status
-#   atlas runtime status|start|stop [--machine <name>] [--json]   local node operations
-#   atlas runtime discover --machine <name> [--json]   granted Control registry read
+#   atlas discover --machine <name> [--json]   is runtime@<name> registered: a granted read of
+#                      Control's registry (ATLAS_RUNTIME_READ_TOKEN). This machine's Runtime node
+#                      itself is `atlas-runtime node start|stop|status`
 #
 #   atlas help [<kind>] [--json]    the agents' commands, and every kind from rela's description:
 #                      what a create asks, its id, its parent, its fields (Control must run)
@@ -74,7 +73,7 @@ cmd=tui
 case "${1:-}" in -*|"") ;; *) cmd="$1"; shift ;; esac
 # A word that is not a command here (operating is atlas-ops) shows the usage and runs nothing.
 case "$cmd" in
-  tui|turn|put|set|get|list|delete|tools|plan|steer|help|migrate-done-owner|runtime|runtime-status|runtime-stop|runtime-discover) ;;
+  tui|turn|put|set|get|list|delete|tools|plan|steer|help|migrate-done-owner|discover) ;;
   *) usage ;;
 esac
 take_env "$@"
@@ -98,23 +97,11 @@ run_agent_client() {
   ATLAS_CALLER_CWD="$caller" exec mix atlas.agent "$cmd" --env "$env" ${args[@]+"${args[@]}"}
 }
 
-case "$cmd" in
-  runtime)
-    case "${args[0]:-}" in
-      status|start|stop)
-        exec python3 "$root/tools/runtime.py" "runtime-${args[0]}" "$root" "$settings" "$env" "${args[@]:1}" ;;
-      discover) cmd=runtime-discover; args=("${args[@]:1}") ;;
-      *) [ ${#args[@]} -eq 0 ] || { echo "atlas runtime: unsupported operation" >&2; exit 2; } ;;
-    esac ;;
-  runtime-status)
-    exec python3 "$root/tools/runtime.py" runtime-status "$root" "$settings" "$env" ${args[@]+"${args[@]}"} ;;
-esac
-
-case "$cmd" in
-  runtime|runtime-stop|runtime-status)
-    exec python3 "$root/tools/runtime.py" "$cmd" "$root" "$settings" "$env" ${args[@]+"${args[@]}"} ;;
-  runtime-discover) run_agent_client ;;
-esac
+# Discovery is the agent client's internal runtime-discover; it needs no tunnel or build cleaning.
+if [ "$cmd" = discover ]; then
+  cmd=runtime-discover
+  run_agent_client
+fi
 
 resolve_places
 
@@ -164,7 +151,7 @@ case "$cmd" in
     exit $status
     ;;
   # The clients run in their own folders; a path the caller gives is read from where they called.
-  turn|put|set|get|list|delete|tools|plan|steer|help|runtime-discover)
+  turn|put|set|get|list|delete|tools|plan|steer|help)
     # `atlas help` (not --json) starts with this script's own commands; `atlas help <kind>`
     # shows that kind only.
     kind_named=""

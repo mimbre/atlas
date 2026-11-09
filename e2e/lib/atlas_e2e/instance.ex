@@ -3,7 +3,8 @@ defmodule AtlasE2E.Instance do
   A private Atlas test instance for one run: a fresh, empty rela dataset on free ports,
   and the core, both started with the `atlas-ops` command through `ATLAS_ENV_FILE`, always
   with `--env test`, with a stand-in GitHub (`AtlasE2E.GitHub`). It never uses the ports or data of `env/test.json` or
-  `env/prod.json` (Melle's instances) or the live store.
+  `env/prod.json` (Melle's instances) or the live store. Its Runtime node runs through
+  `atlas-runtime node start|stop`, built from this tree into the run's folder.
 
   The TUIs open web addresses with a stand-in (`"browser"` in the settings) that only
   writes each address to `opened.txt` in the run's folder (`opened/1`), so a run never
@@ -124,8 +125,23 @@ defmodule AtlasE2E.Instance do
 
     # `atlas-ops restart` starts rela when it does not answer, then the core, and waits for it.
     :ok = ops!(instance, ["restart", "--env", "test"])
+    :ok = build_runtime_cli(instance)
     :ok = start_runtime(instance)
     instance
+  end
+
+  # The Runtime node runs through `atlas-runtime node`, built from this tree into the run's
+  # folder, as integration/worker_control.exs builds it: never an installed binary.
+  defp runtime_cli(instance), do: Path.join(instance.dir, "atlas-runtime")
+
+  defp build_runtime_cli(instance) do
+    case System.cmd("go", ["-C", "tools/runtime", "build", "-o", runtime_cli(instance), "."],
+           cd: @root,
+           stderr_to_stdout: true
+         ) do
+      {_, 0} -> :ok
+      {out, status} -> raise "building atlas-runtime failed (#{status}):\n#{out}"
+    end
   end
 
   @doc "Stop the core, as `atlas-ops stop` does."
@@ -146,10 +162,10 @@ defmodule AtlasE2E.Instance do
           )
     }
 
-    atlas!(runtime, ["runtime", "--env", "test"])
+    node!(runtime, "start")
   end
 
-  def stop_runtime(instance), do: atlas!(instance, ["runtime-stop", "--env", "test"])
+  def stop_runtime(instance), do: node!(instance, "stop")
 
   def stop(instance) do
     stop_runtime(instance)
@@ -226,8 +242,10 @@ defmodule AtlasE2E.Instance do
     end
   end
 
-  defp atlas!(instance, args), do: run!(instance, "bin/atlas", args)
   defp ops!(instance, args), do: run!(instance, "bin/atlas-ops", args)
+
+  defp node!(instance, op),
+    do: run!(instance, runtime_cli(instance), ["node", op, "--env", "test", "--checkout", @root])
 
   defp run!(instance, command, args) do
     case run(instance, command, args) do
@@ -240,7 +258,7 @@ defmodule AtlasE2E.Instance do
   end
 
   defp run(instance, command, args) do
-    System.cmd(Path.join(@root, command), args,
+    System.cmd(Path.expand(command, @root), args,
       env: instance.env,
       stderr_to_stdout: true
     )
