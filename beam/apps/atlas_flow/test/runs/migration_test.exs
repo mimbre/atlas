@@ -28,6 +28,117 @@ defmodule AtlasFlow.Runs.MigrationTest do
     |> put_in(["states", "waiting", "timers"], [])
   end
 
+  defp legacy_digest(flow),
+    do: :crypto.hash(:sha256, :erlang.term_to_binary(flow)) |> Base.encode16(case: :lower)
+
+  defp rekey(flow) do
+    %{
+      "from" => legacy_digest(flow),
+      "to" => Run.digest(flow),
+      "rekey" => true,
+      "states" => Map.new(flow["states"], fn {state, _} -> {state, state} end),
+      "reason" => "Canonical JSON identity"
+    }
+  end
+
+  test "an explicit encoding re-key preserves every entry field, including in-flight work and imports" do
+    flow = FixtureTarget.flow()
+    fresh = Run.new("sort", flow, subject("B-1"), [], @now)
+
+    for run <- [
+          fresh,
+          put_in(fresh, ["pending", "gate"], %{"id" => "frozen", "request" => %{"evidence" => 1}}),
+          %{fresh | "state" => "done", "status" => "completed"},
+          %{
+            fresh
+            | "state" => "done",
+              "status" => "completed",
+              "last_input" => %{"version" => 1, "import" => true}
+          },
+          %{fresh | "status" => "idle"},
+          %{fresh | "status" => "blocked", "blocked_reason" => "other reason"}
+        ] do
+      old = Map.put(run, "definition_sha256", legacy_digest(flow))
+      assert {:error, :definition_changed} = Run.migrate(old, flow, [], @now)
+      assert {:ok, migrated} = Run.migrate(old, flow, [rekey(flow)], @now)
+      assert migrated["definition_sha256"] == Run.digest(flow)
+      assert [audit] = migrated["pending"]["migrations"]
+
+      assert Map.drop(migrated, ["definition_sha256", "pending"]) ==
+               Map.drop(old, ["definition_sha256", "pending"])
+
+      assert Map.delete(migrated["pending"], "migrations") == old["pending"]
+
+      assert audit == %{
+               "from" => legacy_digest(flow),
+               "to" => Run.digest(flow),
+               "state" => old["state"],
+               "entry" => old["entry"],
+               "at" => DateTime.to_iso8601(@now),
+               "reason" => "Canonical JSON identity"
+             }
+
+      assert {:ok, ^migrated} = Run.migrate(migrated, flow, [rekey(flow)], @now)
+    end
+
+    blocked =
+      fresh |> Map.put("definition_sha256", legacy_digest(flow)) |> Run.block_definition(flow)
+
+    assert {:ok, recovered} = Run.migrate(blocked, flow, [rekey(flow)], @now)
+    assert recovered["status"] == fresh["status"]
+    assert recovered["entry"] == fresh["entry"]
+    refute recovered["pending"]["definition_block"]
+    assert recovered["blocked_reason"] == ""
+    bad = put_in(rekey(flow), ["states", "waiting"], "done")
+    assert {:error, :definition_changed} = Run.migrate(blocked, flow, [bad], @now)
+    changed = put_in(flow, ["states", "waiting", "timers"], [])
+    assert {:error, :definition_changed} = Run.migrate(blocked, changed, [rekey(flow)], @now)
+  end
+
+  @tag :tmp_dir
+  test "engine restarts over legacy digests without re-entering or resetting deadlines", %{
+    clock: clock,
+    tmp_dir: dir
+  } do
+    alias AtlasFlow.Engine
+    flow = FixtureTarget.flow()
+    config = put_in(config(), ["selection", "sort", "migrations"], [rekey(flow)])
+    FakeFacts.set_description(Map.put(FakeFacts.run_description(), "flow_runtime", config))
+    old = seed("B-restart", flow)
+
+    old =
+      old
+      |> Map.put("definition_sha256", legacy_digest(flow))
+      |> put_in(["pending", "writes"], [])
+
+    FakeFacts.put("cursor", %{"key" => old["key"], "values" => Store.encode(config, old)})
+    yaml = Path.join(dir, "flows.yaml")
+    File.write!(yaml, "fixture\n")
+    opts = [clock: {ManualClock, clock}, target: FixtureTarget, deployed_yaml: yaml]
+
+    on_exit(fn ->
+      for {_, pid, _, _} <- DynamicSupervisor.which_children(AtlasFlow.Supervisor),
+          do: DynamicSupervisor.terminate_child(AtlasFlow.Supervisor, pid)
+    end)
+
+    FakeFacts.lose_ack("cursor")
+    Registry.unregister(AtlasBus.Endpoints, "flow")
+    engine = start_supervised!({Engine, opts})
+    :ok = Engine.round(engine)
+    assert {:ok, migrated} = Store.decode(config, FakeFacts.get("cursor", old["key"]))
+    assert migrated["definition_sha256"] == Run.digest(flow)
+    assert migrated["state"] == old["state"]
+    assert migrated["entry"] == old["entry"]
+    assert migrated["entered_at"] == old["entered_at"]
+    assert migrated["deadlines"] == old["deadlines"]
+    assert length(migrated["pending"]["migrations"]) == 1
+    stop_supervised!(Engine)
+    restarted = start_supervised!({Engine, opts})
+    :ok = Engine.round(restarted)
+    assert {:ok, ^migrated} = Store.decode(config, FakeFacts.get("cursor", old["key"]))
+    refute Enum.any?(FakeFacts.sent(), &(&1["values"]["mark"] == "entered"))
+  end
+
   test "unmapped runs block locally, retry without writes, and recover when a mapping arrives", %{
     clock: clock
   } do

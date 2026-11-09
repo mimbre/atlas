@@ -49,7 +49,7 @@ Add the generic `flow_run` kind to the foundation description:
 | Fields | Meaning |
 | --- | --- |
 | `flow`, `subject_kind`, `subject_key`, `generation` | Stable identity. Use its digest as the fact key. |
-| `definition_sha256` | Digest of this executable subflow. Never replace its meaning under a live run. |
+| `definition_sha256` | Lowercase SHA-256 of the subflow's canonical JSON data from the published `flow/targets/<env>/atlas/flows.json` pair (production uses `flow/targets/atlas/flows.json`). Recursively sort object keys, omit insignificant whitespace, preserve array order and exact scalar values. Hash only the selected subflow, excluding the pair's header, YAML hash and unrelated flows. No Erlang term serialization or runtime struct metadata. |
 | `state`, `entry`, `entered_at`, `status` | Cursor, increasing entry number, UTC entry time, active/completed/blocked. Self-transition increments entry. |
 | `deadlines` | JSON text: timer name, resolved UTC due time, source entry. |
 | `pending` | JSON text: remaining entry writes or activity intents, stable ids and frozen payloads. |
@@ -73,6 +73,8 @@ Branches are ordered. Compile supported expressions to neutral data with a small
 An activity has identity `(run, entry, activity name)` and a frozen fingerprint. Store its request before sending. Match every reply to identity and fingerprint. Retry the same id. Ignore late replies for old entries or fingerprints. A timeout is not proof that the service did nothing. Enable an effect only when its receiver can return the original result for a repeated id, reject changed payload under that id, and recover a lost answer by lookup. Otherwise block for reconciliation. Facts deduplication alone is insufficient for external effects.
 
 Pin definitions. Changed subflow data blocks its old runs until an explicit, tested state migration is supplied. Unchanged subflows continue. The YAML hash checks the deployed pair; the per-run hash checks run compatibility. Back up stores before migration. Rollback must not erase run history.
+
+An encoding-only migration is explicit in `rela/flow-runtime.json`: an exact old/new digest pair, `rekey: true`, and identity state mappings. It changes the stored definition digest and appends a `pending.migrations` audit record. It preserves state, entry, entry time, deadlines, pending writes and frozen activity requests, including their IDs; it never re-enters the state. This also applies to completed imports. A prior definition block is cleared by restoring its saved status. Ordinary state migrations retain their quiescence checks and entry semantics; every unmatched definition change still blocks that run.
 
 ## 4. Ordered Developer assignments
 
