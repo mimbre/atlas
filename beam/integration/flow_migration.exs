@@ -68,11 +68,23 @@ defmodule FlowMigrationBootTest do
 
   defp decide(env), do: AtlasFlow.Model.load(Runs, env).flows["decide"]
 
-  # The canonical decide digests deployed before owner answers (test, prod).
-  @answerless %{
-    "test" => "e2d4c41b758cb858aa40b2835c703f2c42f60039471f855fa7e2df0dbf171b4b",
-    "prod" => "d9aadf74d08e0fb4ee4ada4d17980c10aafd4424f251061779cbd61b1c01c7aa"
+  # The decide digests live before slice 7 named the configured decider (test, prod).
+  @live %{
+    "test" => "b4a73029ce91d1bb1727498feb0c4b277315956c8b1ac547f15d1454eb5ccae8",
+    "prod" => "bfd535ea5c570cc586c606825745a7f767bf138a5f5289093f629a99e06fb042"
   }
+
+  # Who decides what a person decides: the environment's settings say (`actors`); Flow
+  # does not start without it. The person exists, as on test and prod.
+  setup do
+    Application.put_env(:atlas, :actors, %{"decider" => "tester"})
+    on_exit(fn -> Application.delete_env(:atlas, :actors) end)
+  end
+
+  defp facts(description) do
+    start_supervised!({FakeFacts, description: description})
+    FakeFacts.put("person", %{"key" => "tester", "values" => %{"name" => "Tester"}})
+  end
 
   test "deploy boot migrates old cursors, preserves finals, and admits missed starts" do
     dir = Path.join(System.tmp_dir!(), "flow-migration-#{System.unique_integer([:positive])}")
@@ -80,7 +92,7 @@ defmodule FlowMigrationBootTest do
     on_exit(fn -> File.rm_rf!(dir) end)
     Application.put_env(:atlas_bus, :store, "migration-boot")
     config = AtlasFlow.Model.load(Runs, :test).config
-    start_supervised!({FakeFacts, description: %{"entities" => %{}}})
+    facts(%{"entities" => %{}})
     start_supervised!(MigrationGate)
     clock = start_supervised!({ManualClock, @now})
     flow = decide(:test)
@@ -159,7 +171,7 @@ defmodule FlowMigrationBootTest do
     assert [audit] = active["pending"]["migrations"]
     assert audit["from"] == @old and audit["to"] == flow.digest()
     assert audit["entry"] == 7 and audit["state"] == "proposed"
-    assert audit["reason"] =~ "Slice 1 to slice 3"
+    assert audit["reason"] =~ "Slice 1 to slice 7"
     assert active["definition_sha256"] == flow.digest()
 
     for key <- ~w(D-final-a D-final-r) do
@@ -192,6 +204,7 @@ defmodule FlowMigrationBootTest do
     )
   end
 
+  # Slice 7 re-keys them: only the owner data changed.
   test "live person waits from the deployed definitions keep state, entry and deadline across restart" do
     for env <- ["test", "prod"] do
       Application.put_env(
@@ -201,11 +214,11 @@ defmodule FlowMigrationBootTest do
       )
 
       config = AtlasFlow.Model.load(Runs, String.to_atom(env)).config
-      start_supervised!({FakeFacts, description: %{"entities" => %{}}})
+      facts(%{"entities" => %{}})
       start_supervised!(MigrationGate)
       clock = start_supervised!({ManualClock, @now})
       flow = decide(String.to_atom(env))
-      old = @answerless[env]
+      old = @live[env]
       assert flow.digest() != old
 
       timers = fn entry ->

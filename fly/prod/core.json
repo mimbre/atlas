@@ -1,6 +1,7 @@
 {
   "env": "prod",
   "tui_user": "melle",
+  "actors": { "decider": "melle" },
   "control": { "host": "::", "port": 7591 },
   "rela": {
     "url": "http://eyra-atlas-rela.internal:7590/api/v1",

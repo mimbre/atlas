@@ -16,6 +16,12 @@ defmodule AtlasFlow.Engine do
     hint only waits for the timer (nobody depends on a hint).
 
   It reaches Facts only over the Bus, as the endpoint `flow`.
+
+  The actors the model's owners name must be filled by the environment's settings, or
+  Flow does not start (`AtlasFlow.Model.load/3`). One whose fact does not exist yet is
+  an owner like any other: the fact it owns waits for it, and says so
+  (`AtlasFlow.Item`), so a fresh environment starts and makes its first actors through
+  Control.
   """
   use GenServer
 
@@ -37,7 +43,8 @@ defmodule AtlasFlow.Engine do
   def init(opts) do
     model = Keyword.get_lazy(opts, :model, &AtlasFlow.Model.configured!/0)
     environment = Keyword.get_lazy(opts, :environment, &AtlasFlow.Model.environment/0)
-    runner = AtlasFlow.Model.load(model, environment)
+    actors = Keyword.get_lazy(opts, :actors, &AtlasBus.Actors.configured/0)
+    runner = AtlasFlow.Model.load(model, environment, actors)
     :ok = AtlasBus.attach("flow")
     send(self(), :round)
 

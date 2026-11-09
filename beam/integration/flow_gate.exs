@@ -60,6 +60,8 @@ defmodule FlowGateProof do
   setup do
     # The model Flow and Gates run, compiled for the test environment (its answer limits).
     Application.put_env(:atlas, :model, Model.AtlasEyra)
+    # Who decides what a person decides: the environment's settings say (`actors`).
+    Application.put_env(:atlas, :actors, %{"decider" => "tester"})
     %{config: c, flows: flows} = AtlasFlow.Model.load(Model.AtlasEyra, :test)
     c = Map.delete(c, "inputs")
     d = %{"entities" => %{"decision" => %{}, "gate_verdict" => %{}}}

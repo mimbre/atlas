@@ -40,6 +40,9 @@ defmodule AtlasE2E.Instance do
       "env" => "test",
       "bus_link" => %{"port" => link_port},
       "tui_user" => "melle",
+      # Who decides what a person decides (the model names the role, never a person): the
+      # TUIs' user, as in test and prod.
+      "actors" => %{"decider" => "melle"},
       "browser" => browser,
       "control" => %{"host" => "127.0.0.1", "port" => control_port},
       "rela" => %{

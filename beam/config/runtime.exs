@@ -64,6 +64,11 @@ if config_env() != :test do
 
     # Flow looks at each open fact again this often, and at once on a hint.
     config :atlas_flow, tick_seconds: get_in(settings, ["flow", "tick_seconds"]) || 60
+
+    # Who fills each role the model's owners name (`"actors": {"decider": "<key>"}`): the
+    # model names roles, never people. Flow and Control refuse to start without one
+    # (AtlasBus.Actors); an actor whose fact does not exist yet only makes its owner wait.
+    config :atlas, actors: settings["actors"]
   end
 
   # A private instance may run another composition of the model (a profile, e2e): the

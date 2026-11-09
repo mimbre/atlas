@@ -4,6 +4,11 @@ defmodule AtlasControl.Gateway do
   connection gets its own `AtlasControl.Session`, with the model it serves pages for:
   `model:` (an `AtlasControl.Model`, checked when the Gateway starts) and the
   environment's `settings:` for Control (`AtlasControl.Model.catalog/2`).
+
+  The actors the model's owners name (`actors:`, else the configured ones) must be filled
+  by the settings, or the Gateway does not start (`AtlasControl.Model.actors!/2`).
+  Whether their facts exist is Flow's concern (an owner that does not exist yet waits);
+  Control serves meanwhile, so a fresh environment can make its first actors.
   """
   use GenServer
 
@@ -24,7 +29,15 @@ defmodule AtlasControl.Gateway do
   @impl true
   def init(opts) do
     # The model first: without one Control can serve, it listens for nobody.
-    catalog = AtlasControl.Model.catalog(Keyword.fetch!(opts, :model), opts[:settings] || %{})
+    model = Keyword.fetch!(opts, :model)
+    catalog = AtlasControl.Model.catalog(model, opts[:settings] || %{})
+
+    # Every role the model's owners name is filled by the settings, or nothing starts.
+    _actors =
+      AtlasControl.Model.actors!(
+        model,
+        Keyword.get_lazy(opts, :actors, &AtlasBus.Actors.configured/0)
+      )
 
     {:ok, ip} =
       opts |> Keyword.get(:host, "127.0.0.1") |> String.to_charlist() |> :inet.parse_address()

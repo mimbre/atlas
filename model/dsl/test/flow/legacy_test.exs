@@ -18,6 +18,24 @@ defmodule RelaDSL.Flow.LegacyTest do
            }
   end
 
+  defmodule Approval do
+    use RelaDSL.Flow.Legacy,
+      name: :approval,
+      flow: [
+        kinds: [:letter],
+        field: :expected,
+        states: [
+          [name: :done, when: [values: [state: [:sent]]], done: true],
+          [name: :open, owner: [kind: :clerk, config: :approver], expected: "Approve it"]
+        ]
+      ]
+  end
+
+  test "a state's owner may name the role of a configured actor instead of a key" do
+    assert Approval.owner("open") == %{"kind" => "clerk", "config" => "approver"}
+    assert Approval.owner("done") == nil
+  end
+
   test "a fact is in the first state that holds, the last when none other does" do
     assert {"done", _} = @post.state(%{"values" => %{"state" => "sent"}}, [], [], [])
 

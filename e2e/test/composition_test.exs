@@ -25,6 +25,8 @@ defmodule AtlasE2E.CompositionTest do
     settings = %{
       "env" => "test",
       "tui_user" => "tester",
+      # Who decides what a person decides (the model names only the role).
+      "actors" => %{"decider" => "tester"},
       "control" => %{"host" => "127.0.0.1", "port" => control_port},
       "rela" => %{
         "url" => "http://127.0.0.1:#{rela_port}/api/v1",

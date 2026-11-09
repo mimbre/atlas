@@ -42,7 +42,7 @@ defmodule Model.FactsSchemaTest do
              Model.AtlasEyra.check(
                "decision",
                %{"op" => "delete", "key" => "D-0100", "values" => %{}, "links" => %{}},
-               %{"by" => "melle"},
+               %{"by" => "someone"},
                Map.put(lookup, "incoming", fn _, _, _ -> [] end)
              )
 

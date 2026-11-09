@@ -33,7 +33,8 @@ defmodule Mix.Tasks.Atlas.E2e do
 
     # The TUIs' user exists before they start, as in test and prod: a session knows from its
     # first page that its user is a person, so `/` is their start page throughout and never
-    # turns from the plan into it halfway through a scenario (IS-Atlas-55).
+    # turns from the plan into it halfway through a scenario (IS-Atlas-55). It is also the
+    # decider the settings name (`actors.decider`); what it is to own waits for it till now.
     {_, 0, _} = AtlasE2E.Scenario.atlas(instance, ["put", "person", "--name", "Melle"])
 
     IO.puts(

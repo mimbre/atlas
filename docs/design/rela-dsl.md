@@ -14,7 +14,7 @@ Architect design under D-0083. No product code changes. Paths are relative to `a
 | 6 | Platform/domain boundary | Platform apps hold the behaviours and the generic kernel. The domain is the app `:model` (`model/contract`). The umbrella release depends on it, but no platform app does. It is wired at boot by configuration (§1). |
 | 7 | No hybrid | One path per component, cut over in one slice that removes its old reader. Consumers go first (Flow, Runtime, Control), then the producer (Facts). Cutting the producer first would need a description shim (§5). |
 | 8 | Done by #109 | Ledger/`delete_error`, `a` Accept / `f` Reject for the owner person, the deadline shown, and the decide run migration are not in the plan. They appear in the example as existing behaviour. |
-| 9 | No named person in the contract | `owner default: {:person, config: :decider}`. The key comes from `env/<env>.json` (`actors.decider`) and is resolved at boot. Boot is refused when it is missing (§5, slice 7). |
+| 9 | No named person in the contract | `owner default: {:person, config: :decider}`. The key comes from the settings file the core runs with (`actors.decider`: `fly/<env>/core.json` on Fly, a private instance's `ATLAS_ENV_FILE`; `config :atlas, actors:` via `runtime.exs`) and is resolved at boot. A missing key refuses boot. A missing person does not: the owner waits for that person (Flow logs why), and Control serves, so a fresh environment can boot and make its first person (§5, slice 7). |
 
 ## 1. Layout and wiring
 
@@ -54,7 +54,7 @@ The kernel passes `lookup`, its reader of related facts and links, so generated 
 @callback subflows(env :: atom) :: [module]          # each implements AtlasFlow.Subflow
 @callback migrations() :: [%{subflow: atom, from: digest, to: digest, states: map, rekey: boolean}]
 @callback selection(subflow :: atom) :: %{admission: ..., imports: ..., projection: ...}
-@callback actors() :: [role :: atom]                  # configured actors the model needs (:decider)
+@callback actors() :: [{role :: atom, kind}]          # configured actors the model needs ([decider: "person"])
 
 # AtlasFlow.Subflow, one compiled module per subflow and environment
 @callback name() :: atom;  subject() :: String.t();  digest() :: String.t();  initial() :: atom
@@ -289,7 +289,7 @@ Each slice is mergeable alone and green; runs keep their identity unless a slice
 | 4 | **Runtime cutover.** `AtlasRuntime.Model`: turn, agent, guidance, read_first. | Runtime's description lookups (`execution/engine.ex`, `interactions/guidance.ex`) | Runtime unit tests on a neutral model |
 | 5 | **Control cutover.** `AtlasControl.Model`: shell, start page, kinds, forms, keys, actions, todo, answers, read_first. Test-env tab and `guidance.control` move to `env/test.json` via `runtime.exs`. | description interpretation in `pages.ex`, `workers.ex`, `turns.ex`, `read_first.ex`; the `atlas-test.json` patch in `fly/core.Dockerfile` | Control page/answer tests on a neutral model; e2e pages |
 | 6 | **Facts cutover.** `AtlasFacts.Model`. At boot, rela's `_schema` must equal `rela_schema/0`; `_description` answers rela's schema only. | `server.ex` `extra/1` and `runtime_description!/2`, `subflows.ex`, `flow_runtime.ex`, `flows.ex`, the interpreters replaced by generated code (`guards`, `completion`, `progress`, `late`, `review`, `components`, `connector` rule parsing), `RelaDSL.Runtime` (the `target:` macro), config `extra`/`flow_runtime` (`runtime.exs`, `fly/prod/core.json`, `fly/rehearse-transfer.py`), Dockerfile COPY of `atlas.json`/`flow-runtime.json`/`flows.json`. `rela/atlas.json` and `rela/flow-runtime.json` stop being written: proofs only. The manifest drops `output_sha256` (`verify.py` text). | Facts write/derive tests on a neutral model; e2e smoke reads the proof; boot refusal test on schema mismatch |
-| 7 | **Configured deciding person.** `{:person, :<name>}` (decision, use_case) becomes `{:person, config: role}`; `env/<env>.json` `actors`; Flow and Control resolve it at boot and refuse a missing key or fact. The owner data changes, so `decide` and the affected use_case subflows get new digests: `migrate … rekey: true, states: :same`, checked against the base proofs. | named persons in `model/contract` (CI grep: no `{:person, :` literal) | rekey migration test; boot refusal test; digests are new and declared |
+| 7 | **Configured deciding person.** `{:person, :<name>}` (decision, use_case) becomes `{:person, config: role}`; the core's settings (`fly/<env>/core.json`) `actors`; Flow and Control resolve it at boot and refuse a missing key; a missing person fact only makes the owner wait. The owner data changes, so `decide` and the affected use_case subflows get new digests: `migrate … rekey: true, states: :same`, checked against the base proofs. | named persons in `model/contract` (CI grep: no `{:person, :` literal) | rekey migration test; boot refusal test (missing key); a missing person waits; digests are new and declared |
 
 ## 6. Risks, what stays hand-written, adding a kind
 
@@ -297,7 +297,7 @@ Each slice is mergeable alone and green; runs keep their identity unless a slice
 
 1. **Macro output equivalence.** Generated callbacks must behave exactly like today's interpreters. Each cutover first ports the interpreter's tests to the neutral model, and the proofs show every macro change as a diff.
 2. **Compile coupling.** A behaviour change in a platform app forces a model recompile. That is fine in one release build, but behaviour changes need a version note.
-3. **Boot misconfiguration.** A missing model, a missing actor, or a rela schema that differs from `rela_schema/0` refuses boot. There is no fallback, by design (decision 7).
+3. **Boot misconfiguration.** A missing model, an unconfigured actor (`actors.<role>`), or a rela schema that differs from `rela_schema/0` refuses boot. There is no fallback, by design (decision 7).
 4. **YAML fidelity.** This is a slice 0 / slice 2 risk: normalise the sources and never add style hints.
 5. **Slice 7 re-keys live runs.** The rekey keeps state, entry and deadlines (`run.ex`).
 
@@ -306,7 +306,7 @@ Each slice is mergeable alone and green; runs keep their identity unless a slice
 | File | Why |
 | --- | --- |
 | `rela/data-entry.yaml` | rela-server setting |
-| `env/<env>.json` | environment settings; now also actors and test UI extras |
+| `env/<env>.json`, `fly/<env>/core.json` | environment settings (clients; the core on Fly); the core's now also has `actors` |
 | `rela/scripts/{config.py,verify.py,*.sh}`, `rela/tests/test_config.py` | packaging and fits; existing Python only |
 | golden files, ADRs | approval records |
 

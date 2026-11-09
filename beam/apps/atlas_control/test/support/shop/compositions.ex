@@ -327,6 +327,29 @@ defmodule Shop.Todo do
   )
 end
 
+defmodule Shop.Delegated do
+  @moduledoc "What to do, for whoever the environment configures as the approver (`config`)."
+  use Shop.Composition, name: "shop-delegated", concepts: Shop.Base.concepts() ++ [Shop.Card]
+
+  legacy_flow(:f,
+    kinds: [:widget],
+    on: :card,
+    field: :todo,
+    state_field: :step,
+    owner_relation: :held_by,
+    states: [
+      [name: :done, when: [completed: true], done: true],
+      [
+        name: :check,
+        owner: [kind: :member, config: :approver],
+        expected: "Check it",
+        next: [:done],
+        why: "it is painted"
+      ]
+    ]
+  )
+end
+
 defmodule Shop.Answering do
   @moduledoc "The owner's answers: approve sets checked_by; send back removes it."
   use Shop.Composition, name: "shop-answering", concepts: Shop.Base.concepts() ++ [Shop.Card]

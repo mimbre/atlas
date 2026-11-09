@@ -102,12 +102,13 @@ defmodule Model.DescriptionTest do
       assert compiled.states == Enum.sort(Map.keys(definition["states"]))
     end
 
-    # The decide pair after #109, as definition_digest_test pins the one before it.
+    # The decide pair after slice 7 (the configured decider), as definition_digest_test
+    # pins the ones before it.
     assert digests.prod.decide.digest ==
-             "bfd535ea5c570cc586c606825745a7f767bf138a5f5289093f629a99e06fb042"
+             "06d957cd558f2e2957c4b0542bbef040876a5d426b245537eeedcf4aaa1a04b6"
 
     assert digests.test.decide.digest ==
-             "b4a73029ce91d1bb1727498feb0c4b277315956c8b1ac547f15d1454eb5ccae8"
+             "ab9c1bdf9b947e32b98bd41dd0ddf3341101f2b4aeab76a3960d0a5ebd5104ae"
   end
 
   test "the run migrations of flow-runtime.json are the migrate declarations, in order" do

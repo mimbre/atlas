@@ -30,8 +30,12 @@ defmodule AtlasFlow.Model do
   @doc "Every approved run migration: `from`, `to`, `states`, `rekey`/`preserve_entry`, `subflow`."
   @callback migrations() :: [map]
 
-  @doc "The configured actors the model needs."
-  @callback actors() :: [atom]
+  @doc """
+  The configured actors the model needs: `[{role, kind}]`. An owner whose default is
+  `%{"kind", "config" => role}` is the actor the environment configures for that role
+  (`AtlasBus.Actors`).
+  """
+  @callback actors() :: [{atom, String.t()}]
 
   @doc """
   Every relation, by name, as rela describes it with the model's additions: `from`,
@@ -70,12 +74,20 @@ defmodule AtlasFlow.Model do
   @doc """
   What Flow runs of `model` in `environment`: its legacy flows, its compiled subflows by
   name, the run configuration (`AtlasFlow.Runs.Store.activate/2`) and why it refuses to
-  run the selected ones, if it does, with the relations and the turn it walks.
+  run the selected ones, if it does, with the relations and the turn it walks, and the
+  actors its owners name, as `actors` (`%{role => key}`, the environment's settings)
+  fills them. Raises when it does not fill one: Flow does not start without it.
   """
-  def load(model, environment) do
+  def load(model, environment, actors \\ AtlasBus.Actors.configured()) do
     model = check!(model)
     flows = Map.new(model.subflows(environment), &{&1.name(), &1})
     {config, refusal} = AtlasFlow.Runs.Store.activate(model, flows)
+
+    actors =
+      case AtlasBus.Actors.resolve(model.actors(), actors) do
+        {:ok, actors} -> actors
+        {:error, why} -> raise ArgumentError, "Flow does not start: " <> why
+      end
 
     %{
       legacy: model.legacy(),
@@ -83,7 +95,21 @@ defmodule AtlasFlow.Model do
       config: config,
       refusal: refusal,
       relations: model.relations(),
-      turn: model.turn()
+      turn: model.turn(),
+      actors: actors
     }
   end
+
+  @doc """
+  An owner as Flow writes it: `%{"kind", "key"}`. One that names a configured actor
+  (`%{"kind", "config" => role}`) is that role's actor in `actors` (`load/3`).
+  """
+  def owner(%{"config" => role} = owner, actors) do
+    case actors do
+      %{^role => %{"key" => key}} -> %{"kind" => owner["kind"], "key" => key}
+      _ -> raise ArgumentError, "no configured actor #{role}; Flow loads every one it names"
+    end
+  end
+
+  def owner(owner, _actors), do: owner
 end

@@ -97,6 +97,14 @@ jobs:
         with:
           # --base reads the base branch's digests.json.
           fetch-depth: 0
+      # The model names roles, never people (D-0083, slice 7): an owner is {kind, config:
+      # role}, and each environment's settings say who fills the role (`actors`).
+      - name: The model names no person
+        run: |
+          if grep -rnE --exclude-dir=_build --exclude-dir=deps '\{ *:person *, *[:"]|kind: *:person *, *key:|key: *"[^"]*" *, *kind: *:person|"kind" *(=>|:) *"person" *, *"key"|"key" *(=>|:) *"[^"]*" *, *"kind" *(=>|:) *"person"' .; then
+            echo "::error::model/contract names a person. Name a configured role instead: {:person, config: :decider}, and the person in the environment's actors."
+            exit 1
+          fi
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "28"
