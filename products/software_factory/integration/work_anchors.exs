@@ -34,7 +34,7 @@ defmodule WorkAnchorsTest do
     File.mkdir_p!(project)
     # rela 26.11.3 resolves the includes natively: the selected files are the whole project.
     for name <- ["schema.yaml", "data-entry.yaml", "modules", "compositions"],
-        do: File.cp_r!(Path.join([@root, "products/software_factory/targets/rela", name]), Path.join(project, name))
+        do: File.cp_r!(Path.join([@root, "products/software_factory/model/targets/rela", name]), Path.join(project, name))
 
     {:ok, socket} = :gen_tcp.listen(0, active: false)
     {:ok, port} = :inet.port(socket)

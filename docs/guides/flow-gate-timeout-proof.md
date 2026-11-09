@@ -1,8 +1,8 @@
 # Gate activity and decider timeout proof
 
-Run from the repository root after merge. Use test throughout. Production's generated pair contains `48h`; test's separate pair contains `5m`. Both carry the digest of their own YAML. Flow reads the selected pair without rewriting YAML. The explicit migration in `products/software_factory/targets/rela/flow-runtime.json` admits only the exact previous status-bridge definition, with no pending writes or deadlines. Historical final runs keep their cursor; a waiting bridge run enters `deciding` once. Back up the environment before deployment, as for other durable-run changes. Any other definition drift still refuses execution.
+Run from the repository root after merge. Use test throughout. Production's generated pair contains `48h`; test's separate pair contains `5m`. Both carry the digest of their own YAML. Flow reads the selected pair without rewriting YAML. The explicit migration in `products/software_factory/model/targets/rela/flow-runtime.json` admits only the exact previous status-bridge definition, with no pending writes or deadlines. Historical final runs keep their cursor; a waiting bridge run enters `deciding` once. Back up the environment before deployment, as for other durable-run changes. Any other definition drift still refuses execution.
 
-The additional `based_on` review entry and the decision's own red flag live in the runtime sidecar (`products/software_factory/targets/rela/flow-runtime.json`, generated from the model since Rela DSL slice 2) and are applied by Facts after the description is loaded. The confirmation relation and immutable-field exception live in foundation schema and metadata.
+The additional `based_on` review entry and the decision's own red flag live in the runtime sidecar (`products/software_factory/model/targets/rela/flow-runtime.json`, generated from the model since Rela DSL slice 2) and are applied by Facts after the description is loaded. The confirmation relation and immutable-field exception live in foundation schema and metadata.
 
 ## Local checks and private native proof
 
@@ -11,8 +11,8 @@ Use the pinned, already installed Rela 26.11.3 and a Python with `platform/atlas
 ```sh
 export ATLAS_RELA_BIN="$PWD/.rela-bin"
 export ATLAS_E2E_RELA_BIN="$ATLAS_RELA_BIN"
-(cd platform/model/dsl && MIX_ENV=test mix test --warnings-as-errors)
-(cd products/software_factory/model && mix model.gen --check && mix test)
+(cd products/software_factory/model/generator && MIX_ENV=test mix test --warnings-as-errors)
+(cd products/software_factory/model/contract && mix model.gen --check && mix test)
 python3 -m unittest discover -s platform/atlas_facts/rela/tests -v
 (cd products/software_factory && MIX_ENV=test mix compile)
 (cd platform/atlas_bus && mix test test/boundary_test.exs)
@@ -153,30 +153,30 @@ Paths are relative to the repository root.
 - `products/software_factory/mix.exs`
 - `docs/guides/flow-gate-timeout-proof.md`
 - `products/software_factory/e2e/test/flow_run_test.exs`
-- `products/software_factory/model/config/config.exs`
-- `products/software_factory/model/lib/decision.ex`
-- `products/software_factory/model/lib/gates.ex`
-- `products/software_factory/model/test/decider_test.exs`
-- `products/software_factory/model/test/golden/decision.flows.yaml`
-- `products/software_factory/model/test/golden_test.exs`
-- `products/software_factory/model/test/presentation_test.exs`
-- `platform/model/dsl/lib/limits.ex`
-- `platform/model/dsl/lib/mix/tasks/model.gen.ex`
-- `platform/model/dsl/lib/rela.ex`
-- `platform/model/dsl/lib/schema.ex`
-- `platform/model/dsl/test/limits_test.exs`
-- `products/software_factory/targets/model/atlas/flows.json`
-- `products/software_factory/targets/model/diagrams/decide.md`
-- `products/software_factory/targets/model/rela/flows.yaml`
-- `products/software_factory/targets/model/test/atlas/flows.json`
-- `products/software_factory/targets/model/test/rela/flows.yaml`
+- `products/software_factory/model/contract/config/config.exs`
+- `products/software_factory/model/contract/lib/decision.ex`
+- `products/software_factory/model/contract/lib/gates.ex`
+- `products/software_factory/model/contract/test/decider_test.exs`
+- `products/software_factory/model/contract/test/golden/decision.flows.yaml`
+- `products/software_factory/model/contract/test/golden_test.exs`
+- `products/software_factory/model/contract/test/presentation_test.exs`
+- `products/software_factory/model/generator/lib/limits.ex`
+- `products/software_factory/model/generator/lib/mix/tasks/model.gen.ex`
+- `products/software_factory/model/generator/lib/rela.ex`
+- `products/software_factory/model/generator/lib/schema.ex`
+- `products/software_factory/model/generator/test/limits_test.exs`
+- `products/software_factory/model/targets/atlas/flows.json`
+- `products/software_factory/model/targets/diagrams/decide.md`
+- `products/software_factory/model/targets/rela/flows.yaml`
+- `products/software_factory/model/targets/test/atlas/flows.json`
+- `products/software_factory/model/targets/test/rela/flows.yaml`
 - `platform/ops/core.Dockerfile`
-- `products/software_factory/targets/rela/atlas.json`
-- `products/software_factory/targets/rela/atlas.manifest.json`
-- `products/software_factory/targets/rela/flow-runtime.json`
-- `products/software_factory/targets/rela/flows.yaml`
-- `products/software_factory/targets/rela/modules/foundation/atlas.json`
-- `products/software_factory/targets/rela/modules/foundation/schema.yaml`
+- `products/software_factory/model/targets/rela/atlas.json`
+- `products/software_factory/model/targets/rela/atlas.manifest.json`
+- `products/software_factory/model/targets/rela/flow-runtime.json`
+- `products/software_factory/model/targets/rela/flows.yaml`
+- `products/software_factory/model/targets/rela/modules/foundation/atlas.json`
+- `products/software_factory/model/targets/rela/modules/foundation/schema.yaml`
 - `platform/atlas_facts/rela/tests/fixtures/baseline-schema.yaml`
 - `platform/atlas_facts/rela/tests/test_assembly.py`
 - `platform/atlas_facts/rela/tests/test_config.py`

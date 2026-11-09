@@ -133,7 +133,7 @@ for mode <- [
   File.mkdir_p!(project)
 
   for name <- ["schema.yaml", "data-entry.yaml", "modules", "compositions"],
-      do: File.cp_r!(Path.join([root, "products/software_factory/targets/rela", name]), Path.join(project, name))
+      do: File.cp_r!(Path.join([root, "products/software_factory/model/targets/rela", name]), Path.join(project, name))
 
   {:ok, socket} = :gen_tcp.listen(0, active: false, ip: {127, 0, 0, 1})
   {:ok, port} = :inet.port(socket)

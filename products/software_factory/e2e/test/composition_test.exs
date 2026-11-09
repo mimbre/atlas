@@ -11,7 +11,7 @@ defmodule AtlasE2E.CompositionTest do
     # The checkout's layout with its code linked, as before the move. The folders that hold
     # something private, the umbrella's apps and the model are real folders here, their other
     # entries linked: the Rela scripts (platform/atlas_facts/rela) find the private project
-    # (products/software_factory/targets/rela) beside them, and the umbrella, its apps and the
+    # (products/software_factory/model/targets/rela) beside them, and the umbrella, its apps and the
     # model see one another at the same paths. The umbrella builds in the checkout's _build.
     File.mkdir_p!(Path.join(@root, "products/software_factory/_build"))
 
@@ -20,11 +20,16 @@ defmodule AtlasE2E.CompositionTest do
           String.starts_with?(name, "atlas_"),
           do: "platform/" <> name
 
-    real = ["platform", "products/software_factory", "products/software_factory/model" | apps]
+    real = [
+      "platform",
+      "products/software_factory",
+      "products/software_factory/model",
+      "products/software_factory/model/contract" | apps
+    ]
 
     private = [
       "platform/atlas_facts/rela",
-      "products/software_factory/targets",
+      "products/software_factory/model/targets",
       "products/software_factory/environments",
       "products/software_factory/e2e"
     ]
@@ -136,7 +141,7 @@ defmodule AtlasE2E.CompositionTest do
     end
   end
 
-  # The profiles are private compositions of the model (products/software_factory/model/profiles), compiled
+  # The profiles are private compositions of the model (products/software_factory/model/contract/profiles), compiled
   # in its test environment only; mix model.gen writes the Rela project of one.
   @profiles %{
     "foundation" => "Model.Profiles.Foundation",
@@ -152,9 +157,9 @@ defmodule AtlasE2E.CompositionTest do
           "--contract",
           @profiles[profile],
           "--out",
-          Path.join(ctx.dir, "products/software_factory/targets/rela")
+          Path.join(ctx.dir, "products/software_factory/model/targets/rela")
         ],
-        cd: Path.join(@root, "products/software_factory/model"),
+        cd: Path.join(@root, "products/software_factory/model/contract"),
         env: [{"MIX_ENV", "test"}],
         stderr_to_stdout: true
       )
@@ -218,7 +223,7 @@ defmodule AtlasE2E.CompositionTest do
         [
           Path.join(@root, "platform/ops/smoke-reads.py"),
           Path.join(ctx.dir, "bin/atlas"),
-          Path.join(ctx.dir, "products/software_factory/targets/rela/atlas.json"),
+          Path.join(ctx.dir, "products/software_factory/model/targets/rela/atlas.json"),
           "test",
           "private-foundation"
         ],

@@ -76,7 +76,7 @@ defmodule AtlasE2E.RelaDescriptionTest do
   # one kind more: what an earlier build left running.
   defp start_older_rela(%{dir: dir, env: env}) do
     old = Path.join(dir, "old-rela")
-    project = Path.join(old, "products/software_factory/targets/rela")
+    project = Path.join(old, "products/software_factory/model/targets/rela")
     File.mkdir_p!(Path.join(old, "platform/atlas_facts"))
     File.mkdir_p!(project)
 
@@ -85,7 +85,7 @@ defmodule AtlasE2E.RelaDescriptionTest do
       Path.join(old, "platform/atlas_facts/rela")
     )
 
-    File.cp_r!(Path.join(@root, "products/software_factory/targets/rela"), project)
+    File.cp_r!(Path.join(@root, "products/software_factory/model/targets/rela"), project)
 
     schema = Path.join(project, "schema.yaml")
 

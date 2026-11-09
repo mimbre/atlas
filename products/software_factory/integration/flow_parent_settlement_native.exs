@@ -47,7 +47,7 @@ File.mkdir_p!(data)
       Path.join(root, "platform/atlas_facts/rela/scripts/config.py"),
       "copy",
       "--root",
-      Path.join(root, "products/software_factory/targets/rela"),
+      Path.join(root, "products/software_factory/model/targets/rela"),
       "--data",
       data
     ],

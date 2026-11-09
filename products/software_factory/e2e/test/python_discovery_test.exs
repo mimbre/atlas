@@ -8,7 +8,11 @@ defmodule AtlasE2E.PythonDiscoveryTest do
     dir = Path.join(System.tmp_dir!(), "atlas-python-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
 
-    for folder <- ["bin", "platform/atlas_facts/rela", "products/software_factory/targets/rela"] do
+    for folder <- [
+          "bin",
+          "platform/atlas_facts/rela",
+          "products/software_factory/model/targets/rela"
+        ] do
       File.mkdir_p!(Path.dirname(Path.join(dir, folder)))
       File.cp_r!(Path.join(@root, folder), Path.join(dir, folder))
     end
@@ -16,7 +20,7 @@ defmodule AtlasE2E.PythonDiscoveryTest do
     # The checkout's layout with its code linked, as before the move. The folders that hold
     # something private, the umbrella's apps and the model are real folders here, their other
     # entries linked: the Rela scripts (platform/atlas_facts/rela) find the private project
-    # (products/software_factory/targets/rela) beside them, and the umbrella, its apps and the
+    # (products/software_factory/model/targets/rela) beside them, and the umbrella, its apps and the
     # model see one another at the same paths. The umbrella builds in the checkout's _build.
     File.mkdir_p!(Path.join(@root, "products/software_factory/_build"))
 
@@ -25,11 +29,16 @@ defmodule AtlasE2E.PythonDiscoveryTest do
           String.starts_with?(name, "atlas_"),
           do: "platform/" <> name
 
-    real = ["platform", "products/software_factory", "products/software_factory/model" | apps]
+    real = [
+      "platform",
+      "products/software_factory",
+      "products/software_factory/model",
+      "products/software_factory/model/contract" | apps
+    ]
 
     private = [
       "platform/atlas_facts/rela",
-      "products/software_factory/targets",
+      "products/software_factory/model/targets",
       "products/software_factory/environments",
       "products/software_factory/e2e"
     ]

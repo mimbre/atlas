@@ -29,6 +29,6 @@ defmodule AtlasFacts.MixProject do
   defp deps,
     do: [
       {:atlas_bus, in_umbrella: true},
-      {:rela_dsl, path: "../model/dsl", only: :test}
+      {:rela_dsl, path: "../../products/software_factory/model/generator", only: :test}
     ]
 end

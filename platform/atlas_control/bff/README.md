@@ -3,7 +3,7 @@
 Native shell metadata is an ordinary typed endpoint: see
 [native shell boot](../../../docs/adr/0004-native-shell-boot.md) (IS-Atlas-119).
 
-Control is a spec-driven backend for frontend (architecture, section 14). The spec says which blocks Control sends and every client renders. Clients know blocks, never entities: what a block shows comes from the model Control is wired to (`AtlasControl.Model`, compiled from `products/software_factory/model`) and the facts Facts answers.
+Control is a spec-driven backend for frontend (architecture, section 14). The spec says which blocks Control sends and every client renders. Clients know blocks, never entities: what a block shows comes from the model Control is wired to (`AtlasControl.Model`, compiled from `products/software_factory/model/contract`) and the facts Facts answers.
 
 mica-bff (`~/projects/nova/mica-bff`) was the inspiration for the format. Atlas shares no code, catalogue or package with it (d-0009).
 

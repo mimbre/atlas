@@ -8,8 +8,8 @@ defmodule AtlasBus.BoundaryTest do
      calls in each layer's compiled code, and the module names in its source.
   2. Nothing outside rela's description knows an entity: no source of the Bus, Facts,
      Control or a client (the TUI, the agents' command line) names one. Entities live in
-     `products/software_factory/targets/rela/schema.yaml` only.
-  3. The platform never depends on the model (`products/software_factory/model`, app `:model`): no app's
+     `products/software_factory/model/targets/rela/schema.yaml` only.
+  3. The platform never depends on the model (`products/software_factory/model/contract`, app `:model`): no app's
      mix.exs names it, and no app's source names a `Model.` module.
   """
   use ExUnit.Case, async: true

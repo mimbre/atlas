@@ -3,7 +3,7 @@
 #   GATES_RELA_URL=http://127.0.0.1:PORT/api/v1 MIX_ENV=test \
 #     mix run integration/gates_recording.exs GATE EVIDENCE_FILE SUBJECT FINGERPRINT
 #
-# GATES_RELA_URL is a private, empty rela that serves products/software_factory/targets/rela/'s description: never a live store.
+# GATES_RELA_URL is a private, empty rela that serves products/software_factory/model/targets/rela/'s description: never a live store.
 # It evaluates GATE on the evidence and records the verdict, asks the same again (nothing new),
 # then asks on the evidence with its first declared field left out (uncertain: the safe
 # verdict), following the first verdict; and reads each verdict back through Facts.

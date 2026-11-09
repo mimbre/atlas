@@ -7,11 +7,11 @@ ENV MIX_ENV=prod
 # What the umbrella (products/software_factory, its apps in platform/) reads to compile:
 # Control and Runtime the contract (platform/atlas_control/bff/contract, a path dependency
 # inside Control's folder, which compiles with its generator); the release the model
-# (products/software_factory/model, which Facts, Flow, Gates, Runtime and Control are wired
-# to) and the Rela DSL it is written in (platform/model/dsl). No generated JSON: the model is
+# (products/software_factory/model/contract, which Facts, Flow, Gates, Runtime and Control are wired
+# to) and the Rela DSL it is written in (products/software_factory/model/generator). No generated JSON: the model is
 # compiled in (D-0083).
-COPY platform/model/dsl /src/platform/model/dsl
-COPY products/software_factory/model /src/products/software_factory/model
+COPY products/software_factory/model/generator /src/products/software_factory/model/generator
+COPY products/software_factory/model/contract /src/products/software_factory/model/contract
 COPY platform/atlas_bus /src/platform/atlas_bus
 COPY platform/atlas_code /src/platform/atlas_code
 COPY platform/atlas_control /src/platform/atlas_control
@@ -64,11 +64,11 @@ COPY --from=build /src/products/software_factory/_build/prod/rel/atlas /app/rele
 # (verify.py). The core reads none of it: Facts compares rela's served schema with the
 # compiled model at boot. No atlas.json, flow-runtime.json or flows.yaml: proofs only, or
 # rela's (the running rela must not load flows either, D-0068).
-COPY products/software_factory/targets/rela/schema.yaml products/software_factory/targets/rela/data-entry.yaml products/software_factory/targets/rela/atlas.manifest.json /app/products/software_factory/targets/rela/
-COPY products/software_factory/targets/rela/modules /app/products/software_factory/targets/rela/modules
-COPY products/software_factory/targets/rela/compositions /app/products/software_factory/targets/rela/compositions
+COPY products/software_factory/model/targets/rela/schema.yaml products/software_factory/model/targets/rela/data-entry.yaml products/software_factory/model/targets/rela/atlas.manifest.json /app/products/software_factory/model/targets/rela/
+COPY products/software_factory/model/targets/rela/modules /app/products/software_factory/model/targets/rela/modules
+COPY products/software_factory/model/targets/rela/compositions /app/products/software_factory/model/targets/rela/compositions
 COPY platform/atlas_facts/rela/scripts/verify.py /app/platform/atlas_facts/rela/scripts/verify.py
-RUN python3 /app/platform/atlas_facts/rela/scripts/verify.py /app/products/software_factory/targets/rela
+RUN python3 /app/platform/atlas_facts/rela/scripts/verify.py /app/products/software_factory/model/targets/rela
 # Each environment's settings, test's Workers tab and worker access among them (the
 # "control" of products/software_factory/environments/<env>/core.json), and the ops scripts
 # (platform/ops; .dockerignore leaves out what is not for the images).

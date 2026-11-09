@@ -1,6 +1,6 @@
 # Isolated real model/Facts/Flow/Control/Rela proof. Never uses an environment service.
 # MIX_ENV=test mix run integration/to_do_native.exs PRIVATE_DIR RELA_BIN_DIR BASE_DIGESTS
-# BASE_DIGESTS is the unchanged slice14 products/software_factory/targets/model/proof/digests.json.
+# BASE_DIGESTS is the unchanged slice14 products/software_factory/model/targets/proof/digests.json.
 import ExUnit.Assertions
 alias AtlasFlow.{ManualClock, Talk}
 alias AtlasFlow.Runs.{Projection, Store}
@@ -18,7 +18,7 @@ assert {:ok, _, _} = Kernel.ParallelCompiler.compile(client_sources)
 
 # Compare the generated proof structurally, including every prior history entry.
 base = base_path |> File.read!() |> JSON.decode!()
-proof = Path.join(root, "products/software_factory/targets/model/proof/digests.json") |> File.read!() |> JSON.decode!()
+proof = Path.join(root, "products/software_factory/model/targets/proof/digests.json") |> File.read!() |> JSON.decode!()
 assert Map.delete(proof["subflows"], "to_do") == base["subflows"]
 
 {out, status} =
@@ -28,7 +28,7 @@ assert Map.delete(proof["subflows"], "to_do") == base["subflows"]
       Path.join(root, "platform/atlas_facts/rela/scripts/config.py"),
       "copy",
       "--root",
-      Path.join(root, "products/software_factory/targets/rela"),
+      Path.join(root, "products/software_factory/model/targets/rela"),
       "--data",
       data
     ],

@@ -43,7 +43,7 @@ After generation, from `products/software_factory/`, with the pinned Rela binari
 ```sh
 MIX_ENV=test mix run integration/to_do_native.exs \
   /absolute/writable/private-fixture /absolute/rela-bin \
-  ../products/software_factory/model/test/fixtures/slice14-digests.json
+  ../products/software_factory/model/contract/test/fixtures/slice14-digests.json
 ```
 
 The fixture starts and stops its private Rela and Control listener. It installs nothing and does not

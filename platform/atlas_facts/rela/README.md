@@ -36,14 +36,14 @@ is the delivered #79 schema: tests lock definitions and property/form order.
 
 **Generated from the model.** Every file here but `data-entry.yaml` (rela-server's
 setting), the scripts and the tests is written by `mix model.gen` from the model in
-`products/software_factory/model` (Rela DSL design, slice 2): `schema.yaml`, `modules/**/schema.yaml`,
+`products/software_factory/model/contract` (Rela DSL design, slice 2): `schema.yaml`, `modules/**/schema.yaml`,
 `compositions/atlas-eyra/bindings.yaml`, `acl.yaml`, `atlas.json`, `flow-runtime.json`,
 `flows.yaml` and `atlas.manifest.json`. Do not edit them: change the concept, module
 or composition that declares the definition and regenerate (CI runs `--check`):
 
 ```sh
-cd products/software_factory/model && mix model.gen           # write products/software_factory/targets/rela/ and products/software_factory/targets/model/
-cd products/software_factory/model && mix model.gen --check   # fail on a stale, missing or left-over file
+cd products/software_factory/model/contract && mix model.gen           # write products/software_factory/model/targets/rela/ and products/software_factory/model/targets/
+cd products/software_factory/model/contract && mix model.gen --check   # fail on a stale, missing or left-over file
 ```
 
 A file under `modules/` or `compositions/` that the model does not write is left over:
@@ -66,10 +66,10 @@ is written with sorted keys, so its bytes depend only on what the model says.
 them. Rela defines and checks the flows; Atlas Flow runs them (D-0068). Neither file is
 part of the selected closure, so startup never copies them into a running rela's data
 (which runs without an `acl.yaml`, and would refuse flows that name roles). Neither
-image holds `products/software_factory/targets/rela/flows.yaml`: Flow runs the compiled model (`products/software_factory/model`), whose
+image holds `products/software_factory/model/targets/rela/flows.yaml`: Flow runs the compiled model (`products/software_factory/model/contract`), whose
 subflows have the same digests as the flows Rela checks.
 `flow-runtime.json` maps the durable runs; its migrations come from the `migrate`
-declarations beside each subflow, which `products/software_factory/targets/model/proof/digests.json` proves.
+declarations beside each subflow, which `products/software_factory/model/targets/proof/digests.json` proves.
 `atlas.json` and `flow-runtime.json` are proofs only: no component reads them (D-0083).
 Facts runs the compiled model and, at boot, refuses a rela whose served schema is not
 the one the model was built with (`rela_schema/0`).
@@ -83,7 +83,7 @@ and rela's copied schema before client smoke, with each app's own token. This is
 internal consistency check within the existing merge-driven promotion route.
 
 The private foundation-only and incident compositions are profiles of the model
-(`products/software_factory/model/profiles`, compiled with `MIX_ENV=test` only); the e2e writes one with
+(`products/software_factory/model/contract/profiles`, compiled with `MIX_ENV=test` only); the e2e writes one with
 `mix model.gen --contract Model.Profiles.Foundation --out DIR`. They are dependency
 proofs, not installed workflows. Foundation omits audit/software/`eyra`; incident reuses
 foundation/audit/software and selects independent person service resolution, with no

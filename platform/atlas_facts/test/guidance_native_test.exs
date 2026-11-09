@@ -72,7 +72,7 @@ defmodule AtlasFacts.GuidanceNativeTest do
           Path.join(@root, "platform/atlas_facts/rela/scripts/config.py"),
           "copy",
           "--root",
-          Path.join(@root, "products/software_factory/targets/rela"),
+          Path.join(@root, "products/software_factory/model/targets/rela"),
           "--data",
           dir
         ],
@@ -85,7 +85,7 @@ defmodule AtlasFacts.GuidanceNativeTest do
 
     extra =
       @root
-      |> Path.join("products/software_factory/targets/rela/atlas.json")
+      |> Path.join("products/software_factory/model/targets/rela/atlas.json")
       |> File.read!()
       |> JSON.decode!()
 

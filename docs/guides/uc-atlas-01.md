@@ -57,4 +57,4 @@ Also try:
    rela test               http://127.0.0.1:7690, data in ~/.local/share/atlas/test/rela
 ```
 
-Nothing on the BEAM side or in the TUI knows what a scene is. The word does not occur in their code; a test checks that. Scene comes from `products/software_factory/targets/rela/schema.yaml`. How a scene is created (title and description only, codes `SC-Atlas-NN`, the defaults, Flux id filled only by a connector) is data in `products/software_factory/targets/rela/atlas.json`.
+Nothing on the BEAM side or in the TUI knows what a scene is. The word does not occur in their code; a test checks that. Scene comes from `products/software_factory/model/targets/rela/schema.yaml`. How a scene is created (title and description only, codes `SC-Atlas-NN`, the defaults, Flux id filled only by a connector) is data in `products/software_factory/model/targets/rela/atlas.json`.

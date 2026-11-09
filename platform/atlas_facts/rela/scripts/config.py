@@ -133,7 +133,7 @@ def same(root, data):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('command', choices=['files', 'resolved', 'flat', 'copy', 'same'])
-    parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parents[4] / 'products/software_factory/targets/rela')
+    parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parents[4] / 'products/software_factory/model/targets/rela')
     parser.add_argument('--data', type=Path)
     args = parser.parse_args()
     if args.command == 'files':

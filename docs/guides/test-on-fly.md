@@ -53,7 +53,7 @@ skipped and test deploys right away; see `docs/guides/prod.md`, "CI tests a tree
 2. rela, then the core.
 3. A smoke check that reads only (`platform/ops/smoke.sh test`).
 
-The test deployment job serializes the entire products/software_factory/targets/rela/core pair without cancelling
+The test deployment job serializes the entire rela/core pair without cancelling
 an in-flight update. Pending jobs queue instead of replacing one another. After
 acquiring its slot, `platform/ops/deploy-test-current.sh` compares the checkout/build label
 with the current authenticated `origin/develop` head. A stale job exits successfully

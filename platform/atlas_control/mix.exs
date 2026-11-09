@@ -31,6 +31,6 @@ defmodule AtlasControl.MixProject do
     do: [
       {:atlas_bus, in_umbrella: true},
       {:atlas_bff_contract, path: "bff/contract"},
-      {:rela_dsl, path: "../model/dsl", only: :test}
+      {:rela_dsl, path: "../../products/software_factory/model/generator", only: :test}
     ]
 end

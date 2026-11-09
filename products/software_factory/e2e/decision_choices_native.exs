@@ -43,7 +43,7 @@ File.mkdir_p!(data)
 # The selected runtime closure, as integration/work_anchors.exs documents for
 # Rela 26.11.2. Generated ACL/Flow files are validation inputs, not runtime inputs.
 for name <- ["schema.yaml", "data-entry.yaml", "modules", "compositions"],
-    do: File.cp_r!(Path.join([root, "products/software_factory/targets/rela", name]), Path.join(data, name))
+    do: File.cp_r!(Path.join([root, "products/software_factory/model/targets/rela", name]), Path.join(data, name))
 
 refute File.exists?(Path.join(data, "acl.yaml"))
 refute File.exists?(Path.join(data, "flows.yaml"))

@@ -107,7 +107,7 @@ stop_core() {
 }
 
 start_core() {
-  "${ATLAS_CONFIG_PYTHON:-python3}" "$root/platform/atlas_facts/rela/scripts/verify.py" "$root/products/software_factory/targets/rela"
+  "${ATLAS_CONFIG_PYTHON:-python3}" "$root/platform/atlas_facts/rela/scripts/verify.py" "$root/products/software_factory/model/targets/rela"
   echo "atlas-ops: starting the core from $root at $(head_now) (a first start compiles, about half a minute)..."
   mkdir -p "$state"
   nohup "$root/bin/atlas-ops" up --env "$env" >"$log" 2>&1 </dev/null &
@@ -127,7 +127,7 @@ start_core() {
 clean_build() { "$root/bin/clean-build" "$root" >&2; }
 
 # rela keeps the description it started with. When this build's differs (a merge changed
-# products/software_factory/targets/rela/schema.yaml), rela is restarted on it first, its data kept (IS-Atlas-73). When the
+# products/software_factory/model/targets/rela/schema.yaml), rela is restarted on it first, its data kept (IS-Atlas-73). When the
 # new description would leave data without a description (a removed kind or field that
 # still has data), nothing is started: that needs a migration first.
 ensure_rela() {

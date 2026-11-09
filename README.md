@@ -11,7 +11,7 @@ Optional server ingress is disabled by default and unverified on live Fly. See t
 [activation prerequisites and rollback](docs/guides/prod.md#optional-control-tls-ingress-not-activated)
 before considering it; this does not change Bus or Runtime transport.
 
-The BEAM side runs the system. rela describes it. Entities, schemas, flows and the organisation are written in the model (`products/software_factory/model`), which generates rela's description. The BEAM code names no entity.
+The BEAM side runs the system. rela describes it. Entities, schemas, flows and the organisation are written in the model (`products/software_factory/model/contract`), which generates rela's description. The BEAM code names no entity.
 
 ## Main parts
 
@@ -32,10 +32,10 @@ The BEAM side runs the system. rela describes it. Entities, schemas, flows and t
 | `platform/atlas_facts/rela/` | How Facts runs rela: its scripts and their tests. See [platform/atlas_facts/rela/README.md](platform/atlas_facts/rela/README.md). |
 | `platform/atlas_runtime/host/` | The Runtime CLI in Go ([platform/atlas_runtime/host/README.md](platform/atlas_runtime/host/README.md)). |
 | `platform/atlas_runtime/viewer/` | The Runtime viewer ([its README](platform/atlas_runtime/viewer/README.md)). |
-| `platform/model/dsl/` | The Rela DSL. |
 | `platform/clients/` | The Console (`tui/`), the agents' command line (`agent/`), the Apple clients (`apple/`) and the optional verified TLS socket transport shared only by the Control CLI and TUI clients (`platform/clients/transport/`). |
 | `platform/ops/` | Images and deploy scripts for the hosted environments, and supporting tools (CI's tested-tree record in `ci/`, the local Runtime node helpers, `plan/`, `orchestrator/`, `tests/`). |
-| `products/software_factory/` | The software factory: the umbrella that builds the release (`mix.exs`, `config/`, `integration/`), the model (`model/`: Atlas's domain written in the Rela DSL, by module and concept: kinds, relations, subflows and gates), the files generated from it (`targets/rela/`: rela's description of every entity Atlas knows, see `platform/atlas_facts/rela/README.md`; `targets/model/`), the settings per environment (`environments/`) and the end-to-end test (`products/software_factory/e2e/`). |
+| `products/software_factory/` | The software factory: the umbrella that builds the release (`mix.exs`, `config/`, `integration/`), the model (`model/`, below), the settings per environment (`environments/`) and the end-to-end test (`products/software_factory/e2e/`). |
+| `products/software_factory/model/` | The model, one intent folder: `generator/` (the Rela DSL), `contract/` (Atlas's domain written in the Rela DSL, by module and concept: kinds, relations, subflows and gates) and `targets/`, the files generated from it (`targets/rela/`: rela's description of every entity Atlas knows, see `platform/atlas_facts/rela/README.md`; `targets/{atlas,diagrams,proof,test}/`). |
 | `bin/atlas` | The `atlas` command, Control's client: the Console, the commands on facts during a turn, and provisioning. `atlas help` lists them. |
 | `bin/atlas-ops` | The `atlas-ops` command: operating an environment (status, logs, restart, the tunnel, data moves, install). |
 | `bin/atlas-dev` | Development and test tooling, run from the checkout and never installed. |
@@ -53,8 +53,8 @@ cd platform/clients/tui && mix test                        # the Console
 cd platform/clients/agent && mix test                      # the agents' command line
 cd platform/atlas_control/bff/generator && mix test        # the contract generator
 cd platform/atlas_control/bff/contract && mix atlas.gen    # after changing the contract: regenerate platform/atlas_control/bff/targets/
-cd platform/model/dsl && mix test                          # the Rela DSL
-cd products/software_factory/model && mix model.gen        # after changing the model: regenerate products/software_factory/targets/
+cd products/software_factory/model/generator && mix test   # the Rela DSL
+cd products/software_factory/model/contract && mix model.gen # after changing the model: regenerate products/software_factory/model/targets/
 cd products/software_factory/e2e && mix test               # the atlas launcher's own rules
 bin/atlas-dev e2e --env test                               # the end-to-end test, on a private instance
 node --test platform/ops/ci/tested-tree.test.mjs           # CI's tested-tree record (Node 18+)

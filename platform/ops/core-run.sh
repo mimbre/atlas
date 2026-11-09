@@ -20,7 +20,7 @@ if [ -e "${ATLAS_HOLD_FILE:-/data/hold}" ]; then
   exec sleep infinity
 fi
 
-python3 "$app/platform/atlas_facts/rela/scripts/verify.py" "$app/products/software_factory/targets/rela"
+python3 "$app/platform/atlas_facts/rela/scripts/verify.py" "$app/products/software_factory/model/targets/rela"
 case "${ATLAS_CONTROL_TAILSCALE:-0}" in
   0) control_ts_key=""; exec "$app/release/bin/atlas" start ;;
   1) . "$app/platform/ops/control-tailscale.sh" ;;

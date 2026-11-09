@@ -8,7 +8,7 @@ defmodule AtlasE2E.SmokeTest do
     for folder <- [
           "bin",
           "products/software_factory/environments",
-          "products/software_factory/targets/rela"
+          "products/software_factory/model/targets/rela"
         ],
         do: File.mkdir_p!(Path.join(dir, folder))
 
@@ -34,7 +34,7 @@ defmodule AtlasE2E.SmokeTest do
           do: {role, %{"kind" => kind}}
 
     File.write!(
-      Path.join(dir, "products/software_factory/targets/rela/atlas.json"),
+      Path.join(dir, "products/software_factory/model/targets/rela/atlas.json"),
       JSON.encode!(%{"guidance" => guidance})
     )
 
@@ -107,7 +107,7 @@ defmodule AtlasE2E.SmokeTest do
   end
 
   test "ordinary-only compositions retain ordinary smoke", %{dir: dir} do
-    File.write!(Path.join(dir, "products/software_factory/targets/rela/atlas.json"), "{}")
+    File.write!(Path.join(dir, "products/software_factory/model/targets/rela/atlas.json"), "{}")
     {out, status} = smoke(dir, [{"SMOKE_KINDS", ~s(["box"])}, {"SMOKE_SCOPED", "[]"}])
     assert status == 0, out
     assert out =~ "smoke: box: 2"
@@ -124,7 +124,7 @@ defmodule AtlasE2E.SmokeTest do
 
   test "duplicate role kinds are not treated as a valid guard declaration", %{dir: dir} do
     File.write!(
-      Path.join(dir, "products/software_factory/targets/rela/atlas.json"),
+      Path.join(dir, "products/software_factory/model/targets/rela/atlas.json"),
       ~s({"guidance":{"execution":{"kind":"box"},"receipt":{"kind":"box"}}})
     )
 
@@ -170,7 +170,7 @@ defmodule AtlasE2E.SmokeTest do
 
   test "unknown guidance roles fail rather than becoming exclusions", %{dir: dir} do
     File.write!(
-      Path.join(dir, "products/software_factory/targets/rela/atlas.json"),
+      Path.join(dir, "products/software_factory/model/targets/rela/atlas.json"),
       ~s({"guidance":{"unknown":{"kind":"box"}}})
     )
 

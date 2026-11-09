@@ -61,9 +61,9 @@ dropdown or cards renderer can use the same calls without a model, schema or Flo
 change. Keyboard shortcuts are projection data. The TUI invokes a generic declared
 call and does not recognize decision kinds or interpret option effects.
 
-The single-choice mechanism in `platform/model/dsl` (`RelaDSL.DecisionOptions`) is generic:
+The single-choice mechanism in `products/software_factory/model/generator` (`RelaDSL.DecisionOptions`) is generic:
 it knows no decision fields, statuses or wording. A kind passes them in with its
-`decision_options` annotation, which `products/software_factory/model/foundation/decision.ex` gives
+`decision_options` annotation, which `products/software_factory/model/contract/foundation/decision.ex` gives
 for decisions. Next to the fields holding the definition, selection, snapshot,
 revision and history, the annotation gives `adopt` (which option payload goes into
 which field: `rule` into `decision`, `consequences` into `consequences`),
@@ -75,7 +75,7 @@ that decisions without options keep matching) and `errors` (the wording of the
 refusals; the DSL has neutral fallbacks).
 
 Private native acceptance is `products/software_factory/e2e/decision_choices_native.exs`, run from
-`products/software_factory/model` with the supported Elixir and `mix run --no-start`, the assigned
+`products/software_factory/model/contract` with the supported Elixir and `mix run --no-start`, the assigned
 private scratch path and prepared Rela bin directory. It creates only private
 fixture actors/data. Read its current delivery evidence for execution status;
 source code alone is not evidence of a passed terminal/persistence proof.

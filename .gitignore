@@ -1,8 +1,8 @@
 # Python configuration tools
 __pycache__/
 *.pyc
-# The search index rela builds when it runs on the description (rela --project products/software_factory/targets/rela)
-products/software_factory/targets/rela/.rela/search/
+# The search index rela builds when it runs on the description (rela --project products/software_factory/model/targets/rela)
+products/software_factory/model/targets/rela/.rela/search/
 # What the umbrella's apps (products/software_factory, apps_path ../../platform) leave in
 # their own folders when run one by one
 platform/atlas_*/_build/

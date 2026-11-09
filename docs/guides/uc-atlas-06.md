@@ -6,7 +6,7 @@ This guide grows with the use case, one section per issue. In the end the operat
 
 The agents are one key away from the start page: `g Agents`, as `w What the agent did` is. Each row counts the Assignments that point at the agent: what is assigned to it.
 
-It is all description (`products/software_factory/targets/rela/atlas.json`, kind `agent`):
+It is all description (`products/software_factory/model/targets/rela/atlas.json`, kind `agent`):
 
 - `start: {key: g, label: Agents}` puts the action on the start page. The kind stays `top: false`, so the start page is still the scenes list.
 - `counts: [{relation: assigned_to, text: "{count} assigned"}]` makes each row count the facts that point at it through `assigned_to`. Control reads those facts plainly, without progress: one read per kind the relation starts at. A hint of that kind refreshes the list. A count whose read failed is left out, never shown as 0.
@@ -34,8 +34,8 @@ The Assignment has an optional `deadline`, a date and time in UTC. Late is worke
 
 It is description, plus one general rule in Facts and Control:
 
-- **`products/software_factory/targets/rela/schema.yaml`:** `deadline: { type: datetime }` on the assignment.
-- **`products/software_factory/targets/rela/atlas.json`:** the assignment kind gets
+- **`products/software_factory/model/targets/rela/schema.yaml`:** `deadline: { type: datetime }` on the assignment.
+- **`products/software_factory/model/targets/rela/atlas.json`:** the assignment kind gets
   - `late: {after: deadline, while: expected, label: late}`;
   - `by_hand: "update"`: its page offers `u` to change it, and nothing to make or delete one, because an Assignment goes with its fact.
 - **Facts:** it answers `late` with every fact of a kind with a late rule, plain reads too, and refuses a deadline that is not a date and time. rela itself would store one with only a warning.
@@ -100,7 +100,7 @@ This is "the state its process records" in UC-Atlas-06. Once a use case is under
 
 It is description, plus one general condition in Flow:
 
-- **`products/software_factory/targets/rela/atlas.json`** (flow `test_and_accept`): `break_down` comes before `building`, with `when: {empty: in_scene}`.
+- **`products/software_factory/model/targets/rela/atlas.json`** (flow `test_and_accept`): `break_down` comes before `building`, with `when: {empty: in_scene}`.
 - **Flow:** `empty: <relation>` holds when nothing is under the fact through that parent relation. It never holds for a kind nothing belongs under through it. So a use case (nothing is `in_scene` under a use case) is never in `break_down`, and a use case without issues stays "Build it".
 - **Facts' check:** an `empty` must name a parent relation that puts something under one of the flow's kinds.
 
@@ -130,7 +130,7 @@ My work (IS-Atlas-55, the start page "Assigned to you") is the same list, filter
 
 It is description, plus Control's list of the kind the start's relation starts at:
 
-- **`products/software_factory/targets/rela/atlas.json`:**
+- **`products/software_factory/model/targets/rela/atlas.json`:**
   - `start.open = {title: "Open work", empty: …}`;
   - the assignment kind has `start: {key: l, label: Open work}`.
 - **Control:**

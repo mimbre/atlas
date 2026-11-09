@@ -28,13 +28,13 @@ A session that is not a person (an agent on the command line, a migration) opens
 
 ## How it works
 
-- **The start page is data:** `start.assigned` in `products/software_factory/targets/rela/atlas.json`:
+- **The start page is data:** `start.assigned` in `products/software_factory/model/targets/rela/atlas.json`:
   - `relation`: the association whose inverse it reads, `assigned_to`;
   - `title`: "Assigned to you";
   - `count`: "{count} assigned to you", for the header;
   - `empty`: what fills it.
   - A kind's `start: {key, label}` puts its key on the start page. The scenes have `s Scenes`, and the agent's requests keep `w What the agent did`.
-  - Every word comes from there, so naming these things (d-0022) is a change to `products/software_factory/targets/rela/atlas.json` only. No noun is in code.
+  - Every word comes from there, so naming these things (d-0022) is a change to `products/software_factory/model/targets/rela/atlas.json` only. No noun is in code.
 - **Control:**
   - For a session whose user is a fact of a kind `assigned_to` points at (a person at the TUI), `/` is what points at it: its Assignments, one kind (IS-Atlas-78).
   - Each Assignment shows as the fact it belongs to: Control reads the kinds the component association (`assignment`) starts at, then joins their facts only to the user's selected Assignments. This avoids fetching the full Assignment list again for every owner kind. Unassigned and completed facts are left out.
@@ -46,7 +46,7 @@ A session that is not a person (an agent on the command line, a migration) opens
 
 ## What changed for this
 
-- **products/software_factory/targets/rela/atlas.json:** `start.assigned`; `start` on the scene kind.
+- **products/software_factory/model/targets/rela/atlas.json:** `start.assigned`; `start` on the scene kind.
 - **Control:** the start page of assignments, and `count` on every page.
 - **TUI:** the header count; long row details; wrapped empty text.
 - **The end-to-end test:** `products/software_factory/e2e/scenarios/uc-atlas-28.exs`.
@@ -74,7 +74,7 @@ Nobody else sees the part. `atlas get` shows it to a client that is the owner: a
 
 ### How it works
 
-- **The flow definitions say it all** (`products/software_factory/targets/rela/atlas.json`, `flows`):
+- **The flow definitions say it all** (`products/software_factory/model/targets/rela/atlas.json`, `flows`):
   - each definition has `state_field`, the field it writes the state's name in (`flow_state`, on the Assignment);
   - each open state has `todo`: `instructions`, `section` (`{field, heading}`: the fact's field and the heading the text starts at, to the next `#` heading) and `answers` (`[{key, label}]`);
   - the part's own words are the top-level `todo` (`title`, `why`, `instructions`, `answers`).
@@ -90,7 +90,7 @@ Nobody else sees the part. `atlas get` shows it to a client that is the owner: a
 ### What changed for this
 
 - **rela:** `flow_state` on the Assignment.
-- **products/software_factory/targets/rela/atlas.json:** `state_field` and `todo` in the three flow definitions; the top-level `todo` words.
+- **products/software_factory/model/targets/rela/atlas.json:** `state_field` and `todo` in the three flow definitions; the top-level `todo` words.
 - **Flow:** writes the state's name. **Facts:** checks `state_field`.
 - **Control:** the What to do part; `as` in hello.
 - **Contract:** 0.12.0. **TUI:** room for the todo part first. **Agent:** `ATLAS_AS`; `atlas get` prints the part first and has `todo` in `--json`.

@@ -5,7 +5,7 @@ defmodule Atlas.MixProject do
     [
       apps_path: "../../platform",
       # The umbrella's apps by name: platform/ also holds folders that are no app (clients,
-      # model, ops), which Mix would warn about on every command.
+      # ops), which Mix would warn about on every command.
       apps: [
         :atlas_bus,
         :atlas_code,
@@ -53,5 +53,5 @@ defmodule Atlas.MixProject do
   # wires it at boot. Outside prod it is compiled with its private profiles, which a private
   # instance can be wired to instead (its settings' "model").
   defp deps,
-    do: [{:model, path: "model", env: Mix.env()}]
+    do: [{:model, path: "model/contract", env: Mix.env()}]
 end

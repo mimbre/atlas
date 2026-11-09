@@ -5,7 +5,7 @@ defmodule AtlasAgent.Record do
   makes is so a fact with its cause, which Melle can see and overrule.
 
   Which kinds hold the record is data: the kinds page (`/_kinds`) says, per kind, when it
-  is an "Agent record" (`request` or `step`), from `products/software_factory/targets/rela/atlas.json`. This code names no
+  is an "Agent record" (`request` or `step`), from `products/software_factory/model/targets/rela/atlas.json`. This code names no
   kind; when the description has no such kinds, nothing is recorded. Everything goes
   through Control like any other write, so it is refused or stored by the same rules.
   """

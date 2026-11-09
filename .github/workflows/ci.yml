@@ -27,7 +27,7 @@ on:
 # was before the push.
 env:
   CI_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event.before }}
-  CI_BASE_FILE: products/software_factory/targets/model/proof/digests.json
+  CI_BASE_FILE: products/software_factory/model/targets/proof/digests.json
 
 jobs:
   tested-tree:
@@ -128,7 +128,7 @@ jobs:
       MIX_ENV: test
     defaults:
       run:
-        working-directory: platform/model/dsl
+        working-directory: products/software_factory/model/generator
     steps:
       - uses: actions/checkout@v4
       - uses: erlef/setup-beam@v1
@@ -137,11 +137,11 @@ jobs:
           elixir-version: "1.18"
       - name: The DSL holds none of Atlas's flows
         run: |
-          if grep -rnE '(^|[^.[:alnum:]_])Model\.[A-Z{]|:model\b' lib test mix.exs || grep -rniE 'products/software_factory/model\b|\bissue\b|pull_request|pr_review|pr_test|use_case|\bscene\b|\bdecision\b|delivery_evidence' lib test mix.exs; then
-            echo "::error::platform/model/dsl mentions Atlas's flows. Keep them in products/software_factory/model."
+          if grep -rnE '(^|[^.[:alnum:]_])Model\.[A-Z{]|:model\b' lib test mix.exs || grep -rniE '\.\./contract|model/contract|\bissue\b|pull_request|pr_review|pr_test|use_case|\bscene\b|\bdecision\b|delivery_evidence' lib test mix.exs; then
+            echo "::error::products/software_factory/model/generator mentions Atlas's flows. Keep them in products/software_factory/model/contract."
             exit 1
           fi
-      # Compiled and tested without products/software_factory/model, on a neutral example contract.
+      # Compiled and tested without products/software_factory/model/contract, on a neutral example contract.
       - run: mix compile --warnings-as-errors
       - run: mix format --check-formatted
       - run: mix test --warnings-as-errors
@@ -157,7 +157,7 @@ jobs:
       ATLAS_RELA_BIN: ${{ github.workspace }}/.rela-bin
     defaults:
       run:
-        working-directory: products/software_factory/model
+        working-directory: products/software_factory/model/contract
     steps:
       - uses: actions/checkout@v4
       # The model names roles, never people (D-0083, slice 7): an owner is {kind, config:
@@ -165,7 +165,7 @@ jobs:
       - name: The model names no person
         run: |
           if grep -rnE --exclude-dir=_build --exclude-dir=deps '\{ *:person *, *[:"]|kind: *:person *, *key:|key: *"[^"]*" *, *kind: *:person|"kind" *(=>|:) *"person" *, *"key"|"key" *(=>|:) *"[^"]*" *, *"kind" *(=>|:) *"person"' .; then
-            echo "::error::products/software_factory/model names a person. Name a configured role instead: {:person, config: :decider}, and the person in the environment's actors."
+            echo "::error::products/software_factory/model/contract names a person. Name a configured role instead: {:person, config: :decider}, and the person in the environment's actors."
             exit 1
           fi
       - uses: erlef/setup-beam@v1
@@ -181,7 +181,7 @@ jobs:
         working-directory: .
       - run: mix compile --warnings-as-errors
       - run: mix format --check-formatted
-      # Fails when a file of the Rela project (products/software_factory/targets/rela) or of products/software_factory/targets/model differs from what
+      # Fails when a file of the Rela project (products/software_factory/model/targets/rela) or of products/software_factory/model/targets differs from what
       # the model generates, is missing or left over, or when rela refuses the generated
       # description. The run identities against the base: job model-base.
       - run: mix model.gen --check
@@ -200,7 +200,7 @@ jobs:
       base_commit: ${{ steps.keys.outputs.base_commit }}
     defaults:
       run:
-        working-directory: products/software_factory/model
+        working-directory: products/software_factory/model/contract
     steps:
       - uses: actions/checkout@v4
         with:

@@ -27,7 +27,7 @@ The one-off `atlas migrate-owner` gave every fact that existed then the coordina
 ### How it works
 
 - **rela's description:**
-  - `products/software_factory/targets/rela/schema.yaml` has an `agent` kind next to `person` (made from a name, not on the start page; `products/software_factory/targets/rela/atlas.json`).
+  - `products/software_factory/model/targets/rela/schema.yaml` has an `agent` kind next to `person` (made from a name, not on the start page; `products/software_factory/model/targets/rela/atlas.json`).
   - It has `assigned_to` from scene, use case, issue and pull request to person and agent, with `max_outgoing: 1` and the inverse `assignments`.
   - A kind is assignable by being in `assigned_to`'s `from`; adding one is a change to the description only.
 - **A relation to several kinds:**
@@ -71,14 +71,14 @@ In prod, after the merge and a restart, every open scene and use case gets its `
 
 ### How it works
 
-- **The definition** is data in `products/software_factory/targets/rela/atlas.json`, under `flows`. `test_and_accept` runs on scenes and use cases and writes `expected`. Its states are in order, and a fact is in the first that holds:
+- **The definition** is data in `products/software_factory/model/targets/rela/atlas.json`, under `flows`. `test_and_accept` runs on scenes and use cases and writes `expected`. Its states are in order, and a fact is in the first that holds:
   1. `done` (completed);
   2. `rework` (the newest fact about `accepted_by` removed it, and nothing came under the fact since; `{note}` is that fact's cause);
   3. `to_test` (its progress is `to_test`);
   4. `building` (otherwise).
 
   Each open state names its owner, what is expected, why, and its next states.
-- **The check:** the model checks every subflow when it compiles (`products/software_factory/model`), and the pinned rela validates the generated `flows.yaml`; Flow refuses to run a selected subflow it cannot run, writing nothing.
+- **The check:** the model checks every subflow when it compiles (`products/software_factory/model/contract`), and the pinned rela validates the generated `flows.yaml`; Flow refuses to run a selected subflow it cannot run, writing nothing.
 - **The engine:** Flow is its own BEAM application, `atlas_flow`, beside Bus, Facts and Control, and it talks only over the Bus.
   - It keeps one durable run per subject of each selected subflow, in Facts, and no process per fact (since flow slice 14: the old flow definitions and their per-fact processes are gone).
   - On its round (every minute; `flow.tick_seconds` in the environment's settings, sooner when a run's timer is due), and at once on any hint about the facts it changes, it reconciles the runs, then projects what each presents (what is expected, the state and the owner) on its subject, storing only what differs (safe to repeat). It keeps nothing Facts does not hold, so a restarted Flow goes on from Facts. Nobody depends on a hint.
@@ -108,10 +108,10 @@ The one-off `atlas migrate-assignment` gave every item that existed then its Ass
 ### How it works
 
 - **rela's description:**
-  - The `assignment` kind (`of`, the item's key, and `expected`) in `products/software_factory/targets/rela/schema.yaml`.
+  - The `assignment` kind (`of`, the item's key, and `expected`) in `products/software_factory/model/targets/rela/schema.yaml`.
   - The association `assignment`, from scene, use case, issue and pull request, one each way (inverse `assignment of`). A kind is assignable by being in its `from`.
   - `assigned_to` now starts at the Assignment, and `expected` left the scene and use case.
-- **`products/software_factory/targets/rela/atlas.json`:**
+- **`products/software_factory/model/targets/rela/atlas.json`:**
   - `relations.assignment.component` = `{key: "AS-{key}", values: {of: "{key}"}}`: the mark that makes it part of the item. It is `set_by: migration`: nobody links it by hand.
   - The flow `test_and_accept` has `"on": "assignment"`: Flow writes on the fact that relation points at.
 - **Facts** (`AtlasFacts.Components`):
@@ -144,7 +144,7 @@ The one-off `atlas migrate-assignment` gave every item that existed then its Ass
 
 Flow now writes the owner too, on each fact's Assignment (IS-Atlas-78), together with what is expected, in one change with its cause, by `flow`. Each flow state names its owner with its kind (`"owner": {"kind": "agent", "key": "coordinator"}`), and Facts' check refuses a definition whose owner relation does not allow that kind.
 
-What each kind gets, from the flows in `products/software_factory/targets/rela/atlas.json`:
+What each kind gets, from the flows in `products/software_factory/model/targets/rela/atlas.json`:
 
 | Kind | State | Owner | Expected |
 |---|---|---|---|

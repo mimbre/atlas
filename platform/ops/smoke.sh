@@ -38,4 +38,4 @@ if [ -n "$label" ]; then
 fi
 
 ATLAS_ENV_FILE="$dir/$env.json" ATLAS_NO_UPDATE=1 python3 "$root/platform/ops/smoke-reads.py" \
-  "$root/bin/atlas" "$root/products/software_factory/targets/rela/atlas.json" "$env" "$app"
+  "$root/bin/atlas" "$root/products/software_factory/model/targets/rela/atlas.json" "$env" "$app"
