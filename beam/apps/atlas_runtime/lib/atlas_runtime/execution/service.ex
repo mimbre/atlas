@@ -79,11 +79,16 @@ defmodule AtlasRuntime.Service do
 
   # A read.sock follow connection: registration and its first page in one call. Followers are
   # connection bookkeeping, never persisted or returned.
+  # Once the shutdown began the service still answers until the exit lands, but a follow
+  # started then would report a stopping Runtime reachable: it ends at once instead.
   defp serve_call({:follow, pid, cursor}, _from, state) when is_pid(pid) do
     followers = followers(state)
     page = fn -> Reads.read("events", %{"cursor" => cursor, "limit" => 100}, state) end
 
     cond do
+      state[:shutdown] ->
+        {:reply, :service_stopping, state}
+
       Map.has_key?(followers, pid) ->
         {:reply, page.(), state}
 
@@ -932,8 +937,10 @@ defmodule AtlasRuntime.Service do
   end
 
   defp serve_info(:shutdown, state) do
-    # Followers write their `end` line best effort; the exit never waits for them.
+    # Followers write their `end` line best effort; the exit never waits for them. The exit
+    # is asynchronous, so no follow is admitted from here on either.
     Enum.each(Map.keys(followers(state)), &send(&1, :service_stopping))
+    state = Map.merge(state, %{shutdown: true, followers: %{}})
     # Ends already asked for get a bounded moment; Server never holds the exit up longer.
     if state[:server], do: Lifecycle.flush(state.server.reporter, 5_000)
     Map.get(state, :halt, &System.stop/1).(0)

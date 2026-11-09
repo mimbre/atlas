@@ -332,6 +332,30 @@ func TestEventsFollowServiceStoppingIsUnreachableUntilAReconnectPages(t *testing
 	run.stop(t)
 }
 
+// A stopping service still answers until its exit lands, but ends a reconnect's follow with
+// service_stopping before any page: the follower stays unreachable through the exit and never
+// prints reachable in between.
+func TestEventsFollowReconnectDuringServiceStopStaysUnreachable(t *testing.T) {
+	socket, _ := newFakeReadSocket(t)
+	run := startFollower(t, socket, "")
+	first := socket.accept(t)
+	first.send(t, page("e:1", 1))
+	run.out.expect(t, event(1), `{"cursor":"e:1"}`)
+	first.send(t, map[string]any{"type": "end", "reason": "service_stopping"})
+	first.conn.Close()
+	run.out.expect(t, `{"reachable":false,"reason":"service_stopping"}`)
+	run.clock.waitArmed(t, time.Second, 1)
+	run.clock.advance(time.Second)
+	second := socket.accept(t)
+	second.send(t, map[string]any{"type": "end", "reason": "service_stopping"})
+	second.conn.Close()
+	run.clock.waitArmed(t, 2*time.Second, 1)
+	socket.close()
+	run.clock.advance(2 * time.Second)
+	run.clock.waitArmed(t, 4*time.Second, 1)
+	run.stop(t)
+}
+
 func TestEventsFollowSilenceIsUnreachable(t *testing.T) {
 	socket, _ := newFakeReadSocket(t)
 	run := startFollower(t, socket, "")

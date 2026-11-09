@@ -134,7 +134,9 @@ Each frame is one line with `"api": "runtime.read/1", "op": "follow"` and a `typ
 - **Slow readers.** A reader that does not take a line within 5 s is closed (`too_slow`,
   best effort); the service itself never waits for a follower.
 - **Closing.** Any input after the request closes the connection. A service stop ends the
-  stream with `service_stopping`. EOF without `end` means the Runtime is gone or unreachable.
+  stream with `service_stopping`. From then until the Runtime exits, a new `follow` gets
+  only that `end` line, never a page, so a reconnect does not find a stopping Runtime
+  reachable. EOF without `end` means the Runtime is gone or unreachable.
 
 Frames are transport, not journal events, and are never persisted. `follow` is read-only
 like every operation here: it starts, stops, answers, acknowledges and restarts nothing.
