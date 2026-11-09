@@ -20,8 +20,11 @@ atlas-ops tunnel close --env test  # closes this Mac's tunnel; test keeps runnin
 The tunnel is `fly proxy 7693:7691 -a eyra-atlas-test`, flyctl's WireGuard into test's network, running in the background like the core used to. It needs flyctl logged in to organisation eyra (`fly auth whoami`); nothing else on the Mac (no VPN, no root). Its files are in `~/.local/share/atlas/test-on-fly/`.
 
 Before passing the tunnel to a client, the launcher checks a read-only Control
-handshake, not only the local port. It reopens an unresponsive existing proxy and
-waits up to a minute for a new proxy to reach Control. `status` reports a broken
+handshake, not only the local port. An existing tunnel is shared by every client on
+the Mac, so a slow Control does not drop it: after three failed hellos (10 s each) it is
+reopened only if its `fly proxy` has died or its port no longer accepts; otherwise the
+launcher says `Control is slow or not answering through the tunnel` and goes on. It waits
+up to a minute for a new proxy to reach Control. `status` reports a broken
 upstream as unavailable even if flyctl still listens locally. This restarts no Fly
 machine and replays no client writes. A hello refusal is left to the client to
 report; a handshake alone does not prove Facts/rela health.

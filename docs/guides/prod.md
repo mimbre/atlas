@@ -21,10 +21,14 @@ More:
 
 Before reusing or opening a tunnel, `atlas` sends a read-only Control hello through
 it. A local listening port alone is not enough: flyctl can keep that port open
-while its WireGuard tunnel or private DNS is unavailable. An unresponsive existing
-proxy is reopened; a new proxy must reach Control within a minute before a client
-starts. This changes only the local proxy, never the Fly machines or stored data,
-and never retries a client's write. `atlas-ops status` reports an unavailable upstream
+while its WireGuard tunnel or private DNS is unavailable. An existing tunnel is shared
+by every client on this Mac (the TUI, `atlas` commands, agents), so it gets three hellos
+of up to 10 s each, and is reopened only if they all fail and its `fly proxy` has died or
+its port no longer accepts. If the port accepts but Control does not answer, `atlas`
+prints `Control is slow or not answering through the tunnel: …` and leaves the tunnel
+alone. A new proxy must reach Control within a minute before a client starts. This
+changes only the local proxy, never the Fly machines or stored data, and never retries
+a client's write. `atlas-ops status` reports an unavailable upstream
 separately from a closed tunnel.
 
 The probe proves transport, not Facts/rela health. An explicit hello refusal (for
