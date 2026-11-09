@@ -613,6 +613,33 @@ printf '%s\n' '{"type":"system","subtype":"init","session_id":"`+claudeSession+`
 	}
 }
 
+func buildSocketProbe(t *testing.T, directory string) string {
+	t.Helper()
+	probe := filepath.Join(directory, "socket-probe")
+	if out, err := exec.Command("go", "build", "-o", probe, "testdata/socket-probe.go").CombinedOutput(); err != nil {
+		t.Fatalf("build socket probe: %v %s", err, out)
+	}
+	return probe
+}
+
+// Exercise the same binary even on hosts where the installed-Codex test cannot run.
+func TestFolderSocketProbe(t *testing.T) {
+	probe := buildSocketProbe(t, t.TempDir())
+	for _, network := range []string{"tcp4", "unix"} {
+		t.Run(network, func(t *testing.T) {
+			directory := t.TempDir()
+			command := exec.Command(probe, network)
+			command.Dir = directory
+			if out, err := command.CombinedOutput(); err != nil {
+				t.Fatalf("socket probe: %v %s", err, out)
+			}
+			if entries, err := os.ReadDir(directory); err != nil || len(entries) != 0 {
+				t.Fatalf("socket probe left files: %v %v", entries, err)
+			}
+		})
+	}
+}
+
 // TestFolderProfileIsEnforcedByInstalledCodexSandbox runs real worker commands under the
 // installed Codex seatbelt with the exact profile arguments; fake user and Runtime homes hold sentinels.
 // The inspector lives inside the denied Runtime home, like the dedicated deployment's binary, and an
@@ -658,6 +685,7 @@ func TestFolderProfileIsEnforcedByInstalledCodexSandbox(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(scratch, "tmp"), 0700); err != nil {
 		t.Fatal(err)
 	}
+	socketProbe := buildSocketProbe(t, scratch)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("reachable")) }))
 	defer server.Close()
 	args, err := folderArguments(scope, scratch, user, inspector)
@@ -679,8 +707,7 @@ func TestFolderProfileIsEnforcedByInstalledCodexSandbox(t *testing.T) {
 	// Relative to its directory, so test paths stay below macOS's 104-byte socket path limit. `cd -P`
 	// avoids the shell's logical path walk, which fails through the denied Runtime home above scratch.
 	unixSocket := func(directory string) string {
-		return fmt.Sprintf(`cd -P %s && python3 -c 'import os, socket; s = socket.socket(socket.AF_UNIX); s.bind("t.sock"); s.listen(1); `+
-			`c = socket.socket(socket.AF_UNIX); c.connect("t.sock"); os.unlink("t.sock")'`, directory)
+		return fmt.Sprintf("cd -P %s && %q unix", directory, socketProbe)
 	}
 	for _, probe := range []struct {
 		script  string
@@ -709,7 +736,7 @@ func TestFolderProfileIsEnforcedByInstalledCodexSandbox(t *testing.T) {
 		{"mkdir .git", false},
 		// Loopback is open (listen and connect); everything external stays blocked, directly or via the proxy.
 		{"curl -sS -m 5 " + server.URL, true},
-		{`python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); s.listen(1)'`, true},
+		{fmt.Sprintf("%q tcp4", socketProbe), true},
 		{"curl -sS -f -m 8 https://example.com", false},
 		{"curl -sS -m 5 --noproxy '*' https://1.1.1.1", false},
 		// Unix-domain sockets bind and connect only inside the scratch folder.
@@ -745,6 +772,7 @@ func TestFolderProfileIsEnforcedByInstalledCodexSandbox(t *testing.T) {
 	for _, script := range []string{
 		fmt.Sprintf("cat %q %q %q %q", filepath.Join(home, "code.json"), token, filepath.Join(user, ".ssh", "id"), filepath.Join(user, ".npmrc")),
 		"curl -sS -m 5 " + server.URL,
+		fmt.Sprintf("%q tcp4", socketProbe),
 		unixSocket(fmt.Sprintf("%q", dest)),
 	} {
 		if out, err := shell(false, script); err != nil {
