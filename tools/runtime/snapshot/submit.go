@@ -165,15 +165,18 @@ func Submit(home, dest, path, id, approved string) (map[string]any, error) {
 // own takes the exclusive flock a Runtime host holds on its folder until its process group is
 // reaped, so the folder is not captured while a worker may write to it. It never waits; closing
 // the returned directory releases the lock.
-func own(dest string) (*os.File, error) {
+func own(dest string) (*os.File, error) { return hold(dest, "submit", "nothing was sent to Code") }
+
+// hold takes the folder lock for the command verb; nothing names what a refusal left undone.
+func hold(dest, verb, nothing string) (*os.File, error) {
 	lock, err := os.OpenFile(dest, os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW, 0)
 	if err != nil {
-		return nil, fmt.Errorf("cannot submit %s: %v", dest, reason(err))
+		return nil, fmt.Errorf("cannot %s %s: %v", verb, dest, reason(err))
 	}
 	if err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		lock.Close()
 		if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
-			return nil, fmt.Errorf("folder %s has an active Runtime owner; nothing was sent to Code, run the command again after it stops", dest)
+			return nil, fmt.Errorf("folder %s has an active Runtime owner; %s, run the command again after it stops", dest, nothing)
 		}
 		return nil, err
 	}

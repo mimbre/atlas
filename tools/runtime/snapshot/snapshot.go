@@ -733,11 +733,16 @@ func remove(path string) {
 
 // record maps the published folder to its snapshot for the later offline diff.
 func record(home, dest, id string) error {
+	return writeRecord(home, dest, map[string]string{"destination": dest, "snapshot_id": id, "materialized_at": time.Now().UTC().Format(time.RFC3339)})
+}
+
+// writeRecord replaces the materialization record of dest with fields.
+func writeRecord(home, dest string, fields map[string]string) error {
 	dir := filepath.Join(home, "materializations")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
 	}
-	body, err := json.Marshal(map[string]string{"destination": dest, "snapshot_id": id, "materialized_at": time.Now().UTC().Format(time.RFC3339)})
+	body, err := json.Marshal(fields)
 	if err != nil {
 		return err
 	}
