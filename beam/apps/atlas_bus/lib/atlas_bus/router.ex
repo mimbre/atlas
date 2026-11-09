@@ -125,10 +125,19 @@ defmodule AtlasBus.Router do
     end
   end
 
+  # Delivery is not promised (AtlasBus): what finds no endpoint is dropped. A sender that
+  # still needs the reply asks again: the Runtime sends a fact again with its id, a read with
+  # a new one; a hint has nobody waiting for it. A reply addresses its request's sender, which
+  # was attached when it sent (sender_of/1); so a reply finds nobody only when that endpoint
+  # went away before it came: its process stopped or detached, or the link it came over
+  # closed (a link's endpoints go with its connection, AtlasBus.Link.Server).
   defp deliver(pids, envelope, content) do
     case pids |> Enum.reject(&is_nil/1) |> Enum.uniq() do
-      [] -> Logger.debug("Bus: nobody to deliver #{envelope.class} #{envelope.id} to")
+      [] -> Logger.debug(fn -> undelivered(envelope) end)
       pids -> Enum.each(pids, &send(&1, {:atlas_bus, envelope, content}))
     end
   end
+
+  defp undelivered(%Envelope{} = e),
+    do: "Bus: dropped #{e.class} #{e.id}: no endpoint is attached as #{e.address}"
 end

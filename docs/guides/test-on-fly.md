@@ -121,7 +121,7 @@ atlas-ops move-to-fly --env test --from <folder> --replace-live              # t
 atlas-ops fetch-from-fly --env test --to ~/.local/share/atlas/test-backup-$(date -u +%Y%m%dT%H%M%SZ)
 ```
 
-It holds both apps for about a minute: the machines stay up but serve nothing, so the copy is whole. It then copies `/data/rela` and `/data/beam` into `<folder>/rela` and `<folder>/beam`, the layout `move-to-fly` takes back. Last, it releases both apps.
+It first refuses, changing nothing, when either app already has a hold or a pending move (`/data/incoming/<name>.tar.gz`): a restart would end that hold or apply that move. It holds both apps for about a minute: the machines stay up but serve nothing, so the copy is whole. It then copies `/data/rela` and `/data/beam` into `<folder>/rela` and `<folder>/beam`, the layout `move-to-fly` takes back. Last, it releases both apps.
 
 ## A migration
 
