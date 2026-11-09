@@ -4,9 +4,13 @@
 FROM hexpm/elixir:1.18.4-erlang-28.5.0.2-debian-bookworm-20260610-slim AS build
 
 ENV MIX_ENV=prod
-# Control reads the contract at compile time; the contract compiles with the generator.
+# What the umbrella reads outside beam/ to compile: Control and Runtime the contract (a
+# path dependency, which compiles with its generator); Gates the flow generator (a path
+# dependency) and the gate definitions it generated, read at compile time.
 COPY bff/generator /src/bff/generator
 COPY bff/contract /src/bff/contract
+COPY flow/generator /src/flow/generator
+COPY flow/targets/atlas/flows.json /src/flow/targets/atlas/flows.json
 COPY beam /src/beam
 WORKDIR /src/beam
 RUN mix compile --warnings-as-errors && mix release atlas
