@@ -78,7 +78,8 @@ try do
   served = await.(await)
   assert Map.take(served, ~w(entities relations types)) == Model.AtlasEyra.rela_schema()
   %{config: config, flows: flows, refusal: nil} = AtlasFlow.Model.load(Model.AtlasEyra, :test)
-  assert Enum.sort(Map.keys(config["selection"])) == ~w(decide pr_review pr_test)
+  # Slice 8 selects their pull request too (flow_delivery_native.exs).
+  assert Enum.sort(Map.keys(config["selection"])) == ~w(decide pr_review pr_test pull_request)
 
   # Each reconcile runs in a fresh Flow process: Flow keeps nothing, only Facts does.
   reconcile = fn ->

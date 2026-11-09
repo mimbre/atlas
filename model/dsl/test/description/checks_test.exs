@@ -194,6 +194,24 @@ defmodule RelaDSL.Description.ChecksTest do
       [concept: select.(", legacy: :old"), composition: @acl, flows: true],
       "no legacy flow"
     )
+
+    # A choice no state waits for is refused; a subflow with no choice of people (its
+    # branches read what it is given) is selected without one.
+    refused(
+      [
+        concept: @subflow <> "\nselect :thing, choices: [:title]",
+        composition: @acl,
+        flows: true
+      ],
+      "waits for people to choose title"
+    )
+
+    assert [_ | _] =
+             compiles(
+               concept: @subflow <> "\nselect :thing, admission: []",
+               composition: @acl,
+               flows: true
+             )
   end
 
   test "a migration leads to a current digest and maps states it knows" do

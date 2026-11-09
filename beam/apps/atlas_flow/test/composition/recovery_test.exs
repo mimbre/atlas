@@ -242,6 +242,50 @@ defmodule AtlasFlow.Composition.RecoveryTest do
     assert [_] = writes("T-1", "outcome")
   end
 
+  # A parent taken over from facts as they were (the import table of its selection): a
+  # history row completes it as it was, and its child's late result neither moves it nor
+  # rewrites what it holds; an open parent no row holds starts, and its current child's
+  # completion advances it. Each reconcile is a restart over what Facts holds. One subflow
+  # runs on the parent here (no tally): while another were active on it, the links would
+  # still be applied to it.
+  test "an imported parent's history ignores a late child; an unmatched open parent starts", c do
+    imports = [%{"when" => %{"outcome" => ["spilt"]}, "state" => "spilt"}]
+
+    config =
+      c.config
+      |> put_in(["selection", "fill", "imports"], imports)
+      |> update_in(["selection"], &Map.delete(&1, "tally"))
+
+    c = %{c | config: config}
+    tray("T-1", %{"outcome" => "spilt"})
+    cup("C-1", "T-1")
+    tray("T-2")
+    cup("C-2", "T-2")
+    assert {:ok, _} = reconcile(c)
+
+    history = run(c, "fill", "T-1")
+    assert {history["state"], history["status"], history["entry"]} == {"spilt", "completed", 1}
+    assert history["last_input"]["import"] == true
+    started = run(c, "fill", "T-2")
+    assert {started["state"], started["status"], started["entry"]} == {"waiting", "active", 1}
+    refute Map.has_key?(started["last_input"], "import")
+
+    pour("C-1", "full")
+    pour("C-2", "full")
+    assert {:ok, _} = reconcile(c)
+    assert cursor(run(c, "fill", "T-1")) == cursor(history)
+    assert values("tray", "T-1")["outcome"] == "spilt"
+    assert writes("T-1", "outcome") == []
+
+    filled = run(c, "fill", "T-2")
+    assert {filled["state"], filled["status"], filled["entry"]} == {"filled", "completed", 2}
+    assert [_] = writes("T-2", "outcome")
+
+    sent = FakeFacts.sent()
+    assert {:ok, _} = reconcile(c)
+    assert FakeFacts.sent() == sent
+  end
+
   test "Flow refuses a composition it cannot apply, and applies none it does not select" do
     base = AtlasFlow.Yard.composition()
 

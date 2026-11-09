@@ -105,6 +105,68 @@
           ]
         }
       },
+      "pull_request": {
+        "choices": [],
+        "choice_states": [],
+        "migrations": [
+          {"from":"0d65d9a4aa1cdf916e022547e3f4a1974505cd94c349e9809f1a441f13cd8335","to":"e183d55ea7eb411d29dd812053dff89078b4ef131068a3223d40c22617bffbd0","states":{"blocked":"integrating","changes_requested":"changes_requested","checking":"checking","closed":"closed","integrated":"integrated","integrating":"integrating"},"reason":"Slice 8: selected without its integrate effect and creates; merged by hand"}
+        ],
+        "subject": "pull_request",
+        "legacy": "review_and_merge",
+        "projection": {
+          "on": "assignment",
+          "state_field": "flow_state",
+          "handover_field": "handover",
+          "owner_relation": "assigned_to",
+          "field": "expected"
+        },
+        "admission": [],
+        "imports": [
+          {
+            "when": {
+              "state": [
+                "merged"
+              ]
+            },
+            "state": "integrated"
+          },
+          {
+            "when": {
+              "state": [
+                "closed"
+              ]
+            },
+            "state": "closed"
+          },
+          {
+            "when": {
+              "review_outcome": [
+                "changes_requested"
+              ]
+            },
+            "state": "changes_requested"
+          },
+          {
+            "when": {
+              "test_outcome": [
+                "failed"
+              ]
+            },
+            "state": "changes_requested"
+          },
+          {
+            "when": {
+              "review_outcome": [
+                "approved"
+              ],
+              "test_outcome": [
+                "passed"
+              ]
+            },
+            "state": "integrating"
+          }
+        ]
+      },
       "pr_review": {
         "choices": ["verdict"],
         "choice_states": ["working", "escalated"],
