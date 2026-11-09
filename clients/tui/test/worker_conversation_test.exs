@@ -475,6 +475,8 @@ defmodule AtlasTui.WorkerConversationTest do
       "ended" => ended
     }
 
+  defp output_event(%{} = event), do: event
+
   defp output_event(sequence),
     do: %{"sequence" => sequence, "kind" => "text", "text" => "line #{sequence}"}
 
@@ -625,5 +627,105 @@ defmodule AtlasTui.WorkerConversationTest do
     {model, effects} = unavailable_inspect(ended, unavailable_view("running"))
     assert retry_delay(effects) == 2_000
     assert WorkerConversation.output_target(model) == @execution
+  end
+
+  # A worker page as Control lays it out: the Worker part, and a Conversation part that
+  # leads with what the worker said and folds the rest under a collapsible Details.
+  defp layout_model do
+    item = fn id, title, fields ->
+      %{
+        "id" => id,
+        "type" => "item",
+        "props" => %{
+          "title" => title,
+          "fields" => for({l, v} <- fields, do: %{"label" => l, "value" => v})
+        }
+      }
+    end
+
+    {model, _} =
+      Fixture.receive(initial(), %{
+        "op" => "page",
+        "path" => Blocks.path(:worker, @params),
+        "title" => "Worker",
+        "blocks" => [
+          item.("worker", "fixture title", [{"State", "fixture state"}]),
+          item.("worker-output", "fixture messages", [{"", "fixture waiting"}]),
+          item.("worker-output-details", "fixture stream", [{"Status", "fixture available"}]),
+          %{
+            "id" => "guidance-history",
+            "type" => "list",
+            "props" => %{
+              "title" => "fixture guidance",
+              "rows" => [%{"id" => "g-1", "label" => "fixture guidance row", "to" => "/workers"}]
+            }
+          },
+          item.("worker-record", "fixture record", [{"Attempt", "attempt-1"}])
+        ],
+        "markup" => [
+          %{
+            "kind" => "part",
+            "start" => "worker",
+            "end" => "worker",
+            "props" => %{"title" => "fixture worker part", "role" => "main"}
+          },
+          %{
+            "kind" => "part",
+            "start" => "worker-output",
+            "end" => "worker-record",
+            "props" => %{"title" => "fixture conversation part", "role" => "related"}
+          },
+          %{
+            "kind" => "section",
+            "start" => "worker-output-details",
+            "end" => "worker-record",
+            "props" => %{"title" => "fixture details", "collapsible" => true}
+          }
+        ]
+      })
+
+    model
+  end
+
+  defp screen(model), do: model |> View.render(160, 60, 5) |> View.plain()
+
+  test "the conversation leads with the latest assistant text and folds the details" do
+    model = layout_model()
+    # Before any output, Control's placeholder shows; the details are folded.
+    assert screen(model) =~ "fixture waiting"
+    refute screen(model) =~ "fixture record"
+    assert Model.rows(model) == []
+
+    events =
+      Enum.map(1..7, &output_event/1) ++
+        [%{"sequence" => 8, "kind" => "activity", "text" => "fixture activity"}]
+
+    {model, _} = output_drain(model, nil, events, 8, false)
+    shown = screen(model)
+
+    # Control's title stays; the latest five messages, newest last; nothing else leads.
+    assert shown =~ "fixture messages"
+    refute shown =~ "fixture waiting"
+    positions = for n <- 3..7, do: :binary.match(shown, "line #{n}") |> elem(0)
+    assert positions == Enum.sort(positions)
+    refute shown =~ ~r/\bline [12]\b/
+    refute shown =~ "fixture activity"
+    refute shown =~ "fixture stream"
+    refute shown =~ "fixture guidance row"
+    refute shown =~ "fixture record"
+
+    # One key unfolds them: the stream's state, the activity, the earlier messages and
+    # the guidance list, whose row can then be selected.
+    {unfolded, []} = Model.operation(model, "sections_toggle")
+    shown = screen(unfolded)
+    assert shown =~ "fixture activity"
+    assert shown =~ "line 1"
+    assert shown =~ "fixture guidance"
+    assert shown =~ "fixture record"
+    assert [%{id: "g-1"}] = Model.rows(unfolded)
+
+    {folded, []} = Model.operation(unfolded, "sections_toggle")
+    refute screen(folded) =~ "fixture record"
+    assert Model.rows(folded) == []
   end
 end

@@ -39,6 +39,9 @@ def without_ledger(schema):
     for kind, names in flow_fields.items():
         for name in names:
             schema['entities'][kind]['properties'].pop(name)
+    # What a turn is about and the model it runs, for the worker page.
+    for name in ('title', 'model'):
+        assert not schema['entities']['turn']['properties'].pop(name).get('required', False)
     return schema
 
 

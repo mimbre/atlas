@@ -16,6 +16,10 @@ defmodule AtlasTui.WorkerOutput do
   @max_bytes 224 * 1024
   @max_notes 16
   @max_note_bytes 1024
+  # The conversation shows the latest messages, each cut at a bound; the rest are details.
+  @latest 5
+  @message_bytes 8 * 1024
+  @latest_activity 50
 
   defstruct execution: nil,
             valid: false,
@@ -35,6 +39,8 @@ defmodule AtlasTui.WorkerOutput do
             retained_bytes: 0,
             local_dropped: 0,
             notes: [],
+            # A reset said events were lost: some earlier output is missing.
+            missing: false,
             error: nil,
             current: false,
             segment: 0,
@@ -146,7 +152,50 @@ defmodule AtlasTui.WorkerOutput do
 
   def receive(state, _message), do: {state, []}
 
-  def blocks(state) do
+  @doc """
+  What the worker said, for the conversation: Control's `placeholder` block (its title, and
+  its fields while nothing was said) filled with the latest #{@latest} text messages, newest
+  last, each cut at #{@message_bytes} bytes. One line says when earlier output is missing
+  (a reset that lost events, or this viewer's own bounded retention), and one how many
+  earlier messages are in the details.
+  """
+  def conversation(state, placeholder) do
+    texts = texts(state)
+    {earlier, latest} = Enum.split(texts, max(length(texts) - @latest, 0))
+
+    lines =
+      if(missing?(state), do: [bare("Some earlier output is missing.")], else: []) ++
+        if(earlier == [],
+          do: [],
+          else: [bare("#{count(length(earlier), "earlier message")} under Details.")]
+        )
+
+    title = (placeholder && placeholder.title) || "Worker messages"
+
+    fields =
+      cond do
+        latest != [] ->
+          lines ++ (latest |> Enum.map(&bare(cut(&1))) |> Enum.intersperse(bare("")))
+
+        lines != [] ->
+          lines
+
+        placeholder ->
+          Enum.map(placeholder.fields, &{&1.label, &1.value})
+
+        true ->
+          []
+      end
+
+    [item("worker-output", title, fields)]
+  end
+
+  @doc """
+  The output's own state, for the details: the stream's status, its notes (resets,
+  disconnects, refusals), what the worker did besides speaking (the latest
+  #{@latest_activity} activity and tool events) and its earlier messages.
+  """
+  def details(state) do
     fields =
       [
         {"Status", Atom.to_string(state.status)},
@@ -165,34 +214,43 @@ defmodule AtlasTui.WorkerOutput do
          )},
         {"Replay", replay_text(state)},
         {"More", to_string(state.more)}
-      ] ++ view_fields(state) ++ error_fields(state) ++ retention_fields(state)
+      ] ++ error_fields(state) ++ retention_fields(state)
 
-    [item("worker-output-status", "Exact-execution output", fields)] ++
+    others = for entry <- state.events, entry.event["kind"] != "text", do: entry.event
+    {older, shown} = Enum.split(others, max(length(others) - @latest_activity, 0))
+
+    activity =
+      if(older == [], do: [], else: [bare("#{count(length(older), "earlier event")} not shown")]) ++
+        Enum.flat_map(shown, &event_fields/1)
+
+    {earlier, _latest} = Enum.split(texts(state), max(length(texts(state)) - @latest, 0))
+
+    [item("worker-output-status", "Output stream", fields)] ++
       Enum.with_index(state.notes, fn text, index ->
-        item("worker-output-note:#{index}", "Output discontinuity / uncertainty", [{"Note", text}])
+        item("worker-output-note:#{index}", "Output note", [{"Note", text}])
       end) ++
-      Enum.map(state.events, fn entry ->
-        event = entry.event
-
-        freshness =
-          if state.current and entry.segment == state.segment,
-            do: "Current segment",
-            else: "Non-current retained segment; do not join across discontinuities"
-
-        fields =
-          [
-            {"Epoch", entry.epoch},
-            {"Sequence", to_string(event["sequence"])},
-            {"Freshness", freshness}
-          ] ++ event_fields(event)
-
-        item(
-          "worker-output-event:#{entry.segment}:#{entry.epoch}:#{event["sequence"]}",
-          "Safe output #{event["kind"]}",
-          fields
-        )
-      end)
+      if(activity == [], do: [], else: [item("worker-output-activity", "Activity", activity)]) ++
+      if earlier == [],
+        do: [],
+        else: [
+          item(
+            "worker-output-earlier",
+            "Earlier messages",
+            earlier |> Enum.map(&bare(cut(&1))) |> Enum.intersperse(bare(""))
+          )
+        ]
   end
+
+  defp texts(state),
+    do: for(%{event: %{"kind" => "text", "text" => text}} <- state.events, do: text)
+
+  defp missing?(state), do: state.missing or state.local_dropped > 0
+  defp bare(text), do: {"", text}
+
+  defp cut(text) when byte_size(text) <= @message_bytes, do: text
+  defp cut(text), do: prefix(text, @message_bytes) <> " …"
+
+  defp count(n, noun), do: "#{n} #{noun}#{if n == 1, do: "", else: "s"}"
 
   defp request(state, operation, props, status) do
     id = "worker-output-#{System.unique_integer([:positive, :monotonic])}"
@@ -451,7 +509,7 @@ defmodule AtlasTui.WorkerOutput do
         else: "lost interval unknown"
 
     note(
-      %{state | segment: state.segment + 1, current: false},
+      %{state | segment: state.segment + 1, current: false, missing: true},
       "Reset #{reset["reason"]}: #{interval}. Earlier retained output is non-current/discontinuous."
     )
   end
@@ -628,21 +686,6 @@ defmodule AtlasTui.WorkerOutput do
       "Snapshot watermark #{state.replay_watermark}; " <>
         if(state.replay_complete, do: "replayed", else: "replay pending")
 
-  defp view_fields(%{view: nil}), do: []
-
-  defp view_fields(state) do
-    [
-      {"View freshness",
-       if(state.view_current,
-         do: "Authoritative at confirmation time (not atomic with output)",
-         else: "Last known view; non-current"
-       )}
-    ] ++
-      for field <- ~w(state outcome activity activity_at confirmed_at),
-          is_binary(state.view[field]),
-          do: {"Worker " <> field, state.view[field]}
-  end
-
   defp error_fields(%{error: nil}), do: []
 
   defp error_fields(state),
@@ -659,11 +702,10 @@ defmodule AtlasTui.WorkerOutput do
        "#{state.local_dropped} earlier events evicted by this viewer's bounded retention; displayed text is not a complete contiguous transcript. Runtime cursor is unchanged by local eviction."}
     ]
 
-  defp event_fields(%{"kind" => kind, "text" => text}) when kind in ["text", "activity"],
-    do: [{kind, text}]
+  defp event_fields(%{"kind" => "activity", "text" => text}), do: [{"activity", text}]
 
   defp event_fields(%{"kind" => "tool"} = event),
-    do: [{"tool_name", event["tool_name"]}, {"status", event["status"]}]
+    do: [{"tool", "#{event["tool_name"]} #{event["status"]}"}]
 
   defp item(id, title, fields) do
     {id,

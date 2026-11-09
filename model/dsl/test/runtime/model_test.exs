@@ -22,7 +22,9 @@ defmodule RelaDSL.Runtime.ModelTest do
                  "why" => "reason",
                  "ended_at" => "done_at",
                  "outcome" => "result",
-                 "attempt" => "try"
+                 "attempt" => "try",
+                 "title" => "about",
+                 "model" => "engine"
                }
 
       assert turn["on_kinds"] == ["card"]

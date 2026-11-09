@@ -63,7 +63,7 @@ This source split preserves wire versions, generated data and declaration order.
 
 Direct declarations report their file and line. Imported wire/model contracts and presentation fragments report the importing call site, with the invalid operation, field or declaration named in the error.
 
-## View model (contract 0.15.0)
+## View model (contract 0.16.0)
 
 Control sends a view model, not a data model: its **content**, a flat list of blocks, and its **markup**, entries that cover a stretch of those blocks. Every block has an id, stable for as long as the page shows the same thing; markup points at ids, never at positions, so inserting, deleting or moving a block (or a hint that changes one) never shifts other markup.
 
@@ -94,7 +94,7 @@ Markup says what a stretch of blocks means, never how it looks. Each client turn
 | Kind | Props | Means | The TUI draws |
 |---|---|---|---|
 | `part` | `title`, `role` (`main`, `related`, `todo`) | a top-level division of a view: `main` is the item itself, `related` what it links to, `todo` what its owner is to do (only for the owner, first; IS-Atlas-54). Parts do not nest in parts; sections nest in parts | a box with its title. Two or more parts over a whole page: side by side from 120 columns, else one above the other with the related part given room first; each with its own room and scrolling, tab moves the focus between them |
-| `section` | `title`, `collapsible` | a titled stretch | a heading with a rule, above its blocks |
+| `section` | `title`, `collapsible` | a titled stretch; a collapsible one may be folded | a heading with a rule, above its blocks; a collapsible one is folded (its heading, marked ▸) until the page's `sections_toggle` action unfolds it (▾), and its lists' rows are out of the selection while folded |
 | `highlight` | `tone` (info, ok, error, pending) | the blocks in a tone | not yet: its blocks show as they are |
 
 On the wire an entry is `{"kind": "section", "start": "<block id>", "end": "<block id>", "props": {...}}`, covering `start` to `end`, both included, with `"group"` on the pieces of split markup.
@@ -119,7 +119,7 @@ Client to Control:
 
 | Message | Meaning |
 |---|---|
-| `{"op":"hello","env":"test","client":"tui","spec":"0.15.0"}` | First message, with the contract version the client implements; an agent may add `"as"`: the key of the fact it is (`coordinator`), so it is the owner of what is assigned to it (IS-Atlas-54; `ATLAS_AS` for `atlas`). Control of another environment answers `bye` and closes; so does Control on a newer contract than the client's (or when the client says none): `This client implements contract 0.10.0; Control test speaks 0.11.0. It is too old: …`. A newer client is welcomed: it shows what it knows, the rest as fallbacks. |
+| `{"op":"hello","env":"test","client":"tui","spec":"0.16.0"}` | First message, with the contract version the client implements; an agent may add `"as"`: the key of the fact it is (`coordinator`), so it is the owner of what is assigned to it (IS-Atlas-54; `ATLAS_AS` for `atlas`). Control of another environment answers `bye` and closes; so does Control on a newer contract than the client's (or when the client says none): `This client implements contract 0.10.0; Control test speaks 0.11.0. It is too old: …`. A newer client is welcomed: it shows what it knows, the rest as fallbacks. |
 | `{"op":"open","to":"/k/<kind>/<key>"}` | Show the page at this path. |
 | `{"op":"submit","endpoint":"update","params":{"kind":"issue","key":"IS-Atlas-01"},"values":{...}}` | Submit a form or a confirm: the endpoint and params its `submit_to` or `confirm_to` (a `call`) names, one of the contract's submit endpoints (create, create_under, update, delete, link, accept, reopen); values travel as text. A client that knows only paths may send `"to"` with the endpoint's path instead. Anything else is refused, unsent. |
 | `{"op":"turn"}` | Read the agent's single running turn and its original item, using `runtime.turn`. |
@@ -130,7 +130,7 @@ Control to client:
 
 | Message | Meaning |
 |---|---|
-| `{"op":"welcome","env":"test","spec":"0.15.0"}` | Answer to hello, with Control's contract version. |
+| `{"op":"welcome","env":"test","spec":"0.16.0"}` | Answer to hello, with Control's contract version. |
 | `{"op":"page","path","title","back","blocks","markup","reason","position","at"}` | A page: a view model (`blocks` and `markup`) with its path, title and `back`: the page it belongs under (its owner, or its kind's list). Console's Back (`esc`, Left, `b`) does not follow `back`: it is always declared, and a client returns to the page its user came from, in its own history (the TUI keeps the selected row and scroll of each). `reason` is `open`, `hint` (a change stored by anyone), `pending` (the same page with rows marked pending), `reconcile`, `stored` (your change) or `refused`. `position` is Facts' position the page is as of: the page's version for its path. A `hint` page is for the path on screen or for one of the paths the client viewed recently (the last 8; at most 3 are pushed per batch of changes). A client keeps the newest page per path (a page replaces the kept one unless both have a `position` and its own is lower), draws it only if its path is on screen, and on back or a tab switch shows the kept page at once while it asks for the page again (`open`). On a page without a form, a `refused` page also has `refused`: Facts' reasons. When the client's user has a start page of assignments, every page has `count`: what waits for them, in the model's words, for the header. |
 | `{"op":"notice","tone":"pending\|ok\|error\|info","text","at"}` | A line for the status bar. `pending` until Facts answers. |
 | `{"op":"bye","text"}` | Control closes the connection. |
@@ -210,13 +210,18 @@ clients before advancing Control, since older versions are refused at hello.
 on 0.15.0 refuses a 0.14.0 client at hello (`bye`, "too old"); a 0.15.0 TUI refuses a
 Control that welcomes it with another version. There is no dual-protocol mode.
 
+0.16.0 is a bump of the same kind: the local Console operation `sections_toggle`, which
+folds and unfolds a page's collapsible sections (the worker page's Details, key `d`). A
+0.15.0 TUI refuses a projection that names it, so Control on 0.16.0 refuses 0.15.0
+clients at hello; distribute the 0.16.0 TUI and `atlas` before advancing Control.
+
 ### Worker Control contract
 
 `contract/lib/wire/control/workers.ex` declares versioned worker inspection, exact-turn guidance,
 query, history and receipt messages on the Control channel. It reuses Runtime's
 execution identity; `Contract` composes the wire APIs and shared payload models. Existing
 list/item/form blocks implement the worker pages, so they follow the block wire version
-(0.15.0); typed worker messages independently require version 0.1.0.
+(0.16.0); typed worker messages independently require version 0.1.0.
 
 Generate with the same `mix atlas.gen` command. Named actor grants, durable outcome
 semantics, bounds, generic-page limits and the outstanding Runtime integration are
