@@ -130,6 +130,15 @@ entities:
       revision:
         type: string
         description: The exact revision of the pull request this review is for (its head commit)
+      packet_tree:
+        type: string
+        description: The tree of the frozen review packet of the revision, on the reviewer's machine (an absolute path)
+      packet_id:
+        type: string
+        description: The frozen review packet's id
+      packet_fingerprint:
+        type: string
+        description: The frozen review packet's fingerprint
   pr_test:
     label: PR test
     plural: pr_tests
@@ -176,6 +185,18 @@ relations:
     inverse:
       id: reviews
       label: reviews
+  review_by:
+    label: review by
+    description: Who reviews it; one, a person or an agent.
+    from:
+    - pr_review
+    to:
+    - person
+    - agent
+    max_outgoing: 1
+    inverse:
+      id: reviews_to_do
+      label: reviews to do
   verdict_by:
     label: verdict by
     description: Who gave the verdict of a review or test; one, a person or an agent.

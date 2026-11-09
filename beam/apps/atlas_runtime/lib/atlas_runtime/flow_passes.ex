@@ -153,12 +153,16 @@ defmodule AtlasRuntime.FlowPasses.Native do
         if q["packet_contract"] != 1 or not is_map(q["packet"]),
           do: raise(ArgumentError, "unsupported packet contract")
 
-        scope = Workspaces.packet_scope(q["cwd"], dir)
+        if is_binary(q["packet"]["revision"]) and q["packet"]["revision"] != "" do
+          scope = Workspaces.packet_scope(q["cwd"], dir)
 
-        if q["packet_contract"] == 1 and
-             Map.take(scope, ~w(packet_id fingerprint)) == q["packet"],
-           do: :ok,
-           else: {:error, :packet_mismatch}
+          if Map.put(Map.take(scope, ~w(packet_id fingerprint)), "revision", revision(scope)) ==
+               q["packet"],
+             do: :ok,
+             else: {:error, :packet_mismatch}
+        else
+          {:error, :packet_mismatch}
+        end
       else
         :ok
       end
@@ -167,34 +171,43 @@ defmodule AtlasRuntime.FlowPasses.Native do
     end
   end
 
+  # The revision the packet records it is for (`snapshot freeze --revision`), from its
+  # packet.json, which `packet_scope` has just verified against the packet's record; none
+  # when it was frozen without one, which no review of a revision takes.
+  defp revision(scope),
+    do: JSON.decode!(File.read!(Path.join(scope["packet"], "packet.json")))["revision"]
+
   def accept(dir, r) do
     # A reservation whose delivery is unknown is never delivered again by Service.
     case CommandAdmissions.load(dir, r["id"]) do
       nil ->
         with :ok <- validate(dir, r) do
-          q = r["request"]
-
-          command = %{
-            "command" => "start",
-            "request_id" => r["id"],
-            "worker_id" => worker(r),
-            "assignment" => q["assignment"],
-            "cwd" => q["cwd"],
-            "backend" => q["backend"]
-          }
-
-          command =
-            if q["permissions"] == "review-packet",
-              do: Map.put(command, "permissions", "review-packet"),
-              else: Map.put(command, "sandbox", q["permissions"])
-
-          {reply, false} = GenServer.call(Service, command, 30_000)
+          {reply, false} = GenServer.call(Service, start_command(r), 30_000)
           admitted(reply)
         end
 
       record ->
         admitted(CommandAdmissions.public(record))
     end
+  end
+
+  # The Service start command of frozen request `r`: exactly its assignment, folder, backend
+  # and permissions, under the request's own id and worker; nothing is chosen here.
+  defp start_command(r) do
+    q = r["request"]
+
+    command = %{
+      "command" => "start",
+      "request_id" => r["id"],
+      "worker_id" => worker(r),
+      "assignment" => q["assignment"],
+      "cwd" => q["cwd"],
+      "backend" => q["backend"]
+    }
+
+    if q["permissions"] == "review-packet",
+      do: Map.put(command, "permissions", "review-packet"),
+      else: Map.put(command, "sandbox", q["permissions"])
   end
 
   defp admitted(%{"admission" => "accepted", "turn_id" => turn}),
@@ -208,9 +221,14 @@ defmodule AtlasRuntime.FlowPasses.Native do
            CommandAdmissions.load(dir, r["id"]),
          %{"turn" => turn} <- GenServer.call(Service, {:read, "turn", %{"turn_id" => execution}}),
          true <- turn["worker_id"] == worker(r) and turn["turn_id"] == execution do
+      review? = r["request"]["permissions"] == "review-packet"
+
       case turn["state"] do
         "running" ->
           {:ok, %{"execution" => execution, "status" => "running"}}
+
+        ended when review? and ended in ~w(finished stopped killed) ->
+          reviewed(dir, r, execution, turn)
 
         "finished" ->
           {:ok,
@@ -228,6 +246,51 @@ defmodule AtlasRuntime.FlowPasses.Native do
       _ -> {:error, :execution_mismatch}
     end
   end
+
+  # A review pass's outcome is the verdict its findings give, as Runtime records them for
+  # the packet (`Workspaces.findings/3`), with that record as its evidence. Findings it
+  # refuses (missing or invalid) end it as failed; anything else is for reconciliation.
+  @verdicts ~w(pass changes_required uncertain)
+
+  defp reviewed(dir, r, execution, turn),
+    do:
+      review_result(
+        Workspaces.findings(Path.dirname(r["request"]["cwd"]), execution, dir),
+        r,
+        execution,
+        turn
+      )
+
+  @doc false
+  # What the findings Runtime recorded (or refused) for review `execution` of request `r`
+  # make of the pass: its outcome and evidence, or reconciliation.
+  def review_result({:ok, %{"findings" => %{"verdict" => verdict}} = record}, r, execution, turn) do
+    if verdict in @verdicts and record["review_turn"] == execution and
+         Map.take(record, ~w(packet_id fingerprint)) ==
+           Map.take(r["request"]["packet"], ~w(packet_id fingerprint)),
+       do:
+         {:ok,
+          %{
+            "execution" => execution,
+            "status" => "completed",
+            "outcome" => verdict,
+            "evidence" => %{"turn" => turn, "findings" => Map.drop(record, ~w(state record))}
+          }},
+       else: {:error, :execution_requires_reconciliation}
+  end
+
+  def review_result({:refused, code}, _r, execution, turn)
+      when code in ~w(findings_missing findings_invalid),
+      do:
+        {:ok,
+         %{
+           "execution" => execution,
+           "status" => "completed",
+           "outcome" => "failed",
+           "evidence" => %{"turn" => turn, "refused" => code}
+         }}
+
+  def review_result(_, _r, _execution, _turn), do: {:error, :execution_requires_reconciliation}
 
   defp worker(r), do: "pass-" <> String.slice(r["id"], 0, 59)
 end

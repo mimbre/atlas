@@ -220,6 +220,16 @@ Acceptance: adapter tests cover routing, offline operation, duplicates, late exe
 
 Real behaviour on test: a private neutral contract starts one pass on its owner's test Runtime. Disconnect, reconnect and restart Flow. Show one execution and one outcome. Do not migrate more production subflows yet.
 
+Shared passes (added with the review pass). A pass with `with_person: true` and `writes: none` does not own its state: the state's choices, branches and timers go on beside it, and any of them that moves the run leaves the pass. An owner whose routing field names no machine answers by hand and nothing is frozen. Its optional `answer` maps a completed outcome to a subject field, a relation naming the owner and a role, taken as that role's choice. An outcome it does not map (`uncertain`, `failed`) and a reply Runtime marks for reconciliation answer nothing. The result is kept with the pass, the run stays active for the answer by hand and its timers, and the same binding is not asked again.
+
+Packet binding. A `review-packet` pass takes its folder and packet from subject fields named by `packet_from` (`cwd`, `packet_id`, `fingerprint`, `revision`), each in the pass fingerprint. Runtime refuses a packet whose recorded identity or revision (`snapshot freeze --revision`) differs.
+
+Backend selection. A pass requires an explicit `backend` allowed by its `vendors`; Flow freezes it before dispatch and Runtime forwards it unchanged. A missing backend is an invalid pass, not a request to use the receiving machine's preferences. Ordinary Service starts without a backend still follow their existing local selection policy.
+
+Leaving a pass. A shared pass whose binding changes (owner, machine, assignment or subject fingerprint) is left, also after a no-answer result. So is one whose state is moved by a choice, branch or timer. The left pass is appended to `pending.passes` with `left: true`, its execution and its result if any, so a late reply of it is never taken. A new binding then freezes a new request. A non-shared pass whose binding changes still blocks for reconciliation.
+
+Request id. The id is the digest of the complete frozen request before its id is added: run key, entry, pass name, subject key, owner key, machine and routing field, assignment, fingerprint definition and value, and bound execution request. One binding is one request across restarts, and another binding is another request. Intents frozen before this change keep their stored id; neither replay nor replacement rewrites journal identities.
+
 ### 5. Effect activity
 
 Scope: new Flow `lib/atlas_flow/activities/effect.ex`, `test/activities/effect_test.exs`; `runs/{run,store}.ex`; new `beam/integration/flow_effect.exs`. No speculative Code service files in this repository.

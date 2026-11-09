@@ -319,8 +319,18 @@
     },
     "pr_review": {
       "prod": {
-        "digest": "7291ab5579991c4083ad2d1f18c211a7cc7c85ec27735c8d00d0d99e8752542e",
+        "digest": "05019b5d840dc936ea1f6f59f7be2849967f321a975b62bba01dacde16fa1682",
         "history": [
+          {
+            "digest": "05019b5d840dc936ea1f6f59f7be2849967f321a975b62bba01dacde16fa1682",
+            "states": [
+              "approved",
+              "changes_requested",
+              "escalated",
+              "superseded",
+              "working"
+            ]
+          },
           {
             "digest": "7291ab5579991c4083ad2d1f18c211a7cc7c85ec27735c8d00d0d99e8752542e",
             "states": [
@@ -351,8 +361,18 @@
         ]
       },
       "test": {
-        "digest": "7291ab5579991c4083ad2d1f18c211a7cc7c85ec27735c8d00d0d99e8752542e",
+        "digest": "05019b5d840dc936ea1f6f59f7be2849967f321a975b62bba01dacde16fa1682",
         "history": [
+          {
+            "digest": "05019b5d840dc936ea1f6f59f7be2849967f321a975b62bba01dacde16fa1682",
+            "states": [
+              "approved",
+              "changes_requested",
+              "escalated",
+              "superseded",
+              "working"
+            ]
+          },
           {
             "digest": "7291ab5579991c4083ad2d1f18c211a7cc7c85ec27735c8d00d0d99e8752542e",
             "states": [

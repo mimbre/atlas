@@ -88,7 +88,7 @@ func TestFreezeMakesARecordedReadOnlyPacketWithSubmitsFingerprints(t *testing.T)
 	baseline := filepath.Join(f.home, "snapshots", strings.TrimPrefix(id, "sha256:"))
 	before, base := state(t, dest), state(t, baseline)
 
-	result, err := Freeze(f.home, dest, turn, path, packetA, "")
+	result, err := Freeze(f.home, dest, turn, path, packetA, "", "")
 	must(t, err)
 	equal(t, state(t, dest), before)
 	equal(t, state(t, baseline), base)
@@ -202,7 +202,7 @@ func TestFreezeReportsItsCostAndRepeatsByID(t *testing.T) {
 	f, _, _, dest := authorFolder(t)
 	turn := authorTurn(t, f.home, dest, "stopped")
 	path := packetFolder(t, f.parent, "packet")
-	result, err := Freeze(f.home, dest, turn, path, packetA, "")
+	result, err := Freeze(f.home, dest, turn, path, packetA, "", "")
 	must(t, err)
 	cost := result["cost"].(map[string]any)
 	// notes.md, a.txt, bin/run, data.bin and b.txt; the link and the empty directory are not files.
@@ -225,7 +225,7 @@ func TestFreezeReportsItsCostAndRepeatsByID(t *testing.T) {
 	must(t, err)
 	defer owner.Close()
 	must(t, syscall.Flock(int(owner.Fd()), syscall.LOCK_EX|syscall.LOCK_NB))
-	again, err := Freeze(f.home, dest, turn, path, packetA, "")
+	again, err := Freeze(f.home, dest, turn, path, packetA, "", "")
 	must(t, err)
 	p := readPacket(t, filepath.Join(path, "packet.json"))
 	if again["state"] != "existing" || again["packet"] != path || again["cost"] != nil {
@@ -238,8 +238,8 @@ func TestFreezeReportsItsCostAndRepeatsByID(t *testing.T) {
 	}
 	// Any other use of the ID is a conflict, and nothing new is made.
 	other := authorTurn(t, f.home, dest, "finished")
-	for name, args := range map[string][]string{"turn": {other, path, ""}, "packet": {turn, filepath.Join(f.parent, "elsewhere"), ""}, "previous": {turn, path, packetB}} {
-		if _, err := Freeze(f.home, dest, args[0], args[1], packetA, args[2]); err == nil || !strings.Contains(err.Error(), "packet ID "+packetA+" was already used") {
+	for name, args := range map[string][]string{"turn": {other, path, "", ""}, "packet": {turn, filepath.Join(f.parent, "elsewhere"), "", ""}, "previous": {turn, path, packetB, ""}, "revision": {turn, path, "", "c0ffee"}} {
+		if _, err := Freeze(f.home, dest, args[0], args[1], packetA, args[2], args[3]); err == nil || !strings.Contains(err.Error(), "packet ID "+packetA+" was already used") {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
@@ -259,7 +259,7 @@ func TestFreezeFallsBackToAStreamedCopy(t *testing.T) {
 	}
 	t.Cleanup(func() { cloneFile = clone })
 	path := packetFolder(t, f.parent, "packet")
-	result, err := Freeze(f.home, dest, turn, path, packetA, "")
+	result, err := Freeze(f.home, dest, turn, path, packetA, "", "")
 	must(t, err)
 	cost := result["cost"].(map[string]any)
 	if clones != 5 || cost["cloned_files"] != int64(0) || cost["copied_files"] != int64(5) || cost["copied_bytes"] != cost["bytes"] {
@@ -280,7 +280,7 @@ func TestFreezeFallsBackToAStreamedCopy(t *testing.T) {
 		return &os.LinkError{Op: "clonefile", Old: from, New: to, Err: syscall.EIO}
 	}
 	path = packetFolder(t, f.parent, "second")
-	if _, err = Freeze(f.home, dest, turn, path, packetB, ""); !errors.Is(err, syscall.EIO) {
+	if _, err = Freeze(f.home, dest, turn, path, packetB, "", ""); !errors.Is(err, syscall.EIO) {
 		t.Fatalf("got %v", err)
 	}
 	leftNothing(t, f.home, path, packetB)
@@ -289,15 +289,15 @@ func TestFreezeFallsBackToAStreamedCopy(t *testing.T) {
 func TestFreezeRecordsThePreviousPacket(t *testing.T) {
 	f, _, _, dest := authorFolder(t)
 	turn := authorTurn(t, f.home, dest, "finished")
-	first, err := Freeze(f.home, dest, turn, packetFolder(t, f.parent, "first"), packetA, "")
+	first, err := Freeze(f.home, dest, turn, packetFolder(t, f.parent, "first"), packetA, "", "")
 	must(t, err)
 
 	missing := packetFolder(t, f.parent, "missing")
-	if _, err = Freeze(f.home, dest, turn, missing, packetB, "5c0ffee0-0000-4000-8000-0000000000ff"); err == nil || !strings.Contains(err.Error(), "previous packet 5c0ffee0-0000-4000-8000-0000000000ff does not exist") {
+	if _, err = Freeze(f.home, dest, turn, missing, packetB, "5c0ffee0-0000-4000-8000-0000000000ff", ""); err == nil || !strings.Contains(err.Error(), "previous packet 5c0ffee0-0000-4000-8000-0000000000ff does not exist") {
 		t.Fatalf("missing previous: %v", err)
 	}
 	leftNothing(t, f.home, missing, packetB)
-	if _, err = Freeze(f.home, dest, turn, missing, packetB, packetB); err == nil || !strings.Contains(err.Error(), "cannot follow itself") {
+	if _, err = Freeze(f.home, dest, turn, missing, packetB, packetB, ""); err == nil || !strings.Contains(err.Error(), "cannot follow itself") {
 		t.Fatalf("identical previous: %v", err)
 	}
 	leftNothing(t, f.home, missing, packetB)
@@ -305,7 +305,7 @@ func TestFreezeRecordsThePreviousPacket(t *testing.T) {
 	// Rework changes the folder; the next packet links the first by ID and fingerprint.
 	must(t, os.WriteFile(filepath.Join(dest, "one", "a.txt"), []byte("reworked\n"), 0644))
 	rework := authorTurn(t, f.home, dest, "stopped")
-	second, err := Freeze(f.home, dest, rework, packetFolder(t, f.parent, "second"), packetB, packetA)
+	second, err := Freeze(f.home, dest, rework, packetFolder(t, f.parent, "second"), packetB, packetA, "")
 	must(t, err)
 	link := map[string]any{"packet_id": packetA, "fingerprint": first["fingerprint"]}
 	if !reflect.DeepEqual(second["previous"], link) || second["fingerprint"] == first["fingerprint"] {
@@ -316,10 +316,43 @@ func TestFreezeRecordsThePreviousPacket(t *testing.T) {
 	}
 }
 
+// A packet records the revision of the reviewed change it is for, as given, and only when given; a
+// repeat must name the same one, and a revision that is not one token of visible ASCII is refused.
+func TestFreezeRecordsTheRevisionItIsFor(t *testing.T) {
+	f, _, _, dest := authorFolder(t)
+	turn := authorTurn(t, f.home, dest, "finished")
+	plain := packetFolder(t, f.parent, "plain")
+	_, err := Freeze(f.home, dest, turn, plain, packetA, "", "")
+	must(t, err)
+	if _, ok := readPacket(t, filepath.Join(plain, "packet.json"))["revision"]; ok {
+		t.Fatal("a packet frozen without --revision records one")
+	}
+
+	for _, bad := range []string{"two words", "line\nbreak", strings.Repeat("a", 256), "caf\u00e9"} {
+		path := packetFolder(t, f.parent, "bad")
+		if _, err := Freeze(f.home, dest, turn, path, packetB, "", bad); err == nil {
+			t.Fatalf("revision %q was accepted", bad)
+		}
+		leftNothing(t, f.home, path, packetB)
+	}
+
+	path := packetFolder(t, f.parent, "for-revision")
+	result, err := Freeze(f.home, dest, turn, path, packetB, "", "3f2a9c1")
+	must(t, err)
+	for _, p := range []map[string]any{result, readPacket(t, filepath.Join(path, "packet.json")), readPacket(t, filepath.Join(PacketDir(f.home, packetB), "packet.json"))} {
+		if p["revision"] != "3f2a9c1" {
+			t.Fatalf("revision %v", p["revision"])
+		}
+	}
+	if again, err := Freeze(f.home, dest, turn, path, packetB, "", "3f2a9c1"); err != nil || again["state"] != "existing" {
+		t.Fatalf("repeat %v %v", again, err)
+	}
+}
+
 func TestFreezeRefusesBeforeMakingAPacket(t *testing.T) {
 	refused := func(t *testing.T, home, dest, turn, path, want string) {
 		t.Helper()
-		if _, err := Freeze(home, dest, turn, path, packetA, ""); err == nil || !strings.Contains(err.Error(), want) {
+		if _, err := Freeze(home, dest, turn, path, packetA, "", ""); err == nil || !strings.Contains(err.Error(), want) {
 			t.Fatalf("got %v, want %q", err, want)
 		}
 		leftNothing(t, home, path, packetA)
@@ -334,7 +367,7 @@ func TestFreezeRefusesBeforeMakingAPacket(t *testing.T) {
 		must(t, err)
 		must(t, syscall.Flock(int(owner.Fd()), syscall.LOCK_EX|syscall.LOCK_NB))
 		path := packetFolder(t, f.parent, "packet")
-		if _, err = Freeze(f.home, dest, turn, path, packetA, ""); err == nil || err.Error() != "folder "+dest+" has an active Runtime owner; nothing was frozen, run the command again after it stops" {
+		if _, err = Freeze(f.home, dest, turn, path, packetA, "", ""); err == nil || err.Error() != "folder "+dest+" has an active Runtime owner; nothing was frozen, run the command again after it stops" {
 			t.Fatalf("got %v", err)
 		}
 		leftNothing(t, f.home, path, packetA)
@@ -361,7 +394,7 @@ func TestFreezeRefusesBeforeMakingAPacket(t *testing.T) {
 		existing := packetFolder(t, f.parent, "existing")
 		must(t, os.Mkdir(existing, 0755))
 		must(t, os.WriteFile(filepath.Join(existing, "keep"), []byte("kept\n"), 0644))
-		if _, err := Freeze(f.home, dest, turn, existing, packetA, ""); err == nil || !strings.Contains(err.Error(), "already exists") {
+		if _, err := Freeze(f.home, dest, turn, existing, packetA, "", ""); err == nil || !strings.Contains(err.Error(), "already exists") {
 			t.Fatalf("existing: %v", err)
 		}
 		if data := mustRead(t, filepath.Join(existing, "keep")); string(data) != "kept\n" {
@@ -381,7 +414,7 @@ func TestFreezeRefusesBeforeMakingAPacket(t *testing.T) {
 		}
 		before := state(t, dest)
 		for _, bad := range [][]string{{"not-a-uuid", ""}, {packetA, "not-a-uuid"}} {
-			if _, err := Freeze(f.home, dest, turn, filepath.Join(f.parent, "packet"), bad[0], bad[1]); err == nil || !strings.Contains(err.Error(), "must be a lowercase UUID") {
+			if _, err := Freeze(f.home, dest, turn, filepath.Join(f.parent, "packet"), bad[0], bad[1], ""); err == nil || !strings.Contains(err.Error(), "must be a lowercase UUID") {
 				t.Errorf("%q: %v", bad, err)
 			}
 		}
@@ -420,7 +453,7 @@ func TestFreezeRefusesBeforeMakingAPacket(t *testing.T) {
 		turn := authorTurn(t, f.home, dest, "finished")
 		must(t, os.MkdirAll(PacketDir(f.home, packetA), 0700))
 		path := packetFolder(t, f.parent, "packet")
-		if _, err := Freeze(f.home, dest, turn, path, packetA, ""); err == nil || !strings.Contains(err.Error(), "used by a concurrent freeze") {
+		if _, err := Freeze(f.home, dest, turn, path, packetA, "", ""); err == nil || !strings.Contains(err.Error(), "used by a concurrent freeze") {
 			t.Fatalf("got %v", err)
 		}
 		must(t, os.Remove(PacketDir(f.home, packetA)))
@@ -439,7 +472,7 @@ func TestFreezeCopiesThePreparation(t *testing.T) {
 	must(t, os.WriteFile(filepath.Join(dest, "one", "app", "main.js"), []byte("run(2)\n"), 0644))
 	turn := authorTurn(t, home, dest, "finished")
 	path := packetFolder(t, filepath.Dir(dest), "packet")
-	result, err := Freeze(home, dest, turn, path, packetA, "")
+	result, err := Freeze(home, dest, turn, path, packetA, "", "")
 	must(t, err)
 	tree := filepath.Join(path, "tree")
 	got, changes := inspect(t, home, tree, nil, false)

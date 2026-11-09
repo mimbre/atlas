@@ -3,10 +3,11 @@ defmodule Model.ReviewRunsTest do
   Slice 7: the review and the test of a pull request run on Flow's durable runs. Their
   selection, the import table from the facts as they were, the trusted verdict, the three
   days, and the revision a result counts for, on the compiled subflows of both
-  environments.
+  environments; and the review pass of a reviewer with a Runtime.
   """
   use ExUnit.Case, async: true
 
+  alias AtlasFlow.Activities.Pass
   alias AtlasFlow.Composition.Links
   alias AtlasFlow.Runs.Run
 
@@ -24,6 +25,9 @@ defmodule Model.ReviewRunsTest do
     "pr_review" => "ee1314e80a41b4d4102923cc46d08126403ea5fc3c58bcf49d88617823acd86b",
     "pr_test" => "43fcbbf9a95d4e5bbac5c72d2dc878c28e56b48f7dd865e43d57cdb5e6bd5644"
   }
+
+  # The review's digest as slice 7 selected it, without its pass.
+  @selected "7291ab5579991c4083ad2d1f18c211a7cc7c85ec27735c8d00d0d99e8752542e"
 
   defp flow(env, name), do: Enum.find(Model.AtlasEyra.subflows(env), &(&1.name() == name))
 
@@ -64,9 +68,17 @@ defmodule Model.ReviewRunsTest do
       for {name, _, _, _, _} <- @kinds do
         f = flow(env, name)
         assert Run.validate(f) == :ok
-        # No activity: nothing is dispatched, so an import reruns nothing.
-        assert Enum.all?(f.states(), &(f.mechanism(&1) == nil))
       end
+
+      # The test has no activity. The review has one, its reviewer's pass in `working`,
+      # which its people work in too: an import into it reruns nothing.
+      t = flow(env, "pr_test")
+      assert Enum.all?(t.states(), &(t.mechanism(&1) == nil))
+      r = flow(env, "pr_review")
+      assert [{"working", {:pass, spec}}] = for(s <- r.states(), m = r.mechanism(s), do: {s, m})
+      assert Pass.with_person?(spec) and Run.importable?(r, "working")
+      assert spec["request"]["permissions"] == "review-packet"
+      assert spec["routing"]["machine_field"] == "machine"
     end
 
     inputs = Model.AtlasEyra.runs()["inputs"]
@@ -197,18 +209,164 @@ defmodule Model.ReviewRunsTest do
   test "the change from the base's digest is a declared state migration, never a re-key" do
     for env <- @envs, {name, _, _, _, _} <- @kinds do
       f = flow(env, name)
-      [m] = Model.AtlasEyra.selection(name)["migrations"]
-      assert {m["from"], m["to"]} == {@base[name], f.digest()}
+      # The review's leads on to the pass's (below).
+      m = hd(Model.AtlasEyra.selection(name)["migrations"])
+      to = if name == "pr_review", do: @selected, else: f.digest()
+      assert {m["from"], m["to"]} == {@base[name], to}
       assert m["states"] == Map.new(f.states(), &{&1, &1})
       refute Map.has_key?(m, "rekey") or Map.has_key?(m, "preserve_entry")
 
       # A quiescent run of the old digest would enter its state again under the new one.
-      old = new(env, name, %{}) |> Map.merge(%{"definition_sha256" => @base[name]})
-      old = put_in(old, ["deadlines", "timers"], [])
-      assert {:ok, moved} = Run.migrate(old, f, [m], @now)
+      if name == "pr_test" do
+        old = new(env, name, %{}) |> Map.merge(%{"definition_sha256" => @base[name]})
+        old = put_in(old, ["deadlines", "timers"], [])
+        assert {:ok, moved} = Run.migrate(old, f, [m], @now)
 
-      assert {moved["state"], moved["entry"], moved["definition_sha256"]} ==
-               {"working", 2, f.digest()}
+        assert {moved["state"], moved["entry"], moved["definition_sha256"]} ==
+                 {"working", 2, f.digest()}
+      end
+    end
+  end
+
+  # -- The review pass ---------------------------------------------------------------------
+
+  defp review(values \\ %{}),
+    do:
+      subject(
+        Map.merge(
+          %{
+            "revision" => "r1",
+            "packet_tree" => "/packets/p1/tree",
+            "packet_id" => "p1",
+            "packet_fingerprint" => "fpr_1"
+          },
+          values
+        )
+      )
+
+  defp spec(env) do
+    {:pass, spec} = flow(env, "pr_review").mechanism("working")
+    spec
+  end
+
+  @agent %{"key" => "reviewer-agent", "values" => %{"machine" => "desk"}}
+
+  defp frozen(env, run, subject \\ review(), owner \\ @agent) do
+    {:ok, intent} = Pass.freeze(run, spec(env), subject, Map.take(subject, ~w(key values)), owner)
+    put_in(run, ["pending", "pass"], intent)
+  end
+
+  defp completed(run, outcome) do
+    r = run["pending"]["pass"]["request"]
+
+    %{
+      "version" => 1,
+      "id" => r["id"],
+      "digest" => run["pending"]["pass"]["digest"],
+      "fingerprint" => r["fingerprint"],
+      "packet" => r["request"]["packet"],
+      "execution" => "turn-1",
+      "status" => "completed",
+      "outcome" => outcome
+    }
+  end
+
+  test "the pass of a reviewer with a machine is frozen on the packet the review names" do
+    for env <- @envs do
+      run = new(env, "pr_review", %{}) |> Map.put("key", "R-1")
+      r = frozen(env, run)["pending"]["pass"]["request"]
+      assert {r["owner"], r["machine"]} == {"reviewer-agent", "desk"}
+      assert r["request"]["cwd"] == "/packets/p1/tree"
+      # The packet must be the one frozen for the revision the review is of.
+      assert r["request"]["packet"] == %{
+               "packet_id" => "p1",
+               "fingerprint" => "fpr_1",
+               "revision" => "r1"
+             }
+
+      assert r["request"]["permissions"] == "review-packet"
+
+      # The contract selects Claude here; Runtime must preserve that frozen selection.
+      assert {r["request"]["backend"], r["request"]["vendors"]} == {"claude", ["claude"]}
+
+      # A person (no machine), or a review naming no packet yet: no pass; by hand.
+      person = %{"key" => "melle", "values" => %{"name" => "Melle"}}
+      no_packet = review(%{"packet_id" => nil})
+      no_revision = review(%{"revision" => nil})
+
+      for {subject, owner} <- [{review(), person}, {no_packet, @agent}, {no_revision, @agent}],
+          do:
+            assert(
+              {:error, :invalid_pass_binding} =
+                Pass.freeze(run, spec(env), subject, subject, owner)
+            )
+
+      # A changed revision or packet is another binding: the frozen pass is not current.
+      intent = frozen(env, run)["pending"]["pass"]
+
+      for change <- [%{"revision" => "r2"}, %{"packet_fingerprint" => "fpr_2"}] do
+        changed = review(change)
+        refute Pass.current?(intent, changed, Map.take(changed, ~w(key values)), @agent)
+      end
+    end
+  end
+
+  test "its findings' verdict is the reviewer's verdict; uncertain leaves it to them" do
+    for env <- @envs do
+      f = flow(env, "pr_review")
+      run = frozen(env, new(env, "pr_review", %{}) |> Map.put("key", "R-1"))
+
+      for {outcome, verdict} <- [{"pass", "approved"}, {"changes_required", "changes_requested"}] do
+        assert {:ok, done} =
+                 Run.pass_answer(run, f, review(), @now, completed(run, outcome), spec(env))
+
+        assert {done["state"], done["status"], done["entry"]} == {verdict, "completed", 2}
+        [write] = done["pending"]["writes"]
+        assert write["kind"] == "pr_review" and write["content"]["key"] == "PRR-1"
+        assert write["content"]["values"] == %{"verdict" => verdict}
+        assert write["content"]["links"] == %{"verdict_by" => ["reviewer-agent"]}
+        assert [%{"result" => %{"execution" => "turn-1"}}] = done["pending"]["passes"]
+      end
+
+      # Uncertain, or findings Runtime refused: no answer; the pass is done, the review waits.
+      for outcome <- ~w(uncertain failed) do
+        assert {:ok, waits} =
+                 Run.pass_answer(run, f, review(), @now, completed(run, outcome), spec(env))
+
+        assert {waits["state"], waits["entry"], waits["pending"]["writes"]} == {"working", 1, []}
+        assert waits["pending"]["pass"]["result"]["outcome"] == outcome
+        assert waits["deadlines"] == run["deadlines"]
+
+        # The reviewer answers by hand, as before; the pass is kept with the run.
+        assert {:ok, %{"state" => "approved"} = answered} =
+                 Run.step(waits, f, review(), @now, [verdict(waits, "approved", ["reviewer"])])
+
+        assert [%{"left" => true, "result" => %{"outcome" => ^outcome}}] =
+                 answered["pending"]["passes"]
+      end
+
+      # A pass's late result for another revision is no answer.
+      late = completed(run, "pass")
+
+      assert {:error, :invalid_pass_result} =
+               Run.pass_answer(run, f, review(%{"revision" => "r2"}), @now, late, spec(env))
+    end
+  end
+
+  test "a review waiting in working keeps its entry and three days across the pass's migration" do
+    for env <- @envs do
+      f = flow(env, "pr_review")
+      [first, m] = Model.AtlasEyra.selection("pr_review")["migrations"]
+      assert {first["to"], m["from"], m["to"]} == {@selected, @selected, f.digest()}
+      assert m["preserve_entry"] == true and m["states"] == Map.new(f.states(), &{&1, &1})
+
+      old = new(env, "pr_review", %{}) |> Map.put("definition_sha256", @selected)
+      assert {:ok, moved} = Run.migrate(old, f, [first, m], DateTime.add(@now, 1, :day))
+
+      assert {moved["state"], moved["entry"], moved["deadlines"]} ==
+               {"working", 1, old["deadlines"]}
+
+      assert moved["definition_sha256"] == f.digest()
     end
   end
 end

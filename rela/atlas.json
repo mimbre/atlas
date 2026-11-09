@@ -27,6 +27,9 @@
           "set_by": [
             "runtime"
           ]
+        },
+        "machine": {
+          "label": "Machine"
         }
       },
       "start": {
@@ -997,7 +1000,8 @@
     "verdict_by": {
       "only_target": {
         "also": [
-          "migration"
+          "migration",
+          "flow"
         ],
         "error": "only the one who gives the verdict sets verdict_by, to themselves"
       }
