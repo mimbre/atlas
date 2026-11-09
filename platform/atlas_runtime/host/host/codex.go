@@ -34,12 +34,13 @@ func codexCommand(executable, workspace, folder, goal string, permissions []stri
 }
 
 // permissionArguments translates a permission scope into its Codex permission profile;
-// scratch is the owned scratch folder and inspector the Runtime executable of a materialized-folder turn.
-func permissionArguments(scope any, scratch, inspector string) ([]string, error) {
+// scratch is the owned scratch folder and inspector the Runtime executable of a materialized-folder turn,
+// home the Runtime home a dedicated-repository turn denies (folder scopes name their own).
+func permissionArguments(scope any, scratch, inspector, home string) ([]string, error) {
 	fields, _ := scope.(map[string]any)
 	switch fields["profile"] {
 	case "dedicated-repository":
-		return repositoryArguments(fields)
+		return repositoryArguments(fields, home)
 	case "materialized-folder":
 		user, err := homeDirectory()
 		if err != nil {
@@ -56,29 +57,139 @@ func permissionArguments(scope any, scratch, inspector string) ([]string, error)
 	return nil, errors.New("Unknown permission profile")
 }
 
-// repositoryArguments translates a dedicated-repository scope into the Codex permission profile.
-func repositoryArguments(fields map[string]any) ([]string, error) {
+// repositoryArguments translates a dedicated-repository scope into the Codex permission profile:
+// write the repository and its .git, keep .agents, .codex and .aws read-only, deny the Runtime home
+// and the Code token as repositoryRuntimeEntries describes.
+func repositoryArguments(fields map[string]any, home string) ([]string, error) {
 	root, ok := fields["root"].(string)
 	if !ok {
 		return nil, errors.New("Dedicated repository scope requires a root path")
 	}
 	root = filepath.Clean(root)
-	var paths []string
-	for _, entry := range [][2]string{
+	entries := [][2]string{
 		{root, "write"}, {filepath.Join(root, ".git"), "write"},
 		{filepath.Join(root, ".agents"), "read"}, {filepath.Join(root, ".codex"), "read"}, {filepath.Join(root, ".aws"), "read"},
-	} {
-		key, err := json.Marshal(entry[0])
+	}
+	denied, err := repositoryRuntimeEntries(home, root)
+	if err != nil {
+		return nil, err
+	}
+	arguments, err := profileArguments("atlas_repository", append(entries, denied...),
+		`network={enabled=true,domains={"github.com"="allow","api.github.com"="allow"}}`)
+	if err != nil {
+		return nil, err
+	}
+	return append(arguments, "-c", "features.network_proxy=true", "-c", `web_search="live"`), nil
+}
+
+// sandboxArguments translates a plain --sandbox mode into the permission profile extending the same
+// Codex built-in (:read-only or :workspace) that additionally denies the Runtime home and the Code token,
+// without network. A workspace (resolved through symlinks) below the home keeps the mode's access to it
+// as the more specific path.
+func sandboxArguments(sandbox, workspace, home string) ([]string, error) {
+	base, name, access := ":read-only", "atlas_read_only", "read"
+	if sandbox == "workspace-write" {
+		base, name, access = ":workspace", "atlas_workspace_write", "write"
+	}
+	workspace, err := resolvePath(workspace)
+	if err != nil {
+		return nil, err
+	}
+	denied, err := runtimeEntries(home, workspace)
+	if err != nil {
+		return nil, err
+	}
+	if within(home, workspace) {
+		denied = append([][2]string{{workspace, access}}, denied...)
+	}
+	return extendedProfileArguments(name, base, denied, "network={enabled=false}")
+}
+
+// runtimeEntries deny the Runtime home and the Code token and its directory, none of which may be the
+// project path. A project path below the home or the token directory stays allowed as the more specific
+// path; the token file itself stays denied even inside the project.
+func runtimeEntries(home, project string) ([][2]string, error) {
+	if home == "" || !filepath.IsAbs(home) {
+		return nil, errors.New("Runtime home must be an absolute path")
+	}
+	if project == home {
+		return nil, fmt.Errorf("Workspace %s is the Runtime home", project)
+	}
+	token, err := tokenEntries(home)
+	if err != nil {
+		return nil, err
+	}
+	for _, entry := range token {
+		if entry[0] == project {
+			return nil, fmt.Errorf("Workspace %s is the Code token directory", project)
+		}
+	}
+	return append([][2]string{{home, "none"}}, token...), nil
+}
+
+// sensitiveHomeNames are the Runtime home entries a profile denies by path when it cannot deny the
+// whole home, even when they are absent at launch: the service and read sockets, the turn records,
+// the Code and Server configurations, the backend policy and availability, the daemon log and lock,
+// the passes, the snapshot store, the materialization records and the workers' scratch.
+var sensitiveHomeNames = []string{"runtime.sock", "read.sock", "turns", "code.json", "server.json",
+	"backends.json", "policy.json", "availability.json", "service.log", "service.lock", "passes",
+	"snapshots", "materializations", "scratch"}
+
+// repositoryRuntimeEntries are the runtimeEntries of a Codex dedicated repository. Codex cannot even
+// lstat below a denied directory, and Git lstats every ancestor of its worktree, so a Runtime home or
+// Code token directory that contains the repository (a managed one) is not denied whole. Instead every
+// entry existing at launch in it and in each directory down to the repository is denied unless it is
+// on that ancestor chain, together with the Code token and, in the home, the sensitiveHomeNames.
+// Other entries created in those chain directories after launch are not covered.
+func repositoryRuntimeEntries(home, root string) ([][2]string, error) {
+	entries, err := runtimeEntries(home, root)
+	if err != nil {
+		return nil, err
+	}
+	var denied [][2]string
+	for _, entry := range entries {
+		if !within(entry[0], root) {
+			denied = append(denied, entry)
+			continue
+		}
+		siblings, err := offChainEntries(entry[0], root)
 		if err != nil {
 			return nil, err
 		}
-		paths = append(paths, string(key)+`="`+entry[1]+`"`)
+		denied = append(denied, siblings...)
 	}
-	// One TOML table preserves quoted path keys; dotted CLI override keys do not.
-	profile := `permissions={atlas_repository={extends=":read-only",filesystem={` + strings.Join(paths, ",") +
-		`},network={enabled=true,domains={"github.com"="allow","api.github.com"="allow"}}}}`
-	return []string{"-c", `default_permissions="atlas_repository"`, "-c", profile,
-		"-c", "features.network_proxy=true", "-c", `web_search="live"`}, nil
+	if within(home, root) {
+		for _, name := range sensitiveHomeNames {
+			path := filepath.Join(home, name)
+			if within(path, root) {
+				return nil, fmt.Errorf("Repository %s is inside the Runtime home's %s", root, path)
+			}
+			denied = append(denied, [2]string{path, "none"})
+		}
+	}
+	return denied, nil
+}
+
+// offChainEntries deny every existing entry of top and of each directory below it down to root that is
+// not itself on the path from top to root. A directory that does not exist yet has no entries.
+func offChainEntries(top, root string) ([][2]string, error) {
+	var denied [][2]string
+	for directory := top; directory != root; {
+		next := filepath.Join(directory, strings.SplitN(strings.TrimPrefix(root, directory+"/"), "/", 2)[0])
+		children, err := os.ReadDir(directory)
+		if errors.Is(err, os.ErrNotExist) {
+			break
+		} else if err != nil {
+			return nil, err
+		}
+		for _, child := range children {
+			if path := filepath.Join(directory, child.Name()); path != next {
+				denied = append(denied, [2]string{path, "none"})
+			}
+		}
+		directory = next
+	}
+	return denied, nil
 }
 
 // credentialPaths are the user's known credential and control locations, relative to the user home.
@@ -269,22 +380,27 @@ func setupArguments(scope map[string]any, writable []string, scratch, user strin
 	return append(arguments, "-c", "features.network_proxy=true"), nil
 }
 
-// deniedEntries are the Code token and its directory, which may contain none of writable, and the
-// user's credential paths plus extra (relative to user) and CODEX_HOME, resolved through symlinks.
-func deniedEntries(home, user string, extra []string, writable ...string) ([][2]string, error) {
-	var entries [][2]string
+// tokenEntries are the Code token and its directory, which may contain none of writable.
+func tokenEntries(home string, writable ...string) ([][2]string, error) {
 	token, err := codeToken(home)
-	if err != nil {
+	if err != nil || token == "" {
 		return nil, err
 	}
-	if token != "" {
-		directory := filepath.Dir(token)
-		for _, path := range writable {
-			if path == directory || strings.HasPrefix(path, directory+"/") {
-				return nil, fmt.Errorf("Code token directory %s contains %s", directory, path)
-			}
+	directory := filepath.Dir(token)
+	for _, path := range writable {
+		if path == directory || strings.HasPrefix(path, directory+"/") {
+			return nil, fmt.Errorf("Code token directory %s contains %s", directory, path)
 		}
-		entries = append(entries, [2]string{token, "none"}, [2]string{directory, "none"})
+	}
+	return [][2]string{{token, "none"}, {directory, "none"}}, nil
+}
+
+// deniedEntries are the tokenEntries and the user's credential paths plus extra (relative to user)
+// and CODEX_HOME, resolved through symlinks.
+func deniedEntries(home, user string, extra []string, writable ...string) ([][2]string, error) {
+	entries, err := tokenEntries(home, writable...)
+	if err != nil {
+		return nil, err
 	}
 	credentials := []string{}
 	for _, name := range append(slices.Clone(credentialPaths), extra...) {
@@ -306,6 +422,11 @@ func deniedEntries(home, user string, extra []string, writable ...string) ([][2]
 
 // profileArguments renders filesystem entries and a network table as one named Codex permission profile.
 func profileArguments(name string, entries [][2]string, network string) ([]string, error) {
+	return extendedProfileArguments(name, ":read-only", entries, network)
+}
+
+// extendedProfileArguments is profileArguments extending the Codex built-in profile base.
+func extendedProfileArguments(name, base string, entries [][2]string, network string) ([]string, error) {
 	access := map[string]string{}
 	var paths []string
 	for _, entry := range entries {
@@ -322,7 +443,8 @@ func profileArguments(name string, entries [][2]string, network string) ([]strin
 		}
 		paths = append(paths, string(key)+`="`+entry[1]+`"`)
 	}
-	profile := `permissions={` + name + `={extends=":read-only",filesystem={` + strings.Join(paths, ",") + `},` + network + `}}`
+	// One TOML table preserves quoted path keys; dotted CLI override keys do not.
+	profile := `permissions={` + name + `={extends="` + base + `",filesystem={` + strings.Join(paths, ",") + `},` + network + `}}`
 	return []string{"-c", `default_permissions="` + name + `"`, "-c", profile}, nil
 }
 

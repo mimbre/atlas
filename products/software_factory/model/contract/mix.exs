@@ -13,6 +13,8 @@ defmodule Model.MixProject do
       elixir: "~> 1.18",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: false,
+      # The Runtime (a path dependency) brings Hex packages: pin them with the umbrella's lock.
+      lockfile: "../../mix.lock",
       deps: deps()
     ]
   end

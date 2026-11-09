@@ -154,7 +154,10 @@ printf '%s\n' '{"type":"result","result":"done"}'
 		t.Fatalf("Claude launch must not report Codex evidence: %v", records[0])
 	}
 	argv, _ := os.ReadFile(native + ".argv")
-	want := "--print --output-format stream-json --verbose --restricted --safe-mode --strict-mcp-config --no-chrome " +
+	// The file tools are denied the Runtime home the test host was given (TestMain), which has no Code token.
+	home, _ := resolvePath(os.Getenv("ATLAS_RUNTIME_HOME"))
+	want := `--settings {"permissions":{"deny":["Read(/` + home + `)"]}} ` +
+		"--print --output-format stream-json --verbose --restricted --safe-mode --strict-mcp-config --no-chrome " +
 		"--tools Read,Glob,Grep --allowedTools Read,Glob,Grep --permission-mode dontAsk --permission-prompts none " +
 		"--model claude-sonnet-4-6 -- fixture goal\n"
 	if string(argv) != want {
@@ -179,12 +182,12 @@ func TestClaudeSettingsTempByteLimitAndTrustService(t *testing.T) {
 	root := "/atlas-host-test/repo"
 	suffix := len("/claude-" + strconv.Itoa(os.Getuid()))
 	limit := "/" + strings.Repeat("x", 44-suffix-1)
-	encoded, err := claudeRepositorySettings(testScope(root), limit)
+	encoded, err := claudeRepositorySettings(testScope(root), limit, "/runtime-home")
 	if err != nil {
 		t.Fatalf("exactly 44 bytes refused: %v", err)
 	}
 	for _, temporary := range []string{limit + "x", "/" + strings.Repeat("é", 22)} {
-		if _, err := claudeRepositorySettings(testScope(root), temporary); err == nil ||
+		if _, err := claudeRepositorySettings(testScope(root), temporary, "/runtime-home"); err == nil ||
 			err.Error() != "Claude private native temp path exceeds the 44-byte child-temp limit" {
 			t.Fatalf("%q: wanted the 44-byte refusal, got %v", temporary, err)
 		}
@@ -202,7 +205,7 @@ func TestClaudeSettingsTempByteLimitAndTrustService(t *testing.T) {
 		t.Fatalf("allowWrite %v", settings.Sandbox.Filesystem.AllowWrite)
 	}
 	deny := settings.Sandbox.Filesystem.DenyWrite
-	protected := []string{root + "/.agents", root + "/.codex", root + "/.aws", root + "/.claude", root + "/.git/config", root + "/.git/hooks"}
+	protected := []string{root + "/.agents", root + "/.codex", root + "/.aws", root + "/.claude", root + "/.git/config", root + "/.git/hooks", "/runtime-home"}
 	tmp, _ := resolvePath("/tmp")
 	if len(deny) <= len(protected) || !slices.Equal(deny[len(deny)-len(protected):], protected) ||
 		!slices.Contains(deny, tmp) || !slices.IsSorted(deny[:len(deny)-len(protected)]) {
@@ -214,12 +217,12 @@ func TestClaudeSettingsTempByteLimitAndTrustService(t *testing.T) {
 	for _, name := range []string{"darwin", "linux"} {
 		previous := platform
 		platform = name
-		encoded, err := claudeRepositorySettings(testScope(root), limit)
+		encoded, err := claudeRepositorySettings(testScope(root), limit, "/runtime-home")
 		platform = previous
 		if err != nil {
 			t.Fatal(err)
 		}
-		lookup := strings.Contains(encoded, `,"allowMachLookup":["com.apple.trustd.agent"]}}}`)
+		lookup := strings.Contains(encoded, `,"allowMachLookup":["com.apple.trustd.agent"]}},`)
 		if lookup != (name == "darwin") || !strings.Contains(encoded, `"allowedDomains":["github.com","api.github.com"]`) {
 			t.Fatalf("%s network %s", name, encoded)
 		}
@@ -232,12 +235,12 @@ func TestClaudeRepositoryInsideSystemTempIsRefused(t *testing.T) {
 	resolved, _ := resolvePath(custom)
 	tmp, _ := resolvePath("/tmp")
 	for _, root := range []string{filepath.Join(resolved, "repo"), resolved, tmp, filepath.Join(tmp, "a/b")} {
-		if _, err := claudeRepositorySettings(testScope(root), "/short"); err == nil ||
+		if _, err := claudeRepositorySettings(testScope(root), "/short", "/runtime-home"); err == nil ||
 			err.Error() != "Claude dedicated repositories must be outside system temporary directories" {
 			t.Fatalf("%s: wanted the temp-root refusal, got %v", root, err)
 		}
 	}
-	if _, err := claudeRepositorySettings(testScope(tmp+"-sibling/repo"), "/short"); err != nil {
+	if _, err := claudeRepositorySettings(testScope(tmp+"-sibling/repo"), "/short", "/runtime-home"); err != nil {
 		t.Fatalf("a path sharing only a name prefix is not inside a temp root: %v", err)
 	}
 }

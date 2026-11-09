@@ -126,7 +126,7 @@ defmodule AtlasRuntime.CommandAdmissions do
     allowed =
       case operation do
         "start" ->
-          ~w(command assignment cwd repository branch permissions sandbox backend worker_id questions_enabled)
+          ~w(command assignment cwd repository branch permissions sandbox backend profile cost_class worker_id questions_enabled)
 
         "continue" ->
           ~w(command assignment worker_id turn_id)
@@ -143,6 +143,8 @@ defmodule AtlasRuntime.CommandAdmissions do
     optional!(request, "worker_id", &worker_id?/1)
     optional!(request, "turn_id", &turn_id?/1)
     optional!(request, "backend", &(&1 in ["codex", "claude"]))
+    optional!(request, "profile", &text?/1)
+    optional!(request, "cost_class", &text?/1)
 
     if operation == "continue" do
       request

@@ -1,7 +1,7 @@
 defmodule AtlasRuntime.ServiceTest do
   use ExUnit.Case, async: true
 
-  alias AtlasRuntime.{BackendPolicy, ExecutionEvents, QuestionRecords, Service}
+  alias AtlasRuntime.{Availability, ExecutionEvents, QuestionRecords, Service}
   alias AtlasRuntime.Workspaces
 
   @moduletag :tmp_dir
@@ -48,7 +48,6 @@ defmodule AtlasRuntime.ServiceTest do
     %{
       state: %{
         dir: dir,
-        policy: BackendPolicy.empty(),
         events: ExecutionEvents.open(dir),
         workers: %{},
         stopping: false
@@ -470,11 +469,40 @@ defmodule AtlasRuntime.ServiceTest do
              Service.handle_info({:agent, state.workers["alpha"].agent, message}, state)
 
     {:noreply, next} = Service.handle_info({:agent, state.workers["beta"].agent, message}, state)
-    assert next.policy["claude_quota"]["turn_id"] == state.workers["beta"].run.id
-    assert next.workers["beta"].run.quota == next.policy["claude_quota"]
+    quota = Availability.load(state.dir)["quota"]["claude"]
+    assert quota["turn_id"] == state.workers["beta"].run.id
+    assert quota["evidence"] == evidence["rate_limit_info"]
+    assert next.workers["beta"].run.quota == quota
     assert next.workers["alpha"] == state.workers["alpha"]
-    assert JSON.decode!(File.read!(Path.join(state.dir, "backends.json"))) == next.policy
+    refute File.exists?(Path.join(state.dir, "backends.json"))
     assert events(next) == []
+  end
+
+  test "a quota that cannot be recorded is visible on the turn, not only in the log", %{
+    state: state
+  } do
+    state = worker(state, "beta", 2, backend: "claude")
+
+    evidence =
+      Path.join(__DIR__, "fixtures/claude_weekly_quota.json") |> File.read!() |> JSON.decode!()
+
+    File.write!(Availability.path(state.dir), "corrupt")
+    message = {:quota, evidence["rate_limit_info"]}
+
+    {:noreply, next} =
+      ExUnit.CaptureLog.with_log(fn ->
+        Service.handle_info({:agent, state.workers["beta"].agent, message}, state)
+      end)
+      |> elem(0)
+
+    {status, _, false} = call(next, %{"command" => "status", "worker_id" => "beta"})
+    assert status.quota_error["evidence"] == evidence["rate_limit_info"]
+    assert status.quota_error["error"] =~ "Invalid availability.json"
+    refute Map.has_key?(status, :quota)
+
+    saved = JSON.decode!(File.read!(Path.join(status.artifacts, "turn.json")))
+    assert saved["quota_error"] == status.quota_error
+    assert File.read!(Availability.path(state.dir)) == "corrupt"
   end
 
   test "targeted stop changes one worker and service-stop stops all without duplicate events", %{

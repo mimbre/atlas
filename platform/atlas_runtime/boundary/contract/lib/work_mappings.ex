@@ -1,0 +1,68 @@
+defmodule AtlasRuntimeBoundary.WorkMappings do
+  @moduledoc """
+  How the Runtime's private work model (design §1.7: `work_record`, `key_index_entry`
+  and the entities they hold) becomes the work contract's models (`AtlasRuntimeBoundary.Work`),
+  and back. Model entities and fields are named as atoms only: this project depends on
+  no model, and none of this is in the contract's `__schema__/0` or in `work.json`. The
+  Boundary target checks these mappings against the model, and generates
+  `from_model`/`to_model`, inside `atlas_runtime` (option `model:`).
+
+  S1 has renames and drops only (§1.3); derived fields come later. So:
+
+  - `work.state` (the current attempt's state) is not stored in the model: the core
+    supplies it, `from_model(record, supply: [state: ...])`.
+  - `work_request.client_key` is the work's, stored on `work_record`: inside a work it is
+    not filled from the model.
+  - An attempt's `provenance` is translated as it is: the model's `option` is an entity
+    (provider, harness, model) like the contract's. `selection.reason` and
+    `skipped_option.why` are strings in the model, cast to the contract's enum values by
+    name. `provenance.configured_model` is optional in the model but required in the
+    contract, so a provenance without it does not translate (`from_model` refuses it).
+  """
+  use AtlasRuntimeBoundary.Generator.Mappings
+
+  # The records.
+
+  defmapping :work_record, :work, supply: [:state]
+
+  # A tombstone (I7): the work it named, and how that ended.
+  defmapping :key_index_entry, :pruned,
+    direction: :from_model,
+    rename: [final_kind: :kind],
+    drop: [:client, :client_key, :pruned]
+
+  # The request, as accepted.
+
+  defmapping :request, :work_request, supply: [:client_key]
+  defmapping :repository, :repository
+
+  defmapping :folder, :folder,
+    values: [
+      permissions: [
+        read_only: :"read-only",
+        workspace_write: :"workspace-write",
+        materialized_folder: :"materialized-folder"
+      ]
+    ]
+
+  # An attempt and what it produced.
+
+  defmapping :attempt, :attempt,
+    # Private: the turn's folder and its stop latch.
+    drop: [:turn_folder, :stop_latch]
+
+  defmapping :timestamps, :attempt_timestamps
+  defmapping :resume_point, :resume_point
+  defmapping :workspace_state, :resume_workspace
+  defmapping :result, :result
+  defmapping :work_product, :work_product
+  defmapping :product_workspace, :work_product_workspace
+  defmapping :log, :output_log
+
+  # The provenance of a turn, and the policy selection it records.
+
+  defmapping :provenance, :provenance
+  defmapping :selection, :selection
+  defmapping :option, :option
+  defmapping :skipped_option, :skipped_option
+end

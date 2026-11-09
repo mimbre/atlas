@@ -2,7 +2,7 @@ defmodule AtlasRuntime.NativeQuestionTest do
   use ExUnit.Case, async: false
   alias AtlasRuntime.Agent.Native
   alias AtlasRuntime.Interactions.NativeQuestion
-  alias AtlasRuntime.{BackendPolicy, ExecutionEvents, Service}
+  alias AtlasRuntime.{ExecutionEvents, Service}
   @moduletag :tmp_dir
 
   setup %{tmp_dir: dir} do
@@ -21,7 +21,6 @@ defmodule AtlasRuntime.NativeQuestionTest do
       workspace: workspace,
       state: %{
         dir: dir,
-        policy: BackendPolicy.empty(),
         events: ExecutionEvents.open(dir),
         workers: %{},
         stopping: false
