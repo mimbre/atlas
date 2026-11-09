@@ -196,6 +196,10 @@ defmodule AtlasRuntime.NativeAdmissionTest do
     [launch] = launches(context.dir)
     assert launch["record"]["request_id"] == "concurrent"
     assert launch["record"]["turn_id"] == reply["turn_id"]
+    # Service passes its Runtime home to the host, which denies it to the plain read-only profile.
+    home = AtlasRuntime.Workspaces.workspace_path(context.dir)
+    assert ~s(default_permissions="atlas_read_only") in launch["argv"]
+    assert Enum.any?(launch["argv"], &String.contains?(&1, ~s(#{JSON.encode!(home)}="none")))
   end
 
   test "one global ID refuses changed caller intent before worker or backend resolution",

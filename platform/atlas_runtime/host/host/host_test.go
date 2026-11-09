@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -37,7 +38,18 @@ func TestMain(m *testing.M) {
 		questionFixture(mode)
 		os.Exit(0)
 	}
-	os.Exit(m.Run())
+	// Hosts started by tests deny an empty Runtime home of their own, never the caller's.
+	runtimeHome, err := os.MkdirTemp("", "atlas-runtime-home-")
+	if err == nil {
+		err = os.Setenv("ATLAS_RUNTIME_HOME", runtimeHome)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	code := m.Run()
+	os.RemoveAll(runtimeHome)
+	os.Exit(code)
 }
 
 type hostProcess struct {

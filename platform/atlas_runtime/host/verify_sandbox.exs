@@ -24,24 +24,28 @@ defmodule AtlasRuntime.NativeSandboxVerification do
     shell = &("'" <> String.replace(&1, "'", "'\\''") <> "'")
     evidence = Path.join(dir, "native") |> Path.expand()
 
-    # `sandbox` requires permission profiles in Codex 0.166.0. Built-ins are
-    # :read-only and :workspace, documented at developers.openai.com/codex/permissions.
+    # `sandbox` requires permission profiles in Codex 0.166.0. The host forwards each mode as an
+    # explicit profile extending the built-in :read-only or :workspace (developers.openai.com/codex/permissions)
+    # that also denies the Runtime home; the bridge runs exactly that forwarded profile.
     # Do not read the user's Codex home or launch `codex exec`/a model here.
     File.write!(bridge, """
     #!/bin/sh
     while [ "$#" -gt 0 ]; do
       case "$1" in
-        --sandbox) mode=$2 ;;
+        -c)
+          case "$2" in
+            default_permissions=*) profile=$(printf '%s' "$2" | sed 's/^default_permissions=//; s/"//g') ;;
+            permissions=*) permissions=$2 ;;
+          esac ;;
         --cd) workspace=$2 ;;
       esac
       shift
     done
-    case "$mode" in
-      read-only) profile=:read-only ;;
-      workspace-write) profile=:workspace ;;
+    case "$profile" in
+      atlas_read_only|atlas_workspace_write) ;;
       *) exit 2 ;;
     esac
-    CODEX_HOME=#{shell.(config)} LANG=C LC_ALL=C #{shell.(native)} sandbox -P "$profile" -C "$workspace" \\
+    CODEX_HOME=#{shell.(config)} LANG=C LC_ALL=C #{shell.(native)} sandbox -P "$profile" -c "$permissions" -C "$workspace" \\
       -- /bin/sh -c "printf 'after\\\\n' > proof.txt" >#{shell.(evidence <> "-stdout")} 2>#{shell.(evidence <> "-stderr")}
     code=$?
     printf '%s' "$code" >#{shell.(evidence <> "-exit")}
