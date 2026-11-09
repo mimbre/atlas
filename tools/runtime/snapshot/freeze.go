@@ -637,7 +637,7 @@ func VerifiedPacket(home, tree string) (map[string]any, error) {
 		return nil, fmt.Errorf("%s is not the tree of a review packet; review the tree that snapshot freeze made", t.dest)
 	}
 	mismatch := func(what string) error {
-		return fmt.Errorf("review packet %s does not match its record under %s: %s; freeze a new packet", filepath.Dir(t.dest), PacketDir(home, id), what)
+		return packetModified{fmt.Errorf("review packet %s does not match its record under %s: %s; freeze a new packet", filepath.Dir(t.dest), PacketDir(home, id), what)}
 	}
 	data, err := os.ReadFile(filepath.Join(PacketDir(home, id), "packet.json"))
 	if err != nil {
