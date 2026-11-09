@@ -21,8 +21,8 @@ defmodule Model.MixProject do
 
   # The DSL it is written in, and the platform's behaviours it implements (D-0083):
   # Flow's (AtlasFlow.Model, AtlasFlow.Subflow, AtlasFlow.Legacy), Gates'
-  # (AtlasGates.Model) and Runtime's (AtlasRuntime.Model), at compile time only: the
-  # model starts no platform app. The
+  # (AtlasGates.Model), Runtime's (AtlasRuntime.Model) and Control's (AtlasControl.Model),
+  # at compile time only: the model starts no platform app. The
   # platform never depends on the model; it is wired by configuration
   # (`config :atlas, model: Model.AtlasEyra`).
   defp deps,
@@ -30,7 +30,8 @@ defmodule Model.MixProject do
       {:rela_dsl, path: "../dsl"},
       {:atlas_flow, path: "../../beam/apps/atlas_flow", runtime: false, env: Mix.env()},
       {:atlas_gates, path: "../../beam/apps/atlas_gates", runtime: false, env: Mix.env()},
-      {:atlas_runtime, path: "../../beam/apps/atlas_runtime", runtime: false, env: Mix.env()}
+      {:atlas_runtime, path: "../../beam/apps/atlas_runtime", runtime: false, env: Mix.env()},
+      {:atlas_control, path: "../../beam/apps/atlas_control", runtime: false, env: Mix.env()}
     ]
 
   # The profiles are compiled everywhere but in prod: a private instance (e2e) runs one.

@@ -1,9 +1,12 @@
 defmodule AtlasControl.PagesTest do
   use ExUnit.Case, async: true
 
-  alias AtlasControl.{FakeStore, Pages}
+  alias AtlasControl.{Pages, Shop}
 
-  @d FakeStore.description()
+  # The neutral model as Control serves it, and the same shop with one thing more or
+  # different (`AtlasControl.Shop`).
+  @d AtlasControl.Model.catalog(Shop)
+  defp shop(variant), do: AtlasControl.Model.catalog(Module.concat(Shop, variant))
 
   defp fact(key, values, version \\ "v1"),
     do: %{"key" => key, "values" => values, "version" => version}
@@ -162,19 +165,7 @@ defmodule AtlasControl.PagesTest do
 
   test "a row's detail: its choice by its label, then the flags set; also under a parent" do
     # As a row of a kind a connector fills reads "Open · draft".
-    fitted =
-      @d
-      |> put_in(["entities", "part", "properties", "fit"], %{
-        "type" => "fit",
-        "values" => ["loose", "tight"],
-        "labels" => %{"loose" => "Loose", "tight" => "Tight"},
-        "set_by" => "connector"
-      })
-      |> put_in(["entities", "part", "properties", "spare"], %{
-        "type" => "boolean",
-        "default" => false,
-        "set_by" => "connector"
-      })
+    fitted = shop(Fitted)
 
     under = fn key, values ->
       Map.put(fact(key, Map.put(values, "title", key)), "links", %{"of_widget" => ["W-1"]})
@@ -317,7 +308,7 @@ defmodule AtlasControl.PagesTest do
   end
 
   test "a client that knows only a key: _ becomes the kind with that id prefix" do
-    prefix = fn kind -> Pages.create_rule(@d["entities"][kind]).prefix end
+    prefix = fn kind -> Pages.kind_view(@d, kind).id.prefix end
     part = prefix.("part") <> "07"
     assert Pages.resolve(Pages.route("/k/_/#{part}"), @d) == {:item, "part", part}
     assert Pages.resolve(Pages.route("/k/_/#{part}/edit"), @d) == {:edit, "part", part}
@@ -336,7 +327,7 @@ defmodule AtlasControl.PagesTest do
       for item <- items,
           do: Enum.find_value(item["fields"], &(&1["label"] == "Kind" && &1["value"]))
 
-    assert kinds == @d["entities"] |> Map.keys() |> Enum.sort()
+    assert kinds == @d.kinds |> Map.keys() |> Enum.sort()
 
     part = Enum.find(items, &(&1["title"] =~ "(part)"))
     fields = Map.new(part["fields"], &{&1["label"], &1["value"]})
@@ -353,11 +344,11 @@ defmodule AtlasControl.PagesTest do
   end
 
   test "every action is Create, Update or Delete: the same words and keys everywhere" do
-    widget = @d["entities"]["widget"]
-    assert Pages.operation(:create, widget, "widget") == {"Create widget", "c"}
-    assert Pages.operation(:update, widget, "widget") == {"Update widget", "u"}
-    assert Pages.operation(:delete, widget, "widget") == {"Delete widget", "d"}
-    assert Pages.operation(:update, nil, nil) == {"Update", "u"}
+    widget = Pages.kind_view(@d, "widget")
+    assert Pages.operation(:create, widget) == {"Create widget", "c"}
+    assert Pages.operation(:update, widget) == {"Update widget", "u"}
+    assert Pages.operation(:delete, widget) == {"Delete widget", "d"}
+    assert Pages.operation(:update, nil) == {"Update", "u"}
 
     part = Map.put(fact("P-1", %{"title" => "Wheel"}), "links", %{"of_widget" => ["W-1"]})
     labels = fn actions -> Enum.map(actions, &{&1["key"], &1["label"]}) end
@@ -398,7 +389,7 @@ defmodule AtlasControl.PagesTest do
            ]
 
     # A page with a second related list creates there with the next free key.
-    two = put_in(@d, ["relations", "of_widget_too"], @d["relations"]["of_widget"])
+    two = shop(Two)
 
     %{blocks: [_, %{"props" => first}, %{"props" => second}]} =
       Pages.render({:item, "widget", "W-1"}, two, [
@@ -408,9 +399,9 @@ defmodule AtlasControl.PagesTest do
       ])
 
     assert {labels.(first["actions"]), labels.(second["actions"])} ==
-             {[{"c", "Create part"}], [{"s", "Create part"}]}
+             {[{"c", "Create part"}], [{"s", "Create spare"}]}
 
-    assert second["empty"] == "No parts yet. Press s to create one."
+    assert second["empty"] == "No spares yet. Press s to create one."
   end
 
   test "a limit on a relation: only children whose field counts, never the fact itself" do
@@ -431,9 +422,8 @@ defmodule AtlasControl.PagesTest do
     # The same fact again (a create sent twice, a change that stays) is not over the limit.
     assert over.("T-1", [tag.("T-1", "live")]) == nil
 
-    # The value as the description labels it.
-    labelled =
-      put_in(@d, ["entities", "tag", "properties", "note", "labels"], %{"live" => "Live"})
+    # The value as the model labels it.
+    labelled = shop(Labelled)
 
     assert Pages.over_limit(labelled, "on_part", "tag", nil, "P-1", [tag.("T-1", "live")]) ==
              "P-1 already has T-1 (Live); one tag per part"
@@ -446,12 +436,8 @@ defmodule AtlasControl.PagesTest do
     refute Pages.shows?({:item, "part", "P-1"}, @d, "gadget")
   end
 
-  # As `rela/atlas.json` adds them: widgets roll up their parts; shade is shown as "Look".
-  @rolled @d
-          |> put_in(["progress"], %{"done" => "done"})
-          |> put_in(["entities", "widget", "progress"], %{"over" => "of_widget", "own" => "shade"})
-          |> put_in(["entities", "part", "progress"], %{"over" => "on_part"})
-          |> put_in(["entities", "widget", "properties", "shade", "label"], "Look")
+  # Widgets roll up their parts, parts their tags; a widget's shade is shown as "Look".
+  @rolled AtlasControl.Model.catalog(Shop.Rolled)
 
   test "a list shows how far each fact is, as Facts works it out, in place of its own field" do
     answer = %{
@@ -463,7 +449,7 @@ defmodule AtlasControl.PagesTest do
           "of" => 3
         }),
         Map.put(
-          fact("W-2", %{"title" => "Two", "shade" => "dark", "done" => true}),
+          fact("W-2", %{"title" => "Two", "shade" => "dark"}),
           "progress",
           %{
             "done" => true,
@@ -513,12 +499,7 @@ defmodule AtlasControl.PagesTest do
   end
 
   describe "completion: done only when the fact itself is completed" do
-    @completing @rolled
-                |> put_in(["progress"], %{"done_label" => "Done"})
-                |> put_in(["entities", "widget", "completion"], %{"by" => "checked_by"})
-                |> put_in(["entities", "part", "completion"], [
-                  %{"over" => "on_part", "field" => "name", "value" => "#ok/1"}
-                ])
+    @completing AtlasControl.Model.catalog(Shop.Completing)
 
     test "a hint of a kind completion looks at refreshes what shows it" do
       assert "tag" in Pages.progress_from(@completing, "part")
@@ -598,12 +579,7 @@ defmodule AtlasControl.PagesTest do
       assert %{"value" => "Fine · T-a-1 open"} =
                Enum.find(item["fields"], &(&1["label"] == "Progress"))
 
-      while =
-        put_in(@completing, ["entities", "widget", "progress", "while"], [
-          %{"over" => "of_widget"}
-        ])
-
-      assert "part" in Pages.progress_from(while, "widget")
+      assert "part" in Pages.progress_from(shop(While), "widget")
     end
 
     test "not done, without children: its own field says it; no Progress line" do
@@ -709,7 +685,9 @@ defmodule AtlasControl.PagesTest do
     assert %{"kind" => "multiline", "value" => ^notes} =
              Enum.find(form["inputs"], &(&1["name"] == "notes"))
 
-    assert Pages.values_for(@d["entities"]["widget"], %{"notes" => notes}) == %{"notes" => notes}
+    assert Pages.values_for(Pages.kind_view(@d, "widget"), %{"notes" => notes}) == %{
+             "notes" => notes
+           }
   end
 
   test "a field only a connector fills shows on the page only when it has a value" do
@@ -725,7 +703,7 @@ defmodule AtlasControl.PagesTest do
   end
 
   test "a primary a connector fills names the fact once filled; until then its id's source" do
-    d = put_in(@d, ["entities", "tag", "primary"], "note")
+    d = shop(Named)
 
     tags = %{
       "facts" => [
@@ -768,20 +746,19 @@ defmodule AtlasControl.PagesTest do
   end
 
   test "the next free key, and the values of a new fact" do
-    spec = @d["entities"]["widget"]
+    spec = Pages.kind_view(@d, "widget")
     assert Pages.next_key(spec, []) == {"W-01", 1}
     assert Pages.next_key(spec, ["W-01", "W-07", "W-x", "Z-99"]) == {"W-08", 8}
     assert Pages.next_key(spec, ["W-01"], 4) == {"W-05", 5}
 
     # A ledger whose lower numbers are kept for facts added later starts at its first.
-    ledger =
-      put_in(spec, ["create"], %{"id" => %{"prefix" => "L-", "digits" => 4, "first" => 24}})
+    ledger = Pages.kind_view(shop(Logged), "log")
 
     assert Pages.next_key(ledger, []) == {"L-0024", 24}
     assert Pages.next_key(ledger, ["L-0003", "L-0023"]) == {"L-0024", 24}
     assert Pages.next_key(ledger, ["L-0003", "L-0030"]) == {"L-0031", 31}
 
-    assert Pages.create_values(spec, %{"title" => "One", "notes" => "", "shade" => "dark"}) ==
+    assert Pages.create_values(@d, "widget", %{"title" => "One", "notes" => "", "shade" => "dark"}) ==
              %{"title" => "One", "notes" => "", "shade" => "light", "done" => false}
   end
 
@@ -808,11 +785,10 @@ defmodule AtlasControl.PagesTest do
   end
 
   test "a kind whose id is made from a property: the key is made, never typed or changed" do
-    tag = @d["entities"]["tag"]
-    assert Pages.key_for(tag, %{"name" => " #a.b/12 "}) == {:ok, "T-a_b-12"}
-    assert Pages.key_for(tag, %{"name" => "a.b"}) == {:error, "name must look like #word/1"}
-    assert Pages.id_property(tag) == "name"
-    assert Pages.id_property(@d["entities"]["widget"]) == nil
+    assert Shop.key("tag", %{"name" => " #a.b/12 "}) == {:ok, "T-a_b-12"}
+    assert Shop.key("tag", %{"name" => "a.b"}) == {:error, "name must look like #word/1"}
+    assert Pages.kind_view(@d, "tag").id.from == "name"
+    assert Pages.kind_view(@d, "widget").id.from == nil
 
     %{blocks: [%{"props" => form}]} = Pages.render({:new, "tag", {"on_part", "P-1"}}, @d, [])
     assert Enum.map(form["inputs"], &{&1["name"], &1["kind"]}) == [{"name", "text"}]
@@ -834,7 +810,7 @@ defmodule AtlasControl.PagesTest do
     assert Enum.map(item["actions"], & &1["key"]) == ["u", "d"]
 
     # A kind with nothing to set and no parent has nothing to change.
-    loose = put_in(@d, ["relations", "on_part", "max_outgoing"], 2)
+    loose = shop(Loose)
     %{blocks: [%{"props" => item} | _]} = Pages.render({:item, "tag", "T-a-1"}, loose, [stored])
     assert Enum.map(item["actions"], & &1["key"]) == ["d"]
   end
@@ -869,7 +845,7 @@ defmodule AtlasControl.PagesTest do
   end
 
   test "form text becomes the described types" do
-    spec = @d["entities"]["widget"]
+    spec = Pages.kind_view(@d, "widget")
 
     assert Pages.values_for(spec, %{
              "_key" => "W-1",
@@ -882,38 +858,7 @@ defmodule AtlasControl.PagesTest do
 
   # A record a client writes (as the agent keeps its requests): kept off the start page,
   # newest first, made by no key; its entries name the fact they changed.
-  @logged @d
-          |> put_in(["entities", "log"], %{
-            "label" => "Log",
-            "plural" => "logs",
-            "primary" => "title",
-            "id_prefixes" => ["L-"],
-            "top" => false,
-            "start" => %{"key" => "w", "label" => "What happened"},
-            "order" => "newest",
-            "by_hand" => false,
-            "properties" => %{"title" => %{"type" => "string", "required" => true}}
-          })
-          |> put_in(["entities", "entry"], %{
-            "label" => "Entry",
-            "plural" => "entries",
-            "primary" => "title",
-            "id_prefixes" => ["E-"],
-            "by_hand" => false,
-            "properties" => %{
-              "title" => %{"type" => "string", "required" => true},
-              "about" => %{"type" => "string", "cause" => "What happened here"}
-            }
-          })
-          |> put_in(["relations", "in_log"], %{
-            "label" => "in log",
-            "from" => ["entry"],
-            "to" => ["log"],
-            "max_outgoing" => 1,
-            "parent" => true,
-            "add" => false,
-            "inverse" => %{"id" => "entries", "label" => "entries"}
-          })
+  @logged AtlasControl.Model.catalog(Shop.Logged)
 
   test "a kind kept off the start page: an action there opens its list, newest first" do
     assert Pages.top_kinds(@logged) == ["widget"]
@@ -934,23 +879,7 @@ defmodule AtlasControl.PagesTest do
 
   # Helpers, kept off the start page and one key away from it; each row counts the widgets
   # and logs that point at it.
-  @counted @logged
-           |> put_in(["entities", "helper"], %{
-             "label" => "Helper",
-             "plural" => "helpers",
-             "primary" => "name",
-             "top" => false,
-             "start" => %{"key" => "g", "label" => "Helpers"},
-             "counts" => [%{"relation" => "helped_by", "text" => "{count} helped"}],
-             "properties" => %{"name" => %{"type" => "string", "required" => true}}
-           })
-           |> put_in(["relations", "helped_by"], %{
-             "label" => "helped by",
-             "from" => ["widget", "log"],
-             "to" => ["helper"],
-             "max_outgoing" => 1,
-             "inverse" => %{"id" => "helps", "label" => "helps"}
-           })
+  @counted AtlasControl.Model.catalog(Shop.Counted)
 
   test "a kind whose rows count what points at it: one plain read per kind it comes from" do
     plain = %{"linked" => %{}, "plain" => true}
@@ -995,24 +924,10 @@ defmodule AtlasControl.PagesTest do
 
   # Tasks are made and deleted with something else, changed by hand only; each has an
   # optional time it is due, and is late (Facts says) once that has passed.
-  @due @d
-       |> put_in(["entities", "task"], %{
-         "label" => "Task",
-         "plural" => "tasks",
-         "primary" => "title",
-         "id_prefixes" => ["T-"],
-         "top" => false,
-         "by_hand" => "update",
-         "late" => %{"after" => "due", "while" => "todo", "label" => "overdue"},
-         "properties" => %{
-           "title" => %{"type" => "string", "required" => true},
-           "todo" => %{"type" => "string", "set_by" => "flow"},
-           "due" => %{"type" => "datetime"}
-         }
-       })
+  @due AtlasControl.Model.catalog(Shop.Due)
 
   test "a kind changed by hand only, with a time it is due: shown, marked late, typed" do
-    spec = @due["entities"]["task"]
+    spec = Pages.kind_view(@due, "task")
 
     task =
       fact("T-1", %{"title" => "Wrap", "todo" => "Wrap it", "due" => "2026-11-04T11:00:00Z"})
@@ -1085,16 +1000,9 @@ defmodule AtlasControl.PagesTest do
     refute Enum.any?(item["fields"], &(&1["label"] =~ "Review"))
   end
 
-  # Checked by: an action that changes it whether it is set or not, asking the widget's
-  # notes with it, in one change with its own cause.
-  @handed put_in(@d, ["relations", "checked_by", "actions"], %{
-            "change" => %{
-              "label" => "Hand to…",
-              "key" => "h",
-              "with" => ["notes"],
-              "cause" => "handed to {to} by {by}"
-            }
-          })
+  # Checked by: an action that changes it whether it is set or not, asking the fact's
+  # title with it, in one change with its own cause.
+  @handed AtlasControl.Model.catalog(Shop.Handed)
 
   test "a change action: on the page with or without a link; its form asks its fields too" do
     hand = %{"key" => "h", "label" => "Hand to…", "to" => "/k/widget/W-1/links/checked_by"}
@@ -1107,7 +1015,7 @@ defmodule AtlasControl.PagesTest do
     end
 
     for links <- [%{}, %{"checked_by" => ["ada"]}] do
-      widget = Map.put(fact("W-1", %{"title" => "One", "notes" => "Wrap it"}), "links", links)
+      widget = Map.put(fact("W-1", %{"title" => "One"}), "links", links)
 
       %{blocks: [%{"props" => item} | _]} =
         Pages.render({:item, "widget", "W-1"}, @handed, answers.(widget))
@@ -1115,10 +1023,7 @@ defmodule AtlasControl.PagesTest do
       assert hand in item["actions"]
     end
 
-    widget =
-      Map.put(fact("W-1", %{"title" => "One", "notes" => "Wrap it"}), "links", %{
-        "checked_by" => ["ada"]
-      })
+    widget = Map.put(fact("W-1", %{"title" => "One"}), "links", %{"checked_by" => ["ada"]})
 
     members = %{"facts" => [fact("ada", %{"name" => "Ada"}), fact("bob", %{"name" => "Bob"})]}
 
@@ -1129,9 +1034,9 @@ defmodule AtlasControl.PagesTest do
       ])
 
     assert title == "Hand to… One"
-    assert Enum.map(form["inputs"], & &1["name"]) == ["_key", "to", "notes", "note"]
+    assert Enum.map(form["inputs"], & &1["name"]) == ["_key", "to", "title", "note"]
     assert %{"name" => "to", "value" => "ada"} = Enum.at(form["inputs"], 1)
-    assert %{"name" => "notes", "value" => "Wrap it"} = Enum.at(form["inputs"], 2)
+    assert %{"name" => "title", "value" => "One"} = Enum.at(form["inputs"], 2)
 
     change = Pages.change_action(@handed, "checked_by")
     assert Pages.change_cause(change, ["bob"], "melle", "") == "handed to bob by melle"
@@ -1152,10 +1057,12 @@ defmodule AtlasControl.PagesTest do
   end
 
   test "an item page lists the facts whose cause field names it; a hint of them refreshes it" do
+    # Every kind with a cause field (entries name what they changed; logs what they redo).
     assert Pages.reads({:item, "widget", "W-1"}, @logged) == [
              {"widget", %{"key" => "W-1"}},
              {"part", %{"linked" => %{"of_widget" => "W-1"}}},
-             {"entry", %{}}
+             {"entry", %{}},
+             {"log", %{}}
            ]
 
     answer = %{"fact" => fact("W-1", %{"title" => "One"})}
@@ -1167,7 +1074,13 @@ defmodule AtlasControl.PagesTest do
       ]
     }
 
-    page = Pages.render({:item, "widget", "W-1"}, @logged, [answer, %{"facts" => []}, entries])
+    page =
+      Pages.render({:item, "widget", "W-1"}, @logged, [
+        answer,
+        %{"facts" => []},
+        entries,
+        %{"facts" => []}
+      ])
 
     assert %{"kind" => "section", "props" => %{"title" => "What happened here"}} =
              Enum.find(page.markup, &(&1["start"] == "cause:entry:about"))
@@ -1176,38 +1089,21 @@ defmodule AtlasControl.PagesTest do
     assert [%{"id" => "E-01", "to" => "/k/entry/E-01"}] = cause["props"]["rows"]
 
     # Nothing names it: no list.
-    page = Pages.render({:item, "widget", "W-3"}, @logged, [answer, %{"facts" => []}, entries])
+    page =
+      Pages.render({:item, "widget", "W-3"}, @logged, [
+        answer,
+        %{"facts" => []},
+        entries,
+        %{"facts" => []}
+      ])
+
     refute Enum.any?(page.blocks, &String.starts_with?(&1["id"], "cause:"))
 
     assert Pages.shows?({:item, "widget", "W-1"}, @logged, "entry")
   end
 
   # A widget has a card, made and deleted with it (a made-up component, as the Assignment).
-  @carded @d
-          |> put_in(["entities", "card"], %{
-            "label" => "Card",
-            "plural" => "cards",
-            "primary" => "of",
-            "top" => false,
-            "properties" => %{
-              "of" => %{"type" => "string", "required" => true},
-              "todo" => %{"type" => "string", "set_by" => "flow"}
-            }
-          })
-          |> put_in(["relations", "card"], %{
-            "label" => "card",
-            "from" => ["widget"],
-            "to" => ["card"],
-            "max_outgoing" => 1,
-            "set_by" => ["migration"],
-            "component" => %{"key" => "C-{key}", "values" => %{"of" => "{key}"}}
-          })
-          |> put_in(["relations", "held_by"], %{
-            "label" => "held by",
-            "from" => ["card"],
-            "to" => ["member"],
-            "max_outgoing" => 1
-          })
+  @carded AtlasControl.Model.catalog(Shop.Carded)
 
   test "a fact's page shows its component's fields and associations as its own" do
     reads = Pages.reads({:item, "widget", "W-1"}, @carded)
@@ -1255,7 +1151,7 @@ defmodule AtlasControl.PagesTest do
   end
 
   test "the kinds page says which kinds are not made by hand" do
-    by_layer = put_in(@d, ["entities", "member", "by_hand"], false)
+    by_layer = shop(ByLayer)
     %{blocks: blocks} = Pages.render(:kinds, by_layer, [])
     member = Enum.find(blocks, &(&1["id"] == "kind:member"))["props"]
     assert %{"label" => "By hand", "value" => "no"} in member["fields"]
@@ -1341,10 +1237,7 @@ defmodule AtlasControl.PagesTest do
   end
 
   test "actions the description adds, only while a field has one of the values in when" do
-    logged =
-      put_in(@logged, ["entities", "entry", "actions"], [
-        %{"key" => "x", "label" => "Undo", "to" => "agent:undo", "when" => %{"state" => ["done"]}}
-      ])
+    logged = @logged
 
     page = fn state ->
       answer = %{"fact" => fact("E-01", %{"title" => "One", "state" => state})}
@@ -1360,11 +1253,7 @@ defmodule AtlasControl.PagesTest do
   end
 
   test "a cause field may name a fact of its own kind" do
-    logged =
-      put_in(@logged, ["entities", "log", "properties", "redoes"], %{
-        "type" => "string",
-        "cause" => "Redone by"
-      })
+    logged = @logged
 
     assert {"log", %{}} in Pages.reads({:item, "log", "L-01"}, logged)
     answer = %{"fact" => fact("L-01", %{"title" => "First"})}
@@ -1381,20 +1270,7 @@ defmodule AtlasControl.PagesTest do
   end
 
   # An association from two kinds to two kinds, as an owner is (made-up kinds).
-  @held @d
-        |> put_in(["entities", "keeper"], %{
-          "label" => "Keeper",
-          "plural" => "keepers",
-          "primary" => "title",
-          "properties" => %{"title" => %{"type" => "string"}}
-        })
-        |> put_in(["relations", "held_by"], %{
-          "label" => "held by",
-          "from" => ["widget", "part"],
-          "to" => ["tag", "keeper"],
-          "max_outgoing" => 1,
-          "inverse" => %{"id" => "holdings", "label" => "holdings"}
-        })
+  @held AtlasControl.Model.catalog(Shop.Held)
 
   test "a relation from several kinds: one list per kind on the page it points at" do
     reads = Pages.reads({:item, "keeper", "K-1"}, @held)
@@ -1450,29 +1326,7 @@ defmodule AtlasControl.PagesTest do
   end
 
   # A start page of what is assigned to the client (made-up kinds and words).
-  @assigning @d
-             |> put_in(["entities", "keeper"], %{
-               "top" => false,
-               "label" => "Keeper",
-               "plural" => "keepers",
-               "primary" => "title",
-               "properties" => %{"title" => %{"type" => "string"}}
-             })
-             |> put_in(["relations", "kept_by"], %{
-               "from" => ["widget", "part"],
-               "to" => ["keeper"],
-               "max_outgoing" => 1
-             })
-             |> put_in(["entities", "widget", "start"], %{"key" => "s", "label" => "Widgets"})
-             |> Map.put("flows", %{"f" => %{"kinds" => ["widget"], "field" => "shade"}})
-             |> Map.put("start", %{
-               "assigned" => %{
-                 "relation" => "kept_by",
-                 "title" => "Kept by you",
-                 "count" => "{count} kept by you",
-                 "empty" => "Nothing is kept by you."
-               }
-             })
+  @assigning AtlasControl.Model.catalog(Shop.Assigning)
 
   defp kept(key, title, since, cause, extra \\ %{}) do
     fact(key, Map.merge(%{"title" => title}, extra))
@@ -1481,17 +1335,7 @@ defmodule AtlasControl.PagesTest do
 
   # What is assigned is a component (a card, as the Assignment): the start page shows the
   # fact it belongs to, with what is expected on the card and why.
-  @carded_start @carded
-                |> Map.put("flows", %{
-                  "f" => %{"kinds" => ["widget"], "on" => "card", "field" => "todo"}
-                })
-                |> Map.put("start", %{
-                  "assigned" => %{
-                    "relation" => "held_by",
-                    "title" => "Held by you",
-                    "count" => "{count} held"
-                  }
-                })
+  @carded_start AtlasControl.Model.catalog(Shop.CardedStart)
 
   test "assigned components select only their owners from full owner lists" do
     assert Pages.reads({:assigned, "ada"}, @carded_start) == [
@@ -1539,10 +1383,7 @@ defmodule AtlasControl.PagesTest do
   end
 
   # Open work: the list of the cards is what is held, for everyone; a card is due by a time.
-  @open @carded_start
-        |> put_in(["start", "open"], %{"title" => "All held", "empty" => "Nothing is held."})
-        |> put_in(["entities", "card", "properties", "due"], %{"type" => "datetime"})
-        |> put_in(["entities", "card", "late"], %{"after" => "due", "while" => "todo"})
+  @open AtlasControl.Model.catalog(Shop.Open)
 
   test "open work: the same rows for everyone, with who holds each; late first" do
     assert Pages.open_work?(@open, "card")
@@ -1605,11 +1446,7 @@ defmodule AtlasControl.PagesTest do
   end
 
   test "open work exposes partial and total collection failures instead of authoritative rows" do
-    description =
-      put_in(@assigning, ["start", "open"], %{
-        "title" => "Open work",
-        "empty" => "Nothing is open."
-      })
+    description = shop(AssigningOpen)
 
     visible =
       kept("W-1", "Still open", "2026-11-03T12:00:00Z", "assigned")
@@ -1634,11 +1471,7 @@ defmodule AtlasControl.PagesTest do
   end
 
   test "open work recovery restores current rows and only successful emptiness shows the empty message" do
-    description =
-      put_in(@assigning, ["start", "open"], %{
-        "title" => "Open work",
-        "empty" => "Nothing is open."
-      })
+    description = shop(AssigningOpen)
 
     failed = %{"error" => "Private backend unavailable", "error_kind" => "unreachable"}
 
@@ -1676,34 +1509,7 @@ defmodule AtlasControl.PagesTest do
   end
 
   # What to do (IS-Atlas-54): a flow on widgets, on their card; its state is the card's step.
-  @todo @carded
-        |> put_in(["entities", "card", "properties", "step"], %{"type" => "string"})
-        |> Map.put("todo", %{
-          "title" => "Your move",
-          "why" => "Because",
-          "instructions" => "How",
-          "answers" => "Keys"
-        })
-        |> Map.put("flows", %{
-          "f" => %{
-            "kinds" => ["widget"],
-            "on" => "card",
-            "field" => "todo",
-            "state_field" => "step",
-            "owner_relation" => "held_by",
-            "states" => [
-              %{
-                "name" => "check",
-                "why" => "it is painted",
-                "todo" => %{
-                  "instructions" => "Look it over.",
-                  "section" => %{"field" => "notes", "heading" => "Check"},
-                  "answers" => [%{"key" => "a", "label" => "Approve"}]
-                }
-              }
-            ]
-          }
-        })
+  @todo AtlasControl.Model.catalog(Shop.Todo)
 
   test "a fact's owner sees what to do, first; anyone else does not" do
     notes = "Some intro.\n\nCheck: the paint is even\nand dry.\n\n## Later\nnot this"
@@ -1769,21 +1575,7 @@ defmodule AtlasControl.PagesTest do
 
   # Answers (IS-Atlas-56): approve sets checked_by, a widget association; send back removes
   # it, also when it is not set.
-  @answering @todo
-             |> put_in(["flows", "f", "states"], [
-               %{
-                 "name" => "check",
-                 "todo" => %{
-                   "answers" => [
-                     %{"key" => "v", "label" => "Approve", "set" => "checked_by"},
-                     %{"key" => "z", "label" => "Send back", "remove" => "checked_by"}
-                   ]
-                 }
-               }
-             ])
-             |> put_in(["relations", "checked_by", "actions"], %{
-               "set" => %{"label" => "Check", "key" => "v"}
-             })
+  @answering AtlasControl.Model.catalog(Shop.Answering)
 
   defp answering_reads(route, card_owner) do
     widget = fact("W-1", %{"title" => "One"}) |> Map.put("links", %{"card" => ["C-W-1"]})
@@ -1852,17 +1644,6 @@ defmodule AtlasControl.PagesTest do
     assert refused["text"] == "W-1 has no checked by."
   end
 
-  test "the section a heading names: to the next heading" do
-    assert Pages.section("Melle can test: open it.\nThen look.", "Melle can test") ==
-             "open it.\nThen look."
-
-    assert Pages.section("x\n## Melle can test\none\n\ntwo\n## Next\nthree", "melle can test") ==
-             "one\n\ntwo"
-
-    assert Pages.section("nothing here", "Melle can test") == nil
-    assert Pages.section(nil, "Melle can test") == nil
-  end
-
   test "a client of a kind the start's relation points at opens on what points at it" do
     assert Pages.assigned_start?(@assigning, "keeper")
     refute Pages.assigned_start?(@assigning, nil)
@@ -1909,7 +1690,7 @@ defmodule AtlasControl.PagesTest do
 
   test "the kinds page names the kinds that hold a record" do
     %{blocks: blocks} =
-      Pages.render(:kinds, put_in(@logged, ["entities", "log", "agent"], "request"), [])
+      Pages.render(:kinds, @logged, [])
 
     log = Enum.find(blocks, &(&1["id"] == "kind:log"))["props"]
     assert %{"label" => "Agent record", "value" => "request"} in log["fields"]
@@ -2065,26 +1846,11 @@ defmodule AtlasControl.PagesTest do
       assert Pages.settable_relation?(@d, "checked_by")
     end
 
-    test "a key made from a property can be in lower case" do
-      spec = %{
-        "create" => %{
-          "id" => %{
-            "from" => "name",
-            "pattern" => "^\\s*([A-Za-z]+)",
-            "template" => "{1}",
-            "lower" => true
-          }
-        }
-      }
-
-      assert Pages.key_for(spec, %{"name" => " Melle Lieuwes"}) == {:ok, "melle"}
-    end
-
     test "a member has no section on the start page, though no fact is above it" do
       assert Pages.top_kinds(@d) == ["widget"]
       assert Pages.reads(:home, @d) == [{"widget", %{}}]
 
-      shown = update_in(@d, ["entities", "member"], &Map.delete(&1, "top"))
+      shown = shop(Shown)
       assert Enum.sort(Pages.top_kinds(shown)) == ["member", "widget"]
     end
 
@@ -2199,10 +1965,7 @@ defmodule AtlasControl.PagesTest do
     end
 
     test "approved by shows only once approved, with who did it; progress then says so" do
-      approving =
-        @rolled
-        |> put_in(["progress"], %{"done_label" => "Done"})
-        |> put_in(["entities", "widget", "completion"], %{"by" => "approved_by"})
+      approving = shop(Approving)
 
       fields = fn answer ->
         %{blocks: [%{"props" => item} | _]} =
@@ -2246,34 +2009,9 @@ defmodule AtlasControl.PagesTest do
   end
 
   test "generated owner answers are offered only in the declared states, with note-only rejection" do
-    declarations = [
-      %{
-        "key" => "a",
-        "label" => "Accept",
-        "change" => %{"self" => "checked_by", "values" => %{"state" => "final"}}
-      },
-      %{
-        "key" => "f",
-        "label" => "Reject",
-        "note" => true,
-        "change" => %{"self" => "checked_by", "values" => %{"state" => "dropped"}}
-      }
-    ]
-
-    description =
-      @answering
-      |> Map.put("flow_runtime", %{
-        "selection" => %{"review" => %{"subject" => "widget", "legacy" => "f"}}
-      })
-      |> Map.put("subflows", %{
-        "review" => %{
-          "states" => %{
-            "check" => %{"present" => %{"todo" => %{"answers" => declarations}}},
-            "machine" => %{"present" => %{"expected" => "Work"}},
-            "final" => %{"final" => true}
-          }
-        }
-      })
+    # A subflow reviews each widget: in its check state the card's holder accepts or
+    # rejects, with a note.
+    description = shop(Reviewed)
 
     route = {:item, "widget", "W-1"}
     reads = answering_reads(route, "ada")
@@ -2316,14 +2054,22 @@ defmodule AtlasControl.PagesTest do
 
     %{blocks: [%{"type" => "confirm"}]} =
       Pages.render({:answer, "widget", "W-1", "a"}, description, reads, form)
+
+    # What the answer writes: its values, linked to whoever answers; a reject needs a note.
+    item = Pages.answer_item(description, "widget", reads)
+    viewer = %{key: "ada", kind: "member"}
+
+    assert {:write,
+            %{"values" => %{"state" => "dropped"}, "self" => "checked_by", "note" => true}} =
+             Shop.Reviewed.answer("widget", "f", item, viewer)
+
+    assert {:refuse, _} = Shop.Reviewed.answer("widget", "f", item, %{key: "bob", kind: "member"})
+    assert {:refuse, _} = Shop.Reviewed.answer("widget", "v", item, viewer)
   end
 
   test "a change that sets a deciding value names its writer as decider, unless it is already" do
-    d = %{
-      "entities" => %{
-        "widget" => %{"authority" => %{"by" => "checked_by", "writes" => %{"state" => ["final"]}}}
-      }
-    }
+    # A widget's state is decided by who checked it (`Shop.Reviewed`).
+    d = shop(Reviewed)
 
     assert Pages.decider_link(d, "widget", %{"state" => "final"}, %{}, "ada") ==
              %{"checked_by" => ["ada"]}

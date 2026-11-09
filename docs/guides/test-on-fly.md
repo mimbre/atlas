@@ -72,10 +72,11 @@ the optional field keep working; smoke fails closed if an older server drops the
 
 ## Test-only worker access
 
-The image derives `rela/atlas-test.json` from the canonical description and
-`fly/test/worker-access.json`. Only test's core selects it; production still selects
-`rela/atlas.json`, with no worker grants added. Test also exposes the generic Workers
-tab. Named actors `melle` and `releasewriter` may read and submit; `releaseviewer`
+Test's settings add them, not the model: `control.tabs` (the generic Workers tab,
+after the model's tabs) and `control.workers` (the grants) in `fly/test/core.json`,
+which test's core runs on, and in `env/test.json` for a local test instance;
+`config/runtime.exs` hands both to Control. Production's settings add neither, so it
+has no Workers tab and no worker grants. Named actors `melle` and `releasewriter` may read and submit; `releaseviewer`
 may only read. All other actors remain denied. A listed actor must still exist in
 Facts; the grant does not create a person or authenticate a new identity.
 

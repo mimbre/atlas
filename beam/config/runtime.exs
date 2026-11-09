@@ -56,7 +56,11 @@ if config_env() != :test do
       # Who uses a TUI of this environment (a key), until Control has sign-in.
       tui_user: settings["tui_user"],
       # Separate read capability; absent by default, never reuse Bus writer tokens.
-      runtime_read_token_env: settings["control"]["runtime_read_token_env"]
+      runtime_read_token_env: settings["control"]["runtime_read_token_env"],
+      # What this environment adds to the model's pages (AtlasControl.Model.catalog/2): the
+      # shell's extra tabs ("tabs") and who may read and submit worker guidance
+      # ("workers": "read" and "submit", each {"actors": [key]}). None by default.
+      settings: Map.take(settings["control"], ["tabs", "workers"])
 
     # Flow looks at each open fact again this often, and at once on a hint.
     config :atlas_flow, tick_seconds: get_in(settings, ["flow", "tick_seconds"]) || 60

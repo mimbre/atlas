@@ -2,6 +2,11 @@ defmodule AtlasControl.Workers do
   @moduledoc """
   Worker snapshots and durable guidance through Facts reads/writes supplied by Control.
   No harness calls, viewer-owned workers or local interaction store live here.
+
+  `m` is the model as Control serves it (`AtlasControl.Model.catalog/2`): the turn's and
+  the guidance records' names are the model's (`turn/0`, `guidance/0`), and who may read
+  and submit is the environment's (its settings' `"workers"`: `read` and `submit`, each
+  `%{"actors" => [key]}`).
   """
 
   @identity ~w(environment machine worker turn attempt)
@@ -9,7 +14,7 @@ defmodule AtlasControl.Workers do
   @submission ~w(client_key body cause)
   @max_body 16_384
 
-  def handle(operation, request, description, actor, read, write) do
+  def handle(operation, request, m, actor, read, write) do
     permission = if operation == "worker_submit", do: "submit", else: "read"
 
     request =
@@ -25,26 +30,26 @@ defmodule AtlasControl.Workers do
           request
       end
 
-    with :ok <- authorize(description, actor, permission, read) do
+    with :ok <- authorize(m, actor, permission, read) do
       case operation do
         "worker_overview" ->
-          overview(description, actor, read)
+          overview(m, actor, read)
 
         "worker_inspect" ->
-          with {:ok, view} <- inspect_execution(description, actor, request["execution"], read),
+          with {:ok, view} <- inspect_execution(m, actor, request["execution"], read),
                do: {:ok, %{"view" => view}}
 
         "worker_submit" ->
-          submit(description, actor, request, read, write)
+          submit(m, actor, request, read, write)
 
         "worker_query" ->
-          query(description, actor, request, read)
+          query(m, actor, request, read)
 
         "worker_history" ->
-          history(description, actor, request, read)
+          history(m, actor, request, read)
 
         "worker_receipts" ->
-          receipts(description, actor, request, read)
+          receipts(m, actor, request, read)
 
         _ ->
           {:error, "unsupported_operation"}
@@ -54,9 +59,9 @@ defmodule AtlasControl.Workers do
 
   # Grants name admitted actors, separately for read and submit. Kind is resolved
   # from Facts only to verify the actor still exists, never as a blanket grant.
-  def authorize(d, %{key: actor, kind: kind}, permission, read)
+  def authorize(m, %{key: actor, kind: kind}, permission, read)
       when is_binary(actor) and is_binary(kind) do
-    case get_in(d, ["guidance", "control", permission, "actors"]) do
+    case get_in(m.settings || %{}, ["workers", permission, "actors"]) do
       actors when is_list(actors) ->
         if Enum.all?(actors, &filled?/1) and actor in actors do
           case read.(kind, %{"key" => actor, "plain" => true}) do
@@ -75,8 +80,8 @@ defmodule AtlasControl.Workers do
 
   def authorize(_, _, _, _), do: {:error, "forbidden"}
 
-  defp overview(d, actor, read) do
-    with {:ok, n} <- names(d),
+  defp overview(m, actor, read) do
+    with {:ok, n} <- names(m),
          %{"facts" => turns} when is_list(turns) <- read.(n["kind"], %{"plain" => true}) do
       # Each row is an exact execution. Never choose an arbitrary current turn
       # when two running facts claim the same worker.
@@ -88,7 +93,7 @@ defmodule AtlasControl.Workers do
         Enum.reduce_while(Enum.sort_by(running, & &1["key"]), {:ok, []}, fn turn, {:ok, rows} ->
           case target_from_turn(n, turn) do
             {:ok, target} ->
-              case inspect_execution(d, actor, target, read) do
+              case inspect_execution(m, actor, target, read) do
                 {:ok, view} -> {:cont, {:ok, [view | rows]}}
                 {:error, error} -> {:halt, {:error, error}}
               end
@@ -108,13 +113,13 @@ defmodule AtlasControl.Workers do
     end
   end
 
-  defp inspect_execution(d, actor, target, read) do
-    with {:ok, execution} <- execution(d, target, read),
-         {:ok, n} <- names(d),
+  defp inspect_execution(m, actor, target, read) do
+    with {:ok, execution} <- execution(m, target, read),
+         {:ok, n} <- names(m),
          {:ok, turn} <- fact(read, n["kind"], %{"key" => target["turn"], "plain" => true}),
          :ok <- matching_turn(n, turn, target) do
-      eligibility = eligible(d, target, turn, execution, read)
-      can_submit = authorize(d, actor, "submit", read) == :ok
+      eligibility = eligible(m, target, turn, execution, read)
+      can_submit = authorize(m, actor, "submit", read) == :ok
       values = turn["values"] || %{}
 
       item =
@@ -123,7 +128,7 @@ defmodule AtlasControl.Workers do
           _ -> nil
         end
 
-      item_view = item_view(d, n, item, read)
+      item_view = item_view(m, n, item, read)
 
       {:ok,
        %{
@@ -154,12 +159,12 @@ defmodule AtlasControl.Workers do
     end
   end
 
-  defp item_view(d, names, key, read) do
+  defp item_view(m, names, key, read) do
     with true <- is_binary(key),
-         [kind] <- get_in(d, ["relations", names["on"], "to"]),
+         [kind] <- names["on_kinds"] || [],
          {:ok, item} <- fact(read, kind, %{"key" => key, "plain" => true}) do
       %{
-        "title" => AtlasControl.Pages.label(d["entities"][kind] || %{}, item),
+        "title" => AtlasControl.Pages.label(AtlasControl.Pages.kind_view(m, kind), item),
         "to" => AtlasControl.Pages.path({:item, kind, key})
       }
     else
@@ -170,14 +175,14 @@ defmodule AtlasControl.Workers do
   defp eligibility_reason(:ok), do: nil
   defp eligibility_reason({:error, reason}), do: reason
 
-  defp submit(d, actor, request, read, write) do
+  defp submit(m, actor, request, read, write) do
     target = request["execution"]
     input = request["guidance"]
 
     with :ok <- valid_target(target),
          :ok <- valid_input(input),
-         {:ok, ex} <- execution(d, target, read),
-         {:ok, existing} <- lookup(d, actor, input["client_key"], read) do
+         {:ok, ex} <- execution(m, target, read),
+         {:ok, existing} <- lookup(m, actor, input["client_key"], read) do
       values =
         Map.take(target, ~w(worker turn attempt))
         |> Map.merge(input)
@@ -191,10 +196,10 @@ defmodule AtlasControl.Workers do
           {:ok, %{"interaction" => existing}}
 
         true ->
-          with {:ok, n} <- names(d),
+          with {:ok, n} <- names(m),
                {:ok, turn} <- fact(read, n["kind"], %{"key" => target["turn"], "plain" => true}),
-               :ok <- eligible(d, target, turn, ex, read) do
-            case write.(kind(d, "interaction"), %{
+               :ok <- eligible(m, target, turn, ex, read) do
+            case write.(kind(m, "interaction"), %{
                    "op" => "submit_interaction",
                    "by" => actor.key,
                    "values" => values
@@ -216,11 +221,11 @@ defmodule AtlasControl.Workers do
     end
   end
 
-  defp query(d, actor, request, read) do
+  defp query(m, actor, request, read) do
     with :ok <- valid_target(request["execution"]),
-         {:ok, ex} <- execution(d, request["execution"], read),
+         {:ok, ex} <- execution(m, request["execution"], read),
          true <- filled?(request["client_key"]),
-         {:ok, value} <- lookup(d, actor, request["client_key"], read) do
+         {:ok, value} <- lookup(m, actor, request["client_key"], read) do
       cond do
         value == nil -> {:ok, %{"found" => false}}
         value["execution"] != ex["key"] -> {:error, "target_mismatch"}
@@ -233,11 +238,11 @@ defmodule AtlasControl.Workers do
     end
   end
 
-  defp history(d, actor, request, read) do
-    with {:ok, ex} <- execution(d, request["execution"], read),
+  defp history(m, actor, request, read) do
+    with {:ok, ex} <- execution(m, request["execution"], read),
          {:ok, position} <- cursor(request["cursor"], actor, ex["key"], nil),
          {:ok, page} <-
-           page(read, kind(d, "interaction"), %{
+           page(read, kind(m, "interaction"), %{
              "execution" => ex["key"],
              "after_position" => position
            }) do
@@ -257,16 +262,16 @@ defmodule AtlasControl.Workers do
     end
   end
 
-  defp receipts(d, actor, request, read) do
-    with {:ok, ex} <- execution(d, request["execution"], read),
+  defp receipts(m, actor, request, read) do
+    with {:ok, ex} <- execution(m, request["execution"], read),
          true <- filled?(request["interaction"]),
          {:ok, interaction} <-
-           fact(read, kind(d, "interaction"), %{"key" => request["interaction"]}),
+           fact(read, kind(m, "interaction"), %{"key" => request["interaction"]}),
          true <-
            interaction["execution"] == ex["key"] and exact?(interaction, request["execution"]),
          {:ok, position} <- cursor(request["cursor"], actor, ex["key"], interaction["key"]),
          {:ok, page} <-
-           page(read, kind(d, "receipt"), %{
+           page(read, kind(m, "receipt"), %{
              "interaction" => interaction["key"],
              "after_position" => position
            }) do
@@ -290,9 +295,9 @@ defmodule AtlasControl.Workers do
     end
   end
 
-  defp execution(d, target, read) do
+  defp execution(m, target, read) do
     with :ok <- valid_target(target),
-         {:ok, ex} <- fact(read, kind(d, "execution"), Map.take(target, ~w(turn attempt))),
+         {:ok, ex} <- fact(read, kind(m, "execution"), Map.take(target, ~w(turn attempt))),
          true <- Enum.all?(@identity, &(ex[&1] == target[&1])) do
       {:ok, ex}
     else
@@ -310,8 +315,8 @@ defmodule AtlasControl.Workers do
        else: {:error, "stale_execution"}
   end
 
-  defp eligible(d, target, turn, ex, read) do
-    with {:ok, n} <- names(d),
+  defp eligible(m, target, turn, ex, read) do
+    with {:ok, n} <- names(m),
          true <- turn["key"] == target["turn"],
          true <- get_in(turn, ["values", n["machine"]]) == target["machine"],
          true <- get_in(turn, ["values", n["attempt"]]) == target["attempt"],
@@ -321,9 +326,9 @@ defmodule AtlasControl.Workers do
          {:ok, lease, _} <- DateTime.from_iso8601(get_in(turn, ["values", n["lease"]]) || ""),
          true <- DateTime.compare(lease, DateTime.utc_now()) == :gt,
          [item] <- get_in(turn, ["links", n["on"]]),
-         [item_kind] <- get_in(d, ["relations", n["on"], "to"]),
+         [item_kind] <- n["on_kinds"] || [],
          {:ok, owned} <- fact(read, item_kind, %{"key" => item, "plain" => true}),
-         :ok <- ownership(d, item_kind, owned, target["worker"]),
+         :ok <- ownership(m, item_kind, owned, target["worker"]),
          %{"facts" => current} when is_list(current) <-
            read.(n["kind"], %{"linked" => %{n["by"] => target["worker"]}, "plain" => true}),
          [^turn] <- Enum.filter(current, &(get_in(&1, ["values", n["state"]]) == n["running"])) do
@@ -337,14 +342,10 @@ defmodule AtlasControl.Workers do
     end
   end
 
-  defp ownership(d, kind, fact, worker) do
-    flows =
-      for {_name, flow} <- d["flows"] || %{},
-          kind in if(flow["on"],
-            do: get_in(d, ["relations", flow["on"], "to"]) || [],
-            else: flow["kinds"] || []
-          ),
-          do: flow
+  # The facts a turn works on are the model's (`turn/0` `items`): owned through their
+  # owner relation, open while their state field has a value, and not handed over.
+  defp ownership(m, kind, fact, worker) do
+    flows = for item <- (m.turn || %{})["items"] || [], item["kind"] == kind, do: item
 
     cond do
       flows == [] ->
@@ -372,8 +373,8 @@ defmodule AtlasControl.Workers do
   defp exact?(value, target),
     do: Enum.all?(~w(environment worker turn attempt), &(value[&1] == target[&1]))
 
-  defp lookup(d, actor, key, read) do
-    case read.(kind(d, "interaction"), %{"actor" => actor.key, "client_key" => key}) do
+  defp lookup(m, actor, key, read) do
+    case read.(kind(m, "interaction"), %{"actor" => actor.key, "client_key" => key}) do
       %{"fact" => %{} = fact} ->
         if fact["actor"] == actor.key and fact["client_key"] == key and
              fact["environment"] == AtlasBus.environment(),
@@ -442,8 +443,8 @@ defmodule AtlasControl.Workers do
       ])
       |> Base.url_encode64(padding: false)
 
-  defp names(d) do
-    case get_in(d, ["runtime", "turn"]) do
+  defp names(m) do
+    case m.turn do
       %{} = names ->
         if Enum.all?(
              ~w(kind machine attempt by on state running lease outcome),
@@ -495,6 +496,6 @@ defmodule AtlasControl.Workers do
   defp filled?(value),
     do: is_binary(value) and String.trim(value) != "" and byte_size(value) <= 16_384
 
-  defp kind(d, role), do: get_in(d, ["guidance", role, "kind"])
+  defp kind(m, role), do: get_in(m.guidance || %{}, [role, "kind"])
   defp now, do: DateTime.utc_now() |> DateTime.to_iso8601()
 end

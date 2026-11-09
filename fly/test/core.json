@@ -1,12 +1,20 @@
 {
   "env": "test",
   "tui_user": "melle",
-  "control": { "host": "::", "port": 7691 },
+  "control": {
+    "host": "::",
+    "port": 7691,
+    "tabs": [{ "id": "workers", "label": "Workers", "to": "/workers" }],
+    "workers": {
+      "read": { "actors": ["melle", "releaseviewer", "releasewriter"] },
+      "submit": { "actors": ["melle", "releasewriter"] }
+    }
+  },
   "bus_link": { "host": "::", "port": 7694 },
   "rela": {
     "url": "http://eyra-atlas-test-rela.internal:7690/api/v1",
     "ipv6": true,
-    "extra": "rela/atlas-test.json"
+    "extra": "rela/atlas.json"
   },
   "facts": { "data": "/data/beam" },
   "reconcile_seconds": 5

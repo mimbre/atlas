@@ -1,13 +1,13 @@
 defmodule AtlasControl.SessionTest do
   use ExUnit.Case, async: false
 
-  alias AtlasControl.{FakeStore, Pages}
+  alias AtlasControl.{FakeStore, Pages, Shop}
 
   setup do
     Application.put_env(:atlas_bus, :store, "store-#{System.unique_integer([:positive])}")
     AtlasBus.drop_hints(0)
     start_supervised!(FakeStore)
-    start_supervised!({AtlasControl.Gateway, port: 0, name: :gateway})
+    start_supervised!({AtlasControl.Gateway, port: 0, name: :gateway, model: AtlasControl.Shop})
 
     # A session waiting on a read sees its client close only after its tries (6 s); stopped
     # here, it cannot read on into the next test, or another app's tests in this VM.
@@ -39,6 +39,15 @@ defmodule AtlasControl.SessionTest do
   end
 
   defp put(socket, message), do: :ok = :gen_tcp.send(socket, [JSON.encode!(message), "\n"])
+
+  # A Gateway for another composition of the shop, with Facts' stand-in on it too.
+  defp gateway(model) do
+    stop_supervised!(FakeStore)
+    start_supervised!({FakeStore, model: model})
+    name = :"gateway_#{System.unique_integer([:positive])}"
+    start_supervised!({AtlasControl.Gateway, port: 0, name: name, model: model}, id: name)
+    AtlasControl.Gateway.port(name)
+  end
 
   # The next message with this op, skipping others; nil when none comes.
   defp next(socket, op, timeout \\ 1_000) do
@@ -783,14 +792,9 @@ defmodule AtlasControl.SessionTest do
       refute_receive {:atlas_bus, _, _}, 120
     end
 
-    test "Open work retains the collection-scaled wait budget", %{port: port} do
-      description =
-        Map.put(FakeStore.description(), "start", %{
-          "assigned" => %{"relation" => "checked_by", "title" => "Assigned"},
-          "open" => %{"title" => "Open work", "empty" => "Nothing open"}
-        })
-
-      FakeStore.describe(description)
+    test "Open work retains the collection-scaled wait budget" do
+      # What is checked by someone is open work (`Shop.CheckedOpen`).
+      port = gateway(Shop.CheckedOpen)
       a = client(port)
       next(a, "page")
       intercept_reads()
@@ -819,16 +823,17 @@ defmodule AtlasControl.SessionTest do
          %{port: port} do
       FakeStore.put("W-1", %{"title" => "One"})
       FakeStore.silent_reads(true)
-      # Its hello asks for the description, and gets no answer.
+      # Its hello asks Facts who the client is, and gets no answer.
       a = client(port)
       next(a, "page")
 
       put(a, %{"op" => "open", "to" => "/nowhere"})
       assert %{"title" => "No such page"} = next(a, "page")
 
+      # The model says which kind the key is; the fact's own read gets no answer.
       put(a, %{"op" => "open", "to" => "/k/_/W-1"})
 
-      assert %{"title" => "Facts did not answer", "path" => "/k/_/W-1", "blocks" => [block]} =
+      assert %{"title" => "Facts did not answer", "path" => "/k/widget/W-1", "blocks" => [block]} =
                next(a, "page")
 
       assert block["props"]["text"] =~ "Facts did not answer"
@@ -1104,39 +1109,17 @@ defmodule AtlasControl.SessionTest do
     assert FakeStore.sent() == sent
   end
 
-  test "a declared answer submits one self change, requires its note, and rechecks a stale owner",
-       %{port: port} do
-    answers = [
-      %{
-        "key" => "a",
-        "label" => "Accept",
-        "change" => %{"self" => "checked_by", "values" => %{"done" => true}}
-      },
-      %{
-        "key" => "f",
-        "label" => "Reject",
-        "note" => true,
-        "change" => %{"self" => "checked_by", "values" => %{"done" => false}}
-      }
-    ]
+  test "a declared answer submits one self change, requires its note, and rechecks a stale owner" do
+    # A subflow reviews each widget; in its check state the card's holder answers
+    # (`Shop.Reviewed`): accept makes its state final, reject (with a note) dropped.
+    port = gateway(Shop.Reviewed)
 
-    description =
-      FakeStore.description()
-      |> Map.put("flows", %{
-        "review" => %{
-          "kinds" => ["widget"],
-          "owner_relation" => "checked_by",
-          "state_field" => "step",
-          "states" => [%{"name" => "waiting", "todo" => %{"answers" => answers}}]
-        }
-      })
+    holder = fn by ->
+      FakeStore.put("C-W-1", %{"of" => "W-1", "step" => "check"}, "card", %{"held_by" => [by]})
+    end
 
-    FakeStore.describe(description)
-
-    FakeStore.put("W-1", %{"title" => "One", "step" => "waiting"}, "widget", %{
-      "checked_by" => ["ada"]
-    })
-
+    FakeStore.put("W-1", %{"title" => "One"}, "widget", %{"card" => ["C-W-1"]})
+    holder.("ada")
     FakeStore.put("ada", %{"name" => "Ada"}, "member")
     Application.put_env(:atlas_control, :tui_user, "ada")
     on_exit(fn -> Application.delete_env(:atlas_control, :tui_user) end)
@@ -1167,34 +1150,24 @@ defmodule AtlasControl.SessionTest do
              "by" => "ada",
              "cause" => "Needs work",
              "links" => %{"checked_by" => ["ada"]},
-             "values" => %{"done" => false}
+             "values" => %{"state" => "dropped"}
            } = List.last(FakeStore.sent())
 
     put(tui, %{"op" => "submit", "to" => "/k/widget/W-1/answer/a", "values" => %{}})
     assert %{"reason" => "stored"} = next(tui, "page")
-    assert List.last(FakeStore.sent())["values"] == %{"done" => true}
+    assert List.last(FakeStore.sent())["values"] == %{"state" => "final"}
     sent = FakeStore.sent()
 
-    FakeStore.put("W-1", %{"title" => "One", "step" => "waiting"}, "widget", %{
-      "checked_by" => ["bob"]
-    })
+    holder.("bob")
 
     put(tui, %{"op" => "submit", "to" => "/k/widget/W-1/answer/a", "values" => %{}})
     assert %{"reason" => "refused"} = next(tui, "page")
     assert FakeStore.sent() == sent
   end
 
-  test "an update that decides names the client as decider; a kind never deleted refuses unsent",
-       %{port: port} do
-    description =
-      FakeStore.description()
-      |> put_in(["entities", "widget", "authority"], %{
-        "by" => "checked_by",
-        "writes" => %{"shade" => ["dark"]}
-      })
-      |> put_in(["entities", "widget", "delete_error"], "Widgets are kept; record another.")
-
-    FakeStore.describe(description)
+  test "an update that decides names the client as decider; a kind never deleted refuses unsent" do
+    # Who checked a widget decides its dark shade; a widget is never deleted (`Shop.Kept`).
+    port = gateway(Shop.Kept)
     FakeStore.put("W-1", %{"title" => "One", "shade" => "light"})
     a = client(port)
     next(a, "page")

@@ -5,13 +5,12 @@ defmodule AtlasControl.AnswersTest do
 
   test "answers write the self link and declared values together; a required note is the cause" do
     for {label, value, note?} <- [{"Accept", "final", false}, {"Reject", "dropped", true}] do
+      # As the model's answer/4 gives it.
       answer = %{
         "label" => label,
         "note" => note?,
-        "change" => %{
-          "self" => "signed_by",
-          "values" => %{"phase" => value, "signed_at" => "$now"}
-        }
+        "self" => "signed_by",
+        "values" => %{"phase" => value, "signed_at" => "$now"}
       }
 
       if note?, do: assert({:error, _} = Answers.change(answer, "B-1", "ada", " \n", @now))

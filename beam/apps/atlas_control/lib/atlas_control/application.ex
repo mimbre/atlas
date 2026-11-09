@@ -6,10 +6,14 @@ defmodule AtlasControl.Application do
   def start(_type, _args) do
     gateway =
       if Application.get_env(:atlas_control, :start, true) do
+        # The model is wired by configuration (`config :atlas, model: …`); without one, or
+        # with a module that is no model, Control does not start.
         [
           {AtlasControl.Gateway,
            host: Application.fetch_env!(:atlas_control, :host),
-           port: Application.fetch_env!(:atlas_control, :port)}
+           port: Application.fetch_env!(:atlas_control, :port),
+           model: AtlasControl.Model.configured!(),
+           settings: Application.get_env(:atlas_control, :settings, %{})}
         ]
       else
         []

@@ -1,5 +1,8 @@
 defmodule AtlasControl.Answers do
-  @moduledoc "Build one declared owner answer as one Facts change."
+  @moduledoc """
+  Build one declared owner answer as one Facts change: the change the model's `answer/4`
+  gives (`%{"values", "self", "label", "note"}`), by `by`, at `now`.
+  """
 
   def change(answer, key, by, note, now) do
     note = String.trim(note || "")
@@ -7,10 +10,8 @@ defmodule AtlasControl.Answers do
     if answer["note"] == true and note == "" do
       {:error, "a note is required: why"}
     else
-      change = answer["change"]
-
       values =
-        Map.new(change["values"], fn {field, value} ->
+        Map.new(answer["values"] || %{}, fn {field, value} ->
           {field, if(value == "$now", do: DateTime.to_iso8601(now), else: value)}
         end)
 
@@ -18,7 +19,7 @@ defmodule AtlasControl.Answers do
         "op" => "change",
         "key" => key,
         "values" => values,
-        "links" => %{change["self"] => [by]},
+        "links" => %{answer["self"] => [by]},
         "version" => nil
       }
 

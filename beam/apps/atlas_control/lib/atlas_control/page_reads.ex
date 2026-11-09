@@ -2,13 +2,13 @@ defmodule AtlasControl.PageReads do
   @moduledoc "Collection reads for a page and its assignment count, sharing one Facts snapshot."
   alias AtlasControl.Pages
 
-  def answers(route, description, ask) do
-    reads = Pages.reads(route, description)
+  def answers(route, m, ask) do
+    reads = Pages.reads(route, m)
 
     batch? =
       case route do
         {:assigned, _} -> true
-        {:list, kind} -> Pages.open_work?(description, kind)
+        {:list, kind} -> Pages.open_work?(m, kind)
         _ -> false
       end
 

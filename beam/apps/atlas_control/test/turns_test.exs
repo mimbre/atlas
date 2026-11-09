@@ -2,24 +2,10 @@ defmodule AtlasControl.TurnsTest do
   use ExUnit.Case, async: true
   alias AtlasControl.Turns
 
+  # A clerk packs a box through its card, whose holder owns it; a run is the clerk's turn
+  # on the card (`AtlasControl.Packing`).
   defp data do
-    n = %{
-      "kind" => "run",
-      "by" => "worker",
-      "on" => "work",
-      "state" => "status",
-      "running" => "going",
-      "outcome" => "result"
-    }
-
-    description = %{
-      "runtime" => %{"turn" => n},
-      "relations" => %{
-        "work" => %{"to" => ["card"]},
-        "card" => %{"component" => %{}, "from" => ["box"], "to" => ["card"]}
-      },
-      "flows" => %{"pack" => %{"on" => "card", "owner_relation" => "holder"}}
-    }
+    description = AtlasControl.Model.catalog(AtlasControl.Packing)
 
     turn = %{
       "key" => "R-1",
@@ -49,13 +35,8 @@ defmodule AtlasControl.TurnsTest do
              Turns.current(d, "ada", read(turn, put_in(item, ["links", "holder"], ["bob"])))
   end
 
-  test "the turn says what its worker reads first, when the description asks for it" do
+  test "the turn says what its worker reads first, as the model compiled it" do
     {d, turn, item} = data()
-
-    d =
-      d
-      |> Map.put("read_first", %{"title" => "First:", "through" => "rests_on", "text" => "rule"})
-      |> put_in(["relations", "rests_on"], %{"from" => ["box"], "to" => ["memo"]})
 
     read = fn
       "box", %{"key" => "B-1"} ->
@@ -68,9 +49,10 @@ defmodule AtlasControl.TurnsTest do
         read(turn, item).(kind, content)
     end
 
-    assert {:ok, %{"on" => "B-1", "read_first" => "First:\nRests_on:\n- M-1: Ship safely."}} =
+    assert {:ok, %{"on" => "B-1", "read_first" => "First:\nRests on:\n- M-1: Ship safely."}} =
              Turns.current(d, "ada", read)
 
+    # Nothing the box rests on: nothing to read first.
     refute Map.has_key?(
              elem(Turns.current(data() |> elem(0), "ada", read(turn, item)), 1),
              "read_first"

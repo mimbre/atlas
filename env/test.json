@@ -8,7 +8,15 @@
     "local": "~/.local/share/atlas/test-on-fly",
     "move_from": "~/.local/share/atlas/test"
   },
-  "control": { "host": "127.0.0.1", "port": 7693 },
+  "control": {
+    "host": "127.0.0.1",
+    "port": 7693,
+    "tabs": [{ "id": "workers", "label": "Workers", "to": "/workers" }],
+    "workers": {
+      "read": { "actors": ["melle", "releaseviewer", "releasewriter"] },
+      "submit": { "actors": ["melle", "releasewriter"] }
+    }
+  },
   "reconcile_seconds": 5,
   "agent": { "planner": "claude", "step_pause_ms": 500, "ask_above": 1 }
 }

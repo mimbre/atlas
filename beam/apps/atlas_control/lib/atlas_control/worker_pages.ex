@@ -21,8 +21,8 @@ defmodule AtlasControl.WorkerPages do
     }
   end
 
-  def render({:worker_page, :workers, _}, description, actor, read, _form) do
-    case call("worker_overview", %{}, description, actor, read) do
+  def render({:worker_page, :workers, _}, m, actor, read, _form) do
+    case call("worker_overview", %{}, m, actor, read) do
       {:ok, %{"workers" => workers}} ->
         rows =
           for worker <- workers do
@@ -49,10 +49,10 @@ defmodule AtlasControl.WorkerPages do
     end
   end
 
-  def render({:worker_page, mode, params}, description, actor, read, form) do
+  def render({:worker_page, mode, params}, m, actor, read, form) do
     execution = target(params)
 
-    case call("worker_inspect", %{"execution" => execution}, description, actor, read) do
+    case call("worker_inspect", %{"execution" => execution}, m, actor, read) do
       {:ok, %{"view" => view}} ->
         if mode == :worker_guidance do
           guidance(view, execution, form)
@@ -66,7 +66,7 @@ defmodule AtlasControl.WorkerPages do
                 view
             end
 
-          detail(view, execution, description, actor, read)
+          detail(view, execution, m, actor, read)
         end
 
       {:error, reason} ->
@@ -74,7 +74,7 @@ defmodule AtlasControl.WorkerPages do
     end
   end
 
-  defp detail(view, execution, description, actor, read) do
+  defp detail(view, execution, m, actor, read) do
     descriptor = view["descriptor"]
 
     pairs = [
@@ -123,7 +123,7 @@ defmodule AtlasControl.WorkerPages do
       )
 
     {history, history_actions} =
-      case call("worker_history", %{"execution" => execution}, description, actor, read) do
+      case call("worker_history", %{"execution" => execution}, m, actor, read) do
         {:ok, data} ->
           {rows, fields} =
             Enum.map_reduce(data["interactions"], [], fn interaction, fields ->
@@ -341,9 +341,9 @@ defmodule AtlasControl.WorkerPages do
     Pages.path({:worker_page, mode, params})
   end
 
-  defp call(op, request, description, actor, read),
+  defp call(op, request, m, actor, read),
     do:
-      Workers.handle(op, request, description, actor, read, fn _, _ ->
+      Workers.handle(op, request, m, actor, read, fn _, _ ->
         raise "rendering cannot write"
       end)
 

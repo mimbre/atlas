@@ -112,13 +112,15 @@ The exact target is the shared nested `runtime_execution`: worker
 unknown fields and unsupported versions refuse; Control never invents an attempt
 or redirects guidance to a replacement.
 
-Access is description-owned and defaults to denied. Configure separate named
-admitted actor keys, not actor kinds:
+Access is an environment setting and defaults to denied. Configure separate named
+admitted actor keys, not actor kinds, under `control.workers` in the environment's
+settings (`env/<env>.json`, or the settings file an instance runs on, such as
+`fly/test/core.json`); `config/runtime.exs` hands them to Control:
 
 ```json
 {
-  "guidance": {
-    "control": {
+  "control": {
+    "workers": {
       "read": {"actors": ["H-1", "H-2"]},
       "submit": {"actors": ["H-1"]}
     }
@@ -126,8 +128,8 @@ admitted actor keys, not actor kinds:
 }
 ```
 
-This fragment accompanies the existing execution/interaction/receipt mappings;
-it does not replace them. Read permits worker inspection and retained history.
+The execution/interaction/receipt mappings stay the model's (`guidance`); the
+grants are not part of it. Read permits worker inspection and retained history.
 Submit is independent. Missing, malformed or unlisted grants deny; Control also
 confirms the admitted actor still exists in Facts. Request payloads cannot choose
 the actor. This retains the admitted-Control-session trust model, not a new
@@ -141,7 +143,7 @@ and consumption-evidence support. Unsupported capability remains visible but can
 send. Missing/unfenced running executions fail visibly rather than appearing ready.
 
 Authorized exact-target views expose the stored turn reason as optional
-`worker_view.reason`, read through the description's `runtime.turn.why` mapping.
+`worker_view.reason`, read through the model's turn mapping (`runtime turn: why:`).
 Worker details and unavailable-guidance pages display it as **State reason** beside
 the exact state. This is distinct from `guidance.reason`, which still explains send
 eligibility (for example `stale_execution`); it never grants guidance capability.
