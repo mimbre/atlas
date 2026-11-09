@@ -203,7 +203,7 @@ defmodule AtlasFactsTest do
     assert %{"facts" => [%{"key" => "W-1"}, %{"key" => "W-2"}]} = read("widget")
 
     assert %{
-             "fact" => %{"key" => "W-1", "values" => %{"title" => "One"}, "version" => "v0"},
+             "fact" => %{"key" => "W-1", "values" => %{"title" => "One"}, "version" => nil},
              "incoming" => %{"of_widget" => ["P-1"]}
            } = read("widget", %{"key" => "W-1"})
 
@@ -333,8 +333,14 @@ defmodule AtlasFactsTest do
 
     stop_supervised!(AtlasFacts.Server)
 
+    {:ok, clock} = Agent.start_link(fn -> 0 end)
+
     start_supervised!(
-      {AtlasFacts.Server, rela: {FakeRela, rela}, data_dir: dir, description_extra: extra}
+      {AtlasFacts.Server,
+       rela: {FakeRela, rela},
+       data_dir: dir,
+       description_extra: extra,
+       collection_clock: fn -> Agent.get(clock, & &1) end}
     )
 
     fact("create", "W-1", %{"title" => "One"})
@@ -353,8 +359,9 @@ defmodule AtlasFactsTest do
     assert %{"fact" => %{"progress" => %{"value" => "dark", "label" => "dark"}}} =
              read("widget", %{"key" => "W-2"})
 
-    # Nothing is stored: a change under it shows on the next read.
+    # Progress is derived again; an outside change appears at the freshness bound.
     FakeRela.poke(rela, "P-2", %{"phase" => "fine"})
+    Agent.update(clock, &(&1 + 5_000))
 
     assert %{"fact" => %{"progress" => %{"value" => "fine", "count" => 3, "of" => 3}}} =
              read("widget", %{"key" => "W-1"})

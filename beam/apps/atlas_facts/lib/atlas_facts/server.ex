@@ -63,7 +63,7 @@ defmodule AtlasFacts.Server do
 
     {:ok,
      %{
-       rela: Keyword.fetch!(opts, :rela),
+       rela: AtlasFacts.Collections.open(Keyword.fetch!(opts, :rela), opts),
        ledger: Ledger.open(dir),
        links: Links.open(dir),
        description: nil,
@@ -84,9 +84,20 @@ defmodule AtlasFacts.Server do
 
     binding = Ledger.request_identity(envelope, content)
 
-    if class == "fact" and not Ledger.matches_request?(state.ledger, envelope.id, binding),
-      do: refusal(envelope, :request_conflict, state),
-      else: dispatch(envelope, content, state)
+    if class == "fact" do
+      if Ledger.matches_request?(state.ledger, envelope.id, binding) do
+        rela = state.rela
+
+        {:noreply, state} =
+          dispatch(envelope, content, %{state | rela: AtlasFacts.Collections.for_write(rela)})
+
+        {:noreply, %{state | rela: rela}}
+      else
+        refusal(envelope, :request_conflict, state)
+      end
+    else
+      dispatch(envelope, content, state)
+    end
   end
 
   def handle_info({:atlas_bus, _envelope, _content}, state), do: {:noreply, state}
@@ -491,7 +502,7 @@ defmodule AtlasFacts.Server do
         with [to] <- get_in(state.description, ["relations", relation, "to"]),
              plural when is_binary(plural) <-
                get_in(state.description, ["entities", to, "plural"]),
-             {:ok, facts} <- Rela.list(state.rela, plural) do
+             {:ok, facts} <- collection(state, plural) do
           keys =
             for fact <- facts,
                 Enum.all?(inner, fn {rel, key} -> key in (fact.links[rel] || []) end),
