@@ -75,9 +75,9 @@ the optional field keep working; smoke fails closed if an older server drops the
 Test's settings add them, not the model: `control.tabs` (the generic Workers tab,
 after the model's tabs) and `control.workers` (the grants) in `fly/test/core.json`,
 which test's core runs on, and in `env/test.json` for a local test instance;
-`config/runtime.exs` hands both to Control. Production's settings add neither, so it
-has no Workers tab and no worker grants. Named actors `melle` and `releasewriter` may read and submit; `releaseviewer`
-may only read. All other actors remain denied. A listed actor must still exist in
+`config/runtime.exs` hands both to Control. Production's settings add the same tab
+with only `melle` as reader and submitter (`docs/guides/prod.md`). In test, named actors `melle` and `releasewriter` may read and
+submit; `releaseviewer` may only read. All other actors remain denied. A listed actor must still exist in
 Facts; the grant does not create a person or authenticate a new identity.
 
 Test enables release RPC only on loopback (`atlas@localhost`, loopback EPMD and

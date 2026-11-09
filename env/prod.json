@@ -9,7 +9,15 @@
     "local": "~/.local/share/atlas/prod-on-fly",
     "move_from": "~/.local/share/atlas/prod"
   },
-  "control": { "host": "127.0.0.1", "port": 7593 },
+  "control": {
+    "host": "127.0.0.1",
+    "port": 7593,
+    "tabs": [{ "id": "workers", "label": "Workers", "to": "/workers" }],
+    "workers": {
+      "read": { "actors": ["melle"] },
+      "submit": { "actors": ["melle"] }
+    }
+  },
   "reconcile_seconds": 5,
   "agent": { "planner": "claude", "step_pause_ms": 300, "ask_above": 1 }
 }
