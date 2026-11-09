@@ -112,6 +112,36 @@ defmodule RelaDSL.Control.ModelTest do
              })
   end
 
+  test "a section shows the part of a field under its heading, or all of it under a label" do
+    flow = %{on: nil, on_kind: nil, owner_relation: "held_by", words: %{title: "Letter"}}
+
+    fact = fn section, body ->
+      %{
+        "key" => "LE-01",
+        "values" => %{"body" => body},
+        "presentation" => %{
+          "owner" => ["ada"],
+          "actionable" => true,
+          "expected" => "Write it",
+          "todo" => %{"section" => section}
+        }
+      }
+    end
+
+    todo = &Rules.todo(flow, &1, %{}, %{key: "ada"})
+    body = "Open it.\n## Then\nLook."
+    labelled = %{"field" => "body", "label" => "Body"}
+
+    assert todo.(fact.(labelled, body)).section == %{heading: "Body", text: body}
+
+    assert todo.(fact.(%{"field" => "body", "heading" => "Then"}, body)).section ==
+             %{heading: "Then", text: "Look."}
+
+    # Nothing to show: no section.
+    assert todo.(fact.(labelled, "  ")).section == nil
+    assert todo.(fact.(labelled, nil)).section == nil
+  end
+
   test "the section a heading names: to the next heading" do
     assert Rules.section("Ada can test: open it.\nThen look.", "Ada can test") ==
              "open it.\nThen look."

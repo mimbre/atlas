@@ -14,7 +14,8 @@ defmodule RelaDSL.Atlas do
       with its label, whether it is final, its own `owner` when it has one (as the
       subflow's is written), its mechanism as `kind` and `spec`, and
       `present`: what its owner sees, as `expected`, `why` and `todo` (`instructions`,
-      `section` as `{field, heading}`, `answers` as `[{key, label, set | remove}]`);
+      `section` as `{field, heading}` or `{field, label}`, `answers` as
+      `[{key, label, set | remove}]`);
     * executable start, run identity policy, state status, waiting roles, awaited
       fields, ordered branches, entry sets, creates and timers. Empty execution lists
       are explicit;

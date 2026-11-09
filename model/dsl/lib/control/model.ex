@@ -540,6 +540,7 @@ defmodule RelaDSL.Control.Model do
   # -- Names ------------------------------------------------------------------------------
 
   defp singular(spec, kind), do: spec["label"] || humanize(kind)
+  defp plural(%{"plural_label" => label}, _kind) when is_binary(label) and label != "", do: label
   defp plural(spec, kind), do: humanize(spec["plural"] || kind <> "s")
   defp humanize(name), do: name |> String.replace("_", " ") |> String.capitalize()
   defp to_text(nil), do: ""

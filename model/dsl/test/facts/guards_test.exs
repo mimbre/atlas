@@ -181,6 +181,21 @@ defmodule RelaDSL.Facts.GuardsTest do
     assert :ok = check("change", open, %{"title" => "x"})
   end
 
+  test "required text must contain non-whitespace; zero and false remain present" do
+    for value <- [nil, "", "  \t\n  ", "\u00A0"] do
+      assert {:refused, [_]} = check("create", nil, %{"weight" => "heavy", "check" => value})
+
+      current = %{"values" => %{"weight" => "heavy", "check" => "checked"}, "links" => %{}}
+      assert {:refused, [_]} = check("change", current, %{"check" => value})
+    end
+
+    for value <- ["  checked \n", 0, false] do
+      assert :ok = check("create", nil, %{"weight" => "heavy", "check" => value})
+    end
+
+    assert :ok = check("create", nil, %{"weight" => "light", "check" => "  \t\n  "})
+  end
+
   test "who may make it final: the named kind always, another only when delegated" do
     final = %{"state" => "final"}
     # A write that makes it final is also a choice its writer makes (the next test); this one

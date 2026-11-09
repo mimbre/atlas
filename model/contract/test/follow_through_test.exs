@@ -69,7 +69,7 @@ defmodule Model.FollowThroughTest do
     for env <- @envs do
       waiting = imported(env, %{"status" => "accepted"})
 
-      # The tally (`work`, of every scene, use case and issue based on it) reaches the run
+      # The tally (`work`, of every scene, use case, issue and To-Do based on it) reaches the run
       # on its first entry: one with work ends there, none is left owned or blocked.
       subject = decision(%{"status" => "accepted", "work" => 2})
       {:ok, ended} = Run.step(waiting, flow(env), subject, @now)
@@ -143,7 +143,7 @@ defmodule Model.FollowThroughTest do
                  "parent_subject" => "decision",
                  "relation" => "based_on",
                  "all" => "work",
-                 "from" => ["scene", "use_case", "issue"],
+                 "from" => ["scene", "use_case", "issue", "to_do"],
                  "readers" => [@name]
                }
              ]

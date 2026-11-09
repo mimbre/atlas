@@ -15,9 +15,9 @@ defmodule RelaDSL.Description do
   | `entity name, label:, plural:, aliases:, id_type:, id_prefix:, description: do … end` | a kind | schema `entities` |
   | `field name, type, required:, unique:, default:, description:, label:, multiline:, set_by:, cause:` | a property, in form order | schema; the last four to `atlas.json` `properties` |
   | `relation name, label:, description:, from:, to:, max_outgoing:, inverse: {id, label}` and `parent:, add:, component:, set_by:, limit:, actions:, only_target:, requires_completed_children:, closes_parent:, review:` | a relation | schema; the rest to `atlas.json` `relations` |
-  | inside `entity`: `top`, `primary`, `start`, `create`, `completion`, `progress`, `connector`, `agent`, `order`, `by_hand`, `late`, `action`, `counts`, `requires`, `authority`, `frozen`, `replaces`, `layering`, `sealed`, `delete_error` | one rule of the kind each | `atlas.json` `entities` |
+  | inside `entity`: `top`, `primary`, `plural_label`, `start`, `create`, `completion`, `progress`, `connector`, `agent`, `order`, `by_hand`, `late`, `action`, `counts`, `requires`, `authority`, `frozen`, `replaces`, `layering`, `sealed`, `delete_error` | one rule of the kind each | `atlas.json` `entities` |
   | inside `entity`: `flag field, value:, label:` | the kind's flag | `flow-runtime.json` `flags` |
-  | `select subflow, choices:, roles:, projection:, admission:, imports:, verification:, reopen:` | how a subflow's runs are selected (`nil` among allowed values: no value; an import row may also say `completed:`; `reopen: :new_generation` restarts reopened work, else only an explicit restart does) | `flow-runtime.json` `selection` |
+  | `select subflow, choices:, roles:, projection:, admission:, imports:, verification:, reopen:` | how a subflow's runs are selected (`roles:` each role and the relation whose target makes it, from the subject or its component; `nil` among allowed values: no value; an import row may also say `completed:`; `reopen: :new_generation` restarts reopened work, else only an explicit restart does) | `flow-runtime.json` `selection` |
   | `migrate subflow, from:, to:, states:, rekey:, preserve_entry:, reason:` | an approved run migration | `flow-runtime.json`, `digests.json` |
 
   `action`, `counts` and `requires` add one item each to the kind's list; the others
@@ -38,6 +38,7 @@ defmodule RelaDSL.Description do
   @entity [
     top: 1,
     primary: 1,
+    plural_label: 1,
     create: 1,
     completion: 1,
     progress: 1,

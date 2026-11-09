@@ -652,10 +652,13 @@ defmodule RelaDSL.Facts.Writes do
     for rule <- List.wrap(rules),
         is_map(rule),
         holds?(rule["when"], fact["values"]),
-        missing = Enum.filter(List.wrap(rule["fields"]), &(loose(fact["values"][&1]) == nil)),
+        missing = Enum.filter(List.wrap(rule["fields"]), &required_empty?(fact["values"][&1])),
         missing != [],
         do: rule["error"] || "#{Enum.join(missing, ", ")} is required"
   end
+
+  defp required_empty?(value) when is_binary(value), do: String.trim(value) == ""
+  defp required_empty?(value), do: value == nil
 
   defp authority(%{"when" => condition, "by" => by} = rule, fact, kind_of) do
     if holds?(condition, fact["values"]) and not may_decide?(rule, fact, kind_of),

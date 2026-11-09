@@ -2,7 +2,8 @@ defmodule AtlasControl.Answers do
   @moduledoc """
   Build one declared owner answer as one Facts change: the change the model's `answer/4`
   gives (`%{"values", "self", "label", "note"}`), by `by`, at `now`; `self` nil links
-  nobody.
+  nobody. A value `"$now"` is the moment it is given, and `"$note"` the note it is given
+  with (as it is given, so a field can keep it as well as the change's cause).
   """
 
   def change(answer, key, by, note, now) do
@@ -13,7 +14,12 @@ defmodule AtlasControl.Answers do
     else
       values =
         Map.new(answer["values"] || %{}, fn {field, value} ->
-          {field, if(value == "$now", do: DateTime.to_iso8601(now), else: value)}
+          {field,
+           case value do
+             "$now" -> DateTime.to_iso8601(now)
+             "$note" -> note
+             value -> value
+           end}
         end)
 
       # The relation that links the fact to the one who answers, when the answer names one.

@@ -87,6 +87,39 @@
           ]
         }
       },
+      "to_do": {
+        "choices": ["status"],
+        "choice_states": ["open"],
+        "migrations": [],
+        "subject": "to_do",
+        "projection": {
+          "on": "assignment",
+          "state_field": "flow_state",
+          "handover_field": "handover",
+          "owner_relation": "assigned_to",
+          "field": "expected"
+        },
+        "admission": [],
+        "imports": [
+          {
+            "when": {
+              "status": [
+                "done"
+              ]
+            },
+            "state": "done"
+          },
+          {
+            "when": {
+              "status": [
+                "wont_do"
+              ]
+            },
+            "state": "wont_do"
+          }
+        ],
+        "reopen": "explicit"
+      },
       "issue": {
         "choices": [],
         "choice_states": [],
@@ -442,6 +475,11 @@
             "decision"
           ]
         },
+        "assignee": {
+          "update": [
+            "to_do"
+          ]
+        },
         "reviewer": {
           "update": [
             "pr_review"
@@ -475,6 +513,7 @@
         "decider": "decided_by",
         "principle_authority": "decided_by",
         "delegate": "decided_by",
+        "assignee": "assigned_to",
         "reviewer": "verdict_by",
         "maintainer": "verdict_by",
         "tester": "verdict_by",

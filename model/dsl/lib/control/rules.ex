@@ -77,20 +77,16 @@ defmodule RelaDSL.Control.Rules do
   reopened, it says so to anyone (`reopened`, when the model words it), with no answers.
 
   `%{title, expected, why, instructions, section, answers, words}`: `why` is `%{text,
-  since, by}`; `section` the part of the fact's field the state names (`%{heading,
-  text}`) or nil; each answer `%{key, label, note, change, set, remove}`.
+  since, by}`; `section` what the state shows of a fact's field (`%{heading, text}`):
+  the part under its `heading`, or the whole field under its `label`; nil when that is
+  empty. Each answer is `%{key, label, note, change, set, remove}`.
   """
   def todo(flow, fact, parts, viewer) do
     case owner_view(flow, fact, parts, viewer) do
       {written, %{"todo" => %{} = todo} = view} ->
         origin = get_in(written, ["origins", flow.owner_relation]) || %{}
 
-        section =
-          with %{"field" => field, "heading" => heading} <- todo["section"],
-               text when is_binary(text) <-
-                 section(to_text(get_in(fact, ["values", field])), heading),
-               do: %{heading: heading, text: text},
-               else: (_ -> nil)
+        section = shown_section(todo["section"], fact)
 
         %{
           title: flow.words.title,
@@ -110,6 +106,24 @@ defmodule RelaDSL.Control.Rules do
         reopened(flow, fact, parts)
     end
   end
+
+  # What a state shows of a fact's field: the part under a heading, or all of it under a
+  # label; nil when there is nothing to show.
+  defp shown_section(%{"field" => field} = spec, fact) do
+    value = to_text(get_in(fact, ["values", field]))
+
+    text =
+      case spec do
+        %{"heading" => heading} -> section(value, heading)
+        %{"label" => _} -> String.trim(value)
+        _ -> nil
+      end
+
+    if is_binary(text) and text != "",
+      do: %{heading: spec["heading"] || spec["label"], text: text}
+  end
+
+  defp shown_section(_spec, _fact), do: nil
 
   # Reopened work whose run ended: nothing is expected until its run is restarted
   # explicitly, and nobody owns it; said to anyone, in the model's words.
@@ -132,8 +146,9 @@ defmodule RelaDSL.Control.Rules do
 
   @doc """
   The change the owner's answer `name` writes (`{:write, %{"values", "self", "label",
-  "note"}}`: the values, `"$now"` for the moment it is given, the relation that links it
-  to the one who answers, and whether a note is required), for an `item` (`%{"fact",
+  "note"}}`: the values, `"$now"` for the moment it is given and `"$note"` for the note
+  it is given with (trimmed), the relation that links it to the one who answers, and
+  whether a note is required), for an `item` (`%{"fact",
   "parts"}`) whose owner `viewer` is, in a state that offers it. `{:refuse, why}` else.
   """
   def answer(flow, name, item, viewer) do

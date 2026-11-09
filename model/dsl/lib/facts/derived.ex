@@ -21,10 +21,12 @@ defmodule RelaDSL.Facts.Derived do
   - `%{"over" => relation, "field" => f, "value" => v}`: a fact that points at this one
     through `relation` has `f` = `v`;
   - `%{"through" => relation, "field" => f, "value" => v}`: a fact this one points at
-    through `relation` has `f` = `v`.
+    through `relation` has `f` = `v`;
+  - `%{"field" => f, "value" => v}`: this fact's own field has that value.
 
   Why: `%{"done" => true, "by" => relation, "keys" => keys}`, or `%{"done" => true,
-  "over" | "through" => relation, "key" => key, "field" => f, "value" => v}`.
+  "over" | "through" => relation, "key" => key, "field" => f, "value" => v}`; for its
+  own field, `%{"done" => true, "field" => f, "value" => v}`.
 
   **Progress** (`progress` per kind): `over` (the relation whose facts point at this one:
   its children), `field` (the children's property that says how far each is, for a child
@@ -171,6 +173,11 @@ defmodule RelaDSL.Facts.Derived do
           do: other
 
     found(facts, "through", relation, rule)
+  end
+
+  defp holds(_d, _lists, %{"field" => field, "value" => value}, fact) do
+    if fact.properties[field] == value,
+      do: %{"done" => true, "field" => field, "value" => value}
   end
 
   defp holds(_d, _lists, _rule, _fact), do: nil
@@ -503,13 +510,11 @@ defmodule RelaDSL.Facts.Derived do
   a rule and the fact has a time in `after`; nil otherwise.
   """
   def late(d, kind, values, now \\ DateTime.utc_now()) do
-    with %{"after" => after_field, "while" => while}
-         when is_binary(after_field) and
-                is_binary(while) <-
+    with %{"after" => after_field, "while" => while} when is_binary(after_field) <-
            get_in(d, ["entities", kind, "late"]),
          text when is_binary(text) and text != "" <- (values || %{})[after_field],
          {:ok, at, _offset} <- DateTime.from_iso8601(text) do
-      DateTime.compare(now, at) == :gt and (values[while] || "") not in ["", nil]
+      DateTime.compare(now, at) == :gt and open?(while, values)
     else
       _ -> nil
     end
@@ -521,16 +526,19 @@ defmodule RelaDSL.Facts.Derived do
   in `while`. Nil otherwise: late already, never by time, or without a rule.
   """
   def until(d, kind, values, now \\ DateTime.utc_now()) do
-    with %{"after" => after_field, "while" => while}
-         when is_binary(after_field) and is_binary(while) <-
+    with %{"after" => after_field, "while" => while} when is_binary(after_field) <-
            get_in(d, ["entities", kind, "late"]),
          text when is_binary(text) and text != "" <- (values || %{})[after_field],
          {:ok, at, _offset} <- DateTime.from_iso8601(text),
-         true <- (values[while] || "") not in ["", nil],
+         true <- open?(while, values),
          true <- DateTime.compare(now, at) != :gt do
       at |> DateTime.add(1, :microsecond) |> DateTime.to_iso8601()
     else
       _ -> nil
     end
   end
+
+  # Whether something is still to do: the field `while` names is not empty.
+  defp open?(field, values) when is_binary(field), do: (values[field] || "") not in ["", nil]
+  defp open?(_while, _values), do: false
 end

@@ -71,6 +71,15 @@ types:
       accepted: Accepted
       rejected: Rejected
       superseded: Superseded
+  to_do_status:
+    values:
+    - open
+    - done
+    - wont_do
+    labels:
+      open: Open
+      done: Done
+      wont_do: Won't do
   gate_flavor:
     values:
     - rule
@@ -393,6 +402,33 @@ entities:
       verdict:
         type: string
         description: 'Flow: the verdict of whoever may decide it (none, accept, reject)'
+  to_do:
+    label: To-Do
+    plural: to_dos
+    id_type: manual
+    id_prefix: TD-
+    description: |
+      Work outside the current flow definitions, inside or outside the platform, for a
+      person or an agent. Atlas cannot verify it: it is done when its owner says so, with
+      a note. The id is TD- and a number, e.g. TD-07.
+    properties:
+      title:
+        type: string
+        required: true
+        description: The work in a few words
+      instructions:
+        type: string
+        required: true
+        description: What to do, where, and what counts as done
+      status:
+        type: to_do_status
+        description: Open, done or won't do; its owner closes it
+      note:
+        type: string
+        description: 'The owner''s closing note: how it was done, or why not'
+      evidence:
+        type: string
+        description: 'Optional: a link, location or reference'
   gate_verdict:
     label: Gate verdict
     plural: gate_verdicts

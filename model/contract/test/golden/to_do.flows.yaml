@@ -1,0 +1,27 @@
+# Foundation: To-Do, work no flow definition covers, owned through its Assignment.
+# Its owner (the role assignee, whom the Assignment's assigned_to names) closes it: done
+# or won't do, each with a note Facts requires. No gate and no review: Atlas cannot
+# check the work.
+flows:
+  to_do:
+    label: To-Do
+    subject: to_do
+    per_subject: one
+    start:
+      - on: create
+    initial: open
+    states:
+      open:
+        label: To do
+        status: input_required
+        waiting_for: [assignee]
+        on:
+          change:
+            - { to: done, roles: [assignee], when: "entity.status == 'done'" }
+            - { to: wont_do, roles: [assignee], when: "entity.status == 'wont_do'" }
+      done:
+        label: Done
+        final: true
+      wont_do:
+        label: Won't do
+        final: true

@@ -265,7 +265,7 @@ defmodule Model.DeciderTest do
     # slice 8 the pull request and slice 9 the issue (Model.DeliveryRunsTest), slice 10 the
     # design of a use case and slice 11 its building and testing (Model.AcceptanceRunsTest),
     # slice 12 the scene (Model.SceneRunsTest), slice 14 the follow-through of an accepted
-    # decision (Model.FollowThroughTest): all nine.
+    # decision (Model.FollowThroughTest), and the To-Do: all ten.
     assert selected == [
              "decide",
              "design_and_accept",
@@ -275,7 +275,8 @@ defmodule Model.DeciderTest do
              "pr_test",
              "pull_request",
              "test_and_accept_scene",
-             "test_and_accept_use_case"
+             "test_and_accept_use_case",
+             "to_do"
            ]
 
     assert length(selected) == length(Model.AtlasEyra.subflows(:prod))

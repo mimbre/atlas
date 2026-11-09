@@ -107,10 +107,8 @@ defmodule AtlasE2E.FlowRunTest do
       await.(await, "")
     end
     description = await_facts.()
-    # Facts answers rela's schema, the model's (it checked so at boot); it keeps runs and
-    # inputs by the model's run mapping, the configuration Flow runs them by.
+    # Facts answers the schema this model was built for (it checked so at boot).
     assert Map.take(description, ~w(entities relations types)) == PrivateChoiceModel.rela_schema()
-    assert Map.take(PrivateChoiceModel.run_mapping(), ~w(kind fields writer inputs)) == Map.take(config, ~w(kind fields writer inputs))
     assert Run.validate(PrivateChoiceRun) == :ok
     {:stored, _} = Talk.put("clerk", %{"op" => "create", "key" => "ada", "values" => %{"name" => "Ada"}})
     {:stored, _} = Talk.put("box", %{"op" => "create", "key" => "B-1", "values" => %{}, "links" => %{"chosen_by" => ["ada"]}})

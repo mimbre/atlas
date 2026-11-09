@@ -14,7 +14,7 @@ spec.loader.exec_module(config)
 
 
 def without_ledger(schema):
-    """The schema without the decision ledger, gate verdicts and use case design phase, added since #79."""
+    """The schema without the decision ledger, gate verdicts, use case design phase and To-Dos, added since #79."""
     schema = copy.deepcopy(schema)
     schema['entities'].pop('decision')
     schema['entities'].pop('gate_verdict')
@@ -39,6 +39,10 @@ def without_ledger(schema):
     for kind, names in flow_fields.items():
         for name in names:
             schema['entities'][kind]['properties'].pop(name)
+    # The To-Do: work no flow covers, assigned like any item.
+    schema['entities'].pop('to_do')
+    schema['types'].pop('to_do_status')
+    schema['relations']['assignment']['from'].remove('to_do')
     # What a turn is about and the model it runs, for the worker page.
     for name in ('title', 'model'):
         assert not schema['entities']['turn']['properties'].pop(name).get('required', False)

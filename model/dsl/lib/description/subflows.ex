@@ -2,8 +2,11 @@ defmodule RelaDSL.Description.Subflows do
   @moduledoc """
   The checks between a composition's subflows and its description: every kind, field,
   relation, role and value a subflow, a `link` or `count`, a `select` or a `migrate`
-  names resolves in the composition. Returns `[{file, line, message}]`.
+  names resolves in the composition. Returns `[{file, line, problem}]`, each problem a
+  `RelaDSL.Problem` (what is wrong, and the names it is about).
   """
+
+  alias RelaDSL.Problem
 
   @writer "atlas-flow"
 
@@ -22,15 +25,24 @@ defmodule RelaDSL.Description.Subflows do
 
   defp flow(f, schema, acl) do
     kind = to_string(f.subject)
-    at = fn line, message -> {f.file, line, "subflow #{f.name}: " <> message} end
+    at = fn line, problem -> {f.file, line, Problem.prefix(problem, "subflow #{f.name}: ")} end
 
     if not Map.has_key?(schema["entities"], kind) do
-      [at.(f.line, "its subject #{kind} is not a kind of the composition")]
+      [
+        at.(
+          f.line,
+          problem(
+            :subject_kind,
+            [f.name, kind],
+            "its subject #{kind} is not a kind of the composition"
+          )
+        )
+      ]
     else
       owner(f.owner, kind, schema, &at.(f.line, &1)) ++
         run_as(f, acl, &at.(f.line, &1)) ++
         Enum.flat_map(f.states, fn s ->
-          here = &at.(s.line, "state #{s.name}: " <> &1)
+          here = &at.(s.line, Problem.prefix(&1, "state #{s.name}: "))
 
           fields(s, kind, schema, here) ++
             roles(s, acl, here) ++
@@ -40,12 +52,23 @@ defmodule RelaDSL.Description.Subflows do
     end
   end
 
+  defp problem(tag, names, text), do: Problem.new(tag, Enum.map(names, &to_string/1), text)
+
   defp field?(schema, kind, name),
     do: Map.has_key?(get_in(schema, ["entities", kind, "properties"]) || %{}, to_string(name))
 
   defp relation(schema, name), do: schema["relations"][to_string(name)]
 
   defp from?(schema, name, kind), do: kind in ((relation(schema, name) || %{})["from"] || [])
+
+  # The kinds of the facts made with a fact of `kind` (its components): their associations
+  # are the fact's own, so a role may come through one.
+  defp parts(schema, extension, kind) do
+    for {name, %{"component" => %{}}} <- (extension || %{})["relations"] || %{},
+        from?(schema, name, kind),
+        part <- (relation(schema, name) || %{})["to"] || [],
+        do: part
+  end
 
   defp fields(s, kind, schema, here) do
     read =
@@ -58,14 +81,28 @@ defmodule RelaDSL.Description.Subflows do
 
     for name <- Enum.uniq(read ++ written ++ Enum.map(s.awaits, &to_string/1)),
         not field?(schema, kind, name),
-        do: here.("names #{kind}.#{name}, which the composition does not describe")
+        do:
+          here.(
+            problem(
+              :unknown_field,
+              [kind, name],
+              "names #{kind}.#{name}, which the composition does not describe"
+            )
+          )
   end
 
   defp roles(s, acl, here) do
     for role <- Enum.uniq(s.waiting_for ++ Enum.flat_map(s.branches, & &1.roles)),
         role != @writer,
         not Map.has_key?(acl.roles, role),
-        do: here.("names the role #{role}, which the composition's acl does not define")
+        do:
+          here.(
+            problem(
+              :unknown_role,
+              [role],
+              "names the role #{role}, which the composition's acl does not define"
+            )
+          )
   end
 
   defp run_as(%{run_as: nil}, _acl, _here), do: []
@@ -73,7 +110,15 @@ defmodule RelaDSL.Description.Subflows do
   defp run_as(f, acl, here) do
     if Map.has_key?(acl.assignments, f.run_as),
       do: [],
-      else: [here.("run_as #{f.run_as} is not assigned a role in the composition's acl")]
+      else: [
+        here.(
+          problem(
+            :run_as,
+            [f.run_as],
+            "run_as #{f.run_as} is not assigned a role in the composition's acl"
+          )
+        )
+      ]
   end
 
   defp creates(s, kind, schema, here) do
@@ -82,13 +127,28 @@ defmodule RelaDSL.Description.Subflows do
 
       cond do
         not Map.has_key?(schema["entities"], type) ->
-          [here.("creates a #{type}, which is not a kind of the composition")]
+          [
+            here.(
+              problem(
+                :creates_kind,
+                [type],
+                "creates a #{type}, which is not a kind of the composition"
+              )
+            )
+          ]
 
         true ->
           for(
             {name, _} <- c.properties,
             not field?(schema, type, name),
-            do: here.("creates a #{type} with #{name}, which #{type} does not have")
+            do:
+              here.(
+                problem(
+                  :creates_field,
+                  [type, name],
+                  "creates a #{type} with #{name}, which #{type} does not have"
+                )
+              )
           ) ++
             if(
               c.relate == nil or
@@ -97,7 +157,11 @@ defmodule RelaDSL.Description.Subflows do
               do: [],
               else: [
                 here.(
-                  "relates the created #{type} by #{c.relate}, which does not lead from #{type} to #{kind}"
+                  problem(
+                    :creates_relation,
+                    [type, c.relate, kind],
+                    "relates the created #{type} by #{c.relate}, which does not lead from #{type} to #{kind}"
+                  )
                 )
               ]
             )
@@ -111,18 +175,38 @@ defmodule RelaDSL.Description.Subflows do
     via = if o[:via], do: to_string(o.via), else: kind
 
     if(o[:via] && not Map.has_key?(schema["entities"], via),
-      do: [here.("owner via #{via}, which is not a kind of the composition")],
+      do: [
+        here.(
+          problem(:owner_via, [via], "owner via #{via}, which is not a kind of the composition")
+        )
+      ],
       else: []
     ) ++
       if(o[:via] && o[:relation] && not from?(schema, o.relation, via),
-        do: [here.("owner relation #{o.relation} does not lead from #{via}")],
+        do: [
+          here.(
+            problem(
+              :owner_relation,
+              [o.relation, via],
+              "owner relation #{o.relation} does not lead from #{via}"
+            )
+          )
+        ],
         else: []
       ) ++
       case o[:default] do
         %{kind: k} ->
           if Map.has_key?(schema["entities"], to_string(k)),
             do: [],
-            else: [here.("owner default kind #{k} is not a kind of the composition")]
+            else: [
+              here.(
+                problem(
+                  :owner_default,
+                  [k],
+                  "owner default kind #{k} is not a kind of the composition"
+                )
+              )
+            ]
 
         _ ->
           []
@@ -134,7 +218,15 @@ defmodule RelaDSL.Description.Subflows do
   defp present(p, kind, schema, here) do
     section =
       if p.section && not field?(schema, kind, p.section.field),
-        do: [here.("presents the section of #{p.section.field}, which #{kind} does not have")],
+        do: [
+          here.(
+            problem(
+              :section_field,
+              [kind, p.section.field],
+              "presents the section of #{p.section.field}, which #{kind} does not have"
+            )
+          )
+        ],
         else: []
 
     answers =
@@ -143,12 +235,27 @@ defmodule RelaDSL.Description.Subflows do
         values = (a[:change] && a.change[:values]) || %{}
 
         if(rel && not from?(schema, rel, kind),
-          do: [here.("answer #{a[:key]} names #{rel}, which does not lead from #{kind}")],
+          do: [
+            here.(
+              problem(
+                :answer_relation,
+                [a[:key], rel],
+                "answer #{a[:key]} names #{rel}, which does not lead from #{kind}"
+              )
+            )
+          ],
           else: []
         ) ++
           for {name, _} <- values,
               not field?(schema, kind, name),
-              do: here.("answer #{a[:key]} writes #{kind}.#{name}, which #{kind} does not have")
+              do:
+                here.(
+                  problem(
+                    :answer_field,
+                    [a[:key], kind, name],
+                    "answer #{a[:key]} writes #{kind}.#{name}, which #{kind} does not have"
+                  )
+                )
       end)
 
     section ++ answers
@@ -175,7 +282,11 @@ defmodule RelaDSL.Description.Subflows do
           do: [],
           else: [
             at.(
-              "#{relation} does not lead from #{from} to #{to}, as the link or count of #{l.child} says"
+              problem(
+                :link_relation,
+                [l.child, relation, from, to],
+                "#{relation} does not lead from #{from} to #{to}, as the link or count of #{l.child} says"
+              )
             )
           ]
         ) ++ link_fields(l, from, to, schema, at)
@@ -229,18 +340,29 @@ defmodule RelaDSL.Description.Subflows do
       not field?(schema, parent, name),
       do:
         at.(
-          "the link or count of #{l.child} names #{parent}.#{name}, which #{parent} does not have"
+          problem(
+            :link_field,
+            [l.child, parent, name],
+            "the link or count of #{l.child} names #{parent}.#{name}, which #{parent} does not have"
+          )
         )
     ) ++
       for name <- by_child,
           not field?(schema, child, name),
-          do: at.("the link of #{l.child} names #{child}.#{name}, which #{child} does not have")
+          do:
+            at.(
+              problem(
+                :link_field,
+                [l.child, child, name],
+                "the link of #{l.child} names #{child}.#{name}, which #{child} does not have"
+              )
+            )
   end
 
   @doc "Problems of the `select`s of the subflows the composition runs."
-  def selects(selects, flows, schema) do
+  def selects(selects, flows, schema, extension \\ %{}) do
     Enum.flat_map(selects, fn %{value: {name, o}} = i ->
-      at = &{i.file, i.line, "select #{name}: " <> &1}
+      at = &{i.file, i.line, Problem.prefix(&1, "select #{name}: ")}
 
       case Enum.find(flows, &(&1.name == name)) do
         nil ->
@@ -256,30 +378,50 @@ defmodule RelaDSL.Description.Subflows do
           for(
             c <- o[:choices] || [],
             not field?(schema, kind, c),
-            do: at.("choice #{c} is not a field of #{kind}")
+            do: at.(problem(:choice_field, [kind, c], "choice #{c} is not a field of #{kind}"))
           ) ++
             if(
               (o[:choices] || []) != [] and
                 RelaDSL.Description.Build.choice_states(f, o[:choices]) == [],
               do: [
                 at.(
-                  "no state of #{name} waits for people to choose #{Enum.join(o[:choices] || [], ", ")}"
+                  problem(
+                    :choice_unawaited,
+                    [name | o[:choices]],
+                    "no state of #{name} waits for people to choose #{Enum.join(o[:choices] || [], ", ")}"
+                  )
                 )
               ],
               else: []
             ) ++
             for(
               {role, rel} <- o[:roles] || [],
-              not from?(schema, rel, kind),
-              do: at.("roles: #{role} names #{rel}, which does not lead from #{kind}")
+              not Enum.any?([kind | parts(schema, extension, kind)], &from?(schema, rel, &1)),
+              do:
+                at.(
+                  problem(
+                    :role_not_from_subject,
+                    [role, rel],
+                    "roles: #{role} names #{rel}, which leads neither from #{kind} nor from a part of it"
+                  )
+                )
             ) ++
             for(
               {role, _} <- o[:roles] || [],
               to_string(role) not in Enum.flat_map(f.states, & &1.waiting_for),
-              do: at.("roles: #{name} waits for no #{role}")
+              do:
+                at.(problem(:role_unawaited, [name, role], "roles: #{name} waits for no #{role}"))
             ) ++
             if(projection[:on] && not from?(schema, projection[:on], kind),
-              do: [at.("projection on #{projection[:on]} does not lead from #{kind}")],
+              do: [
+                at.(
+                  problem(
+                    :projection_on,
+                    [projection[:on], kind],
+                    "projection on #{projection[:on]} does not lead from #{kind}"
+                  )
+                )
+              ],
               else: []
             ) ++
             for(
@@ -287,35 +429,70 @@ defmodule RelaDSL.Description.Subflows do
               target,
               projection[k],
               not field?(schema, target, projection[k]),
-              do: at.("projection #{k} #{projection[k]} is not a field of #{target}")
+              do:
+                at.(
+                  problem(
+                    :projection_field,
+                    [k, target, projection[k]],
+                    "projection #{k} #{projection[k]} is not a field of #{target}"
+                  )
+                )
             ) ++
             if(
               target && projection[:owner_relation] &&
                 not from?(schema, projection[:owner_relation], target),
               do: [
                 at.(
-                  "projection owner_relation #{projection[:owner_relation]} does not lead from #{target}"
+                  problem(
+                    :projection_owner_relation,
+                    [projection[:owner_relation], target],
+                    "projection owner_relation #{projection[:owner_relation]} does not lead from #{target}"
+                  )
                 )
               ],
               else: []
             ) ++
             values(schema, kind, o[:admission], at) ++
             Enum.flat_map(
-              List.wrap(o[:imports]),
+              List.wrap(o[:imports]) ++ List.wrap(o[:follow_through] && [o[:follow_through]]),
               fn imp ->
                 values(schema, kind, imp[:when], at) ++
                   if(to_string(imp[:state]) in states,
                     do: [],
-                    else: [at.("imports state #{imp[:state]}, which #{name} does not have")]
+                    else: [
+                      at.(
+                        problem(
+                          :import_state,
+                          [name, imp[:state]],
+                          "imports state #{imp[:state]}, which #{name} does not have"
+                        )
+                      )
+                    ]
                   ) ++
                   if(Keyword.has_key?(imp, :completed) and not is_boolean(imp[:completed]),
-                    do: [at.("an import row's completed is true or false")],
+                    do: [
+                      at.(
+                        problem(
+                          :import_completed,
+                          [inspect(imp[:completed])],
+                          "an import row's completed is true or false"
+                        )
+                      )
+                    ],
                     else: []
                   )
               end
             ) ++
             if(Keyword.has_key?(o, :reopen) and o[:reopen] not in [:explicit, :new_generation],
-              do: [at.("reopen: #{inspect(o[:reopen])} is neither :explicit nor :new_generation")],
+              do: [
+                at.(
+                  problem(
+                    :reopen_policy,
+                    [inspect(o[:reopen])],
+                    "reopen: #{inspect(o[:reopen])} is neither :explicit nor :new_generation"
+                  )
+                )
+              ],
               else: []
             ) ++ verification(schema, kind, o[:verification], at)
       end
@@ -331,11 +508,19 @@ defmodule RelaDSL.Description.Subflows do
 
       cond do
         prop == nil ->
-          [at.("#{field} is not a field of #{kind}")]
+          [at.(problem(:unknown_field, [kind, field], "#{field} is not a field of #{kind}"))]
 
         # nil allows no value: the field empty.
         enum && Enum.any?(List.wrap(allowed), &(&1 != nil and to_string(&1) not in enum)) ->
-          [at.("#{kind}.#{field} has no value among #{inspect(allowed)}")]
+          [
+            at.(
+              problem(
+                :unknown_value,
+                [kind, field],
+                "#{kind}.#{field} has no value among #{inspect(allowed)}"
+              )
+            )
+          ]
 
         true ->
           []
@@ -352,13 +537,36 @@ defmodule RelaDSL.Description.Subflows do
     if Map.has_key?(schema["entities"], kind) do
       if(field?(schema, subject, v[:field]),
         do: [],
-        else: [at.("verification field #{v[:field]} is not a field of #{subject}")]
+        else: [
+          at.(
+            problem(
+              :verification_field,
+              [subject, v[:field]],
+              "verification field #{v[:field]} is not a field of #{subject}"
+            )
+          )
+        ]
       ) ++
         for r <- v[:relations] || [],
             not from?(schema, r, kind),
-            do: at.("verification relation #{r} does not lead from #{kind}")
+            do:
+              at.(
+                problem(
+                  :verification_relation,
+                  [r, kind],
+                  "verification relation #{r} does not lead from #{kind}"
+                )
+              )
     else
-      [at.("verification kind #{kind} is not a kind of the composition")]
+      [
+        at.(
+          problem(
+            :verification_kind,
+            [kind],
+            "verification kind #{kind} is not a kind of the composition"
+          )
+        )
+      ]
     end
   end
 end

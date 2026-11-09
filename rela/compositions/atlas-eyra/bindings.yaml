@@ -9,6 +9,7 @@ relations:
     - issue
     - pull_request
     - decision
+    - to_do
     to:
     - assignment
     max_outgoing: 1
@@ -22,6 +23,7 @@ relations:
     - scene
     - use_case
     - issue
+    - to_do
     to:
     - decision
     inverse:

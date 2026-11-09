@@ -95,7 +95,7 @@ defmodule Model.DeliveryRunsTest do
       assert runner.refusal == nil
 
       assert Enum.sort(Map.keys(runner.config["selection"])) ==
-               ~w(decide design_and_accept follow_through issue pr_review pr_test pull_request test_and_accept_scene test_and_accept_use_case)
+               ~w(decide design_and_accept follow_through issue pr_review pr_test pull_request test_and_accept_scene test_and_accept_use_case to_do)
 
       f = flow(env)
       assert Run.validate(f) == :ok

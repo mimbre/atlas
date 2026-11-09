@@ -230,6 +230,33 @@ defmodule RelaDSL.Facts.ProgressTest do
     assert crate.completion == %{"done" => true, "by" => "signed_by", "keys" => ["K-1"]}
   end
 
+  test "completion can depend on the fact's own field, without reading other facts" do
+    description =
+      put_in(@description, ["entities", "label", "completion"], [
+        %{"field" => "state", "value" => "sent"},
+        %{"field" => "state", "value" => "cancelled"}
+      ])
+
+    facts =
+      for {key, state} <- [{"L-1", "draft"}, {"L-2", "sent"}, {"L-3", "cancelled"}, {"L-4", nil}],
+          do: fact(key, %{"state" => state})
+
+    assert {:ok, annotated} =
+             Derived.annotate(
+               description,
+               "label",
+               facts,
+               Reads.of(fn _ -> flunk("own-field completion must not read another kind") end)
+             )
+
+    assert Enum.map(annotated, & &1.completion) == [
+             nil,
+             %{"done" => true, "field" => "state", "value" => "sent"},
+             %{"done" => true, "field" => "state", "value" => "cancelled"},
+             nil
+           ]
+  end
+
   test "while a label on it is pending, a jar shows packing; nothing stored, why said" do
     description =
       put_in(@description, ["entities", "jar", "progress"], %{

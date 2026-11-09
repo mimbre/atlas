@@ -72,7 +72,10 @@ defmodule AtlasFacts.FlowInputsTest do
   defmodule Backend do
     def description(_), do: {:ok, AtlasFacts.FlowInputsTest.Inputs.rela_schema()}
 
+    # A test that asks (`:rela_reads` in its process) is told of each read it makes.
     def get(pid, plural, key) do
+      if Process.get(:rela_reads), do: send(self(), {:rela_get, plural, key})
+
       with {:ok, fact} <- AtlasFacts.FakeRela.get(pid, plural, key),
            do: {:ok, %{fact | properties: Map.delete(fact.properties, "title")}}
     end
@@ -173,6 +176,74 @@ defmodule AtlasFacts.FlowInputsTest do
     assert {:ok, subject} = Rela.get(c.rela, "boxes", "B-1")
     assert subject.properties["choice"] == "yes"
     assert accepted["subject_version"] == subject.version
+  end
+
+  test "a role may come through a fact made with the subject, as it is stored", c do
+    # A box is made with its slip (a component); whoever the slip is held by may choose.
+    d =
+      c.d
+      |> put_in(["entities", "slip"], %{"plural" => "slips", "properties" => %{}})
+      |> put_in(["relations", "slip"], %{
+        "from" => ["box"],
+        "to" => ["slip"]
+      })
+      |> put_in(["flow_runtime", "inputs", "components"], %{
+        "slip" => %{
+          "from" => ["box"],
+          "to" => ["slip"],
+          "component" => %{"key" => "SL-{key}"}
+        }
+      })
+      |> put_in(["relations", "held_by"], %{"from" => ["slip"], "to" => ["clerk"]})
+      |> put_in(["flow_runtime", "inputs", "roles"], %{"holder" => "held_by"})
+      |> put_in(["flow_runtime", "inputs", "acl"], %{"holder" => %{"update" => ["box"]}})
+
+    {:ok, []} = Rela.create(c.rela, "clerks", "bo", %{}, %{})
+    {:ok, []} = Rela.create(c.rela, "slips", "SL-B-1", %{}, %{"held_by" => {"clerk", ["bo"]}})
+    c = %{c | d: d}
+    Process.put(:rela_reads, true)
+
+    # Ada is no holder, not even naming herself there in the same choice.
+    assert {:error, :not_named_to_choose} = submit(c)
+
+    assert {:error, :not_named_to_choose} =
+             submit(c, Map.put(c.v, "links", %{"held_by" => ["ada"]}))
+
+    assert {:ok, accepted} = submit(c, nil, "bo")
+    assert accepted["roles"] == ["holder"]
+    assert_received {:rela_get, "slips", "SL-B-1"}
+    assert {:ok, subject} = Rela.get(c.rela, "boxes", "B-1")
+    assert subject.properties["choice"] == "yes"
+  end
+
+  test "a kind whose roles all lead from itself reads none of its components", c do
+    # A box is made with its slip. The role a box gives (clerk) comes through chosen_by,
+    # which leads from the box; the one through the slip (holder) its ACL gives on no box.
+    # Deciding who may choose reads no slip.
+    d =
+      c.d
+      |> put_in(["entities", "slip"], %{"plural" => "slips", "properties" => %{}})
+      |> put_in(["relations", "slip"], %{
+        "from" => ["box"],
+        "to" => ["slip"]
+      })
+      |> put_in(["flow_runtime", "inputs", "components"], %{
+        "slip" => %{
+          "from" => ["box"],
+          "to" => ["slip"],
+          "component" => %{"key" => "SL-{key}"}
+        }
+      })
+      |> put_in(["relations", "held_by"], %{"from" => ["slip"], "to" => ["clerk"]})
+      |> put_in(["flow_runtime", "inputs", "roles", "holder"], "held_by")
+      |> put_in(["flow_runtime", "inputs", "acl", "holder"], %{"update" => ["slip"]})
+
+    {:ok, []} = Rela.create(c.rela, "slips", "SL-B-1", %{}, %{"held_by" => {"clerk", ["ada"]}})
+    Process.put(:rela_reads, true)
+
+    assert {:ok, %{"roles" => ["clerk"]}} = submit(%{c | d: d})
+    assert_received {:rela_get, "boxes", "B-1"}
+    refute_received {:rela_get, "slips", _}
   end
 
   test "replay returns original operation and changed payload or stale version refuses", c do

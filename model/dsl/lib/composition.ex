@@ -70,7 +70,7 @@ defmodule RelaDSL.Composition do
   """
 
   alias RelaDSL.Description.{Build, Check, Plain, Subflows}
-  alias RelaDSL.RunIdentity
+  alias RelaDSL.{Problem, RunIdentity}
 
   @unused [:worlds, :copies, :default_world, :validations]
   @schema_keys [:version, :namespace, :description, :comment]
@@ -205,15 +205,6 @@ defmodule RelaDSL.Composition do
 
     {schema, defined} = resolve(files)
 
-    ends =
-      for {name, spec} <- schema["relations"],
-          kind <- (spec["from"] || []) ++ (spec["to"] || []),
-          not Map.has_key?(schema["entities"], kind),
-          uniq: true,
-          do:
-            {origin_of(all, :relation, name, file),
-             "relation #{name} leads from or to #{kind}, which is not a kind of the composition"}
-
     root = %{
       path: "schema.yaml",
       comment: schema_opts[:comment],
@@ -252,7 +243,11 @@ defmodule RelaDSL.Composition do
           m not in concept_modules,
           do:
             {file, flows_line,
-             "#{inspect(m)} runs subflows but is no concept of a selected module"}
+             Problem.new(
+               :stray_subflows,
+               [inspect(m)],
+               "#{inspect(m)} runs subflows but is no concept of a selected module"
+             )}
 
     acl = acl(acl_opts, items)
 
@@ -284,14 +279,14 @@ defmodule RelaDSL.Composition do
     run_problems =
       for {m, message} <- RunIdentity.problems(current, migrations), do: {m.file, m.line, message}
 
-    select_problems = Subflows.selects(selects, flows, schema)
+    select_problems = Subflows.selects(selects, flows, schema, extension)
     acl_problems = acl_problems(acl, schema, items)
 
     refuse!(
       Build.shape_problems(all) ++
         placed ++
         defined ++
-        Enum.map(ends, fn {{f, l}, m} -> {f, l, m} end) ++
+        ends(schema, all, file) ++
         merged ++
         checked ++ strays ++ subflow_problems ++ select_problems ++ run_problems ++ acl_problems,
       file
@@ -399,6 +394,26 @@ defmodule RelaDSL.Composition do
     first
   end
 
+  @doc """
+  Each relation of the resolved `schema` that leads from or to a kind the composition
+  does not have, at the item that defines it: `[{file, line, RelaDSL.Problem}]`.
+  """
+  def ends(schema, items, file) do
+    for {name, spec} <- schema["relations"],
+        kind <- (spec["from"] || []) ++ (spec["to"] || []),
+        not Map.has_key?(schema["entities"], kind),
+        uniq: true do
+      {f, l} = origin_of(items, :relation, name, file)
+
+      {f, l,
+       Problem.new(
+         :not_a_kind,
+         [name, kind],
+         "relation #{name} leads from or to #{kind}, which is not a kind of the composition"
+       )}
+    end
+  end
+
   defp origin_of(items, kind, name, file) do
     Enum.find_value(items, {file, 1}, fn
       %{kind: ^kind, value: {n, _}} = i -> to_string(n) == name && {i.file, i.line}
@@ -414,22 +429,31 @@ defmodule RelaDSL.Composition do
     end
   end
 
-  defp schema_problems(opts, item) do
+  @doc """
+  The problems of the composition's `schema` options, at its `item`: `[{file, line,
+  RelaDSL.Problem}]`.
+  """
+  def schema_problems(opts, item) do
+    at = &{item.file, item.line, Problem.new(&1, &2, &3)}
+
     cond do
       not Keyword.keyword?(opts) ->
-        [{item.file, item.line, "schema takes version:, namespace:, description:, comment:"}]
+        [at.(:expected_keywords, [], "schema takes version:, namespace:, description:, comment:")]
 
       (used = Keyword.keys(opts) -- @schema_keys) != [] ->
         for k <- used do
           if k in @unused,
             do:
-              {item.file, item.line,
-               "schema: #{k} is a key of Rela's schema that Atlas does not use; no construct writes it"},
-            else: {item.file, item.line, "schema knows no #{k}"}
+              at.(
+                :unused_key,
+                [to_string(k)],
+                "schema: #{k} is a key of Rela's schema that Atlas does not use; no construct writes it"
+              ),
+            else: at.(:unknown_keys, [to_string(k)], "schema knows no #{k}")
         end
 
       not is_binary(opts[:version]) ->
-        [{item.file, item.line, "schema needs version: its Rela schema version, as text"}]
+        [at.(:schema_version, [], "schema needs version: its Rela schema version, as text")]
 
       true ->
         []
@@ -442,16 +466,30 @@ defmodule RelaDSL.Composition do
       m <- modules,
       i <- m.items,
       i.kind in [:type, :entity, :relation, :select, :migrate],
-      do: {i.file, i.line, "#{i.kind} belongs in a concept (use RelaDSL), not in a module"}
+      do:
+        {i.file, i.line,
+         Problem.new(
+           :placement,
+           [to_string(i.kind)],
+           "#{i.kind} belongs in a concept (use RelaDSL), not in a module"
+         )}
     ) ++
       for i <- own,
           i.kind in [:type, :entity, :select, :migrate],
           do:
-            {i.file, i.line, "#{i.kind} belongs in a concept (use RelaDSL), not in a composition"}
+            {i.file, i.line,
+             Problem.new(
+               :placement,
+               [to_string(i.kind)],
+               "#{i.kind} belongs in a concept (use RelaDSL), not in a composition"
+             )}
   end
 
-  # One resolved schema, as plain maps; each kind, type and relation defined once.
-  defp resolve(files) do
+  @doc """
+  One resolved schema of the schema documents `files`, as plain maps, and the problems
+  (`[{path, 1, RelaDSL.Problem}]`) of a kind, type or relation defined more than once.
+  """
+  def resolve(files) do
     Enum.reduce(files, {%{"types" => %{}, "entities" => %{}, "relations" => %{}}, []}, fn f,
                                                                                           {acc,
                                                                                            problems} ->
@@ -462,7 +500,15 @@ defmodule RelaDSL.Composition do
           if Map.has_key?(acc[section], name),
             do:
               {acc,
-               ps ++ [{f.path, 1, "#{section}.#{name} is defined twice (again in #{f.path})"}]},
+               ps ++
+                 [
+                   {f.path, 1,
+                    Problem.new(
+                      :defined_twice,
+                      [section, name],
+                      "#{section}.#{name} is defined twice (again in #{f.path})"
+                    )}
+                 ]},
             else: {put_in(acc, [section, name], Plain.unorder(def)), ps}
         end)
       end)
@@ -510,16 +556,32 @@ defmodule RelaDSL.Composition do
       not Map.has_key?(schema["entities"], to_string(kind)),
       do:
         {i.file, i.line,
-         "role #{name}: #{k} names #{kind}, which is not a kind of the composition"}
+         Problem.new(
+           :not_a_kind,
+           [to_string(name), to_string(kind)],
+           "role #{name}: #{k} names #{kind}, which is not a kind of the composition"
+         )}
     ) ++
       for(
         %{kind: :role, value: {name, o}} = i <- own,
-        Keyword.keys(o) -- [:comment, :read, :create, :update] != [],
-        do: {i.file, i.line, "role #{name} knows only comment:, read:, create:, update:"}
+        (extra = Keyword.keys(o) -- [:comment, :read, :create, :update]) != [],
+        do:
+          {i.file, i.line,
+           Problem.new(
+             :unknown_keys,
+             Enum.map([name | extra], &to_string/1),
+             "role #{name} knows only comment:, read:, create:, update:"
+           )}
       ) ++
       for %{kind: :assign, value: {p, r}} = i <- own,
           not Map.has_key?(acl.roles, to_string(r)),
-          do: {i.file, i.line, "assign #{p}: #{r} is no role of the acl"}
+          do:
+            {i.file, i.line,
+             Problem.new(
+               :unknown_role,
+               [to_string(p), to_string(r)],
+               "assign #{p}: #{r} is no role of the acl"
+             )}
   end
 
   defp load!(mod, what, file, line) do
@@ -574,6 +636,6 @@ defmodule RelaDSL.Composition do
     also =
       Enum.map_join(rest, "", fn {pf, pl, m} -> "\n  #{Path.relative_to_cwd(pf)}:#{pl}: #{m}" end)
 
-    raise CompileError, file: f, line: line, description: message <> also
+    raise CompileError, file: f, line: line, description: to_string(message) <> also
   end
 end

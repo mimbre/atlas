@@ -3,10 +3,12 @@ defmodule RelaDSL.Description.Build do
   Builds a composition's description from what its modules, their concepts and the
   composition itself declare: the Rela schema of each file, Atlas's additions merged
   leaf by leaf (one author per leaf), the run mapping, and the roles. Problems are
-  `{file, line, message}`; the composition refuses to compile on any.
+  `{file, line, problem}`, each a `RelaDSL.Problem`; the composition refuses to compile
+  on any.
   """
 
   alias RelaDSL.Description.Plain
+  alias RelaDSL.Problem
 
   @type_keys [:values, :labels, :descriptions, :description, :validations]
   @entity_keys [:label, :plural, :aliases, :id_type, :id_prefix, :description]
@@ -25,7 +27,7 @@ defmodule RelaDSL.Description.Build do
     :closes_parent,
     :review
   ]
-  @entity_notes ~w(top primary start create properties completion progress connector agent order
+  @entity_notes ~w(top primary plural_label start create properties completion progress connector agent order
                    by_hand late actions counts requires authority frozen replaces layering sealed
                    delete_error)
   @listed %{action: "actions", counts: "counts", requires: "requires"}
@@ -105,44 +107,59 @@ defmodule RelaDSL.Description.Build do
   def shape_problems(items) do
     Enum.flat_map(items, fn
       %{kind: :type, value: {name, opts}} = i ->
-        unknown(i, "type #{name}", opts, @type_keys ++ [:format])
+        unknown(i, {"type", name}, opts, @type_keys ++ [:format])
 
       %{kind: :entity, value: e} = i ->
-        unknown(i, "entity #{e.name}", e.opts, @entity_keys) ++
+        unknown(i, {"entity", e.name}, e.opts, @entity_keys) ++
           Enum.flat_map(e.fields, fn f ->
             unknown(
               %{i | line: f.line},
-              "field #{e.name}.#{f.name}",
+              {"field", e.name, f.name},
               f.opts,
               @field_keys ++ @field_notes
             ) ++
               if is_atom(f.type) and f.type != nil,
                 do: [],
-                else: [{i.file, f.line, "field #{e.name}.#{f.name} needs a type"}]
+                else: [
+                  {i.file, f.line,
+                   problem(
+                     :field_type,
+                     [e.name, f.name],
+                     "field #{e.name}.#{f.name} needs a type"
+                   )}
+                ]
           end) ++ note_problems(i, e)
 
       %{kind: :relation, value: {name, opts}} = i ->
-        unknown(i, "relation #{name}", opts, @relation_keys ++ @relation_notes) ++
+        unknown(i, {"relation", name}, opts, @relation_keys ++ @relation_notes) ++
           case opts[:inverse] do
-            {_, _} -> []
-            nil -> []
-            _ -> [{i.file, i.line, "relation #{name}: inverse is {id, label}"}]
+            {_, _} ->
+              []
+
+            nil ->
+              []
+
+            _ ->
+              [
+                {i.file, i.line,
+                 problem(:relation_inverse, [name], "relation #{name}: inverse is {id, label}")}
+              ]
           end
 
       %{kind: :select, value: {name, opts}} = i ->
-        unknown(i, "select #{name}", opts, @select_keys)
+        unknown(i, {"select", name}, opts, @select_keys)
 
       %{kind: :migrate, value: {name, opts}} = i ->
-        unknown(i, "migrate #{name}", opts, @migrate_keys)
+        unknown(i, {"migrate", name}, opts, @migrate_keys)
 
       %{kind: :root, value: {:flow_runtime, opts}} = i ->
-        unknown(i, "flow_runtime", opts, @flow_runtime_keys)
+        unknown(i, {"flow_runtime"}, opts, @flow_runtime_keys)
 
       %{kind: :extend_entity, value: {name, rules}} = i ->
-        unknown(i, "extend_entity #{name}", rules, Enum.map(@entity_notes, &String.to_atom/1))
+        unknown(i, {"extend_entity", name}, rules, Enum.map(@entity_notes, &String.to_atom/1))
 
       %{kind: :extend_relation, value: {name, rules}} = i ->
-        unknown(i, "extend_relation #{name}", rules, @relation_notes)
+        unknown(i, {"extend_relation", name}, rules, @relation_notes)
 
       _ ->
         []
@@ -153,32 +170,59 @@ defmodule RelaDSL.Description.Build do
     notes = for {k, _, _} <- e.notes, k not in [:flag | Map.keys(@listed)], do: k
 
     for k <- Enum.uniq(notes -- Enum.uniq(notes)) do
-      {i.file, i.line, "entity #{e.name}: #{k} is given more than once"}
+      {i.file, i.line,
+       problem(:given_twice, [e.name, k], "entity #{e.name}: #{k} is given more than once")}
     end ++
       case for({:flag, _, l} <- e.notes, do: l) do
-        [_, l | _] -> [{i.file, l, "entity #{e.name}: one flag per kind"}]
-        _ -> []
+        [_, l | _] ->
+          [{i.file, l, problem(:flag_twice, [e.name], "entity #{e.name}: one flag per kind")}]
+
+        _ ->
+          []
       end
   end
 
-  defp unknown(i, what, opts, keys) do
+  # What `opts` gives that its construct (`{construct, name, ...}`) holds no key for, or
+  # gives twice; the names are the construct's, then the keys.
+  defp unknown(i, construct, opts, keys) do
+    [what | names] = Tuple.to_list(construct)
+
+    what =
+      Enum.join([what | Enum.take(names, 1)], " ") <>
+        Enum.map_join(Enum.drop(names, 1), &".#{&1}")
+
     cond do
       not Keyword.keyword?(opts) ->
-        [{i.file, i.line, "#{what} takes a keyword list"}]
+        [{i.file, i.line, problem(:expected_keywords, names, "#{what} takes a keyword list")}]
 
       (extra = Keyword.keys(opts) -- keys) != [] ->
-        [{i.file, i.line, "#{what} knows no #{Enum.map_join(extra, ", ", &to_string/1)}"}]
-
-      (twice = Keyword.keys(opts) -- Enum.uniq(Keyword.keys(opts))) != [] ->
         [
           {i.file, i.line,
-           "#{what} gives #{Enum.map_join(Enum.uniq(twice), ", ", &to_string/1)} twice"}
+           problem(
+             :unknown_keys,
+             names ++ extra,
+             "#{what} knows no #{Enum.map_join(extra, ", ", &to_string/1)}"
+           )}
+        ]
+
+      (twice = Keyword.keys(opts) -- Enum.uniq(Keyword.keys(opts))) != [] ->
+        twice = Enum.uniq(twice)
+
+        [
+          {i.file, i.line,
+           problem(
+             :given_twice,
+             names ++ twice,
+             "#{what} gives #{Enum.map_join(twice, ", ", &to_string/1)} twice"
+           )}
         ]
 
       true ->
         []
     end
   end
+
+  defp problem(tag, names, text), do: Problem.new(tag, Enum.map(names, &to_string/1), text)
 
   # -- Atlas's additions (atlas.json) --------------------------------------------------
 
@@ -276,8 +320,12 @@ defmodule RelaDSL.Description.Build do
            p ++
              [
                {file, line,
-                "#{Enum.join(at, ".")} is given twice (also at #{Path.relative_to_cwd(other_file)}:#{other_line}); " <>
-                  "each leaf has one author"}
+                problem(
+                  :leaf_twice,
+                  at,
+                  "#{Enum.join(at, ".")} is given twice (also at #{Path.relative_to_cwd(other_file)}:#{other_line}); " <>
+                    "each leaf has one author"
+                )}
              ]}
       end
     end)

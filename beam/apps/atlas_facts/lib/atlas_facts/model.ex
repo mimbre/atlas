@@ -67,7 +67,8 @@ defmodule AtlasFacts.Model do
   The run mapping, for the records Facts keeps of runs and their inputs, or nil: `kind`
   (where runs are kept) and its `fields`, the `writer` (`%{"by", "sender"}`) that alone
   writes them, `inputs` (where a run's inputs are kept: `kind`, `fields`, `roles`,
-  `acl`) and per selected subflow its `selection` (`subject`, `choices`,
+  `acl`, and `components`: the model's component definitions that Rela's public
+  schema does not carry) and per selected subflow its `selection` (`subject`, `choices`,
   `choice_states`).
   """
   @callback run_mapping() :: nil | map
