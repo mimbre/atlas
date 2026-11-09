@@ -359,6 +359,21 @@ Claude with the materialized-folder profile:
   - Claude Code blocks long foreground `sleep`-style commands on its own.
   - Verified with Claude Code 2.1.280.
 
+Folder preparation (step 11a implemented, `tools/runtime/host/prepare.go`, `tools/runtime/snapshot/prepare.go`):
+- **Command:** `atlas-runtime snapshot prepare --dest DEST --npm-ci REPO_PATH[/SUBDIR]`, run by the orchestrator before a worker starts. It runs in the CLI process: no daemon, Code request, Git or model call. Code only supplies the snapshot. There is no detection, cache service, retry or scheduling.
+- **One fixed command:** `npm ci --ignore-scripts --no-audit --no-fund`, a download of integrity-pinned tarballs that runs no repository or package code. The lockfile must name only `https://registry.npmjs.org/` tarballs with sha512 integrity. A project `.npmrc` is refused. The folder must be unchanged since materialization; the snapshot tracks nothing under `node_modules`.
+- **Boundary:** Codex profile `atlas_setup`, based on `:read-only`.
+  - Writes only `SUBDIR/node_modules` and an owned scratch.
+  - Network `{"registry.npmjs.org"="allow"}` with `features.network_proxy`.
+  - Denied: the Runtime home, Git metadata, the Code token, `credentialPaths`, `CODEX_HOME` and `~/.npmrc`.
+  - The environment is scrubbed to `HOME USER LOGNAME PATH LANG LC_ALL LC_CTYPE CODEX_HOME`, plus scratch temp, cache and empty npm user and global configuration.
+  - The same deny-list limit applies: other readable home files remain readable. This is safe enough only because no repository or package code runs while the network is on.
+- **Ownership and lifecycle:** the folder's existing `flock`, so worker launch, submit and another preparation refuse while it runs. An owned process group with the `native-host` reaping rules. A fixed 10-minute timeout; 1 MiB kept per output stream.
+- **Records:** `preparations/<sha256(dest)>/result.json` is minimal and worker-readable, claimed by an exclusive rename before npm starts. `private/` holds the request, process, logs and outcome. Workers can write neither.
+- **Readiness and exclusion:** `FolderScope` refuses a `failed` or leftover `running` result; `FolderScopeBeforePreparation` keeps the earlier checks. The scope's keys are unchanged, so Elixir admission is untouched. Status, diff and submit skip the derived output only while it is a real directory with no tracked entries, and follow no symlink. Recovery from a result that is not ready is a fresh materialization.
+- **Verified:** a real registry install through Codex's proxy installed 74 packages, offline use succeeded, and all 550 tracked files remained unchanged. The installed Codex sandbox enforcement test passed outside the worker sandbox, including a direct network positive control. The necessity of individual macOS trust services remains unproven.
+- **Step 11b (required before step 11 is complete):** network-off, explicitly declared repository commands that generate assets or code beyond dependency installation, such as the viewer's `npm run build`.
+
 Later bounded steps, each a separate assignment:
 1. Use materialized snapshots for worker starts automatically (orchestration).
 2. Proof of the full local workflow, including a real GitHub review and integration through Code. Only after that: withdraw worker GitHub access, remove the macOS trustd allowance where verified, then integrate through Code (endpoint 8) as the routine path.

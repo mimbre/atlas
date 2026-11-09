@@ -406,9 +406,28 @@ func codexConfig(root, subject string) error {
 	return nil
 }
 
-// FolderScope is the materialized-folder permission scope of dest, materialized outside the
-// Runtime home. It verifies the record and baseline like snapshot status, without Git.
+// FolderScope is the materialized-folder permission scope of dest for a worker. A folder that was
+// never prepared keeps its scope; one whose explicit preparation has not succeeded is refused.
 func FolderScope(dest, home string) (map[string]any, error) {
+	scope, err := FolderScopeBeforePreparation(dest, home)
+	if err != nil {
+		return nil, err
+	}
+	home, root := scope["home"].(string), scope["root"].(string)
+	preparation, err := snapshot.LoadPreparation(home, root)
+	if err != nil {
+		return nil, err
+	}
+	if preparation != nil && !preparation.Ready() {
+		return nil, preparation.NotReady(home)
+	}
+	return scope, nil
+}
+
+// FolderScopeBeforePreparation is the materialized-folder permission scope of dest, materialized
+// outside the Runtime home, whatever its preparation. It verifies the record and baseline like
+// snapshot status, without Git.
+func FolderScopeBeforePreparation(dest, home string) (map[string]any, error) {
 	if !filepath.IsAbs(dest) || !filepath.IsAbs(home) {
 		return nil, errors.New("Materialized folder and Runtime home must be absolute paths")
 	}

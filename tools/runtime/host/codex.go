@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/eyra/atlas/tools/runtime/snapshot"
@@ -94,11 +95,13 @@ func folderArguments(scope map[string]any, scratch, user, inspector string) ([]s
 	}
 	entries := [][2]string{{root, "write"}, {scratch, "write"}, {home, "none"}, {record, "read"}, {baseline, "read"},
 		{filepath.Join(root, ".git"), "none"}}
-	marker := snapshot.RebindMarker(home, root)
-	if _, err := os.Lstat(marker); err == nil {
-		entries = append(entries, [2]string{marker, "read"})
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return nil, err
+	// Status, diff and submit of a prepared folder read its minimal result, never its diagnostics.
+	for _, file := range []string{snapshot.RebindMarker(home, root), snapshot.PreparationResult(home, root)} {
+		if _, err := os.Lstat(file); err == nil {
+			entries = append(entries, [2]string{file, "read"})
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
 	}
 	for _, repository := range repositories {
 		path, ok := repository.(string)
@@ -107,21 +110,74 @@ func folderArguments(scope map[string]any, scratch, user, inspector string) ([]s
 		}
 		entries = append(entries, [2]string{filepath.Join(root, path, ".git"), "none"})
 	}
+	denied, err := deniedEntries(home, user, nil, root, scratch)
+	if err != nil {
+		return nil, err
+	}
+	entries = append(entries, denied...)
+	// Seatbelt lets a specific file read win inside a denied directory; grant only the inspector itself.
+	for _, entry := range entries {
+		if entry[1] == "none" && within(entry[0], inspector) {
+			entries = append(entries, [2]string{inspector, "read"})
+			break
+		}
+	}
+	return profileArguments("atlas_folder", entries, "network={enabled=false}")
+}
+
+// setupProfile names the Codex permission profile of a folder preparation.
+const setupProfile = "atlas_setup"
+
+// setupArguments translates a materialized-folder scope into the Codex permission profile of its
+// npm-ci preparation: write only the declared output and the owned scratch, keep the rest of the
+// folder read-only, deny Git metadata, the Runtime home (its records and diagnostics included), the
+// Code token, the worker credential paths and ~/.npmrc, and reach only the public npm registry
+// through Codex's network proxy.
+func setupArguments(scope map[string]any, output, scratch, user string) ([]string, error) {
+	root, _ := scope["root"].(string)
+	home, _ := scope["home"].(string)
+	repositories, _ := scope["repositories"].([]any)
+	if root == "" || home == "" || len(repositories) == 0 || !within(root, output) || output == root || scratch == "" {
+		return nil, errors.New("Materialized folder scope is incomplete")
+	}
+	entries := [][2]string{{output, "write"}, {scratch, "write"}, {home, "none"}, {filepath.Join(root, ".git"), "none"}}
+	for _, repository := range repositories {
+		path, ok := repository.(string)
+		if !ok {
+			return nil, errors.New("Materialized folder scope is incomplete")
+		}
+		entries = append(entries, [2]string{filepath.Join(root, path, ".git"), "none"})
+	}
+	denied, err := deniedEntries(home, user, []string{".npmrc"}, output, scratch)
+	if err != nil {
+		return nil, err
+	}
+	arguments, err := profileArguments(setupProfile, append(entries, denied...), `network={enabled=true,domains={"`+snapshot.NPMRegistry+`"="allow"}}`)
+	if err != nil {
+		return nil, err
+	}
+	return append(arguments, "-c", "features.network_proxy=true"), nil
+}
+
+// deniedEntries are the Code token and its directory, which may contain none of writable, and the
+// user's credential paths plus extra (relative to user) and CODEX_HOME, resolved through symlinks.
+func deniedEntries(home, user string, extra []string, writable ...string) ([][2]string, error) {
+	var entries [][2]string
 	token, err := codeToken(home)
 	if err != nil {
 		return nil, err
 	}
 	if token != "" {
 		directory := filepath.Dir(token)
-		for _, writable := range []string{root, scratch} {
-			if writable == directory || strings.HasPrefix(writable, directory+"/") {
-				return nil, fmt.Errorf("Code token directory %s contains %s", directory, writable)
+		for _, path := range writable {
+			if path == directory || strings.HasPrefix(path, directory+"/") {
+				return nil, fmt.Errorf("Code token directory %s contains %s", directory, path)
 			}
 		}
 		entries = append(entries, [2]string{token, "none"}, [2]string{directory, "none"})
 	}
 	credentials := []string{}
-	for _, name := range credentialPaths {
+	for _, name := range append(slices.Clone(credentialPaths), extra...) {
 		credentials = append(credentials, filepath.Join(user, name))
 	}
 	// Codex authentication lives in CODEX_HOME when it is set.
@@ -135,13 +191,11 @@ func folderArguments(scope map[string]any, scratch, user, inspector string) ([]s
 		}
 		entries = append(entries, [2]string{path, "none"})
 	}
-	// Seatbelt lets a specific file read win inside a denied directory; grant only the inspector itself.
-	for _, entry := range entries {
-		if entry[1] == "none" && within(entry[0], inspector) {
-			entries = append(entries, [2]string{inspector, "read"})
-			break
-		}
-	}
+	return entries, nil
+}
+
+// profileArguments renders filesystem entries and a network table as one named Codex permission profile.
+func profileArguments(name string, entries [][2]string, network string) ([]string, error) {
 	access := map[string]string{}
 	var paths []string
 	for _, entry := range entries {
@@ -158,9 +212,8 @@ func folderArguments(scope map[string]any, scratch, user, inspector string) ([]s
 		}
 		paths = append(paths, string(key)+`="`+entry[1]+`"`)
 	}
-	profile := `permissions={atlas_folder={extends=":read-only",filesystem={` + strings.Join(paths, ",") +
-		`},network={enabled=false}}}`
-	return []string{"-c", `default_permissions="atlas_folder"`, "-c", profile}, nil
+	profile := `permissions={` + name + `={extends=":read-only",filesystem={` + strings.Join(paths, ",") + `},` + network + `}}`
+	return []string{"-c", `default_permissions="` + name + `"`, "-c", profile}, nil
 }
 
 func within(dir, path string) bool { return path == dir || strings.HasPrefix(path, dir+"/") }
