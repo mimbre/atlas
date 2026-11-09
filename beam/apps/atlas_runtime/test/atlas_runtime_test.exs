@@ -49,6 +49,7 @@ defmodule AtlasRuntimeTest do
         stub_dir: dir,
         crash_pause: 50,
         leave_grace: 300,
+        model: AtlasRuntime.TestModel,
         name: Engine
       ]
       |> Keyword.merge(more)

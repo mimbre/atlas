@@ -190,6 +190,10 @@ defmodule AtlasRuntime.Integrations.AtlasServer.Lifecycle do
   @impl true
   def init({config, owner, opts}) do
     settings = Settings.get()
+    # The turn's kind and fields and the execution records are the model's; without a
+    # model, or with a module that is no model, the reporter does not start.
+    model =
+      AtlasRuntime.Model.check!(Keyword.get_lazy(opts, :model, &AtlasRuntime.Model.configured!/0))
 
     attached =
       case AtlasBus.attach("runtime@" <> config.machine) do
@@ -208,8 +212,8 @@ defmodule AtlasRuntime.Integrations.AtlasServer.Lifecycle do
        talk: Keyword.get(opts, :talk, []),
        lease: Keyword.get(opts, :lease, settings[:lease]),
        silence: Keyword.get(opts, :silence, settings[:silence]),
-       names: nil,
-       execution: nil,
+       names: model.turn(),
+       execution: get_in(model.guidance() || %{}, ["execution", "kind"]),
        turns: %{}
      }}
   end
@@ -455,26 +459,13 @@ defmodule AtlasRuntime.Integrations.AtlasServer.Lifecycle do
     _, _ -> nil
   end
 
-  # The description's names, kept once read (the engine reads the same ones each round).
-  defp names(%{names: %{}} = state), do: {:ok, state}
+  # The model's names for the turn and its execution, as the engine uses them.
   defp names(%{attached: {:error, why}}), do: {:error, why}
 
-  defp names(state) do
-    case read(state, "_description", %{}) do
-      %{"description" => d} ->
-        names = get_in(d, ["runtime", "turn"]) || %{}
-        execution = get_in(d, ["guidance", "execution", "kind"])
-
-        if Enum.all?(@names, &is_binary(names[&1])) and is_binary(execution),
-          do: {:ok, %{state | names: names, execution: execution}},
-          else: {:error, "the Server description has no runtime turn and execution mapping"}
-
-      %{"error" => why} ->
-        {:error, to_string(why)}
-
-      _ ->
-        {:error, "Facts did not answer"}
-    end
+  defp names(%{names: names, execution: execution} = state) do
+    if is_map(names) and Enum.all?(@names, &is_binary(names[&1])) and is_binary(execution),
+      do: {:ok, state},
+      else: {:error, "the model has no runtime turn and execution mapping"}
   end
 
   defp refusal_text(refusal) do

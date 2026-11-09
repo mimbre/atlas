@@ -1,73 +1,36 @@
 defmodule AtlasRuntime.FakeFacts do
   @moduledoc """
-  A stand-in for Facts on the Bus, for Runtime's tests: answers reads (the description, one
-  fact, all of a kind, those linked to a key), stores creates and changes in memory, and
-  answers each fact with stored (the Bus hints it to listeners). Its kinds are made up on
-  purpose: a clerk owns a box through a card; a run is a turn.
+  A stand-in for Facts on the Bus, for Runtime's tests: answers reads (one fact, all of a
+  kind, those linked to a key), stores creates and changes in memory, and answers each
+  fact with stored (the Bus hints it to listeners). Its kinds are the neutral model's
+  (`AtlasRuntime.TestModel`): a clerk owns a box through a card; a run is a turn.
   """
   use GenServer
 
   alias AtlasBus.Envelope
 
-  def description do
-    %{
-      "entities" => %{
-        "box" => %{"plural" => "boxes"},
-        "card" => %{"plural" => "cards"},
-        "clerk" => %{"plural" => "clerks"},
-        "run" => %{"plural" => "runs"}
-      },
-      "relations" => %{
-        "card" => %{"from" => ["box"], "to" => ["card"], "max_outgoing" => 1},
-        "owned_by" => %{"from" => ["card"], "to" => ["clerk"], "max_outgoing" => 1},
-        "run_on" => %{"from" => ["run"], "to" => ["card"], "max_outgoing" => 1},
-        "run_by" => %{"from" => ["run"], "to" => ["clerk"], "max_outgoing" => 1}
-      },
-      "flows" => %{
-        "pack" => %{
-          "kinds" => ["box"],
-          "on" => "card",
-          "field" => "todo",
-          "state_field" => "step",
-          "handover_field" => "later",
-          "states" => [
-            %{
-              "name" => "checking",
-              "when" => %{"values" => %{"phase" => ["check"]}},
-              "owner" => %{"kind" => "clerk", "key" => "bob"},
-              "expected" => "Check it"
-            },
-            %{
-              "name" => "packing",
-              "owner" => %{"kind" => "clerk", "key" => "ada"},
-              "expected" => "Pack it"
-            }
-          ],
-          "owner_relation" => "owned_by"
-        }
-      },
-      "runtime" => %{
-        "turn" => %{
-          "kind" => "run",
-          "key" => "R-{on}-{n}",
-          "on" => "run_on",
-          "by" => "run_by",
-          "state" => "status",
-          "running" => "going",
-          "ended" => "over",
-          "machine" => "host",
-          "lease" => "until",
-          "activity" => "last",
-          "why" => "reason",
-          "ended_at" => "done_at",
-          "outcome" => "result"
-        },
-        "agent" => %{"cannot_run" => "stuck"}
-      }
-    }
+  @doc """
+  What Facts answers as its description for `model`: the model's Rela schema with its
+  additions merged into it, map by map. Runtime never reads it; Facts' other readers (a
+  Flow item in an integration script) do, until Facts runs the model itself.
+  """
+  def description_of(model) do
+    d = model.__rela__(:description)
+    merge(d.schema, d.extension)
   end
 
-  def start_link(_), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
+  defp merge(left, right) do
+    Map.merge(left, right, fn _key, l, r ->
+      if is_map(l) and is_map(r), do: merge(l, r), else: r
+    end)
+  end
+
+  @doc "Start it; `description:` is what it answers to a description read (none by default)."
+  def start_link(opts \\ []),
+    do:
+      GenServer.start_link(__MODULE__, Keyword.get(List.wrap(opts), :description),
+        name: __MODULE__
+      )
 
   @doc "Put a fact as Facts would answer it."
   def put(kind, fact), do: GenServer.call(__MODULE__, {:put, kind, fact})
@@ -83,9 +46,9 @@ defmodule AtlasRuntime.FakeFacts do
   def sent, do: GenServer.call(__MODULE__, :sent)
 
   @impl true
-  def init(:ok) do
+  def init(description) do
     :ok = AtlasBus.attach(AtlasBus.store())
-    {:ok, %{facts: %{}, sent: [], position: 0, hold: nil, held: nil}}
+    {:ok, %{facts: %{}, sent: [], position: 0, hold: nil, held: nil, description: description}}
   end
 
   @impl true
@@ -115,8 +78,8 @@ defmodule AtlasRuntime.FakeFacts do
   def handle_info({:atlas_bus, %Envelope{class: "read"} = e, content}, s) do
     answer =
       case {e.kind, content} do
-        {"_description", _} ->
-          %{"description" => description()}
+        {"_description", _} when s.description != nil ->
+          %{"description" => s.description}
 
         {kind, %{"key" => key}} ->
           %{"fact" => s.facts[{kind, key}]}

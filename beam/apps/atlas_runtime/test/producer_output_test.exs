@@ -186,12 +186,10 @@ defmodule AtlasRuntime.ProducerOutputTest do
       leave_grace: 0,
       guidance_every: :manual,
       ownership: %{"owner_relation" => "owner"},
-      description: %{
-        "guidance" => %{
-          "execution" => %{"kind" => "execution"},
-          "interaction" => %{"kind" => "interaction"},
-          "receipt" => %{"kind" => "receipt"}
-        }
+      guidance_mapping: %{
+        "execution" => %{"kind" => "execution"},
+        "interaction" => %{"kind" => "interaction"},
+        "receipt" => %{"kind" => "receipt"}
       }
     }
 
