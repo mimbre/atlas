@@ -51,7 +51,7 @@ defmodule FlowMigrationBootTest do
   @root Path.expand("../..", __DIR__)
   @now ~U[2026-11-12 00:00:00Z]
   # Slice 1's deployed definition digest, retained in the sidecar migration table.
-  @old "e59a6880bf210d104ff7231f6e354a59b27caf01b9207e7522eb647edc523054"
+  @old "8ca16b332a083209e6e44ffc3feeca0f152c632caa4d5206ab24fe540ab3770c"
 
   defmodule Target do
     use AtlasFlowGenerator.Runtime, target: "../../flow/targets/test/atlas/flows.json"
@@ -102,6 +102,9 @@ defmodule FlowMigrationBootTest do
           if import? or state == "proposed",
             do: run,
             else: put_in(run, ["last_input"], %{"version" => 1, "branch" => state})
+
+        # The first upgrade has already encountered and blocked this old run.
+        run = if key == "D-active", do: Run.block_definition(run, flow), else: run
 
         FakeFacts.put("flow_run", %{"key" => run["key"], "values" => Store.encode(config, run)})
         {key, run}

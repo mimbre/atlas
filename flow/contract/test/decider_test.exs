@@ -22,9 +22,12 @@ defmodule AtlasFlowContract.DeciderTest do
   test "slice-1 cursors migrate against both deployed definition digests" do
     alias AtlasFlow.Runs.Run
     now = ~U[2026-11-12 00:00:00Z]
-    old_digest = "e59a6880bf210d104ff7231f6e354a59b27caf01b9207e7522eb647edc523054"
+    old_digest = "8ca16b332a083209e6e44ffc3feeca0f152c632caa4d5206ab24fe540ab3770c"
     config = JSON.decode!(File.read!("../../rela/flow-runtime.json"))["flow_runtime"]
     selection = config["selection"]["decide"]
+    # Captured from the deployed slice-1 runs in both environments, rather than
+    # inferred from a reconstruction of the old declaration.
+    assert Enum.map(selection["migrations"], & &1["from"]) == [old_digest, old_digest]
 
     for path <- ["../targets/atlas/flows.json", "../targets/test/atlas/flows.json"] do
       definition = JSON.decode!(File.read!(path))["flows"]["decide"]
@@ -56,6 +59,14 @@ defmodule AtlasFlowContract.DeciderTest do
 
           assert {:ok, ^migrated} =
                    Run.migrate(migrated, definition, selection["migrations"], now)
+
+          # The first slice-3 deploy already blocked the old cursor. Installing
+          # the corrected mapping must recover it without a manual store edit.
+          blocked = Run.block_definition(old, definition)
+          assert blocked["status"] == "blocked"
+
+          assert {:ok, ^migrated} =
+                   Run.migrate(blocked, definition, selection["migrations"], now)
         else
           assert migrated == old
         end

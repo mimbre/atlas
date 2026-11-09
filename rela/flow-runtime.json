@@ -33,8 +33,8 @@
         "choices": ["status"],
         "choice_states": ["for_person_always", "for_person", "for_agent", "for_agent_unverified"],
         "migrations": [
-          {"from": "e59a6880bf210d104ff7231f6e354a59b27caf01b9207e7522eb647edc523054", "to": "118c1cf31028979df064344d708a59f8ee19ad97493b47d66ac2d66cbb8dbb00", "reason": "Slice 1 to slice 3: enter the decider gate once; preserve final history", "states": {"proposed": "deciding", "accepted": "accepted", "rejected": "rejected"}},
-          {"from": "e59a6880bf210d104ff7231f6e354a59b27caf01b9207e7522eb647edc523054", "to": "77f00aa4ea2f8ec4ff3620b590794b6aabeedd8ce435a9e4a635e909d7d40b93", "reason": "Slice 1 to slice 3: enter the decider gate once; preserve final history", "states": {"proposed": "deciding", "accepted": "accepted", "rejected": "rejected"}}
+          {"from": "8ca16b332a083209e6e44ffc3feeca0f152c632caa4d5206ab24fe540ab3770c", "to": "118c1cf31028979df064344d708a59f8ee19ad97493b47d66ac2d66cbb8dbb00", "reason": "Slice 1 to slice 3: enter the decider gate once; preserve final history", "states": {"proposed": "deciding", "accepted": "accepted", "rejected": "rejected"}},
+          {"from": "8ca16b332a083209e6e44ffc3feeca0f152c632caa4d5206ab24fe540ab3770c", "to": "77f00aa4ea2f8ec4ff3620b590794b6aabeedd8ce435a9e4a635e909d7d40b93", "reason": "Slice 1 to slice 3: enter the decider gate once; preserve final history", "states": {"proposed": "deciding", "accepted": "accepted", "rejected": "rejected"}}
         ],
         "subject": "decision",
         "legacy": "decide",

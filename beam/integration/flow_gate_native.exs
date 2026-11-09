@@ -138,7 +138,7 @@ try do
 
   old =
     Map.merge(old, %{
-      "definition_sha256" => "e59a6880bf210d104ff7231f6e354a59b27caf01b9207e7522eb647edc523054",
+      "definition_sha256" => "8ca16b332a083209e6e44ffc3feeca0f152c632caa4d5206ab24fe540ab3770c",
       "state" => "proposed",
       "entry" => 1,
       "pending" => %{"version" => 1, "writes" => []}
