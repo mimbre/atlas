@@ -185,9 +185,13 @@ func run(args []string) (err error) {
 			}
 			leader.wait(-1)
 		}
+		// A scratch that cannot be removed is a cleanup warning, never the turn's outcome: it is
+		// appended to the turn's stderr.log and the host's stderr, and the exit status stays the turn's.
 		if nativeTemporary != nil {
-			if removeErr := os.RemoveAll(*nativeTemporary); removeErr != nil {
-				err = removeErr
+			if removeErr := removeScratch(*nativeTemporary); removeErr != nil {
+				warning := "Native runner cleanup warning: " + removeErr.Error() + "\n"
+				errorsFile.WriteString(warning)
+				os.Stderr.WriteString(warning)
 			}
 		}
 		// Keep ownership until the complete process group has been reaped, including on stop.

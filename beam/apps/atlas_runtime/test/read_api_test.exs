@@ -3,6 +3,7 @@ defmodule AtlasRuntime.ReadApiTest do
   use ExUnit.Case, async: false
 
   alias AtlasRuntime.Agent.Native
+  alias AtlasRuntime.Execution.RestartReconciliation
   alias AtlasRuntime.{ExecutionEvents, Output, Service}
   alias AtlasRuntime.Inspection.Reads
 
@@ -217,6 +218,8 @@ defmodule AtlasRuntime.ReadApiTest do
     Enum.each(turns, &public!/1)
   end
 
+  # Reconciliation judges the dead turn's process from a `ps` listing.
+  @tag skip: AtlasRuntime.TestHost.missing(:process_listing)
   test "after a service restart, cursors resume, lost state is explicit and stale read.sock is replaced",
        %{dir: dir} do
     service = launch(dir)
@@ -230,17 +233,45 @@ defmodule AtlasRuntime.ReadApiTest do
 
     halt(service)
 
+    # Restart reconciliation ends the turn only once its native process is provably gone.
+    process = Path.join([dir, "turns", run.id, "process.json"])
+    pid = process |> File.read!() |> JSON.decode!() |> Map.fetch!("pid")
+    launched = File.stat!(process, time: :posix).mtime
+
+    await(
+      fn -> match?({:gone, _}, RestartReconciliation.process_state(pid, launched)) end,
+      3_000
+    )
+
     assert File.exists?(Path.join(dir, "read.sock"))
-    launch(dir)
+    restarted = launch(dir)
     assert read(dir, "workers")["workers"] == []
     resumed = read(dir, "events", %{"cursor" => head})
     refute Map.has_key?(resumed, "reset")
-    # Recovery invalidates the dead turn's question; nothing before the cursor is repeated.
-    assert [%{"kind" => "question_invalidated", "turn_id" => turn}] = resumed["events"]
-    assert turn == run.id
 
-    assert %{"state" => "unknown", "recorded_state" => "running"} =
+    # Recovery invalidates the dead turn's question and reports it, once, as interrupted by
+    # the restart, which no ordinary failure is; nothing before the cursor is repeated.
+    assert [
+             %{"kind" => "question_invalidated", "turn_id" => invalidated},
+             %{
+               "kind" => "execution_failed",
+               "turn_id" => failed,
+               "worker_id" => "alpha",
+               "backend" => "claude",
+               "model" => "claude-sonnet-4-6",
+               "interruption" => "service_restart"
+             }
+           ] = resumed["events"]
+
+    assert invalidated == run.id and failed == run.id
+
+    assert %{"state" => "failed", "recorded_state" => "running", "error" => "interrupted: " <> _} =
              read(dir, "turn", %{"turn_id" => run.id})["turn"]
+
+    # A second restart finds the turn terminal and reports nothing again.
+    halt(restarted)
+    launch(dir)
+    assert read(dir, "events", %{"cursor" => head})["events"] == resumed["events"]
 
     # A turn whose output was never retained here, and malformed or unknown targets.
     saved = "turn-00000000000000aa"

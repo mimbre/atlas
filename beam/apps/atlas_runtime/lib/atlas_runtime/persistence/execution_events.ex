@@ -151,6 +151,13 @@ defmodule AtlasRuntime.ExecutionEvents do
         event
       end
 
+    # Only restart reconciliation ends a turn it did not run; its event says so.
+    event =
+      case Map.get(run, :interruption) do
+        nil -> event
+        interruption -> Map.put(event, "interruption", interruption)
+      end
+
     unless valid_event?(event), do: raise(ArgumentError, "invalid execution event snapshot")
 
     store
@@ -423,7 +430,9 @@ defmodule AtlasRuntime.ExecutionEvents do
                "execution_stopped",
                "execution_killed"
              ] ->
-          map_size(event) == 7 + worker_fields
+          map_size(event) == 7 + worker_fields or
+            (kind == "execution_failed" and event["interruption"] == "service_restart" and
+               map_size(event) == 8 + worker_fields)
 
         _ ->
           false
