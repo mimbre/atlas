@@ -160,7 +160,7 @@ defmodule WorkerControlTest do
         %{"performer" => {"operator", ["W-1"]}, "task" => {"ticket", ["T-1"]}}
       )
 
-    start_supervised!({AtlasFacts.Server, rela: rela, data_dir: dir})
+    server = start_supervised!({AtlasFacts.Server, rela: rela, data_dir: dir})
 
     {:stored, %{"fact" => execution}} =
       bus("runtime@box", "synthetic_execution", %{
@@ -190,7 +190,13 @@ defmodule WorkerControlTest do
       Application.put_env(:atlas_bus, :store, previous_store)
     end)
 
-    %{rela: rela, backend: backend, execution: execution, port: port}
+    %{rela: rela, backend: backend, execution: execution, port: port, server: server}
+  end
+
+  defp direct_change(c, plural, key, props, version, targets) do
+    result = Rela.change(c.rela, plural, key, props, version, targets)
+    :ok = AtlasFacts.Server.flush_collections(c.server)
+    result
   end
 
   defp target,
@@ -664,7 +670,7 @@ defmodule WorkerControlTest do
     assert {:error, %{"error" => %{"code" => "immutable_conflict"}}} =
              request(a, :worker_submit, put_in(props, ["guidance", "body"], "different"))
 
-    {:ok, []} = Rela.change(c.rela, "runs", "R-1", %{"state" => "ended"}, nil, %{})
+    {:ok, []} = direct_change(c, "runs", "R-1", %{"state" => "ended"}, nil, %{})
 
     assert {:result, %{"found" => true, "interaction" => ^interaction}} =
              request(a, :worker_query, %{"execution" => target(), "client_key" => "same-key"})
@@ -811,7 +817,7 @@ defmodule WorkerControlTest do
     reason = "Permission required — keep literal α"
 
     {:ok, []} =
-      Rela.change(c.rela, "runs", "R-1", %{"state" => "blocked", "why" => reason}, nil, %{})
+      direct_change(c, "runs", "R-1", %{"state" => "blocked", "why" => reason}, nil, %{})
 
     assert {:result, %{"view" => view}} =
              request(a, :worker_inspect, %{"execution" => target()})
@@ -842,7 +848,7 @@ defmodule WorkerControlTest do
     refute JSON.encode!(forbidden) =~ reason
     refute JSON.encode!(forbidden) =~ "blocked"
 
-    {:ok, []} = Rela.change(c.rela, "runs", "R-1", %{"fence" => "replacement"}, nil, %{})
+    {:ok, []} = direct_change(c, "runs", "R-1", %{"fence" => "replacement"}, nil, %{})
 
     assert {:error, %{"error" => %{"code" => "stale_execution"}}} =
              request(a, :worker_inspect, %{"execution" => target()})
@@ -907,12 +913,12 @@ defmodule WorkerControlTest do
   test "handover and replacement cannot transfer guidance authority", c do
     a = connect(c.port)
     on_exit(fn -> :gen_tcp.close(a) end)
-    {:ok, []} = Rela.change(c.rela, "tickets", "T-1", %{"handover" => "pending"}, nil, %{})
+    {:ok, []} = direct_change(c, "tickets", "T-1", %{"handover" => "pending"}, nil, %{})
 
     assert {:error, %{"error" => %{"code" => "stale_execution"}}} =
              request(a, :worker_submit, %{"execution" => target(), "guidance" => guidance()})
 
-    {:ok, []} = Rela.change(c.rela, "runs", "R-1", %{"fence" => "replacement"}, nil, %{})
+    {:ok, []} = direct_change(c, "runs", "R-1", %{"fence" => "replacement"}, nil, %{})
 
     assert {:error, %{"error" => %{"code" => "stale_execution"}}} =
              request(a, :worker_inspect, %{"execution" => target()})

@@ -199,11 +199,13 @@ defmodule AtlasE2E.Instance do
   Remove ended turn fixtures from this run's own disposable backend. Control has no
   authority to delete fenced system facts. This is fixture-owner teardown, not a
   Runtime impersonation or a production API. Stop the private Runtime before touching
-  its history; restart only after successful teardown. Existing run directories remain.
+  its history. Stop the core too, discarding Facts' copies before these direct writes;
+  restart both only after successful teardown. Existing run directories remain.
   """
   def cleanup_turn_fixtures(instance, keys) do
     private_fixture!(instance)
     :ok = stop_runtime(instance)
+    :ok = stop_core(instance)
 
     for key <- keys do
       path = "/turns/" <> URI.encode(key, &URI.char_unreserved?/1)
@@ -222,6 +224,7 @@ defmodule AtlasE2E.Instance do
       end
     end
 
+    :ok = start_core(instance)
     start_runtime(instance)
   end
 

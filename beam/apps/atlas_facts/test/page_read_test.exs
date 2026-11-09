@@ -79,9 +79,18 @@ defmodule AtlasFacts.PageReadTest do
         %{calls: %{}, phase: "packing", fail_once: false, unavailable: false, complete: false}
       end)
 
-    start_supervised!({AtlasFacts.Server, rela: {Backend, backend}, data_dir: dir})
+    {:ok, clock} = Agent.start_link(fn -> 0 end)
+
+    server =
+      start_supervised!(
+        {AtlasFacts.Server,
+         rela: {Backend, backend},
+         data_dir: dir,
+         collection_clock: fn -> Agent.get(clock, & &1) end}
+      )
+
     :ok = AtlasBus.attach("control/session-page-#{System.unique_integer([:positive])}")
-    %{backend: backend}
+    %{backend: backend, clock: clock, server: server}
   end
 
   defp read(kind, content \\ %{}) do
@@ -94,17 +103,20 @@ defmodule AtlasFacts.PageReadTest do
 
   defp batch, do: read("_page", %{"kinds" => ["box", "jar"]})["answers"]
 
-  test "complete enriched results match ordinary reads and later requests see fresh facts", c do
+  test "complete enriched results match ordinary reads and immediately observe outside writes",
+       c do
     ordinary = [read("box"), read("jar")]
     Agent.update(c.backend, &%{&1 | calls: %{}})
     assert batch() == ordinary
-    assert Agent.get(c.backend, & &1.calls) == %{"boxes" => 1, "jars" => 1}
+    assert Agent.get(c.backend, & &1.calls) == %{}
 
     Agent.update(c.backend, &%{&1 | phase: "sealed"})
+    :ok = AtlasFacts.Server.flush_collections(c.server)
     [boxes, jars] = batch()
     assert hd(boxes["facts"])["progress"]["value"] == "sealed"
     assert hd(jars["facts"])["values"]["phase"] == "sealed"
     Agent.update(c.backend, &%{&1 | phase: "packing"})
+    :ok = AtlasFacts.Server.flush_collections(c.server)
     assert hd(read("box")["facts"])["progress"]["value"] == "packing"
   end
 
@@ -112,6 +124,7 @@ defmodule AtlasFacts.PageReadTest do
     Agent.update(c.backend, &%{&1 | fail_once: true})
     ordinary = [read("box"), read("jar")]
     Agent.update(c.backend, &%{&1 | fail_once: true, calls: %{}})
+    :ok = AtlasFacts.Server.flush_collections(c.server)
     assert batch() == ordinary
     assert hd(ordinary)["error_kind"] == "unreachable"
     assert Agent.get(c.backend, & &1.calls["jars"]) == 2
@@ -135,6 +148,7 @@ defmodule AtlasFacts.PageReadTest do
   test "a fact pointing at one that was replaced is to be reviewed; worked out, not stored", c do
     refute Map.has_key?(hd(read("jar")["facts"]), "review")
     Agent.update(c.backend, &Map.put(&1, :box, "replaced"))
+    :ok = AtlasFacts.Server.flush_collections(c.server)
     [_boxes, jars] = batch()
 
     assert hd(jars["facts"])["review"] == %{
@@ -149,14 +163,17 @@ defmodule AtlasFacts.PageReadTest do
     # A plain read (Flow walking up) works nothing out.
     refute Map.has_key?(hd(read("jar", %{"linked" => %{}, "plain" => true})["facts"]), "review")
     Agent.update(c.backend, &Map.put(&1, :box, nil))
+    :ok = AtlasFacts.Server.flush_collections(c.server)
     refute Map.has_key?(hd(read("jar")["facts"]), "review")
   end
 
   test "backend loss does not return cached facts and recovery rereads them", c do
     batch()
     Agent.update(c.backend, &%{&1 | unavailable: true})
+    :ok = AtlasFacts.Server.flush_collections(c.server)
     assert Enum.all?(batch(), &(&1["error_kind"] == "unreachable"))
     Agent.update(c.backend, &%{&1 | unavailable: false, phase: "sealed"})
+    :ok = AtlasFacts.Server.flush_collections(c.server)
     [boxes, jars] = batch()
     assert hd(boxes["facts"])["progress"]["value"] == "sealed"
     assert hd(jars["facts"])["values"]["phase"] == "sealed"

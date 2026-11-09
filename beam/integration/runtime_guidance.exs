@@ -104,6 +104,12 @@ defmodule AtlasRuntime.RuntimeGuidanceTest do
     %{d: d, opts: opts, rela: rela, store: store, dir: dir, server: server}
   end
 
+  defp direct_change(c, plural, key, props, version, targets) do
+    result = Rela.change(c.rela, plural, key, props, version, targets)
+    :ok = AtlasFacts.Server.flush_collections(c.server)
+    result
+  end
+
   defp boot(c) do
     engine = start_supervised!({Engine, c.opts})
     assert_receive {:started, inbox, turn}, 5_000
@@ -264,14 +270,14 @@ defmodule AtlasRuntime.RuntimeGuidanceTest do
     i = submit(t)
 
     {:ok, []} =
-      Rela.change(c.rela, "cards", "card-a", %{}, nil, %{"owned_by" => {"clerk", ["other"]}})
+      direct_change(c, "cards", "card-a", %{}, nil, %{"owned_by" => {"clerk", ["other"]}})
 
     reconcile(pid)
     assert "stale" in current(i)["projection"]["closures"]
     assert {:not_admitted, _} = FakeInbox.query(inbox, identity(t, i))
 
     {:ok, []} =
-      Rela.change(c.rela, "cards", "card-a", %{}, nil, %{"owned_by" => {"clerk", ["ada"]}})
+      direct_change(c, "cards", "card-a", %{}, nil, %{"owned_by" => {"clerk", ["ada"]}})
 
     reconcile(pid)
     assert {:not_admitted, _} = FakeInbox.query(inbox, identity(t, i))
@@ -294,11 +300,11 @@ defmodule AtlasRuntime.RuntimeGuidanceTest do
   test "handover barrier pauses admission while Flow retains owner", c do
     {_engine, pid, inbox, t} = boot(c)
     i = submit(t)
-    {:ok, []} = Rela.change(c.rela, "cards", "card-a", %{"later" => "held"}, nil, %{})
+    {:ok, []} = direct_change(c, "cards", "card-a", %{"later" => "held"}, nil, %{})
     reconcile(pid)
     assert {:not_admitted, _} = FakeInbox.query(inbox, identity(t, i))
     assert current(i)["projection"]["closures"] == []
-    {:ok, []} = Rela.change(c.rela, "cards", "card-a", %{"later" => ""}, nil, %{})
+    {:ok, []} = direct_change(c, "cards", "card-a", %{"later" => ""}, nil, %{})
     reconcile(pid)
     assert current(i)["projection"]["proven"] == "delivered"
   end
@@ -347,7 +353,7 @@ defmodule AtlasRuntime.RuntimeGuidanceTest do
   test "expired Facts lease and local budget prohibit admission without renewing either", c do
     {_engine, pid, inbox, t} = boot(c)
     i = submit(t)
-    {:ok, []} = Rela.change(c.rela, "runs", t.key, %{"until" => "2000-01-01T00:00:00Z"}, nil, %{})
+    {:ok, []} = direct_change(c, "runs", t.key, %{"until" => "2000-01-01T00:00:00Z"}, nil, %{})
     reconcile(pid)
     assert "stale" in current(i)["projection"]["closures"]
     assert {:not_admitted, _} = FakeInbox.query(inbox, identity(t, i))
@@ -365,7 +371,7 @@ defmodule AtlasRuntime.RuntimeGuidanceTest do
     i = submit(t)
     # Persisted lease grants only a short admission window, while local budget stays long.
     until = DateTime.utc_now() |> DateTime.add(1, :second) |> DateTime.to_iso8601()
-    {:ok, []} = Rela.change(c.rela, "runs", t.key, %{"until" => until}, nil, %{})
+    {:ok, []} = direct_change(c, "runs", t.key, %{"until" => until}, nil, %{})
     send(pid, :guidance)
     assert_receive {:inbox_barrier, ^inbox, :before_accept, _}, 2_000
     # Deterministic typed expired deadline is tested directly below; here await wall lease.
@@ -380,7 +386,7 @@ defmodule AtlasRuntime.RuntimeGuidanceTest do
     {engine, pid, inbox, t} = boot(c)
     i = submit(t)
     # Prevent Flow-independent new starts during historical reconciliation.
-    {:ok, []} = Rela.change(c.rela, "cards", "card-a", %{"later" => "held"}, nil, %{})
+    {:ok, []} = direct_change(c, "cards", "card-a", %{"later" => "held"}, nil, %{})
     monitor = Process.monitor(pid)
     AtlasRuntime.Turn.finish(pid, "done")
     assert_receive {:DOWN, ^monitor, :process, ^pid, _}, 2_000
@@ -400,7 +406,7 @@ defmodule AtlasRuntime.RuntimeGuidanceTest do
     Process.exit(pid, :kill)
     monitor = Process.monitor(inbox)
     assert_receive {:DOWN, ^monitor, :process, ^inbox, _}, 2_000
-    {:ok, []} = Rela.change(c.rela, "cards", "card-a", %{"later" => "held"}, nil, %{})
+    {:ok, []} = direct_change(c, "cards", "card-a", %{"later" => "held"}, nil, %{})
     Engine.round(engine)
     Engine.round(engine)
     assert current(i)["projection"]["uncertain"]
@@ -481,7 +487,7 @@ defmodule AtlasRuntime.RuntimeGuidanceTest do
     monitor = Process.monitor(inbox)
     assert_receive {:DOWN, ^monitor, :process, ^inbox, _}, 2_000
     assert current(i)["projection"]["proven"] == "delivered"
-    {:ok, []} = Rela.change(c.rela, "cards", "card-a", %{"later" => "held"}, nil, %{})
+    {:ok, []} = direct_change(c, "cards", "card-a", %{"later" => "held"}, nil, %{})
     Engine.round(engine)
     Engine.round(engine)
     assert current(i)["projection"]["proven"] == "acknowledged"
@@ -512,7 +518,7 @@ defmodule AtlasRuntime.RuntimeGuidanceTest do
     Process.exit(pid, :kill)
     monitor = Process.monitor(inbox)
     assert_receive {:DOWN, ^monitor, :process, ^inbox, _}, 2_000
-    {:ok, []} = Rela.change(c.rela, "cards", "card-a", %{"later" => "held"}, nil, %{})
+    {:ok, []} = direct_change(c, "cards", "card-a", %{"later" => "held"}, nil, %{})
     changed = Keyword.update!(opts, :agents, &put_in(&1, ["ada", "model"], "changed-model"))
     :sys.replace_state(engine, fn state -> %{state | opts: changed} end)
     Engine.round(engine)
