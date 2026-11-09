@@ -178,7 +178,7 @@ def validate(extra, schema, actors=None):
     shortcuts = []
     for kind, spec in extra.get('entities', {}).items():
         entity(kind)
-        keys(spec, 'top primary start create properties completion progress connector agent order by_hand late actions counts', f'entities.{kind}')
+        keys(spec, 'top primary start create properties completion progress connector agent order by_hand late actions counts requires authority frozen replaces layering', f'entities.{kind}')
         if 'start' in spec:
             navigation(spec['start'], kind + '.start')
             shortcuts.append(spec['start']['key'])
@@ -192,7 +192,7 @@ def validate(extra, schema, actors=None):
             field(kind, name)
             values(kind, {name: [value]})
         identity = create.get('id', {})
-        keys(identity, 'prefix digits from pattern template replace lower error', kind + '.create.id')
+        keys(identity, 'prefix digits first from pattern template replace lower error', kind + '.create.id')
         if 'from' in identity:
             field(kind, identity['from'])
         for name, annotation in spec.get('properties', {}).items():
@@ -227,6 +227,43 @@ def validate(extra, schema, actors=None):
         for action in spec.get('actions', []):
             keys(action, 'key label to when', kind + '.actions')
             values(kind, action.get('when', {}))
+        for rule in spec.get('requires', []):
+            keys(rule, 'when fields error', kind + '.requires')
+            values(kind, rule.get('when', {}))
+            for name in rule.get('fields', []):
+                field(kind, name)
+        if 'authority' in spec:
+            rule = spec['authority']
+            keys(rule, 'when by kind only_kind_when delegated_by error writes writer_error also', kind + '.authority')
+            values(kind, rule.get('writes', {}))
+            values(kind, rule.get('when', {}))
+            if rule['kind'] not in relation(rule['by'], kind)['to']:
+                raise ConfigError(f'{kind}.authority: {rule["by"]} does not point at {rule["kind"]}')
+            for condition_values in rule.get('only_kind_when', []):
+                values(kind, condition_values)
+            if 'delegated_by' in rule:
+                relation(rule['delegated_by'], kind)
+        if 'layering' in spec:
+            rule = spec['layering']
+            keys(rule, 'relation field not error', kind + '.layering')
+            if relation(rule['relation'], kind)['to'] != [kind]:
+                raise ConfigError(f'{kind}.layering: {rule["relation"]} must point at {kind}')
+            field(kind, rule['field'])
+            values(kind, {rule['field']: list(rule['not'])})
+            for banned in rule['not'].values():
+                values(kind, {rule['field']: banned})
+        if 'frozen' in spec:
+            keys(spec['frozen'], 'when only error', kind + '.frozen')
+            values(kind, spec['frozen'].get('when', {}))
+            values(kind, spec['frozen'].get('only', {}))
+        if 'replaces' in spec:
+            rule = spec['replaces']
+            keys(rule, 'relation when of set error', kind + '.replaces')
+            if relation(rule['relation'], kind)['to'] != [kind]:
+                raise ConfigError(f'{kind}.replaces: {rule["relation"]} must point at {kind}')
+            values(kind, rule.get('when', {}))
+            values(kind, rule.get('of', {}))
+            values(kind, rule.get('set', {}))
     if len(shortcuts) != len(set(shortcuts)):
         raise ConfigError('duplicate navigation shortcut')
     parents = {}

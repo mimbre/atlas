@@ -10,6 +10,22 @@ types:
     descriptions:
       refine: Being written and negotiated; not ready to build from.
       ready_to_pick_up: Agreed; the next level can be derived and built.
+  design_status:
+    values:
+    - writing
+    - in_review
+    - changes_requested
+    - approved
+    labels:
+      writing: Writing
+      in_review: In review
+      changes_requested: Changes requested
+      approved: Approved
+    descriptions:
+      writing: The Design part is being written.
+      in_review: The Design part waits for its review pass.
+      changes_requested: The review sent the Design part back.
+      approved: The review approved the Design part; it can be broken down and built.
 entities:
   scene:
     label: Scene
@@ -55,6 +71,12 @@ entities:
       description: *id002
       flux_id: *id003
       status: *id004
+      design:
+        type: string
+        description: 'The Design part: how it is built, written by the Architect'
+      design_status:
+        type: design_status
+        description: Where the Design part is; empty for a use case without a design phase
 relations:
   in_scene:
     label: in scene

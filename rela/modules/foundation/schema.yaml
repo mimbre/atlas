@@ -1,5 +1,48 @@
 # Complete definitions; included paths are relative to the selected root.
 types:
+  decision_category:
+    values: [product, process, domain, architecture, interface, technology, security, operations]
+    descriptions:
+      product: What is built, for whom, what is in or out
+      process: 'How work moves: phases, passes, gates, roles, release'
+      domain: Concepts, entities, relations and vocabulary
+      architecture: Components, their responsibilities, boundaries and contracts
+      interface: 'What people and clients see and call: UI, CLI, API and wire'
+      technology: Choice of tool, platform, library or version
+      security: Trust boundaries, permissions, credentials and data access
+      operations: Environments, deployment, backups, machines
+  decision_scope:
+    values: [platform, software_factory, instance]
+    labels:
+      platform: Platform
+      software_factory: Software factory
+      instance: Instance
+    descriptions:
+      platform: The generic mechanisms, whatever workflow runs on them
+      software_factory: The development workflow definitions
+      instance: 'One installation: its environments, machines, accounts'
+  decision_reversibility:
+    values: [one_way, two_way]
+    labels:
+      one_way: One-way
+      two_way: Two-way
+    descriptions:
+      one_way: Costly or impossible to undo; always accepted by a person
+      two_way: Cheap to undo; may be accepted with delegated authority
+  decision_force:
+    values: [direction, guideline, guardrail, principle]
+    descriptions:
+      direction: Where we go; future work is based on it
+      guideline: How work should be done; deviation is allowed with a reason
+      guardrail: What work must or must not do; a violation blocks
+      principle: What never happens, by anyone; enforced by the system
+  decision_status:
+    values: [proposed, accepted, rejected, superseded]
+    labels:
+      proposed: Proposed
+      accepted: Accepted
+      rejected: Rejected
+      superseded: Superseded
   turn_state:
     values:
     - running
@@ -255,6 +298,56 @@ entities:
       recorded_at:
         type: datetime
         required: true
+  decision:
+    label: Decision
+    plural: decisions
+    aliases:
+    - dr
+    id_type: manual
+    id_prefix: D-
+    description: 'One decision record in the append-only ledger: the rule, why, and what follows
+
+      from it. An accepted decision is never edited; a newer decision supersedes it. The id
+
+      is D- and a number, e.g. D-0024.
+
+      '
+    properties:
+      title:
+        type: string
+        required: true
+        description: The decision in a few words
+      decision:
+        type: string
+        required: true
+        description: The rule, in one or two sentences
+      context:
+        type: string
+        description: Why it was decided
+      consequences:
+        type: string
+        description: What changes because of it
+      category:
+        type: decision_category
+        description: What it is about
+      scope:
+        type: decision_scope
+        description: How widely it holds
+      reversibility:
+        type: decision_reversibility
+        description: How costly undoing it is
+      force:
+        type: decision_force
+        description: How it acts on work
+      enforced_by:
+        type: string
+        description: The test, check or gate that enforces it; required for a principle
+      status:
+        type: decision_status
+        description: Proposed, accepted, rejected or superseded
+      decided_at:
+        type: datetime
+        description: When it was accepted or rejected
 relations:
   assigned_to:
     label: assigned to
@@ -290,3 +383,46 @@ relations:
     inverse:
       id: turns_by
       label: turns
+  decided_by:
+    label: decided by
+    description: Who accepted or rejected the decision; one, a person or an agent.
+    from:
+    - decision
+    to:
+    - person
+    - agent
+    max_outgoing: 1
+    inverse:
+      id: decided
+      label: decided
+  delegated_by:
+    label: delegated by
+    description: The person whose delegated authority an agent decided under; at most one.
+    from:
+    - decision
+    to:
+    - person
+    max_outgoing: 1
+    inverse:
+      id: delegated
+      label: delegated
+  supersedes:
+    label: supersedes
+    description: The accepted decisions this one replaces; they become superseded when it is accepted.
+    from:
+    - decision
+    to:
+    - decision
+    inverse:
+      id: superseded_by
+      label: superseded by
+  follows_from:
+    label: follows from
+    description: The higher-level decisions this one elaborates.
+    from:
+    - decision
+    to:
+    - decision
+    inverse:
+      id: elaborated_by
+      label: elaborated by

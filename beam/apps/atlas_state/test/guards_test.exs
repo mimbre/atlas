@@ -1,0 +1,216 @@
+defmodule AtlasState.GuardsTest do
+  use ExUnit.Case, async: true
+
+  alias AtlasState.Guards
+
+  # Made-up kinds and rules: a ruling, decided by a judge or a clerk, that a newer one
+  # overturns. State must not care what they are called.
+  @rules %{
+    "requires" => [
+      %{"when" => %{"weight" => ["heavy"]}, "fields" => ["check"], "error" => "needs check"}
+    ],
+    "authority" => %{
+      "when" => %{"state" => ["final"]},
+      "by" => "ruled_by",
+      "kind" => "judge",
+      "only_kind_when" => [%{"weight" => ["heavy"]}, %{"area" => ["money"]}],
+      "delegated_by" => "under",
+      "error" => "not this one's to decide",
+      "writes" => %{"state" => ["final", "dropped"]},
+      "writer_error" => "only who rules it decides it"
+    },
+    "layering" => %{
+      "relation" => "rests_on",
+      "field" => "level",
+      "not" => %{"top" => ["middle", "bottom"], "middle" => ["bottom"]},
+      "error" => "{key} ({value}) may not rest on {other} ({other_value})"
+    },
+    "frozen" => %{
+      "when" => %{"state" => ["final", "overturned"]},
+      "only" => %{"state" => ["overturned"]},
+      "error" => "{key} is {value}"
+    },
+    "replaces" => %{
+      "relation" => "overturns",
+      "when" => %{"state" => ["final"]},
+      "of" => %{"state" => ["final", "overturned"]},
+      "set" => %{"state" => "overturned"},
+      "error" => "{key} is not final"
+    }
+  }
+
+  @kinds %{"J-1" => "judge", "C-1" => "clerk"}
+  defp kind_of(_relation, key), do: @kinds[key]
+
+  # Who writes: the judge, unless a test says otherwise; it is the one rulings name.
+  defp check(op, current, values, links \\ %{}, others \\ %{}, env \\ %{}) do
+    writer =
+      Enum.at(List.wrap(links["ruled_by"] || get_in(current || %{}, ["links", "ruled_by"])), 0)
+
+    env = Map.merge(%{"writer" => writer, "kind_of" => &kind_of/2, "fetch" => &others[&1]}, env)
+    Guards.check(@rules, op, "R-2", current, values, links, env)
+  end
+
+  defp final(extra \\ %{}),
+    do: %{"values" => Map.merge(%{"title" => "T", "state" => "final"}, extra), "links" => %{}}
+
+  test "the rules of a kind are read from its description; a kind without any has none" do
+    description = %{"entities" => %{"ruling" => Map.put(@rules, "plural", "rulings")}}
+    assert Guards.of(description, "ruling") == @rules
+    assert Guards.of(description, "other") == %{}
+    assert Guards.check(%{}, "delete", "X", final(), %{}, %{}, %{}) == :ok
+  end
+
+  test "a final fact is never deleted, and a change may only overturn it" do
+    assert {:refused, ["R-2 is final"]} = check("delete", final(), %{})
+    assert {:refused, ["R-2 is final"]} = check("change", final(), %{"title" => "Other"})
+    assert {:refused, _} = check("change", final(), %{"state" => "open"})
+    assert {:refused, _} = check("change", final(), %{}, %{"ruled_by" => ["C-1"]})
+    assert :ok = check("change", final(), %{"state" => "overturned"})
+    # Sending what is there already changes nothing, so it is no edit.
+    assert :ok = check("change", final(), %{"state" => "overturned", "title" => "T"})
+
+    overturned = %{"values" => %{"title" => "T", "state" => "overturned"}, "links" => %{}}
+    assert {:refused, ["R-2 is overturned"]} = check("change", overturned, %{"title" => "New"})
+  end
+
+  test "an open fact is changed and deleted freely" do
+    open = %{"values" => %{"title" => "T", "state" => "open"}, "links" => %{}}
+    assert :ok = check("change", open, %{"title" => "Other"})
+    assert :ok = check("delete", open, %{})
+  end
+
+  test "a condition requires its fields, on the fact as it is after the write" do
+    assert {:refused, ["needs check"]} = check("create", nil, %{"weight" => "heavy"})
+    assert :ok = check("create", nil, %{"weight" => "heavy", "check" => "a test"})
+
+    open = %{"values" => %{"weight" => "heavy", "check" => "a test"}, "links" => %{}}
+    assert {:refused, ["needs check"]} = check("change", open, %{"check" => ""})
+    assert :ok = check("change", open, %{"title" => "x"})
+  end
+
+  test "who may make it final: the named kind always, another only when delegated" do
+    final = %{"state" => "final"}
+    # A write that makes it final is also a decision by its writer (the next test); this one
+    # is about the fact alone.
+    no = "not this one's to decide"
+
+    assert {:refused, [^no | _]} = check("create", nil, final)
+    assert :ok = check("create", nil, final, %{"ruled_by" => ["J-1"]})
+    assert {:refused, [^no | _]} = check("create", nil, final, %{"ruled_by" => ["C-1"]})
+    assert :ok = check("create", nil, final, %{"ruled_by" => ["C-1"], "under" => ["J-1"]})
+
+    # Any condition of only_kind_when leaves it to the named kind, delegated or not.
+    for extra <- [%{"weight" => "heavy", "check" => "c"}, %{"area" => "money"}] do
+      values = Map.merge(final, extra)
+      links = %{"ruled_by" => ["C-1"], "under" => ["J-1"]}
+      assert {:refused, [^no | _]} = check("create", nil, values, links)
+      assert :ok = check("create", nil, values, %{"ruled_by" => ["J-1"]})
+    end
+
+    # On a change, the links already there count; an unknown linked fact never decides.
+    open = %{"values" => %{"state" => "open"}, "links" => %{"ruled_by" => ["C-1"]}}
+    assert {:refused, [^no | _]} = check("change", open, final)
+    assert :ok = check("change", open, final, %{"under" => ["J-1"]})
+
+    assert {:refused, [^no | _]} =
+             check("create", nil, final, %{"ruled_by" => ["X-9"], "under" => ["J-1"]})
+  end
+
+  test "only a final or overturned fact is overturned, never itself" do
+    values = %{"state" => "final"}
+    links = %{"ruled_by" => ["J-1"], "overturns" => ["R-1"]}
+
+    assert :ok = check("create", nil, values, links, %{"R-1" => %{"state" => "final"}})
+    assert :ok = check("create", nil, values, links, %{"R-1" => %{"state" => "overturned"}})
+
+    assert {:refused, ["R-1 is not final"]} =
+             check("create", nil, values, links, %{"R-1" => %{"state" => "open"}})
+
+    assert {:refused, ["R-1 is not final"]} = check("create", nil, values, links, %{})
+
+    assert {:refused, ["R-2 is not final"]} =
+             check("create", nil, values, %{"ruled_by" => ["J-1"], "overturns" => ["R-2"]})
+
+    # While it is not final itself, what it names is not checked yet.
+    assert :ok = check("create", nil, %{"state" => "open"}, %{"overturns" => ["R-9"]})
+  end
+
+  test "a stored final fact names what is to be overturned, once" do
+    others = %{"R-1" => %{"state" => "final"}, "R-0" => %{"state" => "overturned"}}
+    stored = %{"values" => %{"state" => "final"}, "links" => %{"overturns" => ["R-1", "R-0"]}}
+
+    assert Guards.replaced(@rules, stored, &others[&1]) == ["R-1"]
+    assert Guards.replaced(@rules, put_in(stored, ["values", "state"], "open"), & &1) == []
+    assert Guards.replaced(%{}, stored, &others[&1]) == []
+  end
+
+  test "a write that decides is the decider's own: no one else's, and an agent's only when delegated" do
+    final = %{"state" => "final"}
+    no = "only who rules it decides it"
+    by = fn writer -> %{"writer" => writer} end
+
+    assert :ok = check("create", nil, final, %{"ruled_by" => ["J-1"]}, %{}, by.("J-1"))
+
+    assert {:refused, [^no]} =
+             check("create", nil, final, %{"ruled_by" => ["J-1"]}, %{}, by.("C-1"))
+
+    assert {:refused, [^no]} =
+             check("create", nil, final, %{"ruled_by" => ["J-1"]}, %{}, by.(nil))
+
+    # A clerk decides its own ruling only under delegation, and never a heavy one.
+    clerk = %{"ruled_by" => ["C-1"], "under" => ["J-1"]}
+    assert :ok = check("create", nil, final, clerk, %{}, by.("C-1"))
+    assert {:refused, [^no]} = check("create", nil, final, clerk, %{}, by.("J-1"))
+
+    # Dropping it is a decision too, under the same rules, though only final needs a ruler.
+    open = %{"values" => %{"state" => "open"}, "links" => %{"ruled_by" => ["C-1"]}}
+    assert {:refused, [^no]} = check("change", open, %{"state" => "dropped"})
+    assert :ok = check("change", open, %{"state" => "dropped"}, %{"under" => ["J-1"]})
+
+    heavy = %{"state" => "dropped", "weight" => "heavy", "check" => "c"}
+    assert {:refused, [^no]} = check("change", open, heavy, %{"under" => ["J-1"]})
+
+    # Writes that decide nothing need no decider; sending the same state again is no decision.
+    assert :ok = check("change", open, %{"title" => "x"}, %{}, %{}, by.("anyone"))
+    dropped = put_in(open, ["values", "state"], "dropped")
+    assert :ok = check("change", dropped, %{"state" => "dropped"}, %{}, %{}, by.("anyone"))
+
+    # `also` lets a named writer decide (as a migration may, when the description says so).
+    rules = put_in(@rules, ["authority", "also"], ["importer"])
+    env = %{"writer" => "importer", "kind_of" => &kind_of/2, "fetch" => fn _ -> nil end}
+    assert :ok = Guards.check(rules, "create", "R-2", nil, final, %{"ruled_by" => ["J-1"]}, env)
+  end
+
+  test "a fact never rests on one at a level it may not depend on" do
+    others = %{
+      "R-1" => %{"level" => "bottom"},
+      "R-3" => %{"level" => "middle"},
+      "R-4" => %{"level" => "top"}
+    }
+
+    top = %{"level" => "top"}
+
+    assert {:refused, ["R-2 (top) may not rest on R-1 (bottom)"]} =
+             check("create", nil, top, %{"rests_on" => ["R-1"]}, others)
+
+    assert {:refused, [_]} = check("create", nil, top, %{"rests_on" => ["R-3", "R-4"]}, others)
+    assert :ok = check("create", nil, top, %{"rests_on" => ["R-4"]}, others)
+    assert :ok = check("create", nil, %{"level" => "bottom"}, %{"rests_on" => ["R-4"]}, others)
+    assert :ok = check("create", nil, %{}, %{"rests_on" => ["R-1"]}, others)
+
+    # A change to its links, or to its own level, counts the links it then has.
+    open = %{"values" => %{"level" => "bottom"}, "links" => %{"rests_on" => ["R-1"]}}
+    assert {:refused, [_]} = check("change", open, top, %{}, others)
+
+    # Moving down is refused while a fact above rests on it.
+    incoming = %{"incoming" => fn "rests_on" -> ["R-4"] end}
+    middle = %{"values" => %{"level" => "middle"}, "links" => %{}}
+
+    assert {:refused, ["R-4 (top) may not rest on R-2 (bottom)"]} =
+             check("change", middle, %{"level" => "bottom"}, %{}, others, incoming)
+
+    assert :ok = check("change", middle, %{"title" => "x"}, %{}, others, incoming)
+    assert :ok = check("change", middle, %{"level" => "top"}, %{}, others, incoming)
+  end
+end
