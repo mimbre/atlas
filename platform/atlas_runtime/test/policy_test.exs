@@ -615,7 +615,8 @@ defmodule AtlasRuntime.PolicyServiceTest do
 
   test "a start with neither profile nor backend follows the imported preference pair",
        context do
-    # Before D3 the CLI may omit both: BackendPolicy's preferred/fallback choice still applies.
+    # An in-BEAM caller of the Service may omit both: BackendPolicy's preferred/fallback
+    # choice still applies.
     File.write!(Policy.path(context.dir), JSON.encode!(@policy))
     preferred = %{"backend" => "claude", "model" => "claude-opus-5-5[1m]"}
     fallback = %{"backend" => "codex", "model" => "gpt-6.1-sol"}

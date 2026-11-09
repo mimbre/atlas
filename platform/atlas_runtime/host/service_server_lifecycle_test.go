@@ -77,6 +77,11 @@ func TestServiceStartsWithServerLifecycleAndItsModel(t *testing.T) {
 			if status["service"] != "running" {
 				t.Fatalf("service-status = %v", status)
 			}
+			// The work contract is served beside it, on backend.sock.
+			capacity, err := callBackend(dir, workCall{method: "GET", path: "/v1/capacity"})
+			if err != nil || capacity["accepting"] != true {
+				t.Fatalf("backend.sock capacity = %v, %v", capacity, err)
+			}
 			// Flow's pass receiver runs beside it, its journal under the same home.
 			if info, err := os.Stat(filepath.Join(dir, "passes")); err != nil || !info.IsDir() {
 				t.Fatalf("no pass receiver journal: %v", err)

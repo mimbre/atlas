@@ -115,14 +115,14 @@ for (const [kind, outcome] of [['execution_finished', 'finished'], ['execution_f
     await watcher.check(c.ctx, c.pi, 200001);
     const item = (await c.items()).find(x => x.selectors[0] === 'output');
     assert.deepEqual(item.evidence, { worker_id: worker, turn_id: turn, state: outcome });
-    assert.deepEqual(item.selectors, ['output', '--worker', worker, '--turn', turn]);
+    assert.deepEqual(item.selectors, ['output', '--turn', turn]);
     assert.equal((await c.state()).runtimes[c.runtimeHome].cursor, 'e1:7');
     assert.equal(c.messages.length, 1);
   });
 }
 
 scenario('killed turn from reconciliation is terminal too', async c => {
-  await c.fixture({ turns: [{ id: turn, worker_id: worker, state: 'killed' }] });
+  await c.fixture({ turns: [{ turn_id: turn, worker_id: worker, state: 'killed' }] });
   const watcher = c.watch(); await watcher.check(c.ctx, c.pi, 200000);
   assert.equal((await c.items()).find(x => x.selectors[0] === 'output').evidence.state, 'killed');
 });
@@ -161,7 +161,7 @@ scenario('saved polling cursor is reused without a gap item', async c => {
 
 for (const reset of [{ reason: 'retention_gap', from_sequence: 1, to_sequence: 9 }, { reason: 'epoch_changed' }]) {
   scenario(`reset ${reset.reason} records one gap and reconciles`, async c => {
-    await c.fixture({ turns: [{ id: turn, worker_id: worker, state: 'finished' }], handoffs: { [turn]: handoff } });
+    await c.fixture({ turns: [{ turn_id: turn, worker_id: worker, state: 'finished' }], handoffs: { [turn]: handoff } });
     const watcher = c.watch(); await watcher.check(c.ctx, c.pi, 200000);
     await c.ackAll(watcher);
     const before = (await c.calls()).length;
@@ -297,7 +297,7 @@ scenario('invalid target stops following but still delivers inbox work', async c
 });
 
 scenario('live target change switches follower, cursor and acknowledgement identity', async c => {
-  await c.fixture({ turns: [{ id: turn, worker_id: worker, state: 'finished' }] });
+  await c.fixture({ turns: [{ turn_id: turn, worker_id: worker, state: 'finished' }] });
   const watcher = c.watch(); await watcher.check(c.ctx, c.pi, 200000);
   c.stream.child.send({ cursor: 'e1:9' });
   await c.ackAll(watcher);
@@ -305,7 +305,7 @@ scenario('live target change switches follower, cursor and acknowledgement ident
   const other = join(c.home, 'dedicated-runtime'), executable = join(c.home, 'dedicated-cli');
   await mkdir(other);
   await writeFile(executable, fixtureProgram); await chmod(executable, 0o700);
-  await c.fixture({ turns: [{ id: turn, worker_id: worker, state: 'finished' }] }, other);
+  await c.fixture({ turns: [{ turn_id: turn, worker_id: worker, state: 'finished' }] }, other);
   await writeFile(join(c.root, '.delivery/runtime-target.json'), JSON.stringify({ runtimeHome: other, executable }));
   process.env.PATH = originalPath;
   await watcher.check(c.ctx, c.pi, 200001);
@@ -354,7 +354,7 @@ scenario('inbox busy/restart/reminders/exact ack and edited message', async c =>
 
 scenario('bootstrap pending native question and existing handoff survive acknowledged restart', async c => {
   await c.fixture({ workers: { research: { id: turn, worker_id: worker, state: 'running', pending_question: { id: question } } },
-    turns: [{ id: turn, worker_id: worker, state: 'running' }], questions: { [question]: pending() }, handoffs: { [turn]: handoff } });
+    turns: [{ turn_id: turn, worker_id: worker, state: 'running' }], questions: { [question]: pending() }, handoffs: { [turn]: handoff } });
   let watcher = c.watch(); await watcher.check(c.ctx, c.pi, 200000);
   const items = await c.items();
   assert.equal(items.filter(x => x.selectors[0] === 'question').length, 1);
@@ -364,11 +364,20 @@ scenario('bootstrap pending native question and existing handoff survive acknowl
   assert.deepEqual((await c.state()).pending, {}); assert.equal(c.messages.length, 1);
 });
 
+scenario('a pending question in the read.sock turn shape is inspected', async c => {
+  await c.fixture({ turns: [{ turn_id: turn, worker_id: worker, state: 'running', pending_question: { question_id: question, revision: 1 } }],
+    questions: { [question]: pending() } });
+  const watcher = c.watch(); await watcher.check(c.ctx, c.pi, 200000);
+  const items = (await c.items()).filter(x => x.selectors[0] === 'question');
+  assert.equal(items.length, 1);
+  assert.deepEqual(items[0].selectors, ['question', '--worker', worker, '--turn', turn, '--question', question]);
+});
+
 scenario('legacy state preserves unresolved events and acknowledged terminal work', async c => {
   await mkdir(join(c.root, '.delivery'));
   await writeFile(join(c.root, '.delivery/coordinator-watch.json'), JSON.stringify({ version: 1,
     seen: { [`turn:${turn}`]: 'old-signature' }, pending: { 'inbox:legacy.md': { path: 'legacy', signature: 'keep' } }, lastNudge: 0 }));
-  await c.fixture({ turns: [{ id: turn, worker_id: worker, state: 'finished' }], handoffs: { [turn]: handoff } });
+  await c.fixture({ turns: [{ turn_id: turn, worker_id: worker, state: 'finished' }], handoffs: { [turn]: handoff } });
   const watcher = c.watch(); await watcher.check(c.ctx, c.pi, 200000);
   const state = await c.state();
   assert.equal(state.pending['inbox:legacy.md'].signature, 'keep');

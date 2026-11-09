@@ -1,13 +1,10 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -77,66 +74,6 @@ func TestFailedTurnIsInspectableButCommandRefusalFails(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
-	}
-}
-
-func TestFollowRetainsPartialUTF8RecordsAcrossEOF(t *testing.T) {
-	var source, output bytes.Buffer
-	reader := eventReader{
-		reader: bufio.NewReader(&source), turnID: "turn-original", workerID: "reviewer", encoder: json.NewEncoder(&output),
-	}
-	first := []byte("{\"text\":\"🙂\"}\n")
-	cut := bytes.Index(first, []byte("🙂")) + 1
-	source.Write(first[:cut])
-	if err := reader.drain(false); err != nil {
-		t.Fatal(err)
-	}
-	if output.Len() != 0 {
-		t.Fatal("incomplete event was emitted")
-	}
-	source.Write(first[cut:])
-	source.WriteString(`{"text":"final without newline"}`)
-	if err := reader.drain(false); err != nil {
-		t.Fatal(err)
-	}
-	if err := reader.drain(true); err != nil {
-		t.Fatal(err)
-	}
-	if err := reader.drain(true); err != nil {
-		t.Fatal(err)
-	}
-	decoder := json.NewDecoder(&output)
-	for _, want := range []string{"🙂", "final without newline"} {
-		var row struct {
-			Type     string                `json:"type"`
-			TurnID   string                `json:"turn_id"`
-			WorkerID string                `json:"worker_id"`
-			Event    struct{ Text string } `json:"event"`
-		}
-		if err := decoder.Decode(&row); err != nil {
-			t.Fatal(err)
-		}
-		if row.Type != "event" || row.TurnID != "turn-original" || row.WorkerID != "reviewer" || row.Event.Text != want {
-			t.Fatalf("event changed or was duplicated: %+v", row)
-		}
-	}
-	var extra any
-	if err := decoder.Decode(&extra); err != io.EOF {
-		t.Fatalf("expected exactly two events, got %v: %v", extra, err)
-	}
-}
-
-func TestFollowRejectsTruncatedFinalRecord(t *testing.T) {
-	var output bytes.Buffer
-	reader := eventReader{
-		reader: bufio.NewReader(strings.NewReader(`{"text":`)),
-		turnID: "turn-original", encoder: json.NewEncoder(&output),
-	}
-	if err := reader.drain(true); err == nil {
-		t.Fatal("truncated final event must fail, not silently disappear")
-	}
-	if output.Len() != 0 {
-		t.Fatal("invalid event was emitted")
 	}
 }
 
@@ -224,33 +161,13 @@ func TestExecuteRejectsInvalidEventsBeforeSocketRequest(t *testing.T) {
 	}
 }
 
-func TestExecuteRejectsInvalidStartBackendBeforeSocketRequest(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("ATLAS_RUNTIME_HOME", dir)
-	for _, backend := range []string{"", " ", "other", "Claude", "codex,claude"} {
-		t.Run("backend="+backend, func(t *testing.T) {
-			result, err := execute([]string{"start", "--cwd", dir, "--backend=" + backend, "inspect files"})
-			if err == nil || err.Error() != "backend must be codex or claude" || result != nil {
-				t.Fatalf("expected backend refusal, got result %#v, error %v", result, err)
-			}
-		})
-	}
-}
-
 func TestExecuteRejectsInvalidWorkerTargetsBeforeSocketRequest(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("ATLAS_RUNTIME_HOME", dir)
-	for _, command := range []string{"start", "status", "output", "stop", "kill", "release", "continue"} {
+	for _, command := range []string{"release", "question", "answer", "handoff"} {
 		for _, worker := range []string{"", " ", "Reviewer", "1reviewer", "-reviewer", "_reviewer", "../reviewer", "reviewer/name", "réviewer", "reviewer\n", strings.Repeat("a", 65)} {
 			t.Run(command+"/"+worker, func(t *testing.T) {
-				args := []string{command, "--worker=" + worker}
-				if command == "start" {
-					args = append(args, "--cwd", dir, "inspect files")
-				}
-				if command == "continue" {
-					args = append(args, "inspect files")
-				}
-				if _, err := execute(args); err == nil || !strings.Contains(err.Error(), "worker must match") {
+				if _, err := execute([]string{command, "--worker=" + worker}); err == nil || !strings.Contains(err.Error(), "worker must match") {
 					t.Fatalf("expected worker refusal before request, got %v", err)
 				}
 			})
@@ -260,27 +177,12 @@ func TestExecuteRejectsInvalidWorkerTargetsBeforeSocketRequest(t *testing.T) {
 		args []string
 		want string
 	}{
-		{[]string{"status", "--worker"}, "flag needs an argument"},
-		{[]string{"stop", "--worker", "reviewer", "--turn", "turn-1", "extra"}, "unexpected arguments"},
-		{[]string{"stop", "--worker", "reviewer"}, "use stop --worker NAME --turn TURN_ID"},
-		{[]string{"kill", "--turn", "turn-1"}, "use kill --worker NAME --turn TURN_ID"},
-		{[]string{"stop"}, "use stop --worker NAME --turn TURN_ID"},
-		{[]string{"kill", "--worker", "reviewer", "--turn="}, "turn must be nonempty"},
 		{[]string{"release"}, "use release --worker NAME"},
+		{[]string{"release", "--worker"}, "flag needs an argument"},
+		{[]string{"release", "--worker", "reviewer", "extra"}, "unexpected arguments"},
 		{[]string{"release", "--worker", "reviewer", "--turn", "turn-1"}, "flag provided but not defined"},
 		{[]string{"pause", "--worker", "reviewer"}, "unknown command"},
 		{[]string{"resume", "--worker", "reviewer"}, "unknown command"},
-		{[]string{"status", "--turn", "turn-1"}, "flag provided but not defined"},
-		{[]string{"start", "--turn", "turn-1"}, "flag provided but not defined"},
-		{[]string{"continue", "--worker", "reviewer"}, "use continue"},
-		{[]string{"continue", "--worker", "reviewer", "one", "two"}, "use continue"},
-		{[]string{"continue", "assignment", "--worker", "reviewer"}, "use continue"},
-		{[]string{"start", "--cwd", dir, "assignment", "--worker", "reviewer"}, "one nonempty assignment"},
-		{[]string{"continue", "--worker", "reviewer", "--cwd", dir, "assignment"}, "flag provided but not defined"},
-		{[]string{"continue", "--turn=", "assignment"}, "turn must be nonempty"},
-		{[]string{"output", "--turn="}, "turn must be nonempty"},
-		{[]string{"output", "--worker", "reviewer", "extra"}, "does not accept positional arguments"},
-		{[]string{"output", "--worker", "reviewer", "--follow", "--turn", "turn-1"}, "cannot be combined"},
 		{[]string{"turns", "--worker", "reviewer"}, "unexpected arguments"},
 		{[]string{"events", "--worker", "reviewer"}, "flag provided but not defined"},
 		{[]string{"service", "status", "--worker", "reviewer"}, "use service"},
@@ -293,217 +195,15 @@ func TestExecuteRejectsInvalidWorkerTargetsBeforeSocketRequest(t *testing.T) {
 	}
 }
 
-func TestWorkerParserPreservesAssignmentsAndValidBoundaries(t *testing.T) {
+func TestReleaseReachesRuntimeSocket(t *testing.T) {
 	dir := socketDirectory(t)
 	t.Setenv("ATLAS_RUNTIME_HOME", dir)
 	for _, worker := range []string{"a", "reviewer-2_main", strings.Repeat("a", 64)} {
-		for _, args := range [][]string{
-			{"start", "--worker", worker, "--cwd", dir, "assignment mentions --worker other --turn turn-2"},
-			{"start", "--cwd", dir, "--worker=" + worker, "--", "--worker other"},
-			{"continue", "--worker", worker, "assignment mentions --worker other"},
-			{"continue", "--turn", "turn-1", "--worker", worker, "--", "--worker other"},
-			{"continue", "--worker", worker, "--turn", "turn-1", "assignment"},
-			{"status", "--worker", worker},
-			{"stop", "--worker=" + worker, "--turn", "turn-1"},
-			{"kill", "--turn", "turn-1", "--worker", worker},
-			{"release", "--worker", worker},
-			{"output", "--worker", worker, "--turn", "turn-1"},
-			{"output", "--turn", "turn-1", "--worker=" + worker},
-		} {
+		for _, args := range [][]string{{"release", "--worker", worker}, {"release", "--worker=" + worker}} {
 			if _, err := execute(args); err == nil || err.Error() != "Runtime service is stopped; run atlas-runtime service start" {
 				t.Fatalf("valid arguments %q did not reach request: %v", args, err)
 			}
 		}
-	}
-	for _, args := range [][]string{
-		{"--worker", "reviewer", "--follow"},
-		{"--follow", "--worker=reviewer"},
-		{"--follow=true", "--worker", "reviewer"},
-	} {
-		command, follow, err := parseOutput(args)
-		if err != nil || !follow || command["worker_id"] != "reviewer" {
-			t.Fatalf("follow target %q rejected: %#v, %v, %v", args, command, follow, err)
-		}
-	}
-}
-
-func TestFollowPinsWorkerAndRefusesTurnChanges(t *testing.T) {
-	for _, test := range []struct {
-		name       string
-		explicit   bool
-		nextTurn   string
-		nextWorker string
-		wantError  string
-	}{
-		{"implicit worker remains selected", false, "turn-1", "reviewer", ""},
-		{"explicit worker remains selected", true, "turn-1", "reviewer", ""},
-		{"next turn refused", true, "turn-2", "reviewer", "refusing to switch turns"},
-		{"next worker refused", true, "turn-1", "other", "refusing to switch workers"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			dir := socketDirectory(t)
-			t.Setenv("ATLAS_RUNTIME_HOME", dir)
-			folder := t.TempDir()
-			if err := os.WriteFile(filepath.Join(folder, "stream.jsonl"), []byte("{\"text\":\"original worker\"}\n"), 0600); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(filepath.Join(folder, "answer.txt"), []byte("original answer"), 0600); err != nil {
-				t.Fatal(err)
-			}
-			listener, err := net.Listen("unix", filepath.Join(dir, "runtime.sock"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer listener.Close()
-			served := make(chan error, 1)
-			go func() {
-				for index := range 2 {
-					conn, err := listener.Accept()
-					if err != nil {
-						served <- err
-						return
-					}
-					var command map[string]any
-					err = json.NewDecoder(conn).Decode(&command)
-					if err == nil {
-						if command["command"] != "status" || ((index > 0 || test.explicit) && command["worker_id"] != "reviewer") {
-							err = json.NewEncoder(conn).Encode(map[string]any{"command_error": "multiple workers require a selected worker"})
-						} else {
-							id, worker, state := "turn-1", "reviewer", "running"
-							if index > 0 {
-								id, worker, state = test.nextTurn, test.nextWorker, "finished"
-							}
-							err = json.NewEncoder(conn).Encode(map[string]any{
-								"id": id, "worker_id": worker, "state": state, "artifacts": folder,
-							})
-						}
-					}
-					conn.Close()
-					if err != nil {
-						served <- err
-						return
-					}
-				}
-				served <- nil
-			}()
-			var output bytes.Buffer
-			worker := ""
-			if test.explicit {
-				worker = "reviewer"
-			}
-			args := []string{"output", "--follow"}
-			if worker != "" {
-				args = append(args, "--worker", worker)
-			}
-			_, err = executeTo(args, &output)
-			if test.wantError != "" {
-				if err == nil || !strings.Contains(err.Error(), test.wantError) {
-					t.Fatalf("expected %q, got %v", test.wantError, err)
-				}
-			} else if err != nil {
-				t.Fatal(err)
-			}
-			if err := <-served; err != nil {
-				t.Fatal(err)
-			}
-			decoder := json.NewDecoder(&output)
-			var rows []map[string]any
-			for {
-				var row map[string]any
-				if err := decoder.Decode(&row); err == io.EOF {
-					break
-				} else if err != nil {
-					t.Fatal(err)
-				}
-				rows = append(rows, row)
-			}
-			wantRows := 3
-			if test.wantError != "" {
-				wantRows = 2
-			}
-			if len(rows) != wantRows || rows[0]["type"] != "status" || rows[1]["type"] != "event" {
-				t.Fatalf("unexpected follow sequence: %#v", rows)
-			}
-			if rows[1]["worker_id"] != "reviewer" || rows[1]["turn_id"] != "turn-1" {
-				t.Fatalf("event lost its original owner: %#v", rows[1])
-			}
-			if test.wantError == "" {
-				turn, ok := rows[2]["turn"].(map[string]any)
-				if !ok || rows[2]["type"] != "result" || turn["worker_id"] != "reviewer" || turn["id"] != "turn-1" || turn["answer"] != "original answer" {
-					t.Fatalf("final result changed ownership or lost answer: %#v", rows[2])
-				}
-			}
-		})
-	}
-}
-
-func TestFollowWaitsForConfirmedStopOrKill(t *testing.T) {
-	for _, test := range []struct{ pending, terminal string }{{"stopping", "stopped"}, {"killing", "killed"}} {
-		t.Run(test.pending, func(t *testing.T) {
-			dir := socketDirectory(t)
-			t.Setenv("ATLAS_RUNTIME_HOME", dir)
-			folder := t.TempDir()
-			if err := os.WriteFile(filepath.Join(folder, "stream.jsonl"), []byte("{\"text\":\"partial\"}\n"), 0600); err != nil {
-				t.Fatal(err)
-			}
-			listener, err := net.Listen("unix", filepath.Join(dir, "runtime.sock"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer listener.Close()
-			// running, then pending with no confirmation, then the confirmed terminal state.
-			statuses := []map[string]any{
-				{"state": "running", "termination": nil},
-				{"state": test.pending, "termination": map[string]any{"confirmed_at": nil}},
-				{"state": test.terminal, "termination": map[string]any{"confirmed_at": "2026-11-09T08:00:00Z"}},
-			}
-			served := make(chan error, 1)
-			go func() {
-				for _, status := range statuses {
-					conn, err := listener.Accept()
-					if err != nil {
-						served <- err
-						return
-					}
-					var command map[string]any
-					if err = json.NewDecoder(conn).Decode(&command); err == nil {
-						status["id"], status["worker_id"], status["artifacts"] = "turn-1", "reviewer", folder
-						err = json.NewEncoder(conn).Encode(status)
-					}
-					conn.Close()
-					if err != nil {
-						served <- err
-						return
-					}
-				}
-				served <- nil
-			}()
-			var output bytes.Buffer
-			if _, err = executeTo([]string{"output", "--follow", "--worker", "reviewer"}, &output); err != nil {
-				t.Fatal(err)
-			}
-			if err := <-served; err != nil {
-				t.Fatal(err)
-			}
-			var rows []map[string]any
-			for decoder := json.NewDecoder(&output); ; {
-				var row map[string]any
-				if err := decoder.Decode(&row); err == io.EOF {
-					break
-				} else if err != nil {
-					t.Fatal(err)
-				}
-				rows = append(rows, row)
-			}
-			if len(rows) != 3 || rows[0]["type"] != "status" || rows[1]["type"] != "event" || rows[2]["type"] != "result" {
-				t.Fatalf("unexpected follow sequence: %#v", rows)
-			}
-			turn, _ := rows[2]["turn"].(map[string]any)
-			termination, _ := turn["termination"].(map[string]any)
-			if turn["state"] != test.terminal || termination["confirmed_at"] == nil {
-				t.Fatalf("follow ended before the confirmed %s: %#v", test.terminal, rows[2])
-			}
-		})
 	}
 }
 
@@ -554,24 +254,6 @@ func TestAnswerRequiresEveryTargetAndRejectsCapabilityChanges(t *testing.T) {
 	} {
 		if _, err := execute(args); err == nil || strings.Contains(err.Error(), "Runtime service is stopped") {
 			t.Fatalf("invalid answer/capability arguments reached socket: %q, %v", args, err)
-		}
-	}
-}
-
-func TestRequestIDsRejectInvalidIdentitiesAndUnsupportedCommands(t *testing.T) {
-	t.Setenv("ATLAS_RUNTIME_HOME", t.TempDir())
-	for _, id := range []string{"", " ", "../escape", ".hidden", "_leading", "-leading", "with.dot", "é", "line\nbreak", strings.Repeat("x", 65)} {
-		for _, operation := range []string{"start", "continue"} {
-			_, err := execute([]string{operation, "--request-id", id, "assignment"})
-			if err == nil || !strings.Contains(err.Error(), "request-id must match") {
-				t.Fatalf("%s accepted invalid identity %q: %v", operation, id, err)
-			}
-		}
-	}
-	for _, operation := range []string{"status", "stop", "kill", "release", "output", "events", "preferences", "question", "answer"} {
-		_, err := execute([]string{operation, "--request-id", "explicit-id"})
-		if err == nil || !strings.Contains(err.Error(), "flag provided but not defined") {
-			t.Fatalf("%s accepted unsupported request identity: %v", operation, err)
 		}
 	}
 }

@@ -78,8 +78,12 @@ defmodule AtlasRuntime.BackendTest.OnlyBoundary do
              "#{inspect(module)} calls #{inspect(violations(:code.which(module), @facade))}"
     end
 
-    # AtlasRuntime.Backend.Rest joins in S1d, with the facade it is generated on.
-    for module <- [AtlasRuntime.Backend.Events, AtlasRuntime.Backend.Listener],
+    # The Runtime's own router, generated on the work facade, is one of them.
+    for module <- [
+          AtlasRuntime.Backend.Events,
+          AtlasRuntime.Backend.Listener,
+          AtlasRuntime.Backend.Rest
+        ],
         do: assert(module in modules)
   end
 

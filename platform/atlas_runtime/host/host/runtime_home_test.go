@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -142,16 +143,24 @@ func TestCodexManagedRepositoryDeniesTheRuntimeHomeBesideItsAncestors(t *testing
 		start := strings.Index(args[3], "filesystem={") + len("filesystem={")
 		return args[3][start : start+strings.Index(args[3][start:], "},network=")]
 	}
+	// The deny-read globs of every workers entry except the named worker directory, each with its subtree.
+	globs := func(patterns ...string) []string {
+		var paths []string
+		for _, pattern := range patterns {
+			paths = append(paths, workers+"/"+pattern, workers+"/"+pattern+"/**")
+		}
+		return paths
+	}
 	managed := filepath.Join(workers, "w1", "repo")
 	args, err := repositoryArguments(map[string]any{"root": managed}, home)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Existing home entries beside workers, workers beside w1 and w1 beside the repository, then the
-	// token and its directory, then the sensitive names not already listed.
-	want := project(managed) + none(append([]string{filepath.Join(home, "code.json"), filepath.Join(home, "extra.sock"), filepath.Join(home, "notes.txt"),
+	// token and its directory, then the sensitive names not already listed, then the sibling worker globs.
+	want := project(managed) + none(slices.Concat([]string{filepath.Join(home, "code.json"), filepath.Join(home, "extra.sock"), filepath.Join(home, "notes.txt"),
 		filepath.Join(home, "turns"), filepath.Join(workers, "w2"), filepath.Join(workers, "w1", "admission-latch.json"), token, filepath.Dir(token)},
-		sensitive("turns", "code.json")...)...)
+		sensitive("turns", "code.json"), globs("[!w]*", "w[!1]*", "[w]", "w1[!/]*"))...)
 	if got := filesystem(args); got != want {
 		t.Fatalf("managed repository:\ngot  %s\nwant %s", got, want)
 	}
@@ -165,7 +174,7 @@ func TestCodexManagedRepositoryDeniesTheRuntimeHomeBesideItsAncestors(t *testing
 	args, err = repositoryArguments(map[string]any{"root": fresh}, home)
 	want = project(fresh) + none(append([]string{filepath.Join(home, "code.json"), filepath.Join(home, "extra.sock"), filepath.Join(home, "notes.txt"),
 		filepath.Join(home, "turns"), filepath.Join(workers, "w1"), filepath.Join(workers, "w2"), token, filepath.Dir(token)},
-		sensitive("turns", "code.json")...)...)
+		slices.Concat(sensitive("turns", "code.json"), globs("[!w]*", "w[!9]*", "[w]", "w9[!/]*"))...)...)
 	if err != nil || filesystem(args) != want {
 		t.Fatalf("repository to prepare: %v\ngot  %s\nwant %s", err, filesystem(args), want)
 	}
@@ -530,6 +539,164 @@ func TestRepositoryAndPlainProfilesDenyTheRuntimeHomeUnderInstalledCodexSandbox(
 		command := exec.Command("sh", "-c", script)
 		if out, err := command.CombinedOutput(); err != nil {
 			t.Fatalf("unsandboxed control %q failed: %v %s", script, err, out)
+		}
+	}
+}
+
+// globRegexp approximates globset's translation of a Codex deny-read glob: * and ? cross / unless
+// separator is set, [!…] is a negated class and a trailing /** matches the whole subtree.
+func globRegexp(t *testing.T, pattern string, separator bool) *regexp.Regexp {
+	t.Helper()
+	any := "."
+	if separator {
+		any = "[^/]"
+	}
+	var expression strings.Builder
+	for i := 0; i < len(pattern); i++ {
+		switch c := pattern[i]; {
+		case strings.HasPrefix(pattern[i:], "/**") && i+3 == len(pattern):
+			expression.WriteString("/.*")
+			i += 2
+		case c == '*':
+			expression.WriteString(any + "*")
+		case c == '?':
+			expression.WriteString(any)
+		case c == '[':
+			end := strings.IndexByte(pattern[i+2:], ']') + i + 2
+			body, negated := strings.CutPrefix(pattern[i+1:end], "!")
+			if expression.WriteString("["); negated {
+				expression.WriteString("^")
+			}
+			expression.WriteString(regexp.QuoteMeta(body) + "]")
+			i = end
+		default:
+			expression.WriteString(regexp.QuoteMeta(string(c)))
+		}
+	}
+	matcher, err := regexp.Compile("^" + expression.String() + "$")
+	if err != nil {
+		t.Fatalf("glob %s: %v", pattern, err)
+	}
+	return matcher
+}
+
+// TestCodexSiblingWorkerGlobsExcludeOnlyTheOwnWorker checks the sibling worker globs of a managed
+// repository against paths: under either reading of * they deny every other name in workers, however
+// close to the own name, and its subtree, but never workers, the own worker directory or its contents.
+func TestCodexSiblingWorkerGlobsExcludeOnlyTheOwnWorker(t *testing.T) {
+	home := "/u/runtime"
+	workers := home + "/workers"
+	for _, own := range []string{"w1", "a", "alpha-2_x"} {
+		globs, err := siblingWorkerGlobs(home, filepath.Join(workers, own, "repo"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, glob := range globs {
+			if glob[1] != "none" {
+				t.Fatalf("glob %s is %s, want none", glob[0], glob[1])
+			}
+		}
+		allowed := []string{workers, workers + "/" + own, workers + "/" + own + "/repo", workers + "/" + own + "/repo/.git/HEAD", workers + "/" + own + "/admission-latch.json"}
+		denied := []string{workers + "/" + own + "x", workers + "/" + own + "x/secret", workers + "/z" + own, workers + "/.hidden/secret",
+			workers + "/" + strings.ToUpper(own) + "/secret", workers + "/" + own + "-2/repo/file"}
+		if len(own) > 1 {
+			denied = append(denied, workers+"/"+own[:len(own)-1], workers+"/"+own[:len(own)-1]+"/secret", workers+"/"+own[:1],
+				workers+"/"+own[:1]+"z"+own[2:]+"/secret")
+		}
+		for _, separator := range []bool{false, true} {
+			matches := func(path string) bool {
+				return slices.ContainsFunc(globs, func(glob [2]string) bool { return globRegexp(t, glob[0], separator).MatchString(path) })
+			}
+			for _, path := range allowed {
+				if matches(path) {
+					t.Fatalf("own %s (separator %v): %s is denied by %v", own, separator, path, globs)
+				}
+			}
+			for _, path := range denied {
+				if !matches(path) {
+					t.Fatalf("own %s (separator %v): sibling %s is not denied by %v", own, separator, path, globs)
+				}
+			}
+		}
+	}
+	// Repositories outside workers, and workers itself, get no globs.
+	for _, root := range []string{"/u/repo", home + "/other/repo", workers} {
+		if globs, err := siblingWorkerGlobs(home, root); err != nil || globs != nil {
+			t.Fatalf("root %s: %v %v", root, globs, err)
+		}
+	}
+	// Glob metacharacters in the home are literal one-character classes; a backslash or a worker name
+	// that is not a plain name is refused rather than denying less.
+	if globs, err := siblingWorkerGlobs("/u/r[1]{a}*?", "/u/r[1]{a}*?/workers/w/repo"); err != nil || globs[0][0] != "/u/r[[]1[]][{]a[}][*][?]/workers/[!w]*" {
+		t.Fatalf("home with metacharacters: %v %v", globs, err)
+	}
+	for _, refused := range [][2]string{{`/u/r\x`, "Runtime home /u/r\\x cannot be written as a Codex deny-read glob"},
+		{"/u/runtime", "Worker directory /u/runtime/workers/w* cannot be excluded by a Codex deny-read glob"}} {
+		root := refused[0] + "/workers/w1/repo"
+		if refused[0] == "/u/runtime" {
+			root = "/u/runtime/workers/w*/repo"
+		}
+		if _, err := siblingWorkerGlobs(refused[0], root); err == nil || err.Error() != refused[1] {
+			t.Fatalf("home %s root %s: got %v, want %s", refused[0], root, err, refused[1])
+		}
+	}
+}
+
+// TestManagedRepositoryDeniesLateSiblingWorkerUnderInstalledCodexSandbox runs real commands under the
+// installed Codex seatbelt with the exact managed-repository profile arguments, computed before sibling
+// worker directories exist: siblings created after the arguments (as during a running turn), with names
+// near the own worker's, are unreadable, while Git in the own repository still works.
+func TestManagedRepositoryDeniesLateSiblingWorkerUnderInstalledCodexSandbox(t *testing.T) {
+	codex, err := exec.LookPath("codex")
+	if runtime.GOOS != "darwin" || err != nil {
+		t.Skip("requires the installed Codex CLI on macOS")
+	}
+	requireNestedSeatbelt(t)
+	user := installedCodexHome(t)
+	home, _ := runtimeHomeWithToken(t, user)
+	workers := filepath.Join(home, "workers")
+	managed := filepath.Join(workers, "w1", "repo")
+	gitIn(t, user, "init", "-q", managed)
+	arguments, err := repositoryArguments(map[string]any{"root": managed}, home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var late []string
+	for _, name := range []string{"w2", "w1x", "w", "x9", ".hidden"} {
+		secret := filepath.Join(workers, name, "repo", "secret")
+		if err := os.MkdirAll(filepath.Dir(secret), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(secret, []byte("WORKER-SENTINEL"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		late = append(late, secret)
+	}
+	run := func(script string) (string, error) {
+		command := exec.Command(codex, append(append([]string{"sandbox", "-P", "atlas_repository", "-C", managed}, arguments...), "--", "sh", "-c", script)...)
+		command.Dir = managed
+		out, err := command.CombinedOutput()
+		return string(out), err
+	}
+	for _, script := range []string{"echo edit > new.txt && cat new.txt", "git add new.txt && git status --porcelain",
+		"git -c user.name=t -c user.email=t@t commit -qm edit && git log --oneline"} {
+		if out, err := run(script); err != nil {
+			t.Fatalf("own repository %q: %v %s", script, err, out)
+		}
+	}
+	for _, secret := range late {
+		for _, script := range []string{fmt.Sprintf("cat %q", secret), fmt.Sprintf("ls %q", filepath.Dir(secret))} {
+			out, err := run(script)
+			t.Logf("sandboxed %q: err=%v output=%q", script, err, out)
+			if err == nil || strings.Contains(out, "WORKER-SENTINEL") {
+				t.Fatalf("late sibling worker readable: %q: %v %s", script, err, out)
+			}
+		}
+	}
+	// Positive control: the same reads succeed outside the sandbox.
+	for _, secret := range late {
+		if body, err := os.ReadFile(secret); err != nil || string(body) != "WORKER-SENTINEL" {
+			t.Fatalf("unsandboxed control %s: %v %q", secret, err, body)
 		}
 	}
 }

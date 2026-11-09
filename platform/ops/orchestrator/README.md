@@ -12,7 +12,8 @@ node --test platform/ops/orchestrator/atlas-watch.test.mjs
 - One long-running child follows `atlas-runtime events --follow [--cursor C]`
   ([Runtime README](../../atlas_runtime/host/README.md)). Lines are handled as they arrive:
   - an event: `question_available` and `handoff_submitted` queue a `question`/`handoff`
-    inspection; `execution_finished|failed|stopped|killed` record a terminal turn item;
+    inspection; `execution_finished|failed|stopped|killed` record a terminal turn item, whose
+    selector is `output --turn ID`;
   - `{"reset":R}` records one `gap` item and queues `service status` and `turns`;
   - `{"cursor":C}` becomes the saved cursor, persisted with the items before it;
   - `{"reachable":false,"reason":R}` raises the `unavailable` item; `{"reachable":true}` clears
@@ -23,6 +24,12 @@ node --test platform/ops/orchestrator/atlas-watch.test.mjs
   The watcher never starts the Runtime service or any worker; `close()` ends the follower.
 - `check()` keeps the rest unchanged: inbox scan, up to eight bounded inspection queries per
   call, nudges every 120 s while items are pending. Only `ack()` clears an item.
+- `events --follow` and `turns` read the Runtime's history on `read.sock`; `turns` lists each
+  turn as `runtime.read/1` projects it (`turn_id`, `pending_question.question_id`), `service
+  status` as before (`id`, `pending_question.id`), and both are accepted. `question`, `handoff`
+  and `service status` stay on `runtime.sock`. The work commands (`start`, `status`, `output`,
+  `stop`, …) moved to `backend.sock`; the watcher runs none of them, and an item's `output`
+  selector is for the coordinator to run.
 
 ## Target
 

@@ -31,5 +31,22 @@ if Enum.any?([:atlas_facts, :atlas_flow, :atlas_control], &(&1 in started)),
   do: raise("Runtime must not start Atlas core services")
 
 {:ok, _} = AtlasRuntime.Service.start(dir, server && Map.delete(server, :token))
+
+# The work core (AtlasRuntime.Work) follows the Service and starts turns through it. A store
+# it cannot read is a logged refusal: the Service keeps running, and the work contract
+# answers "not accepting" until the store is repaired and the Runtime restarted.
+case AtlasRuntime.Work.start_link(dir) do
+  {:ok, _} -> :ok
+  {:error, reason} -> IO.puts(:stderr, "Runtime work core not started: #{inspect(reason)}")
+end
+
+# The work contract's REST backend on backend.sock (mode 0600, the socket owner as client):
+# the work commands are served there, no longer on runtime.sock. A listener that cannot start
+# stops the service, so a running service always serves work.
+case AtlasRuntime.Backend.Listener.start_link(home: dir, router: AtlasRuntime.Backend.Rest) do
+  {:ok, _} -> :ok
+  {:error, reason} -> raise("Runtime backend not listening on backend.sock: #{inspect(reason)}")
+end
+
 IO.puts("Runtime ready; Atlas core services remain stopped")
 Process.sleep(:infinity)
