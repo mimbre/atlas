@@ -2,6 +2,8 @@
 
 Atlas is an agent platform on the BEAM. Work moves through a central Bus. Agents and coordinators do the work, and a person (the operator) makes the decisions. The design goal is that no coordinator or agent can stay stuck.
 
+Why Atlas exists, and the principles it never breaks: [docs/vision.md](docs/vision.md).
+
 The BEAM side runs the system. rela describes it. Entities, schemas, flows and the organisation live in rela. The BEAM code names no entity.
 
 ## Main parts
