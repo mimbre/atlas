@@ -104,7 +104,7 @@ Every error response is `{"error": {"code": "<code>", "message": "<text>", "deta
 | 403 | `forbidden` (wrong token, repository not allowed, reviews and integrations not configured) |
 | 404 | `not_found`, `unknown_reference`, `unknown_revision` |
 | 405 | `method_not_allowed` |
-| 409 | `snapshot_superseded`, `repository_mismatch`, `base_mismatch`, `conflict`, `change_not_sealed`, `location_taken`, `review_not_open`, `review_has_no_target`, `revision_mismatch`, `target_moved`, `integration_conflict`, `integration_refused` |
+| 409 | `snapshot_superseded`, `repository_mismatch`, `base_mismatch`, `conflict`, `change_not_sealed`, `location_taken`, `review_not_open`, `review_has_no_target`, `revision_mismatch`, `fingerprint_mismatch`, `target_moved`, `integration_conflict`, `integration_refused` |
 | 413 | `payload_too_large` |
 | 422 | `incomplete_upload`, `unsupported_content` |
 | 502 | `review_incomplete` |
@@ -179,19 +179,21 @@ Snapshots as implemented:
      - open changes are never cleaned up, and there is no `GET /v1/changes/{id}`; repeat the `POST` instead;
      - concurrency and a crash during seal were not tested.
 7. **Review.** `POST /v1/reviews`, orchestrator token only.
-   - Request: `{"review_id", "change_id", "target", "title", "body"}`, exactly these keys. IDs are lowercase UUIDs, `target` is the reference the review proposes to change (for example `develop`), `title` is one non-empty line of at most 256 characters, and `body` must contain "Written by an AI agent".
+   - Request: `{"review_id", "change_id", "target", "title", "body", "fingerprint"?}`, exactly these keys. IDs are lowercase UUIDs, `target` is the reference the review proposes to change (for example `develop`), `title` is one non-empty line of at most 256 characters, and `body` must contain "Written by an AI agent".
    - Repository and revision come only from the sealed change: an unknown change is `404`, an open one `409 change_not_sealed`, a repository no longer allowed `403`.
+   - With the optional `fingerprint` (`fpr_<64 hex>`), Code recomputes the change's repository fingerprint from its stored `request.json` without `change_id`, exactly as Runtime's submit does (see the fingerprint under submit below). A different value is `409 fingerprint_mismatch` with `{change_id, fingerprint}`, the change's actual fingerprint; no review is recorded and nothing is pushed. Without the field the review behaves as before.
    - Code makes the sealed revision visible on the remote at a location only Code names, `work/review-<review_id>`, with a create-only push that never moves an existing location (`409 location_taken`). On an `https://github.com/OWNER/REPO` remote it also opens a pull request from that location to `target`, adopting the single existing one for the location; on any other remote the pushed location is the review.
    - Response: `{"review_id", "change_id", "repository", "target", "revision", "state": "open", "review_url"?}`.
-   - `reviews/<id>.json` records the request and phase before each remote effect: `pushing` → `pushed` → `open`, or `failed` when the location already existed. An identical repeat resumes from the recorded phase; a different body under the same ID is `409 conflict`. A pushed review without its pull request is `502 review_incomplete` with `{phase: "pushed"}`, never success.
+   - `reviews/<id>.json` records the request and phase before each remote effect: `pushing` → `pushed` → `open`, or `failed` when the location already existed. An identical repeat resumes from the recorded phase; a different body under the same ID, another or an added or dropped `fingerprint` included, is `409 conflict`. A refused fingerprint records nothing, so its ID stays free. A pushed review without its pull request is `502 review_incomplete` with `{phase: "pushed"}`, never success.
    - Git failures are `503 provider_unavailable` with the exit status only; raw Git or `gh` output never reaches a response. `config.json` may set `"gh"` to the `gh` executable; the default is `gh` on PATH, using Code's own `gh` login.
    - **Limits:** all reviews are serialized by one lock, including remote calls. A failed review's location claim is permanent.
 8. **Integration.** `POST /v1/integrations`, orchestrator token only.
-   - Request: `{"integration_id", "review_id", "revision", "target_revision"}`. `revision` must be the open review's revision (`409 revision_mismatch`, `409 review_not_open`); `target_revision` is the target's revision the orchestrator verified, from `references/resolve`.
+   - Request: `{"integration_id", "review_id", "revision", "target_revision", "fingerprint"?}`. `revision` must be the open review's revision (`409 revision_mismatch`, `409 review_not_open`); `target_revision` is the target's revision the orchestrator verified, from `references/resolve`.
+   - With the optional `fingerprint`, Code checks it against the review's current change, so the target only receives the approved content: a different value is `409 fingerprint_mismatch` with `{change_id, fingerprint}`, before any record or remote effect, and the target is unchanged.
    - Code moves the review's target from exactly `target_revision` to the review: `already_integrated` when the target already contains it, `fast_forward` when possible, otherwise a `merge` built in Code's cache with a fixed identity and date. The push carries a lease on `target_revision`, so it never replaces work Code has not seen, and branch policy is never bypassed.
    - Response: `{"integration_id", "review_id", "repository", "target", "revision", "method": "already_integrated|fast_forward|merge", "state": "integrated"}`, where `revision` is the target's new revision.
    - Terminal refusals leave the target unchanged: `409 target_moved` with `{target, current}` (resolve again and use a new `integration_id`), `409 integration_conflict` with the conflicting `paths`, `409 integration_refused` when the remote refuses the update. A review migrated from a publication without a pull request has no target: `409 review_has_no_target`.
-   - `integrations/<id>.json` records every outcome, which is replayed for the same request; only `integrating` resumes. A different body under the same ID is `409 conflict`. All integrations are serialized by one lock.
+   - `integrations/<id>.json` records every outcome, which is replayed for the same request; only `integrating` resumes. A different body under the same ID, another or an added or dropped `fingerprint` included, is `409 conflict`. All integrations are serialized by one lock.
 
 All mutating requests carry caller-chosen IDs. A repeated identical request returns the recorded result, the same rule as Runtime admissions.
 

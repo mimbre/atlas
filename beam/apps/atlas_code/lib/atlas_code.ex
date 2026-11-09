@@ -1629,11 +1629,16 @@ defmodule AtlasCode do
          "body" => text
        } =
            request}
-      when map_size(request) == 5 and is_binary(id) and is_binary(change) and is_binary(target) and
-             is_binary(title) and is_binary(text) ->
+      when (map_size(request) == 5 or
+              (map_size(request) == 6 and is_map_key(request, "fingerprint"))) and
+             is_binary(id) and is_binary(change) and is_binary(target) and is_binary(title) and
+             is_binary(text) ->
         cond do
           not uuid?(id) ->
             error(400, "invalid_request", "review_id must be a lowercase UUID")
+
+          not optional_fingerprint?(request) ->
+            error(400, "invalid_request", "fingerprint must be fpr_<64 lowercase hex characters>")
 
           not uuid?(change) ->
             error(400, "invalid_request", "change_id must be a lowercase UUID")
@@ -1664,7 +1669,7 @@ defmodule AtlasCode do
         error(
           400,
           "invalid_request",
-          ~s(Body must be {"review_id", "change_id", "target", "title", "body"})
+          ~s(Body must be {"review_id", "change_id", "target", "title", "body", "fingerprint"?})
         )
     end
   end
@@ -1723,7 +1728,7 @@ defmodule AtlasCode do
         })
 
       {{:ok, json}, {:ok, revision}} ->
-        %{"repository" => repository} = JSON.decode!(json)
+        %{"repository" => repository} = stored = JSON.decode!(json)
         location = "work/review-" <> id
         reviews = Path.join(settings.home, "reviews")
 
@@ -1742,9 +1747,14 @@ defmodule AtlasCode do
               )
           end)
 
-        if claimed,
-          do: location_taken(),
-          else:
+        cond do
+          mismatch = fingerprint_mismatch(request, change_id, fn -> stored end) ->
+            mismatch
+
+          claimed ->
+            location_taken()
+
+          true ->
             {:ok,
              %{
                "request" => request,
@@ -1754,8 +1764,43 @@ defmodule AtlasCode do
                "revision" => revision,
                "location" => location
              }}
+        end
     end
   end
+
+  # A repository fingerprint names a change's content apart from its ID: "fpr_" and the SHA-256
+  # of the canonical JSON of its request without change_id, entries sorted by path. Runtime
+  # computes the same bytes at submit (tools/runtime/snapshot/testdata/fingerprints.json).
+  @doc false
+  def fingerprint(request) do
+    canonical =
+      request
+      |> Map.delete("change_id")
+      |> Map.update!("entries", &Enum.sort_by(&1, fn entry -> entry["path"] end))
+      |> JSON.encode!()
+
+    "fpr_" <> sha256(canonical)
+  end
+
+  defp optional_fingerprint?(%{"fingerprint" => value}),
+    do: is_binary(value) and Regex.match?(~r/\Afpr_[0-9a-f]{64}\z/, value)
+
+  defp optional_fingerprint?(_request), do: true
+
+  # nil when the request names no fingerprint or names the change's own; `stored` loads the
+  # change's request.json only when it is needed.
+  defp fingerprint_mismatch(%{"fingerprint" => expected}, change_id, stored) do
+    actual = fingerprint(stored.())
+
+    if actual != expected,
+      do:
+        error(409, "fingerprint_mismatch", "The change's content is not the given fingerprint", %{
+          "change_id" => change_id,
+          "fingerprint" => actual
+        })
+  end
+
+  defp fingerprint_mismatch(_request, _change_id, _stored), do: nil
 
   # Checked on every attempt with remote effects: the repository must still be allowed and the
   # sealed commit in Code's cache. Only https://github.com/OWNER/REPO remotes get a pull request;
@@ -1998,10 +2043,15 @@ defmodule AtlasCode do
          "target_revision" => target
        } =
            request}
-      when map_size(request) == 4 and is_binary(id) and is_binary(review) ->
+      when (map_size(request) == 4 or
+              (map_size(request) == 5 and is_map_key(request, "fingerprint"))) and
+             is_binary(id) and is_binary(review) ->
         cond do
           not uuid?(id) ->
             error(400, "invalid_request", "integration_id must be a lowercase UUID")
+
+          not optional_fingerprint?(request) ->
+            error(400, "invalid_request", "fingerprint must be fpr_<64 lowercase hex characters>")
 
           not uuid?(review) ->
             error(400, "invalid_request", "review_id must be a lowercase UUID")
@@ -2021,7 +2071,7 @@ defmodule AtlasCode do
         error(
           400,
           "invalid_request",
-          ~s(Body must be {"integration_id", "review_id", "revision", "target_revision"})
+          ~s(Body must be {"integration_id", "review_id", "revision", "target_revision", "fingerprint"?})
         )
     end
   end
@@ -2090,6 +2140,15 @@ defmodule AtlasCode do
               "review_id" => review_id,
               "revision" => review["revision"]
             })
+
+          # The review's current change is what its location holds, so the check covers it.
+          mismatch =
+              fingerprint_mismatch(request, review["change_id"], fn ->
+                Path.join([settings.home, "changes", review["change_id"], "request.json"])
+                |> File.read!()
+                |> JSON.decode!()
+              end) ->
+            mismatch
 
           true ->
             record = %{
