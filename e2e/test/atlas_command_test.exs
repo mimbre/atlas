@@ -172,10 +172,28 @@ defmodule AtlasE2E.AtlasCommandTest do
     assert out =~ "no core to run here"
     assert {out, 1} = atlas(["rela-stop", "--env", "test"], on_fly)
     assert out =~ "rela keeps running there"
-    assert {out, 1} = atlas(["migrate-assignment", "--dry-run", "--env", "test"], on_fly)
-    assert out =~ "the migrations read rela on this Mac"
+    assert {out, 1} = atlas(["migrate-done-owner", "--dry-run", "--env", "test"], on_fly)
+    assert out =~ "the migration reads rela on this Mac"
     assert {out, 0} = atlas(["stop", "--env", "test"], on_fly)
     assert out =~ "closed this Mac's tunnel"
+  end
+
+  test "removed commands are unknown: they show the usage, exit 2 and run nothing" do
+    on_fly = [{"ATLAS_ENV_FILE", fly_file()}]
+
+    for args <- [
+          ["migrate-completion"],
+          ["migrate-owner", "--dry-run"],
+          ["migrate-assignment", "--dry-run"],
+          ["load-plan", "SCENES.md", "links.json"],
+          ["playground", "init", "/nonexistent"],
+          ["attach", "breaker", "--prototype", "/nonexistent"]
+        ] do
+      assert {out, 2} = atlas(args ++ ["--env", "test"], on_fly), "atlas #{Enum.join(args, " ")}"
+      assert out =~ "atlas: try Atlas from any folder."
+      refute out =~ "migrations read rela"
+      refute out =~ "opening the tunnel"
+    end
   end
 
   test "move-to-fly is only for an environment on Fly, and needs data to move" do

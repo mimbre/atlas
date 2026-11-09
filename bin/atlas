@@ -21,8 +21,6 @@
 #   atlas runtime-stop, atlas runtime-status
 #   atlas runtime status|start|stop [--machine <name>] [--json]   local node operations
 #   atlas runtime discover --machine <name> [--json]   granted Control registry read
-#   atlas playground init|stop <private-dir>   private stub prototype (IS125)
-#   atlas attach breaker --prototype <private-dir>   independent terminal viewer
 #   atlas rela-status, atlas rela-stop
 #
 #   atlas help [<kind>] [--json]    the agents' commands, and every kind from rela's description:
@@ -39,17 +37,9 @@
 #                      it reads through Control and writes nothing (UC-Atlas-16)
 #   atlas steer                              the agent behind the TUI's `:`, in JSON lines on
 #                      stdin and stdout; the TUI starts it (UC-Atlas-17)
-#   atlas load-plan <SCENES.md> <links.json> [--dry-run]   UC-Atlas-05: the plan into Atlas
-#   atlas migrate-completion [--dry-run]     UC-Atlas-32: completion becomes an association;
-#                      after a real run it stops rela, removes the old completed values, starts it
-#   atlas migrate-owner [--dry-run]          IS-Atlas-52: every fact gets an owner, the coordinator
-#                      agent, one fact each with cause "owner introduced"; --dry-run first
-#   atlas migrate-assignment [--dry-run]     IS-Atlas-78: every fact gets its Assignment, and its owner
-#                      moves there; run it on the old core and rela: it keeps who set each owner,
-#                      restarts rela and the core on this build, writes, and removes the old values
 #   atlas migrate-done-owner [--dry-run]     IS-Atlas-88: a done fact has no owner: removes the owner a
 #                      migration gave a fact Flow expects nothing of; never one set by hand or Flow
-#                      put, set, get, list, delete, tools, plan, load-plan and the migrations go
+#                      put, set, get, list, delete, tools, plan and the migration go
 #                      through Control like the TUI, and start nothing: Control must run (`atlas status`).
 #
 # On Fly (IS-Atlas-26, IS-Atlas-79): an environment whose settings have a "fly" section runs
@@ -89,10 +79,6 @@ while [ -L "$src" ]; do
   case "$target" in /*) src="$target" ;; *) src="$(dirname "$src")/$target" ;; esac
 done
 root="$(cd "$(dirname "$src")/.." && pwd -P)"
-# Explicit private prototype routes: never resolve an environment or open a Fly tunnel.
-case "${1:-}" in
-  playground|attach) exec /usr/bin/python3 "$root/tools/runtime-playground/launch.py" "$@" ;;
-esac
 # Keep ordinary invocations on the isolated project dependency without shell setup.
 if [ -z "${ATLAS_CONFIG_PYTHON:-}" ] && [ -x "$root/.venv-config/bin/python" ]; then
   export ATLAS_CONFIG_PYTHON="$root/.venv-config/bin/python"
@@ -115,7 +101,7 @@ while [ $# -gt 0 ]; do
     --env=) no_env ;;
     *)
       case "$cmd" in
-        e2e|turn|put|set|get|list|delete|tools|plan|steer|load-plan|migrate-completion|migrate-owner|migrate-done-owner|migrate-assignment|move-to-fly|fetch-from-fly|help|runtime|runtime-status|runtime-stop|runtime-discover) args+=("$1"); shift ;;
+        e2e|turn|put|set|get|list|delete|tools|plan|steer|migrate-done-owner|move-to-fly|fetch-from-fly|help|runtime|runtime-status|runtime-stop|runtime-discover) args+=("$1"); shift ;;
         tui)
           case "$1" in
             -h|--help) usage ;;
@@ -447,8 +433,8 @@ if [ -n "$fly_app" ]; then
     logs) exec "$(fly_cli)" logs -a "$fly_app" ;;
     rela-status) exec "$(fly_cli)" status -a "$fly_rela_app" ;;
     rela-stop) echo "atlas: $on_fly; rela keeps running there" >&2; exit 1 ;;
-    migrate-*) echo "atlas: the migrations read rela on this Mac; $on_fly. Migrate a copy: docs/guides/test-on-fly.md, \"A migration\"" >&2; exit 1 ;;
-    turn|put|set|get|list|delete|tools|plan|steer|help|load-plan) ensure_tunnel ;;
+    migrate-done-owner) echo "atlas: the migration reads rela on this Mac; $on_fly. Migrate a copy: docs/guides/test-on-fly.md, \"A migration\"" >&2; exit 1 ;;
+    turn|put|set|get|list|delete|tools|plan|steer|help) ensure_tunnel ;;
   esac
 fi
 
@@ -542,68 +528,10 @@ case "$cmd" in
     clean_build
     run_agent_client
     ;;
-  load-plan)
-    clean_build
-    cd "$root/tools/plan"
-    mix compile >&2
-    ATLAS_CALLER_CWD="$caller" exec mix atlas.load_plan --env "$env" ${args[@]+"${args[@]}"}
-    ;;
-  migrate-owner)
-    cd "$root/tools/plan"
-    mix compile >&2
-    ATLAS_CALLER_CWD="$caller" exec mix atlas.migrate_owner --env "$env" ${args[@]+"${args[@]}"}
-    ;;
   migrate-done-owner)
     cd "$root/tools/plan"
     mix compile >&2
     ATLAS_CALLER_CWD="$caller" exec mix atlas.migrate_done_owner --env "$env" ${args[@]+"${args[@]}"}
-    ;;
-  migrate-completion)
-    (cd "$root/tools/plan" && mix compile >&2 &&
-      ATLAS_CALLER_CWD="$caller" mix atlas.migrate_completion --env "$env" ${args[@]+"${args[@]}"})
-    # rela keeps a removed field's values and refuses to change them over its API; its own
-    # garbage collection removes them, with rela stopped (it holds the store's index).
-    if [[ " ${args[*]-} " != *" --dry-run "* ]]; then
-      echo "atlas: stopping rela $env to remove the old completed values"
-      "$root/rela/scripts/stop.sh"
-      # A first scan records the orphans; once they are older than the grace they go.
-      "$ATLAS_RELA_BIN/rela" --project "$ATLAS_RELA_DATA" --quiet migrate gc --scan >/dev/null
-      sleep 2
-      "$ATLAS_RELA_BIN/rela" --project "$ATLAS_RELA_DATA" --quiet migrate gc --scan --grace=1s --apply
-      "$root/rela/scripts/start-bg.sh"
-    else
-      echo "atlas: a real run then stops rela $env, removes the old completed values (rela migrate gc) and starts it again"
-    fi
-    ;;
-  migrate-assignment)
-    # Who set each old owner shows only on the old core, so it is read first and kept; then
-    # rela and the core move to this build's description, which the data does not fit yet
-    # (the old field), and the migration writes; rela's garbage collection ends it.
-    origins="$ATLAS_TEST_ROOT/assignment-origins.json"
-    migrate() {
-      (cd "$root/tools/plan" && mix compile >&2 &&
-        ATLAS_CALLER_CWD="$caller" mix atlas.migrate_assignment --env "$env" "$@")
-    }
-    if [[ " ${args[*]-} " == *" --dry-run "* ]]; then
-      migrate --dry-run
-      echo "atlas: a real run keeps who set each owner, restarts rela $env and the core on this build, writes, and removes the old values (rela migrate gc)"
-      exit 0
-    fi
-    if ! "$root/rela/scripts/description.sh" same; then
-      migrate --keep-origins "$origins"
-      echo "atlas: restarting rela $env and the core on this build's description"
-      stop_core
-      "$root/rela/scripts/stop.sh"
-      "$root/rela/scripts/start-bg.sh" >/dev/null
-      start_core
-    fi
-    migrate --origins "$origins"
-    echo "atlas: stopping rela $env to remove the old expected values"
-    "$root/rela/scripts/stop.sh"
-    "$ATLAS_RELA_BIN/rela" --project "$ATLAS_RELA_DATA" --quiet migrate gc --scan >/dev/null
-    sleep 2
-    "$ATLAS_RELA_BIN/rela" --project "$ATLAS_RELA_DATA" --quiet migrate gc --scan --grace=1s --apply
-    "$root/rela/scripts/start-bg.sh"
     ;;
   rela-status) exec "$root/rela/scripts/status.sh" ;;
   rela-stop) exec "$root/rela/scripts/stop.sh" ;;

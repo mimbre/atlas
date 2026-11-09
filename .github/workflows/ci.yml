@@ -92,7 +92,7 @@ jobs:
       - run: mix test
 
   agent:
-    name: Agents' command line and plan loader
+    name: Agents' command line and migration
     runs-on: ubuntu-latest
     env:
       MIX_ENV: test
@@ -104,7 +104,7 @@ jobs:
           elixir-version: "1.18"
       - run: mix compile --warnings-as-errors && mix format --check-formatted && mix test
         working-directory: clients/agent
-      # The loader compiles the client too; its tests read SCENES.md's layout.
+      # The one-off migration (atlas migrate-done-owner) compiles the client too.
       - run: mix compile --warnings-as-errors && mix format --check-formatted && mix test
         working-directory: tools/plan
 

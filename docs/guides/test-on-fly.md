@@ -124,12 +124,12 @@ It holds both apps for about a minute: the machines stay up but serve nothing, s
 
 ## A migration
 
-The `atlas migrate-*` commands read rela on the Mac, so `atlas` refuses them for an environment on Fly. A migration runs on a copy, on the Mac, as it always has, and the migrated copy goes back:
+A migration command (today `atlas migrate-done-owner`) reads rela on the Mac, so `atlas` refuses it for an environment on Fly. A migration runs on a copy, on the Mac, as it always has, and the migrated copy goes back:
 
 1. **Hold and copy.** `atlas fetch-from-fly --env test --to <folder> --hold`. Test on Fly now serves nothing, so nothing writes to it during the migration. The TUI says Control does not answer.
 2. **Migrate the copy on a private instance.**
    - Write a settings file like `env/test.json` without `"fly"`, with `rela.data`, `rela.bin` and `state.data` pointing into `<folder>`, and with free ports.
-   - Run the migration with `ATLAS_ENV_FILE=<that file>`, exactly as its guide says, for example `atlas migrate-assignment --env test --dry-run`, then the real run.
+   - Run the migration with `ATLAS_ENV_FILE=<that file>`, exactly as its guide says, for example `atlas migrate-done-owner --env test --dry-run`, then the real run.
    - It runs on the build the migration expects; a private instance never meets the Mac's or Fly's.
    - Stop that instance: `atlas stop`, then `atlas rela-stop`, with the same `ATLAS_ENV_FILE`.
 3. **Deploy the build the migrated data needs.** Merge its pull request (or re-run `deploy-test`). A held environment is deployed without health checks or smoke check, and serves nothing yet.

@@ -1,9 +1,9 @@
 defmodule AtlasPlan.MixProject do
   use Mix.Project
 
-  # UC-Atlas-05: loads the plan from SCENES.md into Atlas, through Control, with the agent
-  # client (clients/agent), as an agent would. Not part of the BEAM platform or of any
-  # client: it knows SCENES.md's layout, and so the kinds of the plan by name.
+  # The one-off `atlas migrate-done-owner` (IS-Atlas-88): reads rela and writes through
+  # Control with the agent client (clients/agent). Not part of the BEAM platform or of any
+  # client.
   def project do
     [
       app: :atlas_plan,
