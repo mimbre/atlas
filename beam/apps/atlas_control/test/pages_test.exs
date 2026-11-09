@@ -1733,22 +1733,130 @@ defmodule AtlasControl.PagesTest do
       ]
     }
 
-    %{title: "All held", back: "/", blocks: [%{"props" => list}]} =
-      render_run({:list, "card"}, @open, "open", [cards, widgets])
+    %{title: "All held", back: "/"} =
+      page = render_run({:list, "card"}, @open, "open", [cards, widgets])
 
-    # Late first; each with who holds it, what is expected, and its time.
-    assert [%{"id" => "W-2", "to" => "/k/widget/W-2"} = late, %{"id" => "W-1"} = one] =
+    assert Enum.map(page.blocks, & &1["id"]) == ["summary", "list", "details"]
+    list = by_id(page)["list"]
+    assert list["title"] == "All held"
+
+    # Late first; each with who holds it, what is expected, and its time; calm: no id,
+    # no since or cause.
+    assert [%{"to" => "/k/widget/W-2"} = late, %{"to" => "/k/widget/W-1"} = one] =
              list["rows"]
 
-    assert late["detail"] =~
-             ~r/^bob · Sand it · Late · due 2020-01-02 12:00 · since 3 Nov \d\d:00$/
+    refute Enum.any?(list["rows"], &Map.has_key?(&1, "id"))
+    assert late["detail"] == "bob · Sand it · Late · due 2020-01-02 12:00"
+    assert one["detail"] == "ada · Paint it"
 
-    assert one["detail"] =~ ~r/^ada · Paint it · since 3 Nov \d\d:00$/
+    # Everyone's: nobody unassigned, so no such count; since when and why are in the
+    # details, in list order.
+    assert counts(page) == %{"Open" => "2", "Late" => "1"}
+    assert [{"W-2", w2}, {"W-1", w1}] = technical(page)
+    assert w2 =~ ~r/ · since 2026-11-03T10:00:00Z · cause: why$/
+    assert w1 =~ ~r/ · since 2026-11-03T12:00:00Z · cause: why$/
 
-    %{blocks: [%{"props" => empty}]} =
+    page =
       render_run({:list, "card"}, @open, "open", [%{"facts" => []}, %{"facts" => []}])
 
+    assert Enum.map(page.blocks, & &1["id"]) == ["summary", "list"]
+    assert counts(page) == %{"Open" => "0"}
+    empty = by_id(page)["list"]
     assert empty["rows"] == [] and empty["empty"] == "Nothing is held."
+  end
+
+  test "open work is calm by default: an overview, who each is with, details on demand" do
+    card = fn key, by, shown, values ->
+      fact(key, Map.merge(%{"of" => String.replace_prefix(key, "C-", "")}, values))
+      |> Map.put("links", %{"held_by" => by})
+      |> Map.put("presentation", Map.merge(%{"actionable" => true}, shown))
+    end
+
+    since = "2026-11-03T12:00:00.123456Z"
+
+    cards = %{
+      "facts" => [
+        card.("C-W-1", ["ada", "bob"], %{"expected" => "Paint it", "status" => "blocked"}, %{})
+        |> Map.put("origins", %{"held_by" => %{"since" => since, "cause" => "Flow f: → ada"}}),
+        card.("C-W-2", ["cy"], %{"expected" => "Sand it"}, %{"due" => "2020-01-02T12:00:00Z"})
+        |> Map.put("late", true),
+        # Nobody holds it, but something is expected of it: open, and unassigned.
+        card.("C-W-3", [], %{"expected" => "Oil it"}, %{})
+      ]
+    }
+
+    widgets = %{
+      "facts" =>
+        for(
+          {key, title} <- [{"W-1", "One"}, {"W-2", "Two"}, {"W-3", "Three"}],
+          do: fact(key, %{"title" => title}) |> Map.put("links", %{"card" => ["C-" <> key]})
+        )
+    }
+
+    widgets =
+      update_in(widgets, ["facts", Access.at(0)], fn w1 ->
+        Map.put(w1, "review", %{"label" => "Needs a look", "key" => "R-9"})
+      end)
+
+    page = render({:list, "card"}, @open, [cards, widgets])
+    blocks = by_id(page)
+
+    # Overview, then the list (as before: its title, empty words, no actions), then details.
+    assert Enum.map(page.blocks, & &1["id"]) == ["summary", "list", "details"]
+    assert blocks["summary"]["title"] == "Overview"
+    assert counts(page) == %{"Open" => "3", "Late" => "1", "Blocked" => "1", "Unassigned" => "1"}
+    assert blocks["list"]["title"] == "All held"
+    assert blocks["list"]["empty"] == "Nothing is held."
+    assert blocks["list"]["actions"] in [nil, []]
+
+    # Calm rows, late first: who it is with, why reviewed, what is expected, blocked, late.
+    rows = blocks["list"]["rows"]
+    assert Enum.map(rows, & &1["to"]) == ~w(/k/widget/W-2 /k/widget/W-1 /k/widget/W-3)
+    refute Enum.any?(rows, &Map.has_key?(&1, "id"))
+
+    assert Enum.map(rows, & &1["detail"]) == [
+             "cy · Sand it · Late · due 2020-01-02 12:00",
+             "ada, bob · Needs a look · Paint it · blocked",
+             "unassigned · Oil it"
+           ]
+
+    refute Enum.any?(rows, &(&1["detail"] =~ ~r/since|cause|C-W-|R-9/))
+
+    # Details, in list order, with the full since and the cause.
+    assert blocks["details"]["title"] == "Technical details"
+    assert [{"W-2", _}, {"W-1", w1}, {"W-3", w3}] = technical(page)
+    assert w1 =~ ~r/^Widget · C-W-1 · status blocked · review R-9 · /
+    assert w1 =~ ~r/ · since #{Regex.escape(since)} · cause: Flow f: → ada$/
+    assert w3 == "Widget · C-W-3"
+
+    # Folded until asked, with the same sections_toggle (d) as the start page.
+    assert [
+             %{
+               "kind" => "section",
+               "start" => "details",
+               "end" => "details",
+               "props" => %{"title" => "Details", "collapsible" => true}
+             }
+           ] = page.markup
+
+    assert page.console_actions == [Pages.details_action()]
+    assert {:ok, _projected} = console(page)
+
+    # Rows keep their key, and a row this session wrote is flagged pending.
+    marks = AtlasControl.Freshness.Marks.mark(%{}, 7, [%{"key" => "W-1"}])
+    blocks = AtlasControl.Freshness.RowKey.put(page.blocks)
+    {blocks, flagged} = AtlasControl.Freshness.Marks.overlay(blocks, %{}, marks)
+    rows = by_id(%{blocks: blocks})["list"]["rows"]
+    assert Enum.map(rows, & &1["key"]) == ["W-2", "W-1", "W-3"]
+    assert Enum.map(rows, & &1["pending"]) == [nil, true, nil]
+    assert flagged == ["W-1"]
+
+    # No open work: the Overview and the empty list; no details, section or console action.
+    page = render({:list, "card"}, @open, [%{"facts" => []}, %{"facts" => []}])
+    assert Enum.map(page.blocks, & &1["id"]) == ["summary", "list"]
+    assert page.markup == []
+    refute Map.has_key?(page, :console_actions)
+    assert counts(page) == %{"Open" => "0"}
   end
 
   test "open work exposes partial and total collection failures instead of authoritative rows" do
@@ -1796,13 +1904,10 @@ defmodule AtlasControl.PagesTest do
         %{"facts" => []}
       ])
 
-    assert [
-             %{
-               "type" => "list",
-               "props" => %{"rows" => [%{"id" => "W-2", "label" => "Fresh work"}]}
-             }
-           ] =
-             recovered.blocks
+    assert ["summary", "list", "details"] = Enum.map(recovered.blocks, & &1["id"])
+
+    assert [%{"to" => "/k/widget/W-2", "label" => "Fresh work"}] =
+             by_id(recovered)["list"]["rows"]
 
     empty =
       render({:list, "widget"}, description, [
@@ -1810,8 +1915,8 @@ defmodule AtlasControl.PagesTest do
         %{"facts" => []}
       ])
 
-    assert [%{"type" => "list", "props" => %{"rows" => [], "empty" => "Nothing is open."}}] =
-             empty.blocks
+    assert ["summary", "list"] = Enum.map(empty.blocks, & &1["id"])
+    assert %{"rows" => [], "empty" => "Nothing is open."} = by_id(empty)["list"]
   end
 
   # What to do (IS-Atlas-54): a flow on widgets, on their card; its state is the card's step.

@@ -676,20 +676,28 @@ defmodule AtlasControl.Pages do
         actions: start_actions(m)
       )
 
-    content = [{"summary", overview(items)}, {"list", list}]
+    calm_page(m, rule.title || "", nil, rule.relation, items, [
+      {"summary", overview(items)},
+      {"list", list}
+    ])
+  end
 
+  # A calm page of `items` (`content`: its Overview and list): when there are any, each
+  # one's technical details in a collapsible Details section, and the console action that
+  # folds it (`details_actions/1`).
+  defp calm_page(m, title, back, relation, items, content) do
     case items do
       [] ->
-        page(rule.title || "", nil, content)
+        page(title, back, content)
 
       _ ->
         details =
           Blocks.item(
             title: "Technical details",
-            fields: for(item <- items, do: technical_pair(m, rule.relation, item))
+            fields: for(item <- items, do: technical_pair(m, relation, item))
           )
 
-        page(rule.title || "", nil, content ++ [{"details", details}], [
+        page(title, back, content ++ [{"details", details}], [
           Blocks.section("details", "details", title: "Details", collapsible: true)
         ])
         |> Map.put(:console_actions, details_actions(m))
@@ -711,7 +719,7 @@ defmodule AtlasControl.Pages do
       reason: nil
     }
 
-  # The start page's console actions: `details_action/0`, unless a start action already
+  # A calm page's console actions: `details_action/0`, unless a start action already
   # binds its key (a model may start a kind on d); then a console keeps the Details folded,
   # and a native client discloses them on its own.
   defp details_actions(m) do
@@ -720,30 +728,32 @@ defmodule AtlasControl.Pages do
     if Enum.any?(m.start.actions, &(&1.key in action.keys)), do: [], else: [action]
   end
 
-  # How much is assigned: how many to do, and how many of those are late or blocked (only
-  # when some are).
-  defp overview(items) do
+  # How much there is: how many (`main`), and how many of those are late or blocked, and
+  # any `more` counts (only when some are).
+  defp overview(items, main \\ "To do", more \\ []) do
     late = Enum.count(items, fn {_, fact, link} -> true in [link["late"], fact["late"]] end)
 
     blocked =
       Enum.count(items, fn {_, fact, link} -> shown(fact, link, "status") == "blocked" end)
 
     fields =
-      for {label, n} <- [{"To do", length(items)}, {"Late", late}, {"Blocked", blocked}],
-          label == "To do" or n > 0,
+      for {label, n} <- [{main, length(items)}, {"Late", late}, {"Blocked", blocked} | more],
+          label == main or n > 0,
           do: Blocks.pair(label: label, value: Integer.to_string(n))
 
     Blocks.item(title: "Overview", fields: fields)
   end
 
-  # One calm row of what is assigned: the fact, why it is to be reviewed (the rule's label;
-  # the fact that makes it so is in the details), what is expected, whether it is blocked,
-  # and its deadline (late first); its key and the rest are in its technical details.
-  defp calm_row(m, relation, {from, fact, link}) do
+  # One calm row of what is assigned: the fact, who it is with (`owner?`, on Open work),
+  # why it is to be reviewed (the rule's label; the fact that makes it so is in the
+  # details), what is expected, whether it is blocked, and its deadline (late first); its
+  # key and the rest are in its technical details.
+  defp calm_row(m, relation, {from, fact, link}, owner? \\ false) do
     link_k = kind(m, link_kind(m, relation))
 
     detail =
       [
+        owner? && owner_text(link, relation),
         get_in(fact, ["review", "label"]),
         expected(fact, link),
         shown(fact, link, "status") == "blocked" && "blocked",
@@ -813,40 +823,15 @@ defmodule AtlasControl.Pages do
   defp keys_text(keys) when is_list(keys), do: Enum.map_join(keys, ", ", &to_text/1)
   defp keys_text(value), do: to_text(value)
 
-  # One row of Open work: the fact, whoever it is assigned to (`owner?`), what is
-  # expected, its deadline (late first), and since when and why.
-  defp work_row(m, relation, {from, fact, link}, owner?) do
-    k = kind(m, from)
-    origin = get_in(link, ["origins", relation]) || %{}
-    link_k = kind(m, link_kind(m, relation))
-
-    owner =
-      if owner? do
-        case get_in(link, ["links", relation]) || [] do
-          [] -> "—"
-          keys -> Enum.join(keys, ", ")
-        end
-      end
-
-    detail =
-      [
-        owner,
-        review_text(fact),
-        expected(fact, link),
-        late_detail(link_k, link),
-        origin["since"] && "since " <> short_moment(origin["since"]),
-        not owner? && origin["cause"]
-      ]
-      |> Enum.reject(&(&1 in [nil, "", false]))
-      |> Enum.join(" · ")
-
-    Blocks.row(
-      id: fact["key"],
-      label: label(k, fact),
-      detail: detail,
-      to: path({:item, from, fact["key"]})
-    )
+  # Who an Open work row is with: the keys its link points at, or "unassigned".
+  defp owner_text(link, relation) do
+    case owners(link, relation) do
+      [] -> "unassigned"
+      keys -> Enum.join(keys, ", ")
+    end
   end
+
+  defp owners(link, relation), do: get_in(link, ["links", relation]) || []
 
   # The kind the start's relation starts at (the Assignment), when it is one.
   defp link_kind(m, relation) do
@@ -856,24 +841,28 @@ defmodule AtlasControl.Pages do
     end
   end
 
-  # Open work: the list of a kind the start's relation starts at, for everyone.
+  # Open work: the list of a kind the start's relation starts at, for everyone; calm by
+  # default as what is assigned (`assigned/4`), each row with who it is with.
   defp open_work(m, kind, answers, marked) do
     case Enum.find(answers, &match?(%{"error" => _}, &1)) do
       nil ->
         rule = open_rule(m)
         relation = assigned_rule(m).relation
-
-        rows = for item <- open_facts(m, answers, marked), do: work_row(m, relation, item, true)
+        items = open_facts(m, answers, marked)
+        unassigned = Enum.count(items, fn {_, _, link} -> owners(link, relation) == [] end)
 
         list =
           Blocks.list(
             title: rule.title || kind(m, kind).plural,
-            rows: rows,
+            rows: for(item <- items, do: calm_row(m, relation, item, true)),
             empty: rule.empty,
             actions: []
           )
 
-        page(rule.title || "", "/", [list])
+        calm_page(m, rule.title || "", "/", relation, items, [
+          {"summary", overview(items, "Open", [{"Unassigned", unassigned}])},
+          {"list", list}
+        ])
 
       failed ->
         unavailable(failed, "/")
@@ -889,20 +878,6 @@ defmodule AtlasControl.Pages do
         value -> value
       end
     end)
-  end
-
-  # "3 Nov 17:14", in local time.
-  defp short_moment(iso) do
-    case DateTime.from_iso8601(iso) do
-      {:ok, at, _} ->
-        {{y, mo, d}, {h, mi, _}} =
-          :calendar.universal_time_to_local_time(NaiveDateTime.to_erl(DateTime.to_naive(at)))
-
-        Calendar.strftime(NaiveDateTime.from_erl!({{y, mo, d}, {h, mi, 0}}), "%-d %b %H:%M")
-
-      _ ->
-        to_text(iso)
-    end
   end
 
   # The start page's ways to the kinds kept off it: an action that opens the kind's list.
