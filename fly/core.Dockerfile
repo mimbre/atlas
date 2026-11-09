@@ -23,9 +23,11 @@ RUN apt-get update \
 
 ENV LANG=C.UTF-8 ATLAS_ROOT=/app RELEASE_DISTRIBUTION=none
 COPY --from=build /src/beam/_build/prod/rel/atlas /app/release
-# What the core reads from the repository at run time: the description's extra, and its
-# settings per environment.
-COPY rela/schema.yaml rela/data-entry.yaml rela/atlas.json rela/atlas.manifest.json /app/rela/
+# What the core reads from the repository at run time: the description's extra, its
+# settings per environment, and the flows Flow runs (rela/flows.yaml, the assembler's copy
+# of flow/targets/rela/flows.yaml). The rela image does not get flows.yaml: the running
+# rela must not load flows (D-0068).
+COPY rela/schema.yaml rela/data-entry.yaml rela/atlas.json rela/atlas.manifest.json rela/flows.yaml /app/rela/
 COPY rela/modules /app/rela/modules
 COPY rela/compositions /app/rela/compositions
 COPY rela/scripts/verify.py /app/rela/scripts/verify.py
