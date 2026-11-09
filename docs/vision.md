@@ -19,19 +19,25 @@ Using Atlas means being empowered by AI. Building Atlas means searching for wher
 
 ## Principles
 
-A principle is what can never happen, by anyone, in any case. The system enforces it; instructions alone are not enough. There are only a few.
+A principle holds for anyone, in any case. The system enforces it; instructions alone are not enough. There are only a few. Principles live in the decision ledger as decisions of force `principle`, each with what enforces it.
 
-**Model output never authorizes an action.**
-Advice and decisions are separate. A model may advise; rules and people decide.
+**AI may decide; a decider gate guards when.**
+For each decision, a decider gate determines whether a person is needed. If not, AI decides, and the decision is recorded and reviewable. If a person is needed and takes too long, AI decides anyway so work does not stall. That decision gets a red flag, and work built on it is marked "based on unverified decisions" until a person has reviewed it; if the person overrules it, that work is flagged for review. Amending a principle, and a production release while rollback is not automated, always wait for a person.
 
-**An agent never assigns work to itself or another agent, and workers never hold provider credentials.**
-Autonomy is granted, not taken. Every agent works on an assignment it was given, with an owner, a scope and a limit. Autonomy can grow as evidence shows it is safe, but people and rules grant it; machinery never claims it.
+**No worker agent assigns work.**
+A worker never assigns work, to itself or to another worker. People, Flow, or an agent whose role is to assign do, visibly and reviewably.
 
-**An agent never accepts its own work.**
-Results need proof. Accepted work has an independent review and evidence that it does what it should.
+**Workers hold no credentials.**
+A worker never holds keys or logins for model providers or other services.
 
-**Nothing reaches production without a person's explicit OK.**
-People make the decisions that matter. Production is where mistakes reach users, so a person decides.
+**No agent accepts its own work.**
+Work counts as done only after an independent review and proof, bound to the exact version reviewed.
+
+**Production needs a person's OK, as long as rollback is not automated.**
+Production is where mistakes reach users. Until rollback is automated, a person decides whether a release goes out.
+
+**Every open item has exactly one owner.**
+Waiting is not a status: the item moves to whoever it waits for.
 
 ### Beliefs that guide direction
 
