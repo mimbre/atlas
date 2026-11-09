@@ -109,6 +109,13 @@ func Findings(home, path, turn string) (map[string]any, error) {
 		return nil, err
 	}
 	defer lock.Close()
+	// Discard removes the folder under the same lock and stamps the packet after; a stamped packet
+	// takes no more findings, whatever is left at its path.
+	if stamp, err := readDiscarded(home, id); err != nil {
+		return nil, err
+	} else if stamp != nil {
+		return nil, refuse("packet_discarded", "packet %s was discarded at %v; nothing was recorded", id, stamp["discarded_at"])
+	}
 	verified, err := VerifiedPacket(home, tree)
 	var modified packetModified
 	if errors.As(err, &modified) {
@@ -627,8 +634,15 @@ func Packets(home, dest string) (map[string]any, error) {
 		if err != nil {
 			return nil, err
 		}
+		// A discarded packet stays listed with its findings; its folder is gone.
+		var discardedAt any
+		if stamp, err := readDiscarded(home, p.PacketID); err != nil {
+			return nil, err
+		} else if stamp != nil {
+			discardedAt = stamp["discarded_at"]
+		}
 		listed = append(listed, map[string]any{"packet_id": p.PacketID, "fingerprint": p.Fingerprint, "previous": p.Previous, "snapshot_id": p.SnapshotID,
-			"created_at": p.CreatedAt, "author": p.Author, "packet": filepath.Dir(p.Tree), "findings": findings})
+			"created_at": p.CreatedAt, "author": p.Author, "packet": filepath.Dir(p.Tree), "discarded_at": discardedAt, "findings": findings})
 	}
 	result["packets"] = listed
 	return result, nil

@@ -370,7 +370,7 @@ Review packet freeze (implemented, `tools/runtime/snapshot/freeze.go`):
 - **Consistency:** the second scan reads the recorded tree. Different repository entries or outside paths refuse with `folder … changed during freeze; nothing was frozen` and remove `NEW_PATH`, its tree record and its preparation result. Every failure before the commit point removes them the same way.
 - **Idempotency:** an existing `<home>/packets/<id>/packet.json` with the same folder, turn, packet path and previous returns that packet with `state: "existing"`, without scanning or locking; any other reuse is a conflict. A packet ID claimed by a concurrent freeze refuses and removes the loser's folder.
 - **Result:** `packet.json` plus `state: "frozen"`, `packet` and `cost: {elapsed_ms, files, bytes, cloned_files, copied_files, copied_bytes, free_bytes_before, free_bytes_after, disk_used_bytes}`; the disk figure is the drop in the volume's free space during the command.
-- **Limits:** a process killed mid-freeze leaves its staging folder, or a published `NEW_PATH` without `packets/<id>/`; the latter refuses a repeat until it is removed (`snapshot discard` is a later step). Clones keep extended attributes and ACLs. A `.git` outside every repository is copied like any outside path. Read-only modes do not stop the same user; the review profile is a later step.
+- **Limits:** a process killed mid-freeze leaves its staging folder, or a published `NEW_PATH` without `packets/<id>/`; the latter refuses a repeat until it is removed by hand (`snapshot discard` needs `packets/<id>/`). Clones keep extended attributes and ACLs. A `.git` outside every repository is copied like any outside path. Read-only modes do not stop the same user; the review profile is a later step.
 
 Review findings and the packet chain (implemented, `tools/runtime/snapshot/findings.go`):
 - **Command:** `atlas-runtime snapshot findings --packet P --turn REVIEW_TURN`, offline: no Code, Runtime service or Git.
@@ -378,19 +378,29 @@ Review findings and the packet chain (implemented, `tools/runtime/snapshot/findi
   1. Resolve `P` and `P/tree`, whose materialization record must name a packet.
   2. Return an existing `<home>/packets/<id>/findings/REVIEW_TURN.json` if the file still has its `sha256`.
   3. Read `<home>/turns/REVIEW_TURN/turn.json`. Its `cwd` must be `P/tree`, `permissions.profile` must be `review-packet` with this `packet_id`, and its `state` must be `finished`, `stopped` or `killed`.
-  4. Take the tree's `flock` (`folder … has an active Runtime owner; nothing was recorded`).
+  4. Take the tree's `flock` (`folder … has an active Runtime owner; nothing was recorded`). Under it, a `packets/<id>/discarded.json` refuses with code `packet_discarded`.
   5. Verify the packet as the profile scope does (`VerifiedPacket`). The scope's `fingerprint` must equal the packet's.
   6. Read `P/findings/findings.json` without following symlinks, at most 64 KiB.
   7. Validate it, then write the record.
-- **Refusal codes:** `packet_modified` (tree, `packet.json` or `diff.json` differs from the record), `findings_missing`, `findings_invalid`. They are carried by `snapshot.FindingsRefusal`, and the CLI reports them as `code`. Other refusals have no code. Nothing is recorded on any refusal.
+- **Refusal codes:** `packet_modified` (tree, `packet.json` or `diff.json` differs from the record), `packet_discarded`, `findings_missing`, `findings_invalid`. They are carried by `snapshot.FindingsRefusal`, and the CLI reports them as `code`. Other refusals have no code. Nothing is recorded on any refusal.
 - **Format:** exact fields as in the review design §4, version 1, this packet's ID and fingerprint, the enums, no repeated keys, UTF-8.
   - `repository` and `path` follow `diff.json`: the repository name, and the path relative to the tree.
   - A path must be in the tree, through real directories only, or in the baseline, and in the named repository.
   - `lines {side, start, end}` must lie within the tree's (`new`) or the baseline's (`old`) file, counted as diffs count lines.
   - `pass` with a `blocking` finding is invalid.
 - **Record:** `{version: 1, packet_id, fingerprint, review_turn, reviewer: {worker_id, backend, model, selection}, author: {turn_id, worker_id, backend, model, selection}, recorded_at, sha256, findings}`, published read-only with the exclusive rename and never replaced. `findings` is the compacted file, and `sha256` covers its original bytes. A concurrent ingest that loses the rename returns the winner's record if the bytes are equal.
-- **Chain:** `atlas-runtime snapshot packets --dest D` reads `<home>/packets/*/packet.json` with `author.dest` equal to the canonical `D`. It orders them by depth along `previous` (then `created_at`, then ID) and attaches each packet's findings records, oldest first. Read only: it creates no home and needs no service.
+- **Chain:** `atlas-runtime snapshot packets --dest D` reads `<home>/packets/*/packet.json` with `author.dest` equal to the canonical `D`. It orders them by depth along `previous` (then `created_at`, then ID) and attaches each packet's findings records, oldest first, and its `discarded_at` (`null` before a discard). Read only: it creates no home and needs no service.
 - **Limits:** findings travel as a Runtime record. The Issue channel messages (D-0040, channels S9) are a later step. Retention follows the packet records (step 15).
+
+Review packet discard (implemented, `tools/runtime/snapshot/discard.go`):
+- **Command:** `atlas-runtime snapshot discard --packet PATH | --packet-id UUID`, offline: no Code, Runtime service or Git. Exactly one of the two names the packet.
+- **Lookup:** by ID, `<home>/packets/<id>/packet.json`. By path, `PATH` is resolved like freeze resolves it (parent through symlinks, the folder too when it exists) and matched against the parent of `tree` in every `packets/*/packet.json`; a packet not yet discarded wins, otherwise the latest `discarded_at`. No match: `no recorded packet was frozen into …`.
+- **Order:** an existing `packets/<id>/discarded.json` returns its result. Otherwise, if the recorded packet folder exists: its `tree` must be a real directory; take the tree's `flock` (`folder … has an active Runtime owner; nothing was discarded`), the lock a review pass's host, `snapshot findings` and a submission from the tree hold; the tree's materialization record must still name this `packet_id`; then remove the folder. Then remove the tree's materialization record and preparation copy, and stamp `discarded.json` (0444) into `packets/<id>/` with an exclusive rename, the directory staying 0555 around it. The lock is held until the command returns.
+- **Removal:** like the host's scratch cleanup: owner write (directories read, write and search) is added through an `os.Root` confined to the folder, symbolic links are skipped and never followed, then the folder is removed.
+- **Kept:** `packets/<id>/` with `packet.json`, `diff.json` and `findings/` unchanged, plus `discarded.json` `{packet_id, packet, tree, fingerprint, discarded_at}`.
+- **With findings:** the shared tree lock serializes discard and findings ingest; findings checks the stamp under it, so a stamped packet takes no more findings, and `snapshot packets` reports `discarded_at` with the kept findings.
+- **Idempotency:** the stamp is the commit point. A repeat by path or ID returns `{state: "discarded", packet_id, packet, tree, fingerprint, discarded_at, record}` as first reported; a discard interrupted after the folder was removed completes on a repeat; two concurrent discards report the first stamp.
+- **Limits:** a folder left by a freeze that died before `packets/<id>/` was published is not found and must be removed by hand. One unreadable `packets/*/packet.json` fails a lookup by path.
 
 Materialized-folder profile (implemented for Codex and Claude):
 - **Command:** `atlas-runtime start --worker W --backend codex|claude --cwd DEST --permissions materialized-folder ASSIGNMENT`, where `DEST` is a folder produced by `snapshot materialize` **outside the Runtime home**. It cannot be combined with `--sandbox` or `--repo`/`--branch`. Claude also accepts `--questions` with it. There is no fallback to broader permissions, and legacy `dedicated-repository` is unchanged.
