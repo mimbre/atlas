@@ -56,10 +56,15 @@ scenario "UC-Atlas-28: My work on the front page", fn %{t1: t1, t2: t2, instance
       ])
 
     for t <- [t1, t2], do: by_hint(t, row.(use_case["key"], "A use case for you"), at)
-    see(t1, ~r/since \d+ \w+ \d\d:\d\d · all its issues are completed/)
     see(t1, count.(1))
-    # What its flow expects, once Flow has written it.
-    see(t1, ~r/Build it · since/, 10_000)
+    # What its flow expects, once Flow has written it: the row's summary (UC-Atlas-44).
+    see(t1, ~r/#{use_case["key"]}\s+A use case for you\s+Build it\s/, 10_000)
+    # Why, and since when, are on its page: first what to do, for its owner. Room for its parts.
+    resize(t1, 100, 40)
+    open_row(t1, "A use case for you")
+    see(t1, ~r/Why\s+all its issues are completed[\s│]*\n[\s│]+since \d+ \w+ \d\d:\d\d · by /u)
+    resize(t1, 100, 30)
+    start.(t1)
   end
 
   step "Newest move first", fn ->

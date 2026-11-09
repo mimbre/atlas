@@ -32,12 +32,13 @@ scenario "UC-Atlas-27: Every assignable thing has an Assignment", fn %{
          key = Process.get(:uc78)
 
          for t <- [t1, t2] do
+           # Room for the References part to show the owner's list when it arrives: paging
+           # stops at a part's current end, so it cannot wait below it in advance.
+           resize(t, 100, 40)
            home(t)
            open_row(t, "A scene with assignments")
            open_row(t, "An assigned use case")
            see(t, "Use case #{key}: An assigned use case")
-           # Keep the lower References area visible when the owner list arrives.
-           press(t, "NPage")
          end
 
          {got, at} = atlas_json(i, ["set", key, "assigned_to=bea", "--cause", "Bea builds it"])
@@ -49,8 +50,9 @@ scenario "UC-Atlas-27: Every assignable thing has an Assignment", fn %{
          # The link is the Assignment's, not the use case's own.
          Enum.any?(got["fields"], &match?(["Assignment", _], &1)) && raise inspect(got["fields"])
 
-         # The owner's list arrives by hint in the scrolled References pane.
+         # The owner's list arrives by hint in the References part.
          for t <- [t1, t2], do: by_hint(t, ~r/Assigned to ─/, at)
+         for t <- [t1, t2], do: resize(t, 100, 30)
 
          # Flow writes what is expected on the Assignment; the use case shows it as its own.
          expected =

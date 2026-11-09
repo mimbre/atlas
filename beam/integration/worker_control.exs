@@ -1,6 +1,26 @@
-# MIX_ENV=test mix run integration/worker_control.exs
+# MIX_ENV=test mix run integration/worker_control.exs (needs Go on PATH)
 # Real Control sockets, Bus, State and private durable synthetic storage; no harness.
 ExUnit.start(seed: 0)
+
+# Native turns run in the Go host of the launching CLI, named by ATLAS_RUNTIME_EXECUTABLE.
+# Build that CLI from this tree, as the Runtime tests do: never an inherited binary.
+folder =
+  Path.join(
+    System.tmp_dir!(),
+    "atlas-worker-control-#{System.pid()}-#{System.unique_integer([:positive])}"
+  )
+
+File.mkdir!(folder)
+ExUnit.after_suite(fn _ -> File.rm_rf!(folder) end)
+executable = Path.join(folder, "atlas-runtime")
+
+case System.cmd("go", ["-C", "tools/runtime", "build", "-o", executable, "."],
+       cd: Path.expand("../..", __DIR__),
+       stderr_to_stdout: true
+     ) do
+  {_, 0} -> System.put_env("ATLAS_RUNTIME_EXECUTABLE", executable)
+  {output, _} -> raise("Building the Runtime CLI failed:\n#{output}")
+end
 
 defmodule WorkerControlTest do
   use ExUnit.Case, async: false
