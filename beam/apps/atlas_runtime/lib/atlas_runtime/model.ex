@@ -22,10 +22,10 @@ defmodule AtlasRuntime.Model do
   `activity`, `why`, `ended_at`, `outcome`, `attempt`), and
 
     * `on_kinds`: the kinds a turn's `on` relation leads to;
-    * `items`: the facts a turn can work on, in order, each `%{"kind", "owner_relation",
-      "state_field", "handover_field"}`: owned through `owner_relation`, open while
-      `state_field` has a value (always, without one), and barred from a new turn while
-      `handover_field` has one.
+    * `items`: the facts a turn can work on, in order, each `%{"kind", "owner_relation"}`:
+      owned through `owner_relation`. Whether one is open, and whether a deferred
+      handover bars a new turn on it, Facts says: its `"presentation"` (`actionable`,
+      `handover`, `owner`), which a read asks for with `"presentation" => true`.
   """
   @callback turn() :: nil | map
 

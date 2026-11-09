@@ -120,9 +120,25 @@ defmodule AtlasRuntime.ProducerOutputTest do
     def handle_info({:atlas_bus, %Envelope{class: "read"} = e, c}, state) do
       answer =
         case {e.kind, c} do
-          {"work", _} -> %{"fact" => %{"values" => %{}, "links" => %{"owner" => ["worker"]}}}
-          {_, %{"key" => key}} -> %{"fact" => state.facts[{e.kind, key}]}
-          _ -> %{"facts" => [], "more" => false}
+          {"work", _} ->
+            %{
+              "fact" => %{
+                "values" => %{},
+                "links" => %{"owner" => ["worker"]},
+                # As Facts presents the work on it: the worker's, open, no handover.
+                "presentation" => %{
+                  "owner" => ["worker"],
+                  "actionable" => true,
+                  "handover" => nil
+                }
+              }
+            }
+
+          {_, %{"key" => key}} ->
+            %{"fact" => state.facts[{e.kind, key}]}
+
+          _ ->
+            %{"facts" => [], "more" => false}
         end
 
       :ok = AtlasBus.send(Envelope.reply(e, "answer"), answer)

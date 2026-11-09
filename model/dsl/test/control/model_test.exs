@@ -42,8 +42,10 @@ defmodule RelaDSL.Control.ModelTest do
       assert %{error: "only the writer sets it"} =
                Enum.find(kind("letter").relations, &(&1.name == "written_by")).only_target
 
-      assert kind("desk").hidden == ["flow_state", "handover"]
-      assert kind("letter").expected == [%{field: "expected", on_component: true}]
+      # The selected subflow presents letters on their desk (its projection keeps only the
+      # state there); what is expected, Facts' presentation says.
+      assert kind("desk").hidden == ["flow_state"]
+      refute Map.has_key?(kind("letter"), :expected)
     end
   end
 

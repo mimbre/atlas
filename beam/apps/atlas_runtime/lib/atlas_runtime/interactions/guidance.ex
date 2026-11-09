@@ -250,20 +250,25 @@ defmodule AtlasRuntime.Guidance do
       true ->
         with %{"fact" => %{"values" => v, "links" => links}} <-
                Talk.read(turn.turn_kind, %{"key" => turn.key, "plain" => true}, talk_opts(turn)),
-             %{"fact" => %{"values" => iv, "links" => il}} <-
-               Talk.read(turn.kind, %{"key" => turn.item, "plain" => true}, talk_opts(turn)) do
-          flow = turn.ownership
+             %{"fact" => %{} = item} <-
+               Talk.read(
+                 turn.kind,
+                 %{"key" => turn.item, "plain" => true, "presentation" => true},
+                 talk_opts(turn)
+               ) do
+          # Facts' presentation of the work on the item: whose it is, whether something is
+          # to be done, and whether a handover waits for this turn to end.
+          shown = item["presentation"] || %{}
 
           cond do
             v[n.state] != n.running or v[n.machine] != turn.machine or
               v[n.attempt] != turn.attempt or
               links[n.by] != [turn.agent] or links[n.on] != [turn.item] or
               (n.outcome && v[n.outcome] not in [nil, ""]) or
-              il[flow["owner_relation"]] != [turn.agent] or
-                (flow["state_field"] && iv[flow["state_field"]] in [nil, ""]) ->
+              shown["owner"] != [turn.agent] or shown["actionable"] != true ->
               :closed
 
-            flow["handover_field"] && iv[flow["handover_field"]] not in [nil, ""] ->
+            shown["handover"] != nil ->
               :paused
 
             true ->

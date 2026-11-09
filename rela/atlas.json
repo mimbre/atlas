@@ -1443,6 +1443,7 @@
   "todo": {
     "answers": "Answers",
     "instructions": "How",
+    "reopened": "Reopened after its run ended: nothing is expected and nobody owns it until its run is restarted",
     "title": "What to do",
     "why": "Why"
   },

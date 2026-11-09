@@ -26,7 +26,7 @@ defmodule AtlasFlow.Item do
   require Logger
 
   alias AtlasFlow.{Legacy, Talk}
-  alias AtlasFlow.Runs.{Clock, Run, Store}
+  alias AtlasFlow.Runs.{Clock, Presentation, Store}
 
   # A burst of hints is looked at once.
   @settle 50
@@ -174,36 +174,9 @@ defmodule AtlasFlow.Item do
          # The latest generation: after an explicit restart, the new run presents.
          {:ok, %{} = run} <- Store.latest(config, name, state.kind, state.key),
          true <- run["definition_sha256"] == subflow.digest() do
-      follow = selection["follow_through"]
-
-      cond do
-        run["status"] == "completed" and follow != nil and run["state"] == follow["state"] and
-            Run.holds?(follow["when"], fact["values"] || %{}) ->
-          legacy(state, flow, fact, children, parents, pointing)
-
-        run["status"] == "completed" ->
-          %{"name" => run["state"], "done" => true}
-
-        run["status"] == "active" ->
-          values = fact["values"] || %{}
-          present = subflow.present(run["state"], values) || %{}
-          binding = subflow.owner(run["state"])
-
-          deadline =
-            Enum.find_value(run["deadlines"]["timers"] || [], fn timer ->
-              if timer["name"] == present["deadline"], do: timer["due"]
-            end)
-
-          Map.merge(present, %{
-            "name" => run["state"],
-            "expected" => present["expected"] || "",
-            "owner" => owner(state, binding["default"]),
-            "preserve_kind" => binding["preserve_kind"],
-            "deadline" => deadline
-          })
-
-        true ->
-          nil
+      case Presentation.of_run(run, subflow, selection, fact, &owner(state, &1)) do
+        :follow_through -> legacy(state, flow, fact, children, parents, pointing)
+        presented -> presented
       end
     else
       _ -> nil
@@ -282,14 +255,14 @@ defmodule AtlasFlow.Item do
     held_field = flow["handover_field"]
     owners = get_in(fact, ["links", relation]) || []
     origin = get_in(fact, ["origins", relation, "position"])
-    pending = pending(fact, held_field)
-    deferred? = pending["from"] == owners and pending["position"] == origin
+    pending = Presentation.handover(fact, held_field)
+    deferred? = Presentation.deferred?(pending, owners, origin)
     cancelled? = pending != %{} and not deferred?
 
     wanted? =
       relation != nil and owners != List.wrap(owner) and
         (current["preserve_kind"] != nil or moved? or deferred? or
-           (not cancelled? and not by_hand?(fact, relation)))
+           (not cancelled? and not Presentation.manual?(fact, relation)))
 
     owner? =
       cond do
@@ -374,15 +347,6 @@ defmodule AtlasFlow.Item do
     end)
   end
 
-  defp pending(_fact, nil), do: %{}
-
-  defp pending(fact, field) do
-    case JSON.decode(fact["values"][field] || "") do
-      {:ok, %{} = value} -> value
-      _ -> %{}
-    end
-  end
-
   # Unknown Facts availability preserves the owner and durable deferred handover.
   defp running?(_turn, _key, []), do: false
 
@@ -402,16 +366,6 @@ defmodule AtlasFlow.Item do
 
       _ ->
         false
-    end
-  end
-
-  # An owner a user or an agent set stays while the state does not change: Flow moves it
-  # only when the state changes (what is expected changes), or when Flow, a migration or
-  # nobody set it.
-  defp by_hand?(fact, relation) do
-    case get_in(fact, ["origins", relation]) do
-      %{"by" => by} when by not in [nil, "flow", "migration"] -> true
-      _ -> false
     end
   end
 

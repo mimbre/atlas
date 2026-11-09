@@ -327,18 +327,11 @@ defmodule RelaDSL.Composition do
         raw
       )
 
-    runtime = RelaDSL.Runtime.Model.body(schema, extension)
-
-    facts =
-      RelaDSL.Facts.Model.body(schema, extension, flow_runtime && Plain.unorder(flow_runtime))
-
-    control =
-      RelaDSL.Control.Model.body(
-        schema,
-        extension,
-        flow_runtime && Plain.unorder(flow_runtime),
-        presentations!(flows, gates, environments, file)
-      )
+    plain_runtime = flow_runtime && Plain.unorder(flow_runtime)
+    presentations = presentations!(flows, gates, environments, file)
+    runtime = RelaDSL.Runtime.Model.body(schema, extension, plain_runtime)
+    facts = RelaDSL.Facts.Model.body(schema, extension, plain_runtime, presentations)
+    control = RelaDSL.Control.Model.body(schema, extension, plain_runtime)
 
     quote do
       unquote(compiled)

@@ -30,9 +30,9 @@ defmodule AtlasControl.Model do
   @doc """
   What a client opens on: `%{assigned, open, actions}`. `assigned` is nil or `%{relation,
   title, empty, count}`: a client that is a fact of a kind `relation` points at opens on
-  what points at it through it; `open` is nil or `%{title, empty, expected}`: the list of
-  a kind the relation starts at shows every open fact, for everyone, where `expected`
-  are the fields a flow writes what is expected in; `actions` (`%{kind, key, label}`)
+  what points at it through it; `open` is nil or `%{title, empty}`: the list of a kind the
+  relation starts at shows every open fact, for everyone, with what Facts' presentation
+  of its work says is expected; `actions` (`%{kind, key, label}`)
   open a kind's list from the start page.
   """
   @callback start_page() :: map
@@ -40,8 +40,9 @@ defmodule AtlasControl.Model do
   @doc """
   Every kind, sorted by name: `%{name, label, plural, about, top, newest_first, primary,
   id, fields, relations, counts, progress, shows_progress, done_label,
-  late, start, agent, delete_error, hidden, expected}`. `id` is `%{prefix, digits,
-  first, from, template, prefixes}`; `fields` are in the order pages show them, each
+  late, start, agent, delete_error, hidden, presented}` (`presented`: work on its facts is
+  presented, so a read of them asks Facts for their `"presentation"`). `id` is `%{prefix,
+  digits, first, from, template, prefixes}`; `fields` are in the order pages show them, each
   `%{name, label, type, values, labels, required, hint, settable, set_by, multiline,
   url, cause}`; `relations` are those that start at the kind, sorted by name, each
   `%{name, label, description, from, to, one, parent, inverse_label, component, set_by,

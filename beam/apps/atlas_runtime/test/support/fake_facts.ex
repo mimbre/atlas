@@ -4,6 +4,11 @@ defmodule AtlasRuntime.FakeFacts do
   kind, those linked to a key), stores creates and changes in memory, and answers each
   fact with stored (the Bus hints it to listeners). Its kinds are the neutral model's
   (`AtlasRuntime.TestModel`): a clerk owns a box through a card; a run is a turn.
+
+  A read that asks for it (`"presentation" => true`) answers each card with its
+  presentation, as Facts presents the work of the model's legacy flow: owned through
+  `owned_by`, open while its `step` has a value, and a handover waiting while its `later`
+  has one.
   """
   use GenServer
 
@@ -82,13 +87,13 @@ defmodule AtlasRuntime.FakeFacts do
           %{"description" => s.description}
 
         {kind, %{"key" => key}} ->
-          %{"fact" => s.facts[{kind, key}]}
+          %{"fact" => s.facts[{kind, key}] && present(kind, s.facts[{kind, key}], content)}
 
         {kind, %{"linked" => linked}} ->
           facts =
             for {{^kind, _}, fact} <- Enum.sort(s.facts),
                 Enum.all?(linked, fn {rel, key} -> key in (fact["links"][rel] || []) end),
-                do: fact
+                do: present(kind, fact, content)
 
           %{"facts" => facts}
 
@@ -134,4 +139,20 @@ defmodule AtlasRuntime.FakeFacts do
   end
 
   def handle_info(_message, s), do: {:noreply, s}
+
+  # A presentation the test gives (a run that ended, say) is answered as it is.
+  defp present(_kind, %{"presentation" => _} = fact, %{"presentation" => true}), do: fact
+
+  defp present("card", fact, %{"presentation" => true}) do
+    blank = &(&1 in [nil, ""])
+
+    Map.put(fact, "presentation", %{
+      "owner" => fact["links"]["owned_by"] || [],
+      "actionable" => not blank.(fact["values"]["step"]),
+      "handover" => if(blank.(fact["values"]["later"]), do: nil, else: %{}),
+      "manual" => false
+    })
+  end
+
+  defp present(_kind, fact, _content), do: fact
 end

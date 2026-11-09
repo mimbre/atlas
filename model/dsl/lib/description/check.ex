@@ -30,7 +30,7 @@ defmodule RelaDSL.Description.Check do
     }
 
     guidance(ctx) ++
-      keyed(ctx, "todo", ~w(title why instructions answers)) ++
+      keyed(ctx, "todo", ~w(title why instructions answers reopened)) ++
       shell(ctx) ++
       start(ctx) ++
       types(ctx) ++

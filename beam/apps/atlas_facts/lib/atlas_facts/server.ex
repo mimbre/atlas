@@ -54,7 +54,7 @@ defmodule AtlasFacts.Server do
   @position "_position"
   # How many reads one page may ask for, and what each may say (no other query context).
   @page_reads 64
-  @page_read_keys ~w(key linked plain incoming)
+  @page_read_keys ~w(key linked plain incoming presentation)
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name))
 
@@ -684,19 +684,22 @@ defmodule AtlasFacts.Server do
 
   defp read(state, kind, content) do
     with {:ok, spec, state} <- kind_spec(state, kind) do
-      case content do
-        %{"key" => key, "plain" => true} ->
-          {read_plain(state, kind, spec, key), state}
+      answer =
+        case content do
+          %{"key" => key, "plain" => true} ->
+            read_plain(state, kind, spec, key)
 
-        %{"key" => key} ->
-          {read_one(state, kind, spec, key, content["incoming"] != false), state}
+          %{"key" => key} ->
+            read_one(state, kind, spec, key, content["incoming"] != false)
 
-        %{"linked" => linked} when is_map(linked) ->
-          {read_all(state, kind, spec, linked, content["plain"] != true), state}
+          %{"linked" => linked} when is_map(linked) ->
+            read_all(state, kind, spec, linked, content["plain"] != true)
 
-        _ ->
-          {read_all(state, kind, spec, %{}, true), state}
-      end
+          _ ->
+            read_all(state, kind, spec, %{}, true)
+        end
+
+      {if(content["presentation"] == true, do: present(state, kind, answer), else: answer), state}
     else
       {:error, :unavailable, state} -> {read_error(:unavailable), state}
       {:error, reason, state} -> {%{"error" => reason, "error_kind" => "answered"}, state}
@@ -860,6 +863,116 @@ defmodule AtlasFacts.Server do
         error -> {:halt, error}
       end
     end)
+  end
+
+  # The presentation of each answered fact of a kind work is written on
+  # (`AtlasFacts.Presentation`), derived from the facts it depends on: the subject the work
+  # is on and the subject's runs. A read of those that fails fails the answer: not knowing
+  # is never "nothing to do". A fact no presenter's subject points at has none (nil).
+  defp present(state, kind, answer) do
+    case AtlasFacts.Presentation.of_kind(state.model.presentation(), kind) do
+      [] ->
+        answer
+
+      presenters ->
+        case answer do
+          %{"fact" => %{} = fact} ->
+            case presentation(state, presenters, fact) do
+              {:ok, view} -> put_in(answer, ["fact", "presentation"], view)
+              {:error, reason} -> read_error(reason)
+            end
+
+          %{"facts" => facts} when is_list(facts) ->
+            Enum.reduce_while(facts, {:ok, []}, fn fact, {:ok, acc} ->
+              case presentation(state, presenters, fact) do
+                {:ok, view} -> {:cont, {:ok, [Map.put(fact, "presentation", view) | acc]}}
+                {:error, reason} -> {:halt, {:error, reason}}
+              end
+            end)
+            |> case do
+              {:ok, presented} -> Map.put(answer, "facts", Enum.reverse(presented))
+              {:error, reason} -> read_error(reason)
+            end
+
+          _ ->
+            answer
+        end
+    end
+  end
+
+  defp presentation(state, presenters, fact) do
+    Enum.reduce_while(presenters, {:ok, nil}, fn presenter, {:ok, nil} ->
+      with {:ok, %{} = subject} <- presented_subject(state, presenter, fact),
+           {:ok, runs} <- subject_runs(state, presenter, subject["key"]) do
+        completed? = fn -> subject_completed?(state, presenter["subject"], subject) end
+        view = AtlasFacts.Presentation.view(presenter, fact, subject, runs, completed?)
+        {:halt, {:ok, view}}
+      else
+        {:ok, nil} -> {:cont, {:ok, nil}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  # The fact the work is on: the fact itself, or the subject whose `on` points at it.
+  defp presented_subject(state, presenter, fact) do
+    on = presenter["on"]
+    if on, do: Deps.linked(on, fact["key"])
+
+    with {:ok, subjects} <- collection(state, plural(state, presenter["subject"])) do
+      found? = fn s -> if on, do: fact["key"] in links_of(s, on), else: s.key == fact["key"] end
+
+      case Enum.find(subjects, found?) do
+        nil ->
+          {:ok, nil}
+
+        found ->
+          Deps.key(presenter["subject"], found.key)
+          {:ok, %{"key" => found.key, "values" => found.properties, "raw" => found}}
+      end
+    end
+  end
+
+  # The runs of the presenter's subflows on the subject, as the run mapping names their
+  # fields: those of every generation (the presentation takes the latest).
+  defp subject_runs(state, presenter, key) do
+    mapping = state.model.run_mapping()
+    names = for f <- presenter["flows"] || [], do: f["name"]
+
+    if mapping == nil or names == [] do
+      {:ok, []}
+    else
+      Deps.kind(mapping["kind"])
+      f = mapping["fields"]
+
+      with {:ok, facts} <- collection(state, plural(state, mapping["kind"])) do
+        runs =
+          for run <- facts,
+              p = run.properties,
+              p[f["subject_kind"]] == presenter["subject"],
+              p[f["subject_key"]] == key,
+              p[f["flow"]] in names,
+              do: %{
+                "key" => run.key,
+                "flow" => p[f["flow"]],
+                "generation" => p[f["generation"]],
+                "status" => p[f["status"]],
+                "state" => p[f["state"]]
+              }
+
+        {:ok, runs}
+      end
+    end
+  end
+
+  defp subject_completed?(state, kind, %{"raw" => raw}) do
+    Deps.key(kind, raw.key)
+
+    case with_progress(state, kind, [raw]) do
+      {:ok, [fact]} -> get_in(fact, [:completion, "done"]) == true
+      # Not knowing is never "completed": reopened work is said to be so.
+      _ -> false
+    end
   end
 
   # What the model works out for each fact, from the facts it reads: how far it is,
