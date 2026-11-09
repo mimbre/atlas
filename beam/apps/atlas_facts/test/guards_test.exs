@@ -74,6 +74,47 @@ defmodule AtlasFacts.GuardsTest do
     assert {:refused, ["R-2 is overturned"]} = check("change", overturned, %{"title" => "New"})
   end
 
+  test "only_target rules come from every outgoing relation and protect old and new targets" do
+    only = %{"error" => "only the delegator sets under, to themselves", "also" => ["importer"]}
+
+    description = %{
+      "entities" => %{"ruling" => @rules},
+      "relations" => %{
+        "under" => %{"from" => ["ruling"], "only_target" => only},
+        "ruled_by" => %{"from" => ["ruling"], "only_target" => only},
+        "unrelated" => %{"from" => ["other"], "only_target" => only}
+      }
+    }
+
+    rules = Guards.of(description, "ruling")
+    assert rules["only_target"] == %{"under" => only, "ruled_by" => only}
+    assert Guards.of(description, "absent") == %{}
+
+    for relation <- ["under", "ruled_by"] do
+      check = fn current, keys, writer ->
+        Guards.check(rules, "change", "R-2", current, %{}, %{relation => keys}, %{
+          "writer" => writer
+        })
+      end
+
+      assert {:refused, ["only the delegator sets under, to themselves"]} =
+               check.(nil, ["J-1"], "C-1")
+
+      assert {:refused, [_]} = check.(nil, ["J-1"], nil)
+      assert :ok = check.(nil, ["J-1"], "J-1")
+      assert {:refused, [_]} = check.(nil, ["J-2"], "J-1")
+      assert :ok = check.(nil, ["J-1"], "importer")
+
+      delegated = %{"values" => %{}, "links" => %{relation => ["J-1"]}}
+      assert {:refused, [_]} = check.(delegated, [], "C-1")
+      assert {:refused, [_]} = check.(delegated, ["J-2"], "C-1")
+      assert {:refused, [_]} = check.(delegated, ["J-2"], "J-2")
+      assert :ok = check.(delegated, [], "J-1")
+      assert :ok = check.(delegated, ["J-2"], "importer")
+      assert :ok = check.(delegated, ["J-1"], "C-1")
+    end
+  end
+
   test "an open fact is changed and deleted freely" do
     open = %{"values" => %{"title" => "T", "state" => "open"}, "links" => %{}}
     assert :ok = check("change", open, %{"title" => "Other"})

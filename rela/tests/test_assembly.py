@@ -39,6 +39,9 @@ class AssemblyTest(unittest.TestCase):
         prior['_about'] = self.original['_about']
         self.assertEqual(set(prior['entities'].pop('decision')), {'primary', 'order', 'create', 'properties', 'requires', 'authority', 'frozen', 'replaces', 'layering'})
         self.assertIn('only_target', prior['relations'].pop('decided_by'))
+        self.assertEqual(prior['relations'].pop('delegated_by'), {'only_target': {
+            'error': 'only the person who delegates sets delegated_by, to themselves',
+            'also': ['migration']}})
         self.assertEqual(set(prior['entities'].pop('gate_verdict')), {'top', 'primary', 'order', 'create', 'properties', 'requires', 'sealed'})
         self.assertIn('only_target', prior['relations'].pop('overruled_by'))
         self.assertEqual(prior['flows'].pop('decide')['kinds'], ['decision'])

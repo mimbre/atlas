@@ -50,6 +50,14 @@
         }
       }
     },
+    "delegated_by": {
+      "only_target": {
+        "error": "only the person who delegates sets delegated_by, to themselves",
+        "also": [
+          "migration"
+        ]
+      }
+    },
     "decided_by": {
       "only_target": {
         "error": "only the one who decides sets decided_by, to themselves",
