@@ -177,6 +177,34 @@ defmodule RelaDSL.Control.Rules do
     end
   end
 
+  @doc """
+  The explicit restart of the run that presents `fact`, when that run is completed (a
+  completed or reopened one) and `viewer` is one its selection's `restart_by` names:
+  `owner`, one the owner relation links, or a configured actor's role (`actors`, `%{role
+  => %{"key"}}`). `%{label, key, flow, run, inputs}`: the model's words for it, the
+  subflow and run to restart, and the kind a request for it is kept as. Nil otherwise,
+  and when the model words no restart. Facts checks the request again; this only offers.
+  """
+  def restart(flow, fact, parts, viewer, actors) do
+    with %{label: label, key: key} <- flow.words[:restart],
+         inputs when is_binary(inputs) <- flow.inputs,
+         {_written, %{"status" => "completed", "run" => run} = view} when is_binary(run) <-
+           written_view(flow, fact, parts),
+         by when is_binary(by) <- viewer && viewer[:key],
+         true <- restarter?(flow.restart_by[view["flow"]] || [], view, by, actors) do
+      %{label: label, key: key, flow: view["flow"], run: run, inputs: inputs}
+    else
+      _ -> nil
+    end
+  end
+
+  defp restarter?(names, view, by, actors) do
+    Enum.any?(names, fn
+      "owner" -> by in (view["owner"] || [])
+      role -> get_in(actors || %{}, [role, "key"]) == by
+    end)
+  end
+
   defp answers(todo), do: for(%{"key" => _, "label" => _} = a <- todo["answers"] || [], do: a)
 
   defp answer_view(a),

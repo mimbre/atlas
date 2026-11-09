@@ -83,6 +83,10 @@ defmodule AtlasControl.Model do
   @callback answer(kind :: String.t(), name :: String.t(), item :: map, viewer) ::
               {:write, map} | {:refuse, String.t()}
 
+  @doc "The restart a completed run offers to this viewer, or nil."
+  @callback restart(kind :: String.t(), fact :: map, parts :: map, viewer, actors :: map) ::
+              nil | map
+
   # The callbacks of the component that runs turns that Control calls too, and the
   # configured actors the model's owners name (the flow runner's `actors/0`).
   @shared [turn: 0, guidance: 0, read_first: 2, actors: 0]

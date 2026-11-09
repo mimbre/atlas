@@ -382,8 +382,15 @@ defmodule AtlasFlow.Runs.Run do
   its selection declares `reopen: "new_generation"` (`step/6`). `{:error, :not_completed}`
   for a run that is not completed.
   """
-  def restart(%{"status" => "completed"} = run, flow, subject, now),
-    do: {:ok, new(run["flow"], flow, subject, [], now, run["generation"] + 1)}
+  def restart(%{"status" => "completed"} = run, flow, subject, now) do
+    next = new(run["flow"], flow, subject, [], now, run["generation"] + 1)
+    # An explicit request supplies the start edge even when the predicate is false.
+    {:ok,
+     if(next["status"] == "idle",
+       do: enter(next, flow, flow.initial(), now, true, subject),
+       else: next
+     )}
+  end
 
   def restart(_run, _flow, _subject, _now), do: {:error, :not_completed}
 

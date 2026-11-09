@@ -15,6 +15,14 @@ An agent that plans gets the same actions as tools: `atlas tools` lists them, ma
 
 `atlas put <kind> ... --link <association>=<key>[,<key>]` (repeatable) links the new fact right after it is made, each through its association's own form. When a link is refused, the fact stays made and the refusal names its key (`GV-0007 is made, but not linked`), so `atlas set GV-0007 about=PR-12` finishes it.
 
+## Restarting a completed scene or use case
+
+Reopening a scene or use case after its flow run has completed does not start the run again. Use its item page in the TUI: as the current Assignment owner, when one is linked, or the environment's configured decider, choose **Restart** (`g`), then confirm **Restart**. Opening the confirmation or cancelling it sends no restart request. This is the item's Control action; it has no dedicated `atlas` CLI command.
+
+Control reads the item again at confirmation, and Facts independently checks who may restart it. The request must name the latest completed generation and the item must still match that flow's selection. An active run cannot be restarted; an unauthorized actor or a stale request naming an older generation is refused. Refresh the item page after a refusal to see its current run and owner.
+
+An accepted request starts a fresh generation of that subflow from its initial state, using the item's current facts; its branches may move it on immediately. The previous generation retains its completed state and history. The new generation supplies the current work and owner. Retrying the same recorded request, including recovery after Facts or Flow restarts, does not create an extra generation.
+
 ## Recording a gate verdict
 
 Every gate decision is a `gate_verdict` in Rela: which gate (`gate`, `gate_version`, `flavor` rule or smart, `purpose` flow or decider), what it decided on (`subject` and its `fingerprint`, `evidence` references and the `evidence_digest` of the immutable evidence snapshot), how it came about (`rule_outcome`, `rule_version`; for a smart gate also `advisor`, `model`, `rationale` and `scores` per outcome), the outcome (`verdict`, `allowed_outcomes`, `unsettled` when uncertain or an error), `cost`, `duration_ms` and `decided_at`. A rule gate must give its rule outcome and version; a smart gate also its advice. Its links are `about` (the fact it decided on), `follows` (the previous verdict on the same subject, so an episode can be read as a whole) and, later, `overruled_by` (the person who overruled it, in the TUI, as themselves).

@@ -182,7 +182,7 @@ defmodule Model.UseCase do
 
   # After the design review pass: is the design ready for the acceptor? Named by no state
   # while the review pass waits (slice 10); Gates has no evaluator for a smart gate yet.
-  defgate :design,
+  defgate(:design,
     version: 1,
     flavor: :smart,
     purpose: :flow,
@@ -191,16 +191,17 @@ defmodule Model.UseCase do
     verdicts: [:ready, :rework, :person],
     decide: [pass: :ready, changes_required: :rework, uncertain: :person, error: :person],
     policy: [max_rounds: 3, binds: :fingerprint]
+  )
 
   subflow :design_and_accept, label: "Design and accept", subject: :use_case do
-    run_as "system:sf-flow"
-    owner via: :assignment, relation: :assigned_to, default: {:agent, :coordinator}
-    channel :work
-    start :create
-    initial :designing
+    run_as("system:sf-flow")
+    owner(via: :assignment, relation: :assigned_to, default: {:agent, :coordinator})
+    channel(:work)
+    start(:create)
+    initial(:designing)
 
     state :designing, label: "Design pass" do
-      owner via: :assignment, relation: :assigned_to, default: {:agent, :architect}
+      owner(via: :assignment, relation: :assigned_to, default: {:agent, :architect})
 
       present(
         expected: "Write its Design part",
@@ -209,10 +210,12 @@ defmodule Model.UseCase do
           "Write the Design part (design), then set design_status to in_review; when the review requested changes, make them first."
       )
 
-      branch to: :accepted,
-             when: "entity.design_status == 'approved' or entity.design_status == 'accepted'"
+      branch(
+        to: :accepted,
+        when: "entity.design_status == 'approved' or entity.design_status == 'accepted'"
+      )
 
-      branch to: :design_review, when: "entity.design_status == 'in_review'"
+      branch(to: :design_review, when: "entity.design_status == 'in_review'")
     end
 
     state :design_review, label: "Design review pass" do
@@ -223,16 +226,19 @@ defmodule Model.UseCase do
           "Run a review pass on the Design part: set design_status to approved to go on to break it down and build it, or to changes_requested, with why in the note, to send it back."
       )
 
-      branch to: :accepted,
-             when: "entity.design_status == 'approved' or entity.design_status == 'accepted'"
+      branch(
+        to: :accepted,
+        when: "entity.design_status == 'approved' or entity.design_status == 'accepted'"
+      )
 
-      branch to: :redesign,
-             when:
-               "entity.design_status == 'changes_requested' or entity.design_status == 'writing'"
+      branch(
+        to: :redesign,
+        when: "entity.design_status == 'changes_requested' or entity.design_status == 'writing'"
+      )
     end
 
     state :redesign, label: "Design rework pass" do
-      owner via: :assignment, relation: :assigned_to, default: {:agent, :architect}
+      owner(via: :assignment, relation: :assigned_to, default: {:agent, :architect})
 
       present(
         expected: "Write its Design part",
@@ -241,22 +247,24 @@ defmodule Model.UseCase do
           "Write the Design part (design), then set design_status to in_review; when the review requested changes, make them first."
       )
 
-      branch to: :accepted,
-             when: "entity.design_status == 'approved' or entity.design_status == 'accepted'"
+      branch(
+        to: :accepted,
+        when: "entity.design_status == 'approved' or entity.design_status == 'accepted'"
+      )
 
-      branch to: :design_review, when: "entity.design_status == 'in_review'"
+      branch(to: :design_review, when: "entity.design_status == 'in_review'")
     end
 
     final :accepted, label: "Design accepted" do
-      set design_status: :accepted
+      set(design_status: :accepted)
     end
   end
 
   subflow :test_and_accept_use_case, label: "Build, test and accept", subject: :use_case do
-    run_as "system:sf-flow"
-    owner via: :assignment, relation: :assigned_to, default: {:agent, :coordinator}
-    start :predicate, when: "entity.design_status == 'accepted'"
-    initial :break_down
+    run_as("system:sf-flow")
+    owner(via: :assignment, relation: :assigned_to, default: {:agent, :coordinator})
+    start(:predicate, when: "entity.design_status == 'accepted'")
+    initial(:break_down)
 
     state :break_down, label: "Break it down into issues" do
       present(
@@ -266,7 +274,7 @@ defmodule Model.UseCase do
           "Add the issues under it; Flow hands it on to build once something is under it."
       )
 
-      branch to: :building, by: :atlas, when: "entity.children > 0"
+      branch(to: :building, by: :atlas, when: "entity.children > 0")
     end
 
     state :building, label: "Build it" do
@@ -277,17 +285,19 @@ defmodule Model.UseCase do
           "Build what is under it; Flow hands it on for testing once all of it is completed."
       )
 
-      branch to: :break_down,
-             by: :atlas,
-             when:
-               "entity.children == 0 and (entity.design_status == 'approved' or entity.design_status == 'accepted')"
+      branch(
+        to: :break_down,
+        by: :atlas,
+        when:
+          "entity.children == 0 and (entity.design_status == 'approved' or entity.design_status == 'accepted')"
+      )
 
-      branch to: :to_test, by: :atlas, when: "entity.children > 0 and entity.open_children == 0"
+      branch(to: :to_test, by: :atlas, when: "entity.children > 0 and entity.open_children == 0")
     end
 
     state :to_test, label: "Test it" do
-      owner via: :assignment, relation: :assigned_to, default: {:person, config: :decider}
-      set verdict: :none
+      owner(via: :assignment, relation: :assigned_to, default: {:person, config: :decider})
+      set(verdict: :none)
 
       present(
         expected: "Test it",
@@ -304,9 +314,9 @@ defmodule Model.UseCase do
         ]
       )
 
-      branch to: :accepted, when: "entity.verdict == 'accept'"
-      branch to: :rework, when: "entity.verdict == 'reject'"
-      branch to: :building, by: :atlas, when: "entity.open_children > 0"
+      branch(to: :accepted, when: "entity.verdict == 'accept'")
+      branch(to: :rework, when: "entity.verdict == 'reject'")
+      branch(to: :building, by: :atlas, when: "entity.open_children > 0")
     end
 
     state :rework, label: "Rework it" do
@@ -317,10 +327,10 @@ defmodule Model.UseCase do
           "Rework it as the note says; Flow hands it back for testing once all under it is completed."
       )
 
-      branch to: :building, by: :atlas, when: "entity.open_children > 0"
+      branch(to: :building, by: :atlas, when: "entity.open_children > 0")
     end
 
-    final :accepted, label: "Accepted"
+    final(:accepted, label: "Accepted")
   end
 
   # How the runs of design_and_accept are selected, imported from the use case as it was
@@ -355,7 +365,8 @@ defmodule Model.UseCase do
       [when: [design_status: [:in_review]], state: :design_review],
       [when: [design_status: [:changes_requested]], state: :redesign]
     ],
-    reopen: :explicit
+    reopen: :explicit,
+    restart_by: [:owner, :decider]
   )
 
   # The approved migration of its runs, from the digest the base branch recorded
@@ -425,7 +436,8 @@ defmodule Model.UseCase do
       [when: [design_status: [:approved]], state: :building],
       [when: [design_status: [nil]], state: :building]
     ],
-    reopen: :explicit
+    reopen: :explicit,
+    restart_by: [:owner, :decider]
   )
 
   # The approved migration of its runs, from the digest the base branch recorded

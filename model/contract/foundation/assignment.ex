@@ -66,6 +66,7 @@ defmodule Model.Assignment do
     why: "Why",
     instructions: "How",
     answers: "Answers",
+    restart: [label: "Restart", key: "g"],
     reopened:
       "Reopened after its run ended: nothing is expected and nobody owns it until its run is restarted"
   )

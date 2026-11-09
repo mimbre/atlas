@@ -494,9 +494,45 @@ defmodule RelaDSL.Description.Subflows do
                 )
               ],
               else: []
-            ) ++ verification(schema, kind, o[:verification], at)
+            ) ++
+            restart_by(o, projection, flows, at) ++
+            verification(schema, kind, o[:verification], at)
       end
     end)
+  end
+
+  # Who may ask for an explicit restart of a completed run: `:owner` (whom the projection's
+  # owner relation links) and roles of the configured actors the subflows' owners name.
+  defp restart_by(o, projection, flows, at) do
+    roles = for {role, _kind} <- RelaDSL.Flow.Model.actors(flows), do: to_string(role)
+
+    report = fn message -> at.(problem(:restart_policy, [inspect(o[:restart_by])], message)) end
+
+    case Keyword.fetch(o, :restart_by) do
+      :error ->
+        []
+
+      {:ok, [_ | _] = names} ->
+        Enum.flat_map(names, fn
+          :owner ->
+            if projection[:owner_relation],
+              do: [],
+              else: [report.("restart_by: :owner needs a projection with an owner_relation")]
+
+          name when is_atom(name) ->
+            if to_string(name) in roles,
+              do: [],
+              else: [
+                report.("restart_by: #{name} is no configured actor its subflows' owners name")
+              ]
+
+          other ->
+            [report.("restart_by: #{inspect(other)} is not :owner or an actor's role")]
+        end)
+
+      {:ok, other} ->
+        [report.("restart_by: #{inspect(other)} is not a nonempty list")]
+    end
   end
 
   defp values(_schema, _kind, nil, _at), do: []

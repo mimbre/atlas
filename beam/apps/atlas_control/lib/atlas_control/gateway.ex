@@ -33,11 +33,13 @@ defmodule AtlasControl.Gateway do
     catalog = AtlasControl.Model.catalog(model, opts[:settings] || %{})
 
     # Every role the model's owners name is filled by the settings, or nothing starts.
-    _actors =
+    actors =
       AtlasControl.Model.actors!(
         model,
         Keyword.get_lazy(opts, :actors, &AtlasBus.Actors.configured/0)
       )
+
+    catalog = Map.put(catalog, :actors, actors)
 
     {:ok, ip} =
       opts |> Keyword.get(:host, "127.0.0.1") |> String.to_charlist() |> :inet.parse_address()

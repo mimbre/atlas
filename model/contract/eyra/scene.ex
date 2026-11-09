@@ -75,10 +75,10 @@ defmodule Model.Scene do
   end
 
   subflow :test_and_accept_scene, label: "Build, test and accept", subject: :scene do
-    run_as "system:sf-flow"
-    owner via: :assignment, relation: :assigned_to, default: {:agent, :coordinator}
-    start :create
-    initial :break_down
+    run_as("system:sf-flow")
+    owner(via: :assignment, relation: :assigned_to, default: {:agent, :coordinator})
+    start(:create)
+    initial(:break_down)
 
     state :break_down, label: "Break it down into use cases" do
       present(
@@ -88,7 +88,7 @@ defmodule Model.Scene do
           "Add the use cases under it, and their issues; Flow hands it on to build once something is under it."
       )
 
-      branch to: :building, by: :atlas, when: "entity.children > 0"
+      branch(to: :building, by: :atlas, when: "entity.children > 0")
     end
 
     state :building, label: "Build it" do
@@ -99,13 +99,13 @@ defmodule Model.Scene do
           "Build what is under it; Flow hands it on for testing once all of it is completed."
       )
 
-      branch to: :break_down, by: :atlas, when: "entity.children == 0"
-      branch to: :to_test, by: :atlas, when: "entity.open_children == 0"
+      branch(to: :break_down, by: :atlas, when: "entity.children == 0")
+      branch(to: :to_test, by: :atlas, when: "entity.open_children == 0")
     end
 
     state :to_test, label: "Test it" do
-      owner via: :assignment, relation: :assigned_to, default: {:person, config: :decider}
-      set verdict: :none
+      owner(via: :assignment, relation: :assigned_to, default: {:person, config: :decider})
+      set(verdict: :none)
 
       present(
         expected: "Test it",
@@ -122,9 +122,9 @@ defmodule Model.Scene do
         ]
       )
 
-      branch to: :accepted, when: "entity.verdict == 'accept'"
-      branch to: :rework, when: "entity.verdict == 'reject'"
-      branch to: :building, by: :atlas, when: "entity.open_children > 0"
+      branch(to: :accepted, when: "entity.verdict == 'accept'")
+      branch(to: :rework, when: "entity.verdict == 'reject'")
+      branch(to: :building, by: :atlas, when: "entity.open_children > 0")
     end
 
     state :rework, label: "Rework it" do
@@ -135,10 +135,10 @@ defmodule Model.Scene do
           "Rework it as the note says; Flow hands it back for testing once all under it is completed."
       )
 
-      branch to: :building, by: :atlas, when: "entity.open_children > 0"
+      branch(to: :building, by: :atlas, when: "entity.open_children > 0")
     end
 
-    final :accepted, label: "Accepted"
+    final(:accepted, label: "Accepted")
   end
 
   # How the runs of test_and_accept_scene are selected, imported from the scene as it was
@@ -179,7 +179,8 @@ defmodule Model.Scene do
       [completed: true, state: :accepted],
       [completed: false, state: :building]
     ],
-    reopen: :explicit
+    reopen: :explicit,
+    restart_by: [:owner, :decider]
   )
 
   # The approved migration of its runs, from the digest the base branch recorded

@@ -978,7 +978,9 @@ defmodule AtlasControl.Pages do
                 end),
             links: links(k, fact)
           )
-          |> answers_first(answer_actions(kind, fact, todo))
+          |> answers_first(
+            answer_actions(kind, fact, todo) ++ restart_actions(m, kind, fact, parts, form)
+          )
 
         lists =
           relations
@@ -1834,6 +1836,13 @@ defmodule AtlasControl.Pages do
   end
 
   @doc "The owner's answer `name` (one that writes a change), from fresh item reads; or nil."
+  def declared_answer(m, kind, "_restart-" <> run, answers, form) do
+    case restart_offer(m, kind, answers, form) do
+      %{run: ^run} = offer -> Map.put(offer, :note, false)
+      _ -> nil
+    end
+  end
+
   def declared_answer(m, kind, name, [%{"fact" => fact} | rest], form) when is_map(fact) do
     case m.module.todo(kind, fact, parts_by_kind(item_parts(m, kind, rest)), viewer(form)) do
       %{answers: answers} -> Enum.find(answers, &(&1.key == name and &1.change))
@@ -1842,6 +1851,46 @@ defmodule AtlasControl.Pages do
   end
 
   def declared_answer(_, _, _, _, _), do: nil
+
+  def restart_offer(m, kind, answers, form) do
+    case answer_item(m, kind, answers) do
+      %{"fact" => fact, "parts" => parts} ->
+        m.module.restart(kind, fact, parts, viewer(form), restart_actors(m))
+
+      _ ->
+        nil
+    end
+  end
+
+  defp restart_actors(m) do
+    Map.get_lazy(m, :actors, fn -> configured_restart_actors(m) end)
+  end
+
+  defp configured_restart_actors(m) do
+    configured = AtlasBus.Actors.configured() || %{}
+
+    for {role, kind} <- m.module.actors(),
+        key = configured[to_string(role)] || configured[role],
+        is_binary(key),
+        into: %{},
+        do: {to_string(role), %{"kind" => kind, "key" => key}}
+  end
+
+  defp restart_actions(m, kind, fact, parts, form) do
+    case m.module.restart(kind, fact, parts_by_kind(parts), viewer(form), restart_actors(m)) do
+      nil ->
+        []
+
+      offer ->
+        [
+          Blocks.action(
+            label: offer.label,
+            key: offer.key,
+            to: path({:answer, kind, fact["key"], "_restart-" <> offer.run})
+          )
+        ]
+    end
+  end
 
   @doc "The item an answer is given on, as the model's `answer/4` takes it: the fact and its parts."
   def answer_item(m, kind, [%{"fact" => fact} | rest]) when is_map(fact),

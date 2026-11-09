@@ -835,6 +835,23 @@ defmodule AtlasControl.Session do
     put_fact(state, kind, content, {:item, kind, key})
   end
 
+  defp submit({:answer, kind, key, "_restart-" <> run} = route, _raw, state) do
+    answers = page_answers(route, state.model)
+
+    case Pages.restart_offer(state.model, kind, answers, %{by: state.by, by_kind: state.by_kind}) do
+      %{run: ^run, inputs: inputs} ->
+        content = %{
+          "op" => "restart",
+          "values" => %{"run" => run, "request_id" => Envelope.new("fact", inputs).id}
+        }
+
+        put_fact(%{state | cause: nil}, inputs, content, {:item, kind, key})
+
+      _ ->
+        not_sent(state, route, ["This run cannot be restarted by you now."])
+    end
+  end
+
   defp submit({:answer, kind, key, name} = route, raw, state) do
     answers = page_answers(route, state.model)
     item = Pages.answer_item(state.model, kind, answers)

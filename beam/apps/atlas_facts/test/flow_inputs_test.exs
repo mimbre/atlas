@@ -246,6 +246,170 @@ defmodule AtlasFacts.FlowInputsTest do
     refute_received {:rela_get, "slips", _}
   end
 
+  defp restart(c, id, actor \\ "ada", sender \\ "control/session-test", target \\ "R-1") do
+    FlowInputs.write(
+      c.rela,
+      c.d,
+      %{Envelope.new("fact", "choice") | sender: sender},
+      %{"op" => "restart", "by" => actor, "values" => %{"run" => target, "request_id" => id}},
+      fn -> @now end,
+      c.position,
+      c.write
+    )
+  end
+
+  defp restart_context(c) do
+    selection = %{
+      "sort" => %{
+        "subject" => "box",
+        "restart_by" => ["owner", "checker"],
+        "projection" => %{"owner_relation" => "chosen_by"}
+      }
+    }
+
+    d =
+      c.d
+      |> put_in(["flow_runtime", "selection"], selection)
+      |> Map.put("actors", %{"checker" => "bea"})
+
+    %{c | d: d}
+  end
+
+  test "restart requires a completed run and trusted owner or configured actor", c do
+    c = restart_context(c)
+    assert {:error, :not_completed} = restart(c, "restart-1")
+    {:ok, old} = Rela.get(c.rela, "cursors", "R-1")
+
+    {:ok, []} =
+      Rela.change(c.rela, "cursors", "R-1", %{"status" => "completed"}, old.version, %{})
+
+    assert {:error, :input_authority} = restart(c, "restart-1", "ada", "client")
+    assert {:error, :not_named_to_restart} = restart(c, "restart-1", "stranger")
+    assert {:ok, []} = Rela.list(c.rela, "choices")
+    assert {:ok, owner} = restart(c, "restart-1")
+    assert owner["roles"] == ["restart"] and owner["status"] == "applied"
+    assert {:ok, _} = restart(c, "restart-2", "bea")
+
+    assert {:ok, _} =
+             restart(%{c | d: Map.put(c.d, "actors", %{checker: "bea"})}, "restart-3", "bea")
+
+    assert {:ok, subject} = Rela.get(c.rela, "boxes", "B-1")
+    assert subject.properties["choice"] == "none"
+  end
+
+  test "completed restart reads retain obsolete prepared choices without applying them", c do
+    c = restart_context(c)
+
+    assert {:error, :interrupted} =
+             submit(c, nil, "ada", "control/session-test", fn _, _, _ ->
+               {:error, :interrupted}
+             end)
+
+    assert {:ok, [prepared]} = Rela.list(c.rela, "choices")
+    {:ok, old} = Rela.get(c.rela, "cursors", "R-1")
+
+    assert {:ok, []} =
+             Rela.change(c.rela, "cursors", "R-1", %{"status" => "completed"}, old.version, %{})
+
+    assert {:ok, intent} = restart(c, "restart-after-choice")
+
+    assert {:ok, %{"inputs" => [obsolete, ^intent]}} =
+             FlowInputs.read(
+               c.rela,
+               c.d,
+               %{sender: "flow"},
+               %{"run" => "R-1"},
+               fn -> @now end,
+               c.position,
+               c.write
+             )
+
+    assert obsolete["key"] == prepared.key
+    assert obsolete["status"] == "prepared"
+    assert obsolete["actor"] == "ada" and obsolete["roles"] == ["clerk"]
+    assert {:ok, ^prepared} = Rela.get(c.rela, "choices", prepared.key)
+    assert {:ok, subject} = Rela.get(c.rela, "boxes", "B-1")
+    assert subject.properties["choice"] == "none"
+  end
+
+  test "completed reads preserve applied and consumed actor and role history", c do
+    assert {:ok, first} = submit(c)
+    {:ok, run} = Rela.get(c.rela, "cursors", "R-1")
+
+    assert {:ok, []} =
+             Rela.change(
+               c.rela,
+               "cursors",
+               "R-1",
+               %{
+                 "last_input" => JSON.encode!(%{"version" => 1, "input" => first["key"]}),
+                 "input_cursor" => first["position"]
+               },
+               run.version,
+               %{}
+             )
+
+    assert {:ok, consumed} =
+             FlowInputs.write(
+               c.rela,
+               c.d,
+               %{sender: "flow"},
+               %{"op" => "consume", "key" => first["key"], "run" => "R-1"},
+               fn -> @now end,
+               c.position,
+               c.write
+             )
+
+    {:ok, subject} = Rela.get(c.rela, "boxes", "B-1")
+    next = Map.merge(c.v, %{"request_id" => "choice-2", "source_version" => subject.version})
+    assert {:ok, applied} = submit(c, next)
+    assert consumed["status"] == "consumed" and applied["status"] == "applied"
+    assert consumed["actor"] == "ada" and consumed["roles"] == ["clerk"]
+    assert applied["actor"] == "ada" and applied["roles"] == ["clerk"]
+    {:ok, current} = Rela.get(c.rela, "cursors", "R-1")
+
+    assert {:ok, []} =
+             Rela.change(
+               c.rela,
+               "cursors",
+               "R-1",
+               %{"status" => "completed"},
+               current.version,
+               %{}
+             )
+
+    assert {:ok, %{"inputs" => [^consumed, ^applied], "run" => "R-1"}} =
+             FlowInputs.read(
+               c.rela,
+               c.d,
+               %{sender: "flow"},
+               %{"run" => "R-1"},
+               fn -> @now end,
+               c.position,
+               %{c.write | apply: fn _, _, _ -> flunk("completed read applied a choice") end}
+             )
+  end
+
+  test "restart replay stays bound to its original generation after the next one starts", c do
+    c = restart_context(c)
+    {:ok, old} = Rela.get(c.rela, "cursors", "R-1")
+
+    {:ok, []} =
+      Rela.change(c.rela, "cursors", "R-1", %{"status" => "completed"}, old.version, %{})
+
+    assert {:ok, first} = restart(c, "restart-1")
+
+    {:ok, []} =
+      Rela.create(c.rela, "cursors", "R-2", Map.put(old.properties, "generation", 2), %{})
+
+    assert {:ok, ^first} = restart(c, "restart-1")
+    assert {:error, :input_moved_on} = restart(c, "new-request")
+    assert {:error, :request_conflict} = restart(c, "restart-1", "bea")
+
+    assert {:error, :request_conflict} =
+             restart(c, "restart-1", "ada", "control/session-test", "R-2")
+  end
+
   test "replay returns original operation and changed payload or stale version refuses", c do
     assert {:ok, first} = submit(c)
     assert {:ok, ^first} = submit(c)

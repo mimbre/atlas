@@ -111,8 +111,10 @@ defmodule AtlasFacts.FlowInputs do
       |> Enum.reduce_while({:ok, []}, fn fact, {:ok, acc} ->
         value = decode(d, fact)
 
+        # Completed-run reads expose retained history without reviving a choice
+        # prepared before completion. Store selects executable restart intent.
         result =
-          if value["status"] == "prepared",
+          if value["status"] == "prepared" and run["status"] != "completed",
             do: apply_prepared(rela, d, fact, value, now, position, write),
             else: {:ok, value}
 
@@ -135,6 +137,70 @@ defmodule AtlasFacts.FlowInputs do
   end
 
   def read(_, _, _, _, _, _, _), do: {:error, :exact_run_required}
+
+  # A restart changes no subject fields. The applied input itself is the durable intent,
+  # bound to a completed generation; only Flow may turn it into another run.
+  def write(
+        rela,
+        d,
+        e,
+        %{"op" => "restart", "by" => actor, "values" => v} = content,
+        now,
+        position,
+        _write
+      )
+      when is_map(v) do
+    with true <- Enum.sort(Map.keys(content)) == ~w(by op values),
+         true <- is_binary(e.sender) and String.starts_with?(e.sender, "control/session-"),
+         true <- is_binary(actor) and actor != "",
+         true <- Enum.sort(Map.keys(v)) == ~w(request_id run),
+         true <- is_binary(v["request_id"]) and v["request_id"] != "",
+         {:ok, run} <- run(rela, d, v["run"]) do
+      key = identity(v["request_id"])
+      digest = Digest.of_term(["restart", actor, v])
+
+      case Rela.get(rela, plural(d), key) do
+        {:ok, fact} ->
+          existing = decode(d, fact)
+
+          if existing["payload_digest"] == digest,
+            do: {:ok, existing},
+            else: {:error, :request_conflict}
+
+        {:error, :not_found} ->
+          with :ok <- need(run["status"] == "completed", :not_completed),
+               :ok <- current_generation(rela, d, run),
+               {:ok, subject} <- subject(rela, d, run),
+               :ok <- need(restart_allowed?(rela, d, run, subject, actor), :not_named_to_restart) do
+            value =
+              Map.merge(Map.take(run, ~w(flow subject_kind subject_key generation entry)), %{
+                "request_id" => v["request_id"],
+                "run" => run["key"],
+                "source_version" => subject.version,
+                "subject_version" => subject.version,
+                "actor" => actor,
+                "roles" => ["restart"],
+                "changed_fields" => %{},
+                "links" => %{},
+                "payload_digest" => digest,
+                "status" => "applied",
+                "position" => position.(),
+                "prepared_at" => DateTime.to_iso8601(now.()),
+                "applied_at" => DateTime.to_iso8601(now.())
+              })
+
+            with {:ok, []} <- Rela.create(rela, plural(d), key, encode(d, value), %{}),
+                 do: {:ok, Map.put(value, "key", key)}
+          end
+
+        error ->
+          error
+      end
+    else
+      false -> {:error, :input_authority}
+      error -> error
+    end
+  end
 
   def write(
         rela,
@@ -369,6 +435,56 @@ defmodule AtlasFacts.FlowInputs do
   defp choice_state?(d, run) do
     states = get_in(d, ["flow_runtime", "selection", run["flow"], "choice_states"])
     states == nil or run["state"] in states
+  end
+
+  defp restart_allowed?(rela, d, run, subject, actor) do
+    selection = get_in(d, ["flow_runtime", "selection", run["flow"]]) || %{}
+
+    admitted =
+      Enum.all?(selection["admission"] || %{}, fn {field, values} ->
+        subject.properties[field] in values
+      end)
+
+    admitted and
+      Enum.any?(selection["restart_by"] || [], fn
+        "owner" ->
+          p = selection["projection"] || %{}
+
+          target =
+            if p["on"] do
+              with [key] <- subject.links[p["on"]],
+                   [kind] <- get_in(d, ["relations", p["on"], "to"]),
+                   {:ok, fact} <- Rela.get(rela, Description.kind(d, kind)["plural"], key) do
+                fact
+              else
+                _ -> nil
+              end
+            else
+              subject
+            end
+
+          target != nil and actor in (target.links[p["owner_relation"]] || [])
+
+        role ->
+          Enum.any?(d["actors"] || %{}, fn {name, key} ->
+            to_string(name) == role and key == actor
+          end)
+      end)
+  end
+
+  defp current_generation(rela, d, run) do
+    c = d["flow_runtime"]
+
+    with {:ok, facts} <- Rela.list(rela, Description.kind(d, c["kind"])["plural"]) do
+      newer =
+        Enum.any?(facts, fn fact ->
+          Enum.all?(~w(flow subject_kind subject_key), fn slot ->
+            fact.properties[c["fields"][slot]] == run[slot]
+          end) and fact.properties[c["fields"]["generation"]] > run["generation"]
+        end)
+
+      need(not newer, :input_moved_on)
+    end
   end
 
   defp before_deadline?(run, now) do
