@@ -22,6 +22,7 @@ defmodule AtlasFlow.Application do
     children =
       [
         AtlasFlow.Activities.Pass.Inbox,
+        AtlasFlow.Activities.Effect.Inbox,
         {Registry, keys: :unique, name: AtlasFlow.Items},
         {DynamicSupervisor, name: AtlasFlow.Supervisor, strategy: :one_for_one}
       ] ++ engine

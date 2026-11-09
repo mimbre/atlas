@@ -4,6 +4,7 @@ defmodule AtlasFlow.Runs.Store do
   alias AtlasFlow.Talk
   alias AtlasFlow.Activities.Gate
   alias AtlasFlow.Activities.Pass
+  alias AtlasFlow.Activities.Effect
 
   @structured ~w(deadlines pending last_input)
 
@@ -221,6 +222,9 @@ defmodule AtlasFlow.Runs.Store do
       state != nil and state["kind"] == "pass" and run["status"] == "active" ->
         pass_next(run, flow, subject, now, state["spec"])
 
+      state != nil and state["kind"] == "effect" and run["status"] == "active" ->
+        effect_next(run, flow, subject, now, state["spec"])
+
       state != nil and state["kind"] == "gate" and run["status"] == "active" ->
         gate_next(run, flow, subject, now, state["spec"])
 
@@ -338,6 +342,56 @@ defmodule AtlasFlow.Runs.Store do
   end
 
   defp pass_assignment(_, subject, _), do: {:ok, subject}
+
+  defp effect_next(run, flow, subject, now, spec) do
+    intent = run["pending"]["effect"]
+
+    due =
+      Enum.find(
+        run["deadlines"]["timers"],
+        &(DateTime.compare(now, Run.parse!(&1["due"])) != :lt)
+      )
+
+    cond do
+      intent == nil ->
+        # The request is stored before the first attempt; a missing target or approval waits.
+        case Effect.freeze(run, spec, subject) do
+          {:ok, frozen} -> {:ok, put_in(run, ["pending", "effect"], frozen)}
+          {:error, _} -> {:ok, run}
+        end
+
+      not Effect.current?(intent, subject) ->
+        block(run, "effect binding changed; reconciliation required")
+
+      true ->
+        case Effect.poll(intent, now) do
+          {:ok, reply} ->
+            Run.effect_result(run, flow, subject, now, reply)
+
+          {:retry, updated} ->
+            {:ok, put_in(run, ["pending", "effect"], updated)}
+
+          {:error, :effect_requires_reconciliation} ->
+            block(run, "effect outcome unknown or conflicting; reconciliation required")
+
+          # A timeout is not proof that the service did nothing: keep the frozen request.
+          _ when due != nil ->
+            block(
+              run,
+              "effect timer #{due["name"]} passed without an answer; reconciliation required"
+            )
+
+          {:waiting, updated} ->
+            {:ok, put_in(run, ["pending", "effect"], updated)}
+
+          {:error, _} ->
+            {:ok, run}
+        end
+    end
+  end
+
+  defp block(run, reason),
+    do: {:ok, Map.merge(run, %{"status" => "blocked", "blocked_reason" => reason})}
 
   defp gate_next(run, flow, subject, now, spec) do
     intent = run["pending"]["gate"]
