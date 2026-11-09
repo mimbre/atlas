@@ -59,9 +59,7 @@ defmodule AtlasE2E.DeployPrerequisitesTest do
         {"PATH", Path.join(dir, "bin") <> ":" <> System.get_env("PATH")}
       ]
 
-      cache =
-        System.get_env("ATLAS_E2E_RELA_BIN") ||
-          Path.join(System.user_home!(), ".local/share/atlas/test/bin")
+      cache = AtlasE2E.Instance.rela_bin!()
 
       # Execute the workflow's real installer steps, with the already checksum-pinned
       # test cache available to avoid a redundant network download. Without the step,

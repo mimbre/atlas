@@ -49,6 +49,17 @@ defmodule AtlasAgent.CLITest do
     {status, stdout, stderr}
   end
 
+  test "--json is UTF-8 also where stdout opened as latin1 (no UTF-8 locale)", %{control: c} do
+    widget = FakeControl.put(c, "widget", %{"title" => "A — B", "description" => "ü"})
+
+    out =
+      capture_io([encoding: :latin1], fn ->
+        assert AtlasAgent.CLI.main(["get", widget, "--json", "--env", "test"]) == 0
+      end)
+
+    assert %{"values" => %{"title" => "A — B", "description" => "ü"}} = JSON.decode!(out)
+  end
+
   test "help: the kinds from Control under its heading" do
     {0, out, ""} = atlas(["help"])
     assert out =~ ~r/^Kinds \(from rela's description, through Control\):\n\nWidget \(widget\)\n/

@@ -7,6 +7,11 @@ defmodule AtlasFacts.Application do
 
   @impl true
   def start(_type, _args) do
+    # :httpc reads the trusted CA store on every request, http included; where the system's
+    # is unreadable (a sandboxed worker), the bundle on disk becomes it (AtlasFacts.Trust).
+    # Without either, requests fail as they would have, each on its own.
+    _ = AtlasFacts.Trust.load()
+
     children =
       if Application.get_env(:atlas_facts, :start, true) do
         data_dir = Application.fetch_env!(:atlas_facts, :data_dir)

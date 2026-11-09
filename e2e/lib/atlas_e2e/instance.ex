@@ -10,8 +10,8 @@ defmodule AtlasE2E.Instance do
   writes each address to `opened.txt` in the run's folder (`opened/1`), so a run never
   opens a browser.
 
-  rela's binaries are shared between runs (`ATLAS_E2E_RELA_BIN`). `bin/atlas-dev e2e` sets it,
-  when unset, to a per-user cache it installs the pinned rela into; a bare `mix atlas.e2e`
+  rela's binaries are shared between runs; `rela_bin/1` finds them. `bin/atlas-dev e2e`
+  installs the pinned rela into a per-user cache when none is found; a bare `mix atlas.e2e`
   falls back to the test instance's `~/.local/share/atlas/test/bin`, where
   `rela/scripts/start-test.sh` downloads the pinned version when it is missing.
   """
@@ -21,6 +21,24 @@ defmodule AtlasE2E.Instance do
   @root Path.expand("../../..", __DIR__)
 
   def root, do: @root
+
+  @doc """
+  The folder with rela's binaries, the first of: `ATLAS_E2E_RELA_BIN`, `ATLAS_RELA_BIN`,
+  and the `rela-bin` folder beside the checkout when it holds `rela-server` (a worker's
+  folder, where the pinned rela is installed for it); else `default`. `bin/atlas-dev`,
+  `rela/tests` and the umbrella's rela tests look in the same order.
+  """
+  def rela_bin(default \\ nil) do
+    beside = Path.expand("../rela-bin", @root)
+
+    Enum.find(
+      [System.get_env("ATLAS_E2E_RELA_BIN"), System.get_env("ATLAS_RELA_BIN")],
+      &(&1 not in [nil, ""])
+    ) || if(File.exists?(Path.join(beside, "rela-server")), do: beside, else: default)
+  end
+
+  @doc "`rela_bin/1`, else the test instance's own folder."
+  def rela_bin!, do: rela_bin(Path.join(System.user_home!(), ".local/share/atlas/test/bin"))
 
   def start do
     instance = prepare()
@@ -42,9 +60,7 @@ defmodule AtlasE2E.Instance do
     File.mkdir_p!(dir)
     [rela_port, control_port, link_port] = free_ports(3)
 
-    bin =
-      System.get_env("ATLAS_E2E_RELA_BIN") ||
-        Path.join(System.user_home!(), ".local/share/atlas/test/bin")
+    bin = rela_bin!()
 
     browser = Path.join(dir, "browser")
     opened = Path.join(dir, "opened.txt")

@@ -13,6 +13,7 @@ defmodule Mix.Tasks.Atlas.MigrateDoneOwner do
   def run(args) do
     Mix.Task.run("compile")
     {:ok, _} = Application.ensure_all_started([:inets, :ssl])
+    _ = AtlasFacts.Trust.load()
     {opts, _rest, invalid} = OptionParser.parse(args, strict: [env: :string, dry_run: :boolean])
     env = opts[:env] || "prod"
 

@@ -110,7 +110,13 @@ class NativeSchemaTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import os
-        cls.binary = Path(os.environ.get('ATLAS_E2E_RELA_BIN', str(Path.home() / '.local/share/atlas/test/bin'))) / 'rela'
+        # As e2e's AtlasE2E.Instance.rela_bin!/0: ATLAS_E2E_RELA_BIN, ATLAS_RELA_BIN, the
+        # rela-bin folder beside the checkout when it holds rela-server, else the test instance's.
+        beside = Path(__file__).resolve().parents[2].parent / 'rela-bin'
+        named = os.environ.get('ATLAS_E2E_RELA_BIN') or os.environ.get('ATLAS_RELA_BIN')
+        folder = Path(named) if named else beside if (beside / 'rela-server').exists() \
+            else Path.home() / '.local/share/atlas/test/bin'
+        cls.binary = folder / 'rela'
         if not cls.binary.exists():
             raise unittest.SkipTest('pinned rela not installed')
 
