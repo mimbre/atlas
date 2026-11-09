@@ -1,6 +1,11 @@
 defmodule AtlasControl.ConsoleTest do
   use ExUnit.Case, async: false
   alias AtlasControl.FakeStore
+  alias AtlasBFFContract.Console
+
+  defmodule Protocol do
+    use AtlasBFF.Targets.Protocol, contract: AtlasBFFContract.Contract, channel: :control
+  end
 
   setup do
     Application.put_env(:atlas_bus, :store, "console-#{System.unique_integer([:positive])}")
@@ -62,6 +67,15 @@ defmodule AtlasControl.ConsoleTest do
   end
 
   defp actions(page), do: Enum.filter(page["blocks"], &(&1["type"] == "console_action"))
+
+  defp page(s), do: Stream.repeatedly(fn -> read(s) end) |> Enum.find(&(&1["op"] == "page"))
+
+  defp console(port) do
+    s = connect(port, %{"surface" => "console"})
+    assert %{"op" => "welcome", "surface" => "console"} = read(s)
+    assert %{"op" => "page"} = read(s)
+    s
+  end
 
   test "acknowledged Console has real typed projection; legacy body stays unchanged", %{
     port: port
@@ -145,6 +159,45 @@ defmodule AtlasControl.ConsoleTest do
            end)
 
     assert FakeStore.sent() == []
+  end
+
+  test "browse page binds Tab to the next tab under a browse legend", %{port: port} do
+    s = console(port)
+    put(s, %{"op" => "open", "to" => "/k/widget"})
+    p = page(s)
+    assert {:ok, projection} = Console.compile(p)
+    current = %{path: p["path"], context: "browse", generation: 1}
+    assert {:ok, bindings} = Console.bindings(projection, current)
+    assert bindings["Tab"]["props"]["operation"] == %{"name" => "tab_next"}
+    assert {:ok, event} = Console.capture(projection, "Tab", current)
+    assert {:ok, action} = Console.resolve(projection, event, current)
+    assert action["id"] == bindings["Tab"]["id"]
+    assert Enum.any?(projection.groups, &(&1["props"]["context"] == "browse"))
+  end
+
+  test "create form binds Ctrl+S to submit through its typed create endpoint", %{port: port} do
+    s = console(port)
+    put(s, %{"op" => "open", "to" => "/k/widget/new"})
+    p = page(s)
+    assert {:ok, projection} = Console.compile(p)
+    current = %{path: p["path"], context: "form", generation: 1}
+    assert {:ok, bindings} = Console.bindings(projection, current)
+    action = bindings["Ctrl+S"]
+    assert action["props"]["operation"] == %{"name" => "submit"}
+    form = Enum.find(p["blocks"], &(&1["id"] == action["props"]["scope"]["on"]))
+    assert %{"endpoint" => "create", "params" => params} = form["props"]["submit_to"]
+    assert FakeStore.sent() == []
+
+    put(s, %{
+      "op" => "submit",
+      "to" => Protocol.endpoint_path(:submit, :create, params),
+      "values" => %{"title" => "Console proof", "notes" => "Synthetic"}
+    })
+
+    stored = page(s)
+    assert stored["reason"] == "stored"
+    assert {:ok, _} = Console.compile(stored)
+    assert %{"op" => "create", "values" => %{"title" => "Console proof"}} = FakeStore.last_fact()
   end
 
   test "selecting Console never grants an agent member-only mutation authority", %{port: port} do

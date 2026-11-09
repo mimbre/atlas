@@ -33,7 +33,7 @@ defmodule AtlasState.FakeRela do
   def start do
     {:ok, pid} =
       Agent.start_link(fn ->
-        %{facts: %{}, reserved: MapSet.new(), up: true, links: %{}, n: 0}
+        %{facts: %{}, reserved: MapSet.new(), up: true, links: %{}, n: 0, plurals: %{}}
       end)
 
     pid
@@ -81,14 +81,15 @@ defmodule AtlasState.FakeRela do
     end)
   end
 
+  # As rela: a fact is only found under its own kind (the kind it was made in).
   @impl true
-  def get(pid, _plural, key) do
+  def get(pid, plural, key) do
     call(pid, fn s ->
-      case s.facts[key] do
-        {p, n} ->
+      case {s.facts[key], s.plurals[key]} do
+        {{p, n}, of} when of in [nil, plural] ->
           {{:ok, %{key: key, properties: p, links: links_of(s, key), version: "v#{n}"}}, s}
 
-        nil ->
+        _ ->
           {{:error, :not_found}, s}
       end
     end)
@@ -106,7 +107,7 @@ defmodule AtlasState.FakeRela do
     do: call(pid, &{{:ok, warnings(props)}, &1})
 
   @impl true
-  def create(pid, _plural, key, props, targets) do
+  def create(pid, plural, key, props, targets) do
     call(pid, fn s ->
       cond do
         Map.has_key?(s.facts, key) or key in s.reserved ->
@@ -124,7 +125,13 @@ defmodule AtlasState.FakeRela do
             end)
 
           {{:ok, warnings(props)},
-           %{s | facts: Map.put(s.facts, key, {props, s.n}), n: s.n + 1, links: links}}
+           %{
+             s
+             | facts: Map.put(s.facts, key, {props, s.n}),
+               n: s.n + 1,
+               links: links,
+               plurals: Map.put(s.plurals, key, plural)
+           }}
       end
     end)
   end

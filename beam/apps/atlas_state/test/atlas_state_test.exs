@@ -463,6 +463,70 @@ defmodule AtlasStateTest do
              read("widget", %{"key" => "W-1"})
   end
 
+  # UC-Atlas-27: one owner (at most one link, as `assigned_to`); a new one replaces the old,
+  # which stays in the link's history with the cause it was set with.
+  test "one owner: a new owner replaces the old; the old stays in the history, with its cause",
+       _ do
+    fact("create", "M-1", %{"title" => "Coordinator"}, kind: "maker")
+    fact("create", "M-2", %{"title" => "Ann"}, kind: "maker")
+    fact("create", "W-1", %{"title" => "One"})
+
+    fact("change", "W-1", %{},
+      links: %{"made_by" => ["M-1"]},
+      by: "agent",
+      cause: "owner introduced"
+    )
+
+    fact("change", "W-1", %{},
+      links: %{"made_by" => ["M-2"]},
+      by: "agent",
+      cause: "all its issues are done"
+    )
+
+    assert %{"fact" => fact, "history" => %{"made_by" => [first, second]}} =
+             read("widget", %{"key" => "W-1"})
+
+    assert fact["links"]["made_by"] == ["M-2"]
+    assert %{"keys" => ["M-2"], "cause" => "all its issues are done"} = fact["origins"]["made_by"]
+    assert %{"keys" => ["M-1"], "by" => "agent", "cause" => "owner introduced"} = first
+    assert %{"keys" => ["M-2"], "cause" => "all its issues are done"} = second
+  end
+
+  # UC-Atlas-27: only a person or an agent can own; `assigned_to` points at both kinds.
+  # Here a widget is owned by a maker or a part.
+  test "a link to one of several kinds: a key of none of them is refused, naming the kinds",
+       %{rela: rela, dir: dir} do
+    extra = Path.join(dir, "atlas.json")
+
+    File.write!(
+      extra,
+      ~s({"relations": {"owned_by": {"from": ["widget"], "to": ["maker", "part"], "max_outgoing": 1}}})
+    )
+
+    stop_supervised!(AtlasState.Server)
+
+    start_supervised!(
+      {AtlasState.Server, rela: {FakeRela, rela}, data_dir: dir, description_extra: extra}
+    )
+
+    fact("create", "M-1", %{"title" => "Coordinator"}, kind: "maker")
+    fact("create", "P-1", %{"title" => "Ann"}, kind: "part")
+    fact("create", "W-1", %{"title" => "One"})
+    fact("create", "W-2", %{"title" => "Two"})
+
+    assert {"stored", _, _} = fact("change", "W-1", %{}, links: %{"owned_by" => ["M-1"]})
+    assert {"stored", _, _} = fact("change", "W-1", %{}, links: %{"owned_by" => ["P-1"]})
+
+    assert {"refused", %{"reasons" => ["nobody is not a maker or part"]}, nil} =
+             fact("change", "W-1", %{}, links: %{"owned_by" => ["nobody"]})
+
+    # A fact of another kind is no owner either.
+    assert {"refused", %{"reasons" => ["W-2 is not a maker or part"]}, nil} =
+             fact("change", "W-1", %{}, links: %{"owned_by" => ["W-2"]})
+
+    assert %{"fact" => %{"links" => %{"owned_by" => ["P-1"]}}} = read("widget", %{"key" => "W-1"})
+  end
+
   test "a change's links are checked like a create's", _ do
     fact("create", "W-1", %{"title" => "One"})
 

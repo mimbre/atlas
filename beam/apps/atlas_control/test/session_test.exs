@@ -294,6 +294,57 @@ defmodule AtlasControl.SessionTest do
     assert form["errors"] != []
   end
 
+  test "a refused create keeps what was typed in every field", %{port: port} do
+    a = client(port)
+    next(a, "page")
+    put(a, %{"op" => "open", "to" => "/k/widget/new"})
+    next(a, "page")
+
+    put(a, %{
+      "op" => "submit",
+      "to" => "/k/widget/new",
+      "values" => %{"title" => "", "notes" => "Two lines\nof notes"}
+    })
+
+    assert %{"reason" => "refused", "blocks" => [%{"type" => "form", "props" => form}]} =
+             next(a, "page")
+
+    assert form["errors"] == ["title is required"]
+
+    assert %{"value" => "Two lines\nof notes"} =
+             Enum.find(form["inputs"], &(&1["name"] == "notes"))
+
+    assert FakeStore.sent() |> Enum.map(& &1["op"]) == ["create"]
+  end
+
+  test "new facts under one parent get the next numbers, with the create defaults",
+       %{port: port} do
+    FakeStore.put("W-1", %{"title" => "One"})
+    a = client(port)
+    next(a, "page")
+
+    for {title, key} <- [{"Wheel", "P-01"}, {"Axle", "P-02"}] do
+      put(a, %{
+        "op" => "submit",
+        "to" => "/k/part/new/of_widget/W-1",
+        "values" => %{"title" => title}
+      })
+
+      assert %{"path" => "/k/part/" <> ^key, "reason" => "stored"} = next(a, "page")
+    end
+
+    # The next number after the highest of its kind (W-1 is number 1).
+    put(a, %{"op" => "submit", "to" => "/k/widget/new", "values" => %{"title" => "Two"}})
+    assert %{"path" => "/k/widget/W-02", "reason" => "stored"} = next(a, "page")
+
+    # Nobody types a key; what create does not ask comes from its defaults.
+    assert %{
+             "key" => "W-02",
+             "values" => %{"title" => "Two", "shade" => "light", "done" => false}
+           } =
+             FakeStore.last_fact()
+  end
+
   test "change and delete name the version they were made from", %{port: port} do
     FakeStore.put("W-1", %{"title" => "One"})
     a = client(port)
@@ -1004,6 +1055,29 @@ defmodule AtlasControl.SessionTest do
              next(a, "page")
 
     assert why == "W-1 is approved; withdraw it first, or put this under another widget"
+    assert FakeStore.sent() == sent
+  end
+
+  test "nothing is moved under an approved fact", %{port: port} do
+    FakeStore.put("W-1", %{"title" => "One"})
+    FakeStore.put("W-2", %{"title" => "Two"}, "widget", %{"approved_by" => ["ada"]})
+    FakeStore.link("P-1", "W-1")
+    a = client(port)
+    next(a, "page")
+    put(a, %{"op" => "open", "to" => "/k/part/P-1/edit"})
+    next(a, "page")
+    sent = FakeStore.sent()
+
+    put(a, %{
+      "op" => "submit",
+      "to" => "/k/part/P-1/edit",
+      "values" => %{"title" => "P-1", "of_widget" => "W-2"}
+    })
+
+    assert %{"reason" => "refused", "blocks" => [%{"props" => %{"errors" => [why]}}]} =
+             next(a, "page")
+
+    assert why == "W-2 is approved; withdraw it first, or put this under another widget"
     assert FakeStore.sent() == sent
   end
 end

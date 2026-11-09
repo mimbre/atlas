@@ -245,4 +245,121 @@ defmodule AtlasState.ProgressTest do
                {:error, :unavailable}
              end)
   end
+
+  # UC-Atlas-31, with the rules as `rela/atlas.json` gives them (and the stage labels its
+  # schema gives): a pull request in an issue shows what the issue is doing, a merged one
+  # completes it, and the use case rolls up its issues.
+  @atlas %{
+    "progress" => %{
+      "order" => [
+        "refine",
+        "ready_to_pick_up",
+        "specification",
+        "design",
+        "development",
+        "to_test"
+      ],
+      "done_label" => "Done",
+      "to_test" => %{"value" => "to_test", "label" => "To test"}
+    },
+    "entities" => %{
+      "use_case" => %{
+        "plural" => "use_cases",
+        "progress" => %{"over" => "in_use_case", "field" => "stage", "own" => "status"},
+        "completion" => %{"by" => "accepted_by"}
+      },
+      "issue" => %{
+        "plural" => "issues",
+        "progress" => %{
+          "own" => "stage",
+          "while" => [
+            %{
+              "over" => "in_issue",
+              "field" => "state",
+              "value" => "open",
+              "shows" => "development"
+            }
+          ]
+        },
+        "completion" => [
+          %{"over" => "in_issue", "field" => "state", "value" => "merged"},
+          %{"through" => "done_in", "field" => "state", "value" => "merged"}
+        ],
+        "properties" => %{
+          "stage" => %{
+            "labels" => %{
+              "specification" => "Specification",
+              "design" => "Design",
+              "development" => "Development"
+            }
+          }
+        }
+      },
+      "pull_request" => %{"plural" => "pull_requests"}
+    },
+    "relations" => %{
+      "in_use_case" => %{"from" => ["issue"], "to" => ["use_case"]},
+      "in_issue" => %{"from" => ["pull_request"], "to" => ["issue"]},
+      "done_in" => %{"from" => ["issue"], "to" => ["pull_request"]},
+      "accepted_by" => %{"from" => ["use_case"], "to" => ["person"]}
+    }
+  }
+
+  # `fact` of `kind`, with IS-1 (specification, in UC-1) and one pull request in it, in
+  # `pr_state`.
+  defp atlas(kind, fact, pr_state) do
+    pr = fact("PR-eyra-atlas-12", %{"state" => pr_state}, %{"in_issue" => ["IS-1"]})
+
+    {:ok, [annotated]} =
+      Progress.annotate(@atlas, kind, [fact], fn
+        "issue" -> {:ok, [issue()]}
+        "pull_request" -> {:ok, [pr]}
+        _ -> {:ok, []}
+      end)
+
+    annotated
+  end
+
+  defp issue, do: fact("IS-1", %{"stage" => "specification"}, %{"in_use_case" => ["UC-1"]})
+  defp use_case, do: fact("UC-1", %{"status" => "refine"})
+
+  test "UC-Atlas-31: an open PR shows its issue in development, naming the PR; stage kept" do
+    open = atlas("issue", issue(), "open")
+
+    assert %{
+             "value" => "development",
+             "label" => "Development",
+             "while" => %{"over" => "in_issue", "key" => "PR-eyra-atlas-12", "value" => "open"}
+           } = open.progress
+
+    assert open.completion == nil
+    assert open.properties["stage"] == "specification"
+
+    assert %{"value" => "development", "count" => 1, "of" => 1} =
+             atlas("use_case", use_case(), "open").progress
+  end
+
+  test "UC-Atlas-31: a PR closed unmerged gives the issue back its own stage" do
+    closed = atlas("issue", issue(), "closed")
+
+    assert closed.progress == %{"value" => "specification", "label" => "Specification"}
+    assert closed.completion == nil
+  end
+
+  test "UC-Atlas-31: a merged PR makes the issue done, naming it; the use case to test 1/1" do
+    merged = atlas("issue", issue(), "merged")
+
+    assert %{"done" => true, "label" => "Done"} = merged.progress
+
+    assert %{"over" => "in_issue", "key" => "PR-eyra-atlas-12", "value" => "merged"} =
+             merged.completion
+
+    use_case = atlas("use_case", use_case(), "merged")
+
+    assert %{"value" => "to_test", "label" => "To test", "count" => 1, "of" => 1} =
+             use_case.progress
+
+    refute Map.has_key?(use_case.progress, "done")
+    assert use_case.completion == nil
+  end
 end
