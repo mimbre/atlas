@@ -1,17 +1,25 @@
 defmodule AtlasFlowGenerator.Example.Gates do
-  @moduledoc "Gates of the neutral example: one smart, one rule."
+  @moduledoc "Gates of the neutral example: one smart, and one rule gate no subflow names."
   use AtlasFlowGenerator.Schema
 
   defgate :proofread,
     version: 2,
     flavor: :smart,
+    purpose: :flow,
     advice: :checker,
     evidence: [:draft],
     verdicts: [:send, :redo, :person],
     decide: [pass: :send, changes_required: :redo, uncertain: :person, error: :person],
     policy: [max_rounds: 2]
 
-  defgate :size_limit, version: 1, flavor: :rule, verdicts: [:fits, :person]
+  defgate :size_limit,
+    version: 1,
+    flavor: :rule,
+    purpose: :decider,
+    evidence: [:pages, :envelope, :format],
+    rule: [all: [{:equals, :pages, 1}, {:same, :envelope, :format}]],
+    verdicts: [:fits, :person],
+    decide: [pass: :fits, changes_required: :person, uncertain: :person, error: :person]
 end
 
 defmodule AtlasFlowGenerator.Example do
