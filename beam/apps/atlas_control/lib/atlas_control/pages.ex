@@ -1028,7 +1028,7 @@ defmodule AtlasControl.Pages do
       Blocks.list(
         title: "Atlas",
         rows: rows,
-        empty: "rela describes nothing yet",
+        empty: "Nothing here yet.",
         actions: start_actions(m)
       )
     ])
@@ -1557,13 +1557,7 @@ defmodule AtlasControl.Pages do
           Blocks.list(
             title: k.plural,
             rows: rows,
-            empty:
-              if(creates?,
-                do:
-                  "No #{String.downcase(k.plural)} yet. " <>
-                    "Press #{key_of(:create)} to create one.",
-                else: "No #{String.downcase(k.plural)} yet."
-              ),
+            empty: "No #{String.downcase(k.plural)} yet.",
             actions:
               if(creates?, do: [action(:create, k, path({:new, kind}))], else: []) ++
                 if(start?, do: start_actions(m, kind), else: [])
@@ -1806,7 +1800,6 @@ defmodule AtlasControl.Pages do
     empty =
       case answer do
         %{"error" => error} -> "#{error}."
-        _ when add? -> "No #{String.downcase(title)} yet. Press #{create_key} to create one."
         _ -> "No #{String.downcase(title)} yet."
       end
 
