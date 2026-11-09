@@ -15,6 +15,23 @@ defmodule AtlasFlow.Activities.Effect do
   returns the original result for a repeated id, rejects a changed payload under that
   id, and recovers a lost answer by lookup. A definition naming any other service or
   operation is refused before any write. Nothing is enabled by default.
+
+  An integration is approved by the run's own composition. `approved` names the subject
+  field its approvals are about: an identity, such as a revision, that the fingerprint
+  covers. `approving` says what approves it: `%{field => [value]}`, a field a link of
+  the composition writes and the values of it that approve. It is approved when, for
+  every such field, the run applied that field's link, from a child current for the
+  value `approved` holds now, and the value the link wrote (its `states` mapping of the
+  child's state) is one of those; and every other link the run applied with a current
+  child was current for that value too. Flow applies a link only from the child current
+  for that identity, so an approval of an earlier one never counts, and a rejection of
+  this one is no approval. The frozen request carries `approved`: the fingerprint so
+  approved.
+
+  Before its request is frozen, an effect's state takes its plain branches (those of no
+  role) like a state without a mechanism (`AtlasFlow.Runs.Run.unfrozen/4`): what is
+  decided by hand while nothing has been asked of the service still moves the run. Once
+  it is frozen, only the service's answer does.
   """
   alias AtlasBus.{Digest, SubjectFingerprint}
 
@@ -30,8 +47,13 @@ defmodule AtlasFlow.Activities.Effect do
       is_list(spec["fingerprint"]["relations"]) and texts?(spec["payload"]) and
       mapping?(spec["outputs"] || %{}) and valid_records?(spec["records"]) and
       (spec["operation"] == "create" or text?(spec["target"])) and
-      (spec["operation"] != "integrate" or text?(spec["approved"]))
+      (spec["operation"] != "integrate" or
+         (text?(spec["approved"]) and spec["approved"] in spec["fingerprint"]["fields"] and
+            approving?(spec["approving"])))
   end
+
+  defp approving?(a),
+    do: is_map(a) and a != %{} and Enum.all?(a, fn {f, vs} -> text?(f) and vs != [] and texts?(vs) end)
 
   defp enabled?(receivers, spec) do
     case receivers[spec["service"]] do
@@ -54,10 +76,11 @@ defmodule AtlasFlow.Activities.Effect do
 
   @doc """
   The frozen intent, or `{:error, :not_ready}` while the subject lacks what the request
-  needs: an update's or integration's target, or for an integration a recorded approval
-  of exactly the current fingerprint.
+  needs: an update's or integration's target, or for an integration the run's approval of
+  the identity the subject holds now (see the module's documentation). `links` are the
+  composition's links of the run's subject kind: what each applied source wrote.
   """
-  def freeze(run, spec, subject, receivers \\ receivers()) do
+  def freeze(run, spec, subject, receivers \\ receivers(), links \\ []) do
     values = subject["values"] || %{}
     fingerprint = SubjectFingerprint.of(subject, spec["fingerprint"])
     target = spec["target"] && values[spec["target"]]
@@ -69,7 +92,8 @@ defmodule AtlasFlow.Activities.Effect do
       spec["operation"] != "create" and not text?(target) ->
         {:error, :not_ready}
 
-      spec["operation"] == "integrate" and values[spec["approved"]] != fingerprint ->
+      spec["operation"] == "integrate" and
+          not approved?(run, spec["approving"], values[spec["approved"]], links) ->
         {:error, :not_ready}
 
       true ->
@@ -98,6 +122,23 @@ defmodule AtlasFlow.Activities.Effect do
            "attempt" => "submit"
          }}
     end
+  end
+
+  # Each approving field's link applied from a child current for `identity`, having
+  # written an approving value; every link applied with a current child current for it.
+  defp approved?(run, approving, identity, links) do
+    applied = get_in(run, ["pending", "composition", "links"]) || %{}
+    currents = for {_field, %{"current" => current}} <- applied, current != nil, do: current
+
+    text?(identity) and Enum.all?(currents, &(&1 == identity)) and
+      Enum.all?(approving, fn {field, values} ->
+        with %{"current" => ^identity, "state" => state} <- applied[field],
+             %{"states" => %{} = states} <- Enum.find(links, &(&1["field"] == field)) do
+          states[state] in values
+        else
+          _ -> false
+        end
+      end)
   end
 
   def id(run, spec),

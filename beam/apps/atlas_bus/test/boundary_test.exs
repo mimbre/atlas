@@ -22,7 +22,8 @@ defmodule AtlasBus.BoundaryTest do
     atlas_flow: "AtlasFlow",
     atlas_runtime: "AtlasRuntime",
     atlas_control: "AtlasControl",
-    atlas_gates: "AtlasGates"
+    atlas_gates: "AtlasGates",
+    atlas_code: "AtlasCode"
   }
   # Learn reads the layers through their own read surfaces (a socket, records, the `atlas`
   # client), never over the Bus or by calling them: it depends on no app, names no layer
@@ -38,7 +39,12 @@ defmodule AtlasBus.BoundaryTest do
   # fixed handoff kind `pull_request` declares a GitHub pull request URL for a worker's branch,
   # and a GitHub issues URL is refused as one (tools/runtime/README.md, "Explicit completion
   # and PR handoff"). Runtime keeps the record in its own home; it never becomes a fact.
+  # Code uses GitHub's pull request names in its provider protocol and legacy records.
   @protocol_names %{
+    "beam/apps/atlas_code/lib/atlas_code.ex" => ["pull request", "pull_request"],
+    "beam/apps/atlas_code/lib/atlas_code/migration.ex" => ["pull_request"],
+    "beam/apps/atlas_code/test/atlas_code_test.exs" => ["pull request", "pull_request"],
+    "beam/apps/atlas_code/test/github_slug_test.exs" => ["pull request", "pull requests"],
     "beam/apps/atlas_runtime/lib/atlas_runtime/handoffs/handoff_records.ex" => ["pull_request"],
     "beam/apps/atlas_runtime/test/handoff_records_test.exs" => ["pull_request", "issues"],
     "beam/apps/atlas_runtime/test/handoff_service_test.exs" => ["pull_request"]
@@ -58,6 +64,33 @@ defmodule AtlasBus.BoundaryTest do
 
   @doc "Whether a mix.exs `source` depends on the model app."
   def depends_on_model?(source), do: Regex.match?(~r/\{:model\b/, source)
+
+  @doc "Umbrella dependencies declared in mix.exs, including dependency options."
+  def umbrella_dependencies(source) do
+    {_, deps} =
+      source
+      |> Code.string_to_quoted!()
+      |> Macro.prewalk([], fn
+        {app, opts} = node, deps when is_atom(app) and is_list(opts) ->
+          {node, dependency(app, opts, deps)}
+
+        {:{}, _, [app | args]} = node, deps when is_atom(app) ->
+          {node, dependency(app, List.last(args), deps)}
+
+        node, deps ->
+          {node, deps}
+      end)
+
+    Enum.reverse(deps)
+  end
+
+  defp dependency(app, opts, deps) when is_list(opts) do
+    if Keyword.keyword?(opts) and Keyword.get(opts, :in_umbrella) == true,
+      do: [Atom.to_string(app) | deps],
+      else: deps
+  end
+
+  defp dependency(_app, _opts, deps), do: deps
 
   @doc "Whether `source` names a module of the model (`Model.…`, not `AtlasFlow.Model`)."
   def names_model?(source), do: Regex.match?(~r/(?<![\w.])Model\.[A-Z{]/, code_only(source))
@@ -89,6 +122,23 @@ defmodule AtlasBus.BoundaryTest do
   defp sources(dir, _own), do: sources(dir)
 
   describe "the checks catch violations" do
+    test "dependency options do not hide allowed or forbidden umbrella dependencies" do
+      assert umbrella_dependencies(
+               "defp deps, do: [{:atlas_bus, in_umbrella: true, runtime: false}]"
+             ) ==
+               ["atlas_bus"]
+
+      assert umbrella_dependencies("""
+             # {:comment, in_umbrella: true}
+             defp deps do
+               [{:atlas_bus, runtime: false, in_umbrella: true},
+                {:atlas_facts, in_umbrella: true, optional: true},
+                {:atlas_flow, "~> 0.1", in_umbrella: true, runtime: false},
+                {:external, path: "elsewhere"}]
+             end
+             """) == ["atlas_bus", "atlas_facts", "atlas_flow"]
+    end
+
     test "a layer that names another layer" do
       assert foreign_names("AtlasFacts.Server.handle(x)", "AtlasControl") == ["AtlasFacts"]
 
@@ -127,7 +177,7 @@ defmodule AtlasBus.BoundaryTest do
     test "each layer depends on the Bus only" do
       for {app, _} <- @layers do
         mix = File.read!(Path.join([@root, "beam/apps", Atom.to_string(app), "mix.exs"]))
-        deps = Regex.scan(~r/\{:(\w+), in_umbrella: true\}/, mix) |> Enum.map(&List.last/1)
+        deps = umbrella_dependencies(mix)
         expected = if app == :atlas_bus, do: [], else: ["atlas_bus"]
 
         assert deps == expected,
@@ -154,7 +204,7 @@ defmodule AtlasBus.BoundaryTest do
     test "a reader depends on no other app" do
       for {dir, _} <- @readers do
         mix = File.read!(Path.join([@root, dir, "mix.exs"]))
-        deps = Regex.scan(~r/\{:(\w+), in_umbrella: true\}/, mix) |> Enum.map(&List.last/1)
+        deps = umbrella_dependencies(mix)
         assert deps == [], "#{dir} depends on #{inspect(deps)}; a reader depends on no app"
       end
     end

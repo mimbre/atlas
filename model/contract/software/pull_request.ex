@@ -13,17 +13,27 @@ defmodule Model.PullRequest do
       so it is a branch and not a gate.
     * Changes requested or a failed test lead to `changes_requested`, until a new
       revision arrives (`update`) and the checks start again.
+    * `integrating` is Code's integrate effect (service `code`): it updates the pull
+      request from its base when it is behind, waits for CI on the result, and merges
+      it when CI is green, at exactly the approved `revision`. Approved means approved
+      by the run itself: through the composition's links, its review approved and its
+      test passed, both of the `revision` it holds now (`approving`). Merged leads to
+      `integrated`; a refusal (a conflict, red CI, a moved head, a closed pull request)
+      to `blocked`.
+    * Until Code is asked, `integrating` keeps the exits by hand: merged or closed ends
+      it, a new revision (`update`) starts the checks again. So a run its links never
+      approved (its review or test of another revision, or none) still ends. Once Code
+      is asked, only Code's answer moves it: a pull request merged or closed meanwhile
+      is done or refused.
+    * `blocked` waits for a person or an agent: a retry (`integration: retry`) integrates
+      again, a new revision (`update`) starts the checks again, and merged or closed by
+      hand ends it.
     * Merged or closed (GitHub's `state`, as its connector fills it) ends it from every
-      state that is not final.
+      state that is not final, in `integrating` while Code is not asked yet.
 
   Slice 8 runs it on Flow's durable runs (`select`), in place of the legacy flow
-  `review_and_merge`. Three parity fixes keep it to what runs today, where a person or
-  an agent merges a pull request by hand and Flow only presents it:
+  `review_and_merge`, with two parity fixes kept to what runs today:
 
-    * no integrate effect yet: Code has no receiver that passed the effect contract, and
-      an effect Flow cannot run would refuse every selected subflow; `integrating` is
-      the merge by hand, ended by the merge, so the `blocked` that only a refused or
-      silent effect reached is gone (the `integrate` gate stays, for Code);
     * no creates yet: Flow cannot create a review or a test, whose kinds have short ids
       that Rela makes and Flow's create names one, nor fill their `revision`; whoever
       asks for a review or test creates it for the pull request's current `revision`,
@@ -120,9 +130,10 @@ defmodule Model.PullRequest do
 
   # Before Code integrates a pull request: CI is green on the exact head being
   # integrated, and the fingerprint approved at review is the one sent at integration.
-  # Code applies it before it integrates (by hand until then); the pull request subflow
-  # names it again once its integrate effect runs. A missing or null field is uncertain,
-  # so it goes to a person.
+  # Code's receiver of the integrate effect holds to this rule itself (CI green on the
+  # head it merges, and that head an update of the approved revision; the approved
+  # fingerprint the one sent), so the subflow names no gate state for it. A missing or
+  # null field is uncertain, so it goes to a person.
   defgate :integrate,
     version: 1,
     flavor: :rule,
@@ -183,13 +194,44 @@ defmodule Model.PullRequest do
 
     state :integrating, label: "Integrate" do
       present(
-        expected: "Merge it",
+        expected: "Let Code integrate it",
         why: "its review approved and its test passed",
-        instructions: "Merge the reviewed and tested revision, or close it."
+        instructions:
+          "Code updates it from its base, waits for CI and merges the reviewed and tested revision once its review and test of that revision approved it. Until Code is asked, merging or closing it by hand ends it, and a new revision (set revision to its head commit and update to updated) starts its checks again."
+      )
+
+      # Taken only while Code is not asked yet (AtlasFlow.Runs.Run.unfrozen/4).
+      branch to: :integrated, when: "entity.state == 'merged'"
+      branch to: :closed, when: "entity.state == 'closed'"
+      branch to: :checking, when: "entity.update == 'updated'"
+
+      effect(:integrate,
+        contract: 1,
+        name: "integrate",
+        service: "code",
+        operation: "integrate",
+        field: :integration,
+        fingerprint: [fields: ["revision"], relations: []],
+        payload: ["revision"],
+        target: "url",
+        approved: "revision",
+        approving: [review_outcome: ["approved"], test_outcome: ["passed"]],
+        on: [done: :integrated, refused: :blocked]
+      )
+    end
+
+    state :blocked, label: "Integration blocked" do
+      present(
+        expected: "Unblock its integration",
+        why: "Code did not integrate it",
+        instructions:
+          "Its run says why. Set integration to retry once that is fixed, or push a revision that fixes it (set revision to its head commit and update to updated), or merge or close it by hand."
       )
 
       branch to: :integrated, when: "entity.state == 'merged'"
       branch to: :closed, when: "entity.state == 'closed'"
+      branch to: :integrating, when: "entity.integration == 'retry'"
+      branch to: :checking, when: "entity.update == 'updated'"
     end
 
     final :integrated, label: "Integrated"
@@ -202,9 +244,10 @@ defmodule Model.PullRequest do
   # gives the entry. A final row is completed history (no entry writes, nothing rerun):
   # merged or closed, first, as the subflow's own branches come first. An open pull
   # request whose outcomes already say where it is joins that wait without anything
-  # written. Any other open pull request (none of today's has an outcome: no flow wrote
-  # one) matches no row and starts in `checking`, as a new one does: it enters its
-  # checks, writing only their reset outcomes; nothing it had is rerun.
+  # written; approved and passed joins `blocked`, never `integrating`: an import never
+  # integrates (a retry does, once the run's own links approved its revision). Any other
+  # open pull request matches no row and starts in `checking`, as a new one does: it
+  # enters its checks, writing only their reset outcomes; nothing it had is rerun.
   select(:pull_request,
     legacy: :review_and_merge,
     choices: [],
@@ -221,7 +264,7 @@ defmodule Model.PullRequest do
       [when: [state: [:closed]], state: :closed],
       [when: [review_outcome: [:changes_requested]], state: :changes_requested],
       [when: [test_outcome: [:failed]], state: :changes_requested],
-      [when: [review_outcome: [:approved], test_outcome: [:passed]], state: :integrating]
+      [when: [review_outcome: [:approved], test_outcome: [:passed]], state: :blocked]
     ]
   )
 
@@ -242,5 +285,23 @@ defmodule Model.PullRequest do
       integrating: :integrating
     ],
     reason: "Slice 8: selected without its integrate effect and creates; merged by hand"
+  )
+
+  # Its integrate effect again, through Code's receiver (the same in prod and test).
+  # Every other state is kept and re-entered. A run waiting in `integrating` for the merge
+  # by hand waits in `blocked`, as an import does: nothing is integrated at the deploy
+  # without someone setting `integration: retry`, whatever links it has, and merged or
+  # closed by hand still ends it.
+  migrate(:pull_request,
+    from: "e183d55ea7eb411d29dd812053dff89078b4ef131068a3223d40c22617bffbd0",
+    to: "9e9822b579c9f85bd577c278b2c8a10ee7be7d04ee029e12ad8bf790cdc703de",
+    states: [
+      changes_requested: :changes_requested,
+      checking: :checking,
+      closed: :closed,
+      integrated: :integrated,
+      integrating: :blocked
+    ],
+    reason: "Integrate effect through Code's receiver; waiting runs blocked until a retry"
   )
 end

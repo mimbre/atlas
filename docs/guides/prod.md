@@ -86,9 +86,34 @@ A merge to master deploys prod (CI job `deploy-prod`, `fly/deploy.sh prod`). It 
 |---|---|---|---|
 | eyra/atlas, repository secret | `FLY_API_TOKEN_PROD` | `fly tokens create deploy -a eyra-atlas` | CI's per-app deploy token |
 | eyra/atlas, repository secret | `FLY_API_TOKEN_PROD_RELA` | `fly tokens create deploy -a eyra-atlas-rela` | CI's per-app deploy token |
-| Fly app `eyra-atlas`, `fly secrets set -a eyra-atlas GITHUB_TOKEN=…` | `GITHUB_TOKEN` | the GitHub connector's token: reads the pull requests of eyra/atlas (private), GET only | `gh auth token`: `connectors.github.token_command` in `env/prod.json`, the local gh keyring |
+| Fly app `eyra-atlas`, `fly secrets set -a eyra-atlas GITHUB_TOKEN=…` | `GITHUB_TOKEN` | shared by the GitHub connector and Code's integrate receiver on eyra/atlas (private) | `gh auth token`: `connectors.github.token_command` in `env/prod.json`, the local gh keyring |
 
-On Fly the connector reads its token from that secret (`connectors.github.token_env` in `fly/prod/core.json`). A token that can only read pull requests of eyra/atlas is enough, for example a fine-grained token with "Pull requests: read" on that one repository. The installed token is verified through an actual private PR refresh; presence or activation metadata alone does not prove authentication. If a token is missing, each round logs `no token: GITHUB_TOKEN is not set` and keeps the stored values.
+On Fly the connector and Code's integrate receiver read the same secret
+(`connectors.github.token_env` in `fly/prod/core.json`). Restrict the fine-grained token
+to eyra/atlas. Integration needs **Pull requests: read and write**, **Contents: read and
+write**, **Checks: read**, **Commit statuses: read**, and **Metadata: read**. Also grant
+**Workflows: write** if an update from the base can bring in `.github/workflows` changes.
+The connector still only reads, but sharing this token gives its process write authority
+too. A read-only token is sufficient for polling, not for integration.
+
+Deploy the code and migration with the existing read-only token first; migrated
+`integrating` runs wait in `blocked`, so deployment alone does not request their merge.
+Verify that migration before rotating the secret to the permissions above, then explicitly
+retry only runs whose revision has approving review and test links. Rotation does not
+retry a durable refusal. For a request with an uncertain remote outcome, restore access
+and let its existing id be looked up; never clear its journal or create a fresh request
+to recover it. Verify the installed token through a private PR refresh and a controlled
+integration; presence or activation metadata alone does not prove the permissions. If a
+token is missing, each connector round logs `no token: GITHUB_TOKEN is not set` and keeps
+the stored values.
+
+Fly test keeps the integrate receiver selected so the shared subflow can run, but
+`fly/test/core.json` allows no repositories (`code.repositories: []`). Requests are
+refused locally as `repository_not_allowed` and the run reaches `blocked` without any
+GitHub read, credential lookup or write. Private e2e instances use their local GitHub
+stand-in instead. An unfinished request already in the journal is paused as `working`
+while its repository is disabled, with no GitHub call and no invented refusal; reconcile
+its existing id once access is intentionally restored.
 
 There is no Flux connector yet: `flux_id` and `flux_ref` are described as set by a connector, but no code reads Flux, so nothing needs a Flux secret. When one is built, its secret goes on `eyra-atlas` the same way.
 
@@ -124,6 +149,23 @@ the copy, for a migration (below). The copy carries no checksums. To check it, r
 `atlas-ops move-to-fly --env prod --from <folder> --dry-run`, which checks the description
 fits it and counts it without changing Fly, or restore it to a private instance
 (`ATLAS_ENV_FILE`).
+
+**Code's journal stays with the core volume.** `/data/code/effects` holds the request
+ids, update ancestry and durable outcomes. `fetch-from-fly` and `move-to-fly` currently
+copy only `rela` and `beam`; their folder is not a complete integration backup. The hold
+does stop Code's writes too, but it does not copy its journal. Preserve `/data/code`
+alongside the matching stopped `beam` and `rela` data when backing up or transferring
+an environment with integration requests. Keep the destination's stopped journal too;
+do not combine a different environment's journal with moved runs or release the core
+until the matching data has been restored.
+
+GitHub can supply the current pull state after a move, but cannot rebuild the original
+request ids and update ancestry. With a lost journal, `merged_elsewhere` can mean Code
+merged at an update head that is no longer in the rebuilt ancestry; `stale_revision`
+can mean an earlier branch update landed. An id collision gives `conflict`. These need
+operator reconciliation against the preserved records and GitHub state, not a blind
+`integration: retry`. Restore the matching journal and look up the existing request
+where possible. Never discard or resubmit an ambiguous effect to reconstruct it.
 
 ### Move prod's data, and switch (IS-Atlas-90)
 

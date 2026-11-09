@@ -32,7 +32,51 @@ defmodule AtlasFlow.Activities.EffectTest do
       }
     }
     |> then(&if(operation != "create", do: Map.put(&1, "target", "artifact"), else: &1))
-    |> then(&if(operation == "integrate", do: Map.put(&1, "approved", "approved"), else: &1))
+    |> then(
+      &if(operation == "integrate",
+        do: Map.merge(&1, %{"approved" => "title", "approving" => %{"verdict" => ["yes"]}}),
+        else: &1
+      )
+    )
+  end
+
+  # The composition's links of a box: a check writes `verdict` (`yes` when it accepted,
+  # `no` when it rejected), a count `tally`.
+  @links [
+    %{
+      "child" => "check",
+      "child_subject" => "check",
+      "parent_subject" => "box",
+      "relation" => "check_of",
+      "field" => "verdict",
+      "current" => %{"child" => "title", "parent" => "title"},
+      "states" => %{"accepted" => "yes", "rejected" => "no"}
+    },
+    %{
+      "child" => "tally",
+      "child_subject" => "tally",
+      "parent_subject" => "box",
+      "relation" => "tally_of",
+      "field" => "tally",
+      "states" => %{"counted" => "counted"}
+    }
+  ]
+
+  # A run whose composition applied `sources`: `{field, child state, current identity}`.
+  defp approving(run, sources) do
+    links =
+      sources
+      |> Enum.with_index()
+      |> Map.new(fn {{field, state, identity}, i} ->
+        {field, %{"child" => "C-#{i}", "state" => state, "current" => identity}}
+      end)
+
+    Map.update(
+      run,
+      "pending",
+      %{"composition" => %{"version" => 1, "links" => links}},
+      &Map.put(&1, "composition", %{"version" => 1, "links" => links})
+    )
   end
 
   defp subject(values \\ %{}),
@@ -74,6 +118,12 @@ defmodule AtlasFlow.Activities.EffectTest do
       refute Effect.valid?(Map.put(spec(), "service", "elsewhere"), @receivers)
       refute Effect.valid?(Map.delete(spec("update"), "target"), @receivers)
       refute Effect.valid?(Map.delete(spec("integrate"), "approved"), @receivers)
+      # What approves it must be said: a field and the values of it that approve.
+      refute Effect.valid?(Map.delete(spec("integrate"), "approving"), @receivers)
+      refute Effect.valid?(Map.put(spec("integrate"), "approving", %{}), @receivers)
+      refute Effect.valid?(Map.put(spec("integrate"), "approving", %{"verdict" => []}), @receivers)
+      # The approved identity must be one the fingerprint covers.
+      refute Effect.valid?(Map.put(spec("integrate"), "approved", "artifact"), @receivers)
 
       # The shape the flow format writes without a contract names no enabled one: refused.
       {:effect, generated} = Sorts.Unbound.mechanism("publishing")
@@ -95,30 +145,55 @@ defmodule AtlasFlow.Activities.EffectTest do
       refute Effect.current?(i, subject(%{"title" => "b"}))
     end
 
-    test "an update waits for its target, an integration for approval of this fingerprint" do
+    test "an update waits for its target, an integration for its run's approval of this identity" do
       assert {:error, :not_ready} = Effect.freeze(run(), spec("update"), subject(), @receivers)
       u = frozen("update", %{"artifact" => "artifact-1"})
       assert u["request"]["target"] == "artifact-1"
       fp = u["request"]["fingerprint"]
+      target = subject(%{"artifact" => "artifact-1"})
 
+      freeze = fn r, s -> Effect.freeze(r, spec("integrate"), s, @receivers, @links) end
+      accepted = {"verdict", "accepted", "a"}
+
+      # No approval, an approval of another title, one current approval beside a stale
+      # one, a check of no title, or a check of this title that rejected it: not ready.
+      for r <- [
+            run(),
+            approving(run(), [{"verdict", "accepted", "b"}]),
+            approving(run(), [accepted, {"tally", "counted", "b"}]),
+            approving(run(), [{"verdict", "accepted", nil}]),
+            approving(run(), [{"verdict", "rejected", "a"}]),
+            # A link that only some other field's applied, not the approving one.
+            approving(run(), [{"tally", "counted", "a"}])
+          ],
+          do: assert({:error, :not_ready} = freeze.(r, target))
+
+      # Without the composition's links nothing says what the link wrote: no approval.
       assert {:error, :not_ready} =
-               Effect.freeze(
-                 run(),
-                 spec("integrate"),
-                 subject(%{"artifact" => "artifact-1"}),
-                 @receivers
-               )
+               Effect.freeze(approving(run(), [accepted]), spec("integrate"), target, @receivers)
 
+      # A field written by hand is no approval.
       assert {:error, :not_ready} =
-               Effect.freeze(
-                 run(),
-                 spec("integrate"),
-                 subject(%{"artifact" => "artifact-1", "approved" => "stale"}),
-                 @receivers
-               )
+               freeze.(run(), subject(%{"artifact" => "artifact-1", "approved" => fp}))
 
-      i = frozen("integrate", %{"artifact" => "artifact-1", "approved" => fp})
-      assert i["request"]["approved"] == fp
+      # The check of this title accepted it, and every other current link is of this title:
+      # frozen, carrying its fingerprint.
+      for r <- [
+            approving(run(), [accepted]),
+            approving(run(), [accepted, {"tally", "counted", "a"}]),
+            approving(run(), [accepted, {"tally", "counted", nil}])
+          ] do
+        {:ok, i} = freeze.(r, target)
+        assert i["request"]["approved"] == fp
+        assert i["request"]["id"] == Effect.id(run(), spec())
+      end
+
+      # The title moved on after its approval: not ready again.
+      assert {:error, :not_ready} =
+               freeze.(
+                 approving(run(), [accepted]),
+                 subject(%{"artifact" => "artifact-1", "title" => "b"})
+               )
     end
   end
 
@@ -198,8 +273,16 @@ defmodule AtlasFlow.Activities.EffectTest do
       create = frozen()["request"]
       assert :ok = EffectReceiverContract.check!(call, [create])
       update = frozen("update", %{"artifact" => "artifact-1"})["request"]
-      fp = update["fingerprint"]
-      integrate = frozen("integrate", %{"artifact" => "artifact-1", "approved" => fp})["request"]
+
+      {:ok, %{"request" => integrate}} =
+        Effect.freeze(
+          approving(run(), [{"verdict", "accepted", "a"}]),
+          spec("integrate"),
+          subject(%{"artifact" => "artifact-1"}),
+          @receivers,
+          @links
+        )
+
       # Different entries: different ids for the same activity name.
       update = Map.put(update, "id", Effect.id(run(2), spec()))
       integrate = Map.put(integrate, "id", Effect.id(run(3), spec()))
@@ -221,8 +304,9 @@ defmodule AtlasFlow.Activities.EffectTest do
 
   describe "through the run store" do
     setup %{tmp_dir: dir} do
+      previous = Application.get_env(:atlas_flow, :effect_receivers)
       Application.put_env(:atlas_flow, :effect_receivers, @receivers)
-      on_exit(fn -> Application.delete_env(:atlas_flow, :effect_receivers) end)
+      on_exit(fn -> Application.put_env(:atlas_flow, :effect_receivers, previous) end)
       c = put_in(AtlasFlow.TestModel.config(), ["selection", "sort", "imports"], [])
       start_supervised!(FakeFacts)
       clock = start_supervised!({ManualClock, @now})
@@ -358,25 +442,63 @@ defmodule AtlasFlow.Activities.EffectTest do
       assert crates() == []
     end
 
-    test "an integration is not frozen until this fingerprint is approved", c do
+    test "an integration is not frozen until its run approved this title", c do
       flows = %{"sort" => Sorts.Integrate}
-      c = %{c | flows: flows}
-      FakeFacts.put("box", subject(%{"artifact" => "artifact-1", "approved" => "stale"}))
+      # The box's links, as the model's composition would give them (no check exists, so
+      # the composition writes nothing itself).
+      c = %{c | flows: flows, c: put_in(c.c, ["composition", "links"], @links)}
+      fp = AtlasBus.SubjectFingerprint.of(subject(), spec()["fingerprint"])
+      # A field written by hand, even holding the fingerprint, approves nothing.
+      FakeFacts.put("box", subject(%{"artifact" => "artifact-1", "approved" => fp}))
       {:ok, [waiting]} = reconcile(c)
       assert waiting["pending"]["effect"] == nil
       assert EffectReceiver.operations(c.dir) == []
-      fp = AtlasBus.SubjectFingerprint.of(subject(), spec()["fingerprint"])
-      FakeFacts.put("box", subject(%{"artifact" => "artifact-1", "approved" => fp}))
+
+      # The run's composition applied a link from a child current for another title.
+      stored = fn run ->
+        key = run["key"]
+        fact = FakeFacts.get("cursor", key)
+        FakeFacts.put("cursor", %{fact | "values" => Store.encode(c.c, run)})
+      end
+
+      stored.(approving(waiting, [{"verdict", "accepted", "b"}]))
+      {:ok, [still]} = reconcile(c)
+      assert still["pending"]["effect"] == nil
+
+      # One current for this title that rejected it.
+      stored.(approving(still, [{"verdict", "rejected", "a"}]))
+      {:ok, [rejected]} = reconcile(c)
+      assert rejected["pending"]["effect"] == nil
+
+      # And then one for this title that accepted it.
+      stored.(approving(rejected, [{"verdict", "accepted", "a"}]))
       # Hold the answer: this reconcile freezes and sends, and must end while it waits.
       :sys.suspend(c.receiver)
       {:ok, [sent]} = reconcile(c)
       assert sent["pending"]["effect"]["request"]["approved"] == fp
+      # Asked: a branch by hand no longer moves it, only the answer does.
+      FakeFacts.put("box", subject(%{"artifact" => "artifact-1", "result" => "no"}))
       :sys.resume(c.receiver)
       barrier(c)
       # The private receiver holds no artifact-1, so it refuses; the approval was carried.
       {:ok, [stuck]} = reconcile(c)
       assert stuck["state"] == "stuck" and stuck["last_input"]["status"] == "refused"
       assert [%{"request" => %{"approved" => ^fp}}] = stuck["pending"]["effects"]
+    end
+
+    test "while nothing is asked, an effect's state takes its plain branches", c do
+      c = %{c | flows: %{"sort" => Sorts.Integrate}, c: put_in(c.c, ["composition", "links"], @links)}
+      FakeFacts.put("box", subject(%{"artifact" => "artifact-1"}))
+      {:ok, [waiting]} = reconcile(c)
+      assert waiting["state"] == "publishing" and waiting["pending"]["effect"] == nil
+
+      # Never approved, discarded by hand: it ends, and nothing was asked of the receiver.
+      FakeFacts.put("box", subject(%{"artifact" => "artifact-1", "result" => "no"}))
+      {:ok, [discarded]} = reconcile(c)
+      assert {discarded["state"], discarded["status"]} == {"discarded", "completed"}
+      assert discarded["last_input"]["branch"] == "discarded"
+      assert discarded["pending"]["effect"] == nil
+      assert EffectReceiver.operations(c.dir) == []
     end
 
     test "a timer passing without an answer is not proof: the run blocks, it does not branch",
