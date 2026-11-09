@@ -116,6 +116,15 @@ singleton and requires both Flow's writer and sender for tally updates. Final co
 also refuses an absent or inconsistent `flow_runtime.writer` that would leave a frozen
 tally without that field guard; concepts and modules may remain partial until assembly.
 
+A tally-only `change` on an already frozen fact preserves its recorded acceptance
+authority. It does not require a new acceptance verdict for a historical agent decider.
+Every supplied field must be declared in `frozen.tallied`, have its installed machine
+writer guard, and come from that writer and endpoint; the write must contain no links.
+An empty write, a create, or a write containing any ordinary field (even its unchanged
+value) retains the existing authority checks. The other write rules still run. This
+does not authorize acceptance, reinterpret Flow as a person, or relax frozen fields.
+The private native regression is `beam/integration/flow_tally_authority_native.exs`.
+
 ## 3. Digests, proofs and migrations
 
 - **Digest.** `digest/0` is `sha256(canonical(data))`. `data` is exactly the string-keyed map that today's Atlas writer emits per subflow, with limits resolved per environment, so prod and test have separate compiled modules. `canonical/1` is today's `DefinitionDigest.canonical/1`, moved into `rela_dsl`. Nothing is read from disk.

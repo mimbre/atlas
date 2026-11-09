@@ -118,4 +118,97 @@ defmodule RelaDSL.Facts.DeciderTest do
              "about"
            )["fingerprint"] == "stale"
   end
+
+  test "a guarded frozen tally maintains historical clerk authority without deciding again" do
+    current = %{
+      "values" => %{"state" => "final", "title" => "A"},
+      "links" => %{"ruled_by" => ["C"]}
+    }
+
+    machine = %{"by" => "counter", "sender" => "counter/endpoint"}
+
+    rules = %{
+      "authority" => @authority,
+      "frozen" => %{
+        "when" => %{"state" => ["final"]},
+        "only" => %{"state" => ["overturned"]},
+        "tallied" => ["citations"]
+      },
+      "field_writers" => %{"citations" => machine}
+    }
+
+    env = %{
+      "writer" => "counter",
+      "sender" => "counter/endpoint",
+      "kind_of" => fn _, _ -> "clerk" end,
+      "verdict" => fn _, _ -> nil end,
+      "fingerprint" => &fingerprint/2
+    }
+
+    check = fn rules, op, current, values, links, env ->
+      Writes.check_rules(rules, op, "R-1", current, values, links, env)
+    end
+
+    for n <- [0, 4] do
+      assert :ok = check.(rules, "change", current, %{"citations" => n}, %{}, env)
+    end
+
+    for {writer, sender} <- [
+          {"C", "session"},
+          {"counter", "session"},
+          {"C", "counter/endpoint"},
+          {nil, nil},
+          {false, "counter/endpoint"}
+        ] do
+      assert {:refused, _} =
+               check.(rules, "change", current, %{"citations" => 1}, %{}, %{
+                 env
+                 | "writer" => writer,
+                   "sender" => sender
+               })
+    end
+
+    # Even unchanged ordinary fields/links do not qualify as a tally-only write.
+    for values <- [
+          %{},
+          %{"citations" => 1, "title" => "A"},
+          %{"citations" => 1, "state" => "final"},
+          %{"citations" => 1, "title" => "Edited"}
+        ] do
+      assert {:refused, _} = check.(rules, "change", current, values, %{}, env)
+    end
+
+    assert {:refused, _} =
+             check.(rules, "change", current, %{"citations" => 1}, current["links"], env)
+
+    assert {:refused, _} = check.(rules, "delete", current, %{"citations" => 1}, %{}, env)
+
+    assert {:refused, _} =
+             check.(
+               rules,
+               "create",
+               nil,
+               %{"state" => "final", "citations" => 1},
+               current["links"],
+               env
+             )
+
+    draft = put_in(current, ["values", "state"], "draft")
+
+    assert {:refused, _} =
+             check.(rules, "change", draft, %{"state" => "final", "citations" => 1}, %{}, env)
+
+    for unsafe <- [
+          Map.delete(rules, "field_writers"),
+          Map.delete(rules, "frozen"),
+          put_in(rules, ["field_writers", "citations"], %{"by" => nil, "sender" => nil})
+        ] do
+      assert {:refused, _} = check.(unsafe, "change", current, %{"citations" => 1}, %{}, env)
+    end
+
+    required =
+      Map.put(rules, "requires", [%{"when" => %{"state" => ["final"]}, "fields" => ["reason"]}])
+
+    assert {:refused, _} = check.(required, "change", current, %{"citations" => 1}, %{}, env)
+  end
 end
