@@ -4,6 +4,13 @@ Atlas is an agent platform on the BEAM. Work moves through a central Bus. Agents
 
 Why Atlas exists, and the principles it never breaks: [docs/vision.md](docs/vision.md).
 
+Control clients keep the existing settings/Fly tunnel behavior by default. Explicit
+`ATLAS_CONTROL_ENDPOINT=tls://<full-node-name>.tail8263c4.ts.net:<port>` selects verified
+TLS without fallback; invalid/empty selection or certificate failures refuse access.
+Optional server ingress is disabled by default and unverified on live Fly. See the
+[activation prerequisites and rollback](docs/guides/prod.md#optional-control-tls-ingress-not-activated)
+before considering it; this does not change Bus or Runtime transport.
+
 The BEAM side runs the system. rela describes it. Entities, schemas, flows and the organisation are written in the model (`model/contract`), which generates rela's description. The BEAM code names no entity.
 
 ## Main parts
@@ -25,6 +32,7 @@ The BEAM side runs the system. rela describes it. Entities, schemas, flows and t
 | `rela/` | rela's description of every entity Atlas knows, generated from the model. See [rela/README.md](rela/README.md). |
 | `model/` | The model: the Rela DSL (`dsl/`), Atlas's domain written in it, by module and concept: kinds, relations, subflows and gates (`contract/`), and the files generated from it besides `rela/` (`targets/`). |
 | `clients/` | The Console (`tui/`), the agents' command line (`agent/`) and the Runtime viewer (`viewer/`, see [its README](clients/viewer/README.md)). |
+| `transport/` | Optional verified TLS socket transport shared only by the Control CLI and TUI clients. |
 | `env/` | One settings file per environment. |
 | `fly/` | Images and deploy scripts for the hosted environments. |
 | `bin/atlas` | The `atlas` command, Control's client: the Console, the commands on facts during a turn, and provisioning. `atlas help` lists them. |

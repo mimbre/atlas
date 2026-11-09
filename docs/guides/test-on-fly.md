@@ -9,6 +9,17 @@ Test's core (Bus, Facts, Flow, Control) and its rela run on Fly, in organisation
 
 ## Use it
 
+The default commands below still use the shared Fly tunnel. Optional Control-only TLS
+selection is `ATLAS_CONTROL_ENDPOINT=tls://<full-node-name>.tail8263c4.ts.net:<port>`;
+it reaches only the explicitly selected TLS endpoint and never falls back. Empty or
+invalid values and certificate/hostname failures refuse the connection before hello
+or grants. Unset it to restore the default. The optional server startup is disabled
+by default and has not been activated or verified on Fly. Its separate policy,
+certificate, enrollment prerequisites and rollback are documented in
+[prod.md](prod.md#optional-control-tls-ingress-not-activated); test activation needs
+the same explicit exposure review. Bus/Runtime and `atlas-ops` retain their existing
+paths.
+
 ```sh
 atlas tui --env test        # opens the tunnel to test's Control on Fly, then the TUI
 atlas list scene --env test # the agents' commands too; each opens the tunnel when it is closed
