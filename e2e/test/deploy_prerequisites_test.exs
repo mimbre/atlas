@@ -70,7 +70,7 @@ defmodule AtlasE2E.DeployPrerequisitesTest do
           String.contains?(run, "start-test.sh install") do
         File.mkdir_p!(bin)
 
-        for file <- ["rela", "rela-server"] do
+        for file <- ["rela", "rela-sqlite", "rela-server-headless-sqlite"] do
           File.cp!(Path.join(cache, file), Path.join(bin, file))
           File.chmod!(Path.join(bin, file), 0o755)
         end

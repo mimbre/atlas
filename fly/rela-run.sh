@@ -16,13 +16,6 @@ fi
 
 export ATLAS_RELA_DATA=/data/rela ATLAS_RELA_BIN=/app/bin ATLAS_RELA_BIND=:: ATLAS_RELA_PORT="${ATLAS_RELA_PORT:-7690}"
 
-# As bin/atlas-ops does on a Mac (IS-Atlas-73): a description that no longer describes data
-# rela holds does not start; that data needs a migration first.
-if [ -d /data/rela/entities ] && ! orphans="$(/app/rela/scripts/description.sh fits)"; then
-  echo "rela: this build's description no longer describes data rela holds:"
-  echo "$orphans" | sed 's/^/  /'
-  echo "rela: not starting; migrate that data first (docs/guides/test-on-fly.md)"
-  exit 1
-fi
-
+# start-test checks existing SQLite or legacy data before changing its description,
+# including boot after a move. It refuses when that data needs a migration first.
 exec /app/rela/scripts/start-test.sh

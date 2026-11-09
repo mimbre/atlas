@@ -6,7 +6,7 @@ The additional `based_on` review entry and the decision's own red flag live in t
 
 ## Local checks and private native proof
 
-Use the pinned, already installed Rela 26.11.2 and a Python with `rela/scripts/requirements.txt` installed:
+Use the pinned, already installed Rela 26.11.3 and a Python with `rela/scripts/requirements.txt` installed:
 
 ```sh
 export ATLAS_RELA_BIN="$PWD/.rela-bin"

@@ -3,7 +3,7 @@
 FROM debian:bookworm-slim
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates curl python3 python3-yaml \
+  && apt-get install -y --no-install-recommends ca-certificates curl python3 python3-yaml sqlite3 \
   && rm -rf /var/lib/apt/lists/*
 
 # The rela version start-test.sh pins, for this machine (linux_amd64).

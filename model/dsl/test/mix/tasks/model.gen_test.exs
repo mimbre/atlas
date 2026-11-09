@@ -39,8 +39,8 @@ defmodule Mix.Tasks.Model.GenTest do
 
   defp gen(args \\ []), do: Mix.Tasks.Model.Gen.run(args)
 
-  # A stand-in for rela that says it is 26.11.2 and refuses every flows.yaml.
-  defp refusing_rela(dir, version \\ "rela version 26.11.2") do
+  # A stand-in for rela that says it is 26.11.3 and refuses every flows.yaml.
+  defp refusing_rela(dir, version \\ "rela version 26.11.3") do
     bin = Path.join(dir, "bin")
     File.mkdir_p!(bin)
 
@@ -268,10 +268,10 @@ defmodule Mix.Tasks.Model.GenTest do
       refute File.exists?(c.yaml)
     end
 
-    test "a rela that is not 26.11.2 is refused", c do
+    test "a rela that is not 26.11.3 is refused", c do
       refusing_rela(c.tmp_dir, "rela version 26.10.0")
 
-      assert_raise Mix.Error, ~r/expected rela version 26.11.2.*got rela version 26.10.0/, fn ->
+      assert_raise Mix.Error, ~r/expected rela version 26.11.3.*got rela version 26.10.0/, fn ->
         gen()
       end
     end

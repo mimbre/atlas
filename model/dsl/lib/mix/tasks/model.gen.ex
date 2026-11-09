@@ -46,7 +46,7 @@ defmodule Mix.Tasks.Model.Gen do
   refuses, so a change cannot approve its own migration. A base that holds no
   `digests.json` yet predates the proof: the task says so and checks nothing against it.
 
-  **Rela.** When `ATLAS_RELA_BIN` names the folder holding the pinned `rela` (26.11.2),
+  **Rela.** When `ATLAS_RELA_BIN` names the folder holding the pinned `rela` (26.11.3),
   the task runs Rela on the generated `flows.yaml` and fails on what Rela refuses,
   then draws each diagram with `rela flow show`. With `rela_project`, Rela validates
   the whole description in a temporary copy of it, with the generated files in place;

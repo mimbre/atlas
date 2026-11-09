@@ -66,7 +66,7 @@ A new test job joins with `needs: tested-tree` and `if: ${{ !cancelled() && need
 | Control | `eyra-atlas-test` on Fly; this Mac's tunnel end 127.0.0.1:7693 | `eyra-atlas` on Fly; this Mac's tunnel end 127.0.0.1:7593 |
 | Data | the apps' volumes on Fly | the apps' volumes on Fly (the Mac's copy from before the move: `~/.local/share/atlas/prod/`) |
 
-Both run the same pinned rela (26.11.2); test runs develop's newest build, prod master's. Test and prod never connect: each has its own Bus, and a prod Bus or Control refuses a test message or client (and the other way round). Facts never move from test to prod.
+Both run the same pinned rela (26.11.3); test runs develop's newest build, prod master's. Test and prod never connect: each has its own Bus, and a prod Bus or Control refuses a test message or client (and the other way round). Facts never move from test to prod.
 
 ## Prod on Fly (IS-Atlas-79)
 
@@ -144,7 +144,8 @@ atlas-ops fetch-from-fly --env prod --to ~/.local/share/atlas/prod-backup-$(date
    gives up, so start the backup when no turn is running.
 3. It copies `/data/rela` (rela's data) and `/data/beam` (Facts' own) into `<folder>/rela`
    and `<folder>/beam`, the layout `move-to-fly --from` takes back, and counts the items per
-   kind.
+   kind on a separate private extraction. The returned raw backup is never opened by
+   the counter: even read-only SQLite access can reconstruct its SHM sidecar.
 4. It releases rela, then the core, and waits until both pass their health checks.
 
 The folder must be new or empty. A failure can leave prod held: see "Held" in
@@ -170,6 +171,18 @@ can mean an earlier branch update landed. An id collision gives `conflict`. Thes
 operator reconciliation against the preserved records and GitHub state, not a blind
 `integration: retry`. Restore the matching journal and look up the existing request
 where possible. Never discard or resubmit an ambiguous effect to reconstruct it.
+
+For a stopped source, move-to-fly stages the original archives and their every-file
+SHA-256 manifests before fits/counts open a disposable extraction. It sends those
+original archives unchanged and compares the boot-time arrival receipts, including
+SQLite DB, WAL and SHM files. Validation leaves the source backup byte-identical.
+The extraction used for validation may acquire a reconstructed SHM; that extraction
+is never repacked as the transfer artifact.
+
+A live local source is supported only by `--dry-run`: checks use coherent SQLite
+online backups rather than copying active DB/WAL/SHM files. Logical read-only access
+can reconstruct the live SHM sidecar; live checks do not promise byte immutability.
+A real move still refuses a served source and requires it to be stopped or a backup.
 
 ### Move prod's data, and switch (IS-Atlas-90)
 

@@ -19,7 +19,7 @@ for name <- ["schema.yaml", "data-entry.yaml", "modules", "compositions"],
 :gen_tcp.close(socket)
 
 server =
-  Port.open({:spawn_executable, Path.join(System.fetch_env!("ATLAS_RELA_BIN"), "rela-server")}, [
+  Port.open({:spawn_executable, Path.join(System.fetch_env!("ATLAS_RELA_BIN"), "rela-server-headless-sqlite")}, [
     :binary,
     :exit_status,
     args: ["-project", project, "-bind", "127.0.0.1", "-port", to_string(port), "-quiet"]

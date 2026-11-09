@@ -55,10 +55,11 @@ echo "To:    $rela_app (rela/) and $app (beam/), on Fly"
 echo
 
 # 1. Checks.
-[ -d "$from/rela/entities" ] || fail "$from/rela has no rela data (no entities/)"
+[ -d "$from/rela/entities" ] || [ -e "$from/rela/.rela/rela.db" ] || fail "$from/rela has no rela data (no entities/ or SQLite database)"
 [ -d "$from/beam" ] || fail "$from/beam is missing: Facts' own data (who set each link, which facts were answered) moves too"
 
-serving="$(pgrep -fl "rela-server -project $from/rela( |$)" 2>/dev/null || true)"
+# Also recognize a pre-upgrade server: copying its live dataset is still unsafe.
+serving="$(pgrep -fl "rela-server(-headless-sqlite)? -project $from/rela( |$)" 2>/dev/null || true)"
 if [ -n "$serving" ]; then
   pid="${serving%% *}"
   if [ -z "$dry" ]; then
@@ -67,22 +68,47 @@ if [ -n "$serving" ]; then
   echo "Note:  a rela still serves $from/rela (pid $pid); a real run refuses until it is stopped, or use --from <backup>"
 fi
 
+# Stage stopped stores before any SQLite-aware check can rebuild their SHM.
+# The receipt describes the raw archive, not the subsequently opened check tree.
+tmp="$(mktemp -d "${TMPDIR:-/tmp}/atlas-move.XXXXXX")"
+trap 'rm -rf "$tmp"' EXIT
+check_data="$from/rela"
+if [ -z "$serving" ]; then
+  for name in rela beam; do
+    COPYFILE_DISABLE=1 tar -czf "$tmp/$name.tar.gz" --exclude '*.log' --exclude '*.pid' -C "$from/$name" .
+    mkdir -p "$tmp/sent/$name"
+    tar -xzf "$tmp/$name.tar.gz" -C "$tmp/sent/$name"
+    "$root/fly/manifest.sh" "$tmp/sent/$name" >"$tmp/$name.manifest"
+  done
+  check_data="$tmp/sent/rela"
+else
+  # Only a dry run reaches here. Existing checks use coherent online backup;
+  # never raw-copy a live DB/WAL. Logical reads may reconstruct live SHM.
+  echo "Note: live checks use online snapshots; SQLite may rebuild SHM without changing persisted data"
+fi
+
 # The pinned rela, for the description check; installed beside the tunnel's files.
 bin="${ATLAS_FLY_LOCAL:?}/bin"
 ATLAS_RELA_BIN="$bin" "$root/rela/scripts/start-test.sh" install >&2
-if ! orphans="$(ATLAS_RELA_DATA="$from/rela" ATLAS_RELA_BIN="$bin" "$root/rela/scripts/description.sh" fits)"; then
+if ! orphans="$(ATLAS_RELA_DATA="$check_data" ATLAS_RELA_BIN="$bin" "$root/rela/scripts/description.sh" fits)"; then
   echo "move-to-fly: this build's description no longer describes data in $from/rela:" >&2
   echo "$orphans" | sed 's/^/  /' >&2
   fail "migrate that data first, on this Mac, then move it"
 fi
 echo "Check: this build's description describes all of it"
 
-here="$("$root/fly/counts.sh" "$from/rela")"
+here="$(ATLAS_RELA_BIN="$bin" "$root/fly/counts.sh" "$check_data")"
 
 # The checks above are this Mac's; from here on it talks to Fly.
 fly="$(command -v fly || command -v flyctl)" || fail "install flyctl first (brew install flyctl), then: fly auth login"
 remote() { "$fly" ssh console -q -a "$1" -C "$2" 2>/dev/null | tr -d '\r'; }
-there="$(remote "$rela_app" "/app/fly/counts.sh /data/rela" || echo "(could not read: is $rela_app running? atlas-ops status)")"
+if [ -e "$from/rela/.rela/rela.db" ]; then
+  remote "$rela_app" "test -x /app/bin/rela-server-headless-sqlite && test -x /app/bin/rela-sqlite && command -v sqlite3 >/dev/null" >/dev/null ||
+    fail "SQLite data needs the headless SQLite image and its native tools at the destination; deploy that image before moving this store"
+fi
+if ! there="$(remote "$rela_app" "/app/fly/counts.sh /data/rela")"; then
+  fail "could not count the destination data; nothing sent (check its native tools and store first)"
+fi
 echo
 echo "Here, to send:"
 echo "$here" | sed 's/^/  /'
@@ -95,16 +121,9 @@ if [ -n "$dry" ]; then
   exit 0
 fi
 
-# 2. Send. A half-sent archive is never applied: it is renamed only once complete. What is
-# sent is unpacked here too, for the manifests to compare with.
-tmp="$(mktemp -d "${TMPDIR:-/tmp}/atlas-move.XXXXXX")"
-trap 'rm -rf "$tmp"' EXIT
-for name in rela beam; do
-  COPYFILE_DISABLE=1 tar -czf "$tmp/$name.tar.gz" --exclude '*.log' --exclude '*.pid' -C "$from/$name" .
-  mkdir -p "$tmp/sent/$name"
-  tar -xzf "$tmp/$name.tar.gz" -C "$tmp/sent/$name"
-  "$root/fly/manifest.sh" "$tmp/sent/$name" >"$tmp/$name.manifest"
-done
+# 2. Send the original staged archives unchanged. The check tree may have a rebuilt
+# SHM; neither the archives nor their pre-validation manifests are regenerated.
+# A half-sent archive is never applied: it is renamed only once complete.
 send() { # app name
   echo "Sending $2/ to $1 ($(du -h "$tmp/$2.tar.gz" | cut -f1 | tr -d ' '), $(wc -l <"$tmp/$2.manifest" | tr -d ' ') files)"
   "$fly" ssh console -q -a "$1" -C "mkdir -p /data/incoming" >/dev/null

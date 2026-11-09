@@ -7,8 +7,11 @@
 #   counts.sh <rela data folder>    "<plural> <count>" per kind, "links <relation> <count>"
 #                                   per relation, then "links <count>" in all
 set -euo pipefail
-
-cd "$1"
+root="$(cd "$(dirname "$0")/.." && pwd)"
+tmp="$(mktemp -d "${TMPDIR:-/tmp}/atlas-counts.XXXXXX")"
+trap 'rm -rf "$tmp"' EXIT
+ATLAS_RELA_BIN="${ATLAS_RELA_BIN:-/app/bin}" bash "$root/rela/scripts/data.sh" snapshot "$1" "$tmp/snapshot"
+cd "$tmp/snapshot/markdown"
 for folder in entities/*/; do
   [ -d "$folder" ] || continue
   echo "$(basename "$folder") $(find "$folder" -type f | wc -l | tr -d ' ')"

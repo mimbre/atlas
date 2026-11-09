@@ -3,21 +3,21 @@ defmodule AtlasFacts.GuidanceNativeTest do
   alias AtlasBus.Envelope
   alias AtlasFacts.{Guidance, Rela}
   @moduletag :tmp_dir
-  # Needs rela-server and rela/scripts/config.py (Python with PyYAML).
+  # Needs rela-server-headless-sqlite and rela/scripts/config.py (Python with PyYAML).
   @moduletag :integration
   @root Path.expand("../../../..", __DIR__)
   # rela's binaries: ATLAS_E2E_RELA_BIN, ATLAS_RELA_BIN, the `rela-bin` folder beside the
-  # checkout when it holds rela-server (a worker's), else the test instance's (as e2e's
+  # checkout when it holds rela-server-headless-sqlite (a worker's), else the test instance's (as e2e's
   # AtlasE2E.Instance.rela_bin!/0).
   @bin Enum.find(
          [System.get_env("ATLAS_E2E_RELA_BIN"), System.get_env("ATLAS_RELA_BIN")],
          &(&1 not in [nil, ""])
        ) ||
-         if(File.exists?(Path.join([@root, "../rela-bin", "rela-server"])),
+         if(File.exists?(Path.join([@root, "../rela-bin", "rela-server-headless-sqlite"])),
            do: Path.join(@root, "../rela-bin"),
            else: Path.expand("~/.local/share/atlas/test/bin")
          )
-  @moduletag skip: not File.exists?(Path.join(@bin, "rela-server"))
+  @moduletag skip: not File.exists?(Path.join(@bin, "rela-server-headless-sqlite"))
 
   defp start_rela(dir) do
     {:ok, socket} = :gen_tcp.listen(0, active: false)
@@ -25,7 +25,7 @@ defmodule AtlasFacts.GuidanceNativeTest do
     :gen_tcp.close(socket)
 
     process =
-      Port.open({:spawn_executable, Path.join(@bin, "rela-server")}, [
+      Port.open({:spawn_executable, Path.join(@bin, "rela-server-headless-sqlite")}, [
         :binary,
         :exit_status,
         args: ["-project", dir, "-bind", "127.0.0.1", "-port", to_string(port), "-quiet"]
@@ -62,7 +62,7 @@ defmodule AtlasFacts.GuidanceNativeTest do
 
   test "pinned HTTP store claims once, compares complete payload and replays evidence after restart",
        %{tmp_dir: dir} do
-    assert {"rela version 26.11.2\n", 0} = System.cmd(Path.join(@bin, "rela"), ["version"])
+    assert {"rela version 26.11.3\n", 0} = System.cmd(Path.join(@bin, "rela"), ["version"])
     python = System.get_env("ATLAS_CONFIG_PYTHON") || "python3"
 
     {output, code} =

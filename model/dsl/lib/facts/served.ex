@@ -1,6 +1,6 @@
 defmodule RelaDSL.Facts.Served do
   @moduledoc """
-  The schema as the pinned rela (26.11.2) serves it at `GET /_schema`, worked out from the
+  The schema as the pinned rela (26.11.3) serves it at `GET /_schema`, worked out from the
   schema a composition writes (`schema.yaml` and the files it includes), so a store can
   check at boot that rela runs the schema it was built with. Only `entities`, `relations`
   and `types`: what rela adds of its own (`worlds`, `capabilities`) is no part of a

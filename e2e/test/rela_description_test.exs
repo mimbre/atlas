@@ -96,6 +96,7 @@ defmodule AtlasE2E.RelaDescriptionTest do
       System.cmd(Path.join(old, "scripts/start-bg.sh"), [], env: env, stderr_to_stdout: true)
 
     assert status == 0, out
+    assert File.regular?(Path.join([dir, "rela", ".rela", "rela.db"]))
   end
 
   defp kinds(url) do
@@ -151,12 +152,12 @@ defmodule AtlasE2E.RelaDescriptionTest do
     refute out =~ "older description"
   end
 
-  test "include-only changes restart rela and preserve stored files byte for byte", ctx do
+  test "include-only changes preserve populated SQLite facts and their relation", ctx do
     {out, status} = ops(ctx.env, ["restart"])
     assert status == 0, out
     # Facts of kinds no flow runs on, writes a count or link on, or presents: the agent's
-    # records, which only the agent writes. The core writes nothing on them, so the files
-    # are exactly what this test stored, before the restart and after it.
+    # records, which only the agent writes. Compare their persisted values and links,
+    # not markdown paths (there are none for the SQLite backend).
     put(ctx.url, "agent_requests", "RQ-Atlas-01", "Kept across an include-only restart")
     put(ctx.url, "agent_steps", "ST-Atlas-01", "Kept child")
 
@@ -179,7 +180,13 @@ defmodule AtlasE2E.RelaDescriptionTest do
     data = Path.join(ctx.dir, "rela")
     # Stop the private core to avoid background reconciliation changing fixtures.
     ops(ctx.env, ["stop"])
-    before = stored_files(data)
+    assert File.regular?(Path.join([data, ".rela", "rela.db"]))
+    before = stored_facts(ctx.url)
+    assert before.request["id"] == "RQ-Atlas-01"
+    assert before.request["properties"]["title"] == "Kept across an include-only restart"
+    assert before.step["id"] == "ST-Atlas-01"
+    assert before.step["properties"]["title"] == "Kept child"
+    assert JSON.encode!(before.step["relations"]["in_request"]) =~ "RQ-Atlas-01"
     included = Path.join(data, "modules/foundation/schema.yaml")
     File.write!(included, File.read!(included) <> "\n# earlier build's include\n")
     {out, 0} = ops(ctx.env, ["status"])
@@ -187,16 +194,17 @@ defmodule AtlasE2E.RelaDescriptionTest do
     {out, status} = ops(ctx.env, ["restart"])
     assert status == 0, out
     assert out =~ "restarted it on this build's"
-    for {file, contents} <- before, do: assert(File.read!(file) == contents)
+    assert stored_facts(ctx.url) == before
     {out, 0} = ops(ctx.env, ["status"])
     assert out =~ "description: this build's"
   end
 
-  defp stored_files(data) do
-    for part <- ["entities", "relations"],
-        file <- Path.wildcard(Path.join([data, part, "**", "*.md"])),
-        into: %{},
-        do: {file, File.read!(file)}
+  defp stored_facts(url) do
+    for {name, path} <- [request: "agent_requests/RQ-Atlas-01", step: "agent_steps/ST-Atlas-01"],
+        into: %{} do
+      {json, 0} = System.cmd("curl", ["-fsS", "#{url}/#{path}"])
+      {name, Map.take(JSON.decode!(json), ~w(id type properties relations content))}
+    end
   end
 
   test "a description that would leave data without one is not started: it names it", ctx do
@@ -215,6 +223,10 @@ defmodule AtlasE2E.RelaDescriptionTest do
 
     # rela was left as it was, on its own description, with its data.
     assert "e2e_gone" in kinds(ctx.url)
+    {json, 0} = System.cmd("curl", ["-fsS", ctx.url <> "/e2e_gones/G-1"])
+
+    assert JSON.decode!(json)["properties"]["title"] ==
+             "Data of a kind this build no longer has"
   end
 
   defp free_ports(n) do

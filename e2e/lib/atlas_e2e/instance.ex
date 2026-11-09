@@ -24,7 +24,7 @@ defmodule AtlasE2E.Instance do
 
   @doc """
   The folder with rela's binaries, the first of: `ATLAS_E2E_RELA_BIN`, `ATLAS_RELA_BIN`,
-  and the `rela-bin` folder beside the checkout when it holds `rela-server` (a worker's
+  and the `rela-bin` folder beside the checkout when it holds `rela-server-headless-sqlite` (a worker's
   folder, where the pinned rela is installed for it); else `default`. `bin/atlas-dev`,
   `rela/tests` and the umbrella's rela tests look in the same order.
   """
@@ -34,7 +34,11 @@ defmodule AtlasE2E.Instance do
     Enum.find(
       [System.get_env("ATLAS_E2E_RELA_BIN"), System.get_env("ATLAS_RELA_BIN")],
       &(&1 not in [nil, ""])
-    ) || if(File.exists?(Path.join(beside, "rela-server")), do: beside, else: default)
+    ) ||
+      if(File.exists?(Path.join(beside, "rela-server-headless-sqlite")),
+        do: beside,
+        else: default
+      )
   end
 
   @doc "`rela_bin/1`, else the test instance's own folder."
