@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -359,9 +361,24 @@ while [ "$1" != --settings ]; do shift; done
 printf '%s\n' "$temporary" "$2" "$(pwd -P)" > "$0.capture"
 sleep 60 </dev/null >/dev/null 2>&1 &
 echo $! > "$0.child"
+# dash catches SIGINT in scripts and an exec drops it, so the stop leader re-raises it instead.
+case "`+mode+`" in stop) trap 'trap - INT; kill -INT $$' INT; exec 3>"$0.alive" ;; esac
 printf '%s\n' '{"type":"ready"}'
-case "`+mode+`" in fail) exit 7 ;; stop) exec sleep 60 ;; esac
+case "`+mode+`" in fail) exit 7 ;; stop) while :; do sleep 60 3>&- & wait $!; done ;; esac
 `)
+			var alive *os.File
+			if mode == "stop" {
+				// The leader holds the write end, so EOF on this FIFO is its exit.
+				if err := syscall.Mkfifo(native+".alive", 0600); err != nil {
+					t.Fatal(err)
+				}
+				var err error
+				if alive, err = os.OpenFile(native+".alive", os.O_RDONLY|syscall.O_NONBLOCK, 0); err != nil {
+					t.Fatal(err)
+				}
+				defer alive.Close()
+				syscall.SetNonblock(int(alive.Fd()), false)
+			}
 			host := startHost(t, claudeScopedArgs(t, native, repository, folder, scope))
 			host.record(t)
 			if event := host.record(t); event["type"] != "runtime.event" {
@@ -400,6 +417,8 @@ case "`+mode+`" in fail) exit 7 ;; stop) exec sleep 60 ;; esac
 				if signal := host.record(t); signal["type"] != "runtime.signal" || signal["control"] != "stop" {
 					t.Fatalf("stop not delivered: %v", signal)
 				}
+				// Kill only after the stop has ended the leader; an earlier kill rightly wins with -9.
+				io.Copy(io.Discard, alive)
 				host.stdin.Write([]byte("kill\n"))
 			}
 			records, code := host.finish(t)
