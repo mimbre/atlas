@@ -203,7 +203,7 @@ defmodule AtlasFacts.FlowsTest do
              Flows.check(description(on_todo))
   end
 
-  test "empty names a parent relation that puts something under the flow's kinds" do
+  test "empty names a relation that ends at the flow's kinds: a parent or an association" do
     split = fn relation ->
       [
         hd(@sound),
@@ -231,8 +231,13 @@ defmodule AtlasFacts.FlowsTest do
                  )
                )
 
-      assert problem == "split: empty names #{relation}, which puts nothing under its kinds"
+      assert problem == "split: empty names #{relation}, which points at none of its kinds"
     end
+
+    # An association that ends at its kind: nothing is based on the box yet.
+    labelled = %{"labels" => %{"from" => ["crate"], "to" => ["box"]}}
+    good = put_in(description(split.("labels")), ["relations"], labelled)
+    assert Flows.check(good) == %{"sign" => []}
   end
 
   # Resolves the native schema with rela/scripts/config.py (Python with PyYAML).

@@ -19,7 +19,15 @@ defmodule AtlasFacts.PageReadTest do
            "execution" => %{"plural" => "executions"}
          },
          "relations" => %{
-           "in_box" => %{"from" => ["jar"], "to" => ["box"]},
+           "in_box" => %{
+             "from" => ["jar"],
+             "to" => ["box"],
+             "review" => %{
+               "field" => "status",
+               "value" => "replaced",
+               "label" => "Review: its box was replaced"
+             }
+           },
            "signed_by" => %{"from" => ["jar"], "to" => ["clerk"]}
          },
          "progress" => %{
@@ -40,7 +48,7 @@ defmodule AtlasFacts.PageReadTest do
           facts =
             case plural do
               "boxes" ->
-                [%{key: "B-1", properties: %{}, links: %{}, version: nil}]
+                [%{key: "B-1", properties: %{"status" => state[:box]}, links: %{}, version: nil}]
 
               "jars" ->
                 [
@@ -122,6 +130,26 @@ defmodule AtlasFacts.PageReadTest do
              "by" => "signed_by",
              "keys" => ["K-1"]
            }
+  end
+
+  test "a fact pointing at one that was replaced is to be reviewed; worked out, not stored", c do
+    refute Map.has_key?(hd(read("jar")["facts"]), "review")
+    Agent.update(c.backend, &Map.put(&1, :box, "replaced"))
+    [_boxes, jars] = batch()
+
+    assert hd(jars["facts"])["review"] == %{
+             "label" => "Review: its box was replaced",
+             "through" => "in_box",
+             "key" => "B-1",
+             "field" => "status",
+             "value" => "replaced"
+           }
+
+    assert hd(read("jar")["facts"])["review"]["key"] == "B-1"
+    # A plain read (Flow walking up) works nothing out.
+    refute Map.has_key?(hd(read("jar", %{"linked" => %{}, "plain" => true})["facts"]), "review")
+    Agent.update(c.backend, &Map.put(&1, :box, nil))
+    refute Map.has_key?(hd(read("jar")["facts"]), "review")
   end
 
   test "backend loss does not return cached facts and recovery rereads them", c do

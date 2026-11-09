@@ -1053,6 +1053,38 @@ defmodule AtlasControl.PagesTest do
     assert Pages.values_for(spec, %{"due" => ""}) == %{"due" => ""}
   end
 
+  test "a fact Facts says is to be reviewed: the page says why, a list says it first" do
+    task =
+      fact("T-1", %{"title" => "Wrap", "todo" => "Wrap it"})
+      |> Map.put("review", %{
+        "label" => "Review: its pattern was replaced",
+        "through" => "cut_from",
+        "key" => "P-2",
+        "field" => "status",
+        "value" => "replaced"
+      })
+
+    answers =
+      [
+        %{"fact" => task}
+        | for(_ <- tl(Pages.reads({:item, "task", "T-1"}, @due)), do: %{"facts" => []})
+      ]
+
+    %{blocks: [%{"props" => item} | _]} = Pages.render({:item, "task", "T-1"}, @due, answers)
+
+    assert %{"label" => "Review: its pattern was replaced", "value" => "P-2 replaced"} in item[
+             "fields"
+           ]
+
+    %{blocks: [%{"props" => list}]} = Pages.render({:list, "task"}, @due, [%{"facts" => [task]}])
+    assert [%{"detail" => "Review: its pattern was replaced · P-2"}] = list["rows"]
+
+    # Nothing to review (Facts left it out): nothing said.
+    answers = [%{"fact" => Map.delete(task, "review")} | tl(answers)]
+    %{blocks: [%{"props" => item} | _]} = Pages.render({:item, "task", "T-1"}, @due, answers)
+    refute Enum.any?(item["fields"], &(&1["label"] =~ "Review"))
+  end
+
   # Checked by: an action that changes it whether it is set or not, asking the widget's
   # notes with it, in one change with its own cause.
   @handed put_in(@d, ["relations", "checked_by", "actions"], %{

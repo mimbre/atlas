@@ -132,8 +132,9 @@ defmodule AtlasFacts.Flows do
     end
   end
 
-  # `empty: relation` (nothing under the fact through it) names a parent relation that points
-  # at one of the flow's kinds.
+  # `empty: relation` (nothing points at the fact through it) names a relation that ends at
+  # one of the flow's kinds: a parent relation (nothing under it) or an association (nothing
+  # based on it).
   defp empties(description, flow) do
     kinds = List.wrap(flow["kinds"])
 
@@ -142,9 +143,8 @@ defmodule AtlasFacts.Flows do
         {"empty", relation} <- state["when"] || %{},
         # In a list, so a relation that is not described is a problem, not passed over.
         rel <- [get_in(description, ["relations", to_string(relation)])],
-        not (is_map(rel) and rel["parent"] == true and
-               Enum.any?(List.wrap(rel["to"]), &(&1 in kinds))),
-        do: "#{state["name"]}: empty names #{relation}, which puts nothing under its kinds"
+        not (is_map(rel) and Enum.any?(List.wrap(rel["to"]), &(&1 in kinds))),
+        do: "#{state["name"]}: empty names #{relation}, which points at none of its kinds"
   end
 
   # Flow passes over the hints of its own writes, so no state may depend on what it writes:

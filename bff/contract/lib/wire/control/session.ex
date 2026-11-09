@@ -137,7 +137,8 @@ defmodule AtlasBFFContract.Wire.Control.Session do
         select: %{"op" => "turn"},
         absent: ["error"],
         effect: :complete,
-        required: %{"key" => :string, "on" => :string}
+        required: %{"key" => :string, "on" => :string},
+        optional: %{"read_first" => :string}
       },
       @turn_error
     ]

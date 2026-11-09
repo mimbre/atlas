@@ -281,6 +281,7 @@ defmodule AtlasRuntime.ClaudeTest do
       Links: owned_by: to clerk, at most one; set owned_by=<key>, empty removes it
     EOF
       ;;
+      "turn --json") echo '{"key":"TU-1","on":"C-1","read_first":"Read first.\\nRests on:\\n- M-1 Ship safely."}' ;;
       *) echo "atlas: no" >&2; exit 2 ;;
     esac
     """)
@@ -311,6 +312,10 @@ defmodule AtlasRuntime.ClaudeTest do
     # The kind's part, links included: how a link is set.
     assert forms =~ "What your item's kind, card, has (from `atlas help card`):"
     assert forms =~ "Links: owned_by: to clerk, at most one; set owned_by=<key>"
+
+    # What the worker reads first, as `atlas turn` says it, before the commands.
+    assert forms =~
+             "\n\nRead first.\nRests on:\n- M-1 Ship safely.\n\nThe atlas commands you may use"
 
     # In the turn's rules, after what is expected of it.
     {_, args} = Claude.command(@turn, %{"command" => "claude"}, forms)

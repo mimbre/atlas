@@ -34,3 +34,24 @@ atlas set GV-0007 rework_after="CI failed on main after integrating (run 4711)" 
 ```
 
 Field names are given as they are, with underscores (`atlas help gate_verdict` lists them). Leave out `follows` for the first verdict on a subject.
+
+## A turn reads decisions first
+
+`atlas turn` names the running turn and its item, then, before the item itself, what the worker reads first: the decisions the item is `based_on`, each with the decisions it `follows_from`, and first the accepted principles, whatever their scope (they are never broken), and after the based-on decisions the accepted guidelines and guardrails whose scope applies (`platform` and `software` here). One short line each: id, title, force and status, and the rule. `atlas turn --json` gives the same text as `read_first`; it is left out when nothing applies. Runtime puts the same text at the top of the worker's fixed context, above the commands it may use, so a worker starts from the ledger instead of searching markdown.
+
+```text
+Turn TU-mini-AS-SC-Atlas-07-1 on SC-Atlas-07
+
+Read these decisions first.
+Principles, never broken:
+- D-0050 An agent never accepts its own work (principle, Accepted): …
+Based on:
+- D-0040 Every interaction is a message in a Rela Channel (direction, Accepted): …
+  follows from D-0024 Atlas builds Atlas (direction, Accepted): …
+Guidelines and guardrails that apply:
+- D-0066 Screaming architecture (guideline, Accepted): Code is structured by what it does …
+```
+
+What it reads is data, not code: `read_first` in `rela/compositions/atlas-eyra/atlas.json` names the relations, the standing values (status, force, scope) and the fields shown.
+
+Two more things follow from `based_on`. An accepted decision that no work is based on yet waits in Open work, with its consequences as what is expected, until a scene or use case is `based_on` it, or someone records that none is needed (`atlas set D-0040 no_work=true`, the one change an accepted decision still takes). Work based on a superseded decision shows `Review: based on a superseded decision` with that decision's id on its page and in lists; it is worked out on every read and never stored, so it goes once the work is based on the new decision instead.

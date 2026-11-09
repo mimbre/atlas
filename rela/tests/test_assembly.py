@@ -42,6 +42,9 @@ class AssemblyTest(unittest.TestCase):
         self.assertEqual(set(prior['entities'].pop('gate_verdict')), {'top', 'primary', 'order', 'create', 'properties', 'requires', 'sealed'})
         self.assertIn('only_target', prior['relations'].pop('overruled_by'))
         self.assertEqual(prior['flows'].pop('decide')['kinds'], ['decision'])
+        # Decisions as anchors: what a turn reads first, and the review of work based on one.
+        self.assertEqual(prior.pop('read_first')['through'], 'based_on')
+        self.assertEqual(prior['relations'].pop('based_on'), {'review': {'field': 'status', 'value': 'superseded', 'label': 'Review: based on a superseded decision'}})
         self.assertEqual(prior['flows'].pop('design_and_accept')['kinds'], ['use_case'])
         self.assertEqual(prior['flows']['test_and_accept']['kinds'], ['scene'])
         prior['flows']['test_and_accept']['kinds'] = ['scene', 'use_case']
@@ -125,8 +128,15 @@ class AssemblyTest(unittest.TestCase):
     def test_decision_flow_and_design_phase_are_sound(self):
         extra = assemble.build(self.root, self.manifest)
         decide = {s['name']: s for s in extra['flows']['decide']['states']}
-        self.assertEqual({n for n, s in decide.items() if s.get('done')}, {'accepted', 'rejected', 'superseded'})
-        self.assertEqual(decide['proposed']['next'], ['accepted', 'rejected'])
+        # no_work is final: accepted, and it says no work is needed. waiting is open work.
+        self.assertEqual({n for n, s in decide.items() if s.get('done')}, {'accepted', 'rejected', 'superseded', 'no_work'})
+        self.assertEqual(decide['no_work']['when'], {'values': {'status': ['accepted'], 'no_work': [True]}})
+        self.assertEqual(decide['waiting']['when'], {'values': {'status': ['accepted']}, 'empty': 'based_on'})
+        self.assertEqual(decide['waiting']['next'], ['accepted', 'no_work'])
+        names = [s['name'] for s in extra['flows']['decide']['states']]
+        self.assertLess(names.index('no_work'), names.index('waiting'))
+        self.assertLess(names.index('waiting'), names.index('accepted'))
+        self.assertEqual(decide['proposed']['next'], ['accepted', 'rejected', 'waiting', 'no_work'])
         design = [s['name'] for s in extra['flows']['design_and_accept']['states']]
         self.assertLess(design.index('design'), design.index('design_review'))
         self.assertLess(design.index('design_review'), design.index('building'))

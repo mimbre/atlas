@@ -748,6 +748,7 @@ defmodule AtlasControl.Pages do
     detail =
       [
         owner,
+        review_text(fact),
         expected(description, from, fact, link),
         late_detail(link_spec, link),
         origin["since"] && "since " <> short_moment(origin["since"]),
@@ -1035,6 +1036,7 @@ defmodule AtlasControl.Pages do
               Blocks.pair(label: label, value: Enum.join(keys, ", "))
             end) ++
             progress_pair(description, spec, kind, fact) ++
+            review_pair(fact) ++
             linked(description, kind, fact) ++
             Enum.flat_map(parts, fn {part_kind, _spec, part, _made} ->
               linked(description, part_kind, part)
@@ -2553,7 +2555,10 @@ defmodule AtlasControl.Pages do
 
     progress = if progress?, do: progress_text(fact["progress"]), else: nil
     # The id is the row's own; the detail does not repeat it.
-    case Enum.reject(shown ++ [progress, late_detail(spec, fact)], &is_nil/1) do
+    case Enum.reject(
+           [review_text(fact) | shown] ++ [progress, late_detail(spec, fact)],
+           &is_nil/1
+         ) do
       [] -> nil
       parts -> Enum.join(parts, " · ")
     end
@@ -2614,6 +2619,20 @@ defmodule AtlasControl.Pages do
   end
 
   defp late_detail(_spec, _fact), do: nil
+
+  # A fact Facts says is to be reviewed (`review`, worked out on every read) shows the rule's
+  # label and the fact that makes it so: first in a list, and as its own line on a page.
+  defp review_text(%{"review" => %{"label" => label} = why}),
+    do: Enum.join(Enum.reject([label, why["key"]], &(&1 in [nil, ""])), " · ")
+
+  defp review_text(_fact), do: nil
+
+  defp review_pair(%{"review" => %{"label" => label} = why}) do
+    value = Enum.join(Enum.reject([why["key"], why["value"]], &(&1 in [nil, ""])), " ")
+    [Blocks.pair(label: label, value: value)]
+  end
+
+  defp review_pair(_fact), do: []
 
   defp progress_text(%{"label" => label, "count" => count, "of" => of}),
     do: "#{label} · #{count}/#{of}"

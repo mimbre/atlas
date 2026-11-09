@@ -49,6 +49,34 @@ defmodule AtlasControl.TurnsTest do
              Turns.current(d, "ada", read(turn, put_in(item, ["links", "holder"], ["bob"])))
   end
 
+  test "the turn says what its worker reads first, when the description asks for it" do
+    {d, turn, item} = data()
+
+    d =
+      d
+      |> Map.put("read_first", %{"title" => "First:", "through" => "rests_on", "text" => "rule"})
+      |> put_in(["relations", "rests_on"], %{"from" => ["box"], "to" => ["memo"]})
+
+    read = fn
+      "box", %{"key" => "B-1"} ->
+        %{"fact" => %{"key" => "B-1", "links" => %{"rests_on" => ["M-1"]}}}
+
+      "memo", %{"key" => "M-1"} ->
+        %{"fact" => %{"key" => "M-1", "values" => %{"rule" => "Ship safely."}}}
+
+      kind, content ->
+        read(turn, item).(kind, content)
+    end
+
+    assert {:ok, %{"on" => "B-1", "read_first" => "First:\nRests_on:\n- M-1: Ship safely."}} =
+             Turns.current(d, "ada", read)
+
+    refute Map.has_key?(
+             elem(Turns.current(data() |> elem(0), "ada", read(turn, item)), 1),
+             "read_first"
+           )
+  end
+
   test "the outcome is an owner fact, never a lifecycle write" do
     {d, turn, item} = data()
     message = %{"key" => "R-1", "outcome" => "packed two boxes"}

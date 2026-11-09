@@ -51,7 +51,7 @@ def combine(left, right, path=''):
 
 def validate(extra, schema, actors=None):
     """Only current Atlas annotation vocabulary, with schema-resolved references."""
-    keys(extra, '_about todo runtime guidance start shell types entities relations progress flows', 'extension')
+    keys(extra, '_about todo runtime guidance start shell types entities relations progress flows read_first', 'extension')
     entities, relations, types = (schema.get(k, {}) for k in ('entities', 'relations', 'types'))
 
     def entity(kind):
@@ -276,7 +276,7 @@ def validate(extra, schema, actors=None):
     parents = {}
     for name, annotation in extra.get('relations', {}).items():
         rel = relation(name)
-        keys(annotation, 'parent add component set_by limit actions only_target requires_completed_children closes_parent', 'relations.' + name)
+        keys(annotation, 'parent add component set_by limit actions only_target requires_completed_children closes_parent review', 'relations.' + name)
         if annotation.get('parent'):
             for kind in rel['from']:
                 if kind in parents:
@@ -296,6 +296,10 @@ def validate(extra, schema, actors=None):
             keys(annotation['limit'], 'max field values error', name + '.limit')
             for kind in rel['from']:
                 values(kind, {annotation['limit']['field']: annotation['limit']['values']})
+        if 'review' in annotation:
+            keys(annotation['review'], 'field value label', name + '.review')
+            for kind in rel['to']:
+                values(kind, {annotation['review']['field']: [annotation['review']['value']]})
         if 'only_target' in annotation:
             keys(annotation['only_target'], 'error also', name + '.only_target')
         actions = annotation.get('actions', {})
@@ -371,6 +375,18 @@ def validate(extra, schema, actors=None):
                     if action in answer:
                         for kind in kinds:
                             relation(answer[action], kind)
+    if 'read_first' in extra:
+        spec = extra['read_first']
+        keys(spec, 'title through then standing tags text', 'read_first')
+        anchors = relation(spec['through'])['to']
+        if len(anchors) != 1:
+            raise ConfigError('read_first.through: must point at one kind')
+        relation(spec['then'], anchors[0])
+        for group in spec.get('standing', []):
+            keys(group, 'title first when', 'read_first.standing')
+            values(anchors[0], group.get('when', {}))
+        for name in spec.get('tags', []) + [spec['text']]:
+            field(anchors[0], name)
     runtime = extra.get('runtime', {})
     keys(runtime, 'turn agent', 'runtime')
     if runtime and not {'turn', 'agent'}.issubset(runtime):
