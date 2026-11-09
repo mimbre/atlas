@@ -383,6 +383,26 @@ defmodule AtlasStateTest do
     assert %{"incoming" => %{"of_widget" => ["P-1"]}} = read("widget", %{"key" => "W-1"})
   end
 
+  test "a key made again under the same parent is the same fact; under another, refused", _ do
+    fact("create", "W-1", %{"title" => "One"})
+    fact("create", "W-2", %{"title" => "Two"})
+
+    part = fn widget ->
+      fact("create", "P-1", %{"title" => "Part"}, kind: "part", links: %{"of_widget" => [widget]})
+    end
+
+    assert {"stored", _, _} = part.("W-1")
+    assert {"stored", _, _} = part.("W-1")
+
+    assert %{"facts" => [%{"key" => "P-1"}]} =
+             read("part", %{"linked" => %{"of_widget" => "W-1"}})
+
+    assert {"refused", %{"reasons" => ["P-1 already exists"], "code" => "exists"}, nil} =
+             part.("W-2")
+
+    assert %{"fact" => %{"links" => %{"of_widget" => ["W-1"]}}} = read("part", %{"key" => "P-1"})
+  end
+
   test "a read can filter on what the linked fact points at, one step on", _ do
     fact("create", "M-1", %{"title" => "Maker"}, kind: "maker")
     fact("create", "W-1", %{"title" => "Made"}, links: %{"made_by" => ["M-1"]})

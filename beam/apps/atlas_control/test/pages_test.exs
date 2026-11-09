@@ -160,6 +160,43 @@ defmodule AtlasControl.PagesTest do
              list["actions"]
   end
 
+  test "a row's detail: its choice by its label, then the flags set; also under a parent" do
+    # As a row of a kind a connector fills reads "Open · draft".
+    fitted =
+      @d
+      |> put_in(["entities", "part", "properties", "fit"], %{
+        "type" => "fit",
+        "values" => ["loose", "tight"],
+        "labels" => %{"loose" => "Loose", "tight" => "Tight"},
+        "set_by" => "connector"
+      })
+      |> put_in(["entities", "part", "properties", "spare"], %{
+        "type" => "boolean",
+        "default" => false,
+        "set_by" => "connector"
+      })
+
+    under = fn key, values ->
+      Map.put(fact(key, Map.put(values, "title", key)), "links", %{"of_widget" => ["W-1"]})
+    end
+
+    parts = %{
+      "facts" => [
+        under.("P-1", %{"fit" => "tight", "spare" => true}),
+        under.("P-2", %{"fit" => "loose", "spare" => false}),
+        under.("P-3", %{})
+      ]
+    }
+
+    widget = %{"fact" => fact("W-1", %{"title" => "One"}), "incoming" => %{}}
+    %{blocks: blocks} = Pages.render({:item, "widget", "W-1"}, fitted, [widget, parts])
+    assert [list] = for(%{"type" => "list", "props" => %{"rows" => [_ | _]} = p} <- blocks, do: p)
+    assert Enum.map(list["rows"], & &1["detail"]) == ["Tight · spare", "Loose", nil]
+
+    %{blocks: [%{"props" => list}]} = Pages.render({:list, "part"}, fitted, [parts])
+    assert hd(list["rows"])["detail"] == "Tight · spare"
+  end
+
   test "an item shows every described property, and a list of the facts that point at it" do
     answer = %{
       "fact" => fact("W-1", %{"title" => "One", "shade" => "light"}),
@@ -2003,6 +2040,14 @@ defmodule AtlasControl.PagesTest do
       assert Pages.key_for(spec, %{"name" => " Melle Lieuwes"}) == {:ok, "melle"}
     end
 
+    test "a member has no section on the start page, though no fact is above it" do
+      assert Pages.top_kinds(@d) == ["widget"]
+      assert Pages.reads(:home, @d) == [{"widget", %{}}]
+
+      shown = update_in(@d, ["entities", "member"], &Map.delete(&1, "top"))
+      assert Enum.sort(Pages.top_kinds(shown)) == ["member", "widget"]
+    end
+
     test "the kinds page lists a kind's associations" do
       %{blocks: blocks} = Pages.render(:kinds, @d, [])
       widget = Enum.find(blocks, &(&1["props"]["title"] =~ "(widget)"))
@@ -2111,6 +2156,43 @@ defmodule AtlasControl.PagesTest do
       refute Pages.may_link_to?(@d, "approved_by", "ada", "member", ["bob"])
       assert Pages.may_link_to?(@d, "approved_by", "migration", nil, ["bob"])
       refute Pages.may_link_to?(@d, "approved_by", "agent", nil, ["ada"])
+    end
+
+    test "approved by shows only once approved, with who did it; progress then says so" do
+      approving =
+        @rolled
+        |> put_in(["progress"], %{"done_label" => "Done"})
+        |> put_in(["entities", "widget", "completion"], %{"by" => "approved_by"})
+
+      fields = fn answer ->
+        %{blocks: [%{"props" => item} | _]} =
+          Pages.render({:item, "widget", "W-1"}, approving, [answer, %{"facts" => []}], @member)
+
+        Map.new(item["fields"], &{&1["label"], &1})
+      end
+
+      refute Map.has_key?(fields.(widget(%{})), "Approved by")
+
+      origin = %{"since" => "2026-11-03T14:10:00Z", "by" => "ada", "cause" => nil}
+
+      approved =
+        widget(%{"approved_by" => ["ada"]})
+        |> put_in(["fact", "origins"], %{"approved_by" => origin})
+        |> put_in(["fact", "progress"], %{
+          "done" => true,
+          "label" => "Done",
+          "count" => 1,
+          "of" => 1
+        })
+        |> put_in(["fact", "completion"], %{
+          "done" => true,
+          "by" => "approved_by",
+          "keys" => ["ada"]
+        })
+
+      approved = fields.(approved)
+      assert %{"value" => "ada", "origin" => %{"by" => "ada"}} = approved["Approved by"]
+      assert %{"value" => "Done · 1/1 · approved by ada"} = approved["Progress"]
     end
 
     test "nothing new goes under an approved fact" do
