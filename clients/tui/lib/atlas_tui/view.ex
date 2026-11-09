@@ -22,6 +22,9 @@ defmodule AtlasTui.View do
   @label_width 16
   # Beside the label of a row Control marks pending (docs/design/page-freshness.md §2.3).
   @pending_mark "  ⋯ being processed"
+  # How such a row looks: muted (faint), muted inside the highlight when selected; the
+  # mark itself keeps the pending colour, so the eye still catches it.
+  @pending_style :muted
   # A multi-line input that does not have the focus shows at most this many rows.
   @resting_rows 8
   # A focused one never shows fewer than this, however small the screen.
@@ -461,16 +464,19 @@ defmodule AtlasTui.View do
         label = marker <> identity <> cell_pad(title, title_room)
         metadata = cell_cut(summary, summary_room)
 
+        {style, mark_style, detail} =
+          if pending?, do: pending_styles(style), else: {style, style, :dim}
+
         mark =
           cond do
             pending_room == 0 -> []
-            pending? -> [{:pending, @pending_mark}]
+            pending? -> [{mark_style, @pending_mark}]
             metadata == "" -> []
             true -> [{style, String.duplicate(" ", pending_room)}]
           end
 
         [{style, label}] ++
-          mark ++ if(metadata == "", do: [], else: [{:dim, "  " <> metadata}])
+          mark ++ if(metadata == "", do: [], else: [{detail, "  " <> metadata}])
       end)
 
     indent = String.duplicate(" ", min(3, max(width - 1, 0)))
@@ -843,8 +849,17 @@ defmodule AtlasTui.View do
 
   defp footer_help(model), do: AtlasTui.LegendView.affordance(model)
 
+  # A pending row as {label, mark, detail}: the selection still wins, muted inside it; the
+  # mark stays the pending colour; the detail is muted either way.
+  defp pending_styles(:selected),
+    do: {{:selected, @pending_style}, :pending_selected, @pending_style}
+
+  defp pending_styles(_), do: {@pending_style, :pending, @pending_style}
+
   defp cursor_line?(line), do: Enum.any?(line, &match?({:cursor, _}, &1))
-  defp selected_line?(line), do: Enum.any?(line, &match?({:selected, _}, &1))
+
+  defp selected_line?(line),
+    do: Enum.any?(line, &(match?({:selected, _}, &1) or match?({{:selected, _}, _}, &1)))
 
   defp notice(%Model{notice: nil}), do: []
 
