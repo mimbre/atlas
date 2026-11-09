@@ -23,12 +23,12 @@ defmodule AtlasFlowGenerator.Example.Gates do
 end
 
 defmodule AtlasFlowGenerator.Example do
-  @moduledoc "A neutral subflow that uses every macro once: a letter, written, checked and posted."
+  @moduledoc "A neutral subflow that uses every macro at least once: a letter, written, checked and posted."
   use AtlasFlowGenerator.Schema, gates: AtlasFlowGenerator.Example.Gates
 
   subflow :letter, label: "Letter", subject: :letter do
     run_as "system:post"
-    owner via: :desk, relation: :held_by
+    owner via: :desk, relation: :held_by, default: {:team, :post_room}
     channel :mail
     per_subject :one
     start :create
@@ -36,6 +36,7 @@ defmodule AtlasFlowGenerator.Example do
     initial :draft
 
     state :draft, label: "Write the draft" do
+      present(expected: "Write it")
       pass :writer, mode: :draft, on: [delivered: :proofread, failed: :stuck]
       timer :slow, "1d", to: :stuck, label: "The writer did not finish"
     end
@@ -62,6 +63,19 @@ defmodule AtlasFlowGenerator.Example do
     state :stuck, label: "Someone decides" do
       wait_for [:editor], on: :choice, retry: :draft, drop: :dropped
       branch to: :dropped, roles: [:admin], when: "entity.choice == 'drop'"
+
+      owner default: {:team, :editors}
+
+      present(
+        expected: "Decide on it: {reason}",
+        why: "it could not go out",
+        instructions: "Read what went wrong, then send it back to the writer or drop it.",
+        section: [field: :notes, heading: "What went wrong"],
+        answers: [
+          [key: "r", label: "Retry", set: :retried_by],
+          [key: "d", label: "Drop", remove: :retried_by]
+        ]
+      )
     end
 
     final :answered, label: "Answered" do

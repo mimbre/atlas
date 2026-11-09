@@ -22,12 +22,19 @@ defmodule AtlasFlowContract.Issue do
 
   subflow :issue, label: "Issue", subject: :issue do
     run_as "system:sf-flow"
-    owner via: :assignment, relation: :assigned_to
+    owner via: :assignment, relation: :assigned_to, default: {:agent, :coordinator}
     channel :work
     start :predicate, when: "entity.stage == 'development'"
     initial :author
 
     state :author, label: "Author pass" do
+      present(
+        expected: "Build it",
+        why: "its pull request is not merged",
+        instructions:
+          "Build it in one pull request and get that merged; link the pull request to it."
+      )
+
       pass :developer,
         mode: :author,
         folder: {:materialize, :target},

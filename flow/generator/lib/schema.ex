@@ -70,6 +70,21 @@ defmodule AtlasFlowGenerator.Schema do
   Branches are tried in the order written; a mechanism's branches sit where the
   mechanism is written.
 
+  ## Owners and what they see
+
+  Every open item has exactly one owner. `owner` names it: the assignee, through
+  `via:` the type that assigns it and `relation:` to the assignee, and
+  `default: {kind, key}`, who owns it while no one is assigned. Every subflow names an
+  owner, and every state that is not final resolves to exactly one: its own (`owner`
+  inside the state, with the same options) or the subflow's. Waiting is not a status:
+  `wait_for` names the roles that decide, and the owner still answers for the item.
+  Flow routes passes to the owner's Runtime; the format never maps a person to a role.
+
+  `present` is what the owner sees in a state: what they are `expected` to do, `why`
+  it came to them, `instructions`, the `section` of a field to show, and the
+  `answers` they can give (each sets or removes one relation). It goes to the Atlas
+  target only; Rela never sees it.
+
   ## Gates
 
   A gate is data for the shared Gates framework, which evaluates it, records each
@@ -128,7 +143,14 @@ defmodule AtlasFlowGenerator.Schema do
       `run_as` is given when a state has outputs; names are Rela names; at most
       8 timers per state; branches and timers lead to states;
     * no branch that takes every change comes before another branch;
-    * every gate a subflow names is defined.
+    * every gate a subflow names is defined;
+    * every subflow has an owner, and every state that is not final has exactly one
+      (its own or the subflow's; given twice is ambiguous, and a final state has none);
+      an owner names `relation:` or `default:`, `via:` comes with `relation:`, and a
+      default is `{kind, key}`;
+    * a state presents at most once, a final state not at all; `expected` is a text,
+      a section is `[field:, heading:]`, and each answer has a key of its own, a
+      label, and sets or removes one relation.
 
   What Rela itself checks (properties, values, roles, grants) is left to Rela.
   """
@@ -141,6 +163,8 @@ defmodule AtlasFlowGenerator.Schema do
   @max_timers 8
   @name ~r/^[a-z][a-z0-9_-]{0,63}$/
   @once [:run_as, :per_subject, :owner, :channel, :initial]
+  @owner_keys [:via, :relation, :default]
+  @present_keys [:expected, :why, :instructions, :section, :answers]
 
   @macros [
     subflow: 2,
@@ -166,6 +190,7 @@ defmodule AtlasFlowGenerator.Schema do
     set: 1,
     create: 2,
     timer: 3,
+    present: 1,
     defgate: 2
   ]
 
@@ -205,8 +230,21 @@ defmodule AtlasFlowGenerator.Schema do
   @doc "How many runs a subject may have at once (`:one`, the default, or another Rela value)."
   defmacro per_subject(value), do: header(:per_subject, value)
 
-  @doc "Who owns the subject: `via:` the type that assigns it and the `relation:` to the assignee."
-  defmacro owner(opts), do: header(:owner, opts)
+  @doc """
+  Who owns the subject: `via:` the type that assigns it and the `relation:` to the
+  assignee, and `default: {kind, key}`, who owns it while no one is assigned.
+  """
+  defmacro owner(opts) do
+    quote do
+      AtlasFlowGenerator.Schema.__add__(
+        __MODULE__,
+        :owner,
+        unquote(opts),
+        __ENV__.file,
+        __ENV__.line
+      )
+    end
+  end
 
   @doc "The channel type the subject's conversations use."
   defmacro channel(type), do: header(:channel, type)
@@ -283,6 +321,13 @@ defmodule AtlasFlowGenerator.Schema do
   @doc "A timer: `name`, `period` (such as `\"1h\"`), `to:` a state, `since:`, `label:`."
   defmacro timer(name, period, opts), do: item(:timer, [name, period, opts])
 
+  @doc """
+  What the owner sees in the state: `expected:` (what they are to do), `why:` (why it
+  came to them), `instructions:`, `section: [field:, heading:]` (the part of a field to
+  show) and `answers:` (each `[key:, label:, set: relation]` or `remove: relation`).
+  """
+  defmacro present(opts), do: item(:present, [opts])
+
   defp item(kind, args) do
     quote do
       AtlasFlowGenerator.Schema.__add__(
@@ -349,6 +394,14 @@ defmodule AtlasFlowGenerator.Schema do
   def __add__(mod, :header, {key, _} = entry, file, line) do
     in_scope!(mod, :subflow, key, "directly inside a subflow", file, line)
     update(mod, :afg_flow, :header, {entry, line})
+  end
+
+  # In a subflow, the owner of every state; in a state, the owner of that state alone.
+  def __add__(mod, :owner, opts, file, line) do
+    case Module.get_attribute(mod, :afg_scope) do
+      :state -> __add__(mod, :item, {:owner, opts}, file, line)
+      _ -> __add__(mod, :header, {:owner, opts}, file, line)
+    end
   end
 
   def __add__(mod, :item, entry, file, line) do
@@ -570,7 +623,7 @@ defmodule AtlasFlowGenerator.Schema do
       subject: opts[:subject],
       run_as: get.(:run_as),
       per_subject: get.(:per_subject) || :one,
-      owner: if(o = get.(:owner), do: Map.new(o)),
+      owner: owner_of(get.(:owner)),
       channel: get.(:channel),
       start: Enum.map(starts, &Map.delete(&1, :line)),
       initial: get.(:initial),
@@ -579,8 +632,55 @@ defmodule AtlasFlowGenerator.Schema do
       states: built
     }
 
-    {flow, problems}
+    owned = for p <- owner_problems(get.(:owner), "subflow #{name}: "), do: {at.(:owner), p}
+    {flow, problems ++ owned}
   end
+
+  # The default owner as `%{kind:, key:}`, as an assignee is named.
+  defp owner_of(nil), do: nil
+
+  defp owner_of(opts) when is_list(opts) do
+    case Map.new(opts) do
+      %{default: {kind, key}} = o -> %{o | default: %{kind: kind, key: key}}
+      o -> o
+    end
+  end
+
+  defp owner_of(_), do: nil
+
+  # One owner at a time: the assignee through `relation:`, else the default.
+  defp owner_problems(nil, _where), do: []
+
+  defp owner_problems(opts, where) do
+    pre = where <> "owner "
+
+    if Keyword.keyword?(opts) do
+      unknown = Keyword.keys(opts) -- @owner_keys
+
+      [
+        unknown != [] && pre <> "knows no #{list(unknown)} (only via:, relation:, default:)",
+        (opts[:relation] == nil and opts[:default] == nil) &&
+          pre <>
+            "needs relation: (the assignee) or default: (who owns it while no one is assigned)",
+        (opts[:via] != nil and opts[:relation] == nil) &&
+          pre <> "via: #{opts[:via]} needs relation: the relation to the assignee"
+      ] ++ default_problems(Keyword.get(opts, :default, :none), pre)
+    else
+      [pre <> "takes via:, relation: and default:"]
+    end
+    |> Enum.filter(& &1)
+  end
+
+  defp default_problems(:none, _pre), do: []
+
+  defp default_problems({kind, key}, pre) do
+    for {what, v} <- [kind: kind, key: key],
+        not valid_name?(v),
+        do: pre <> "default's #{what} #{inspect(v)} is not a valid name"
+  end
+
+  defp default_problems(other, pre),
+    do: [pre <> "default must be {kind, key}, such as {:team, :desk}; got #{inspect(other)}"]
 
   defp build_state(%{name: name, opts: opts, final: final?, line: line, items: items}, gates) do
     state = %{
@@ -595,7 +695,9 @@ defmodule AtlasFlowGenerator.Schema do
       set: [],
       creates: [],
       branches: [],
-      timers: []
+      timers: [],
+      present: nil,
+      owner: nil
     }
 
     {state, problems} =
@@ -695,6 +797,33 @@ defmodule AtlasFlowGenerator.Schema do
     {%{s | timers: s.timers ++ [timer]}, Enum.filter(problems, & &1)}
   end
 
+  defp put({:owner, opts}, s, _gates) do
+    if s.owner != nil,
+      do: {s, ["gives its owner twice; a state has exactly one owner"]},
+      else: {%{s | owner: owner_of(opts)}, owner_problems(opts, "")}
+  end
+
+  defp put({:present, opts}, s, _gates) do
+    cond do
+      s.present != nil ->
+        {s, ["presents twice; a state has one present"]}
+
+      not Keyword.keyword?(opts) ->
+        {s, ["present takes expected:, why:, instructions:, section:, answers:"]}
+
+      true ->
+        present = %{
+          expected: opts[:expected],
+          why: opts[:why],
+          instructions: opts[:instructions],
+          section: if(sec = opts[:section], do: Map.new(List.wrap(sec))),
+          answers: for(a <- List.wrap(opts[:answers]), do: Map.new(List.wrap(a)))
+        }
+
+        {%{s | present: present}, Enum.filter(present_problems(opts, present), & &1)}
+    end
+  end
+
   defp mechanism(%{mechanism: nil} = s, m), do: {%{s | mechanism: m}, []}
 
   defp mechanism(s, {kind, _}),
@@ -721,6 +850,40 @@ defmodule AtlasFlowGenerator.Schema do
   end
 
   defp also({s, ps}, earlier), do: {s, earlier ++ ps}
+
+  # The texts are what the owner reads, so each is a text; an answer sets or removes
+  # one relation, and its key is the one the owner presses.
+  defp present_problems(opts, p) do
+    unknown = Keyword.keys(opts) -- @present_keys
+    text? = &(is_binary(&1) and String.trim(&1) != "")
+    keys = for a <- p.answers, do: a[:key]
+
+    [
+      unknown != [] && "present knows no #{list(unknown)}",
+      not text?.(p.expected) && "present needs expected: a text, what the owner is to do",
+      (p.why != nil and not text?.(p.why)) && "present's why: must be a text",
+      (p.instructions != nil and not text?.(p.instructions)) &&
+        "present's instructions: must be a text",
+      (p.section != nil and
+         not (is_atom(p.section[:field]) and p.section[:field] != nil and
+                text?.(p.section[:heading]) and map_size(p.section) == 2)) &&
+        "present's section: must be [field: name, heading: text]",
+      keys != Enum.uniq(keys) &&
+        "present gives answer key #{list(Enum.uniq(keys -- Enum.uniq(keys)))} twice"
+    ] ++
+      for a <- p.answers,
+          not answer?(a, text?),
+          do:
+            "present's answer #{inspect(Map.to_list(a))} must be [key:, label:, " <>
+              "and set: or remove: a relation]"
+  end
+
+  defp answer?(a, text?) do
+    ops = Map.take(a, [:set, :remove])
+
+    text?.(a[:key]) and text?.(a[:label]) and map_size(ops) == 1 and
+      Enum.all?(ops, fn {_, r} -> is_atom(r) and r != nil end) and map_size(a) == 3
+  end
 
   defp put_set(s, props) do
     twice = for {k, _} <- props, Keyword.has_key?(s.set, k), do: "sets #{k} twice"
@@ -779,9 +942,28 @@ defmodule AtlasFlowGenerator.Schema do
 
     states = Enum.flat_map(flow.states, &check_state(&1, by_name))
     reach = if initial, do: unreachable(flow, by_name), else: []
+    header = header ++ owners(flow, pre)
 
     for {line, p} <- header ++ states ++ reach, p, do: {line, p}
   end
+
+  # Every open item has exactly one owner (D-0054): the subflow names one, and each
+  # state that is not final has its own or the subflow's. Waiting is not a status: who
+  # it waits for is named by wait_for, and the owner still answers for it.
+  defp owners(%{owner: nil} = flow, pre) do
+    [
+      {flow.line,
+       pre <>
+         "has no owner; give owner relation: (the assignee) or default: {kind, key}, " <>
+         "so every open item has exactly one owner"}
+    ] ++
+      for s <- flow.states,
+          not s.final,
+          s.owner == nil,
+          do: {s.line, pre <> "state #{s.name} has no owner: neither its own nor the subflow's"}
+  end
+
+  defp owners(_flow, _pre), do: []
 
   defp outputs_need_run_as(%{run_as: nil} = flow, pre) do
     case Enum.find(flow.states, &(&1.set != [] or &1.creates != [])) do
@@ -807,7 +989,9 @@ defmodule AtlasFlowGenerator.Schema do
         [
           {s.line, targets != [] && pre <> "is final, so it has no branches or timers"},
           {s.line, s.mechanism != nil && pre <> "is final, so it has no mechanism"},
-          {s.line, s.waiting_for != [] && pre <> "is final, so it waits for no one"}
+          {s.line, s.waiting_for != [] && pre <> "is final, so it waits for no one"},
+          {s.line, s.present != nil && pre <> "is final, so nothing is presented to an owner"},
+          {s.line, s.owner != nil && pre <> "is final, so it has no owner"}
         ]
       else
         roles = s.branches |> Enum.flat_map(& &1.roles) |> Enum.uniq()

@@ -21,10 +21,17 @@ defmodule AtlasFlowContract.PullRequest do
 
   subflow :pull_request, label: "Pull request", subject: :pull_request do
     run_as "system:sf-flow"
+    owner default: {:agent, :coordinator}
     start :create
     initial :checking
 
     state :checking, label: "Review and test" do
+      present(
+        expected: "Review and merge it",
+        why: "it is open",
+        instructions: "Review the pull request; merge it, or close it."
+      )
+
       set review_outcome: :none, test_outcome: :none, update: :none
       create :pr_review, properties: [title: "Review of {{subject.id}}"], relate: :review_of
       create :pr_test, properties: [title: "Test of {{subject.id}}"], relate: :test_of

@@ -13,7 +13,7 @@ defmodule AtlasFlowGenerator.RelaTest do
     assert Rela.flows_yaml(Example.__flows__()) == File.read!("test/golden/example.flows.yaml")
   end
 
-  test "only Rela's keys are written; the owner, channel and mechanisms stay out" do
+  test "only Rela's keys are written; the owner, channel, mechanisms and presentation stay out" do
     yaml = Rela.flows_yaml(Example.__flows__())
     keys = ~r/(?:^\s*-?\s*|[{,]\s*)([a-z_]+):/m |> Regex.scan(yaml) |> Enum.map(&List.last/1)
 
@@ -23,7 +23,11 @@ defmodule AtlasFlowGenerator.RelaTest do
         ~w(pass_result gate_result post_result choice archived title)
 
     assert Enum.uniq(keys) -- (@rela_keys ++ named) == []
-    for word <- ~w(owner channel mechanism profile held_by mail), do: refute(yaml =~ word)
+
+    for word <- ~w(owner channel mechanism profile held_by mail post_room retried_by notes),
+        do: refute(yaml =~ word)
+
+    refute yaml =~ "Decide on it"
   end
 
   test "labels stay plain where that is safe, and are quoted where YAML would misread them" do
