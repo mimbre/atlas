@@ -566,7 +566,7 @@ atlas-runtime output --turn turn-0123456789abcdef
 
 History survives daemon restart, but `status` still starts idle and plain `continue` does not select saved history. Explicit `continue --turn ID` selects a saved conversation; failed turns are eligible when their native session ID is confirmed. Older artifact folders without metadata remain readable with state `unknown`; missing assignment/timestamp/session fields are not guessed. A saved `running` turn no longer owned by this daemon is shown as `unknown` with `recorded_state: running`, not claimed to be active or successful. No automatic restart, crash recovery, retention/deletion policy or server connection is introduced.
 
-Requires the normal Elixir/OTP/Mix toolchain and the selected official CLI (`codex` or `claude`) on PATH. First service start compiles Runtime and Bus into its own build directory. `ATLAS_RUNTIME_HOME=/absolute/path` selects an isolated instance; use it consistently across commands. Directory aliases are resolved before building, including macOS `/tmp` → `/private/tmp`, so Mix's relative `priv` links resolve correctly.
+Requires the normal Elixir/OTP/Mix toolchain and the selected official CLI (`codex` or `claude`) on PATH. First service start compiles the `beam` umbrella (Runtime, Bus and the model that `server.json` wires) into its own build directory; it starts only Runtime and Bus. `ATLAS_RUNTIME_HOME=/absolute/path` selects an isolated instance; use it consistently across commands. Directory aliases are resolved before building, including macOS `/tmp` → `/private/tmp`, so Mix's relative `priv` links resolve correctly.
 
 ## Optional Atlas Server lifecycle reporting
 
