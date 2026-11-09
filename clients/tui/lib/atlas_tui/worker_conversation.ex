@@ -250,9 +250,8 @@ defmodule AtlasTui.WorkerConversation do
 
   defp selected_history(model) do
     selected =
-      Enum.flat_map(Enum.zip(model.ids, model.blocks), fn
-        {id, %Blocks.List{rows: rows}} -> Enum.map(rows || [], &{id, &1.id})
-        _ -> []
+      Enum.flat_map(Model.lists(model), fn {id, %Blocks.List{rows: rows}} ->
+        Enum.map(rows || [], &{id, &1.id})
       end)
       |> Enum.at(model.selected)
 
@@ -393,11 +392,30 @@ defmodule AtlasTui.WorkerConversation do
           append(model, status)
       end
 
+    # Control places what the worker said (`worker-output`) and the output's own state
+    # (`worker-output-details`); this fills both from the exact execution's output.
     model =
       if "worker-output" in model.ids and
-           (conversation.output.cursor != nil or conversation.output.status != :detached),
-         do: replace(model, "worker-output", WorkerOutput.blocks(conversation.output)),
-         else: model
+           (conversation.output.cursor != nil or conversation.output.status != :detached) do
+        placeholder =
+          case block(model, "worker-output") do
+            %Blocks.Item{} = item -> item
+            _ -> nil
+          end
+
+        model =
+          replace(
+            model,
+            "worker-output",
+            WorkerOutput.conversation(conversation.output, placeholder)
+          )
+
+        if "worker-output-details" in model.ids,
+          do: replace(model, "worker-output-details", WorkerOutput.details(conversation.output)),
+          else: model
+      else
+        model
+      end
 
     model =
       if guidance != nil and conversation.mode == :worker_guidance and Model.form(model) == nil do
@@ -489,6 +507,13 @@ defmodule AtlasTui.WorkerConversation do
       ],
       " / "
     )
+  end
+
+  defp block(model, id) do
+    case Enum.find_index(model.ids, &(&1 == id)) do
+      nil -> nil
+      at -> Enum.at(model.blocks, at)
+    end
   end
 
   defp replace(model, id, entries) do

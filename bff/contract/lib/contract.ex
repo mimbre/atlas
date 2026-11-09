@@ -27,7 +27,9 @@ defmodule AtlasBFFContract.Contract do
   # opens (`key`) and whether a write to it is still being processed (`pending`); Control
   # pushes pages for recently viewed paths too (`hint`), and marker overlays (`pending`);
   # `position` is the page's version per path, which a client caches pages by.
-  version "0.15.0"
+  # 0.16.0: a local Console operation, sections_toggle, folds and unfolds the page's
+  # collapsible sections (the worker page's Details); a 0.15.0 client refuses actions with it.
+  version "0.16.0"
 
   use AtlasBFFContract.Blocks
   use AtlasBFFContract.Pages

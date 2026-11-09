@@ -216,7 +216,19 @@ their leases. Detail-page output availability is probed only after authorization
 against the exact existing ring; overview does not serially probe every Runtime.
 
 Worker pages preserve `worker`, `guidance-history` and `worker-output` boundaries
-with existing Worker/Conversation parts. Server-declared history, selected-history
+with existing Worker/Conversation parts. The Worker part leads with what the turn is:
+its title (the turn's `title`, which Runtime reports for a turn without an item, else
+the item's), its state in plain words, start (the execution's `recorded_at`), end and
+duration, backend, model (the turn's `model`, which Runtime reports when the harness
+names it, else the execution's reported or configured model), worker, machine,
+environment and turn; a field nothing says is left out, never shown as unknown, and the
+item only for a turn on one. `worker-newer` lists the worker's newer turn, when there
+is one (running while this one ended, or ended after it). The Conversation part leads
+with `worker-output`, what the worker said (Console fills it with the latest text
+messages, and one plain line when earlier output is missing); a collapsible `section`
+over `worker-output-details` (the output's own state), the guidance history and
+`worker-record` (attempt, guidance availability, descriptor, lease) holds the rest,
+folded until `sections_toggle` (key `d`). Server-declared history, selected-history
 receipt and capability-gated output actions remain the authority for operations,
 targets and legends. Clients may advance only a successfully correlated history
 cursor and bind receipts only to a selected record for that same execution; they

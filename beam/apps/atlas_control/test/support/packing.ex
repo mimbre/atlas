@@ -68,6 +68,8 @@ defmodule AtlasControl.Packing.Run do
     field(:done_at, :string)
     field(:result, :string)
     field(:try, :string)
+    field(:about, :string)
+    field(:engine, :string)
     top(false)
     by_hand(false)
   end
@@ -98,7 +100,9 @@ defmodule AtlasControl.Packing.Run do
       why: :reason,
       ended_at: :done_at,
       outcome: :result,
-      attempt: :try
+      attempt: :try,
+      title: :about,
+      model: :engine
     ],
     agent: [cannot_run: :stuck]
   )

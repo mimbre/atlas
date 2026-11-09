@@ -4,7 +4,10 @@ defmodule AtlasRuntime.Integrations.AtlasServer.Lifecycle do
   in the Runtime home before the service starts. For each turn of a listed worker it creates
   the Server turn `TU-<machine>-<local turn ID>` on the configured machine, registers that
   exact attempt's execution, renews its activity and lease as `AtlasRuntime.Turn` does, and
-  ends it with why: `finished`, `failed: …` or `stopped`. It sets no item, no Flow outcome,
+  ends it with why: `finished`, `failed: …` or `stopped`. When the model names them, the turn
+  also says what it is about (`title`: the assignment's first heading and line) and which
+  model runs it (`model`: the requested one at once, the one the harness reports when it
+  does; the execution record is immutable and written before that). It sets no item, no Flow outcome,
   and gives Server no start, stop or guidance over the native agent. Local turn IDs never
   change; the Server identity is persisted with the turn before any remote write. Such a
   turn's public output is retained by the Service in `AtlasRuntime.Output` under that exact
@@ -178,6 +181,7 @@ defmodule AtlasRuntime.Integrations.AtlasServer.Lifecycle do
 
   def started(reporter, run), do: GenServer.cast(reporter, {:started, run})
   def activity(reporter, run, text), do: GenServer.cast(reporter, {:activity, run, text})
+  def model(reporter, run, model), do: GenServer.cast(reporter, {:model, run, model})
   def ended(reporter, run), do: GenServer.cast(reporter, {:ended, run})
 
   @doc "Wait at most `timeout` for the reports already asked for."
@@ -223,7 +227,14 @@ defmodule AtlasRuntime.Integrations.AtlasServer.Lifecycle do
 
   @impl true
   def handle_cast({:started, %{id: key, server: server} = run}, state) do
-    turn = %{server: server, report: server["report"], written: now(), activity: nil, timer: nil}
+    turn = %{
+      server: server,
+      report: server["report"],
+      written: now(),
+      activity: nil,
+      timer: nil,
+      model: run[:model] || run[:requested_model]
+    }
 
     {turn, state} =
       case create(state, run, server) do
@@ -271,6 +282,30 @@ defmodule AtlasRuntime.Integrations.AtlasServer.Lifecycle do
                | timer: Process.send_after(self(), {:activity, key}, wait)
              })}
         end
+    end
+  end
+
+  # The model the harness reports, written once it differs from what the turn says.
+  def handle_cast({:model, %{id: key}, model}, state) do
+    n = state.names
+
+    case state.turns[key] do
+      %{model: known} = turn when is_binary(model) and model != "" and model != known ->
+        if is_binary(n["model"]) do
+          next =
+            case change(state, turn.server, %{n["model"] => model}, "model: #{model}") do
+              :ok -> %{turn | model: model}
+              {:error, why} -> failed(turn, "model not stored: #{why}")
+            end
+
+          if next.report != turn.report, do: send_report(state, key, next)
+          {:noreply, put_in(state.turns[key], next)}
+        else
+          {:noreply, state}
+        end
+
+      _ ->
+        {:noreply, state}
     end
   end
 
@@ -326,13 +361,15 @@ defmodule AtlasRuntime.Integrations.AtlasServer.Lifecycle do
       content = %{
         "op" => "create",
         "key" => server["turn"],
-        "values" => %{
-          n["state"] => n["running"],
-          n["machine"] => server["machine"],
-          n["lease"] => at(now() + state.silence),
-          n["activity"] => "started",
-          n["attempt"] => server["attempt"]
-        },
+        "values" =>
+          %{
+            n["state"] => n["running"],
+            n["machine"] => server["machine"],
+            n["lease"] => at(now() + state.silence),
+            n["activity"] => "started",
+            n["attempt"] => server["attempt"]
+          }
+          |> about(n, run),
         "links" => %{n["by"] => [server["worker"]]},
         "version" => nil,
         "by" => "runtime",
@@ -467,6 +504,59 @@ defmodule AtlasRuntime.Integrations.AtlasServer.Lifecycle do
       do: {:ok, state},
       else: {:error, "the model has no runtime turn and execution mapping"}
   end
+
+  # What the turn is about and the model asked for, under the model's names when it has them.
+  defp about(values, n, run) do
+    [{n["title"], title(run[:assignment])}, {n["model"], run[:model] || run[:requested_model]}]
+    |> Enum.reduce(values, fn
+      {name, value}, values when is_binary(name) and is_binary(value) and value != "" ->
+        Map.put(values, name, value)
+
+      _, values ->
+        values
+    end)
+  end
+
+  @title 120
+
+  @doc """
+  A turn's title from its assignment: its first non-empty line, without heading marks; when
+  that is a heading and the next non-empty line is not, the two joined by `: `. Shortened to
+  #{@title} characters, on one line; nil for an empty assignment.
+  """
+  def title(assignment) when is_binary(assignment) do
+    lines =
+      assignment
+      |> String.split(["\r\n", "\n"])
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+
+    text =
+      case lines do
+        ["#" <> _ = heading, next | _] ->
+          if String.starts_with?(next, "#"),
+            do: plain(heading),
+            else: plain(heading) <> ": " <> next
+
+        [first | _] ->
+          plain(first)
+
+        [] ->
+          ""
+      end
+
+    text = text |> String.replace(~r/\s+/u, " ") |> String.trim()
+
+    cond do
+      text == "" -> nil
+      String.length(text) <= @title -> text
+      true -> String.slice(text, 0, @title - 1) <> "…"
+    end
+  end
+
+  def title(_), do: nil
+
+  defp plain(line), do: line |> String.trim_leading("#") |> String.trim()
 
   defp refusal_text(refusal) do
     refusal = if is_map(refusal), do: refusal, else: %{}

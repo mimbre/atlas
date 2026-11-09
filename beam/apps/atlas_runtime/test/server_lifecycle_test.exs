@@ -31,7 +31,9 @@ defmodule AtlasRuntime.ServerLifecycleTest do
         "why" => "why",
         "ended_at" => "ended_at",
         "outcome" => "outcome",
-        "attempt" => "attempt"
+        "attempt" => "attempt",
+        "title" => "title",
+        "model" => "model"
       }
 
     @impl true
@@ -367,10 +369,14 @@ defmodule AtlasRuntime.ServerLifecycleTest do
              "why" => "finished",
              "lease_until" => "",
              "machine" => "box",
-             "attempt" => ^attempt
+             "attempt" => ^attempt,
+             "title" => "Synthetic lifecycle fixture"
            } = turn["values"]
 
     refute Map.has_key?(turn["values"], "outcome")
+    # No model was asked for (the execution says unknown); the turn has the one the
+    # harness reported.
+    assert is_binary(turn["values"]["model"]) and turn["values"]["model"] != ""
     assert is_binary(turn["values"]["ended_at"])
 
     assert [{^key, ^attempt}] = Map.keys(facts.executions)
@@ -583,6 +589,17 @@ defmodule AtlasRuntime.ServerLifecycleTest do
       refute_received {:"$gen_cast", {:started, _}}
     end
 
+    test "the model the harness reports goes to the reporter", %{state: state} do
+      agent = state.workers["alpha"].agent
+
+      {:noreply, state} =
+        Service.handle_info({:agent, agent, {:identity, "claude", "claude-opus-5-5"}}, state)
+
+      assert_received {:"$gen_cast", {:model, %{id: "turn-00000000000000a1"}, "claude-opus-5-5"}}
+
+      assert state.workers["alpha"].run.model == "claude-opus-5-5"
+    end
+
     test "public output goes to the exact attempt's ring, closed by every terminal path",
          %{state: state, run: run} do
       agent = state.workers["alpha"].agent
@@ -714,5 +731,63 @@ defmodule AtlasRuntime.ServerLifecycleTest do
            ] = changes
 
     assert facts.executions[{key, server["attempt"]}]["configured_model"] == "gpt-x"
+  end
+
+  test "the reporter says what a turn is about and which model runs it", %{dir: dir} do
+    store = start_supervised!({Store, agents: ["alpha"], dir: dir})
+    id = "turn-00000000000000b3"
+    server = Lifecycle.identity(config(), "alpha", id)
+    File.mkdir_p!(Path.join([dir, "turns", id]))
+
+    File.write!(
+      Path.join([dir, "turns", id, "turn.json"]),
+      JSON.encode!(%{id: id, server: server})
+    )
+
+    run = %{
+      id: id,
+      state: "running",
+      backend: "claude",
+      requested_model: "claude-sonnet-5-5",
+      assignment: "\n# Goal\nMake the page readable.\n\n# Change\n- more",
+      server: server
+    }
+
+    {:ok, reporter} = Lifecycle.start(config(), Keyword.merge(@talk, silence: 600_000))
+    on_exit(fn -> Process.exit(reporter, :kill) end)
+    Lifecycle.started(reporter, run)
+    assert_receive {:server_report, ^id, _, %{"turn" => "running"}}, 2_000
+
+    key = server["turn"]
+    created = Store.facts(store).turns[key]["values"]
+    assert created["title"] == Lifecycle.title(run.assignment)
+    assert created["model"] == "claude-sonnet-5-5"
+
+    # The same model again writes nothing; the one the harness reports is written once.
+    Lifecycle.model(reporter, run, "claude-sonnet-5-5")
+    Lifecycle.model(reporter, run, "claude-opus-5-5")
+    Lifecycle.model(reporter, run, "claude-opus-5-5")
+    Lifecycle.flush(reporter, 1_000)
+
+    facts = Store.facts(store)
+    assert facts.turns[key]["values"]["model"] == "claude-opus-5-5"
+
+    assert [%{"model" => "claude-opus-5-5"}] =
+             for({"turn", _, %{"op" => "change"} = c} <- facts.sent, do: c["values"])
+
+    # The immutable execution keeps what was asked for at its start.
+    assert facts.executions[{key, server["attempt"]}]["configured_model"] == "claude-sonnet-5-5"
+  end
+
+  test "a title is the assignment's first heading and line, on one bounded line" do
+    assert Lifecycle.title("# Goal\nMake it readable.") == "Goal: Make it readable."
+    assert Lifecycle.title("  \nJust a line\nmore") == "Just a line"
+    assert Lifecycle.title("## One\n## Two") == "One"
+    assert Lifecycle.title(" \n\t") == nil
+    assert Lifecycle.title(nil) == nil
+
+    long = Lifecycle.title(String.duplicate("word ", 100))
+    assert String.length(long) <= 120
+    refute long =~ "\n"
   end
 end

@@ -57,6 +57,18 @@ defmodule Model.Turn do
       set_by: [:runtime]
     )
 
+    field(:title, :string,
+      description:
+        "What the turn is about when it has no item: the first heading and line of what the agent was asked, shortened",
+      set_by: [:runtime]
+    )
+
+    field(:model, :string,
+      description:
+        "The model the agent runs: the one its harness reports, else the one Runtime asked for",
+      set_by: [:runtime]
+    )
+
     top(false)
     by_hand(false)
     order(:newest)
@@ -95,7 +107,9 @@ defmodule Model.Turn do
       why: "why",
       ended_at: :ended_at,
       outcome: :outcome,
-      attempt: :attempt
+      attempt: :attempt,
+      title: :title,
+      model: :model
     ],
     agent: [cannot_run: :cannot_run]
   )

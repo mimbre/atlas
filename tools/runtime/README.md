@@ -581,9 +581,10 @@ Without `server.json`, nothing changes: no Bus link, no reporter, no extra `turn
 
 `workers` controls reporting only. For each turn of a listed worker (each must be an existing Server agent), the service saves a `server` record in `turn.json` before any remote write: `environment`, `machine`, `worker`, the Server turn `TU-<machine>-<local turn ID>` and a fresh `attempt`. Local turn IDs never change. A background reporter then, as `runtime@<machine>`:
 
-1. creates that turn `running` on this machine, by its worker, without an item;
+1. creates that turn `running` on this machine, by its worker, without an item, with its `title` (the assignment's first heading and line, at most 120 characters) and the requested `model`, when there is one;
 2. registers that exact attempt's `worker_execution`, with harness `codex`/`claude`, harness version `unknown`, the requested model or `unknown`, and `queued_input`, `durable_accept_query` and `consumption_evidence` all `false`;
 3. renews `activity` and `lease_until` at most once per lease interval, as connected turns do;
+   and writes the turn's `model` once the harness reports it (the execution record is immutable and written before that, so it keeps the requested model or `unknown`);
 4. ends it `ended` with an empty lease, `ended_at`, and `why` `finished`, `failed: <error>`, `stopped` or `killed` (not verified against Server consumers).
 
 It never sets a Flow outcome or item ownership, and Server gets no start, stop or guidance control over the native agent. Unlisted workers run as before, with no Facts writes.

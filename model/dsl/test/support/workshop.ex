@@ -74,6 +74,8 @@ defmodule RelaDSL.Workshop.Run do
     field(:done_at, :string)
     field(:result, :string)
     field(:try, :string)
+    field(:about, :string)
+    field(:engine, :string)
     top(false)
   end
 
@@ -117,7 +119,9 @@ defmodule RelaDSL.Workshop.Run do
       why: :reason,
       ended_at: :done_at,
       outcome: :result,
-      attempt: :try
+      attempt: :try,
+      title: :about,
+      model: :engine
     ],
     agent: [cannot_run: :stuck]
   )

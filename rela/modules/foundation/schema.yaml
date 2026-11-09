@@ -182,6 +182,12 @@ entities:
       attempt:
         type: string
         description: Runtime execution fence; a new attempt never inherits old guidance.
+      title:
+        type: string
+        description: 'What the turn is about when it has no item: the first heading and line of what the agent was asked, shortened'
+      model:
+        type: string
+        description: 'The model the agent runs: the one its harness reports, else the one Runtime asked for'
   worker_execution:
     label: Worker execution
     plural: worker_executions

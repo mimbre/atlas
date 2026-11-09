@@ -211,8 +211,9 @@ defmodule AtlasTui.WorkerOutputTest do
     assert state.cursor == "cursor-4"
     assert state.status == :ready
     assert text(state) =~ "lost inclusive sequences 2–3"
-    assert event_fields(state, 1)["Freshness"] =~ "Non-current"
-    assert event_fields(state, 4)["Freshness"] == "Current segment"
+    refute current?(state, 1)
+    assert current?(state, 4)
+    assert missing_lines(state) == 1
   end
 
   test "epoch changes require a reset and unknown loss stays explicitly unknown" do
@@ -363,8 +364,8 @@ defmodule AtlasTui.WorkerOutputTest do
     assert state.view["state"] == "running"
     assert state.view["outcome"] == nil
     assert text(state) =~ "worker lifecycle remains independent"
-    assert text(state) =~ "Worker state"
-    assert text(state) =~ "running"
+    # The worker's state is the page's, not repeated by its output.
+    refute Enum.any?(all_fields(state), &(&1.value == state.view["state"]))
   end
 
   test "an already-ended retained subscription replays before becoming drained" do
@@ -408,7 +409,7 @@ defmodule AtlasTui.WorkerOutputTest do
     assert disconnected.pending == %{}
     assert disconnected.subscription == nil
     refute disconnected.view_current
-    assert event_fields(disconnected, 1)["Freshness"] =~ "Non-current"
+    refute current?(disconnected, 1)
     late = batch_reply(interrupted, [event(2)], "late-cursor", stream(2))
     assert {^disconnected, []} = WorkerOutput.receive(disconnected, late)
     {state, [inspect]} = WorkerOutput.connect(disconnected)
@@ -430,8 +431,10 @@ defmodule AtlasTui.WorkerOutputTest do
       WorkerOutput.receive(state, batch_reply(request, [event(2)], "cursor-2", stream(2)))
 
     assert sequences(state) == [1, 2]
-    assert event_fields(state, 1)["Freshness"] =~ "Non-current"
-    assert event_fields(state, 2)["Freshness"] == "Current segment"
+    refute current?(state, 1)
+    assert current?(state, 2)
+    # A disconnect alone loses nothing: the replay resumed from the accepted cursor.
+    assert missing_lines(state) == 0
   end
 
   test "correlation, typed version and exact identities are checked before any acceptance" do
@@ -620,12 +623,14 @@ defmodule AtlasTui.WorkerOutputTest do
     state = subscribed(watermark: 3)
     {state, [request]} = WorkerOutput.next(state)
     {state, []} = WorkerOutput.receive(state, batch_reply(request, events, "cursor-3", stream(3)))
-    assert event_fields(state, 1)["text"] == literal
-    assert event_fields(state, 2)["activity"] == "活動 雪"
-    assert event_fields(state, 3)["tool_name"] == "read_雪"
-    assert event_fields(state, 3)["status"] == "finished"
+    # What the worker said leads the conversation; what it did is a detail.
+    assert [%{label: "", value: ^literal}] = conversation(state).fields
+    details = Enum.flat_map(WorkerOutput.details(state), fn {_, block} -> block.fields end)
+    assert Enum.any?(details, &(&1.value == "活動 雪"))
+    assert Enum.any?(details, &(&1.value =~ "read_雪" and &1.value =~ "finished"))
+    refute Enum.any?(conversation(state).fields, &(&1.value == "活動 雪"))
 
-    assert Enum.all?(WorkerOutput.blocks(state), fn {id, block} ->
+    assert Enum.all?(output_blocks(state), fn {id, block} ->
              is_binary(id) and match?(%Blocks.Item{}, block) and block.actions == nil
            end)
 
@@ -673,6 +678,8 @@ defmodule AtlasTui.WorkerOutputTest do
     assert small.cursor == "cursor-1001"
     assert text(small) =~ "Local retention"
     assert text(small) =~ "not a complete contiguous transcript"
+    # The conversation says once, plainly, that earlier output is missing.
+    assert missing_lines(small) == 1
 
     literal = String.duplicate("雪👩🏽‍💻", 700)
     large = subscribed(watermark: 30)
@@ -795,18 +802,41 @@ defmodule AtlasTui.WorkerOutputTest do
 
   defp sequences(state), do: Enum.map(state.events, & &1.event["sequence"])
 
-  defp event_fields(state, sequence) do
-    {_, block} =
-      Enum.find(WorkerOutput.blocks(state), fn {_, block} ->
-        Enum.any?(block.fields, &(&1.label == "Sequence" and &1.value == to_string(sequence)))
-      end)
-
-    Map.new(block.fields, &{&1.label, &1.value})
+  # Whether the retained event `sequence` belongs to the current subscription segment.
+  defp current?(state, sequence) do
+    entry = Enum.find(state.events, &(&1.event["sequence"] == sequence))
+    state.current and entry.segment == state.segment
   end
+
+  defp output_blocks(state),
+    do: WorkerOutput.conversation(state, nil) ++ WorkerOutput.details(state)
+
+  defp conversation(state) do
+    [{"worker-output", block}] = WorkerOutput.conversation(state, nil)
+    block
+  end
+
+  # The conversation's lines that are not what the worker said, less the one that counts
+  # the earlier messages (there are more than the latest five): the lines that say earlier
+  # output is missing.
+  defp missing_lines(state) do
+    said = for %{event: %{"kind" => "text", "text" => t}} <- state.events, do: t
+    known = MapSet.new(said)
+
+    lines =
+      conversation(state).fields
+      |> Enum.reject(&(&1.value == "" or MapSet.member?(known, &1.value)))
+      |> length()
+
+    if length(said) > 5, do: lines - 1, else: lines
+  end
+
+  defp all_fields(state),
+    do: Enum.flat_map(output_blocks(state), fn {_, block} -> block.fields end)
 
   defp text(state),
     do:
-      WorkerOutput.blocks(state)
+      output_blocks(state)
       |> Enum.map_join("\n", fn {_, block} ->
         block.title <> "\n" <> Enum.map_join(block.fields, "\n", &(&1.label <> ": " <> &1.value))
       end)

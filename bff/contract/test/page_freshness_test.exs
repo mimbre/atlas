@@ -17,10 +17,11 @@ defmodule AtlasBFFContract.PageFreshnessTest do
     "position" => 7
   }
 
-  test "the contract, its models and its session wire are 0.15.0" do
-    assert AtlasBFFContract.Contract.__schema__().version == "0.15.0"
-    assert AtlasBFFContract.Models.Presentation.__schema__().version == "0.15.0"
-    assert Session.version() == "0.15.0"
+  test "the contract, its models and its session wire share one version, from 0.15.0 on" do
+    version = AtlasBFFContract.Contract.__schema__().version
+    assert Version.compare(version, "0.15.0") != :lt
+    assert AtlasBFFContract.Models.Presentation.__schema__().version == version
+    assert Session.version() == version
   end
 
   test "a row may carry an opaque key and a pending flag, both optional" do
