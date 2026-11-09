@@ -240,6 +240,32 @@ defmodule AtlasFlowTest do
       assert Definition.kinds(FakeState.description()) == ["box"]
       assert Definition.kinds(FakeState.description(FakeState.flow(), ["x has no owner"])) == []
     end
+
+    test "briefed by the empty state until something is under it, then by the next" do
+      flow = %{
+        "states" => [
+          %{
+            "name" => "fill",
+            "when" => %{"empty" => "in_box"},
+            "owner" => %{"kind" => "clerk", "key" => "ada"},
+            "expected" => "Fill it with crates"
+          },
+          %{
+            "name" => "packing",
+            "owner" => %{"kind" => "clerk", "key" => "ada"},
+            "expected" => "Pack it"
+          }
+        ]
+      }
+
+      briefing = fn children ->
+        {state, vars} = Definition.state_of(flow, %{}, children, ["in_box"])
+        {state["name"], Definition.expected(state, vars), Definition.owner(state)}
+      end
+
+      assert briefing.([]) == {"fill", "Fill it with crates", "ada"}
+      assert briefing.([%{"links" => %{"in_box" => ["B-1"]}}]) == {"packing", "Pack it", "ada"}
+    end
   end
 
   describe "one process per open fact" do
