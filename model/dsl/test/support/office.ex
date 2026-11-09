@@ -145,7 +145,6 @@ defmodule RelaDSL.Office.Letter do
   end
 
   select(:letter,
-    legacy: :post,
     choices: [:choice],
     roles: [editor: :written_by],
     projection: [on: :desk, state_field: :flow_state, owner_relation: :held_by, field: :expected],
@@ -223,19 +222,6 @@ defmodule RelaDSL.Office do
   review(:replies_to, field: :urgent, value: true, label: "Answers an urgent letter")
   about("What the office adds.")
   shell(title: "Office", tabs: [[id: "letters", label: "Letters", to: "/k/letter"]])
-
-  legacy_flow(:post,
-    on: :desk,
-    state_field: :flow_state,
-    handover_field: :handover,
-    owner_relation: :held_by,
-    field: :expected,
-    kinds: [:letter],
-    states: [
-      [name: :done, when: [values: [state: [:sent]]], done: true],
-      [name: :open, owner: [kind: :clerk, key: "post_room"], expected: "Post it", next: [:done]]
-    ]
-  )
 
   acl(comment: "The roles the flows name.\n\nRela checks them.")
   role("post-flow", comment: "Post's writer.", read: ["*"], update: [:letter, :run])

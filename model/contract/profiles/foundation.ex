@@ -9,8 +9,7 @@ defmodule Model.Profiles.Foundation do
   """
   use RelaDSL.Composition,
     name: "foundation",
-    subflow_behaviour: AtlasFlow.Subflow,
-    legacy_behaviour: AtlasFlow.Legacy
+    subflow_behaviour: AtlasFlow.Subflow
 
   # The model Facts, Flow, Gates, Runtime and Control are wired to (config :atlas, model: …).
   @behaviour AtlasFacts.Model

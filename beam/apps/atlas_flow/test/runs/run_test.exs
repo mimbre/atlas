@@ -281,7 +281,6 @@ defmodule AtlasFlow.Runs.RunTest do
 
   defmodule Inspecting do
     use AtlasFlow.TestModel,
-      legacy: [],
       subflows: [AtlasFlow.Runs.RunTest.Inspect],
       selection: %{
         "inspect" => %{
@@ -383,7 +382,6 @@ defmodule AtlasFlow.Runs.RunTest do
   test "an import into a state that writes or runs something on entry refuses, with zero writes" do
     defmodule BusyModel do
       use AtlasFlow.TestModel,
-        legacy: [],
         subflows: [AtlasFlow.Runs.RunTest.BusyInspect],
         selection: %{
           "inspect" => %{
@@ -405,33 +403,8 @@ defmodule AtlasFlow.Runs.RunTest do
     assert FakeFacts.sent() == []
   end
 
-  test "two writers refuse every run: an unnamed legacy flow, or projections that overlap" do
+  test "two writers refuse every run: projections that admit the same fact" do
     projection = %{"field" => "todo", "owner_relation" => "owned_by"}
-
-    defmodule Unnamed do
-      use AtlasFlow.TestModel,
-        subflows: [AtlasFlow.Runs.RunTest.Inspect],
-        selection: %{"inspect" => %{"subject" => "box", "admission" => [], "imports" => []}}
-    end
-
-    # The depot's legacy pack runs boxes: the selection must name it and project.
-    assert %{refusal: {:two_writers, "inspect"}} = AtlasFlow.Model.load(Unnamed, :prod)
-
-    defmodule Named do
-      use AtlasFlow.TestModel,
-        subflows: [AtlasFlow.Runs.RunTest.Inspect],
-        selection: %{
-          "inspect" => %{
-            "subject" => "box",
-            "legacy" => "pack",
-            "projection" => %{"field" => "todo", "owner_relation" => "owned_by"},
-            "admission" => [],
-            "imports" => []
-          }
-        }
-    end
-
-    assert %{refusal: nil} = AtlasFlow.Model.load(Named, :prod)
 
     # Two projecting subflows on one kind: one per fact, so their admissions are disjoint.
     for {phases, refusal} <- [{["first"], {:two_writers, "inspect"}}, {["second"], nil}] do
@@ -445,7 +418,6 @@ defmodule AtlasFlow.Runs.RunTest do
             selection: %{
               "inspect" => %{
                 "subject" => "box",
-                "legacy" => "pack",
                 "projection" => unquote(Macro.escape(projection)),
                 "admission" => %{"phase" => unquote(phases)},
                 "imports" => []

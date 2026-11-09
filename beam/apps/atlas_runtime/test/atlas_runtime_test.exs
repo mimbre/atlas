@@ -26,16 +26,34 @@ defmodule AtlasRuntimeTest do
     %{dir: dir}
   end
 
-  # Ada's box: its card is hers, and its flow has a state for it.
-  defp box(owner \\ "ada", step \\ "packing") do
+  # Ada's box: its card is hers, and the run of its subflow is in a state for it (nil: the
+  # run ended), as Facts presents it.
+  defp box(owner \\ "ada", state \\ "packing") do
     FakeFacts.put("box", %{"key" => "B-1", "links" => %{"card" => ["C-B-1"]}})
 
     FakeFacts.put("card", %{
       "key" => "C-B-1",
-      "values" => %{"step" => step},
-      "links" => %{"owned_by" => List.wrap(owner)}
+      "values" => %{"step" => state},
+      "links" => %{"owned_by" => List.wrap(owner)},
+      "presentation" => %{
+        "owner" => List.wrap(owner),
+        "state" => state,
+        "status" => if(state, do: "active", else: "completed"),
+        "actionable" => state != nil,
+        "handover" => nil,
+        "manual" => false
+      }
     })
   end
+
+  # Flow deferred a handover from ada while her turn runs: Facts presents it.
+  defp deferred(card, state \\ "packing"),
+    do:
+      card
+      |> put_in(["values", "later"], "pending")
+      |> put_in(["values", "step"], state)
+      |> put_in(["presentation", "state"], state)
+      |> put_in(["presentation", "handover"], %{"from" => ["ada"], "position" => 1})
 
   defp engine(dir, more \\ []) do
     opts =
@@ -92,7 +110,7 @@ defmodule AtlasRuntimeTest do
 
     # Runtime's ownership answer is already captured. Flow commits its handover,
     # then the live turn ends before Runtime receives that old answer.
-    card = FakeFacts.get("card", "C-B-1") |> put_in(["values", "later"], "pending")
+    card = FakeFacts.get("card", "C-B-1") |> deferred()
     FakeFacts.put("card", card)
     ref = Process.monitor(turn)
     AtlasRuntime.Turn.finish(turn, "the agent ended its turn: packed it")
@@ -256,8 +274,7 @@ defmodule AtlasRuntimeTest do
     # handover until this turn ends. The item is still ada's.
     card =
       FakeFacts.get("card", "C-B-1")
-      |> put_in(["values", "step"], "checking")
-      |> put_in(["values", "later"], "pending")
+      |> deferred("checking")
 
     FakeFacts.put("card", card)
     Engine.round(Engine)

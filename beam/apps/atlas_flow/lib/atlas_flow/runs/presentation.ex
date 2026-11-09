@@ -3,19 +3,14 @@ defmodule AtlasFlow.Runs.Presentation do
   What a run presents, derived from the run alone: the state its owner is in, what is
   expected of them, why, the todo, the owner the state names and the deadline it shows;
   and how what Flow wrote on the fact reads back: the owner set by hand, the deferred
-  handover. Pure: `AtlasFlow.Item` writes what it derives on the fact (or on the fact its
-  projection is `on`), and Facts serves it back to every reader as the fact's
-  presentation. No IO.
+  handover. Pure: `AtlasFlow.Runs.Projection` writes what it derives on the fact (or on
+  the fact its projection is `on`), and Facts serves it back to every reader as the
+  fact's presentation. No IO.
   """
 
-  alias AtlasFlow.Runs.Run
-
   @doc """
-  What `run` of `subflow` presents on `fact` (its subject) under `selection`:
+  What `run` of `subflow` presents on `fact` (its subject):
 
-    * `:follow_through`: completed in its selection's `follow_through` state while the
-      subject still holds its `when`: what the legacy flow presents goes on (temporary,
-      until the old flows go);
     * `%{"name", "done" => true}`: completed; nothing is expected and nobody owns it;
     * for an active run, `%{"name", "expected", "why", "todo", "owner", "preserve_kind",
       "deadline", …}`: what the state presents (`subflow.present/2`), its owner as
@@ -23,15 +18,10 @@ defmodule AtlasFlow.Runs.Presentation do
       of the timer it presents;
     * nil: nothing (blocked, or idle).
   """
-  def of_run(run, subflow, selection, fact, owner) do
+  def of_run(run, subflow, fact, owner) do
     values = fact["values"] || %{}
-    follow = selection["follow_through"]
 
     cond do
-      run["status"] == "completed" and follow != nil and run["state"] == follow["state"] and
-          Run.holds?(follow["when"], values) ->
-        :follow_through
-
       run["status"] == "completed" ->
         %{"name" => run["state"], "done" => true}
 

@@ -31,9 +31,15 @@ defmodule AtlasRuntime.RuntimeGuidanceTest do
         "owned_by" => {"clerk", ["ada"]}
       })
 
-    # The box whose work the card carries: Facts presents the work on a card for the box
-    # that points at it (the model's legacy flow runs on boxes and writes on their card).
+    # The box whose work the card carries, and the run of the model's subflow on it, in
+    # packing, as Flow keeps it: Facts presents the work on the card from that run.
     {:ok, _} = Rela.create(rela, "boxes", "box-a", %{}, %{"card" => {"card", ["card-a"]}})
+    runner = AtlasFlow.Model.load(@model, :prod, %{})
+    box = %{"key" => "box-a", "values" => %{}}
+    run = AtlasFlow.Runs.Run.new("pack", runner.flows["pack"], box, [], DateTime.utc_now())
+    run = put_in(run, ["pending", "writes"], [])
+    values = AtlasFlow.Runs.Store.encode(runner.config, run)
+    {:ok, _} = Rela.create(rela, "jobs", run["key"], values, %{})
 
     server =
       start_supervised!(

@@ -49,9 +49,9 @@ defmodule RelaDSL.Composition do
   ## What it compiles
 
   The composition is the model a runner is wired to: it compiles each subflow it runs,
-  per environment (`RelaDSL.Flow.Subflow`), and each legacy flow (`RelaDSL.Flow.Legacy`),
-  and gets their callbacks (`RelaDSL.Flow.Model`). `use RelaDSL.Composition` takes
-  `subflow_behaviour:` and `legacy_behaviour:`, the behaviours those modules declare.
+  per environment (`RelaDSL.Flow.Subflow`), and gets their callbacks
+  (`RelaDSL.Flow.Model`). `use RelaDSL.Composition` takes `subflow_behaviour:`, the
+  behaviour those modules declare.
   It gets the callbacks of the component that runs turns as well (`RelaDSL.Runtime.Model`:
   the turn, the agent, the guidance records and what a worker reads first), and those of
   the component that serves pages (`RelaDSL.Control.Model`: the shell, the start page,
@@ -259,7 +259,12 @@ defmodule RelaDSL.Composition do
     subflow_problems =
       Subflows.check(
         flows,
-        %{file: file, links: (raw && raw.links) || [], counts: (raw && raw.counts) || []},
+        %{
+          file: file,
+          links: (raw && raw.links) || [],
+          counts: (raw && raw.counts) || [],
+          tallies: (raw && raw.tallies) || []
+        },
         schema,
         acl
       )
@@ -279,7 +284,7 @@ defmodule RelaDSL.Composition do
     run_problems =
       for {m, message} <- RunIdentity.problems(current, migrations), do: {m.file, m.line, message}
 
-    select_problems = Subflows.selects(selects, flows, schema, extension)
+    select_problems = Subflows.selects(selects, flows, schema)
     acl_problems = acl_problems(acl, schema, items)
 
     refuse!(
@@ -328,6 +333,18 @@ defmodule RelaDSL.Composition do
       )
 
     plain_runtime = flow_runtime && Plain.unorder(flow_runtime)
+
+    described =
+      RelaDSL.Facts.Model.described(RelaDSL.Facts.Served.of(schema), extension, plain_runtime)
+
+    refuse!(
+      for {path, message} <- Check.composition(described) do
+        {f, l} = Build.origin(origins, path, {file, 1})
+        {f, l, message}
+      end,
+      file
+    )
+
     presentations = presentations!(flows, gates, environments, file)
     runtime = RelaDSL.Runtime.Model.body(schema, extension, plain_runtime)
     facts = RelaDSL.Facts.Model.body(schema, extension, plain_runtime, presentations)

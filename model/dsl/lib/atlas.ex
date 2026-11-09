@@ -55,14 +55,15 @@ defmodule RelaDSL.Atlas do
   @composition 1
 
   @doc """
-  A composition's links and counts (`RelaDSL.Schema.Composition`, as `__composition__/0`
+  A composition's links, counts and tallies (`RelaDSL.Schema.Composition`, as `__composition__/0`
   or its raw form gives them) as versioned data, string keys, in the order written:
 
       %{"version" => 1,
         "links" => [%{"child", "child_subject", "parent_subject", "relation", "field",
                       "states" => %{child_state => value}, "stale" => "drop" | "keep",
                       "current" => nil | %{"child" => field, "parent" => field}}],
-        "counts" => [%{"child", "child_subject", "parent_subject", "relation", "all", "open"}]}
+        "counts" => [%{"child", "child_subject", "parent_subject", "relation", "all", "open"}],
+        "tallies" => [%{"parent_subject", "relation", "all", "readers"}]}
 
   `flows` (the subflows) give each child's subject.
   """
@@ -96,6 +97,15 @@ defmodule RelaDSL.Atlas do
       "counts" =>
         for n <- composition.counts do
           Map.merge(common.(n), %{"all" => to_string(n.all), "open" => to_string(n.open)})
+        end,
+      "tallies" =>
+        for t <- composition.tallies do
+          %{
+            "parent_subject" => to_string(t.subject),
+            "relation" => to_string(t.relation),
+            "all" => to_string(t.all),
+            "readers" => Enum.map(t.readers, &to_string/1)
+          }
         end
     }
   end

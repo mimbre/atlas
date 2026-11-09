@@ -2,7 +2,7 @@ defmodule Model.RunPresentationTest do
   @moduledoc """
   How Atlas's work is presented from its runs (slice 13), as Facts derives it
   (`AtlasFacts.Presentation`) from the composition's presenters and Control shows it:
-  the accepted decision's follow-through, a reopened use case, and Accept on a use case
+  an accepted decision's follow-through, a reopened use case, and Accept on a use case
   page that ends its run as the decider's own Accept does.
   """
   use ExUnit.Case, async: true
@@ -29,7 +29,7 @@ defmodule Model.RunPresentationTest do
 
   defp subflow(name), do: Enum.find(Model.AtlasEyra.subflows(:prod), &(&1.name() == name))
 
-  test "an accepted decision stays its coordinator's until work is based on it (follow-through)" do
+  test "an accepted decision stays its coordinator's while its follow-through waits for work" do
     decision = %{
       "key" => "D-0001",
       "values" => %{"status" => "accepted", "consequences" => "the ledger changes"},
@@ -43,10 +43,11 @@ defmodule Model.RunPresentationTest do
         ["coordinator"]
       )
 
-    done = [run("decide", "completed", "accepted")]
-    a = present("decision", waiting, decision, done)
+    # decide ended at acceptance; follow_through waits, one presenter for both.
+    runs = [run("decide", "completed", "accepted"), run("follow_through", "active", "waiting")]
+    a = present("decision", waiting, decision, runs)
 
-    assert %{"follow_through" => true, "actionable" => true, "state" => "waiting"} =
+    assert %{"flow" => "follow_through", "actionable" => true, "state" => "waiting"} =
              a["presentation"]
 
     viewer = %{key: "coordinator", kind: "agent"}
@@ -54,11 +55,17 @@ defmodule Model.RunPresentationTest do
     assert %{expected: "Carry it out: the ledger changes", instructions: how} =
              Model.AtlasEyra.todo("decision", decision, %{"assignment" => a}, viewer)
 
-    assert how =~ "no_work"
+    assert is_binary(how) and how != ""
 
-    # Once work is based on it Flow clears it, and nothing is left to do.
-    cleared = present("decision", assignment("D-0001", %{}, []), decision, done)
-    assert %{"actionable" => false, "follow_through" => false} = cleared["presentation"]
+    # Once work is based on it the run completes, and nothing is left to do, whatever was
+    # still written.
+    ended = [
+      run("decide", "completed", "accepted"),
+      run("follow_through", "completed", "carried_out")
+    ]
+
+    cleared = present("decision", waiting, decision, ended)
+    assert %{"actionable" => false, "status" => "completed"} = cleared["presentation"]
     assert Model.AtlasEyra.todo("decision", decision, %{"assignment" => cleared}, viewer) == nil
   end
 

@@ -37,7 +37,6 @@ defmodule AtlasFacts.PresentationReadTest do
           "label" => %{"from" => ["parcel"], "to" => ["label"], "max_outgoing" => 1},
           "held_by" => %{"from" => ["label"], "to" => ["clerk"], "max_outgoing" => 1}
         },
-        "flows" => %{},
         "flow_runtime" => %{
           "version" => 1,
           "kind" => "cursor",

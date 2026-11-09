@@ -22,7 +22,6 @@
         "choice_states": ["stuck"],
         "migrations": [],
         "subject": "letter",
-        "legacy": "post",
         "projection": {
           "on": "desk",
           "state_field": "flow_state",

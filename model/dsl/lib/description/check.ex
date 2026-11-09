@@ -6,8 +6,7 @@ defmodule RelaDSL.Description.Check do
   `path` the keys of `atlas.json` at fault, so the composition can name the file and
   line that wrote them.
 
-  These are the assembler's checks (D-0083 slice 2 moved them here), and the
-  soundness of the legacy flow definitions that Facts checks again when it loads them.
+  These are the assembler's checks (D-0083 slice 2 moved them here).
   """
 
   @guidance %{
@@ -18,7 +17,6 @@ defmodule RelaDSL.Description.Check do
     "receipt" =>
       ~w(environment interaction worker turn attempt execution stage evidence_id admission_id consumption_id reason writer cause recorded_at recorded_position)
   }
-  @conditions ~w(completed progress reopened values empty)
 
   @doc "Problems of `extension` against `schema` (both plain): `[{path, message}]`."
   def check(schema, extension) do
@@ -36,7 +34,21 @@ defmodule RelaDSL.Description.Check do
       types(ctx) ++
       entities(ctx) ++
       relations(ctx) ++
-      progress(ctx) ++ flows(ctx) ++ read_first(ctx) ++ runtime(ctx)
+      progress(ctx) ++ read_first(ctx) ++ runtime(ctx)
+  end
+
+  @doc "Problems requiring the final assembled runtime and its installed write guards."
+  def composition(description) do
+    for {kind, spec} <- description["entities"] || %{},
+        name <- get_in(spec, ["frozen", "tallied"]) || [],
+        guard <- [get_in(RelaDSL.Facts.Writes.rules(description, kind), ["field_writers", name])],
+        not match?(
+          %{"by" => "flow", "sender" => sender} when is_binary(sender) and sender != "",
+          guard
+        ) do
+      {["entities", kind, "frozen"],
+       "#{kind}.frozen.tallied: #{name} requires the final flow_runtime.writer to install its sole Flow field guard"}
+    end
   end
 
   # -- References ---------------------------------------------------------------------
@@ -490,9 +502,20 @@ defmodule RelaDSL.Description.Check do
   defp frozen(_ctx, _kind, nil, _path), do: []
 
   defp frozen(ctx, kind, rule, path) do
-    keys(rule, ~w(when only error), path) ++
-      values(ctx, kind, rule["when"], path) ++ values(ctx, kind, rule["only"], path)
+    keys(rule, ~w(when only tallied error), path) ++
+      values(ctx, kind, rule["when"], path) ++
+      values(ctx, kind, rule["only"], path) ++
+      Enum.flat_map(List.wrap(rule["tallied"]), fn name ->
+        case get_in(ctx.x, ["entities", kind, "properties", name, "set_by"]) do
+          ["flow"] -> []
+          _ -> tallied(kind, name, path)
+        end
+      end)
   end
+
+  # Only a field Flow alone writes may change on a frozen fact without a listed value.
+  defp tallied(kind, name, path),
+    do: p(path, "#{kind}.frozen.tallied: #{name} is no field only Flow writes (set_by: [:flow])")
 
   defp sealed(_ctx, _kind, nil, _path), do: []
 
@@ -712,269 +735,4 @@ defmodule RelaDSL.Description.Check do
   end
 
   defp turn(_ctx, _runtime, _path), do: []
-
-  # -- Legacy flows ---------------------------------------------------------------------
-
-  defp flows(ctx) do
-    specs = ctx.x["flows"] || %{}
-
-    {problems, _} =
-      Enum.reduce(Enum.sort(specs), {[], MapSet.new()}, fn {name, flow}, {ps, used} ->
-        path = ["flows", name]
-        flow = if is_map(flow), do: flow, else: %{}
-        kinds = List.wrap(flow["kinds"])
-
-        overlap =
-          if Enum.any?(kinds, &MapSet.member?(used, &1)),
-            do: p(path, "overlapping flow kinds"),
-            else: []
-
-        {ps ++ overlap ++ flow_problems(ctx, name, flow, path),
-         MapSet.union(used, MapSet.new(kinds))}
-      end)
-
-    problems
-  end
-
-  defp flow_problems(ctx, name, flow, path) do
-    kinds = List.wrap(flow["kinds"])
-    states = Enum.filter(List.wrap(flow["states"]), &is_map/1)
-    names = Enum.map(states, & &1["name"])
-    by_name = Map.new(states, &{&1["name"], &1})
-    written = written(ctx, flow)
-
-    keys(flow, ~w(on state_field handover_field owner_relation kinds field states), path) ++
-      if(get_in(ctx.x, ["runtime", "turn"]) && not Map.has_key?(flow, "handover_field"),
-        do: p(path, "#{name}: Runtime flows require handover_field"),
-        else: []
-      ) ++
-      if(kinds == [],
-        do: p(path, "#{name}: runs on no kind"),
-        else: Enum.flat_map(kinds, &entity(ctx, &1, path))
-      ) ++
-      if(flow["on"], do: on(ctx, flow, path), else: []) ++
-      for(
-        kind <- written,
-        f <- ~w(field state_field handover_field),
-        Map.has_key?(flow, f),
-        problem <- field(ctx, kind, flow[f], path),
-        do: problem
-      ) ++
-      for(
-        kind <- written,
-        flow["owner_relation"],
-        problem <- relation(ctx, flow["owner_relation"], kind, path),
-        do: problem
-      ) ++
-      writes(ctx, flow, written, path) ++
-      cond do
-        states == [] ->
-          p(path, "#{name}: has no states")
-
-        length(Enum.uniq(names)) != length(names) ->
-          p(path, "#{name}: every state needs a name of its own")
-
-        true ->
-          shape(ctx, name, flow, states, by_name, path) ++ reach(name, states, by_name, path)
-      end
-  end
-
-  defp written(ctx, %{"on" => on} = flow) when is_binary(on),
-    do: if(spec = rel(ctx, on), do: spec["to"] || [], else: List.wrap(flow["kinds"]))
-
-  defp written(_ctx, flow), do: List.wrap(flow["kinds"])
-
-  defp on(ctx, flow, path) do
-    on = flow["on"]
-
-    case rel(ctx, on) do
-      spec when is_map(spec) ->
-        for(
-          kind <- List.wrap(flow["kinds"]),
-          kind not in (spec["from"] || []),
-          do: {path, "#{on} does not start at #{kind}"}
-        ) ++
-          if(match?([_], spec["to"]), do: [], else: p(path, "#{on} must point at one kind")) ++
-          if(spec["max_outgoing"] == 1, do: [], else: p(path, "#{on} must allow one link"))
-
-      _ ->
-        p(path, "unknown relation: #{inspect(on)}")
-    end
-  end
-
-  # Flow passes over its own writes, so no state may depend on what it writes.
-  defp writes(ctx, flow, written, path) do
-    own = Enum.reject([flow["field"], flow["state_field"], flow["owner_relation"]], &is_nil/1)
-    kinds = List.wrap(flow["kinds"])
-
-    conditions =
-      for state <- List.wrap(flow["states"]),
-          is_map(state),
-          {condition, value} <- state["when"] || %{},
-          read <- if(condition == "values" and is_map(value), do: Map.keys(value), else: [value]),
-          read in own,
-          do: {path, "#{state["name"]} depends on #{read}, which Flow writes"}
-
-    rules =
-      for kind <- Enum.uniq(kinds ++ written),
-          spec = get_in(ctx.x, ["entities", kind]) || %{},
-          rule <- Enum.filter([spec["progress"] | List.wrap(spec["completion"])], &is_map/1),
-          {_, value} <- rule,
-          value in own,
-          flow["on"] == nil or kind not in kinds or rule["through"] == flow["on"],
-          uniq: true,
-          do: {path, "#{kind}'s progress or completion depends on #{value}, which Flow writes"}
-
-    conditions ++ rules
-  end
-
-  defp shape(ctx, name, flow, states, by_name, path) do
-    last = List.last(states)
-    kinds = List.wrap(flow["kinds"])
-    allowed = (rel(ctx, flow["owner_relation"]) || %{})["to"] || []
-    order = get_in(ctx.x, ["progress", "order"]) || []
-
-    if((last["when"] || %{}) == %{},
-      do: [],
-      else:
-        p(
-          path,
-          "#{name}: the last state, #{last["name"]}, must hold when no other does (no when)"
-        )
-    ) ++
-      if(Enum.any?(states, &(&1["done"] == true)),
-        do: [],
-        else: p(path, "#{name}: has no done state")
-      ) ++
-      Enum.flat_map(states, fn state ->
-        at = path ++ ["states"]
-        s = state["name"]
-        when_ = state["when"] || %{}
-        todo = state["todo"] || %{}
-        answers = List.wrap(todo["answers"])
-        answer_keys = Enum.map(answers, & &1["key"])
-
-        keys(state, ~w(name when done owner expected why next every_seconds todo), at) ++
-          keys(when_, @conditions, at) ++
-          if(Map.has_key?(when_, "progress") and when_["progress"] not in order,
-            do: p(at, "#{name}: unknown progress condition"),
-            else: []
-          ) ++
-          Enum.flat_map(kinds, fn kind ->
-            values(ctx, kind, when_["values"], at) ++
-              if(when_["reopened"], do: relation(ctx, when_["reopened"], kind, at), else: [])
-          end) ++
-          empty(ctx, s, when_["empty"], kinds, at) ++
-          owner(ctx, flow, state, allowed, at) ++
-          keys(todo, ~w(instructions section answers), at) ++
-          if(todo["section"],
-            do:
-              keys(todo["section"], ~w(field heading), at) ++
-                Enum.flat_map(kinds, &field(ctx, &1, todo["section"]["field"], at)),
-            else: []
-          ) ++
-          if(length(answer_keys) == length(Enum.uniq(answer_keys)),
-            do: [],
-            else: p(at, "duplicate answer shortcut")
-          ) ++
-          Enum.flat_map(answers, fn answer ->
-            keys(answer, ~w(key label set remove), at) ++
-              for(
-                op <- ~w(set remove),
-                answer[op],
-                kind <- kinds,
-                problem <- relation(ctx, answer[op], kind, at),
-                do: problem
-              )
-          end) ++ open(state, by_name, at)
-      end)
-  end
-
-  defp empty(_ctx, _state, nil, _kinds, _path), do: []
-
-  defp empty(ctx, state, relation, kinds, path) do
-    case rel(ctx, relation) do
-      spec when is_map(spec) ->
-        if Enum.any?(spec["to"] || [], &(&1 in kinds)),
-          do: [],
-          else: p(path, "#{state}: empty names #{relation}, which points at none of its kinds")
-
-      _ ->
-        p(path, "unknown relation: #{inspect(relation)}")
-    end
-  end
-
-  defp owner(_ctx, _flow, %{"done" => true}, _allowed, _path), do: []
-
-  defp owner(ctx, flow, state, allowed, path) do
-    case state["owner"] do
-      %{"kind" => kind} = o when is_binary(kind) ->
-        named(o, state, path) ++
-          entity(ctx, kind, path) ++
-          if(flow["owner_relation"] == nil or kind in allowed,
-            do: [],
-            else:
-              p(
-                path,
-                "#{state["name"]}: #{flow["owner_relation"]} does not allow its owner's kind, #{kind}"
-              )
-          )
-
-      _ ->
-        p(
-          path,
-          "#{state["name"]}: its owner names no kind and key " <>
-            "(owner: {kind, key}, or {kind, config: role})"
-        )
-    end
-  end
-
-  # An owner names a key, or the role of an actor the environment configures (`config`),
-  # and nothing else.
-  defp named(o, state, path) do
-    {name, shape} =
-      if Map.has_key?(o, "config"),
-        do: {o["config"], ~w(kind config)},
-        else: {o["key"], ~w(kind key)}
-
-    if is_binary(name) and name != "",
-      do: keys(o, shape, path),
-      else:
-        p(
-          path,
-          "#{state["name"]}: its owner names no kind and key " <>
-            "(owner: {kind, key}, or {kind, config: role})"
-        )
-  end
-
-  defp open(%{"done" => true}, _by_name, _path), do: []
-
-  defp open(state, by_name, path) do
-    case List.wrap(state["next"]) do
-      [] ->
-        p(path, "#{state["name"]} has no way out (next)")
-
-      next ->
-        for n <- next,
-            not Map.has_key?(by_name, n),
-            do: {path, "#{state["name"]}: its next #{inspect(n)} is no state"}
-    end
-  end
-
-  defp reach(name, states, by_name, path) do
-    for state <- states,
-        state["done"] != true,
-        not reaches?(state["name"], by_name, MapSet.new()),
-        do: {path, "#{name}: #{state["name"]} never reaches done"}
-  end
-
-  defp reaches?(name, by_name, seen) do
-    state = by_name[name] || %{}
-
-    cond do
-      state["done"] == true -> true
-      MapSet.member?(seen, name) -> false
-      true -> Enum.any?(List.wrap(state["next"]), &reaches?(&1, by_name, MapSet.put(seen, name)))
-    end
-  end
 end

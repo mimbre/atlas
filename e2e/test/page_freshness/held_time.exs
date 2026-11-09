@@ -39,8 +39,11 @@ defmodule PageFreshness.FlowTime do
   @moduledoc """
   A clock for Flow (`AtlasFlow.Runs.Clock`'s `{module, context}`) that moves only when the
   proof advances it, as `AtlasFlow.ManualClock` does in Flow's tests. `hold/0` puts the
-  core's Flow engine, and so every process of a fact it starts, on it; `release/1` puts
-  back the engine the core started, on the real clock.
+  core's Flow engine on it and holds the engine itself: Flow keeps no process per fact,
+  and the engine settles a hint as soon as it handles it, so it is suspended after its
+  first round, and handles nothing (no hint, no `_settled` question) until `until/3`
+  lets it catch up. `release/1` puts back the engine the core started, on the real
+  clock.
   """
   use Agent
 
@@ -67,18 +70,19 @@ defmodule PageFreshness.FlowTime do
         {due, later} =
           Enum.split_with(s.timers, fn {_, {at, _, _}} -> DateTime.compare(at, now) != :gt end)
 
-        {due, %{now: now, timers: Map.new(later)}}
+        {due, %{s | now: now, timers: Map.new(later)}}
       end)
 
     for {_, {_, pid, message}} <- due, do: send(pid, message)
     :ok
   end
 
-  @doc "The core's Flow engine, and the processes it starts, on a held clock."
+  @doc "The core's Flow engine on a held clock, held after its first round."
   def hold do
-    {:ok, clock} = Agent.start(fn -> %{now: DateTime.utc_now(), timers: %{}} end)
+    {:ok, clock} =
+      Agent.start(fn -> %{now: DateTime.utc_now(), timers: %{}, held: nil} end)
+
     :ok = Supervisor.terminate_child(AtlasFlow.Root, AtlasFlow.Engine)
-    stop_items()
 
     spec =
       Supervisor.child_spec(
@@ -91,26 +95,37 @@ defmodule PageFreshness.FlowTime do
       )
 
     {:ok, engine} = Supervisor.start_child(AtlasFlow.Root, spec)
-    # Its first round has started a process for every open fact.
+    # Its first round has reconciled every run and projected every subject.
     :ok = AtlasFlow.Engine.round(engine)
+    :ok = :sys.suspend(engine)
+    Agent.update(clock, &%{&1 | held: engine})
     clock
+  end
+
+  # The held engine handles what it was sent meanwhile, and goes on as usual.
+  defp catch_up(clock) do
+    case Agent.get_and_update(clock, &{&1.held, %{&1 | held: nil}}) do
+      nil -> :ok
+      engine -> :sys.resume(engine)
+    end
   end
 
   @doc "The engine the core started, back on the real clock."
   def release(clock) do
+    catch_up(clock)
     :ok = Supervisor.terminate_child(AtlasFlow.Root, __MODULE__)
     :ok = Supervisor.delete_child(AtlasFlow.Root, __MODULE__)
-    stop_items()
     {:ok, _} = Supervisor.restart_child(AtlasFlow.Root, AtlasFlow.Engine)
     Agent.stop(clock)
   end
 
   @doc """
-  Advance the clock in steps of Flow's 50 ms until `done?` holds, at most `within` ms
-  of real time: each step, every process of a fact and the engine handled what it was
-  sent before `done?` is asked.
+  Let the held engine catch up, then advance the clock in steps of 50 ms until `done?`
+  holds, at most `within` ms of real time: each step, the engine handled what it was sent
+  (hints, a round or a run's timer that fell due) before `done?` is asked.
   """
   def until(clock, done?, within) do
+    catch_up(clock)
     deadline = System.monotonic_time(:millisecond) + within
     step(clock, done?, deadline)
   end
@@ -132,22 +147,12 @@ defmodule PageFreshness.FlowTime do
     end
   end
 
-  defp handled do
-    for {_, pid, _, _} <- DynamicSupervisor.which_children(AtlasFlow.Supervisor),
-        do: state(pid)
+  defp handled, do: state(AtlasFlow.Engine)
 
-    state(AtlasFlow.Engine)
-  end
-
-  # A process that stopped meanwhile (its fact is done) has nothing left to handle.
+  # An engine being replaced meanwhile has nothing left to handle.
   defp state(process) do
     :sys.get_state(process)
   catch
     :exit, _ -> :ok
-  end
-
-  defp stop_items do
-    for {_, pid, _, _} <- DynamicSupervisor.which_children(AtlasFlow.Supervisor),
-        do: DynamicSupervisor.terminate_child(AtlasFlow.Supervisor, pid)
   end
 end

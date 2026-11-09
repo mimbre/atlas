@@ -1,11 +1,11 @@
 # Native proof of slices 8 and 9: the pull request and the issue on Flow's durable runs, in
-# place of the legacy flows review_and_merge and build_and_merge, against a private Rela and real Facts, with the model compiled
+# place of the old flows review_and_merge and build_and_merge, against a private Rela and real Facts, with the model compiled
 # for the test environment and a manual clock. Owns and stops its private Rela and Facts.
 # MIX_ENV=test mix run integration/flow_delivery_native.exs PRIVATE_DIR RELA_BIN_DIR
 #
 # It proves: merged, closed and open pull requests are imported as the table says (history
 # completes as it was and nothing is written on it; an open one with outcomes joins its
-# wait; any other open one starts its checks); the run, not the legacy flow, owns every
+# wait; any other open one starts its checks); the run, not the old flow, owns every
 # pull request; restart while waiting moves nothing; a failed test sends it back; a new
 # revision starts the checks again and the replaced revision's late verdict counts for
 # nothing; review and test on the current revision together lead to integrating, once,
@@ -96,7 +96,7 @@ try do
   %{config: config, flows: flows, refusal: nil} = AtlasFlow.Model.load(Model.AtlasEyra, :test)
 
   assert Enum.sort(Map.keys(config["selection"])) ==
-           ~w(decide design_and_accept issue pr_review pr_test pull_request test_and_accept_scene test_and_accept_use_case)
+           ~w(decide design_and_accept follow_through issue pr_review pr_test pull_request test_and_accept_scene test_and_accept_use_case)
 
   # GitHub, faked: the base branch and the commits the pull request will have.
   {:ok, gh} = FakeGitHub.start_link()
@@ -221,7 +221,7 @@ try do
     })
   end
 
-  # Before the cutover, as on test and prod today: the legacy flow presented every open
+  # Before the cutover, as on test and prod today: the old flow presented every open
   # pull request, and no flow wrote an outcome on one. One merged with its review done,
   # one closed, one open whose outcomes someone wrote, one open with a review and a test
   # of its revision r1 still open.
@@ -244,7 +244,7 @@ try do
   history = [merged, closed, ready]
 
   # Slice 9. The issues as on test and prod today: in Specification, with nothing a flow
-  # wrote on them, presented by the legacy flow. One whose open pull request (r1, above)
+  # wrote on them, presented by the old flow. One whose open pull request (r1, above)
   # is in its checks, one whose merged pull request is linked to it, and one on which its
   # pull request's merge was reported already (the import table's one row).
   issue = fn number, values ->
@@ -309,11 +309,11 @@ try do
 
   for {key, fact} <- untouched, do: assert(read.("issue", key)["version"] == fact["version"])
 
-  # The run is the one writer of every issue: the legacy flow presents none.
+  # The run is the one writer of every issue: the old flow presents none.
   for key <- issues,
       do: assert({"issue", _} = Store.selected(config, "issue", read.("issue", key)))
 
-  # The run is the one writer of every pull request: the legacy flow presents none.
+  # The run is the one writer of every pull request: the old flow presents none.
   for key <- [open | history],
       do:
         assert(

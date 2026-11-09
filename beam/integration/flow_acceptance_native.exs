@@ -1,8 +1,8 @@
 # Native proof of slices 10, 11 and 12: a use case on Flow's durable runs, its design on
 # design_and_accept and its building, testing and acceptance on test_and_accept_use_case,
-# together taking every use case from the legacy flow design_and_accept; and a scene on
-# test_and_accept_scene, taking every scene from the legacy flow test_and_accept, so all
-# eight generated subflows are selected; against a private Rela and real Facts, with the
+# together taking every use case from the old flow design_and_accept; and a scene on
+# test_and_accept_scene, taking every scene from the old flow test_and_accept (both gone
+# since slice 14); against a private Rela and real Facts, with the
 # model compiled for the test environment, Flow's engine and its processes, and a manual
 # clock. Owns and stops its private Rela and Facts.
 # MIX_ENV=test mix run integration/flow_acceptance_native.exs PRIVATE_DIR RELA_BIN_DIR
@@ -10,7 +10,7 @@
 # It proves, on the use cases as test and prod hold them (written; approved with and
 # without issues; without a design phase, with and without issues; accepted; in review and
 # sent back for the design's import rows): the cutover keeps what each presents and its
-# owner, and leaves none to the legacy flow; the build run imports approved, phase-less and
+# owner, and leaves none without a writer; the build run imports approved, phase-less and
 # accepted use cases as its table says, writing nothing but their count of issues; restart
 # while waiting moves nothing; changes requested send the design back and in review returns
 # it; the review's approval accepts it once; Flow restarted after the design's accepted
@@ -20,9 +20,9 @@
 # new generation.
 #
 # For scenes (built; empty; with all its use cases completed; accepted), as test and prod
-# hold them: before slice 12 the legacy flow presents each and no scene holds a count of
+# hold them: before slice 12 each shows what was written and no scene holds a count of
 # its use cases (nothing counts them while no subflow runs on a scene); the cutover keeps
-# what each presents and its owner, leaves none to the legacy flow, imports each as its
+# what each presents and its owner, leaves none without a writer, imports each as its
 # table says and writes nothing on it but its count (and the reset of the verdict of the
 # one it tests); restart while it is tested moves nothing; the decider's accept ends it;
 # a use case under it reopened, the scene reopened and open work added under it start no
@@ -72,7 +72,6 @@ defmodule AcceptanceProof.Before do
   @moduledoc false
   @behaviour AtlasFlow.Model
   defdelegate subflows(environment), to: Model.AtlasEyra
-  defdelegate legacy(), to: Model.AtlasEyra
   defdelegate runs(), to: Model.AtlasEyra
   defdelegate migrations(), to: Model.AtlasEyra
   defdelegate composition(), to: Model.AtlasEyra
@@ -89,7 +88,6 @@ defmodule AcceptanceProof.Slice11 do
   @moduledoc false
   @behaviour AtlasFlow.Model
   defdelegate subflows(environment), to: Model.AtlasEyra
-  defdelegate legacy(), to: Model.AtlasEyra
   defdelegate runs(), to: Model.AtlasEyra
   defdelegate migrations(), to: Model.AtlasEyra
   defdelegate composition(), to: Model.AtlasEyra
@@ -133,7 +131,7 @@ try do
   %{config: config, refusal: nil} = runner
 
   assert Enum.sort(Map.keys(config["selection"])) ==
-           ~w(decide design_and_accept issue pr_review pr_test pull_request test_and_accept_scene test_and_accept_use_case)
+           ~w(decide design_and_accept follow_through issue pr_review pr_test pull_request test_and_accept_scene test_and_accept_use_case)
 
   restart = fn facts ->
     GenServer.stop(facts)
@@ -151,29 +149,7 @@ try do
     fact
   end
 
-  # Flow's engine with its processes, each started fresh: Flow keeps nothing, only Facts does.
-  items = fn ->
-    for {_, pid, _, _} <- DynamicSupervisor.which_children(AtlasFlow.Supervisor), do: pid
-  end
-
-  stop_items = fn ->
-    for pid <- items.(), do: DynamicSupervisor.terminate_child(AtlasFlow.Supervisor, pid)
-  end
-
-  # Every process looks once more, and has stored what it writes.
-  flush = fn ->
-    for pid <- items.() do
-      send(pid, :look)
-
-      try do
-        :sys.get_state(pid)
-        :sys.get_state(pid)
-      catch
-        :exit, _ -> :ok
-      end
-    end
-  end
-
+  # Flow's engine, each started fresh: Flow keeps nothing, only Facts does.
   start_engine = fn model ->
     {:ok, engine} =
       Engine.start_link(
@@ -185,7 +161,6 @@ try do
 
     Engine.round(engine)
     assert :sys.get_state(engine).refusal == nil
-    flush.()
     engine
   end
 
@@ -201,7 +176,6 @@ try do
 
   stop_engine = fn engine ->
     GenServer.stop(engine)
-    stop_items.()
     released.(released, 1_000_000)
   end
 
@@ -225,7 +199,6 @@ try do
   round = fn engine ->
     Engine.round(engine)
     assert :sys.get_state(engine).refusal == nil
-    flush.()
   end
 
   blank = fn
@@ -409,10 +382,9 @@ try do
   coordinator = ["coordinator"]
   decider = ["reviewer-1"]
 
-  # Before the cutover, as on test and prod (slice 10): the design run presents a design
-  # being written or reviewed, the legacy flow every other use case.
-  engine = start_engine.(AcceptanceProof.Before)
-
+  # What each presented when the cutovers came, as test and prod held them: on its
+  # Assignment, what is expected, its owner and its state, as Flow wrote them then (the
+  # old flows that wrote them are gone since slice 14).
   live = %{
     writing => {"Write its Design part", architect, "designing"},
     building => {"Build it", coordinator, "building"},
@@ -424,6 +396,32 @@ try do
     phaseless_built => {"Build it", coordinator, "building"}
   }
 
+  scene_live = %{
+    built_scene => {"Build it", coordinator, "building"},
+    empty_scene => {"Break it down into use cases and issues", coordinator, "break_down"},
+    tested_scene => {"Test it", decider, "to_test"},
+    accepted_scene => {nil, nil, nil}
+  }
+
+  as_flow.(fn ->
+    for {key, {expected, owners, state}} <- Map.merge(live, scene_live), expected != nil do
+      kind = if String.starts_with?(key, "SC-"), do: "scene", else: "use_case"
+      [assignment] = read.(kind, key)["links"]["assignment"]
+
+      put.("assignment", %{
+        "op" => "change",
+        "key" => assignment,
+        "values" => %{"expected" => expected, "flow_state" => state},
+        "links" => %{"assigned_to" => owners},
+        "by" => "flow"
+      })
+    end
+  end)
+
+  # Before the cutover, as on test and prod (slice 10): the design run presents a design
+  # being written or reviewed; every other use case keeps what was written.
+  engine = start_engine.(AcceptanceProof.Before)
+
   for key <- all, do: assert(presents.(key) == live[key], key)
   assert summary.(design.(writing)) == {"designing", "active", 1}
   refute Map.has_key?(design.(writing)["last_input"], "import")
@@ -432,16 +430,9 @@ try do
   for key <- [reviewing, sent_back], do: assert(design.(key)["last_input"]["import"] == true)
   for key <- all, do: assert(build.(key) == nil)
 
-  # The legacy flow presents every scene: built, broken down, tested by the decider (all
+  # Every scene shows what was written: built, broken down, tested by the decider (all
   # under it completed), nothing for the accepted one; no scene holds a count of its use
   # cases, and none has a run.
-  scene_live = %{
-    built_scene => {"Build it", coordinator, "building"},
-    empty_scene => {"Break it down into use cases and issues", coordinator, "break_down"},
-    tested_scene => {"Test it", decider, "to_test"},
-    accepted_scene => {nil, nil, nil}
-  }
-
   uncounted = fn ->
     for key <- scenes do
       assert scene_presents.(key) == scene_live[key], key
@@ -458,7 +449,7 @@ try do
 
   # The cutover of slice 11. The build run takes every use case the design run does not:
   # approved or with no design phase it joins building, its count moving it where the
-  # legacy flow had it; accepted, it is completed history. Each writes nothing but its
+  # old flow had it; accepted, it is completed history. Each writes nothing but its
   # count of issues.
   engine = start_engine.(AcceptanceProof.Slice11)
 
@@ -481,7 +472,7 @@ try do
   for key <- [writing, reviewing, sent_back], do: assert(build.(key) == nil)
 
   # What every use case presents, and to whom, is what it presented before; no use case
-  # is left to the legacy flow.
+  # is left to the old flow.
   for key <- all do
     assert presents.(key) == live[key], key
     assert {_, _} = Store.selected(config, "use_case", read.("use_case", key))
@@ -510,14 +501,14 @@ try do
 
   # Still no scene holds a count, though use cases are under them and their build runs
   # run: the count of a scene's use cases applies only once a subflow runs on the scene,
-  # and only that run writes it. The legacy flow presents every scene as before.
+  # and only that run writes it. The old flow presents every scene as before.
   uncounted.()
   stop_engine.(engine)
   scene_values = Map.new(scenes, &{&1, read.("scene", &1)})
 
-  # The cutover of slice 12: every scene is the scene run's, none the legacy flow's. Not
+  # The cutover of slice 12: every scene is the scene run's, none the old flow's. Not
   # completed, it joins building, and its count, on its first entry, moves it where the
-  # legacy flow had it (break down with none under it, to test with all completed);
+  # old flow had it (break down with none under it, to test with all completed);
   # accepted, it is completed history. Each writes nothing on the scene but its count, and
   # the one it tests the reset of its verdict.
   engine = start_engine.(Model.AtlasEyra)
@@ -700,7 +691,7 @@ try do
   assert presents.(reviewing) == {nil, nil, nil}
 
   # One writer per use case at every moment: the run of the selection that admits it,
-  # presenting while it is active; never the legacy flow.
+  # presenting while it is active; never the old flow.
   for key <- all do
     fact = read.("use_case", key)
     assert {name, _} = Store.selected(config, "use_case", fact), key
@@ -783,7 +774,7 @@ try do
   assert scene_run.(tested_scene, 3) == nil
 
   # One writer per scene at every moment: its latest run, presenting while it is active;
-  # never the legacy flow.
+  # never the old flow.
   for key <- scenes do
     assert {"test_and_accept_scene", _} = Store.selected(config, "scene", read.("scene", key))
     run = scene_run.(key, 2) || scene_run.(key, 1)
@@ -796,7 +787,7 @@ try do
   Agent.stop(clock)
 
   IO.puts(
-    "flow-acceptance native proof: live presentations kept, none left to the legacy flow, " <>
+    "flow-acceptance native proof: live presentations kept, none left without a writer, " <>
       "design and build imports, restart while waiting, changes requested, design accepted " <>
       "once, one build run across a restart before it was made, issues built and tested " <>
       "across a restart, accepted by the decider, reopening starts no new generation; " <>

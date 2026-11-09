@@ -1,0 +1,28 @@
+# An accepted decision followed through until work is based on it, or none is needed.
+flows:
+  follow_through:
+    label: Follow through
+    subject: decision
+    per_subject: one
+    start:
+      - on: predicate
+        when: "entity.status == 'accepted'"
+    initial: waiting
+    states:
+      waiting:
+        label: Carry it out
+        on:
+          change:
+            - { to: no_work, when: "entity.no_work == true" }
+            - { to: superseded, when: "entity.status == 'superseded'" }
+            - { to: carried_out, when: "entity.work > 0" }
+      carried_out:
+        label: Carried out
+        final: true
+      no_work:
+        label: No work needed
+        final: true
+      superseded:
+        label: Superseded
+        final: true
+        status: cancelled

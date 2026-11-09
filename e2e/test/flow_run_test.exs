@@ -47,7 +47,7 @@ defmodule AtlasE2E.FlowRunTest do
   # (the model below is compiled from these same kinds and relations)
   projection = %{"field" => "todo"}
   config = %{"version" => 1, "kind" => "cursor", "fields" => Map.new(run_fields, &{&1, &1}), "writer" => %{"sender" => "flow", "by" => "flow"},
-    "selection" => %{"sort" => %{"subject" => "box", "legacy" => "sort", "projection" => projection, "admission" => %{}, "imports" => [], "follow_through" => nil}},
+    "selection" => %{"sort" => %{"subject" => "box", "projection" => projection, "admission" => %{}, "imports" => []}},
     "inputs" => %{"kind" => "choice", "fields" => Map.new(fields, &{&1, &1}), "acl" => %{"clerk" => %{"update" => ["box"]}}, "roles" => %{"clerk" => "chosen_by"}}}
   # The private model Facts stores by: the same schema rela is given, and the run mapping,
   # compiled by the store generator as a composition is (Facts' neutral test model).

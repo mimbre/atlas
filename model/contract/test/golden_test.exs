@@ -43,6 +43,7 @@ defmodule Model.GoldenTest do
   # to_test (was a207d811b03394f4).
   # Slice 12: test_and_accept_scene loses its passes; the decider's verdict ends to_test,
   # and a new open use case sends it back from to_test (was 8dc48c7180394ded).
+  # Slice 14: follow_through, new, takes an accepted decision until work is based on it.
   @versions [
     {"issue", [issue: "de930a7511675ac8"]},
     {"pull_request", [pull_request: "0ef9fa7df6aab982"]},
@@ -51,7 +52,8 @@ defmodule Model.GoldenTest do
     {"use_case",
      [design_and_accept: "dcf324cd5ccd6218", test_and_accept_use_case: "87b0c759cc5226cb"]},
     {"scene", [test_and_accept_scene: "b3c10271c51b8945"]},
-    {"decision", [decide: "e2ad1048cd8a4748"]}
+    {"decision", [decide: "e2ad1048cd8a4748"]},
+    {"follow_through", [follow_through: "c78849a1df469267"]}
   ]
 
   defp below_header(text),
@@ -80,7 +82,7 @@ defmodule Model.GoldenTest do
     assert generated() == approved()
   end
 
-  test "the composition holds the eight subflows, in order" do
+  test "the composition holds the nine subflows, in order" do
     names = for {_, flows} <- @versions, {name, _} <- flows, do: name
     assert Enum.map(AtlasEyra.__flows__(), & &1.name) == names
   end
@@ -106,7 +108,7 @@ defmodule Model.GoldenTest do
              "from model/contract/compositions/atlas_eyra.ex, model/contract/software/issue.ex"
 
     assert header =~
-             "model/contract/eyra/scene.ex, model/contract/foundation/decision.ex. Do not edit"
+             "model/contract/foundation/decision.ex, model/contract/software/follow_through.ex. Do not edit"
 
     assert Enum.join([open | rest], "\n") ==
              Atlas.flows_json(
@@ -117,7 +119,7 @@ defmodule Model.GoldenTest do
              )
   end
 
-  test "the committed composition is the compiled one; Flow applies the three links" do
+  test "the committed composition is the compiled one; Flow applies the links, counts and tally" do
     compiled = AtlasEyra.composition()
     no_nil = &Enum.map(&1, fn x -> Map.reject(x, fn {_, v} -> v == nil end) end)
     assert Committed.composition() == Map.update!(compiled, "links", no_nil)
@@ -134,6 +136,17 @@ defmodule Model.GoldenTest do
              {"test_and_accept_use_case", "scene"}
            ]
 
+    # The tally is given to follow_through, which reads it; never to decide, also on a
+    # decision.
+    assert compiled["tallies"] == [
+             %{
+               "parent_subject" => "decision",
+               "relation" => "based_on",
+               "all" => "work",
+               "readers" => ["follow_through"]
+             }
+           ]
+
     # Slice 8 selects the pull request, the parent of the review's and the test's links:
     # Flow applies those two, by the revision they are current for. Slice 9 selects the
     # issue, so the pull request's own link to it applies too, with no identity: every pull
@@ -141,19 +154,31 @@ defmodule Model.GoldenTest do
     # so the use case's count of its issues applies (both ends are selected); slice 11
     # selects test_and_accept_use_case too, the child of the scene's count of its use
     # cases, which slice 12 applies by selecting test_and_accept_scene: every subflow is
-    # selected, and both counts apply.
+    # selected, and both counts apply. Slice 14 selects follow_through on the decision, so
+    # the tally of the work based on a decision applies, with every kind based_on starts at.
     for env <- [:prod, :test] do
       runner = AtlasFlow.Model.load(AtlasEyra, env, %{"decider" => "someone"})
 
       assert Map.keys(runner.config["selection"]) == [
                "decide",
                "design_and_accept",
+               "follow_through",
                "issue",
                "pr_review",
                "pr_test",
                "pull_request",
                "test_and_accept_scene",
                "test_and_accept_use_case"
+             ]
+
+      assert runner.config["composition"]["tallies"] == [
+               %{
+                 "parent_subject" => "decision",
+                 "relation" => "based_on",
+                 "all" => "work",
+                 "from" => ["scene", "use_case", "issue"],
+                 "readers" => ["follow_through"]
+               }
              ]
 
       assert Enum.map(runner.config["composition"]["links"], &{&1["child"], &1["current"]}) == [

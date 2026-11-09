@@ -30,13 +30,11 @@ defmodule RelaDSL.Description.Build do
                    delete_error)
   @listed %{action: "actions", counts: "counts", requires: "requires"}
   @select_keys [
-    :legacy,
     :choices,
     :roles,
     :projection,
     :admission,
     :imports,
-    :follow_through,
     :verification,
     :reopen
   ]
@@ -239,9 +237,6 @@ defmodule RelaDSL.Description.Build do
   defp fragment(%{kind: :root, value: {construct, value}}),
     do: [%{RelaDSL.Description.root_key(construct) => Plain.of(value)}]
 
-  defp fragment(%{kind: :legacy_flow, value: {name, opts}}),
-    do: [%{"flows" => %{to_string(name) => Plain.of(opts)}}]
-
   defp fragment(%{kind: :extend_entity, value: {name, rules}}),
     do: [%{"entities" => %{to_string(name) => Plain.of(rules)}}]
 
@@ -352,11 +347,9 @@ defmodule RelaDSL.Description.Build do
                 {"subject", to_string(flow.subject)}
               ] ++
                 for k <- [
-                      :legacy,
                       :projection,
                       :admission,
                       :imports,
-                      :follow_through,
                       :verification,
                       :reopen
                     ],

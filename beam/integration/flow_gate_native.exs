@@ -168,9 +168,6 @@ try do
     AtlasFlow.Engine.round(engine)
     assert :sys.get_state(engine).refusal == nil
     GenServer.stop(engine)
-
-    for {_, pid, _, _} <- DynamicSupervisor.which_children(AtlasFlow.Supervisor),
-        do: DynamicSupervisor.terminate_child(AtlasFlow.Supervisor, pid)
   end
 
   assert {:ok, runs} = reconcile.()

@@ -1,6 +1,7 @@
 # A submit through Control waits for Flow to settle past it (docs/design/page-freshness.md
-# §2.1, §2.2), on the real path: Facts (on its in-memory rela), Flow's engine and the
-# processes of the facts, and a Control session over its Gateway, all on the Bus. The
+# §2.1, §2.2), on the real path: Facts (on its in-memory rela), Flow's engine (which
+# reconciles the runs and projects them), and a Control session over its Gateway, all on
+# the Bus. The
 # neutral workshop model (atlas_flow's test support). No time passes but the manual
 # clocks': Flow's, and Control's held waits.
 # From beam/: MIX_ENV=test mix run integration/settle_submit.exs
@@ -25,9 +26,6 @@ defmodule SettleSubmitTest do
 
   setup %{tmp_dir: dir} do
     Application.put_env(:atlas_bus, :store, "settle-#{System.unique_integer([:positive])}")
-    :ok = Supervisor.terminate_child(AtlasFlow.Root, AtlasFlow.Supervisor)
-    {:ok, _} = Supervisor.restart_child(AtlasFlow.Root, AtlasFlow.Supervisor)
-
     rela = FakeRela.start(@model)
 
     facts =
@@ -42,7 +40,6 @@ defmodule SettleSubmitTest do
       start_supervised!({Engine, every: 3_600_000, clock: {ManualClock, clock}, model: @model})
 
     Engine.round(engine)
-    settle(engine)
 
     AtlasControl.Clock.hold(self())
     on_exit(&AtlasControl.Clock.release/0)
@@ -51,40 +48,18 @@ defmodule SettleSubmitTest do
     on_exit(fn ->
       for {_, pid, _, _} <- DynamicSupervisor.which_children(AtlasControl.Sessions),
           do: DynamicSupervisor.terminate_child(AtlasControl.Sessions, pid)
-
-      for {_, pid, _, _} <- DynamicSupervisor.which_children(AtlasFlow.Supervisor),
-          do: DynamicSupervisor.terminate_child(AtlasFlow.Supervisor, pid)
     end)
 
     %{rela: rela, facts: facts, engine: engine, clock: clock, socket: client()}
   end
 
   # Widgets put in the store behind Facts' back, as a fixture: no hint, so only a round
-  # gives them processes.
+  # gives them runs.
   defp widgets(rela, facts, numbers) do
     for n <- numbers,
         do: {:ok, _} = FakeRela.create(rela, "widgets", "W-#{n}", %{"title" => "W#{n}"}, %{})
 
     :ok = AtlasFacts.Server.flush_collections(facts)
-  end
-
-  defp items,
-    do: for({_, pid, _, _} <- DynamicSupervisor.which_children(AtlasFlow.Supervisor), do: pid)
-
-  # Every process handled what it was sent, and the engine what they reported.
-  defp settle(engine) do
-    for _ <- 1..3 do
-      Enum.each(items(), &handled/1)
-      :sys.get_state(engine)
-    end
-  end
-
-  # A process handled what it was sent; one that stopped meanwhile (its fact is done or
-  # gone) has nothing left to handle.
-  defp handled(pid) do
-    :sys.get_state(pid)
-  catch
-    :exit, _ -> :ok
   end
 
   defp client do
@@ -115,23 +90,23 @@ defmodule SettleSubmitTest do
     if message["op"] == op and test.(message), do: message, else: next(socket, op, test)
   end
 
-  # Open `path`, submit `values` on it; Flow's looks run once Control asked how far Flow
-  # settled. `{session, position, the stored page}`; the settle timeout is never run out.
+  # Open `path`, submit `values` on it; Flow handles its hint before Control's question
+  # how far it settled. `{session, position, the stored page}`; the settle timeout is never run out.
   defp submit(c, path, values) do
     put(c.socket, %{"op" => "open", "to" => path})
     # Pages pushed for what earlier submits changed may come first.
     assert %{"path" => ^path} = next(c.socket, "page", &(&1["path"] == path))
+    # Flow is held while the session stores and asks, so the question waits for it.
+    :ok = :sys.suspend(c.engine)
     put(c.socket, %{"op" => "submit", "to" => path, "values" => values})
 
     # Stored: the session asks Flow and waits, at most its budget (held here).
     assert_receive {:clock, session, {:settle_timeout, _}, 1_000}, @arrives
     position = :sys.get_state(session).settling.position
 
-    # The hint came before the question: the processes it poked look now.
+    # The hint came before the question: the engine handles it, then the question.
+    :ok = :sys.resume(c.engine)
     :sys.get_state(c.engine)
-    Enum.each(items(), &handled/1)
-    ManualClock.advance(c.clock, 50)
-    settle(c.engine)
 
     page = next(c.socket, "page", &(&1["reason"] == "stored"))
     {session, position, page}
@@ -168,10 +143,8 @@ defmodule SettleSubmitTest do
 
     few = shapes.(1)
     widgets(c.rela, c.facts, 11..200)
+    # Each widget has its run (the in-memory rela lists every fact under each kind).
     Engine.round(c.engine)
-    settle(c.engine)
-    # Each widget has its process (the in-memory rela lists every fact under each kind).
-    assert length(items()) >= 200
     many = shapes.(3)
 
     for shape <- [:change, :create, :delete] do

@@ -40,6 +40,54 @@ defmodule AtlasRuntime.TestModel.Box do
     max_outgoing: 1,
     inverse: {:owns, "owns"}
   )
+
+  # The runs of its subflow, as Flow keeps them (a cursor each).
+  entity :job, label: "Job", plural: "jobs", id_type: :manual do
+    for f <- ~w(flow subject_kind subject_key definition_sha256 state entered_at status
+                deadlines pending last_input blocked_reason)a,
+        do: field(f, :string)
+
+    for f <- ~w(generation entry input_cursor)a, do: field(f, :integer)
+    top(false)
+    by_hand(false)
+  end
+
+  flow_runtime(runs: :job, writer: [sender: :flow, by: :flow])
+
+  # Ada packs a box through its card; bob checks it while it is in its check phase.
+  subflow :pack, label: "Pack", subject: :box do
+    owner(via: :card, relation: :owned_by, default: {:clerk, :ada})
+    start(:create)
+    initial(:packing)
+
+    state :packing, label: "Pack it" do
+      present(expected: "Pack it")
+      branch(to: :checking, when: "entity.phase == 'check'")
+      branch(to: :packed, when: "entity.phase == 'packed'")
+    end
+
+    state :checking, label: "Check it" do
+      owner(via: :card, relation: :owned_by, default: {:clerk, :bob})
+      present(expected: "Check it")
+      branch(to: :packing, when: "entity.phase == 'packing'")
+      branch(to: :packed, when: "entity.phase == 'packed'")
+    end
+
+    final(:packed, label: "Packed")
+  end
+
+  select(:pack,
+    choices: [],
+    projection: [
+      on: :card,
+      field: :todo,
+      state_field: :step,
+      handover_field: :later,
+      owner_relation: :owned_by
+    ],
+    admission: [],
+    imports: []
+  )
 end
 
 defmodule AtlasRuntime.TestModel.Run do
@@ -120,28 +168,8 @@ defmodule AtlasRuntime.TestModel do
   schema(version: "1.0", namespace: "https://example.invalid/packing#", comment: "Packing.")
   modules([AtlasRuntime.TestModel.Packing])
 
-  legacy_flow(:pack,
-    on: :card,
-    kinds: [:box],
-    field: :todo,
-    state_field: :step,
-    handover_field: :later,
-    owner_relation: :owned_by,
-    states: [
-      [name: :packed, when: [values: [phase: ["packed"]]], done: true],
-      [
-        name: :checking,
-        when: [values: [phase: ["check"]]],
-        owner: [kind: :clerk, key: "bob"],
-        expected: "Check it",
-        next: [:packing]
-      ],
-      [name: :packing, owner: [kind: :clerk, key: "ada"], expected: "Pack it", next: [:packed]]
-    ]
-  )
-
   defcomposition :packing do
-    subflows([])
+    subflows([AtlasRuntime.TestModel.Box])
   end
 end
 
@@ -255,20 +283,7 @@ defmodule AtlasRuntime.TestModel.Guided do
   schema(version: "1.0", namespace: "https://example.invalid/guided#", comment: "Guided.")
   modules([AtlasRuntime.TestModel.GuidedPacking])
 
-  legacy_flow(:pack,
-    on: :card,
-    kinds: [:box],
-    field: :todo,
-    state_field: :step,
-    handover_field: :later,
-    owner_relation: :owned_by,
-    states: [
-      [name: :packed, when: [values: [phase: ["packed"]]], done: true],
-      [name: :packing, owner: [kind: :clerk, key: "ada"], expected: "Pack it", next: [:packed]]
-    ]
-  )
-
   defcomposition :guided do
-    subflows([])
+    subflows([AtlasRuntime.TestModel.Box])
   end
 end

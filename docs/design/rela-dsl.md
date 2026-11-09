@@ -105,10 +105,16 @@ The kernel passes `lookup`, its reader of related facts and links, so generated 
 | `connector` | `connector` | `connector/1` |
 | `relations.*.{parent,add,actions}`, `todo`, `shell`, `start` | relation options, `todo_words`, `shell`, `start_page` | `actions/3`, `todo/4`, `shell/1`, `start_page/0` |
 | `runtime.{turn,agent}`, `guidance`, `read_first` | `runtime`, `guidance`, `read_first` | `AtlasRuntime.Model` |
-| `flows` (legacy, until flow-runs slice 14) | `legacy_flow` | `AtlasFlow.Subflow` as legacy definitions, with no JSON parser |
 | flow-runtime `kind/fields/writer/inputs/selection/migrations` | `flow_runtime`, `select`, `migrate` | `selection/1`, `migrations/0`, `check/4` (writer rule) |
 | `acl.yaml` roles/assignments | `role`, `assign` | `acl.yaml` target only (Rela checks flows against it) |
 | test-env patch in `fly/core.Dockerfile` (`guidance.control`, Workers tab) | environment settings | `shell/1(env)`, `guidance/0` + `env/test.json` |
+
+`frozen.tallied` exempts a count from the frozen value restriction only when its field
+declares exactly `set_by: [:flow]`. Additional writers (including a repeated `:flow`)
+are refused at DSL compilation: the existing machine-writer guard recognizes that
+singleton and requires both Flow's writer and sender for tally updates. Final composition
+also refuses an absent or inconsistent `flow_runtime.writer` that would leave a frozen
+tally without that field guard; concepts and modules may remain partial until assembly.
 
 ## 3. Digests, proofs and migrations
 

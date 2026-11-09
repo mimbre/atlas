@@ -6,9 +6,10 @@ defmodule AtlasFlow.Runs.Store do
   service must see the stored cursor first (see "One reaction, stored once" below).
 
   A run on a parent of the model's composition (`AtlasFlow.Model.composition/0`) also
-  owes its subject the values of its links and counts. Each drain works them out again
-  from the parent's children and their latest runs (`AtlasFlow.Composition.Links`,
-  `AtlasFlow.Composition.Counts`), so a deleted or moved child and a lost hint are
+  owes its subject the values of its links, counts and tallies. Each drain works them out
+  again from the parent's children and their latest runs (`AtlasFlow.Composition.Links`,
+  `AtlasFlow.Composition.Counts`), and from every fact that relates to it
+  (`AtlasFlow.Composition.Tallies`), so a deleted or moved child and a lost hint are
   counted right. Owed writes join the run's pending writes, with stable ids, before any
   is sent; the run keeps the sources it applied, so a duplicate or replayed completion
   writes nothing again. A changed aggregate becomes a synthetic input of Flow's own
@@ -21,7 +22,7 @@ defmodule AtlasFlow.Runs.Store do
   alias AtlasFlow.Activities.Gate
   alias AtlasFlow.Activities.Pass
   alias AtlasFlow.Activities.Effect
-  alias AtlasFlow.Composition.{Counts, Links}
+  alias AtlasFlow.Composition.{Counts, Links, Tallies}
 
   @structured ~w(deadlines pending last_input)
   # What a child's run moving means to its parents.
@@ -38,15 +39,15 @@ defmodule AtlasFlow.Runs.Store do
 
     case model.runs() do
       runs when is_map(runs) and selection != %{} ->
-        {composition, refused} = composition(model.composition(), selection, flows)
+        {composition, refused} =
+          composition(model.composition(), selection, flows, model.relations())
 
         config =
           runs
           |> Map.put("selection", selection)
           |> Map.put("composition", composition)
 
-        {config,
-         validate_selection(config, flows) || two_writers(model, selection, flows) || refused}
+        {config, validate_selection(config, flows) || two_writers(selection) || refused}
 
       _ ->
         {nil, nil}
@@ -54,19 +55,23 @@ defmodule AtlasFlow.Runs.Store do
   end
 
   # The links and counts Flow applies: those whose child subflow is selected and some
-  # selected subflow runs on the parent. Production selects none of them unless the model
-  # selects both ends. A version this runner does not know, or an active link or count it
-  # cannot apply, refuses every run.
-  defp composition(%{"version" => version} = c, selection, flows) do
-    active = fn x ->
-      Map.has_key?(selection, x["child"]) and
-        Enum.any?(selection, fn {name, _} ->
-          flows[name] != nil and flows[name].subject() == x["parent_subject"]
-        end)
+  # selected subflow runs on the parent; the tallies whose parent a selected subflow runs
+  # on. Production selects none of them unless the model selects both ends. A version
+  # this runner does not know, or an active link, count or tally it cannot apply, refuses
+  # every run.
+  defp composition(%{"version" => version} = c, selection, flows, relations) do
+    parent? = fn x ->
+      Enum.any?(selection, fn {name, _} ->
+        flows[name] != nil and flows[name].subject() == x["parent_subject"]
+      end)
     end
 
+    active = &(Map.has_key?(selection, &1["child"]) and parent?.(&1))
     links = Enum.filter(c["links"] || [], active)
     counts = Enum.filter(c["counts"] || [], active)
+
+    tallies =
+      for t <- c["tallies"] || [], parent?.(t), do: Tallies.resolve(t, relations)
 
     refused =
       cond do
@@ -78,14 +83,18 @@ defmodule AtlasFlow.Runs.Store do
             Enum.find_value(
               counts,
               &(Counts.valid?(&1) != :ok and {:unsupported_count, &1["child"]})
+            ) ||
+            Enum.find_value(
+              tallies,
+              &(Tallies.valid?(&1) != :ok and {:unsupported_tally, &1["relation"]})
             )
       end
 
-    {%{"links" => links, "counts" => counts}, refused}
+    {%{"links" => links, "counts" => counts, "tallies" => tallies}, refused}
   end
 
-  defp composition(other, _selection, _flows),
-    do: {%{"links" => [], "counts" => []}, {:unsupported_composition, other}}
+  defp composition(other, _selection, _flows, _relations),
+    do: {%{"links" => [], "counts" => [], "tallies" => []}, {:unsupported_composition, other}}
 
   defp validate_selection(config, flows) do
     Enum.find_value(Enum.sort(config["selection"]), fn {name, selection} ->
@@ -100,32 +109,16 @@ defmodule AtlasFlow.Runs.Store do
     end)
   end
 
-  # One writer per subject's presentation: a selected subflow on a kind a legacy flow also
-  # runs takes that kind's facts from it only by naming it (`legacy`) and giving its own
-  # `projection`; and no two selected subflows that project may admit the same fact.
-  # Otherwise two writers would present one fact: refuse every run.
-  defp two_writers(model, selection, flows) do
-    legacy = model.legacy()
-
+  # One writer per subject's presentation: no two selected subflows that project may admit
+  # the same fact. Otherwise two writers would present one fact: refuse every run.
+  defp two_writers(selection) do
     Enum.find_value(Enum.sort(selection), fn {name, s} ->
-      kind = flows[name] && flows[name].subject()
-      runs_kind = Enum.filter(legacy, &(kind in &1.kinds()))
-
-      cond do
-        runs_kind != [] and
-            (not is_map(s["projection"]) or Enum.map(runs_kind, & &1.name()) != [s["legacy"]]) ->
-          {:two_writers, name}
-
-        is_map(s["projection"]) and
-            Enum.any?(selection, fn {other, o} ->
-              other != name and is_map(o["projection"]) and o["subject"] == s["subject"] and
-                  overlap?(o["admission"], s["admission"])
-            end) ->
-          {:two_writers, name}
-
-        true ->
-          nil
-      end
+      if is_map(s["projection"]) and
+           Enum.any?(selection, fn {other, o} ->
+             other != name and is_map(o["projection"]) and o["subject"] == s["subject"] and
+               overlap?(o["admission"], s["admission"])
+           end),
+         do: {:two_writers, name}
     end)
   end
 
@@ -207,7 +200,7 @@ defmodule AtlasFlow.Runs.Store do
     do:
       config
       |> Map.put("flows", flows)
-      |> Map.put_new("composition", %{"links" => [], "counts" => []})
+      |> Map.put_new("composition", %{"links" => [], "counts" => [], "tallies" => []})
 
   # A subject with no run known: one is made when the selection admits it, as a scan does.
   defp admitted(config, name, flow, selection, kind, key, now) do
@@ -653,21 +646,54 @@ defmodule AtlasFlow.Runs.Store do
     end
   end
 
-  # What the run's subject owes its links and counts now: the writes, stored in the run
-  # before they are sent (stable ids), the sources it applied, the ambiguity it refuses,
-  # and the synthetic input its changed aggregate gives it. Unchanged when it owes none.
+  # What the run's subject owes its links, counts and tallies now: the writes, stored in
+  # the run before they are sent (stable ids), the sources it applied, the ambiguity it
+  # refuses, and the synthetic input its changed aggregate gives it. Unchanged when it owes
+  # none.
   defp compose(config, run, subject) do
     kind = run["subject_kind"]
     links = for l <- config["composition"]["links"], l["parent_subject"] == kind, do: l
     counts = for c <- config["composition"]["counts"], c["parent_subject"] == kind, do: c
 
-    if links == [] and counts == [] do
+    # A tally is given only to the runs of the subflows that read it (`readers`).
+    tallies =
+      for t <- config["composition"]["tallies"] || [],
+          t["parent_subject"] == kind and run["flow"] in t["readers"],
+          do: t
+
+    if links == [] and counts == [] and tallies == [] do
       {:ok, run}
     else
-      with {:ok, children} <- children(config, links ++ counts, subject) do
-        {:ok, composed(run, subject, links, counts, children)}
+      with {:ok, children} <- children(config, links ++ counts, subject),
+           {:ok, related} <- related(tallies, subject) do
+        {:ok, composed(run, subject, links, counts ++ tallies, Map.merge(children, related))}
       end
     end
+  end
+
+  # Every fact that relates to the subject through a tally's relation, of each kind it
+  # starts at: `%{{:tally, relation} => facts}`.
+  defp related(tallies, subject) do
+    Enum.reduce_while(tallies, {:ok, %{}}, fn t, {:ok, acc} ->
+      facts =
+        Enum.reduce_while(t["from"], {:ok, []}, fn kind, {:ok, facts} ->
+          case Talk.transition_read(kind, %{
+                 "linked" => %{t["relation"] => subject["key"]},
+                 "plain" => true
+               }) do
+            %{"facts" => more} ->
+              {:cont, {:ok, facts ++ Enum.map(more, &Map.put(&1, "kind", kind))}}
+
+            other ->
+              {:halt, {:error, {:related_unavailable, other}}}
+          end
+        end)
+
+      case facts do
+        {:ok, facts} -> {:cont, {:ok, Map.put(acc, {:tally, t["relation"]}, facts)}}
+        error -> {:halt, error}
+      end
+    end)
   end
 
   defp composed(run, subject, links, counts, children) do
@@ -716,8 +742,17 @@ defmodule AtlasFlow.Runs.Store do
 
     {acc, aggregate} =
       Enum.reduce(counts, {acc, %{}}, fn c, {acc, aggregate} ->
-        {facts, runs} = children[{c["child_subject"], c["relation"], c["child"]}]
-        values = Counts.values(c, facts, runs)
+        {identity, values} =
+          case c do
+            %{"child" => child} ->
+              {facts, runs} = children[{c["child_subject"], c["relation"], child}]
+              {child, Counts.values(c, facts, runs)}
+
+            tally ->
+              {["tally", tally["relation"]],
+               Tallies.values(tally, children[{:tally, tally["relation"]}])}
+          end
+
         changes = Counts.changes(values, subject)
 
         write =
@@ -726,7 +761,7 @@ defmodule AtlasFlow.Runs.Store do
             else: [
               subject_write(
                 run,
-                {"count", c["child"], changes, subject["version"], run["key"], run["entry"]},
+                {"count", identity, changes, subject["version"], run["key"], run["entry"]},
                 changes
               )
             ]

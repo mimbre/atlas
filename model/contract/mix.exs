@@ -20,7 +20,7 @@ defmodule Model.MixProject do
   def application, do: [extra_applications: [:logger]]
 
   # The DSL it is written in, and the platform's behaviours it implements (D-0083):
-  # Flow's (AtlasFlow.Model, AtlasFlow.Subflow, AtlasFlow.Legacy), Gates'
+  # Flow's (AtlasFlow.Model, AtlasFlow.Subflow), Gates'
   # (AtlasGates.Model), Runtime's (AtlasRuntime.Model), Control's (AtlasControl.Model) and
   # Facts' (AtlasFacts.Model),
   # at compile time only: the model starts no platform app. The

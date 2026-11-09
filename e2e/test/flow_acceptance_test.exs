@@ -2,13 +2,12 @@ defmodule AtlasE2E.FlowAcceptanceTest do
   @moduledoc """
   Slices 10, 11 and 12 on real persistence: a use case runs on Flow's durable runs, its
   design on design_and_accept and its building, testing and acceptance on
-  test_and_accept_use_case, which together take every use case from the legacy flow
+  test_and_accept_use_case, which together take every use case from the old flow
   design_and_accept; a scene runs on test_and_accept_scene, which takes every scene from
-  the legacy flow test_and_accept, so all eight generated subflows are selected; against a
-  private Rela and real Facts, with Flow's engine and its processes
-  (`beam/integration/flow_acceptance_native.exs`). The use cases and scenes as test and
-  prod hold them keep what they present and their owner, and none is left to a legacy
-  flow; the import tables; restart while waiting; changes requested; the design accepted
+  the old flow test_and_accept (both gone since slice 14); against a private Rela and real
+  Facts, with Flow's engine (`beam/integration/flow_acceptance_native.exs`). The use cases
+  and scenes as test and prod hold them keep what they present and their owner, and none
+  is left without a writer; the import tables; restart while waiting; changes requested; the design accepted
   once; a restart between the design's acceptance and the build run's creation makes one
   build run; its issues built, then tested across a restart, and accepted by the decider;
   reopening it starts no new generation. A scene holds no count of its use cases before

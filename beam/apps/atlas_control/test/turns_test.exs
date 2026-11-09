@@ -13,7 +13,13 @@ defmodule AtlasControl.TurnsTest do
       "links" => %{"worker" => ["ada"], "work" => ["C-1"]}
     }
 
-    item = %{"key" => "C-1", "links" => %{"holder" => ["ada"]}}
+    # As Facts presents the work on the card: whose it is (its run's projection).
+    item = %{
+      "key" => "C-1",
+      "links" => %{"holder" => ["ada"]},
+      "presentation" => %{"owner" => ["ada"], "actionable" => false}
+    }
+
     {description, turn, item}
   end
 
@@ -25,9 +31,8 @@ defmodule AtlasControl.TurnsTest do
       "run", _ ->
         %{"facts" => []}
 
-      # As Facts answers it: the work on the card presented (`AtlasControl.Presented`).
-      "card", content ->
-        AtlasControl.Presented.answer(AtlasControl.Packing, "card", content, %{"fact" => item})
+      "card", _content ->
+        %{"fact" => item}
 
       "box", _ ->
         %{"facts" => [%{"key" => "B-1"}]}
@@ -40,7 +45,16 @@ defmodule AtlasControl.TurnsTest do
     assert {:error, _} = Turns.current(d, "bob", read(turn, item))
 
     assert {:error, _} =
-             Turns.current(d, "ada", read(turn, put_in(item, ["links", "holder"], ["bob"])))
+             Turns.current(
+               d,
+               "ada",
+               read(
+                 turn,
+                 item
+                 |> put_in(["links", "holder"], ["bob"])
+                 |> put_in(["presentation", "owner"], ["bob"])
+               )
+             )
   end
 
   test "the turn says what its worker reads first, as the model compiled it" do
@@ -97,7 +111,12 @@ defmodule AtlasControl.TurnsTest do
 
   test "after a human hands the item on, the old agent has no turn and cannot end it" do
     {d, turn, item} = data()
-    item = put_in(item, ["links", "holder"], ["melle"])
+
+    item =
+      item
+      |> put_in(["links", "holder"], ["melle"])
+      |> put_in(["presentation", "owner"], ["melle"])
+
     ended = put_in(turn, ["values", "status"], "over")
     message = %{"key" => "R-1", "outcome" => "too late"}
 
