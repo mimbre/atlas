@@ -4,10 +4,16 @@ defmodule AtlasRuntime.Application do
 
   @impl true
   def start(_type, _args) do
+    # The model is wired by configuration (`config :atlas, model: …`); without one, or
+    # with a module that is no model, the engine does not start.
     engine =
       if Application.get_env(:atlas_runtime, :start, true) and
            Keyword.get(AtlasRuntime.Settings.get(), :agents) != %{},
-         do: [{AtlasRuntime.Engine, AtlasRuntime.Settings.get() ++ [name: AtlasRuntime.Engine]}],
+         do: [
+           {AtlasRuntime.Engine,
+            AtlasRuntime.Settings.get() ++
+              [name: AtlasRuntime.Engine, model: AtlasRuntime.Model.configured!()]}
+         ],
          else: []
 
     # One process per running turn, under its own supervisor: a turn whose process dies is

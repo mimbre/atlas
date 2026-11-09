@@ -1,8 +1,10 @@
 # Run in the umbrella with MIX_ENV=test; invoked by the external e2e test harness.
 ExUnit.start(seed: 0)
 
-# Flow's side: the legacy flow Runtime's stand-in Facts describes, compiled from the Rela
-# DSL into the model Flow's items run (a neutral one, with no runs selected).
+# Runtime runs the neutral model of its tests (AtlasRuntime.TestModel). Flow's side: the
+# same legacy flow, compiled from the Rela DSL into the model Flow's items run (a neutral
+# one, with no runs selected); the stand-in Facts answers Flow's description reads with
+# the neutral model's description.
 defmodule HandoverPack do
   use RelaDSL.Flow.Legacy,
     name: :pack,
@@ -61,7 +63,7 @@ defmodule RuntimeFlowHandoverTest do
       eventually(fn -> Registry.count(AtlasFlow.Items) == 0 end)
     end
 
-    start_supervised!(FakeFacts)
+    start_supervised!({FakeFacts, description: FakeFacts.description_of(AtlasRuntime.TestModel)})
     FakeFacts.put("clerk", %{"key" => "ada"})
     FakeFacts.put("clerk", %{"key" => "bob"})
     %{dir: dir}
@@ -90,6 +92,7 @@ defmodule RuntimeFlowHandoverTest do
         stub_dir: dir,
         crash_pause: 50,
         leave_grace: 300,
+        model: AtlasRuntime.TestModel,
         name: Engine
       ]
       |> Keyword.merge(more)

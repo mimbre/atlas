@@ -18,8 +18,8 @@ defmodule AtlasRuntime.Turn do
   When this process dies, the engine ends its durable running turn (C1), while Output's
   owner monitor closes the ring. Flow remains authority for the item's ownership (W3).
 
-  The turn's kind and fields are the description's (`runtime.turn` in `rela/atlas.json`):
-  this module names none.
+  The turn's kind and fields, and the guidance records, are the model's
+  (`AtlasRuntime.Model`), given by the engine: this module names none.
   """
   use GenServer, restart: :temporary
 
@@ -98,7 +98,7 @@ defmodule AtlasRuntime.Turn do
       schedule(state)
 
       if guidance != nil and state[:guidance_every] != :manual do
-        AtlasBus.listen(get_in(state.description, ["guidance", "interaction", "kind"]))
+        AtlasBus.listen(state.guidance_mapping["interaction"]["kind"])
         Process.send_after(self(), :guidance_tick, 0)
       end
 

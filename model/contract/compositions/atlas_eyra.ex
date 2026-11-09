@@ -21,9 +21,10 @@ defmodule Model.AtlasEyra do
     subflow_behaviour: AtlasFlow.Subflow,
     legacy_behaviour: AtlasFlow.Legacy
 
-  # The model Flow and Gates are wired to (config :atlas, model: …).
+  # The model Flow, Gates and Runtime are wired to (config :atlas, model: …).
   @behaviour AtlasFlow.Model
   @behaviour AtlasGates.Model
+  @behaviour AtlasRuntime.Model
 
   alias Model.{Decision, Issue, PrReview, PrTest, PullRequest, Scene, UseCase}
 

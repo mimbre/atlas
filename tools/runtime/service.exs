@@ -12,6 +12,10 @@ if server do
   Application.put_env(:atlas_bus, :link, Lifecycle.link(server), persistent: true)
   # Its output endpoint is this machine's: `runtime@<machine>/output`, the link's own.
   Application.put_env(:atlas_runtime, :server_lifecycle, server.machine, persistent: true)
+  # The reporter writes the Server's turn and execution records under the model's names
+  # (AtlasRuntime.Model). The service runs with MIX_ENV=test, where no model is
+  # configured, so it is wired here, as config.exs wires it for a node.
+  Application.put_env(:atlas, :model, Model.AtlasEyra, persistent: true)
 end
 
 Application.put_env(:atlas_runtime, :start, false)

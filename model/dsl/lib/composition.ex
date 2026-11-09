@@ -52,6 +52,8 @@ defmodule RelaDSL.Composition do
   per environment (`RelaDSL.Flow.Subflow`), and each legacy flow (`RelaDSL.Flow.Legacy`),
   and gets their callbacks (`RelaDSL.Flow.Model`). `use RelaDSL.Composition` takes
   `subflow_behaviour:` and `legacy_behaviour:`, the behaviours those modules declare.
+  It gets the callbacks of the component that runs turns as well (`RelaDSL.Runtime.Model`:
+  the turn, the agent, the guidance records and what a worker reads first).
 
   ## Introspection
 
@@ -319,8 +321,11 @@ defmodule RelaDSL.Composition do
         flow_runtime
       )
 
+    runtime = RelaDSL.Runtime.Model.body(schema, extension)
+
     quote do
       unquote(compiled)
+      unquote(runtime)
 
       @doc "The model, as plain data (see `RelaDSL.Composition`)."
       def __rela__(:description), do: unquote(Macro.escape(description))

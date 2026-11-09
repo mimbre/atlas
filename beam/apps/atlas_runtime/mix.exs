@@ -24,6 +24,12 @@ defmodule AtlasRuntime.MixProject do
   defp elixirc_paths(_), do: ["lib"]
 
   # Runtime reaches other layers only over Bus; the shared contract supplies wire codecs.
+  # It runs the model it is wired to by configuration (AtlasRuntime.Model) and depends on
+  # none; its tests write a neutral model in the Rela DSL.
   defp deps,
-    do: [{:atlas_bus, in_umbrella: true}, {:atlas_bff_contract, path: "../../../bff/contract"}]
+    do: [
+      {:atlas_bus, in_umbrella: true},
+      {:atlas_bff_contract, path: "../../../bff/contract"},
+      {:rela_dsl, path: "../../../model/dsl", only: :test}
+    ]
 end
