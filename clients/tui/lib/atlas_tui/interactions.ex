@@ -67,19 +67,23 @@ defmodule AtlasTui.Interactions do
     case Contract.active(model.console.projection, %{current(model) | context: context}) do
       {:ok, actions} ->
         Enum.map(actions, fn action ->
-          if action["props"]["available"] and
-               not AtlasTui.WorkerConversation.action_available?(
-                 model,
-                 action["props"]["operation"]
-               ) do
-            action
-            |> put_in(["props", "available"], false)
-            |> put_in(
-              ["props", "reason"],
-              "No eligible loaded selection or page; a read may be in progress"
-            )
-          else
-            action
+          operation = action["props"]["operation"]
+
+          cond do
+            not action["props"]["available"] ->
+              action
+
+            not AtlasTui.WorkerConversation.action_available?(model, operation) ->
+              unavailable(
+                action,
+                "No eligible loaded selection or page; a read may be in progress"
+              )
+
+            not available?(model, operation) ->
+              unavailable(action, "No earlier page to go back to")
+
+            true ->
+              action
           end
         end)
 
@@ -93,8 +97,9 @@ defmodule AtlasTui.Interactions do
       {:ok, event} ->
         case Contract.resolve(model.console.projection, event, current(model)) do
           {:ok, action} ->
-            if AtlasTui.WorkerConversation.action_available?(model, action["props"]["operation"]),
-              do: Map.merge(event, %{focus: focus(model), shell_revision: shell_revision(model)})
+            if AtlasTui.WorkerConversation.action_available?(model, action["props"]["operation"]) and
+                 available?(model, action["props"]["operation"]),
+               do: Map.merge(event, %{focus: focus(model), shell_revision: shell_revision(model)})
 
           _ ->
             nil
@@ -126,6 +131,7 @@ defmodule AtlasTui.Interactions do
             operation["name"] in ["tab_next", "tab_previous", "quit"]
 
         if pending_allowed && AtlasTui.WorkerConversation.action_available?(model, operation) &&
+             available?(model, operation) &&
              (local || (model.connected && model.console.phase == :ready)),
            do: execute(model, operation, action["props"]["label"]),
            else: {model, []}
@@ -166,7 +172,7 @@ defmodule AtlasTui.Interactions do
 
   defp execute(model, %{"name" => "tab_next"}, _label), do: Console.cycle(model, 1)
   defp execute(model, %{"name" => "tab_previous"}, _label), do: Console.cycle(model, -1)
-  defp execute(model, %{"name" => "open", "to" => to}, _label), do: Console.navigate(model, to)
+  defp execute(model, %{"name" => "open", "to" => to}, _label), do: Console.open(model, to)
 
   defp execute(model, %{"name" => "open_url", "url" => url}, _label),
     do: Model.external(model, url)
@@ -198,6 +204,13 @@ defmodule AtlasTui.Interactions do
       row: row
     }
   end
+
+  defp unavailable(action, reason),
+    do: action |> put_in(["props", "available"], false) |> put_in(["props", "reason"], reason)
+
+  # Back follows the user's own history (`Console.back/1`), which only this client knows.
+  defp available?(model, %{"name" => "back"}), do: Console.back?(model)
+  defp available?(_model, _operation), do: true
 
   defp focus(model), do: {model.focus, model.part, model.steps.selected, model.steps.editing}
   defp shell_revision(%{console: %{shell: nil}}), do: nil

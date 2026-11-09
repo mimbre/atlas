@@ -311,7 +311,7 @@ defmodule AtlasTui.Model do
   def operation(model, "open_selected") do
     case Enum.at(rows(model), model.selected) do
       nil -> {model, []}
-      row -> AtlasTui.Console.navigate(model, row.to)
+      row -> AtlasTui.Console.open(model, row.to)
     end
   end
 
@@ -324,7 +324,7 @@ defmodule AtlasTui.Model do
   def operation(model, "select_last"),
     do: select(model, max(length(rows(model)) - 1, 0))
 
-  def operation(model, "back"), do: AtlasTui.Console.navigate(model, model.back)
+  def operation(model, "back"), do: AtlasTui.Console.back(model)
   def operation(model, "refresh"), do: {model, [{:send, %{"op" => "refresh"}}]}
   def operation(model, "quit"), do: {model, [:quit]}
 
