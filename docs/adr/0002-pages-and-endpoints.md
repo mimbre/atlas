@@ -4,7 +4,7 @@ Status: accepted, 2026-11-03 (decision: "Pages should also be part of the BFF. w
 
 ## Context
 
-The contract (`bff/contract`, ADR 0001) said what a page looks like: blocks and markup. Which pages exist was hand-written in Control (`AtlasControl.Pages.route/1`), and a block's destination was a free string. A client learned what Control serves only by following links, and nothing checked that a destination led anywhere.
+The contract (`platform/atlas_control/bff/contract`, ADR 0001) said what a page looks like: blocks and markup. Which pages exist was hand-written in Control (`AtlasControl.Pages.route/1`), and a block's destination was a free string. A client learned what Control serves only by following links, and nothing checked that a destination led anywhere.
 
 mica-bff's spec format (`~/projects/nova/mica-bff/docs/adr/0001-spec-format.md`) plans the next layers of its spec: `defpage` for the pages its BFF serves and `defendpoint` for every other call. Atlas takes the ideas over and shares nothing with it (d-0009).
 
@@ -42,7 +42,7 @@ mica-bff's spec format (`~/projects/nova/mica-bff/docs/adr/0001-spec-format.md`)
 
 - **Pages take parameters.** mica's pages are named and parameterless (`defpage :home` → `GET /bff/page/home`). Atlas's pages are generic, for any kind rela describes: kind, key, relation and parent are parameters, never kind names (BEAM runs, rela describes).
 - **Atlas keeps its paths.** mica derives the path from the page name. Atlas keeps `/k/<kind>/<key>` and the rest, because stored facts name them (an agent request's `page`), and because `_` (a kind made out from a key's prefix) and `_parent` (a kind's one parent relation) are parameter values an agent passes, resolved by Control from the description.
-- **No HTTP.** mica's pages are GETs at `/bff/page/…`. Atlas's clients speak JSON lines over a socket (`bff/README.md`, Protocol); a page is fetched with `{"op": "open", "to": path}`. The endpoint's `call` names that message.
+- **No HTTP.** mica's pages are GETs at `/bff/page/…`. Atlas's clients speak JSON lines over a socket (`platform/atlas_control/bff/README.md`, Protocol); a page is fetched with `{"op": "open", "to": path}`. The endpoint's `call` names that message.
 
 ## Alternatives
 

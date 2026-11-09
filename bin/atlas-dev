@@ -27,14 +27,14 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-# The end-to-end test makes its own private test instance; it never reads env/<env>.json
+# The end-to-end test makes its own private test instance; it never reads products/software_factory/environments/<env>.json
 # and never runs on prod. It needs no setup: rela's binaries are ATLAS_E2E_RELA_BIN's, else
 # ATLAS_RELA_BIN's, else the rela-bin folder beside the checkout when it holds rela-server-headless-sqlite (a
 # worker's folder, where the pinned rela is installed for it; AtlasE2E.Instance.rela_bin/1
 # looks in the same order); else it installs the pinned rela into a per-user cache (and
 # reuses it later). Whichever it is, a different version is replaced by the pinned one. Unless
 # ATLAS_CONFIG_PYTHON is set (or .venv-config found) or python3 already has
-# rela/scripts/requirements.txt, it makes a private Python for rela's scripts there too.
+# platform/atlas_facts/rela/scripts/requirements.txt, it makes a private Python for rela's scripts there too.
 if [ "$cmd" = e2e ]; then
   if [ -n "$env" ] && [ "$env" != test ]; then
     echo "atlas-dev: e2e runs only on a private test instance, never on $env" >&2; exit 1
@@ -47,12 +47,12 @@ if [ "$cmd" = e2e ]; then
     elif [ -x "$beside/rela-server-headless-sqlite" ]; then
       export ATLAS_E2E_RELA_BIN="$beside"
     else
-      version="$(sed -n 's/^version=//p' "$root/rela/scripts/start-test.sh")"
+      version="$(sed -n 's/^version=//p' "$root/platform/atlas_facts/rela/scripts/start-test.sh")"
       export ATLAS_E2E_RELA_BIN="$cache/rela-$version"
     fi
-    ATLAS_RELA_BIN="$ATLAS_E2E_RELA_BIN" "$root/rela/scripts/start-test.sh" install >&2
+    ATLAS_RELA_BIN="$ATLAS_E2E_RELA_BIN" "$root/platform/atlas_facts/rela/scripts/start-test.sh" install >&2
   fi
-  requirements="$root/rela/scripts/requirements.txt"
+  requirements="$root/platform/atlas_facts/rela/scripts/requirements.txt"
   if [ -z "${ATLAS_CONFIG_PYTHON:-}" ] && ! python3 - "$requirements" 2>/dev/null <<'PY'
 import sys
 from importlib.metadata import version
@@ -72,5 +72,5 @@ PY
     fi
     export ATLAS_CONFIG_PYTHON="$venv/bin/python"
   fi
-  cd "$root/e2e" && exec mix atlas.e2e ${args[@]+"${args[@]}"}
+  cd "$root/products/software_factory/e2e" && exec mix atlas.e2e ${args[@]+"${args[@]}"}
 fi

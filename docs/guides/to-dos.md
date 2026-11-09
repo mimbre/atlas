@@ -38,14 +38,14 @@ client, and verifies the actual Console detail screen and agent guidance. It exe
 person and agent owners with both closing outcomes and checks refusals for another
 actor and a missing note.
 
-After generation, from `beam/`, with the pinned Rela binaries already available:
+After generation, from `products/software_factory/`, with the pinned Rela binaries already available:
 
 ```sh
 MIX_ENV=test mix run integration/to_do_native.exs \
   /absolute/writable/private-fixture /absolute/rela-bin \
-  ../model/contract/test/fixtures/slice14-digests.json
+  ../products/software_factory/model/test/fixtures/slice14-digests.json
 ```
 
 The fixture starts and stops its private Rela and Control listener. It installs nothing and does not
-use `env/test.json` or `env/prod.json`. Native execution requires the toolchain and local
+use `products/software_factory/environments/test.json` or `products/software_factory/environments/prod.json`. Native execution requires the toolchain and local
 socket/process permissions; a sandbox refusal is a verification limit, not a pass.

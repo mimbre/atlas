@@ -42,7 +42,7 @@ A dropped, refused or not-run step stored nothing, so it has no `x`. If the item
 
 ## How it works
 
-- **The record is described in rela like any kind:** an *agent request* (`RQ-Atlas-NN`) and an *agent step* under it (`ST-Atlas-NN`), in `rela/schema.yaml`. `rela/atlas.json` says what Control and the agent do with them, as data:
+- **The record is described in rela like any kind:** an *agent request* (`RQ-Atlas-NN`) and an *agent step* under it (`ST-Atlas-NN`), in `products/software_factory/targets/rela/schema.yaml`. `products/software_factory/targets/rela/atlas.json` says what Control and the agent do with them, as data:
   - `agent`: the kinds hold the agent's record. The agent never offers them as tools.
   - `start`: requests are not on the start page; `w What the agent did` is. When the start page becomes My work plus Scenes (SC-Atlas-06), this is the line to change.
   - `order`: newest first.
@@ -65,5 +65,5 @@ A dropped, refused or not-run step stored nothing, so it has no `x`. If the item
   - In Control, actions from the description (with `when`), and cause lists of a fact's own kind.
   - In the TUI, an `agent:` action asks the agent.
   - In the agent, `AtlasAgent.Overrule`.
-- **The end-to-end test:** `e2e/scenarios/uc-atlas-19.exs`.
+- **The end-to-end test:** `products/software_factory/e2e/scenarios/uc-atlas-19.exs`.
 - **Prod:** rela reads `schema.yaml` when it starts, so prod's rela needs a restart for the new kinds.

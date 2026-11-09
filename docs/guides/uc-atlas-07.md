@@ -35,7 +35,7 @@ Test and prod have no `runtime` yet, so Runtime there does nothing; IS-Atlas-18 
 - **rela:** a `turn` kind:
   - `state` (running or ended), `machine`, `lease_until`, `activity` and `why`;
   - `turn_on` to the Assignment (the fact Flow writes on) and `turn_by` to the agent.
-- **The model:** `runtime turn:` (`model/contract/foundation/turn.ex`) names the kind, its fields and relations, and its key (`TU-{on}-{n}`). Runtime gets it compiled, with the facts a turn works on and the guidance records (`AtlasRuntime.Model`, wired by `config :atlas, model:`), and names no kind. The kind is not by hand: no keys to make one, and the agent's tools leave it out.
+- **The model:** `runtime turn:` (`products/software_factory/model/foundation/turn.ex`) names the kind, its fields and relations, and its key (`TU-{on}-{n}`). Runtime gets it compiled, with the facts a turn works on and the guidance records (`AtlasRuntime.Model`, wired by `config :atlas, model:`), and names no kind. The kind is not by hand: no keys to make one, and the agent's tools leave it out.
 - **Runtime (`atlas_runtime`):**
   - The **engine** reconciles every round and at once on a hint. A turn running in Facts on this machine without a process is ended; a turn whose fact is no longer its agent's (or no longer open: Flow has no state for it) is ended; an owned open fact without a turn gets one, one turn per agent at a time.
   - Each **turn** is a process: it starts the agent through its port, writes the turn, renews the lease while there is activity, and writes its end.
@@ -44,10 +44,10 @@ Test and prod have no `runtime` yet, so Runtime there does nothing; IS-Atlas-18 
 
 ## What changed for this
 
-- **rela:** `turn`, `turn_on`, `turn_by`. **rela/atlas.json:** `runtime.turn`, the turn kind's marks.
+- **rela:** `turn`, `turn_on`, `turn_by`. **products/software_factory/targets/rela/atlas.json:** `runtime.turn`, the turn kind's marks.
 - **BEAM:** `atlas_runtime`, in the release; `runtime` settings; the boundary test covers it.
 - **Control:** the kinds page says when a kind is not by hand. **Agent:** such kinds are no tools.
-- **The end-to-end test:** `e2e/scenarios/uc-atlas-07.exs`; the private instance runs Runtime with the stub agent `runner`.
+- **The end-to-end test:** `products/software_factory/e2e/scenarios/uc-atlas-07.exs`; the private instance runs Runtime with the stub agent `runner`.
 - **Prod at merge:** `atlas-ops restart` (rela gets the turn kind). Runtime does nothing there until IS-Atlas-18 gives a machine its agents.
 
 ## IS-Atlas-18: Claude Code headless as a port

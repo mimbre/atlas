@@ -31,6 +31,6 @@ Also try:
 
 ## What changed for this
 
-- **rela's description:** Issue, its fields and its `in_use_case` relation were already in `rela/schema.yaml`. `rela/atlas.json` says how one is made (title and description only, codes `IS-Atlas-NN`, stage Specification) and that Flux ref and Flux id are only filled by a connector.
+- **rela's description:** Issue, its fields and its `in_use_case` relation were already in `products/software_factory/targets/rela/schema.yaml`. `products/software_factory/targets/rela/atlas.json` says how one is made (title and description only, codes `IS-Atlas-NN`, stage Specification) and that Flux ref and Flux id are only filled by a connector.
 - **Control:** a refused delete now counts in the right number ("1 issue", "2 issues") and says "it" or "them". There is nothing else on the BEAM side or in the TUI: Control builds the issue's form, its page and the related lists from the description, with the same code as for scenes and use cases.
-- **The end-to-end test:** `e2e/scenarios/uc-atlas-03.exs` follows this guide.
+- **The end-to-end test:** `products/software_factory/e2e/scenarios/uc-atlas-03.exs` follows this guide.

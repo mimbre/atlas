@@ -37,12 +37,12 @@ Following each step closely, stopping a run with `esc` and what happens on a ref
 ## How it works
 
 - **The agent** is `atlas steer`, started by the TUI on the first `:` as a child process and kept while the TUI runs. It is a Control client of its own, with its own connections, like `atlas put`. The TUI and the agent talk in JSON lines (`AtlasAgent.Steer`). Its log is `steer.log` beside the environment's other logs.
-- **The plan** comes from the planner of UC-Atlas-16 (`agent.planner` in `env/<env>.json`), checked against Control's forms. The agent writes only on `enter`, and only the kept steps of the plan you saw, with the values you left.
+- **The plan** comes from the planner of UC-Atlas-16 (`agent.planner` in `products/software_factory/environments/<env>.json`), checked against Control's forms. The agent writes only on `enter`, and only the kept steps of the plan you saw, with the values you left.
 - **The plan is a block** of Control's contract: `plan` with its `step`s (contract 0.5.0). An iOS or macOS client renders the same thing. Today the agent sends it; once Runtime runs agents (SC-Atlas-02), Control will.
 
 ## What changed for this
 
-- **Control's contract:** the `plan` block and the `step` model; `bff/targets/json/blocks.json` regenerated.
+- **Control's contract:** the `plan` block and the `step` model; `platform/atlas_control/bff/targets/json/blocks.json` regenerated.
 - **The TUI:** `:` (not in a form), the plan over the page (the page underneath still follows hints), the step form, and the agent as a child process. It knows no kind: steps are form titles and inputs.
 - **The agents' command line:** `atlas steer`.
-- **The end-to-end test:** `e2e/scenarios/uc-atlas-17.exs` follows this guide with the scripted stand-in planner.
+- **The end-to-end test:** `products/software_factory/e2e/scenarios/uc-atlas-17.exs` follows this guide with the scripted stand-in planner.

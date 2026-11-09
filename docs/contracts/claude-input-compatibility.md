@@ -23,7 +23,7 @@ help/version. This identifies a candidate artifact, not a tested native runtime.
 Protocol evidence is first-party **@anthropic-ai/claude-agent-sdk 0.3.280**, matched
 to its [release commit 58d2e4b](https://github.com/anthropics/claude-agent-sdk-typescript/blob/58d2e4b81bdca2c6ce10e6e5db22ad7acdc1d58c/CHANGELOG.md).
 The public npm tarball was inspected without installation or execution; SHA-512
-integrity matched registry metadata. The checked-in [profile](../../beam/apps/atlas_runtime/test/fixtures/claude_2_1_280/profile.json)
+integrity matched registry metadata. The checked-in [profile](../../platform/atlas_runtime/test/fixtures/claude_2_1_280/profile.json)
 records that integrity and SDK type/bundle SHA-256 hashes. CI uses synthetic fixtures,
 with no network or native Claude dependency. The SDK is not vendored or imported.
 

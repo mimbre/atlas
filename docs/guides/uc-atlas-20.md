@@ -28,7 +28,7 @@ In TUI 2, the scene changes by itself after each save (`updated by hint at …`)
 
 ## What changed for this
 
-- **rela's description:** `rela/atlas.json` marks `description` as `multiline` for each kind that has one. That is the only place that says a field takes several lines; no code names a field or a kind.
+- **rela's description:** `products/software_factory/targets/rela/atlas.json` marks `description` as `multiline` for each kind that has one. That is the only place that says a field takes several lines; no code names a field or a kind.
 - **Control:** sends such a field as a form input of kind `multiline` (a new value of `input.kind` in Control's spec; the shape of the spec did not change).
 - **TUI:** wraps long text fields, edits `multiline` inputs as a text area, keeps line breaks on item pages, and scrolls pages longer than the screen.
 - **rela** stores the line breaks as they are typed.

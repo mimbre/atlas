@@ -1,8 +1,8 @@
 # Apple clients: macOS first, iOS next
 
-Native Swift/SwiftUI apps with the same functions as the TUI (`clients/tui`), talking to
+Native Swift/SwiftUI apps with the same functions as the TUI (`platform/clients/tui`), talking to
 Control the way the TUI does: JSON lines over TCP, `hello`/`welcome`, `boot`, `open`,
-`submit`, `refresh`, and the pushed `page`, `notice` and `bye` ([bff/README.md](../../bff/README.md)).
+`submit`, `refresh`, and the pushed `page`, `notice` and `bye` ([platform/atlas_control/bff/README.md](../../platform/atlas_control/bff/README.md)).
 macOS comes first; iOS comes after it and shares everything except a thin platform shell.
 
 The rule does not change: **a client has no semantics.** It shows blocks and markup and
@@ -12,13 +12,13 @@ means. Every rule below is about blocks, markup, pages and messages.
 
 ## 1. What exists: the generated package (slice 0)
 
-`bff/targets/swift/` is the Swift package `AtlasControlKit`, a file target of the contract
-(`AtlasBFF.Targets.Swift`, written by `cd bff/contract && mix atlas.gen`, checked by
+`platform/atlas_control/bff/targets/swift/` is the Swift package `AtlasControlKit`, a file target of the contract
+(`AtlasBFF.Targets.Swift`, written by `cd platform/atlas_control/bff/contract && mix atlas.gen`, checked by
 `mix atlas.gen --check`). Platforms `.macOS(.v14)` and `.iOS(.v17)`, Swift 6 language mode,
 Foundation only (no AppKit, UIKit, SwiftUI or Network), so one package serves both apps.
 
 ```
-bff/targets/swift/
+platform/atlas_control/bff/targets/swift/
   Package.swift                      library AtlasControlKit, test target AtlasControlKitTests
   Sources/AtlasControlKit/
     Contract.swift                   Contract.version ("0.16.0")
@@ -69,13 +69,13 @@ Its tests (77) run in `swift test`. A channel's fixtures must be there (a missin
 fails), and the lines that carry `spec` must carry `Contract.version`, so a new contract
 version fails until the fixtures are recaptured; CI's `swift` job (macos-latest) builds, tests and
 builds it for the iOS Simulator, and refuses a hand-written file in the package. The
-hand-written `clients/apple` package has its own job, `apple` (macos-latest, §2).
+hand-written `platform/clients/apple` package has its own job, `apple` (macos-latest, §2).
 
 ### Gaps the next slices close
 
 1. **Worker operations are not endpoints yet.** The TUI's worker pages use eight
    `worker_*` operations (inspect, output subscribe/next/unsubscribe, submit, query,
-   history, receipts) declared as wire descriptors in `bff/contract/lib/wire/control/workers.ex`.
+   history, receipts) declared as wire descriptors in `platform/atlas_control/bff/contract/lib/wire/control/workers.ex`.
    No `defendpoint` names them, so the package (which follows the endpoints, as asked)
    has no Swift messages for them. Declaring endpoints for them in the contract is enough:
    a trial generation with them builds and its 107 generated tests pass, with no
@@ -96,8 +96,8 @@ hand-written `clients/apple` package has its own job, `apple` (macos-latest, §2
 ## 2. Shared and platform code
 
 ```
-bff/targets/swift/            AtlasControlKit (generated): the contract
-clients/apple/                hand-written Swift package (+ app targets from S8)
+platform/atlas_control/bff/targets/swift/            AtlasControlKit (generated): the contract
+platform/clients/apple/                hand-written Swift package (+ app targets from S8)
   Package.swift               products: ControlSession, BlockViews, AtlasMac (S1);
                               ConsoleKit (S5), WorkerViews (S6)
   Sources/
@@ -112,7 +112,7 @@ clients/apple/                hand-written Swift package (+ app targets from S8)
 Structure by purpose: each target says what it is for. Until S8 the macOS app is the
 package's SwiftPM executable `AtlasMac` (`swift run AtlasMac --env … --host … --port …`);
 S8 makes it an Xcode app target on the local package (an `.xcodeproj` under
-`clients/apple`) for signing and the launcher, and the iOS app is one from the start.
+`platform/clients/apple`) for signing and the launcher, and the iOS app is one from the start.
 Everything that can be tested without a window is in the package and runs in `swift test`.
 CI's `apple` job (macos-latest) runs `swift build` and `swift test`, and builds
 `ControlSession` and `BlockViews` for the iOS Simulator.
@@ -225,7 +225,7 @@ What differs by platform beyond the layout stays in the platform targets:
 | Function | TUI module(s) | Apple |
 |---|---|---|
 | Connection, retry every 2 s, reopen the page on return | `AtlasTui.App`, `AtlasTui.Console` | `SessionState` (retrying is part of it), run by `Session` on `LineConnector` and `SessionClock` |
-| Environment: prod by default, test when asked; `env/<env>.json` or `ATLAS_ENV_FILE` | `AtlasTui.CLI` | macOS: the launcher passes env, host, port (§5); iOS: configuration (§6) |
+| Environment: prod by default, test when asked; `products/software_factory/environments/<env>.json` or `ATLAS_ENV_FILE` | `AtlasTui.CLI` | macOS: the launcher passes env, host, port (§5); iOS: configuration (§6) |
 | Tunnel to Fly, readiness probe | `bin/atlas`, `bin/lib/tunnel.sh` | macOS: the launcher reuses it; iOS: the Mac mini's tunnel over the tailnet (§6) |
 | Handshake: hello with the spec, refused when too old, wrong env → bye | `AtlasTui.Console` | `Session` |
 | Boot, tabs, initial page, active tab, stale shell | `AtlasTui.Console`, `AtlasTui.ConsoleView` | `Session`; sidebar (macOS, iPad), tab bar with More (iPhone) |
@@ -257,7 +257,7 @@ What differs by platform beyond the layout stays in the platform targets:
 Every slice keeps the TUI and Control unchanged unless it says so, and adds its tests at
 the lowest level that can show it.
 
-**S1 Transport, session and the macOS shell (source integrated; acceptance below).** The `clients/apple` package with
+**S1 Transport, session and the macOS shell (source integrated; acceptance below).** The `platform/clients/apple` package with
 `ControlSession` (`LineConnection` on Network.framework, line framing, hello/welcome, boot,
 open, refresh on an injected clock, reconnect, version refusal and bye) and the `Mac`
 target with the approved shell (§2): the three-column window, the sidebar from `boot`'s
@@ -373,7 +373,7 @@ serves plans.
 
 The TUI reaches an environment on Fly through `bin/atlas`: `ensure_tunnel` runs
 `fly proxy` from this Mac's `control.port` to Control on the environment's private network
-(WireGuard), checks Control answers (`fly/control-ready.py`), then starts the TUI on
+(WireGuard), checks Control answers (`platform/ops/control-ready.py`), then starts the TUI on
 `127.0.0.1:<port>`. The app does the same through a launcher instead of opening Fly
 itself (a sandboxed app cannot run `fly`):
 
@@ -382,7 +382,7 @@ bin/atlas mac              # prod: opens the tunnel, then the app on 127.0.0.1:<
 bin/atlas mac --env test   # test
 ```
 
-The launcher passes `--env`, host and port (from `env/<env>.json` or `ATLAS_ENV_FILE`) as
+The launcher passes `--env`, host and port (from `products/software_factory/environments/<env>.json` or `ATLAS_ENV_FILE`) as
 launch arguments; the app connects only there and shows the environment in its title
 bar, prod as the inverted badge. Without the launcher the app asks for nothing and says
 how to start it. For a local Control (`atlas-ops restart --env test`) the launcher skips
@@ -439,12 +439,12 @@ running a session in a Control test (Gateway on port 0, `FakeStore`, the shop mo
 writes every line it sent and received, then deleting that test. The steer fixtures are
 recaptured by hand, from a session of the agent's steer test harness.
 
-**Integration against a real Control.** The e2e (`e2e/`, `AtlasE2E.Instance`) starts a
+**Integration against a real Control.** The e2e (`products/software_factory/e2e/`, `AtlasE2E.Instance`) starts a
 private test instance (rela, core and Control on free ports, through `atlas-ops` with
 `ATLAS_ENV_FILE`) and stops it with the run. A Swift test attaches to it:
 
 - an e2e scenario starts the instance, then runs
-  `swift test --filter ControlIntegration` in `clients/apple` with `ATLAS_ENV_FILE`
+  `swift test --filter ControlIntegration` in `platform/clients/apple` with `ATLAS_ENV_FILE`
   pointing at the instance's settings, as a child of the scenario (`System.cmd`), so the
   servers stop with the scenario;
 - the Swift test (`ControlIntegrationTests`) reads Control's host and port from that file,
@@ -452,7 +452,7 @@ private test instance (rela, core and Control on free ports, through `atlas-ops`
   boot shell (S1); S4 adds a submit that is stored and a hint to a second session. It is
   skipped when `ATLAS_ENV_FILE` is unset, so plain `swift test` stays a unit run.
 
-The scenario is `e2e/scenarios/apple-control.exs`; on a Mac, run it with
+The scenario is `products/software_factory/e2e/scenarios/apple-control.exs`; on a Mac, run it with
 `bin/atlas-dev e2e apple-control`. A skip there is a failure. Network.framework exists only
 on Apple's platforms, so the scenario runs only on macOS with `swift`; elsewhere it passes
 with a note that it did not run. CI's e2e job is Ubuntu (erlef/setup-beam supports Ubuntu
@@ -460,7 +460,7 @@ and Windows runners, not macOS), so a green e2e job says nothing about the Swift
 against a real Control. The `apple` job (macOS) runs the unit tests only.
 
 *Follow-up:* a macOS integration job that installs Erlang and Elixir with Homebrew and
-rela with `rela/scripts/start-test.sh install`, and runs the scenario. With it, build the
+rela with `platform/atlas_facts/rela/scripts/start-test.sh install`, and runs the scenario. With it, build the
 Swift package before the instance starts (or put a timeout on the scenario's
 `System.cmd`), so the build does not run inside the shared instance's time.
 

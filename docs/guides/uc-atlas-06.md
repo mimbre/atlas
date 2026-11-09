@@ -6,7 +6,7 @@ This guide grows with the use case, one section per issue. In the end the operat
 
 The agents are one key away from the start page: `g Agents`, as `w What the agent did` is. Each row counts the Assignments that point at the agent: what is assigned to it.
 
-It is all description (`rela/atlas.json`, kind `agent`):
+It is all description (`products/software_factory/targets/rela/atlas.json`, kind `agent`):
 
 - `start: {key: g, label: Agents}` puts the action on the start page. The kind stays `top: false`, so the start page is still the scenes list.
 - `counts: [{relation: assigned_to, text: "{count} assigned"}]` makes each row count the facts that point at it through `assigned_to`. Control reads those facts plainly, without progress: one read per kind the relation starts at. A hint of that kind refreshes the list. A count whose read failed is left out, never shown as 0.
@@ -26,7 +26,7 @@ Since IS-Atlas-83 a fact can be handed over at once: Flow's first look on a new 
 
 In prod the coordinator's count includes the facts that were done before IS-Atlas-75. They kept the owner the IS-Atlas-52 migration gave them. Flow leaves a fact that becomes done from now on with no owner.
 
-`e2e/scenarios/uc-atlas-06.exs` follows these steps.
+`products/software_factory/e2e/scenarios/uc-atlas-06.exs` follows these steps.
 
 ## IS-Atlas-14: an optional deadline on the Assignment; late on read
 
@@ -34,8 +34,8 @@ The Assignment has an optional `deadline`, a date and time in UTC. Late is worke
 
 It is description, plus one general rule in Facts and Control:
 
-- **`rela/schema.yaml`:** `deadline: { type: datetime }` on the assignment.
-- **`rela/atlas.json`:** the assignment kind gets
+- **`products/software_factory/targets/rela/schema.yaml`:** `deadline: { type: datetime }` on the assignment.
+- **`products/software_factory/targets/rela/atlas.json`:** the assignment kind gets
   - `late: {after: deadline, while: expected, label: late}`;
   - `by_hand: "update"`: its page offers `u` to change it, and nothing to make or delete one, because an Assignment goes with its fact.
 - **Facts:** it answers `late` with every fact of a kind with a late rule, plain reads too, and refuses a deadline that is not a date and time. rela itself would store one with only a warning.
@@ -88,7 +88,7 @@ It is description, plus one general rule in Control. The association `assigned_t
 | Flow leaves it | wait a moment, `r` on the scene | **Expected** `Build it`, **Assigned to** still `ada` |
 | Ada's count | `g` | `ada  Ada  N assigned`, one more |
 
-`e2e/scenarios/uc-atlas-06.exs` follows these steps.
+`products/software_factory/e2e/scenarios/uc-atlas-06.exs` follows these steps.
 
 ## IS-Atlas-84: a scene with nothing under it is to be broken down
 
@@ -100,7 +100,7 @@ This is "the state its process records" in UC-Atlas-06. Once a use case is under
 
 It is description, plus one general condition in Flow:
 
-- **`rela/atlas.json`** (flow `test_and_accept`): `break_down` comes before `building`, with `when: {empty: in_scene}`.
+- **`products/software_factory/targets/rela/atlas.json`** (flow `test_and_accept`): `break_down` comes before `building`, with `when: {empty: in_scene}`.
 - **Flow:** `empty: <relation>` holds when nothing is under the fact through that parent relation. It never holds for a kind nothing belongs under through it. So a use case (nothing is `in_scene` under a use case) is never in `break_down`, and a use case without issues stays "Build it".
 - **Facts' check:** an `empty` must name a parent relation that puts something under one of the flow's kinds.
 
@@ -114,7 +114,7 @@ In prod, after the merge, every scene without use cases moves from "Build it" to
 | Hand it to Ada | `h`, `ada`, `ctrl-s` | Ada, and still Break it down |
 | A use case under it | `c` on the scene | **Expected** `Build it`, **Assigned to** coordinator (Flow test_and_accept: not all under it is completed) |
 
-`e2e/scenarios/uc-atlas-06.exs` follows these steps.
+`products/software_factory/e2e/scenarios/uc-atlas-06.exs` follows these steps.
 
 ## IS-Atlas-85: Open work, every open fact with its owner, what is expected, its deadline and late
 
@@ -130,7 +130,7 @@ My work (IS-Atlas-55, the start page "Assigned to you") is the same list, filter
 
 It is description, plus Control's list of the kind the start's relation starts at:
 
-- **`rela/atlas.json`:**
+- **`products/software_factory/targets/rela/atlas.json`:**
   - `start.open = {title: "Open work", empty: …}`;
   - the assignment kind has `start: {key: l, label: Open work}`.
 - **Control:**
@@ -150,4 +150,4 @@ If any required collection fails, Open work shows the existing unavailable page 
 | From the command line | `atlas list assignment --env test --json` | the same rows |
 | Done | accept a use case | it leaves Open work: nobody is assigned and nothing is expected |
 
-`e2e/scenarios/uc-atlas-06.exs` follows these steps.
+`products/software_factory/e2e/scenarios/uc-atlas-06.exs` follows these steps.

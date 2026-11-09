@@ -33,7 +33,7 @@ With Claude as the planner, the summary says what was refused and why. Claude is
 
 ### Small plans run without asking
 
-A plan of at most `agent.ask_above` steps (1 by default, in `env/<env>.json`; 0 asks always) runs at once, as long as every step can run and none deletes. A plan made after a refusal always asks.
+A plan of at most `agent.ask_above` steps (1 by default, in `products/software_factory/environments/<env>.json`; 0 asks always) runs at once, as long as every step can run and none deletes. A plan made after a refusal always asks.
 
 | Step | Keys | What you should see |
 |---|---|---|
@@ -44,7 +44,7 @@ A plan that ran by itself shows like an accepted one, so each step can still be 
 
 ## How it works
 
-The agent (`atlas steer`) runs one step at a time and reads its messages between steps, so a stop is seen before the next step. It waits `agent.step_pause_ms` between steps, set in `env/<env>.json` and 0 when unset. That is long enough to follow a run and to stop it. The end-to-end test uses 2000: its keys wait for a settled screen, and the TUI holds an Escape a moment (IS-Atlas-68).
+The agent (`atlas steer`) runs one step at a time and reads its messages between steps, so a stop is seen before the next step. It waits `agent.step_pause_ms` between steps, set in `products/software_factory/environments/<env>.json` and 0 when unset. That is long enough to follow a run and to stop it. The end-to-end test uses 2000: its keys wait for a settled screen, and the TUI holds an Escape a moment (IS-Atlas-68).
 
 ## What changed for this
 
@@ -52,4 +52,4 @@ The agent (`atlas steer`) runs one step at a time and reads its messages between
 - **Control's contract:** the plan block's `before` (contract 0.5.0).
 - **The agent:** a plan of at most `agent.ask_above` steps runs without asking (test and prod: 1).
 - **The TUI:** "Stopping after this step…" is cleared when the plan ends.
-- **The end-to-end test:** `e2e/scenarios/uc-atlas-18.exs`.
+- **The end-to-end test:** `products/software_factory/e2e/scenarios/uc-atlas-18.exs`.

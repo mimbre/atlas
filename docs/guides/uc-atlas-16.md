@@ -39,11 +39,11 @@ In a second terminal, next to the TUI:
 ## How it works
 
 - **The tools** come from Control, as the TUI's pages do: `/_kinds` (what rela describes) and each kind's create form. No tool is written by hand. A kind added to rela is a new tool.
-- **The planner** gets the request, the page you are on (its blocks, as Control sends them) and the tools. It answers steps, each a `put` of a kind, or a `set` or `delete` of a key. Which planner runs is a setting of the environment, `agent.planner` in `env/<env>.json`. `"claude"` is a local headless Claude session (`claude -p`) whose only tools are `atlas get`, `atlas list` and `atlas help`, on the same environment. Or it is any command that reads the input as JSON on stdin and prints the plan as JSON. The Runtime of SC-Atlas-02 takes this place later.
+- **The planner** gets the request, the page you are on (its blocks, as Control sends them) and the tools. It answers steps, each a `put` of a kind, or a `set` or `delete` of a key. Which planner runs is a setting of the environment, `agent.planner` in `products/software_factory/environments/<env>.json`. `"claude"` is a local headless Claude session (`claude -p`) whose only tools are `atlas get`, `atlas list` and `atlas help`, on the same environment. Or it is any command that reads the input as JSON on stdin and prints the plan as JSON. The Runtime of SC-Atlas-02 takes this place later.
 - **The check** opens the form each step would fill, as the TUI would, and submits nothing. An unknown kind or field, a parent that is not there or is of another kind, a missing required field: the step says so.
 
 ## What changed for this
 
-- **The agents' command line** (`clients/agent`): `atlas tools` and `atlas plan`; `AtlasAgent.Tools`, `AtlasAgent.Planner`, `AtlasAgent.Plan`. None of it names a kind.
-- **Settings:** `env/test.json` and `env/prod.json` have `"agent": {"planner": "claude"}`.
-- **The end-to-end test:** `e2e/scenarios/uc-atlas-16.exs` follows this guide with a scripted stand-in planner (`e2e/fixtures/planner.exs`), so CI needs no model.
+- **The agents' command line** (`platform/clients/agent`): `atlas tools` and `atlas plan`; `AtlasAgent.Tools`, `AtlasAgent.Planner`, `AtlasAgent.Plan`. None of it names a kind.
+- **Settings:** `products/software_factory/environments/test.json` and `products/software_factory/environments/prod.json` have `"agent": {"planner": "claude"}`.
+- **The end-to-end test:** `products/software_factory/e2e/scenarios/uc-atlas-16.exs` follows this guide with a scripted stand-in planner (`products/software_factory/e2e/fixtures/planner.exs`), so CI needs no model.

@@ -37,7 +37,7 @@
 #                      installing these commands (`atlas-ops --help`)
 #   bin/atlas-dev      development and test tooling, from the checkout (`bin/atlas-dev --help`)
 #   atlas-runtime      the Runtime CLI, and this machine's Runtime node
-#                      (`atlas-runtime node start|stop|status`; tools/runtime/README.md)
+#                      (`atlas-runtime node start|stop|status`; platform/atlas_runtime/host/README.md)
 #
 # On Fly (IS-Atlas-26, IS-Atlas-79): an environment whose settings have a "fly" section runs
 # its core and rela on Fly, each environment on its own private network; a merge deploys
@@ -110,7 +110,7 @@ fi
 
 # Reuse the ordinary generated agent client without managing a proxy or service.
 run_agent_client() {
-  cd "$root/clients/agent"
+  cd "$root/platform/clients/agent"
   mix compile >&2
   if [ "$cmd" = runtime-discover ] && [ -n "$atlas_discovery_read_grant" ]; then
     export ATLAS_RUNTIME_READ_TOKEN="$atlas_discovery_read_grant"
@@ -167,7 +167,7 @@ case "$cmd" in
     # Ctrl-S saves a form; without this the terminal would take it as "pause output".
     saved="$(stty -g 2>/dev/null || true)"
     stty -ixon 2>/dev/null || true
-    cd "$root/clients/tui"
+    cd "$root/platform/clients/tui"
     status=0
     mix atlas.tui --env "$env" ${args[@]+"${args[@]}"} || status=$?
     [ -n "$saved" ] && stty "$saved" 2>/dev/null || true
@@ -186,7 +186,7 @@ case "$cmd" in
     run_agent_client
     ;;
   migrate-done-owner)
-    cd "$root/tools/plan"
+    cd "$root/platform/ops/plan"
     mix compile >&2
     ATLAS_CALLER_CWD="$caller" exec mix atlas.migrate_done_owner --env "$env" ${args[@]+"${args[@]}"}
     ;;

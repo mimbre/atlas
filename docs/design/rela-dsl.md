@@ -8,13 +8,13 @@ Architect design under D-0083. No product code changes. Paths are relative to `a
 | --- | --- | --- |
 | 1 | The DSL compiles to runnable Elixir behind platform behaviours | Contract modules `use RelaDSL` (`type`, `entity`, `relation`, `answer`, `subflow`, `defgate`, `migrate`). The macros generate callback implementations of `AtlasFlow.Model`, `AtlasGates.Model`, `AtlasFacts.Model`, `AtlasRuntime.Model` and `AtlasControl.Model` (§2). No `.ex` is written to disk; nothing generated is checked in except targets. |
 | 2 | Runtime code never reads generated JSON, also not at compile time | §5 cuts over every reader: `AtlasFlow.Generated`, `AtlasGates.Definitions`, `AtlasFacts.Subflows`, Facts' `extra`/`flow_runtime` loading, and the description interpreters in Flow, Runtime and Control. |
-| 3 | Targets are output only | `mix model.gen [--check] [--base REF]` writes Rela's inputs to `rela/`: `schema.yaml`, `modules/**/schema.yaml`, `compositions/<org>/bindings.yaml`, `acl.yaml`, `flows.yaml` and `atlas.manifest.json`. It writes proofs to `model/targets/proof/`: `description.json`, `flows.<env>.json`, `runtime.json` and `digests.json`. `--check` fails on any difference, so a macro-only change shows as a target diff. Unit tests may read proofs; runtime code may not. |
+| 3 | Targets are output only | `mix model.gen [--check] [--base REF]` writes Rela's inputs to `products/software_factory/targets/rela/`: `schema.yaml`, `modules/**/schema.yaml`, `compositions/<org>/bindings.yaml`, `acl.yaml`, `flows.yaml` and `atlas.manifest.json`. It writes proofs to `products/software_factory/targets/model/proof/`: `description.json`, `flows.<env>.json`, `runtime.json` and `digests.json`. `--check` fails on any difference, so a macro-only change shows as a target diff. Unit tests may read proofs; runtime code may not. |
 | 4 | `digest/0` per subflow, at compile time | The macro builds the same string-keyed canonical data that `flows.json` holds today and hashes it with today's canonical-JSON encoding (§3). |
 | 5 | Run migrations are DSL | `migrate :decide, from:, to:, states:, rekey:, reason:` beside the subflow. `from` must occur in the **base branch's** committed `digests.json`, never only in the new one (§3). |
-| 6 | Platform/domain boundary | Platform apps hold the behaviours and the generic kernel. The domain is the app `:model` (`model/contract`). The umbrella release depends on it, but no platform app does. It is wired at boot by configuration (§1). |
+| 6 | Platform/domain boundary | Platform apps hold the behaviours and the generic kernel. The domain is the app `:model` (`products/software_factory/model`). The umbrella release depends on it, but no platform app does. It is wired at boot by configuration (§1). |
 | 7 | No hybrid | One path per component, cut over in one slice that removes its old reader. Consumers go first (Flow, Runtime, Control), then the producer (Facts). Cutting the producer first would need a description shim (§5). |
 | 8 | Done by #109 | Ledger/`delete_error`, `a` Accept / `f` Reject for the owner person, the deadline shown, and the decide run migration are not in the plan. They appear in the example as existing behaviour. |
-| 9 | No named person in the contract | `owner default: {:person, config: :decider}`. The key comes from the settings file the core runs with (`actors.decider`: `fly/<env>/core.json` on Fly, a private instance's `ATLAS_ENV_FILE`; `config :atlas, actors:` via `runtime.exs`) and is resolved at boot. A missing key refuses boot. A missing person does not: the owner waits for that person (Flow logs why), and Control serves, so a fresh environment can boot and make its first person (§5, slice 7). |
+| 9 | No named person in the contract | `owner default: {:person, config: :decider}`. The key comes from the settings file the core runs with (`actors.decider`: `products/software_factory/environments/<env>/core.json` on Fly, a private instance's `ATLAS_ENV_FILE`; `config :atlas, actors:` via `runtime.exs`) and is resolved at boot. A missing key refuses boot. A missing person does not: the owner waits for that person (Flow logs why), and Control serves, so a fresh environment can boot and make its first person (§5, slice 7). |
 
 ## 1. Layout and wiring
 
@@ -38,12 +38,12 @@ Dependencies only point at the platform:
 
 ```
 rela_dsl  ←  model  →  atlas_{flow,gates,facts,runtime,control} (behaviours only)
-beam/mix.exs (release) → model          platform apps → never model
+products/software_factory/mix.exs (release) → model          platform apps → never model
 ```
 
 - **Wiring.** `config/runtime.exs` sets `config :atlas, model: Model.<Org>`, or a profile module in e2e. Each platform app reads `Application.fetch_env!(:atlas, :model)` once at boot and calls its callbacks. A missing or wrong module refuses boot.
 - **Platform tests.** They use neutral test models written with `RelaDSL` (a test-only dependency on `:rela_dsl`).
-- **Boundary guard.** `beam/apps/atlas_bus/test/boundary_test.exs` gains two refusals: a platform `mix.exs` that names `:model`, and platform code that names a `Model.` module.
+- **Boundary guard.** `platform/atlas_bus/test/boundary_test.exs` gains two refusals: a platform `mix.exs` that names `:model`, and platform code that names a `Model.` module.
 
 ## 2. Behaviours (platform-owned) and what the macros generate
 
@@ -107,7 +107,7 @@ The kernel passes `lookup`, its reader of related facts and links, so generated 
 | `runtime.{turn,agent}`, `guidance`, `read_first` | `runtime`, `guidance`, `read_first` | `AtlasRuntime.Model` |
 | flow-runtime `kind/fields/writer/inputs/selection/migrations` | `flow_runtime`, `select`, `migrate` | `selection/1`, `migrations/0`, `check/4` (writer rule) |
 | `acl.yaml` roles/assignments | `role`, `assign` | `acl.yaml` target only (Rela checks flows against it) |
-| test-env patch in `fly/core.Dockerfile` (`guidance.control`, Workers tab) | environment settings | `shell/1(env)`, `guidance/0` + `env/test.json` |
+| test-env patch in `platform/ops/core.Dockerfile` (`guidance.control`, Workers tab) | environment settings | `shell/1(env)`, `guidance/0` + `products/software_factory/environments/test.json` |
 
 `frozen.tallied` exempts a count from the frozen value restriction only when its field
 declares exactly `set_by: [:flow]`. Additional writers (including a repeated `:flow`)
@@ -123,7 +123,7 @@ writer guard, and come from that writer and endpoint; the write must contain no 
 An empty write, a create, or a write containing any ordinary field (even its unchanged
 value) retains the existing authority checks. The other write rules still run. This
 does not authorize acceptance, reinterpret Flow as a person, or relax frozen fields.
-The private native regression is `beam/integration/flow_tally_authority_native.exs`.
+The private native regression is `products/software_factory/integration/flow_tally_authority_native.exs`.
 
 ## 3. Digests, proofs and migrations
 
@@ -139,7 +139,7 @@ The private native regression is `beam/integration/flow_tally_authority_native.e
 
   A change therefore cannot approve its own migration.
 
-## 4. Example: `model/contract/foundation/decision.ex`
+## 4. Example: `products/software_factory/model/foundation/decision.ex`
 
 Today's types are unchanged and abbreviated here. Lines marked #109 are develop's existing behaviour.
 
@@ -298,14 +298,14 @@ Each slice is mergeable alone and green; runs keep their identity unless a slice
 
 | # | Slice | Deletes | Proof |
 | --- | --- | --- | --- |
-| 0 | **Normalise sources.** The hand YAML gets one style and canonical order (foundation's 8 flow-style lists, the `turn_state` position, scalar folding). `assemble.py` gets `sort_keys=True`. Hand sources only. | nothing | `jq -S` equality of `rela/atlas.json`; `config.py resolved` equality; `rela validate`; e2e description restart keeps data |
-| 1 | **Move `flow/` → `model/`.** Apps `rela_dsl`/`model`, `mix model.gen`, all references (CI, `fly/core.Dockerfile`, `beam/apps/*/mix.exs` paths, `runtime.exs`, docs). Runtime readers stay as they are, on the new paths. | `flow/` | digests and Rela versions unchanged (`definition_digest_test`, `golden_test`); only headers and `rela_flows_sha256` change |
-| 2 | **Entity DSL; every target from the model; runtime untouched.** Concept and module files, the composition, profiles, `migrate`/`select`, introspection, all checks. `mix model.gen` writes the Rela inputs and the proofs, and still writes `rela/atlas.json` and `rela/flow-runtime.json` byte-for-byte for Facts, the only remaining reader until slice 6. | `rela/scripts/assemble.py`, `rela/modules/**/atlas.json`, `rela/compositions/<org>/{atlas.json,sources.json}`, the hand-written YAML and `acl.yaml` (now generated), the hand `flow-runtime.json` (now from `migrate`/`select`), `rela/tests/{test_assembly.py,profiles.py,fixtures/baseline-atlas.json}`, `flow/targets/rela/` copy | safety net: every generated file is byte-for-byte today's committed file (below its header). Introspection equals the proofs per entity and subflow. The digest proof (§3). |
+| 0 | **Normalise sources.** The hand YAML gets one style and canonical order (foundation's 8 flow-style lists, the `turn_state` position, scalar folding). `assemble.py` gets `sort_keys=True`. Hand sources only. | nothing | `jq -S` equality of `products/software_factory/targets/rela/atlas.json`; `config.py resolved` equality; `rela validate`; e2e description restart keeps data |
+| 1 | **Move `flow/` → `model/`.** Apps `rela_dsl`/`model`, `mix model.gen`, all references (CI, `platform/ops/core.Dockerfile`, `platform/*/mix.exs` paths, `runtime.exs`, docs). Runtime readers stay as they are, on the new paths. | `flow/` | digests and Rela versions unchanged (`definition_digest_test`, `golden_test`); only headers and `rela_flows_sha256` change |
+| 2 | **Entity DSL; every target from the model; runtime untouched.** Concept and module files, the composition, profiles, `migrate`/`select`, introspection, all checks. `mix model.gen` writes the Rela inputs and the proofs, and still writes `products/software_factory/targets/rela/atlas.json` and `products/software_factory/targets/rela/flow-runtime.json` byte-for-byte for Facts, the only remaining reader until slice 6. | `platform/atlas_facts/rela/scripts/assemble.py`, `products/software_factory/targets/rela/modules/**/atlas.json`, `products/software_factory/targets/rela/compositions/<org>/{atlas.json,sources.json}`, the hand-written YAML and `acl.yaml` (now generated), the hand `flow-runtime.json` (now from `migrate`/`select`), `platform/atlas_facts/rela/tests/{test_assembly.py,profiles.py,fixtures/baseline-atlas.json}`, `flow/targets/rela/` copy | safety net: every generated file is byte-for-byte today's committed file (below its header). Introspection equals the proofs per entity and subflow. The digest proof (§3). |
 | 3 | **Flow + Gates cutover.** `AtlasFlow.Model`/`Subflow` and `AtlasGates.Model` behaviours; the kernel calls compiled callbacks; the model is wired by config. | `AtlasFlow.Generated`, `AtlasGates.Definitions`' `flows.json` embedding, Flow's legacy definition parser (`definition.ex`; legacy flows are compiled), Flow's reads of `description["flows"]`/`["flow_runtime"]`, the `deployed_yaml` hash check and its config (one compile cannot diverge), Gates' and Flow's dependency on the `flows.json` paths | Flow tests on neutral models (manual clock); compiled `digest/0` equals the pinned digests; restart mid-wait keeps runs |
 | 4 | **Runtime cutover.** `AtlasRuntime.Model`: turn, agent, guidance, read_first. | Runtime's description lookups (`execution/engine.ex`, `interactions/guidance.ex`) | Runtime unit tests on a neutral model |
-| 5 | **Control cutover.** `AtlasControl.Model`: shell, start page, kinds, forms, keys, actions, todo, answers, read_first. Test-env tab and `guidance.control` move to `env/test.json` via `runtime.exs`. | description interpretation in `pages.ex`, `workers.ex`, `turns.ex`, `read_first.ex`; the `atlas-test.json` patch in `fly/core.Dockerfile` | Control page/answer tests on a neutral model; e2e pages |
-| 6 | **Facts cutover.** `AtlasFacts.Model`. At boot, rela's `_schema` must equal `rela_schema/0`; `_description` answers rela's schema only. | `server.ex` `extra/1` and `runtime_description!/2`, `subflows.ex`, `flow_runtime.ex`, `flows.ex`, the interpreters replaced by generated code (`guards`, `completion`, `progress`, `late`, `review`, `components`, `connector` rule parsing), `RelaDSL.Runtime` (the `target:` macro), config `extra`/`flow_runtime` (`runtime.exs`, `fly/prod/core.json`, `fly/rehearse-transfer.py`), Dockerfile COPY of `atlas.json`/`flow-runtime.json`/`flows.json`. `rela/atlas.json` and `rela/flow-runtime.json` stop being written: proofs only. The manifest drops `output_sha256` (`verify.py` text). | Facts write/derive tests on a neutral model; e2e smoke reads the proof; boot refusal test on schema mismatch |
-| 7 | **Configured deciding person.** `{:person, :<name>}` (decision, use_case) becomes `{:person, config: role}`; the core's settings (`fly/<env>/core.json`) `actors`; Flow and Control resolve it at boot and refuse a missing key; a missing person fact only makes the owner wait. The owner data changes, so `decide` and the affected use_case subflows get new digests: `migrate … rekey: true, states: :same`, checked against the base proofs. | named persons in `model/contract` (CI grep: no `{:person, :` literal) | rekey migration test; boot refusal test (missing key); a missing person waits; digests are new and declared |
+| 5 | **Control cutover.** `AtlasControl.Model`: shell, start page, kinds, forms, keys, actions, todo, answers, read_first. Test-env tab and `guidance.control` move to `products/software_factory/environments/test.json` via `runtime.exs`. | description interpretation in `pages.ex`, `workers.ex`, `turns.ex`, `read_first.ex`; the `atlas-test.json` patch in `platform/ops/core.Dockerfile` | Control page/answer tests on a neutral model; e2e pages |
+| 6 | **Facts cutover.** `AtlasFacts.Model`. At boot, rela's `_schema` must equal `rela_schema/0`; `_description` answers rela's schema only. | `server.ex` `extra/1` and `runtime_description!/2`, `subflows.ex`, `flow_runtime.ex`, `flows.ex`, the interpreters replaced by generated code (`guards`, `completion`, `progress`, `late`, `review`, `components`, `connector` rule parsing), `RelaDSL.Runtime` (the `target:` macro), config `extra`/`flow_runtime` (`runtime.exs`, `products/software_factory/environments/prod/core.json`, `platform/ops/rehearse-transfer.py`), Dockerfile COPY of `atlas.json`/`flow-runtime.json`/`flows.json`. `products/software_factory/targets/rela/atlas.json` and `products/software_factory/targets/rela/flow-runtime.json` stop being written: proofs only. The manifest drops `output_sha256` (`verify.py` text). | Facts write/derive tests on a neutral model; e2e smoke reads the proof; boot refusal test on schema mismatch |
+| 7 | **Configured deciding person.** `{:person, :<name>}` (decision, use_case) becomes `{:person, config: role}`; the core's settings (`products/software_factory/environments/<env>/core.json`) `actors`; Flow and Control resolve it at boot and refuse a missing key; a missing person fact only makes the owner wait. The owner data changes, so `decide` and the affected use_case subflows get new digests: `migrate … rekey: true, states: :same`, checked against the base proofs. | named persons in `products/software_factory/model` (CI grep: no `{:person, :` literal) | rekey migration test; boot refusal test (missing key); a missing person waits; digests are new and declared |
 
 ## 6. Risks, what stays hand-written, adding a kind
 
@@ -321,9 +321,9 @@ Each slice is mergeable alone and green; runs keep their identity unless a slice
 
 | File | Why |
 | --- | --- |
-| `rela/data-entry.yaml` | rela-server setting |
-| `env/<env>.json`, `fly/<env>/core.json` | environment settings (clients; the core on Fly); the core's now also has `actors` |
-| `rela/scripts/{config.py,verify.py,*.sh}`, `rela/tests/test_config.py` | packaging and fits; existing Python only |
+| `products/software_factory/targets/rela/data-entry.yaml` | rela-server setting |
+| `products/software_factory/environments/<env>.json`, `products/software_factory/environments/<env>/core.json` | environment settings (clients; the core on Fly); the core's now also has `actors` |
+| `platform/atlas_facts/rela/scripts/{config.py,verify.py,*.sh}`, `platform/atlas_facts/rela/tests/test_config.py` | packaging and fits; existing Python only |
 | golden files, ADRs | approval records |
 
 `flow-runtime.json` is no longer hand-written: migrations are DSL, approved against the base proof.
@@ -332,13 +332,13 @@ Each slice is mergeable alone and green; runs keep their identity unless a slice
 
 | | Today | After |
 | --- | --- | --- |
-| Hand-edited | 8 files (module YAML, module JSON, bindings, acl, subflow file, composition, golden, golden test) | 3 files + golden: `model/contract/<module>/<kind>.ex` (new), `<module>/module.ex`, `compositions/<org>.ex` |
+| Hand-edited | 8 files (module YAML, module JSON, bindings, acl, subflow file, composition, golden, golden test) | 3 files + golden: `products/software_factory/model/<module>/<kind>.ex` (new), `<module>/module.ex`, `compositions/<org>.ex` |
 | Platform code touched | 0 | 0 (callbacks are generated) |
 | Generated | 8, from 2 commands | Rela inputs + proofs, from 1 command; `--check` shows the macro output |
 
-The exact inventories (`e2e/test/composition_test.exs`, Flow goldens) are still updated in the same change.
+The exact inventories (`products/software_factory/e2e/test/composition_test.exs`, Flow goldens) are still updated in the same change.
 
 ## 7. Open product questions
 
 1. **What happens when an environment has no `actors.decider` configured?** *Recommendation:* refuse boot. A fallback to the coordinator agent would be a hidden second path.
-2. **Is one deciding person per environment enough, or is a list needed (any of them may answer)?** *Recommendation:* one now. `config: role` can later resolve to a list in `env/<env>.json` without changing the contract or any digest.
+2. **Is one deciding person per environment enough, or is a list needed (any of them may answer)?** *Recommendation:* one now. `config: role` can later resolve to a list in `products/software_factory/environments/<env>.json` without changing the contract or any digest.

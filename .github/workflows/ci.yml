@@ -2,7 +2,7 @@
 # computes this run's git tree and base key (the blob of CI_BASE_FILE at CI_BASE). On a push
 # to develop or master, and on a pull request into master, it looks for the records of
 # successful runs of this workflow (artifacts tested-tree-<tree> and
-# tested-base-<tree>-<base key>, tools/ci/tested-tree.mjs). With the first, the test jobs
+# tested-base-<tree>-<base key>, platform/ops/ci/tested-tree.mjs). With the first, the test jobs
 # are skipped; with both, the base job too. The deploys still run.
 #
 # A new test job joins the scheme with these two lines:
@@ -14,7 +14,7 @@
 # and its id in record-tested-base's needs. Exempt from both: tested-tree, the two record
 # jobs (they keep the implicit success() condition), and every job named deploy-*, which
 # needs tested-tree and keeps the four clauses of its if (no failure, no cancel, skipped
-# only when tested). tested-tree runs tools/ci/tested-tree.mjs check-workflow on this file:
+# only when tested). tested-tree runs platform/ops/ci/tested-tree.mjs check-workflow on this file:
 # CI fails while a job is outside the scheme, so nothing is recorded without that job.
 name: CI
 
@@ -27,7 +27,7 @@ on:
 # was before the push.
 env:
   CI_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event.before }}
-  CI_BASE_FILE: model/targets/proof/digests.json
+  CI_BASE_FILE: products/software_factory/targets/model/proof/digests.json
 
 jobs:
   tested-tree:
@@ -50,19 +50,19 @@ jobs:
           fetch-depth: 0
       - name: Every job is in the scheme, and the lookup's own tests pass
         run: |
-          node tools/ci/tested-tree.mjs check-workflow .github/workflows/ci.yml
-          node --test tools/ci/tested-tree.test.mjs
+          node platform/ops/ci/tested-tree.mjs check-workflow .github/workflows/ci.yml
+          node --test platform/ops/ci/tested-tree.test.mjs
       # Neither step fails: without a trusted record everything runs.
       - name: This tree and base key
         id: keys
-        run: node tools/ci/tested-tree.mjs keys
+        run: node platform/ops/ci/tested-tree.mjs keys
       - name: Look for the records of this tree
         id: find
         env:
           GITHUB_TOKEN: ${{ github.token }}
           TREE: ${{ steps.keys.outputs.tree }}
           BASE_KEY: ${{ steps.keys.outputs.base_key }}
-        run: node tools/ci/tested-tree.mjs find
+        run: node platform/ops/ci/tested-tree.mjs find
 
   generator:
     name: Spec generator on its own
@@ -73,7 +73,7 @@ jobs:
       MIX_ENV: test
     defaults:
       run:
-        working-directory: bff/generator
+        working-directory: platform/atlas_control/bff/generator
     steps:
       - uses: actions/checkout@v4
       - uses: erlef/setup-beam@v1
@@ -83,10 +83,10 @@ jobs:
       - name: The generator holds none of Atlas's values
         run: |
           if grep -rniE 'AtlasBFFContract|AtlasControl|AtlasTui|AtlasAgent|scene|use_case|turn_outcome|submit_to|cancel_to|confirm_to|\.\./contract|bff/contract|"0\.2\.0"' lib test mix.exs; then
-            echo "::error::bff/generator mentions Atlas's contract. Keep Atlas's values in bff/contract."
+            echo "::error::platform/atlas_control/bff/generator mentions Atlas's contract. Keep Atlas's values in platform/atlas_control/bff/contract."
             exit 1
           fi
-      # Compiled and tested without bff/contract, on a neutral example contract.
+      # Compiled and tested without platform/atlas_control/bff/contract, on a neutral example contract.
       - run: mix compile --warnings-as-errors
       - run: mix format --check-formatted
       - run: mix test --warnings-as-errors
@@ -98,7 +98,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: bff/contract
+        working-directory: platform/atlas_control/bff/contract
     steps:
       - uses: actions/checkout@v4
       - uses: erlef/setup-beam@v1
@@ -107,16 +107,16 @@ jobs:
           elixir-version: "1.18"
       - run: mix compile --warnings-as-errors
       - run: mix format --check-formatted
-      # Fails when a file in bff/targets differs from what the contract generates, or is left over.
+      # Fails when a file in platform/atlas_control/bff/targets differs from what the contract generates, or is left over.
       - run: mix atlas.gen --check
       - run: mix test
-      # tools/tests build atlas-runtime from tools/runtime for its node commands.
+      # platform/ops/tests build atlas-runtime from platform/atlas_runtime/host for its node commands.
       - uses: actions/setup-go@v5
         with:
           go-version: "1.25"
           cache: false
-      # tools/tests read the contract compiled above (bff/contract/_build).
-      - run: python3 -m unittest discover -s tools/tests -v
+      # platform/ops/tests read the contract compiled above (platform/atlas_control/bff/contract/_build).
+      - run: python3 -m unittest discover -s platform/ops/tests -v
         working-directory: .
 
   model-dsl:
@@ -128,7 +128,7 @@ jobs:
       MIX_ENV: test
     defaults:
       run:
-        working-directory: model/dsl
+        working-directory: platform/model/dsl
     steps:
       - uses: actions/checkout@v4
       - uses: erlef/setup-beam@v1
@@ -137,11 +137,11 @@ jobs:
           elixir-version: "1.18"
       - name: The DSL holds none of Atlas's flows
         run: |
-          if grep -rnE '(^|[^.[:alnum:]_])Model\.[A-Z{]|:model\b' lib test mix.exs || grep -rniE '\.\./contract|model/contract|\bissue\b|pull_request|pr_review|pr_test|use_case|\bscene\b|\bdecision\b|delivery_evidence' lib test mix.exs; then
-            echo "::error::model/dsl mentions Atlas's flows. Keep them in model/contract."
+          if grep -rnE '(^|[^.[:alnum:]_])Model\.[A-Z{]|:model\b' lib test mix.exs || grep -rniE 'products/software_factory/model\b|\bissue\b|pull_request|pr_review|pr_test|use_case|\bscene\b|\bdecision\b|delivery_evidence' lib test mix.exs; then
+            echo "::error::platform/model/dsl mentions Atlas's flows. Keep them in products/software_factory/model."
             exit 1
           fi
-      # Compiled and tested without model/contract, on a neutral example contract.
+      # Compiled and tested without products/software_factory/model, on a neutral example contract.
       - run: mix compile --warnings-as-errors
       - run: mix format --check-formatted
       - run: mix test --warnings-as-errors
@@ -157,7 +157,7 @@ jobs:
       ATLAS_RELA_BIN: ${{ github.workspace }}/.rela-bin
     defaults:
       run:
-        working-directory: model/contract
+        working-directory: products/software_factory/model
     steps:
       - uses: actions/checkout@v4
       # The model names roles, never people (D-0083, slice 7): an owner is {kind, config:
@@ -165,23 +165,23 @@ jobs:
       - name: The model names no person
         run: |
           if grep -rnE --exclude-dir=_build --exclude-dir=deps '\{ *:person *, *[:"]|kind: *:person *, *key:|key: *"[^"]*" *, *kind: *:person|"kind" *(=>|:) *"person" *, *"key"|"key" *(=>|:) *"[^"]*" *, *"kind" *(=>|:) *"person"' .; then
-            echo "::error::model/contract names a person. Name a configured role instead: {:person, config: :decider}, and the person in the environment's actors."
+            echo "::error::products/software_factory/model names a person. Name a configured role instead: {:person, config: :decider}, and the person in the environment's actors."
             exit 1
           fi
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "28"
           elixir-version: "1.18"
-      # rela, pinned in rela/scripts/start-test.sh; it downloads it when missing.
+      # rela, pinned in platform/atlas_facts/rela/scripts/start-test.sh; it downloads it when missing.
       - uses: actions/cache@v4
         with:
           path: .rela-bin
           key: rela-26.11.3-linux_amd64
-      - run: rela/scripts/start-test.sh install
+      - run: platform/atlas_facts/rela/scripts/start-test.sh install
         working-directory: .
       - run: mix compile --warnings-as-errors
       - run: mix format --check-formatted
-      # Fails when a file of the Rela project (rela/) or of model/targets differs from what
+      # Fails when a file of the Rela project (products/software_factory/targets/rela) or of products/software_factory/targets/model differs from what
       # the model generates, is missing or left over, or when rela refuses the generated
       # description. The run identities against the base: job model-base.
       - run: mix model.gen --check
@@ -200,7 +200,7 @@ jobs:
       base_commit: ${{ steps.keys.outputs.base_commit }}
     defaults:
       run:
-        working-directory: model/contract
+        working-directory: products/software_factory/model
     steps:
       - uses: actions/checkout@v4
         with:
@@ -212,7 +212,7 @@ jobs:
           elixir-version: "1.18"
       - name: This tree and base key
         id: keys
-        run: node tools/ci/tested-tree.mjs keys
+        run: node platform/ops/ci/tested-tree.mjs keys
         working-directory: .
       # Fails when a subflow's run identity changed without a migration the base can
       # approve (its digests.json). record-tested-base keys its record on what this job checked.
@@ -232,7 +232,7 @@ jobs:
       MIX_ENV: test
     defaults:
       run:
-        working-directory: beam
+        working-directory: products/software_factory
     steps:
       - uses: actions/checkout@v4
       - uses: erlef/setup-beam@v1
@@ -243,8 +243,8 @@ jobs:
         with:
           go-version: "1.25"
           cache: false
-      - run: go -C ../tools/runtime test ./...
-      - run: python3 -m pip install -r ../rela/scripts/requirements.txt
+      - run: go -C ../../platform/atlas_runtime/host test ./...
+      - run: python3 -m pip install -r ../../platform/atlas_facts/rela/scripts/requirements.txt
       - run: mix compile --warnings-as-errors
       - run: mix format --check-formatted
       - run: mix test --include integration
@@ -261,7 +261,7 @@ jobs:
       MIX_ENV: test
     defaults:
       run:
-        working-directory: clients/tui
+        working-directory: platform/clients/tui
     steps:
       - uses: actions/checkout@v4
       - uses: erlef/setup-beam@v1
@@ -286,10 +286,10 @@ jobs:
           otp-version: "28"
           elixir-version: "1.18"
       - run: mix compile --warnings-as-errors && mix format --check-formatted && mix test
-        working-directory: clients/agent
+        working-directory: platform/clients/agent
       # The one-off migration (atlas migrate-done-owner) compiles the client too.
       - run: mix compile --warnings-as-errors && mix format --check-formatted && mix test
-        working-directory: tools/plan
+        working-directory: platform/ops/plan
 
   e2e:
     name: End to end (rela, core, two TUIs)
@@ -305,36 +305,39 @@ jobs:
         with:
           otp-version: "28"
           elixir-version: "1.18"
-      # integration/worker_control.exs builds the atlas-runtime native host from tools/runtime.
+      # integration/worker_control.exs builds the atlas-runtime native host from platform/atlas_runtime/host.
       - uses: actions/setup-go@v5
         with:
           go-version: "1.25"
           cache: false
-      - run: python3 -m pip install -r rela/scripts/requirements.txt
-      - run: ATLAS_RELA_BIN="$ATLAS_E2E_RELA_BIN" rela/scripts/start-test.sh install
-      - run: python3 -m unittest discover -s rela/tests -v
+      - run: python3 -m pip install -r platform/atlas_facts/rela/scripts/requirements.txt
+      - run: ATLAS_RELA_BIN="$ATLAS_E2E_RELA_BIN" platform/atlas_facts/rela/scripts/start-test.sh install
+      - run: python3 -m unittest discover -s platform/atlas_facts/rela/tests -v
+      # From the app's own folder: Mix's umbrella root matches file arguments only under
+      # apps/, and the umbrella's apps are in ../../platform (its mix.exs points at the
+      # umbrella's config and _build).
       - name: Guidance against the pinned private HTTP store
-        working-directory: beam
+        working-directory: platform/atlas_facts
         env:
           MIX_ENV: test
-        run: mix test --include integration apps/atlas_facts/test/guidance_native_test.exs
+        run: mix test --include integration test/guidance_native_test.exs
       - run: sudo apt-get update && sudo apt-get install -y tmux lsof netcat-openbsd jq sqlite3
-      # rela-server-headless-sqlite, pinned in rela/scripts/start-test.sh; it downloads it when missing.
+      # rela-server-headless-sqlite, pinned in platform/atlas_facts/rela/scripts/start-test.sh; it downloads it when missing.
       - uses: actions/cache@v4
         with:
           path: .rela-bin
           key: rela-26.11.3-linux_amd64
       - run: mix compile --warnings-as-errors && mix format --check-formatted
-        working-directory: e2e
+        working-directory: products/software_factory/e2e
       # bin/atlas itself: prod by default, test only when asked; bin/atlas-dev e2e never on prod.
       - run: mix test
-        working-directory: e2e
+        working-directory: products/software_factory/e2e
       - run: bin/atlas-dev e2e --env test
       - if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: e2e-screens
-          path: e2e/artifacts
+          path: products/software_factory/e2e/artifacts
 
   swift:
     name: Swift package of the contract (macOS, iOS)
@@ -343,17 +346,17 @@ jobs:
     runs-on: macos-latest
     defaults:
       run:
-        working-directory: bff/targets/swift
+        working-directory: platform/atlas_control/bff/targets/swift
     steps:
       - uses: actions/checkout@v4
-      # bff/targets/swift is what `mix atlas.gen` writes (the contract job checks it is up to
+      # platform/atlas_control/bff/targets/swift is what `mix atlas.gen` writes (the contract job checks it is up to
       # date), and the message lines kept in Tests/Fixtures; a transport or app lives elsewhere.
       - name: The package holds only generated code and kept fixtures
         run: |
           handwritten=$(for f in $(find . -name '*.swift' -not -path './.build/*' -not -path './.swiftpm/*'); do head -2 "$f" | grep -q '^// Generated by atlas (mix atlas.gen)\. Do not edit' || echo "$f"; done)
           others=$(find . -type f -not -name '*.swift' -not -path './Tests/Fixtures/*' -not -path './.build/*' -not -path './.swiftpm/*')
           if [ -n "$handwritten$others" ]; then
-            echo "::error::bff/targets/swift holds files mix atlas.gen does not write: $handwritten $others"
+            echo "::error::platform/atlas_control/bff/targets/swift holds files mix atlas.gen does not write: $handwritten $others"
             exit 1
           fi
       - run: swift --version
@@ -369,7 +372,7 @@ jobs:
     runs-on: macos-latest
     defaults:
       run:
-        working-directory: clients/apple
+        working-directory: platform/clients/apple
     steps:
       - uses: actions/checkout@v4
       - run: swift --version
@@ -444,7 +447,7 @@ jobs:
 
   # A merge deploys its environment on Fly (d-0014): develop deploys test (IS-Atlas-26),
   # master deploys prod (IS-Atlas-79), once every check above passed, or was skipped because
-  # this tree passed them before (tested-tree). fly/deploy.sh first checks that this build's
+  # this tree passed them before (tested-tree). platform/ops/deploy.sh first checks that this build's
   # description describes the data rela holds there (else it deploys nothing), then deploys
   # rela and the core, then runs the smoke check, which reads only. Each app has its own
   # deploy token (fly tokens create deploy -a <app>).
@@ -472,9 +475,9 @@ jobs:
           otp-version: "28"
           elixir-version: "1.18"
       - uses: superfly/flyctl-actions/setup-flyctl@master
-      - run: python3 -m pip install -r rela/scripts/requirements.txt
+      - run: python3 -m pip install -r platform/atlas_facts/rela/scripts/requirements.txt
       - name: Install the pinned schema validator in this deployment job
-        run: rela/scripts/start-test.sh install
+        run: platform/atlas_facts/rela/scripts/start-test.sh install
       - run: sudo apt-get update && sudo apt-get install -y lsof netcat-openbsd jq
       - name: Deploy test (rela, then the core), then the smoke check
         env:
@@ -483,7 +486,7 @@ jobs:
         run: |
           [ -n "$ATLAS_FLY_TOKEN_RELA" ] || { echo "::error::Add the secret FLY_API_TOKEN_TEST_RELA (fly tokens create deploy -a eyra-atlas-test-rela)"; exit 1; }
           [ -n "$ATLAS_FLY_TOKEN_CORE" ] || { echo "::error::Add the secret FLY_API_TOKEN_TEST (fly tokens create deploy -a eyra-atlas-test)"; exit 1; }
-          fly/deploy-test-current.sh "develop-$GITHUB_SHA"
+          platform/ops/deploy-test-current.sh "develop-$GITHUB_SHA"
 
   deploy-prod:
     name: Deploy prod on Fly, and a smoke check
@@ -507,9 +510,9 @@ jobs:
           otp-version: "28"
           elixir-version: "1.18"
       - uses: superfly/flyctl-actions/setup-flyctl@master
-      - run: python3 -m pip install -r rela/scripts/requirements.txt
+      - run: python3 -m pip install -r platform/atlas_facts/rela/scripts/requirements.txt
       - name: Install the pinned schema validator in this deployment job
-        run: rela/scripts/start-test.sh install
+        run: platform/atlas_facts/rela/scripts/start-test.sh install
       - run: sudo apt-get update && sudo apt-get install -y lsof netcat-openbsd jq
       - name: Deploy prod (rela, then the core), then the smoke check
         env:
@@ -518,4 +521,4 @@ jobs:
         run: |
           [ -n "$ATLAS_FLY_TOKEN_RELA" ] || { echo "::error::Add the secret FLY_API_TOKEN_PROD_RELA (fly tokens create deploy -a eyra-atlas-rela)"; exit 1; }
           [ -n "$ATLAS_FLY_TOKEN_CORE" ] || { echo "::error::Add the secret FLY_API_TOKEN_PROD (fly tokens create deploy -a eyra-atlas)"; exit 1; }
-          fly/deploy.sh prod "master-$GITHUB_SHA"
+          platform/ops/deploy.sh prod "master-$GITHUB_SHA"

@@ -1,15 +1,15 @@
 # Page freshness: precise, prompt, read-your-writes
 
-Architect design. No product code changes. Paths are relative to `atlas/`. Platform names only: examples use the neutral test kinds `widget` and `part` and the relation `of_widget`, as `beam/apps/atlas_control/test/session_test.exs` does.
+Architect design. No product code changes. Paths are relative to `atlas/`. Platform names only: examples use the neutral test kinds `widget` and `part` and the relation `of_widget`, as `platform/atlas_control/test/session_test.exs` does.
 
 ## 0. Problem and decisions
 
-Today (`beam/apps/atlas_control/lib/atlas_control/session.ex`):
+Today (`platform/atlas_control/lib/atlas_control/session.ex`):
 
 - Facts sends one `stored` per write. It names only the main fact's kind and `{op, key, by, cause}`. A `replaces` write also changes other facts (`atlas_facts/server.ex` `replace/6`), but sends no hint for them.
 - A session listens to every kind. `Pages.shows?/3` matches a hint against the page on screen *by kind*, interpreting the description (`progress_from`, `completion_from`, `counts`, `components`). Home and the assigned page match every hint.
 - A submit sends the page once Facts says `stored`. Flow's follow-up writes (state, owner, Assignment) are later writes. So the first page is often half-updated, and each follow-up re-reads the page again.
-- Pages in the client's history or tabs are never refreshed. The TUI drops `hint` pages for other paths (`clients/tui/lib/atlas_tui/console.ex:147`). Every 5 s, `refresh` re-reads `_description` plus the whole page.
+- Pages in the client's history or tabs are never refreshed. The TUI drops `hint` pages for other paths (`platform/clients/tui/lib/atlas_tui/console.ex:147`). Every 5 s, `refresh` re-reads `_description` plus the whole page.
 - When the TUI shows a new page for the same path, it keeps the old selection index and clamps it to the list (`model.ex` `keep_selection/2`). If rows move, the selection lands on a different row.
 
 | # | Decision |
@@ -55,7 +55,7 @@ How deps are captured: Facts wraps the `list`/`lookup` function that its derived
 
 ### 1.3 What Control keeps per session (`AtlasControl.Freshness`)
 
-New folder `beam/apps/atlas_control/lib/atlas_control/freshness/`, named by purpose:
+New folder `platform/atlas_control/lib/atlas_control/freshness/`, named by purpose:
 
 | Module | Holds / does |
 | --- | --- |
@@ -130,9 +130,9 @@ The marker reaches the client through the 0.15.0 row fields (`key`, `pending`), 
 
 The TUI change sits on the history-stack fix (in progress). Each history entry remembers the path and its selection `{identity, index}`; `back` pops an entry and re-opens it as above. The per-tab `selections` map stores the same pair. The cache is bounded (16 paths, LRU) and survives a reconnect, because positions are global.
 
-Additive fields are tolerated by readers (`bff/README.md`, compile-time payloads), and an old client ignores pages for other paths (`console.ex:147`). The version still goes to 0.15.0 in F6, because Control's payloads validate against the contract's row model. `clients/agent` ignores both fields.
+Additive fields are tolerated by readers (`platform/atlas_control/bff/README.md`, compile-time payloads), and an old client ignores pages for other paths (`console.ex:147`). The version still goes to 0.15.0 in F6, because Control's payloads validate against the contract's row model. `platform/clients/agent` ignores both fields.
 
-### 3.1 Selection rule (pure, `clients/tui/lib/atlas_tui/selection.ex`)
+### 3.1 Selection rule (pure, `platform/clients/tui/lib/atlas_tui/selection.ex`)
 
 `Selection.after_replace(before, rows) :: index | nil`. `before` is `{identity, index}` or nil; `rows` is the new page's rows in display order (`Model.rows/1`, all list blocks flattened). A row's identity is `key`, else `to` (today's `row_identity/1`, with `key` first).
 
@@ -178,13 +178,13 @@ Working through a list, for example rows `[A, B, C]` with B selected:
 | Control pure | `freshness/marks_test.exs`: `stored(P)` marks every key in `changes`, side effects included; a refusal marks nothing; the overlay flags a row whose opened or joined key is marked and no other row; it keeps `position`; settled `S ≥ P` clears and `S < P` does not; with marks P1 < P2 and S between them only P1 clears; a timeout keeps the marks; `row_keys` and `key` come from the view model and the read set | the marker means "written, not yet settled", and only Control sets or clears it |
 | Flow pure + engine | `settled_test.exs`: a handled hint settles through Flow's own writes that follow it, up to a gap; a held hint keeps the value below it until a round releases it; a hint about nothing presented settles at its own position; a waiter is answered at once or later; waiters are bounded | the settled meaning |
 | Control session | fake `flow` and Facts endpoints on the Bus (as `session_test.exs` does): a submit sends one `_settled` and then exactly one `_page`; after `stored`, recent pages with the key are re-sent with `pending` and no read; the settled answer gives the stored page without `pending`; a sent `{:settle_timeout, ref}` gives the page with `pending` still set and the log line (`capture_log`), and no notice; the next flush's `_settled` answer clears it; 50 hints and one `:flush` give one read; an unrelated hint gives no read; an affected recent path is pushed | read-your-writes, marker lifecycle, batching, no wasted reads |
-| TUI pure | `clients/tui/test/selection_test.exs`, table-driven over cases 1–5 of §3.1: empty list, no previous selection, key kept at a new index, duplicate key nearest the old index (and the tie), key gone at the same index, key gone past the end, a row without `key` identified by `to` | the selection rule, on keys and indexes only |
+| TUI pure | `platform/clients/tui/test/selection_test.exs`, table-driven over cases 1–5 of §3.1: empty list, no previous selection, key kept at a new index, duplicate key nearest the old index (and the tie), key gone at the same index, key gone past the end, a row without `key` identified by `to` | the selection rule, on keys and indexes only |
 | TUI model | `model_test.exs`: an off-screen page is cached if not older, and an older position does not replace; back shows the cached page with the remembered selection and sends `open`, and the fresh copy applies the rule again; a `pending` row renders `⋯ being processed`; after a submit and before any page, the rows are unchanged (no optimistic outcome); the walk-through of §3.1 as page messages | the client stays dumb |
-| e2e | `e2e/test/page_freshness_test.exs`. It starts rela-server, Facts, Flow and Control in the test process, on the composition profile. A client opens the assigned page, then an item, submits the accept answer, and stamps the monotonic time `t0` before sending. `t1`: the `stored` page for the assigned path no longer lists the row and the count dropped. `t2`: the pushed page for the item path shows the final state. Before `t1`, every page that lists the changed key shows its row with `pending`, and none shows it removed. Then `back` and the next row, as in §3.1. 20 runs | the user's case end to end. The test prints p50/p95 of `t1 − t0` and `t2 − t0`. On the test environment it asserts p95 < 300 ms; locally it asserts correctness and only reports the times |
+| e2e | `products/software_factory/e2e/test/page_freshness_test.exs`. It starts rela-server, Facts, Flow and Control in the test process, on the composition profile. A client opens the assigned page, then an item, submits the accept answer, and stamps the monotonic time `t0` before sending. `t1`: the `stored` page for the assigned path no longer lists the row and the count dropped. `t2`: the pushed page for the item path shows the final state. Before `t1`, every page that lists the changed key shows its row with `pending`, and none shows it removed. Then `back` and the next row, as in §3.1. 20 runs | the user's case end to end. The test prints p50/p95 of `t1 − t0` and `t2 − t0`. On the test environment it asserts p95 < 300 ms; locally it asserts correctness and only reports the times |
 
 The marker step observes each session's `_settled` handler calls and every TCP send in the same ordered trace stream. Any integer answer contributes coverage, including a late answer with another request id, as the session clears marks before sending. A frame before coverage must retain the pending row; every list frame after coverage must omit it, carry no pending flag and preserve the remaining order. Both phases must contain frames. The actual TUI pending, gone, order and selection checks remain required.
 
-The trace query first waits for VM trace delivery, then for the collector's acknowledgement. Event times, when reported, are native VM monotonic timestamps, not collector consumption times. Release time, page position/reason and final session state do not classify frames. The wrapper retains the complete ordered `proof: marker frames` ledger (sequence, coverage, reason, keys and flags), including on failure. `e2e/test/page_freshness_observation_test.exs` covers classification boundaries; `beam/integration/page_freshness_observation.exs` exercises a delayed collector with real Facts, Flow and Control on a neutral model, plus the real handler's late-answer semantics. The historical bg1045 frame lacks this provenance and remains unclassified.
+The trace query first waits for VM trace delivery, then for the collector's acknowledgement. Event times, when reported, are native VM monotonic timestamps, not collector consumption times. Release time, page position/reason and final session state do not classify frames. The wrapper retains the complete ordered `proof: marker frames` ledger (sequence, coverage, reason, keys and flags), including on failure. `products/software_factory/e2e/test/page_freshness_observation_test.exs` covers classification boundaries; `products/software_factory/integration/page_freshness_observation.exs` exercises a delayed collector with real Facts, Flow and Control on a neutral model, plus the real handler's late-answer semantics. The historical bg1045 frame lacks this provenance and remains unclassified.
 
 Before delivering each slice, run its tests once with `TMPDIR` reached through a symlink, comparing canonical paths, and run CI's boundary greps.
 
@@ -199,7 +199,7 @@ Each slice can be merged alone and is green. Steps F1–F8 do not depend on the 
 | F3 | **Flow: settled position** (`AtlasFlow.Settled`, handled hints, `_settled` answered) | — | — | — |
 | F4 | **Control: read sets and precise invalidation.** `Freshness.*` (without marks), every page through `_page`, recent paths (N = 8, K = 3), batching, count read set | 0.14.0 | `Pages.shows?/3`, `progress_from/3`, `completion_from/2`, `count_stale` | F1, F2 |
 | F5 | **Control: read-your-writes** after a submit; the settled wait on a flush; the timeout log line, with no notice | 0.14.0 | — | F3, F4 |
-| F6 | **TUI and contract: page cache, re-open on back/tab, selection rule (§3.1), rendering of `pending`.** The row model gains `key` and `pending`; Control fills `key` from `to` | **0.15.0** (`bff/contract`, `bff/README.md`) | the drop of off-screen pages; `keep_selection/2` | the history-stack fix |
+| F6 | **TUI and contract: page cache, re-open on back/tab, selection rule (§3.1), rendering of `pending`.** The row model gains `key` and `pending`; Control fills `key` from `to` | **0.15.0** (`platform/atlas_control/bff/contract`, `platform/atlas_control/bff/README.md`) | the drop of off-screen pages; `keep_selection/2` | the history-stack fix |
 | F7 | **Control: pending marker** (§2.3): `marks.ex`, overlay on every page, re-send of marked recent views, clear on settled, re-ask while marks are held | 0.15.0 (no change) | — | F5, F6 |
 | F8 | **e2e latency, marker and precision proof** | — | — | F7 |
 | F9 | **Cheap reconcile**: a `_position` read; no `_description` read on refresh | — | `describe/1` on `refresh` | **Rela DSL slice 5**: until then, refresh is how Control picks up a changed description |

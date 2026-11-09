@@ -3,7 +3,7 @@
 A read-only, UI-independent view of a standalone Runtime: worker overview, exact turn
 identity, status and activity, execution events, retained public output and terminal
 results. It needs neither Atlas Server nor a Runtime client library; viewers such as the
-local Prism viewer (`clients/viewer`) and independent macOS clients consume the same contract.
+local Prism viewer (`platform/atlas_runtime/viewer`) and independent macOS clients consume the same contract.
 
 ## Transport
 

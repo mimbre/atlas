@@ -1,0 +1,30 @@
+# The core of Atlas prod on Fly (Bus, Facts, Flow, Control; IS-Atlas-79). Deployed from the
+# repository root by CI on a merge to master:
+#   fly deploy . --config products/software_factory/environments/prod/core.toml --dockerfile platform/ops/core.Dockerfile
+# No [[services]] and no public address: clients reach Control on prod's own private
+# network (eyra-atlas-prod), over WireGuard; `atlas` opens the tunnel once products/software_factory/environments/prod.json
+# says prod's clients use Fly ("in_use" in its "fly" section).
+app = "eyra-atlas"
+primary_region = "ams"
+kill_signal = "SIGTERM"
+kill_timeout = "10s"
+
+[env]
+  ATLAS_ENV = "prod"
+  ATLAS_ENV_FILE = "/app/products/software_factory/environments/prod/core.json"
+
+[mounts]
+  source = "core_data"
+  destination = "/data"
+  initial_size = "1gb"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+
+[checks.control]
+  type = "tcp"
+  port = 7591
+  interval = "15s"
+  timeout = "5s"
+  grace_period = "30s"
