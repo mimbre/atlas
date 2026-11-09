@@ -1342,6 +1342,16 @@ defmodule AtlasControl.PagesTest do
   # A start page of what is assigned to the client (made-up kinds and words).
   @assigning AtlasControl.Model.catalog(Shop.Assigning)
 
+  # The props of a page's blocks, by block id.
+  defp by_id(page), do: Map.new(page.blocks, &{&1["id"], &1["props"]})
+
+  # The Overview's counts, by label.
+  defp counts(page), do: Map.new(by_id(page)["summary"]["fields"], &{&1["label"], &1["value"]})
+
+  # The rows' technical details: `{key, value}`, in list order.
+  defp technical(page),
+    do: for(f <- by_id(page)["details"]["fields"], do: {f["label"], f["value"]})
+
   defp kept(key, title, since, cause, extra \\ %{}) do
     fact(key, Map.merge(%{"title" => title}, extra))
     |> Map.put("origins", %{"kept_by" => %{"since" => since, "cause" => cause}})
@@ -1379,12 +1389,18 @@ defmodule AtlasControl.PagesTest do
       ]
     }
 
-    %{blocks: [%{"props" => list}]} =
-      render_run({:assigned, "ada"}, @carded_start, "open", [cards, widgets])
+    page = render_run({:assigned, "ada"}, @carded_start, "open", [cards, widgets])
+    list = by_id(page)["list"]
 
-    # The fact, not its card; a completed one is not there; what the card expects, and why.
-    assert [%{"id" => "W-1", "label" => "One", "to" => "/k/widget/W-1"} = row] = list["rows"]
-    assert row["detail"] =~ ~r/^Paint it · since 3 Nov \d\d:00 · hers$/
+    # The fact, not its card; a completed one is not there; what the card expects, calm.
+    assert [%{"label" => "One", "to" => "/k/widget/W-1", "detail" => "Paint it"} = row] =
+             list["rows"]
+
+    refute Map.has_key?(row, "id")
+    # Its key, its card, since when and why are in its details.
+    assert [{"W-1", details}] = technical(page)
+    assert details =~ " · C-W-1 · "
+    assert details =~ ~r/ · since 2026-11-03T10:00:00Z · cause: hers$/
     assert Pages.assigned_count(@carded_start, [cards, widgets]) == "1 held"
 
     selected_widgets = %{"facts" => Enum.take(widgets["facts"], 2)}
@@ -1425,20 +1441,26 @@ defmodule AtlasControl.PagesTest do
     page = render_run(route, @carded_start, "open", answers, %{marked: Map.keys(marks)})
     blocks = AtlasControl.Freshness.RowKey.put(page.blocks)
 
-    {[%{"props" => %{"rows" => rows}}], flagged} =
-      AtlasControl.Freshness.Marks.overlay(blocks, %{}, marks)
+    {blocks, flagged} = AtlasControl.Freshness.Marks.overlay(blocks, %{}, marks)
+    rows = by_id(%{blocks: blocks})["list"]["rows"]
 
-    assert Enum.map(rows, & &1["id"]) == ["W-1", "W-2"]
-    assert Enum.find(rows, &(&1["id"] == "W-2"))["pending"] == true
+    assert Enum.map(rows, & &1["key"]) == ["W-1", "W-2"]
+    assert Enum.find(rows, &(&1["key"] == "W-2"))["pending"] == true
     assert flagged == ["W-2"]
     assert Pages.assigned_count(@carded_start, answers, Map.keys(marks)) == "2 held"
+    # The pending row counts, and keeps its details.
+    assert counts(page)["To do"] == "2"
+    assert Enum.map(technical(page), &elem(&1, 0)) == ["W-1", "W-2"]
 
     # Flow settled past the write: the mark goes, and so does the row.
     marks = AtlasControl.Freshness.Marks.settled(marks, 7)
     page = render_run(route, @carded_start, "open", answers, %{marked: Map.keys(marks)})
-    [%{"props" => %{"rows" => rows}}] = page.blocks
-    assert Enum.map(rows, & &1["id"]) == ["W-1"]
+    rows = by_id(%{blocks: AtlasControl.Freshness.RowKey.put(page.blocks)})["list"]["rows"]
+    assert Enum.map(rows, & &1["key"]) == ["W-1"]
+    refute Enum.any?(rows, &Map.has_key?(&1, "pending"))
     assert Pages.assigned_count(@carded_start, answers, Map.keys(marks)) == "1 held"
+    assert counts(page)["To do"] == "1"
+    assert Enum.map(technical(page), &elem(&1, 0)) == ["W-1"]
   end
 
   test "what is assigned shows the work its presentation has open, and an owner set by hand" do
@@ -1470,19 +1492,198 @@ defmodule AtlasControl.PagesTest do
         )
     }
 
-    %{blocks: [%{"props" => list}]} =
-      render_run({:assigned, "ada"}, @carded_start, "open", [cards, widgets])
+    page = render_run({:assigned, "ada"}, @carded_start, "open", [cards, widgets])
+    list = by_id(page)["list"]
 
-    assert Enum.map(list["rows"], & &1["id"]) |> Enum.sort() == ["W-1", "W-3"]
+    assert Enum.map(list["rows"], & &1["to"]) |> Enum.sort() == ["/k/widget/W-1", "/k/widget/W-3"]
 
     # What is expected is the presentation's: none on work whose run ended.
-    rows = Map.new(list["rows"], &{&1["id"], &1["detail"]})
-    assert rows["W-1"] =~ "Paint it"
-    refute rows["W-3"] =~ "Paint it"
+    rows = Map.new(list["rows"], &{&1["to"], &1["detail"]})
+    assert rows["/k/widget/W-1"] =~ "Paint it"
+    refute rows["/k/widget/W-3"] =~ "Paint it"
+    # The owner set by hand shows in the technical details.
+    assert Map.new(technical(page))["W-3"] =~ " · manual · "
   end
 
   # Open work: the list of the cards is what is held, for everyone; a card is due by a time.
   @open AtlasControl.Model.catalog(Shop.Open)
+
+  test "what is assigned is calm by default: an overview, a calm list, details on demand" do
+    card = fn key, shown, values ->
+      fact(key, Map.merge(%{"of" => String.replace_prefix(key, "C-", "")}, values))
+      |> Map.put("links", %{"held_by" => ["ada"]})
+      |> Map.put("presentation", Map.merge(%{"actionable" => true}, shown))
+    end
+
+    since = "2026-11-03T10:00:00.123456Z"
+
+    cards = %{
+      "facts" => [
+        card.(
+          "C-W-1",
+          %{
+            "expected" => "Paint it",
+            "status" => "blocked",
+            "flow" => "f",
+            "run" => "R-7",
+            "state" => "open",
+            "owner" => ["ada", "bob"],
+            "manual" => true,
+            "handover" => %{"from" => ["cy"], "position" => 3},
+            "deadline" => "2026-11-05T12:00:00Z"
+          },
+          %{"todo" => "Paint it"}
+        )
+        |> Map.put("origins", %{"held_by" => %{"since" => since, "cause" => "Flow f: → ada"}}),
+        card.("C-W-2", %{"expected" => "Sand it", "status" => "active"}, %{
+          "due" => "2020-01-02T12:00:00Z"
+        })
+        |> Map.put("late", true),
+        card.("C-W-3", %{"status" => "active"}, %{})
+      ]
+    }
+
+    widgets = %{
+      "facts" =>
+        for(
+          {key, title} <- [{"W-1", "One"}, {"W-2", "Two"}, {"W-3", "Three"}],
+          do: fact(key, %{"title" => title}) |> Map.put("links", %{"card" => ["C-" <> key]})
+        )
+    }
+
+    # W-1 is to be reviewed: a blocker a person reads first; the fact that makes it so is
+    # technical.
+    widgets =
+      update_in(widgets, ["facts", Access.at(0)], fn w1 ->
+        Map.put(w1, "review", %{"label" => "Needs a look", "key" => "R-9"})
+      end)
+
+    page = render({:assigned, "ada"}, @open, [cards, widgets])
+    blocks = by_id(page)
+
+    # Overview, then the list, then the details; ids stable.
+    assert Enum.map(page.blocks, & &1["id"]) == ["summary", "list", "details"]
+    assert blocks["summary"]["title"] == "Overview"
+    assert counts(page) == %{"To do" => "3", "Late" => "1", "Blocked" => "1"}
+    refute Map.has_key?(blocks["summary"], "actions")
+
+    # Calm rows: no id, no since, cause or owner; what is expected, blocked, late.
+    rows = blocks["list"]["rows"]
+    assert Enum.map(rows, & &1["to"]) == ~w(/k/widget/W-1 /k/widget/W-2 /k/widget/W-3)
+    refute Enum.any?(rows, &Map.has_key?(&1, "id"))
+    [one, two, three] = Enum.map(rows, & &1["detail"])
+    assert one == "Needs a look · Paint it · blocked"
+    assert two =~ ~r/^Sand it · Late · due 2020-01-02 12:00$/
+    assert three in [nil, ""]
+    refute Enum.any?([one, two], &(&1 =~ ~r/since|cause|ada|C-W-|R-9/))
+
+    # Details, in list order: each row's key with its technical parts, the full since.
+    assert blocks["details"]["title"] == "Technical details"
+
+    assert [{"W-1", w1}, {"W-2", w2}, {"W-3", w3}] = technical(page)
+
+    assert w1 ==
+             "Widget · C-W-1 · flow f · run R-7 · state open · status blocked · review R-9 · " <>
+               "owner ada, bob · manual · handover from cy · deadline 2026-11-05T12:00:00Z · " <>
+               "since #{since} · cause: Flow f: → ada"
+
+    assert w2 == "Widget · C-W-2 · status active"
+    assert w3 == "Widget · C-W-3 · status active"
+
+    # Folded until asked: a collapsible Details section over the details, and the same
+    # sections_toggle (d) the worker page offers.
+    assert [
+             %{
+               "kind" => "section",
+               "start" => "details",
+               "end" => "details",
+               "props" => %{"title" => "Details", "collapsible" => true}
+             }
+           ] = page.markup
+
+    assert page.console_actions == [Pages.details_action()]
+    assert %{keys: ["d"], operation: %{"name" => "sections_toggle"}} = Pages.details_action()
+  end
+
+  test "the Overview counts late on the fact too, and blocked as the link's presentation says" do
+    card = fn key, shown ->
+      fact(key, %{"of" => String.replace_prefix(key, "C-", "")})
+      |> Map.put("links", %{"held_by" => ["ada"]})
+      |> Map.put("presentation", Map.merge(%{"actionable" => true}, shown))
+    end
+
+    widget = fn key, shown ->
+      fact(key, %{"title" => key})
+      |> Map.put("links", %{"card" => ["C-" <> key]})
+      |> Map.put("presentation", shown)
+    end
+
+    cards = %{
+      "facts" => [
+        # Active on the card, blocked on the fact: the card's presentation decides.
+        card.("C-W-1", %{"status" => "active"}),
+        # Nothing on the card: the fact's says blocked.
+        card.("C-W-2", %{})
+      ]
+    }
+
+    widgets = %{
+      "facts" => [
+        widget.("W-1", %{"status" => "blocked"}) |> Map.put("late", true),
+        widget.("W-2", %{"status" => "blocked"})
+      ]
+    }
+
+    page = render({:assigned, "ada"}, @open, [cards, widgets])
+
+    # Late only on the fact counts; W-1 is not blocked, W-2 is.
+    assert counts(page) == %{"To do" => "2", "Late" => "1", "Blocked" => "1"}
+
+    assert Map.new(by_id(page)["list"]["rows"], &{&1["to"], &1["detail"]}) == %{
+             "/k/widget/W-1" => "",
+             "/k/widget/W-2" => "blocked"
+           }
+  end
+
+  # A page as the session hands it to a console (`Session.message/6`, `deliver/3`).
+  defp console(page) do
+    message = %{
+      "op" => "page",
+      "path" => "/",
+      "title" => page.title,
+      "back" => page.back,
+      "blocks" => AtlasControl.Freshness.RowKey.put(page.blocks),
+      "markup" => page.markup
+    }
+
+    AtlasControl.Console.project(message, 1, Map.get(page, :console_actions, []))
+  end
+
+  test "a start action on d keeps the details, without the console action that would clash" do
+    cards = %{
+      "facts" => [
+        fact("C-W-1", %{"of" => "W-1"}) |> Map.put("presentation", %{"actionable" => true})
+      ]
+    }
+
+    widgets = %{
+      "facts" => [fact("W-1", %{"title" => "One"}) |> Map.put("links", %{"card" => ["C-W-1"]})]
+    }
+
+    # As a model whose start action on a kind is d (the Rela DSL allows it).
+    on_d =
+      put_in(@carded_start, [:start, :actions], [%{kind: "widget", key: "d", label: "Desks"}])
+
+    page = render({:assigned, "ada"}, on_d, [cards, widgets])
+    assert Enum.map(page.blocks, & &1["id"]) == ["summary", "list", "details"]
+    assert page.console_actions == []
+    assert {:ok, _projected} = console(page)
+
+    # Otherwise the start page offers it, and projects as well.
+    page = render({:assigned, "ada"}, @carded_start, [cards, widgets])
+    assert page.console_actions == [Pages.details_action()]
+    assert {:ok, _projected} = console(page)
+  end
 
   test "open work: the same rows for everyone, with who holds each; late first" do
     assert Pages.open_work?(@open, "card")
@@ -1770,18 +1971,31 @@ defmodule AtlasControl.PagesTest do
     parts = %{"facts" => [kept("P-1", "Newer", "2026-11-03T11:00:00Z", "second")]}
     answers = [widgets, parts]
 
-    %{title: "Kept by you", back: nil, blocks: [%{"props" => list}]} =
-      render_run({:assigned, "K-1"}, @assigning, "open", answers)
+    %{title: "Kept by you", back: nil} =
+      page = render_run({:assigned, "K-1"}, @assigning, "open", answers)
 
-    # Newest move first; a completed one is not there; what its flow expects, and why.
-    assert [%{"id" => "P-1", "to" => "/k/part/P-1"}, %{"id" => "W-1"} = older] = list["rows"]
-    assert older["detail"] =~ ~r/^dark · since 3 Nov \d\d:00 · first$/
+    list = by_id(page)["list"]
+
+    # Newest move first; a completed one is not there; what its flow expects; why, in its
+    # details.
+    assert [%{"to" => "/k/part/P-1"}, %{"to" => "/k/widget/W-1"} = older] = list["rows"]
+    assert older["detail"] == "dark"
+    assert [{"P-1", newer}, {"W-1", details}] = technical(page)
+    assert newer =~ "since 2026-11-03T11:00:00Z · cause: second"
+    assert details =~ "since 2026-11-03T10:00:00Z · cause: first"
     assert [%{"key" => "s", "label" => "Widgets", "to" => "/k/widget"}] = list["actions"]
     assert Pages.assigned_count(@assigning, answers) == "2 kept by you"
+    assert counts(page) == %{"To do" => "2"}
 
-    %{blocks: [%{"props" => empty}]} =
+    # Nothing kept: the Overview and the empty list, no details and nothing to fold.
+    page =
       render_run({:assigned, "K-1"}, @assigning, "open", [%{"facts" => []}, %{"facts" => []}])
 
+    assert Enum.map(page.blocks, & &1["id"]) == ["summary", "list"]
+    assert page.markup == []
+    refute Map.has_key?(page, :console_actions)
+    assert counts(page) == %{"To do" => "0"}
+    empty = by_id(page)["list"]
     assert empty["rows"] == [] and empty["empty"] == "Nothing is kept by you."
   end
 

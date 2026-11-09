@@ -98,8 +98,13 @@ defmodule AtlasControl.SessionTest do
     end
   end
 
+  # The labels of the rows of the page's list (the start page has its Overview first).
   defp rows(page),
-    do: page["blocks"] |> hd() |> get_in(["props", "rows"]) |> Enum.map(& &1["label"])
+    do:
+      page["blocks"]
+      |> Enum.find(&(&1["type"] == "list"))
+      |> get_in(["props", "rows"])
+      |> Enum.map(& &1["label"])
 
   # How long a message may take to arrive: an upper bound for delivery under load, never a
   # duration under test. Every wait under test is held (`hold_clock/0`) and run out here.

@@ -16,11 +16,14 @@ socket = proof["socket"]
 user = "melle"
 CoreLog.start()
 
-# The keys of the rows of the list on screen, in order, and which is selected (`›`).
-rows = fn tui, keys ->
-  for [_, mark, key] <- Regex.scan(~r/^ (›| ) (\S+)  /m, settled(tui)),
-      key in keys,
-      do: %{key: key, selected: mark == "›"}
+# The keys of the rows of the list on screen, in order, and which is selected (`›`). The
+# start page's rows are calm (no id column): a row is known by its title, `titles`.
+rows = fn tui, titles ->
+  keys = Map.new(titles, fn {key, title} -> {title, key} end)
+
+  for [_, mark, title] <- Regex.scan(~r/^ (›| ) (\S.*?)(?:  |\s*$)/m, settled(tui)),
+      Map.has_key?(keys, title),
+      do: %{key: keys[title], selected: mark == "›"}
 end
 
 selected = fn rows -> Enum.find_index(rows, & &1.selected) end
@@ -59,7 +62,6 @@ try do
       {decision["key"], "Choice #{n}"}
     end
 
-  keys = Map.keys(titles)
   see(t1, "4 assigned to you", 30_000)
 
   step("Precision: an unrelated page gets no push; a page that depends on the write does", fn ->
@@ -88,7 +90,7 @@ try do
   step(
     "Read-your-writes: the stored page shows Flow's outcome; `a` selects the row at its index",
     fn ->
-      before = rows.(t1, keys)
+      before = rows.(t1, titles)
       assert length(before) == 4
       [first, second | _] = before
       open_row(t1, titles[first.key])
@@ -120,7 +122,7 @@ try do
       # Back on the list: the answered row left it; the row now at its index is selected.
       start_page(t1)
       gone(t1, "from cache")
-      after_rows = rows.(t1, keys)
+      after_rows = rows.(t1, titles)
       # The other rows keep their order.
       assert Enum.map(after_rows, & &1.key) == Enum.map(before, & &1.key) -- [first.key]
       assert selected.(after_rows) == 0
@@ -131,7 +133,7 @@ try do
   step(
     "Marker: the answered row is pending until Flow settles; `f` selects the row at its index",
     fn ->
-      before = rows.(t1, keys)
+      before = rows.(t1, titles)
       assert length(before) == 3
       [_, middle, next] = before
       :ok = Sessions.quiet(a, 5_000)
@@ -155,10 +157,10 @@ try do
 
         try do
           start_page(t1)
-          pattern = ~r/› #{middle.key}\s+#{Regex.escape(titles[middle.key])}\s+⋯ being processed/
+          pattern = ~r/› #{Regex.escape(titles[middle.key])}\s+⋯ being processed/
           screen = see(t1, pattern)
           assert length(Regex.scan(~r/being processed/, screen)) == 1
-          assert selected.(rows.(t1, keys)) == 1
+          assert selected.(rows.(t1, titles)) == 1
 
           # Every list page sent since the key shows the row, pending: none shows it gone.
           lists =
@@ -179,10 +181,10 @@ try do
           # Flow catches up; the session hears it settled past the write.
           :ok = FlowTime.until(flow, fn -> Sessions.unmarked?(a) end, 10_000)
           gone(t1, "being processed")
-          gone(t1, ~r/ #{middle.key}  /)
+          gone(t1, ~r/^ (›| ) #{Regex.escape(titles[middle.key])}(  |\s*$)/m)
           assert :sys.get_state(a).settled >= position
 
-          after_rows = rows.(t1, keys)
+          after_rows = rows.(t1, titles)
           assert Enum.map(after_rows, & &1.key) == Enum.map(before, & &1.key) -- [middle.key]
           assert selected.(after_rows) == 1
           assert Enum.at(after_rows, 1).key == next.key

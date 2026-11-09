@@ -661,27 +661,160 @@ defmodule AtlasControl.Pages do
     |> Enum.sort_by(fn {_, _, link} -> if link["late"] == true, do: 0, else: 1 end)
   end
 
-  # Each row: the fact, what its owner is expected to do (the field its flow writes), and
-  # since when and why it is theirs (the fact that set the link).
+  # What is assigned to the client, calm by default and detail on demand (bff/README.md):
+  # an Overview of the counts, the list without technical noise, and each row's technical
+  # details in a Details section a client folds until asked (`details_action/0`).
   defp assigned(m, _by, answers, marked) do
     rule = assigned_rule(m)
-
-    rows =
-      for item <- assigned_facts(m, answers, marked), do: work_row(m, rule.relation, item, false)
+    items = assigned_facts(m, answers, marked)
 
     list =
       Blocks.list(
         title: rule.title || "",
-        rows: rows,
+        rows: for(item <- items, do: calm_row(m, rule.relation, item)),
         empty: rule.empty,
         actions: start_actions(m)
       )
 
-    page(rule.title || "", nil, [list])
+    content = [{"summary", overview(items)}, {"list", list}]
+
+    case items do
+      [] ->
+        page(rule.title || "", nil, content)
+
+      _ ->
+        details =
+          Blocks.item(
+            title: "Technical details",
+            fields: for(item <- items, do: technical_pair(m, rule.relation, item))
+          )
+
+        page(rule.title || "", nil, content ++ [{"details", details}], [
+          Blocks.section("details", "details", title: "Details", collapsible: true)
+        ])
+        |> Map.put(:console_actions, details_actions(m))
+    end
   end
 
-  # One row of what is assigned: the fact, whoever it is assigned to (`owner?`, in Open
-  # work), what is expected, its deadline (late first), and since when and why.
+  @doc """
+  The console action that folds or unfolds a page's collapsible sections (`sections_toggle`,
+  key d): the one every page with a Details section offers.
+  """
+  def details_action,
+    do: %{
+      label: "Show or hide details",
+      keys: ["d"],
+      operation: %{"name" => "sections_toggle"},
+      on: nil,
+      row: nil,
+      available: true,
+      reason: nil
+    }
+
+  # The start page's console actions: `details_action/0`, unless a start action already
+  # binds its key (a model may start a kind on d); then a console keeps the Details folded,
+  # and a native client discloses them on its own.
+  defp details_actions(m) do
+    action = details_action()
+
+    if Enum.any?(m.start.actions, &(&1.key in action.keys)), do: [], else: [action]
+  end
+
+  # How much is assigned: how many to do, and how many of those are late or blocked (only
+  # when some are).
+  defp overview(items) do
+    late = Enum.count(items, fn {_, fact, link} -> true in [link["late"], fact["late"]] end)
+
+    blocked =
+      Enum.count(items, fn {_, fact, link} -> shown(fact, link, "status") == "blocked" end)
+
+    fields =
+      for {label, n} <- [{"To do", length(items)}, {"Late", late}, {"Blocked", blocked}],
+          label == "To do" or n > 0,
+          do: Blocks.pair(label: label, value: Integer.to_string(n))
+
+    Blocks.item(title: "Overview", fields: fields)
+  end
+
+  # One calm row of what is assigned: the fact, why it is to be reviewed (the rule's label;
+  # the fact that makes it so is in the details), what is expected, whether it is blocked,
+  # and its deadline (late first); its key and the rest are in its technical details.
+  defp calm_row(m, relation, {from, fact, link}) do
+    link_k = kind(m, link_kind(m, relation))
+
+    detail =
+      [
+        get_in(fact, ["review", "label"]),
+        expected(fact, link),
+        shown(fact, link, "status") == "blocked" && "blocked",
+        late_detail(link_k, link)
+      ]
+      |> Enum.reject(&(&1 in [nil, "", false]))
+      |> Enum.join(" · ")
+
+    Blocks.row(
+      label: label(kind(m, from), fact),
+      detail: detail,
+      to: path({:item, from, fact["key"]})
+    )
+  end
+
+  # A row's technical details, by its key: its kind, the Assignment when that is another
+  # fact, how Facts presents the work on it, and since when and why it is the client's.
+  defp technical_pair(m, relation, {from, fact, link}) do
+    origin = get_in(link, ["origins", relation]) || %{}
+
+    part = fn name, words ->
+      case shown(fact, link, name) do
+        nil -> nil
+        value -> words <> keys_text(value)
+      end
+    end
+
+    handover =
+      case shown(fact, link, "handover") do
+        %{"from" => keys} when keys not in [nil, "", []] -> "handover from " <> keys_text(keys)
+        _ -> nil
+      end
+
+    value =
+      [
+        (kind(m, from) || unknown_kind(from)).label,
+        link["key"] != fact["key"] && link["key"],
+        part.("flow", "flow "),
+        part.("run", "run "),
+        part.("state", "state "),
+        part.("status", "status "),
+        get_in(fact, ["review", "key"]) && "review " <> to_text(fact["review"]["key"]),
+        part.("owner", "owner "),
+        shown(fact, link, "manual") == true && "manual",
+        handover,
+        part.("deadline", "deadline "),
+        origin["since"] && "since " <> to_text(origin["since"]),
+        origin["cause"] && "cause: " <> to_text(origin["cause"])
+      ]
+      |> Enum.reject(&(&1 in [nil, "", false]))
+      |> Enum.join(" · ")
+
+    Blocks.pair(label: fact["key"], value: value)
+  end
+
+  # What Facts' presentation of the work says of `name`: on the component it is presented
+  # on (`link`), or on the fact itself; nil when neither says anything.
+  defp shown(fact, link, name) do
+    Enum.find_value([link, fact], fn written ->
+      case written["presentation"] do
+        %{^name => value} when value not in [nil, "", false, []] -> value
+        _ -> nil
+      end
+    end)
+  end
+
+  defp keys_text(keys) when is_list(keys), do: Enum.map_join(keys, ", ", &to_text/1)
+  defp keys_text(value), do: to_text(value)
+
+  # One row of Open work: the fact, whoever it is assigned to (`owner?`), what is
+  # expected, its deadline (late first), and since when and why.
   defp work_row(m, relation, {from, fact, link}, owner?) do
     k = kind(m, from)
     origin = get_in(link, ["origins", relation]) || %{}
