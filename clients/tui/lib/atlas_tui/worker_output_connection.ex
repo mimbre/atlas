@@ -44,6 +44,13 @@ defmodule AtlasTui.WorkerOutputConnection do
   def start(owner, env, settings) when is_pid(owner) and is_binary(env),
     do: GenServer.start(__MODULE__, {owner, env, settings})
 
+  @doc """
+  Like `start/3`, also monitoring the connection from the caller as it starts:
+  `{:ok, {pid, monitor}}`. A connection that ends at once still reports why.
+  """
+  def start_monitor(owner, env, settings) when is_pid(owner) and is_binary(env),
+    do: :gen_server.start_monitor(__MODULE__, {owner, env, settings}, [])
+
   def send_request(pid, wire_map), do: GenServer.cast(pid, {:send_request, wire_map})
 
   def stop(pid), do: GenServer.cast(pid, :stop)
