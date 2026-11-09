@@ -1008,7 +1008,7 @@ defmodule AtlasState.Server do
 
   defp older(kind) do
     "rela does not know #{kind}: its description is older than this build; " <>
-      "run atlas restart --env #{AtlasBus.environment()}"
+      "run atlas-ops restart --env #{AtlasBus.environment()}"
   end
 
   defp content_op(%{"op" => op}) when is_binary(op), do: op

@@ -1,6 +1,6 @@
 import Config
 
-# The Atlas environment (test or prod) is not Mix's environment. `bin/atlas up --env <env>`
+# The Atlas environment (test or prod) is not Mix's environment. `bin/atlas-ops up --env <env>`
 # sets ATLAS_ENV; its settings come from env/<env>.json at the repository root, the one
 # file the BEAM node and the clients both read. There is no default: a node only starts
 # for the environment it was told, so nothing reaches prod by accident.
@@ -8,7 +8,7 @@ if config_env() != :test do
   env = System.get_env("ATLAS_ENV")
 
   if env not in ["test", "prod"] do
-    raise "ATLAS_ENV is #{inspect(env)}; start the core with bin/atlas up --env test|prod"
+    raise "ATLAS_ENV is #{inspect(env)}; start the core with bin/atlas-ops up --env test|prod"
   end
 
   root = System.get_env("ATLAS_ROOT") || Path.expand("../..", __DIR__)

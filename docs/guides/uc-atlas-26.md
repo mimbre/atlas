@@ -8,7 +8,7 @@ What you can do: see, for every linked pull request, its title and whether it is
 atlas
 ```
 
-This is prod, where the plan's pull requests are. After the merge, the first start (or `atlas restart`) runs the connector. It reads every linked pull request that is not merged or closed yet, at once and then every 5 minutes. It uses the token of `gh auth token`, so `gh` must be logged in.
+This is prod, where the plan's pull requests are. After the merge, the first start (or `atlas-ops restart`) runs the connector. It reads every linked pull request that is not merged or closed yet, at once and then every 5 minutes. It uses the token of `gh auth token`, so `gh` must be logged in.
 
 Test has no GitHub connector: in test, connectors do nothing (d-0003). The end-to-end test reads a stand-in GitHub instead (below).
 
@@ -21,7 +21,7 @@ Test has no GitHub connector: in test, connectors do nothing (d-0003). The end-t
 | One linked a moment ago | in an issue, `c`, a pull request URL, `ctrl-s` | `✓ Stored as PR-…`; within a few seconds its title replaces the URL and its state shows. |
 | One merged on GitHub | merge an open pull request on GitHub, keep its issue open in Atlas | Within 5 minutes its row says `Merged`, without anyone touching Atlas. |
 
-A draft shows as `Open · draft`. A pull request whose read failed (no network, rate limit, no access) keeps what was stored. Its page says so, for example `Last read  … from GitHub; the read at … failed: GitHub answered 404 (no such pull, or no access); it is tried again`. The core's log (`atlas logs`) has the same line, never the token.
+A draft shows as `Open · draft`. A pull request whose read failed (no network, rate limit, no access) keeps what was stored. Its page says so, for example `Last read  … from GitHub; the read at … failed: GitHub answered 404 (no such pull, or no access); it is tried again`. The core's log (`atlas-ops logs`) has the same line, never the token.
 
 ## What changed for this
 

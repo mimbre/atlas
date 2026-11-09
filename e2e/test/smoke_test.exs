@@ -38,7 +38,6 @@ defmodule AtlasE2E.SmokeTest do
     import json, os, sys
     args = sys.argv[1:]
     with open(os.environ['SMOKE_CALLS'], 'a') as f: f.write(json.dumps(args) + '\\n')
-    if args[0] == 'stop': sys.exit(0)
     if args[0] == 'help': print(os.environ.get('SMOKE_HELP', json.dumps([{'kind': k} for k in json.loads(os.environ['SMOKE_KINDS'])])))
     elif args[0] == 'list':
         if args[1] in json.loads(os.environ['SMOKE_SCOPED']):
@@ -49,6 +48,13 @@ defmodule AtlasE2E.SmokeTest do
             print(json.dumps({'error': os.environ['SMOKE_LIST_ERROR']}))
         else: print('[{}, {}]')
     else: raise SystemExit('unexpected command (no writes allowed): ' + repr(args))
+    """)
+
+    # The smoke check's own tunnel is closed when it ends.
+    executable(dir, "bin/atlas-ops", """
+    #!/usr/bin/env python3
+    import json, os, sys
+    with open(os.environ['SMOKE_CALLS'], 'a') as f: f.write(json.dumps(['atlas-ops'] + sys.argv[1:]) + '\\n')
     """)
 
     %{dir: dir}
@@ -85,6 +91,8 @@ defmodule AtlasE2E.SmokeTest do
       assert out =~ "#{kind}: scoped-read guard verified"
       assert File.read!(Path.join(dir, "calls.jsonl")) =~ ~s(["list", "#{kind}")
     end
+
+    assert File.read!(Path.join(dir, "calls.jsonl")) =~ ~s(["atlas-ops", "tunnel", "close")
   end
 
   test "ordinary-only compositions retain ordinary smoke", %{dir: dir} do

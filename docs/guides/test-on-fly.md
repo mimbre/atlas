@@ -12,9 +12,9 @@ Test's core (Bus, State, Flow, Control) and its rela run on Fly, in organisation
 ```sh
 atlas tui --env test        # opens the tunnel to test's Control on Fly, then the TUI
 atlas list scene --env test # the agents' commands too; each opens the tunnel when it is closed
-atlas status --env test     # the tunnel, and both apps' machines, checks and deployed build
-atlas logs --env test       # the core's log on Fly (rela's: fly logs -a eyra-atlas-test-rela)
-atlas stop --env test       # closes this Mac's tunnel; test keeps running on Fly
+atlas-ops status --env test        # the tunnel, and both apps' machines, checks and deployed build
+atlas-ops logs --env test          # the core's log on Fly (rela's: fly logs -a eyra-atlas-test-rela)
+atlas-ops tunnel close --env test  # closes this Mac's tunnel; test keeps running on Fly
 ```
 
 The tunnel is `fly proxy 7693:7691 -a eyra-atlas-test`, flyctl's WireGuard into test's network, running in the background like the core used to. It needs flyctl logged in to organisation eyra (`fly auth whoami`); nothing else on the Mac (no VPN, no root). Its files are in `~/.local/share/atlas/test-on-fly/`.
@@ -26,7 +26,7 @@ upstream as unavailable even if flyctl still listens locally. This restarts no F
 machine and replays no client writes. A hello refusal is left to the client to
 report; a handshake alone does not prove State/rela health.
 
-`atlas up --env test` is gone: a merge to develop deploys test (CI job `deploy-test`, which runs `fly/deploy.sh test`):
+`atlas-ops up`, `stop` and `restart` refuse for test: a merge to develop deploys test (CI job `deploy-test`, which runs `fly/deploy.sh test`):
 
 Test deployment waits for the focused generator, contract, core, TUI and agent jobs,
 not the full native end-to-end suite. End-to-end checks still run independently;
@@ -68,7 +68,7 @@ State failure codes pass through the existing failure confirm's optional `code` 
 and CLI JSON errors. Human text and exit statuses stay the same. Clients that ignore
 the optional field keep working; smoke fails closed if an older server drops the code.
 
-`atlas status --env test` shows the build as the image label `develop-<commit>`. Prod is deployed the same way from master: `docs/guides/prod.md`.
+`atlas-ops status --env test` shows the build as the image label `develop-<commit>`. Prod is deployed the same way from master: `docs/guides/prod.md`.
 
 ## Test-only worker access
 
@@ -103,8 +103,8 @@ Until both are there, the deploy job fails on its first step and names the missi
 Test's data moved on 3 Nov 2026 (from `~/.local/share/atlas/test-backup-20261103T204658Z-before-fly`). A move works the same any time, from a folder with `rela/` and `beam/`:
 
 ```sh
-atlas move-to-fly --env test --from <folder> --dry-run                   # checks and counts; sends nothing
-atlas move-to-fly --env test --from <folder> --replace-live              # the move
+atlas-ops move-to-fly --env test --from <folder> --dry-run                   # checks and counts; sends nothing
+atlas-ops move-to-fly --env test --from <folder> --replace-live              # the move
 ```
 
 1. The dry run checks that this build's description describes all of that data, and counts the items per kind and the links per relation. It also shows what Fly holds now.
@@ -117,7 +117,7 @@ atlas move-to-fly --env test --from <folder> --replace-live              # the m
 ## Back up the data on Fly
 
 ```sh
-atlas fetch-from-fly --env test --to ~/.local/share/atlas/test-backup-$(date -u +%Y%m%dT%H%M%SZ)
+atlas-ops fetch-from-fly --env test --to ~/.local/share/atlas/test-backup-$(date -u +%Y%m%dT%H%M%SZ)
 ```
 
 It holds both apps for about a minute: the machines stay up but serve nothing, so the copy is whole. It then copies `/data/rela` and `/data/beam` into `<folder>/rela` and `<folder>/beam`, the layout `move-to-fly` takes back. Last, it releases both apps.
@@ -126,14 +126,14 @@ It holds both apps for about a minute: the machines stay up but serve nothing, s
 
 A migration command (today `atlas migrate-done-owner`) reads rela on the Mac, so `atlas` refuses it for an environment on Fly. A migration runs on a copy, on the Mac, as it always has, and the migrated copy goes back:
 
-1. **Hold and copy.** `atlas fetch-from-fly --env test --to <folder> --hold`. Test on Fly now serves nothing, so nothing writes to it during the migration. The TUI says Control does not answer.
+1. **Hold and copy.** `atlas-ops fetch-from-fly --env test --to <folder> --hold`. Test on Fly now serves nothing, so nothing writes to it during the migration. The TUI says Control does not answer.
 2. **Migrate the copy on a private instance.**
    - Write a settings file like `env/test.json` without `"fly"`, with `rela.data`, `rela.bin` and `state.data` pointing into `<folder>`, and with free ports.
    - Run the migration with `ATLAS_ENV_FILE=<that file>`, exactly as its guide says, for example `atlas migrate-done-owner --env test --dry-run`, then the real run.
    - It runs on the build the migration expects; a private instance never meets the Mac's or Fly's.
-   - Stop that instance: `atlas stop`, then `atlas rela-stop`, with the same `ATLAS_ENV_FILE`.
+   - Start that instance first with `atlas-ops restart --env test`, and stop it after with `atlas-ops stop --rela --env test`, with the same `ATLAS_ENV_FILE`.
 3. **Deploy the build the migrated data needs.** Merge its pull request (or re-run `deploy-test`). A held environment is deployed without health checks or smoke check, and serves nothing yet.
-4. **Bring it back.** `atlas move-to-fly --env test --from <folder> --replace-live`. That checks every file and count, and ends the hold: test serves the migrated data on the new build.
+4. **Bring it back.** `atlas-ops move-to-fly --env test --from <folder> --replace-live`. That checks every file and count, and ends the hold: test serves the migrated data on the new build.
 
 If the deploy in step 3 comes first while test is not held, `fly/deploy.sh` refuses it: it names the data the new description does not describe, and test keeps its build. Then start at step 1.
 
@@ -141,8 +141,8 @@ A hold ends without a move with `fly ssh console -a <app> -C "rm /data/hold"` on
 
 ## When something is wrong
 
-- `atlas status --env test`: a machine not `started`, or a check not passing.
-- `atlas logs --env test`, `fly logs -a eyra-atlas-test-rela`.
+- `atlas-ops status --env test`: a machine not `started`, or a check not passing.
+- `atlas-ops logs --env test`, `fly logs -a eyra-atlas-test-rela`.
 - A deploy refused before it starts: this build's description does not describe data rela holds on Fly. The job names it; test keeps its build. Migrate it (above).
 - Held: the machines log `held: /data/hold is there`. A `fetch-from-fly --hold` is waiting for its `move-to-fly`.
 - `fly ssh console -a eyra-atlas-test-rela` opens a shell on rela's machine; its data is in `/data/rela`.

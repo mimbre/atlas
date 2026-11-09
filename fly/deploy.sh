@@ -7,16 +7,16 @@
 # ATLAS_FLY_TOKEN_CORE for the core's (else flyctl's own login).
 #
 #  1. Before anything changes: does this build's description describe all the data rela
-#     holds on Fly? It is checked on the rela machine itself, on a copy (what `atlas
+#     holds on Fly? It is checked on the rela machine itself, on a copy (what `atlas-ops
 #     restart` checks on a Mac, IS-Atlas-73). When it does not, nothing is deployed, and
 #     the environment keeps running the build before: that data needs a migration first
 #     (docs/guides/test-on-fly.md, "A migration").
 #  2. Deploys rela, then the core, both labelled <image label>.
 #  3. The smoke check (fly/smoke.sh), which reads only.
 #
-# A held environment (atlas fetch-from-fly --hold: a migration is under way) is deployed
+# A held environment (atlas-ops fetch-from-fly --hold: a migration is under way) is deployed
 # without waiting for health checks, and has no smoke check: it serves nothing until the
-# migrated data arrives with atlas move-to-fly.
+# migrated data arrives with atlas-ops move-to-fly.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd -P)"
@@ -89,7 +89,7 @@ fi
 
 # 3. The smoke check, as the core's token.
 if [ -n "$held" ]; then
-  echo "deploy: $env is held; no smoke check. atlas move-to-fly --env $env ends the hold."
+  echo "deploy: $env is held; no smoke check. atlas-ops move-to-fly --env $env ends the hold."
 else
   if [ -n "${ATLAS_FLY_TOKEN_CORE:-}" ]; then
     FLY_API_TOKEN="$ATLAS_FLY_TOKEN_CORE" "$root/fly/smoke.sh" "$env" "$label"

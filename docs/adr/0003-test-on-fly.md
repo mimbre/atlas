@@ -21,6 +21,7 @@ Test ran on the MacBook: rela on 7690 and the core (Bus, State, Flow, Control) o
 ## Consequences
 
 - `atlas up/stop/restart --env test` no longer run a core on the Mac; `atlas status --env test` shows Fly's machines, `atlas logs --env test` Fly's logs. A private instance (`ATLAS_ENV_FILE` without a `fly` section, as the end-to-end test makes) still runs on the Mac.
+- *Amended 2026-11-10 (design-cli-structure-1, S3):* the operating commands named in this record (`up`, `stop`, `restart`, `status`, `logs`, `move-to-fly`, `fetch-from-fly`, and `rela-stop`, now `stop --rela`) moved from `atlas` to `atlas-ops`. On Fly, `atlas-ops stop` and `restart` refuse; `atlas-ops tunnel close` closes the tunnel, and `atlas` still opens it when a command needs Control.
 - The migrations (`atlas migrate-*`) read rela on the Mac and are refused for an environment on Fly. A migration runs on a copy on the Mac (IS-Atlas-79, below).
 - Every client on a machine needs flyctl logged in to organisation eyra (the Mac mini too, when it runs test's agents).
 
