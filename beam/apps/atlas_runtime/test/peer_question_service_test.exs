@@ -2,13 +2,14 @@ defmodule AtlasRuntime.PeerQuestionServiceTest do
   use ExUnit.Case, async: false
 
   alias AtlasRuntime.Agent.Native
-  alias AtlasRuntime.{PeerQuestionRecords, QuestionRecords, Service}
+  alias AtlasRuntime.{PeerQuestionRecords, QuestionRecords, Service, TestHost}
 
   @moduletag capture_log: true
   @other "turn-0000000000000001"
 
   setup do
-    dir = Path.join("/tmp", "apq-#{Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)}")
+    # The Service listens on dir/runtime.sock, within the Unix socket path limit.
+    dir = TestHost.short_dir!("apq", "/runtime.sock")
     bin = Path.join(dir, "bin")
     sender_workspace = Path.join(dir, "sender")
     peer_workspace = Path.join(dir, "peer")
@@ -18,10 +19,7 @@ defmodule AtlasRuntime.PeerQuestionServiceTest do
     previous_path = System.fetch_env!("PATH")
     System.put_env("PATH", bin <> ":" <> previous_path)
 
-    on_exit(fn ->
-      System.put_env("PATH", previous_path)
-      File.rm_rf!(dir)
-    end)
+    on_exit(fn -> System.put_env("PATH", previous_path) end)
 
     pid = launch(dir)
     source = start(pid, "beta", peer_workspace, false)
