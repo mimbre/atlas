@@ -7,22 +7,23 @@ after reconnect. The node starts only Runtime and Bus. Runtime endpoints include
 Control discovers exact machine endpoints for failure actions. A node with no
 configured agents starts no Runtime engine, but still starts its output endpoint.
 
-Tracked test core settings enable the private Bus listener on `::`, port `7694`;
-the Fly configuration declares no public service for it. Production remains opt-in.
-The coordinator must install the test machine-token secret before deploying this
+Tracked core settings enable the private Bus listener on `::`: test on port `7694`
+(`fly/test/core.json`), prod on port `7594` (`fly/prod/core.json`, activated
+2026-11-13). The Fly configurations declare no public service for it. The coordinator
+must install each environment's machine-token secret before deploying its
 configuration: missing or malformed `ATLAS_BUS_LINK_TOKEN` prevents core startup.
 Connecting a node does not start a worker or authorize model turns.
 
-The test core configuration is:
-
-```json
-{"bus_link": {"host": "::", "port": 7694}}
-```
+| Environment | Core `bus_link` | Tunnel (local:remote) | Keychain service | Node machine |
+| --- | --- | --- | --- | --- |
+| test | `{"host": "::", "port": 7694}` | `7695:7694` | `atlas-bus-link-test` | `macbook` |
+| prod | `{"host": "::", "port": 7594}` | `7595:7594` | `atlas-bus-link-prod` | `melle-mac-mini` |
 
 The core secret `ATLAS_BUS_LINK_TOKEN` is a JSON object mapping machine names to distinct
 random tokens. Binding the token to a machine prevents one admitted machine from
 attaching another machine's endpoints. The local keychain item has service
-`atlas-bus-link-test`, account `<machine>`, and that machine's token as its password.
+`atlas-bus-link-<env>` (table above), account `<machine>`, and that machine's token as
+its password.
 Never put tokens in tracked settings. Test and prod use separate secrets and keychain
 services. The wire is JSON lines over the encrypted `fly proxy` tunnel, not public TCP.
 
