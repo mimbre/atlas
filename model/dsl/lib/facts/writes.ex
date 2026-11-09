@@ -95,7 +95,16 @@ defmodule RelaDSL.Facts.Writes do
   def with_change(d, kind, change, lookup) do
     op = change["op"]
     key = change["key"]
-    own = change |> decider_link(d, kind, lookup) |> Map.merge(%{"as" => "fact", "kind" => kind})
+    own = change |> decider_link(d, kind, lookup)
+
+    own =
+      RelaDSL.DecisionOptions.with_change(
+        get_in(d, ["entities", kind, "decision_options"]),
+        own,
+        lookup
+      )
+
+    own = Map.merge(own, %{"as" => "fact", "kind" => kind})
 
     parts =
       for {relation, to, part, values} <- components(d, kind, key),
@@ -435,7 +444,8 @@ defmodule RelaDSL.Facts.Writes do
         "replaces",
         "layering",
         "sealed",
-        "delete_error"
+        "delete_error",
+        "decision_options"
       ])
 
     machine = get_in(d, ["flow_runtime", "writer"])
@@ -486,11 +496,25 @@ defmodule RelaDSL.Facts.Writes do
           # Bind the verdict to the candidate write, so editing a deciding field in the
           # acceptance itself cannot reuse authority for the old subject.
           fact = after_write(current, values, links)
+
+          fact =
+            RelaDSL.DecisionOptions.authority_subject(rules["decision_options"], current, fact)
+
           newest = verdict.(config["gate"], key)
 
           fresh =
             is_map(newest) and
-              newest["fingerprint"] == env["fingerprint"].(fact, config["fingerprint"])
+              Enum.any?(
+                RelaDSL.DecisionOptions.fingerprint_specs(
+                  rules["decision_options"],
+                  current,
+                  fact,
+                  config["fingerprint"]
+                ),
+                fn spec ->
+                  newest["fingerprint"] == env["fingerprint"].(fact, spec)
+                end
+              )
 
           Map.put(authority_rule, "decider_outcome", if(fresh, do: newest["verdict"]))
 
@@ -516,7 +540,8 @@ defmodule RelaDSL.Facts.Writes do
             else: authority(authority_rule, fact, kind_of)
 
         reasons =
-          only_target(rules["only_target"], current, links, env["writer"]) ++
+          RelaDSL.DecisionOptions.check(rules["decision_options"], op, current, values, links) ++
+            only_target(rules["only_target"], current, links, env["writer"]) ++
             requires(rules["requires"], fact) ++
             authority_reasons ++
             decides(authority_rule, current, values, fact, env["writer"], kind_of) ++

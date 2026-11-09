@@ -1225,6 +1225,10 @@ defmodule AtlasFacts.Server do
 
       changes = state.model.with_change(kind, change, lookup)
       [own] = for %{"as" => "fact"} = c <- changes, do: c
+      # The model may derive values on the same fact (for example an immutable
+      # offered-options history). Authorization checks the caller's original change;
+      # the backend stores the complete model-derived change atomically.
+      values = own["values"] || values
 
       parts =
         for %{"as" => "component"} = c <- changes,

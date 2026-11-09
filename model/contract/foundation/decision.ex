@@ -84,6 +84,37 @@ defmodule Model.Decision do
     )
 
     field(:context, :string, description: "Why it was decided", multiline: true)
+
+    field(:options, :string,
+      description:
+        "Single-choice JSON: question, options (id, text, details, effect, rule, consequences), recommended ID and rationale",
+      multiline: true
+    )
+
+    field(:selected_option, :string, description: "The selected semantic option ID")
+
+    field(:selected_definition, :string,
+      description: "The exact offered definition selected",
+      multiline: true
+    )
+
+    field(:selected_revision, :string,
+      description: "The displayed offer and authorization content revision"
+    )
+
+    field(:option_history, :string,
+      description: "Prior complete offered revisions, maintained by Facts",
+      multiline: true
+    )
+
+    decision_options(
+      definition: :options,
+      selected: :selected_option,
+      snapshot: :selected_definition,
+      revision: :selected_revision,
+      history: :option_history
+    )
+
     field(:consequences, :string, description: "What changes because of it", multiline: true)
     field(:category, :decision_category, description: "What it is about")
     field(:scope, :decision_scope, description: "How widely it holds")
@@ -140,6 +171,7 @@ defmodule Model.Decision do
       ask: [
         :title,
         :decision,
+        :options,
         :context,
         :consequences,
         :category,
@@ -173,7 +205,16 @@ defmodule Model.Decision do
         relation: :about,
         kind: :gate_verdict,
         fingerprint: [
-          fields: [:title, :decision, :category, :scope, :reversibility, :force],
+          fields: [
+            :title,
+            :decision,
+            :consequences,
+            :options,
+            :category,
+            :scope,
+            :reversibility,
+            :force
+          ],
           relations: [:supersedes]
         ]
       ]
@@ -265,7 +306,16 @@ defmodule Model.Decision do
     purpose: :decider,
     fixed: :person_always,
     fingerprint: [
-      fields: [:title, :decision, :category, :scope, :reversibility, :force],
+      fields: [
+        :title,
+        :decision,
+        :consequences,
+        :options,
+        :category,
+        :scope,
+        :reversibility,
+        :force
+      ],
       relations: [:supersedes]
     ],
     evidence: [

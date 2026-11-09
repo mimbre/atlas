@@ -5,6 +5,30 @@ defmodule AtlasFacts.Workshops do
   """
   alias AtlasFacts.Workshop.Description
 
+  defmodule Options do
+    use AtlasFacts.TestModel,
+      description:
+        Description.with(%{
+          "entities" => %{
+            "widget" => %{
+              "decision_options" => %{
+                "definition" => "options",
+                "selected" => "selected_option",
+                "snapshot" => "selected_definition",
+                "revision" => "selected_revision",
+                "history" => "option_history"
+              },
+              "properties" =>
+                Map.new(
+                  ~w(options selected_option selected_definition selected_revision option_history status decision consequences),
+                  &{&1, %{"type" => "string"}}
+                )
+                |> Map.put("decided_at", %{"type" => "datetime"})
+            }
+          }
+        })
+  end
+
   defmodule Asked do
     @moduledoc "A create asks only a title: an addition rela does not serve."
     use AtlasFacts.TestModel,

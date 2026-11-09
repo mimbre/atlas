@@ -363,7 +363,7 @@ defmodule RelaDSL.Description.Check do
 
     keys(
       spec,
-      ~w(top primary plural_label start create properties completion progress connector agent order by_hand late actions counts requires authority frozen replaces layering sealed delete_error),
+      ~w(top primary plural_label start create properties completion progress connector agent order by_hand late actions counts requires authority frozen replaces layering sealed delete_error decision_options),
       path
     ) ++
       navigation(spec["start"], at.("start")) ++
@@ -416,12 +416,40 @@ defmodule RelaDSL.Description.Check do
           values(ctx, kind, r["when"], at.("requires")) ++
           Enum.flat_map(List.wrap(r["fields"]), &field(ctx, kind, &1, at.("requires")))
       end) ++
+      decision_options(ctx, kind, spec["decision_options"], at.("decision_options")) ++
       authority(ctx, kind, spec["authority"], at.("authority")) ++
       layering(ctx, kind, spec["layering"], at.("layering")) ++
       frozen(ctx, kind, spec["frozen"], at.("frozen")) ++
       sealed(ctx, kind, spec["sealed"], at.("sealed")) ++
       replaces(ctx, kind, spec["replaces"], at.("replaces"))
   end
+
+  defp decision_options(_ctx, _kind, nil, _path), do: []
+
+  defp decision_options(ctx, kind, rule, path) when is_map(rule) do
+    names = ~w(definition selected snapshot revision history)
+
+    keys(rule, names, path) ++
+      Enum.flat_map(names, &field(ctx, kind, rule[&1], path)) ++
+      Enum.flat_map(names, fn key ->
+        if get_in(ctx.entities, [kind, "properties", rule[key], "type"]) == "string",
+          do: [],
+          else: p(path, :decision_options, [kind], "decision option fields must be strings")
+      end) ++
+      if(Enum.uniq(Map.values(rule)) == Map.values(rule),
+        do: [],
+        else: p(path, :decision_options, [kind], "decision option fields must be distinct")
+      )
+  end
+
+  defp decision_options(_ctx, kind, _rule, path),
+    do:
+      p(
+        path,
+        :decision_options,
+        [kind],
+        "decision_options requires its definition, selection, snapshot and revision fields"
+      )
 
   defp navigation(nil, _path), do: []
 

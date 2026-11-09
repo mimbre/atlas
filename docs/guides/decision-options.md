@@ -1,0 +1,68 @@
+# Decide by selecting one option
+
+New decisions ask a short question and offer concrete alternatives. Choosing an
+option makes the decision. An `adopt` option applies only its exact `rule` and
+`consequences`, using the existing decider authority. A `decline` option adopts
+nothing. Recommendations and labels never grant permission. Adoption alone starts
+existing supersession and follow-through. Classification and supersedes links on
+the decision apply to all its adopting options; author the set under that authority.
+
+Create a decision through the existing CLI or creation form. Supply `options` as
+JSON; `--options-file` reads it from a file. The private example at
+`e2e/fixtures/decision-options.json` shows the complete format. Each option has a
+distinct stable lowercase ID, exact text, details, explicit effect, rule and
+consequences. Decline has empty rule and consequences. There must be one
+`recommended` ID, first in the options array, and a short `rationale`.
+The definition contains at least two alternatives, at least one of them a
+decline, and exactly one selection. Like the a/f Reject, a decline is given with
+a note saying why: its key opens a form that asks for the note.
+
+```sh
+atlas put decision --env test --title 'Example storage' \
+  --decision 'Choose how to store this example' \
+  --options-file /path/to/options.json --category product \
+  --scope software --reversibility two_way --force direction
+```
+
+The example command creates a proposal; it does not select anything. In the TUI,
+the recommended alternative is choice 1, followed by the remaining alternatives.
+`0` submits the same semantic answer as `1`; it is never a stored alternative.
+When the recommended alternative is a decline, `0`, like `1`, opens its note form.
+`2` and `3` choose the second and third alternatives. Invalid numbers, displaying
+the recommendation and waiting do not decide. Numeric shortcuts are active only
+while browsing; digits remain text in editing contexts. Tabs use Tab/Shift+Tab.
+When a page supplies multi-digit shortcuts, type the complete number and press
+Enter; Esc cancels the pending number. No timeout submits it.
+
+`options` is one authoritative Facts value owned by its decision. An answer stores
+`selected_option`, the exact `selected_definition`, and `selected_revision` together
+with existing decided_by/decided_at evidence. Its revision covers the definition
+and presented authorization content, including supersedes targets. Editing an
+unanswered proposal invalidates old semantic answer calls. Facts independently
+checks snapshot membership, revision, typed effect and actor authority, including
+direct writes. An answer cannot change its offer or classification while selecting.
+An answered definition and selection cannot be rewritten, including after decline.
+Accepted decisions keep the existing permitted no_work, tally and supersession
+maintenance without changing what was offered or chosen.
+
+No option entities, parallel database or new event stream are introduced. Facts'
+existing retry ledger retains acknowledgements rather than complete old values.
+`option_history` therefore retains prior complete offer revisions on the decision,
+derived in the same Facts write; callers cannot replace this history. The selected
+snapshot is also present on the decision itself and survives reload.
+Options are optional. A decision created without them, and every historical
+decision, keeps its existing rule, status and a/f answers without invented
+alternatives or selections.
+
+The native model's semantic answer IDs include the displayed revision and stable
+option ID. The BFF `single_choice` block separately supplies question, ordered
+options, recommended ID, rationale, revision and each option's answer call. A radio,
+dropdown or cards renderer can use the same calls without a model, schema or Flow
+change. Keyboard shortcuts are projection data. The TUI invokes a generic declared
+call and does not recognize decision kinds or interpret option effects.
+
+Private native acceptance is `e2e/decision_choices_native.exs`, run from
+`model/contract` with the supported Elixir and `mix run --no-start`, the assigned
+private scratch path and prepared Rela bin directory. It creates only private
+fixture actors/data. Read its current delivery evidence for execution status;
+source code alone is not evidence of a passed terminal/persistence proof.

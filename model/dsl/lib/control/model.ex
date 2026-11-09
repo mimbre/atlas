@@ -440,6 +440,12 @@ defmodule RelaDSL.Control.Model do
       for {name, prop} <- ordered(spec, primary),
           not Map.has_key?(prop, "set_by"),
           name != made_from,
+          name not in [
+            get_in(spec, ["decision_options", "selected"]),
+            get_in(spec, ["decision_options", "snapshot"]),
+            get_in(spec, ["decision_options", "revision"]),
+            get_in(spec, ["decision_options", "history"])
+          ],
           do: name
 
     decides =
@@ -561,6 +567,7 @@ defmodule RelaDSL.Control.Model do
          # kind such a request is kept as (the run mapping's inputs).
          restart_by: Map.new(p["flows"] || [], &{&1["name"], &1["restart_by"] || []}),
          inputs: inputs,
+         decision_options: get_in(d, ["entities", p["subject"], "decision_options"]),
          words: %{
            title: to_text(words["title"]),
            why: to_text(words["why"]),

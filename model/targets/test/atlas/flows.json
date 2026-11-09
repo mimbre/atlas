@@ -1613,7 +1613,7 @@
         ]
       },
       "fingerprint": {
-        "fields": ["title", "decision", "category", "scope", "reversibility", "force"],
+        "fields": ["title", "decision", "consequences", "options", "category", "scope", "reversibility", "force"],
         "relations": ["supersedes"]
       },
       "fixed": "person_always",

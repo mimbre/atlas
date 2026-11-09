@@ -13,8 +13,31 @@ defmodule AtlasTui.ConsoleTransportTest do
   end
 
   defp tmux(server, args) do
-    {output, 0} = System.cmd("tmux", ["-L", server | args], stderr_to_stdout: true)
+    {output, 0} = System.cmd("tmux", socket(server) ++ args, stderr_to_stdout: true)
     output
+  end
+
+  defp socket(server), do: ["-S", Path.join(System.tmp_dir!(), server <> ".tmux")]
+
+  defp terminal_command(expression) do
+    bin = :code.lib_dir(:elixir) |> to_string() |> Path.join("../../bin") |> Path.expand()
+    quote_arg = fn arg -> "'" <> String.replace(arg, "'", "'\\''") <> "'" end
+
+    Enum.map_join(
+      [
+        "env",
+        "ELIXIR_ERL_OPTIONS=+S 2:2",
+        "/bin/sh",
+        "-P",
+        Path.join(bin, "elixir"),
+        Path.join(bin, "mix"),
+        "run",
+        "-e",
+        expression
+      ],
+      " ",
+      quote_arg
+    )
   end
 
   defp see(server, expected, attempts \\ 100) do
@@ -182,7 +205,7 @@ defmodule AtlasTui.ConsoleTransportTest do
 
     on_exit(fn ->
       :gen_tcp.close(listener)
-      System.cmd("tmux", ["-L", server, "kill-server"], stderr_to_stdout: true)
+      System.cmd("tmux", socket(server) ++ ["kill-server"], stderr_to_stdout: true)
     end)
 
     settings = %{"control" => %{"host" => "127.0.0.1", "port" => port}, "reconcile_seconds" => 60}
@@ -197,7 +220,7 @@ defmodule AtlasTui.ConsoleTransportTest do
       "90",
       "-y",
       "24",
-      "env ELIXIR_ERL_OPTIONS='+S 2:2' mix run -e '#{expression}'"
+      terminal_command(expression)
     ]
 
     tmux(server, args)
@@ -259,7 +282,7 @@ defmodule AtlasTui.ConsoleTransportTest do
 
     on_exit(fn ->
       :gen_tcp.close(listener)
-      System.cmd("tmux", ["-L", server, "kill-server"], stderr_to_stdout: true)
+      System.cmd("tmux", socket(server) ++ ["kill-server"], stderr_to_stdout: true)
     end)
 
     settings = %{"control" => %{"host" => "127.0.0.1", "port" => port}, "reconcile_seconds" => 60}
@@ -274,7 +297,7 @@ defmodule AtlasTui.ConsoleTransportTest do
       "90",
       "-y",
       "24",
-      "env ELIXIR_ERL_OPTIONS='+S 2:2' mix run -e '#{expression}'"
+      terminal_command(expression)
     ])
 
     {:ok, socket} = :gen_tcp.accept(listener, 10_000)
