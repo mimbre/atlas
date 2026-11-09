@@ -67,16 +67,21 @@ defmodule AtlasFlow.Item do
     state = %{state | soon: false, timer: nil}
 
     case look(state) do
+      # Back to waiting: hibernate, so the copies of the description the look read are
+      # collected now rather than kept as garbage until the next look. The engine's copy a
+      # poke brought is let go too: the next look gets a fresh one (a poke) or reads it.
       {:wait, every} ->
-        {:noreply, %{state | timer: Clock.schedule(state.clock, self(), :look, every)}}
+        timer = Clock.schedule(state.clock, self(), :look, every)
+        {:noreply, %{state | timer: timer, description: nil}, :hibernate}
 
       :stop ->
         {:stop, :normal, state}
     end
   end
 
-  # Answers that came after their wait, and anything else.
-  def handle_info(_message, state), do: {:noreply, state}
+  # Answers that came after their wait, and anything else: back to waiting as it was.
+  def handle_info(_message, %{soon: true} = state), do: {:noreply, state}
+  def handle_info(_message, state), do: {:noreply, state, :hibernate}
 
   defp look(state) do
     with %{"description" => description} <- description(state),

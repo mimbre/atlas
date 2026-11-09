@@ -6,6 +6,10 @@ defmodule AtlasFlow.EngineTest do
 
   setup do
     Application.put_env(:atlas_bus, :store, "state-#{System.unique_integer([:positive])}")
+    # A fresh supervisor for the facts' processes: a process killed in an earlier test (or
+    # an earlier run of this one) does not count against the restarts it allows.
+    :ok = Supervisor.terminate_child(AtlasFlow.Root, AtlasFlow.Supervisor)
+    {:ok, _} = Supervisor.restart_child(AtlasFlow.Root, AtlasFlow.Supervisor)
     start_supervised!(FakeFacts)
     for key <- ["ada", "bob"], do: FakeFacts.put("clerk", %{"key" => key})
 
@@ -25,6 +29,13 @@ defmodule AtlasFlow.EngineTest do
     end
   end
 
+  # A process handled its first look. Named as soon as it starts, before its init sent
+  # the look: the first call waits for the init, the second for the look queued by it.
+  defp looked(pid) do
+    :sys.get_state(pid)
+    :sys.get_state(pid)
+  end
+
   defp todo(key), do: FakeFacts.get("box", key)["values"]["todo"]
 
   # A hint about the crate under B-1, as any change makes one.
@@ -36,9 +47,12 @@ defmodule AtlasFlow.EngineTest do
   test "a failure (IS-Atlas-23): a fact's process killed comes back, and reads Facts again" do
     alias AtlasFlow.Faults
     FakeFacts.put("box", %{"key" => "B-1", "progress" => %{"value" => "check"}})
-    start_supervised!({Engine, every: 3_600_000})
-    eventually(fn -> todo("B-1") == "Check it" end)
+    engine = start_supervised!({Engine, every: 3_600_000})
+    # Its round started the process; the process's first look is sent in its init.
+    Engine.round(engine)
     [{old, _}] = Registry.lookup(AtlasFlow.Items, {"box", "B-1"})
+    looked(old)
+    assert todo("B-1") == "Check it"
 
     assert [%{"fault" => "kill-process"}] = Faults.offers("B-1")
     assert Faults.offers("B-2") == []
@@ -52,7 +66,8 @@ defmodule AtlasFlow.EngineTest do
 
     [{new, _}] = Registry.lookup(AtlasFlow.Items, {"box", "B-1"})
     assert new != old and not Process.alive?(old)
-    eventually(fn -> todo("B-1") == "Check it" end)
+    looked(new)
+    assert todo("B-1") == "Check it"
 
     assert {:error, _} = Faults.run("kill-process", "B-2")
   end
