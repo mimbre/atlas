@@ -19,6 +19,50 @@ defmodule AtlasFlowContract.DeciderTest do
   alias AtlasGates.{Definitions, Request, Rules, Verdict}
   alias AtlasBus.Digest
 
+  test "slice-1 cursors migrate against both deployed definition digests" do
+    alias AtlasFlow.Runs.Run
+    now = ~U[2026-11-12 00:00:00Z]
+    old_digest = "e59a6880bf210d104ff7231f6e354a59b27caf01b9207e7522eb647edc523054"
+    config = JSON.decode!(File.read!("../../rela/flow-runtime.json"))["flow_runtime"]
+    selection = config["selection"]["decide"]
+
+    for path <- ["../targets/atlas/flows.json", "../targets/test/atlas/flows.json"] do
+      definition = JSON.decode!(File.read!(path))["flows"]["decide"]
+
+      assert Enum.count(
+               selection["migrations"],
+               &(&1["from"] == old_digest and &1["to"] == Run.digest(definition))
+             ) == 1
+
+      for state <- ~w(proposed accepted rejected) do
+        subject = %{"key" => "D-old", "values" => %{"status" => state}}
+        old = Run.new("decide", definition, subject, selection["imports"], now)
+
+        old =
+          Map.merge(old, %{
+            "definition_sha256" => old_digest,
+            "state" => state,
+            "pending" => %{"version" => 1, "writes" => []}
+          })
+
+        assert {:ok, migrated} = Run.migrate(old, definition, selection["migrations"], now)
+
+        if state == "proposed" do
+          assert migrated["state"] == "deciding"
+          assert migrated["entry"] == old["entry"] + 1
+          assert migrated["definition_sha256"] == Run.digest(definition)
+          assert migrated["pending"]["gate"] == nil
+          assert length(migrated["pending"]["migrations"]) == 1
+
+          assert {:ok, ^migrated} =
+                   Run.migrate(migrated, definition, selection["migrations"], now)
+        else
+          assert migrated == old
+        end
+      end
+    end
+  end
+
   test "the executable decider uses recorded gate results and trusted choices with environment limits" do
     [flow] = AtlasFlowContract.Decision.__flows__()
     gates = AtlasFlowContract.Gates.__gates__()

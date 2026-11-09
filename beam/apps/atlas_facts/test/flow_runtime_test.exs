@@ -77,6 +77,28 @@ defmodule AtlasFacts.FlowRuntimeTest do
              )
   end
 
+  test "migration reasons are optional text in the separately deployed mapping" do
+    {description, config} = fixture()
+
+    mapping = %{
+      "from" => String.duplicate("a", 64),
+      "to" => String.duplicate("b", 64),
+      "states" => %{"waiting" => "checking"}
+    }
+
+    for row <- [mapping, Map.put(mapping, "reason", "Enter the new check")] do
+      configured = put_in(config, ["selection", "sort", "migrations"], [row])
+      assert FlowRuntime.validate(description, configured) == :ok
+    end
+
+    for reason <- ["", false, [], %{}] do
+      configured =
+        put_in(config, ["selection", "sort", "migrations"], [Map.put(mapping, "reason", reason)])
+
+      assert {:error, _} = FlowRuntime.validate(description, configured)
+    end
+  end
+
   test "presentation templates apply only to targets the composition declares" do
     {description, config} = fixture()
 

@@ -10,6 +10,14 @@ defmodule AtlasFlow.Runs.Run do
   def key(flow, kind, key, generation), do: digest({flow, kind, key, generation})
 
   def migrate(run, flow, migrations, now) do
+    if run["definition_sha256"] == digest(flow) do
+      {:ok, run}
+    else
+      migrate_changed(run, flow, migrations, now)
+    end
+  end
+
+  defp migrate_changed(run, flow, migrations, now) do
     mapping =
       Enum.find(
         migrations,
@@ -22,19 +30,62 @@ defmodule AtlasFlow.Runs.Run do
       state != nil and Map.has_key?(flow["states"], state) and run["pending"]["writes"] == [] and
         run["pending"]["gate"] == nil and run["deadlines"]["timers"] == []
 
+    original = run
+
+    run =
+      if run["pending"]["definition_block"] do
+        run
+        |> Map.put("status", run["pending"]["definition_block"]["status"])
+        |> Map.put("blocked_reason", "")
+        |> update_in(["pending"], &Map.delete(&1, "definition_block"))
+      else
+        run
+      end
+
+    migration = %{
+      "from" => original["definition_sha256"],
+      "to" => digest(flow),
+      "state" => original["state"],
+      "entry" => original["entry"],
+      "at" => DateTime.to_iso8601(now),
+      "reason" => (mapping && mapping["reason"]) || "explicit state migration"
+    }
+
+    migrated =
+      run
+      |> Map.put("definition_sha256", digest(flow))
+      |> update_in(["pending"], fn pending ->
+        Map.update(pending, "migrations", [migration], &(&1 ++ [migration]))
+      end)
+
     cond do
       not safe ->
         {:error, :definition_changed}
 
       run["status"] == "completed" and flow["states"][state]["final"] == true ->
-        {:ok, run |> Map.put("state", state) |> Map.put("definition_sha256", digest(flow))}
+        # Historical imports are evidence, not executable entries.
+        if run["last_input"]["import"],
+          do: {:ok, run},
+          else: {:ok, Map.put(migrated, "state", state)}
 
       run["status"] == "active" ->
-        {:ok, run |> Map.put("definition_sha256", digest(flow)) |> enter(flow, state, now, true)}
+        {:ok, enter(migrated, flow, state, now, true)}
 
       true ->
         {:error, :definition_changed}
     end
+  end
+
+  def block_definition(run, flow) do
+    run
+    |> Map.put("status", "blocked")
+    |> Map.put(
+      "blocked_reason",
+      "definition_changed: #{run["definition_sha256"]} -> #{digest(flow)}; no safe state migration"
+    )
+    |> update_in(["pending"], fn pending ->
+      Map.put_new(pending, "definition_block", %{"status" => run["status"]})
+    end)
   end
 
   def validate(flow) do
@@ -394,7 +445,7 @@ defmodule AtlasFlow.Runs.Run do
       "entered_at" => DateTime.to_iso8601(now),
       "status" => if(state["final"], do: "completed", else: "active"),
       "pending" =>
-        Map.merge(Map.take(run["pending"] || %{}, ["verdict"]), %{
+        Map.merge(Map.take(run["pending"] || %{}, ["verdict", "migrations"]), %{
           "version" => 1,
           "writes" => writes ++ creates
         }),

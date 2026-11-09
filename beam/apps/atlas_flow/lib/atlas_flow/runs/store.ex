@@ -156,8 +156,18 @@ defmodule AtlasFlow.Runs.Store do
         migrations = config["selection"][run["flow"]]["migrations"] || []
 
         case Run.migrate(run, flow, migrations, now) do
-          {:ok, updated} -> advance(config, fact, run, updated, flow, now, remaining)
-          _ -> {:error, {:definition_changed, key}}
+          {:ok, ^run} ->
+            {:ok, run}
+
+          {:ok, updated} ->
+            advance(config, fact, run, updated, flow, now, remaining)
+
+          _ ->
+            blocked = Run.block_definition(run, flow)
+
+            if blocked == run,
+              do: {:ok, run},
+              else: advance(config, fact, run, blocked, flow, now, remaining)
         end
       else
         case run["pending"]["writes"] do

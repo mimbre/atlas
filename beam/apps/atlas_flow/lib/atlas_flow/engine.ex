@@ -163,7 +163,9 @@ defmodule AtlasFlow.Engine do
 
     delay =
       Enum.reduce(state.runs, state.every, fn run, delay ->
-        Enum.reduce(run["deadlines"]["timers"], delay, fn t, d ->
+        timers = if run["status"] == "active", do: run["deadlines"]["timers"], else: []
+
+        Enum.reduce(timers, delay, fn t, d ->
           min(
             d,
             max(

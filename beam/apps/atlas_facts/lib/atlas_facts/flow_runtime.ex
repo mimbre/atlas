@@ -127,7 +127,8 @@ defmodule AtlasFacts.FlowRuntime do
 
   defp valid_migrations?(migrations) when is_list(migrations) do
     Enum.all?(migrations, fn m ->
-      Map.keys(m) |> Enum.sort() == ~w(from states to) and
+      Map.keys(Map.delete(m, "reason")) |> Enum.sort() == ~w(from states to) and
+        (m["reason"] == nil or (is_binary(m["reason"]) and m["reason"] != "")) and
         Enum.all?(
           [m["from"], m["to"]],
           &(is_binary(&1) and Regex.match?(~r/\A[0-9a-f]{64}\z/, &1))

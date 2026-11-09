@@ -229,11 +229,10 @@ defmodule AtlasFlow.Runs.RunTest do
     ManualClock.advance(clock, 300_001)
     assert {:ok, [^final]} = reconcile(clock)
     changed = put_in(FixtureTarget.flows(), ["sort", "states", "waiting", "label"], "Changed")
-    before = FakeFacts.sent()
-
-    assert {:error, {:definition_changed, _}} =
-             Store.reconcile(config(), changed, ManualClock.now(clock))
-
-    assert FakeFacts.sent() == before
+    assert {:ok, [blocked]} = Store.reconcile(config(), changed, ManualClock.now(clock))
+    assert blocked["status"] == "blocked"
+    assert blocked["blocked_reason"] =~ "definition_changed"
+    assert blocked["entry"] == final["entry"]
+    assert blocked["pending"]["writes"] == []
   end
 end

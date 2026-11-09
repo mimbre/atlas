@@ -131,10 +131,57 @@ try do
 
   put.("issue", %{"op" => "change", "key" => "IS-Gate-01", "links" => %{"based_on" => ["D-9997"]}})
 
+  # A deploy starts the core over existing Facts, rather than first scanning an empty store.
+  # Seed the slice-1 cursor before starting Flow's engine. The native gate must record
+  # one verdict for its fresh migrated entry, including after engine restart.
+  old = AtlasFlow.Runs.Run.new("decide", flows["decide"], read.("decision", "D-9997"), [], now)
+
+  old =
+    Map.merge(old, %{
+      "definition_sha256" => "e59a6880bf210d104ff7231f6e354a59b27caf01b9207e7522eb647edc523054",
+      "state" => "proposed",
+      "entry" => 1,
+      "pending" => %{"version" => 1, "writes" => []}
+    })
+
+  Task.async(fn ->
+    :ok = AtlasBus.attach("flow")
+
+    assert {:stored, _} =
+             Talk.put(config["kind"], %{
+               "op" => "create",
+               "key" => old["key"],
+               "by" => config["writer"]["by"],
+               "values" => Store.encode(config, old)
+             })
+  end)
+  |> Task.await(30_000)
+
+  engine_opts = [
+    clock: {ManualClock, clock},
+    target: AtlasFlow.Generated.Test,
+    deployed_yaml: Path.join(root, "flow/targets/test/rela/flows.yaml")
+  ]
+
+  for _ <- 1..2 do
+    {:ok, engine} = AtlasFlow.Engine.start_link(engine_opts)
+    AtlasFlow.Engine.round(engine)
+    assert :sys.get_state(engine).refusal == nil
+    GenServer.stop(engine)
+
+    for {_, pid, _, _} <- DynamicSupervisor.which_children(AtlasFlow.Supervisor),
+        do: DynamicSupervisor.terminate_child(AtlasFlow.Supervisor, pid)
+  end
+
   assert {:ok, runs} = reconcile.()
   first = Enum.find(runs, &(&1["subject_key"] == "D-9997"))
   fixed = Enum.find(runs, &(&1["subject_key"] == "D-9998"))
   assert first["state"] == "for_person"
+  assert first["entry"] == 3
+  assert [migration] = first["pending"]["migrations"]
+  assert migration["from"] == old["definition_sha256"]
+  %{"facts" => verdicts} = Talk.read("gate_verdict", %{})
+  assert Enum.count(verdicts, &(&1["values"]["subject"] == "D-9997")) == 1
   assert fixed["state"] == "for_person_always" and fixed["deadlines"]["timers"] == []
   [deadline] = first["deadlines"]["timers"]
   # Restart Facts while Flow has no process state; the durable deadline is unchanged.

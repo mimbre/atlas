@@ -8,7 +8,7 @@ defmodule AtlasE2E.FlowRunTest do
   @moduletag :tmp_dir
 
   # The child owns all services and closes the private server even on an assertion failure.
-  test "real Facts persistence: gate activity and timeout", %{tmp_dir: dir} do
+  test "real Facts persistence: upgrade boot, gate activity and timeout", %{tmp_dir: dir} do
     on_exit(fn -> File.rm_rf!(dir) end)
     script = Path.join(@root, "beam/integration/flow_gate_native.exs")
 
