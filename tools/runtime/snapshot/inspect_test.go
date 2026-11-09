@@ -5,8 +5,10 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -310,4 +312,58 @@ func TestTooManyChangedLinesGetANote(t *testing.T) {
 	if _, changes = inspect(t, f.home, dest, []string{"one"}, false); !reflect.DeepEqual(changes, []change{{Repository: one.Repository, Path: "one/a.txt", Change: "modified"}}) {
 		t.Fatalf("status: %#v", changes)
 	}
+}
+
+// TestMaterializedResolvesTheFolderItselfNotItsAncestors pins the folder resolution of status,
+// diff and submit: ancestor symlinks resolve, a symlink or file at the folder is refused, and on
+// macOS a folder whose parent the sandbox will not stat (Codex's denied home) still resolves.
+func TestMaterializedResolvesTheFolderItselfNotItsAncestors(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	must(t, err)
+	real := filepath.Join(root, "real", "dest")
+	must(t, os.MkdirAll(real, 0700))
+	must(t, os.Symlink(filepath.Join(root, "real"), filepath.Join(root, "link")))
+	must(t, os.Symlink(real, filepath.Join(root, "destlink")))
+	must(t, os.WriteFile(filepath.Join(root, "file"), nil, 0600))
+	if got, err := materialized(filepath.Join(root, "link", "dest")); err != nil || got != real {
+		t.Fatalf("ancestor symlink: got %q %v, want %q", got, err, real)
+	}
+	for _, test := range []struct{ dest, want string }{
+		{filepath.Join(root, "destlink"), "is not a directory"},
+		{filepath.Join(root, "file"), "is not a directory"},
+		{filepath.Join(root, "missing"), "does not exist"},
+		{filepath.Join(root, "file", "dest"), "does not exist"},
+	} {
+		if got, err := materialized(test.dest); err == nil || !strings.Contains(err.Error(), test.want) {
+			t.Fatalf("%s: got %q %v, want %q", test.dest, got, err, test.want)
+		}
+	}
+	// POSIX modes cannot deny stat of a directory while allowing lookup through it (mode 000 blocks
+	// both), so the denied parent is a Seatbelt profile, as Codex applies to the denied home.
+	if runtime.GOOS != "darwin" {
+		return
+	}
+	profile := fmt.Sprintf(`(version 1)(allow default)(deny file-read* (literal %q))`, filepath.Dir(real))
+	if out, err := exec.Command("/usr/bin/sandbox-exec", "-p", profile, "/bin/test", "-e", filepath.Dir(real)).CombinedOutput(); err == nil {
+		t.Fatalf("control: the profile does not deny stat of the parent: %s", out)
+	} else if strings.Contains(string(out), "sandbox_apply: Operation not permitted") {
+		t.Skip("nested Seatbelt is denied (sandbox_apply: Operation not permitted); run outside a sandbox")
+	}
+	command := exec.Command("/usr/bin/sandbox-exec", "-p", profile, os.Args[0], "-test.run=^TestMaterializedHelper$")
+	command.Env = append(os.Environ(), "ATLAS_MATERIALIZED_HELPER="+filepath.Join(root, "link", "dest"))
+	out, err := command.CombinedOutput()
+	if err != nil || !strings.Contains(string(out), "RESOLVED="+real+"\n") {
+		t.Fatalf("folder below a parent that cannot be stat'ed: %v %s", err, out)
+	}
+}
+
+// TestMaterializedHelper resolves one folder for the Seatbelt case above.
+func TestMaterializedHelper(t *testing.T) {
+	dest := os.Getenv("ATLAS_MATERIALIZED_HELPER")
+	if dest == "" {
+		t.Skip("helper for TestMaterializedResolvesTheFolderItselfNotItsAncestors")
+	}
+	got, err := materialized(dest)
+	must(t, err)
+	fmt.Printf("RESOLVED=%s\n", got)
 }

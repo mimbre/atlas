@@ -273,7 +273,8 @@ func claudeRepositorySettings(scope any, temporary string) (string, error) {
 }
 
 // claudeFolderSettings is the native sandbox and file-tool policy of a materialized folder:
-// write only the folder and the private temp, read the snapshot record and baseline and, once
+// write only the folder and the private temp, deny Bash reads of the user home except the folder,
+// the private temp and the homeReadable toolchain paths, read the snapshot record and baseline and, once
 // the folder was rebound, the rebind's done marker but not its journal, deny Git metadata, the Runtime home, the Code token and user credentials under user,
 // loopback networking only: local binding with an empty strict domain allowlist, and Unix-domain
 // sockets only inside the private temp (Claude scopes them on macOS only; Linux still blocks them).
@@ -362,14 +363,22 @@ func claudeFolderSettings(scope map[string]any, temporary, user, inspector strin
 			return "", err
 		}
 	}
+	// The home is denied to the Bash sandbox only: a Read rule or denyWrite on it would also deny the
+	// folder below it. The file tools stay confined to the folder by --restricted. A protected path
+	// inside a re-allowed one stays denied: the sandbox re-applies a nested deny after its allows.
+	readable, err := homeReadable(user, protected, []string{root, temporary})
+	if err != nil {
+		return "", err
+	}
+	allowRead = append(append(allowRead, root, temporary), readable...)
 	// The sandbox's allowRead wins over its denyRead; grant only the inspector itself.
-	if slices.ContainsFunc(protected, func(path string) bool { return within(path, inspector) }) {
+	if within(user, inspector) || slices.ContainsFunc(protected, func(path string) bool { return within(path, inspector) }) {
 		allowRead = append(allowRead, inspector)
 	}
 	settings := claudeSettings{
 		Sandbox: claudeSandbox{true, true, false, []string{},
 			claudeFilesystem{AllowWrite: []string{root, temporary},
-				DenyWrite: append(append(roots, protected...), readOnly...), DenyRead: protected, AllowRead: allowRead},
+				DenyWrite: append(append(roots, protected...), readOnly...), DenyRead: append([]string{user}, protected...), AllowRead: allowRead},
 			claudeNetwork{AllowedDomains: []string{}, StrictAllowlist: true, AllowUnixSockets: []string{temporary},
 				AllowLocalBinding: true}},
 		Permissions: &claudePermissions{rules},
