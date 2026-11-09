@@ -5,6 +5,9 @@
 # rela's undo window) and deletes what it made.
 #
 #   check.sh                 # against http://127.0.0.1:7690
+# This standalone backend probe writes Rela directly and does not notify Facts.
+# Use a disposable store with Facts stopped. If Facts is running, its copies may
+# retain these changes until the configured freshness bound (normally five seconds).
 set -euo pipefail
 
 url="${ATLAS_RELA_URL:-http://127.0.0.1:${ATLAS_RELA_PORT:-7690}}/api/v1"
