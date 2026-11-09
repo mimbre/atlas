@@ -3,6 +3,8 @@ package host
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -253,6 +255,13 @@ func TestTemporaryDirectoryFollowsPythonCandidates(t *testing.T) {
 	t.Chdir(second)
 	// Python's os.getcwd() is the kernel path, with symlinks resolved.
 	cwd, _ := filepath.EvalSymlinks(second)
+	// The platform fallback is /tmp where it is writable; a sandbox may deny it, leaving the cwd.
+	platform := cwd
+	if probe, err := os.CreateTemp("/tmp", "atlas-host-probe-"); err == nil {
+		probe.Close()
+		os.Remove(probe.Name())
+		platform = "/tmp"
+	}
 	for _, test := range []struct {
 		name, tmpdir, temp, tmp, want string
 	}{
@@ -262,7 +271,7 @@ func TestTemporaryDirectoryFollowsPythonCandidates(t *testing.T) {
 		{"missing skipped", missing, "", first, first},
 		{"unwritable skipped", locked, "", second, second},
 		{"relative made absolute", "relative", "", "", filepath.Join(cwd, "relative")},
-		{"platform directory fallback", missing, "", "", "/tmp"},
+		{"platform directory fallback", missing, "", "", platform},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if test.name == "unwritable skipped" && os.Geteuid() == 0 {
@@ -302,10 +311,20 @@ func claudeRepository(t *testing.T) (string, string, map[string]any) {
 		t.Skipf("home %s is too long for a Claude private temp", home)
 	}
 	root, err := os.MkdirTemp(home, ".atlas-host-test-")
+	if errors.Is(err, fs.ErrPermission) {
+		t.Skipf("home %s is not writable (sandboxed run); a Claude launch needs a test root beneath a home short enough for the 44-byte private temp", home)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(root) })
+	repository, scope := claudeRepositoryIn(t, root)
+	return root, repository, scope
+}
+
+// claudeRepositoryIn initializes root/repo as a dedicated repository with Git isolated from the user.
+func claudeRepositoryIn(t *testing.T, root string) (string, map[string]any) {
+	t.Helper()
 	for _, entry := range os.Environ() {
 		if name, _, _ := strings.Cut(entry, "="); strings.HasPrefix(name, "GIT_") {
 			t.Setenv(name, "")
@@ -320,7 +339,7 @@ func claudeRepository(t *testing.T) (string, string, map[string]any) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return root, repository, scope
+	return repository, scope
 }
 
 func claudeScopedArgs(t *testing.T, native, repository, folder string, scope map[string]any) []string {
@@ -405,12 +424,17 @@ case "`+mode+`" in fail) exit 7 ;; stop) exec sleep 60 ;; esac
 }
 
 func TestClaudeLongHomeRefusesAndRemovesCreatedTemp(t *testing.T) {
-	root, repository, scope := claudeRepository(t)
-	// The user's Codex home stays the Codex home, not a project config above the repository.
-	if _, present := os.LookupEnv("CODEX_HOME"); !present {
-		t.Setenv("CODEX_HOME", filepath.Join(os.Getenv("HOME"), ".codex"))
+	// A test-owned home far too long for the private temp. TMPDIR moves to a sibling, so the
+	// repository beneath the home lies outside every system temp root.
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
 	}
+	t.Setenv("TMPDIR", t.TempDir())
 	t.Setenv("HOME", root)
+	t.Setenv("CODEX_HOME", filepath.Join(root, ".codex"))
+	limitCodexConfigWalk(t, root)
+	repository, scope := claudeRepositoryIn(t, root)
 	folder := t.TempDir()
 	native := fixture(t, folder, "touch \"$0.executed\"\n")
 	host := startHost(t, claudeScopedArgs(t, native, repository, folder, scope))

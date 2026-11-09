@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -279,6 +280,19 @@ func TestFolderLaunchRefusesAnInspectorWorkersCanReplace(t *testing.T) {
 	}
 }
 
+// requireNestedSeatbelt skips when this process may not apply a Seatbelt profile, as inside an
+// already-sandboxed worker, where every installed-Codex-sandbox probe would fail on sandbox_apply.
+func requireNestedSeatbelt(t *testing.T) {
+	t.Helper()
+	out, err := exec.Command("/usr/bin/sandbox-exec", "-p", "(version 1)(allow default)", "/usr/bin/true").CombinedOutput()
+	if err != nil && strings.Contains(string(out), "sandbox_apply: Operation not permitted") {
+		t.Skip("nested Seatbelt is denied (sandbox_apply: Operation not permitted); run outside a sandbox")
+	}
+	if err != nil {
+		t.Fatalf("sandbox-exec probe: %v %s", err, out)
+	}
+}
+
 // claudeFolder materializes a folder outside every system temp root, beneath the real home
 // whose private temp path fits the 44-byte limit, with a logging Git first on PATH.
 func claudeFolder(t *testing.T) (dest, home, gitLog string, scope map[string]any) {
@@ -296,6 +310,9 @@ func claudeFolder(t *testing.T) (dest, home, gitLog string, scope map[string]any
 	// The user's Codex home stays the Codex home, not a project config above the folder.
 	t.Setenv("CODEX_HOME", filepath.Join(user, ".codex"))
 	root, err := os.MkdirTemp(user, ".atlas-host-test-")
+	if errors.Is(err, fs.ErrPermission) {
+		t.Skipf("home %s is not writable (sandboxed run); a Claude launch needs a test root beneath a home short enough for the 44-byte private temp", user)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -566,6 +583,7 @@ func TestFolderProfileIsEnforcedByInstalledCodexSandbox(t *testing.T) {
 	if runtime.GOOS != "darwin" || err != nil {
 		t.Skip("requires the installed Codex CLI on macOS")
 	}
+	requireNestedSeatbelt(t)
 	user := isolatedHome(t)
 	home, dest := filepath.Join(user, "runtime"), filepath.Join(user, "work")
 	scope := materialize(t, home, dest)

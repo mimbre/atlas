@@ -16,6 +16,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/eyra/atlas/tools/runtime/internal/testseam"
 	"github.com/eyra/atlas/tools/runtime/snapshot"
 )
 
@@ -363,6 +364,18 @@ func Scope(workspace string) (map[string]any, error) {
 	return workspaceDedicatedScope(root), nil
 }
 
+// codexConfigCeiling is the highest ancestor codexConfig visits. It stays "/" outside tests;
+// tests lower it to their own temp root so a sandbox-unreadable real home above it is not stat'ed.
+var codexConfigCeiling = "/"
+
+func init() {
+	testseam.SetCodexConfigCeiling = func(directory string) (restore func()) {
+		previous := codexConfigCeiling
+		codexConfigCeiling = filepath.Clean(directory)
+		return func() { codexConfigCeiling = previous }
+	}
+}
+
 // codexConfig refuses project, ancestor or system Codex config that root would load.
 func codexConfig(root, subject string) error {
 	codexHome, present := os.LookupEnv("CODEX_HOME")
@@ -390,7 +403,7 @@ func codexConfig(root, subject string) error {
 				return refused
 			}
 		}
-		if directory == "/" {
+		if directory == "/" || directory == codexConfigCeiling {
 			break
 		}
 	}

@@ -125,9 +125,9 @@ func (host *hostProcess) abandon(t *testing.T, rest []map[string]any, group int,
 	t.Fatalf("host did not end within 8 s: %s; stderr=%s", strings.Join(report, "; "), host.stderr.String())
 }
 
-func alive(pid int) bool {
-	state := processState(pid)
-	return state != "" && !strings.HasPrefix(state, "Z")
+func alive(t *testing.T, pid int) bool {
+	t.Helper()
+	return processState(t, pid) == processLive
 }
 
 func TestIgnoredInterruptStaysStoppingUntilExplicitKill(t *testing.T) {
@@ -147,7 +147,7 @@ exec sleep 60
 	}
 	// Past the former 3 s escalation: still running, no second interrupt, no end.
 	quiet(t, records, 4*time.Second)
-	if pid := readPID(t, native+".pid"); !alive(pid) {
+	if pid := readPID(t, native+".pid"); !alive(t, pid) {
 		t.Fatalf("stop escalated: native %d is gone", pid)
 	}
 	host.stdin.Write([]byte("stop\n"))
@@ -211,7 +211,7 @@ while :; do sleep 0.1; done
 	host.stdin.Write([]byte("stop\n"))
 	next(t, records, 5*time.Second)
 	quiet(t, records, 3500*time.Millisecond)
-	if !alive(child) {
+	if !alive(t, child) {
 		t.Fatalf("stop escalated to descendant %d", child)
 	}
 	if lock, _, err := workspace.Lock(repository, false); err == nil || !strings.Contains(err.Error(), "active Runtime owner") {
@@ -314,7 +314,7 @@ exec sleep 60
 		t.Fatalf("code=%d records=%v", code, rest)
 	}
 	// Documented limit: the confirmed end covers the owned process group, not a new session.
-	if !alive(detached) {
+	if !alive(t, detached) {
 		t.Fatalf("expected the session-detached descendant %d to survive the group kill", detached)
 	}
 	if _, err := os.Stat(native + ".detached"); err != nil {

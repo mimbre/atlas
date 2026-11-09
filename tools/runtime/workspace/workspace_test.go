@@ -37,6 +37,7 @@ func workspaceTestRoot(t *testing.T) string {
 	t.Setenv("CODEX_HOME", filepath.Join(root, ".codex"))
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	limitCodexConfigWalk(t, root)
 	return root
 }
 

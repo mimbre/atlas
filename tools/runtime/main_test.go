@@ -15,6 +15,21 @@ import (
 	"testing"
 )
 
+// socketDirectory is a fresh Runtime home under TMPDIR for runtime.sock. It skips when the socket
+// path would not fit macOS's 104-byte sockaddr_un path, terminating NUL included.
+func socketDirectory(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "atlas-rt-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	if socket := filepath.Join(dir, "runtime.sock"); len(socket)+1 > 104 {
+		t.Skipf("socket path %s exceeds the 104-byte sockaddr_un limit; use a shorter TMPDIR", socket)
+	}
+	return dir
+}
+
 func TestFailedTurnIsInspectableButCommandRefusalFails(t *testing.T) {
 	for _, test := range []struct {
 		name           string
@@ -25,12 +40,7 @@ func TestFailedTurnIsInspectableButCommandRefusalFails(t *testing.T) {
 		{"command refused", map[string]any{"command_error": "agent already active"}, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			// Short socket paths also work on macOS with its small sockaddr_un limit.
-			dir, err := os.MkdirTemp("/tmp", "atlas-rt-test-")
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { os.RemoveAll(dir) })
+			dir := socketDirectory(t)
 			listener, err := net.Listen("unix", filepath.Join(dir, "runtime.sock"))
 			if err != nil {
 				t.Fatal(err)
@@ -283,11 +293,7 @@ func TestExecuteRejectsInvalidWorkerTargetsBeforeSocketRequest(t *testing.T) {
 }
 
 func TestWorkerParserPreservesAssignmentsAndValidBoundaries(t *testing.T) {
-	dir, err := os.MkdirTemp("/tmp", "atlas-rt-test-")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { os.RemoveAll(dir) })
+	dir := socketDirectory(t)
 	t.Setenv("ATLAS_RUNTIME_HOME", dir)
 	for _, worker := range []string{"a", "reviewer-2_main", strings.Repeat("a", 64)} {
 		for _, args := range [][]string{
@@ -334,17 +340,13 @@ func TestFollowPinsWorkerAndRefusesTurnChanges(t *testing.T) {
 		{"next worker refused", true, "turn-1", "other", "refusing to switch workers"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			dir, err := os.MkdirTemp("/tmp", "atlas-rt-test-")
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { os.RemoveAll(dir) })
+			dir := socketDirectory(t)
 			t.Setenv("ATLAS_RUNTIME_HOME", dir)
 			folder := t.TempDir()
-			if err = os.WriteFile(filepath.Join(folder, "stream.jsonl"), []byte("{\"text\":\"original worker\"}\n"), 0600); err != nil {
+			if err := os.WriteFile(filepath.Join(folder, "stream.jsonl"), []byte("{\"text\":\"original worker\"}\n"), 0600); err != nil {
 				t.Fatal(err)
 			}
-			if err = os.WriteFile(filepath.Join(folder, "answer.txt"), []byte("original answer"), 0600); err != nil {
+			if err := os.WriteFile(filepath.Join(folder, "answer.txt"), []byte("original answer"), 0600); err != nil {
 				t.Fatal(err)
 			}
 			listener, err := net.Listen("unix", filepath.Join(dir, "runtime.sock"))
@@ -437,14 +439,10 @@ func TestFollowPinsWorkerAndRefusesTurnChanges(t *testing.T) {
 func TestFollowWaitsForConfirmedStopOrKill(t *testing.T) {
 	for _, test := range []struct{ pending, terminal string }{{"stopping", "stopped"}, {"killing", "killed"}} {
 		t.Run(test.pending, func(t *testing.T) {
-			dir, err := os.MkdirTemp("/tmp", "atlas-rt-test-")
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { os.RemoveAll(dir) })
+			dir := socketDirectory(t)
 			t.Setenv("ATLAS_RUNTIME_HOME", dir)
 			folder := t.TempDir()
-			if err = os.WriteFile(filepath.Join(folder, "stream.jsonl"), []byte("{\"text\":\"partial\"}\n"), 0600); err != nil {
+			if err := os.WriteFile(filepath.Join(folder, "stream.jsonl"), []byte("{\"text\":\"partial\"}\n"), 0600); err != nil {
 				t.Fatal(err)
 			}
 			listener, err := net.Listen("unix", filepath.Join(dir, "runtime.sock"))

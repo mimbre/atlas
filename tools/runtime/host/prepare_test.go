@@ -45,6 +45,7 @@ func preparationFolder(t *testing.T, files map[string]string) (user, home, dest 
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", user)
+	limitCodexConfigWalk(t, user)
 	home, dest = filepath.Join(user, "runtime"), filepath.Join(user, "work")
 	type entry struct {
 		Kind       string `json:"kind"`
@@ -507,6 +508,7 @@ func TestSetupProfileIsEnforcedByInstalledCodexSandbox(t *testing.T) {
 	if runtime.GOOS != "darwin" || err != nil {
 		t.Skip("requires the installed Codex CLI on macOS")
 	}
+	requireNestedSeatbelt(t)
 	user, home, dest := preparationFolder(t, packageFiles())
 	scope, err := workspace.FolderScopeBeforePreparation(dest, home)
 	if err != nil {
@@ -887,6 +889,7 @@ func TestRunProfileIsEnforcedByInstalledCodexSandbox(t *testing.T) {
 	if runtime.GOOS != "darwin" || err != nil {
 		t.Skip("requires the installed Codex CLI on macOS")
 	}
+	requireNestedSeatbelt(t)
 	user, home, dest := preparationFolder(t, runFiles())
 	scope, err := workspace.FolderScopeBeforePreparation(dest, home)
 	if err != nil {

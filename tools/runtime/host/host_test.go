@@ -15,13 +15,20 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eyra/atlas/tools/runtime/internal/testseam"
 	"github.com/eyra/atlas/tools/runtime/workspace"
 )
+
+// codexConfigCeilingEnv carries a test's Codex-config walk ceiling into the host child.
+const codexConfigCeilingEnv = "ATLAS_TEST_CODEX_CONFIG_CEILING"
 
 // The test binary doubles as the host, including its self-spawned pre-exec child,
 // and as the fake native Claude CLI for question transport fixtures.
 func TestMain(m *testing.M) {
 	if os.Getenv("ATLAS_NATIVE_HOST_TEST") == "1" && len(os.Args) > 1 && os.Args[1] == "native-host" {
+		if ceiling := os.Getenv(codexConfigCeilingEnv); ceiling != "" {
+			testseam.SetCodexConfigCeiling(ceiling)
+		}
 		Main(os.Args[2:])
 	}
 	if mode := os.Getenv("ATLAS_QUESTION_FIXTURE"); mode != "" {
@@ -138,15 +145,19 @@ func readPID(t *testing.T, path string) int {
 	return pid
 }
 
-func processState(pid int) string {
-	out, _ := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "stat=").Output()
-	return strings.TrimSpace(string(out))
-}
+// processStatus is what the process-control tests distinguish; processState is per platform.
+type processStatus int
+
+const (
+	processGone processStatus = iota
+	processLive
+	processZombie
+)
 
 func assertDead(t *testing.T, pid int) {
 	t.Helper()
 	for range 200 {
-		if state := processState(pid); state == "" || strings.HasPrefix(state, "Z") {
+		if processState(t, pid) != processLive {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -158,7 +169,7 @@ func assertDead(t *testing.T, pid int) {
 func waitZombie(t *testing.T, pid int) {
 	t.Helper()
 	for range 200 {
-		if strings.HasPrefix(processState(pid), "Z") {
+		if processState(t, pid) == processZombie {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -343,7 +354,16 @@ func isolatedHome(t *testing.T) string {
 	t.Setenv("CODEX_HOME", filepath.Join(root, ".codex"))
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	limitCodexConfigWalk(t, root)
 	return root
+}
+
+// limitCodexConfigWalk stops workspace's Codex-config ancestor walk at the test-owned root, here
+// and in the host child, so a real home above the temp root is never stat'ed.
+func limitCodexConfigWalk(t *testing.T, root string) {
+	t.Helper()
+	t.Cleanup(testseam.SetCodexConfigCeiling(root))
+	t.Setenv(codexConfigCeilingEnv, root)
 }
 
 func gitIn(t *testing.T, directory string, args ...string) string {
