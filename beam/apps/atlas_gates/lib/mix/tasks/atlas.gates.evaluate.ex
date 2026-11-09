@@ -1,0 +1,117 @@
+defmodule Mix.Tasks.Atlas.Gates.Evaluate do
+  @shortdoc "Asks a gate for its verdict on evidence and records it once"
+  @moduledoc """
+  Evaluates a gate on an evidence file, records the verdict through Control and prints it
+  with its key. The coordinator runs it where it used to record a verdict by hand:
+
+      cd beam/apps/atlas_gates && mix atlas.gates.evaluate --gate NAME --subject KEY \\
+        --fingerprint FPR --evidence-file /abs/evidence.json --env test \\
+        [--allowed a,b] [--link about=KEY] [--link follows=KEY] [--atlas EXECUTABLE] [--json]
+
+  The evidence file is one JSON object of named fields; its digest (`sha256:` of the file
+  as it is) is recorded with it, so keep the file. `--env` (`test` or `prod`) is the
+  environment whose Control the `atlas` client writes to. Asking the same again (same
+  gate, subject, fingerprint and evidence) prints the verdict recorded the first time and
+  records nothing.
+
+  Exit status 0 when the verdict is recorded; 2 when it could not be evaluated or recorded:
+  then the printed verdict is the gate's safe one, and nothing may act as if it passed.
+  """
+  use Mix.Task
+
+  alias AtlasGates.{Digest, Request, Verdict}
+
+  @switches [
+    gate: :string,
+    gate_version: :string,
+    subject: :string,
+    fingerprint: :string,
+    evidence_file: :string,
+    allowed: :string,
+    link: :keep,
+    env: :string,
+    atlas: :string,
+    json: :boolean
+  ]
+
+  @impl true
+  def run(args) do
+    {opts, rest, invalid} = OptionParser.parse(args, strict: @switches)
+
+    if rest != [] or invalid != [],
+      do: Mix.raise("Unknown arguments: #{inspect(rest ++ invalid)}")
+
+    env = opts[:env]
+    if env not in ["test", "prod"], do: Mix.raise("Give --env test or --env prod")
+    file = opts[:evidence_file] || Mix.raise("Give --evidence-file PATH")
+    bytes = File.read!(Path.expand(file))
+
+    evidence =
+      case JSON.decode(bytes) do
+        {:ok, %{} = map} -> map
+        _ -> Mix.raise("#{file} is not one JSON object of named fields")
+      end
+
+    # Not app.start: the umbrella's runtime.exs belongs to the core and Runtime nodes.
+    Mix.Task.run("loadconfig")
+    Mix.Task.run("compile")
+
+    attrs = %{
+      "subject" => opts[:subject],
+      "fingerprint" => opts[:fingerprint],
+      "gate_version" => opts[:gate_version],
+      "evidence" => evidence,
+      "evidence_digest" => Digest.of_bytes(bytes),
+      "allowed_outcomes" => opts[:allowed] && String.split(opts[:allowed], ",", trim: true),
+      "links" => links(Keyword.get_values(opts, :link))
+    }
+
+    request =
+      case Request.new(opts[:gate], attrs) do
+        {:ok, request} -> request
+        {:error, why} -> Mix.raise("No verdict: #{why}")
+      end
+
+    facts = AtlasGates.Facts.Control.new(env, executable: opts[:atlas] || "atlas")
+
+    {status, verdict} =
+      case AtlasGates.decide(request, facts) do
+        {:ok, verdict} -> {0, verdict}
+        {:error, verdict, _why} -> {2, verdict}
+      end
+
+    if opts[:json],
+      do: IO.puts(JSON.encode!(Verdict.to_map(verdict))),
+      else: IO.puts(text(verdict, request))
+
+    if status != 0, do: exit({:shutdown, status})
+  end
+
+  defp links(pairs) do
+    Map.new(pairs, fn pair ->
+      case String.split(pair, "=", parts: 2) do
+        [relation, key] when relation != "" and key != "" -> {relation, key}
+        _ -> Mix.raise("--link takes RELATION=KEY, not #{inspect(pair)}")
+      end
+    end)
+  end
+
+  defp text(%Verdict{} = v, %Request{} = r) do
+    recorded =
+      case v.recorded_as do
+        :new -> "#{v.recorded} recorded now"
+        :again -> "#{v.recorded} recorded before, nothing new"
+        nil -> "NOT RECORDED"
+      end
+
+    lines = [
+      "#{v.outcome}#{if v.unsettled, do: " (#{v.unsettled})"}: #{recorded}",
+      "  gate #{r.gate} version #{r.gate_version}, rule outcome #{v.rule_outcome}, rule #{v.rule_version}",
+      "  subject #{r.subject} at #{r.fingerprint}, evidence #{r.evidence_digest}",
+      "  request #{v.request_id}, evaluated in #{v.duration_ms} ms"
+      | Enum.map(v.reasons, &("  - " <> &1))
+    ]
+
+    Enum.join(lines, "\n")
+  end
+end

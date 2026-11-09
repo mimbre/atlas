@@ -21,19 +21,27 @@ Every gate decision is a `gate_verdict` in Rela: which gate (`gate`, `gate_versi
 
 Facts keeps it as a record (`sealed` in `rela/modules/foundation/atlas.json`): never deleted or edited; record a new verdict that `follows` it instead. Only the later outcomes stay open, each set once and never changed: `overrule_reason`, `rework_after`, `defect_after`, `effort`, and every link while it is empty. Sending a value that is there already changes nothing.
 
-Until Flow records verdicts, the coordinator records today's rule gate, integrate only with green CI and a matching fingerprint, once per decision:
+Gates (`beam/apps/atlas_gates`) evaluates a gate and records its verdict; nobody writes a verdict by hand. Until Flow asks Gates itself, the coordinator asks it for today's rule gate, integrate (green CI on the integrated head and a matching fingerprint), once per decision:
 
 ```sh
-digest="sha256:$(shasum -a 256 evidence.json | cut -d' ' -f1)"   # the evidence as decided on, kept
-atlas put gate_verdict --gate integrate --gate_version 1 --flavor rule --purpose flow \
-  --subject PR-12 --fingerprint "$fingerprint" --evidence-file evidence-refs.txt \
-  --evidence_digest "$digest" --rule_outcome pass --rule_version ci-green-and-fingerprint-1 \
-  --verdict integrate --allowed_outcomes integrate,refuse --decided_at "2026-11-11 14:05" \
-  --link about=PR-12 --link follows=GV-0006 --json
+cd beam/apps/atlas_gates && mix atlas.gates.evaluate --gate integrate --subject PR-12 \
+  --fingerprint "$fingerprint" --evidence-file /abs/evidence.json --env test \
+  --link about=PR-12 --link follows=GV-0006            # [--allowed integrate,refuse] [--json]
 atlas set GV-0007 rework_after="CI failed on main after integrating (run 4711)"   # later, once
 ```
 
-Field names are given as they are, with underscores (`atlas help gate_verdict` lists them). Leave out `follows` for the first verdict on a subject.
+The evidence file is one JSON object of named fields, as the coordinator collects them (`ci_conclusion`, `ci_head`, `integration_head`, `review_fingerprint`, `integration_fingerprint`, …); keep it, its `sha256:` digest is recorded. Gates applies the gate's definition from `flow/targets/atlas/flows.json` (its rule, decide map and version: data, not code), records the verdict through Control with the `atlas` client, and prints it with its key:
+
+```
+integrate: GV-0007 recorded now
+  gate integrate version 1, rule outcome pass, rule sha256:f0b4f0febb34c851
+  subject PR-12 at fpr_767c…, evidence sha256:f006…
+  request GR-d768…, evaluated in 0 ms
+```
+
+A field the rule needs that is missing or empty, or one the gate does not declare, is `uncertain`; it and any error give `person`. Asking the same again (same gate and rule version, subject, fingerprint and evidence) prints the first verdict, `recorded before, nothing new`. Exit status 0 when the verdict is recorded; 2 when it could not be evaluated or recorded: the printed verdict is then `person` (an error), and nothing may integrate on it. Leave out `follows` for the first verdict on a subject.
+
+It is a mix task, not an `atlas` command: `atlas` is Control's client and knows no gate; Gates is a BEAM component, and a component in a node with the core's Bus records over the Bus directly (`AtlasGates.Facts.Bus`).
 
 ## A turn reads decisions first
 
