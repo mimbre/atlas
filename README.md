@@ -24,7 +24,8 @@ The BEAM side runs the system. rela describes it. Entities, schemas, flows and t
 | `clients/` | The Console (`tui/`), the agents' command line (`agent/`) and the Runtime viewer (`viewer/`, see [its README](clients/viewer/README.md)). |
 | `env/` | One settings file per environment. |
 | `fly/` | Images and deploy scripts for the hosted environments. |
-| `bin/atlas` | The `atlas` command. Its header comment lists the subcommands. |
+| `bin/atlas` | The `atlas` command, Control's client. Its header comment lists the subcommands. |
+| `bin/atlas-ops` | The `atlas-ops` command: operating an environment (status, logs, restart, the tunnel, data moves, install). |
 | `e2e/` | The end-to-end test: only the flows that must never break, driving real Consoles. |
 | `tools/` | Supporting tools, such as the Runtime CLI in Go ([tools/runtime/README.md](tools/runtime/README.md)). |
 | `skills/` | Instructions for the agent roles that work on Atlas. |
@@ -49,7 +50,7 @@ bin/atlas-dev e2e --env test     # the end-to-end test, on a private instance
 
 ```sh
 atlas tui --env test     # open the Console on test
-atlas status --env test  # what runs, and which build
+atlas-ops status --env test  # what runs, and which build
 ```
 
 ## Read more

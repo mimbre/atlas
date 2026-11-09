@@ -5,7 +5,7 @@ set -euo pipefail
 
 /app/fly/apply-move.sh beam
 
-# Held (atlas fetch-from-fly --hold, for a migration on a copy): the machine stays up, so
+# Held (atlas-ops fetch-from-fly --hold, for a migration on a copy): the machine stays up, so
 # its data can be read and a move can arrive, but nothing serves or writes it. A move ends
 # the hold (apply-move.sh); so does: fly ssh console -C "rm /data/hold", then a restart.
 if [ -e /data/hold ]; then

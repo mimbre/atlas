@@ -41,6 +41,21 @@ def atlas(file, *args, check=True):
                environment(file), check=check)
 
 
+def ops(file, *args, check=True):
+    return run([ROOT / "bin/atlas-ops", *args, "--env", "test"],
+               environment(file), check=check)
+
+
+def rela_environment(file):
+    config = json.loads(file.read_text())
+    env = environment(file)
+    env.update(ATLAS_TEST_ROOT=str(Path(config["rela"]["data"]).parent),
+               ATLAS_RELA_DATA=config["rela"]["data"],
+               ATLAS_RELA_BIN=config["rela"]["bin"],
+               ATLAS_RELA_PORT=str(config["rela"]["port"]))
+    return env
+
+
 def ports():
     sockets = [socket.socket() for _ in range(2)]
     for sock in sockets:
@@ -112,9 +127,10 @@ def transport():
     elif args[:2] == ["machine", "restart"]:
         file = Path(state["destination_file"])
         if role == "core":
-            atlas(file, "stop")
+            ops(file, "stop")
         else:
-            stopped = atlas(file, "rela-stop", check=False)
+            # Only rela's machine restarts: its scripts, as Fly runs them, not the core too.
+            stopped = run([ROOT / "rela/scripts/stop.sh"], rela_environment(file), check=False)
             if stopped.returncode and "no pid file" not in stopped.stdout:
                 raise RuntimeError(stopped.stdout)
         # Execute an isolated copy of the actual boot-time archive application.
@@ -123,15 +139,9 @@ def transport():
         run(["bash", "-c", script, "apply-move", "beam" if role == "core" else "rela"])
         if not (volume / "hold").exists():
             if role == "core":
-                atlas(file, "restart")
+                ops(file, "restart")
             else:
-                config = json.loads(file.read_text())
-                env = environment(file)
-                env.update(ATLAS_TEST_ROOT=str(Path(config["rela"]["data"]).parent),
-                           ATLAS_RELA_DATA=config["rela"]["data"],
-                           ATLAS_RELA_BIN=config["rela"]["bin"],
-                           ATLAS_RELA_PORT=str(config["rela"]["port"]))
-                run([ROOT / "rela/scripts/start-bg.sh"], env)
+                run([ROOT / "rela/scripts/start-bg.sh"], rela_environment(file))
     else:
         raise RuntimeError(f"unsupported transport call: {args}")
 
@@ -193,7 +203,7 @@ def rehearse(output, binary):
 
     files = [source_file, destination_file]
     try:
-        atlas(source_file, "restart")
+        ops(source_file, "restart")
         record(source_file, "put", "agent", "--name", "Coordinator")
         scene = record(source_file, "put", "scene", "--title", "Synthetic source",
                        "--description", "Offline transfer baseline")
@@ -206,11 +216,10 @@ def rehearse(output, binary):
         baseline = {k: record(source_file, "get", k)
                     for k in (scene_key, key(uc), key(issue), assignment_key)}
         assert baseline[assignment_key]["origins"], "fixture needs State link provenance"
-        atlas(destination_file, "restart")
+        ops(destination_file, "restart")
         record(destination_file, "put", "scene",
                           "--title", "Previous destination", "--description", "Keep me")
-        atlas(source_file, "stop")
-        atlas(source_file, "rela-stop")
+        ops(source_file, "stop", "--rela")
         backup = output / "source-backup"
         backup.mkdir()
         for name in ("rela", "beam"):
@@ -254,7 +263,7 @@ def rehearse(output, binary):
         files.append(rollback_file)
         for name in ("rela", "beam"):
             shutil.copytree(output / "latest-backup" / name, rollback_file.parent / name)
-        atlas(rollback_file, "restart")
+        ops(rollback_file, "restart")
         restored = record(rollback_file, "get", scene_key)
         assert restored == latest, "rollback lost latest authoritative write"
         (output / "latest-control.json").write_text(json.dumps(restored, indent=2))
@@ -279,8 +288,7 @@ def rehearse(output, binary):
         print(f"Evidence: {output}")
     finally:
         for file in reversed(files):
-            atlas(file, "stop", check=False)
-            atlas(file, "rela-stop", check=False)
+            ops(file, "stop", "--rela", check=False)
 
 
 if __name__ == "__main__":

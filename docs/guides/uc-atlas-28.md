@@ -95,4 +95,4 @@ Nobody else sees the part. `atlas get` shows it to a client that is the owner: a
 - **Control:** the What to do part; `as` in hello.
 - **Contract:** 0.12.0. **TUI:** room for the todo part first. **Agent:** `ATLAS_AS`; `atlas get` prints the part first and has `todo` in `--json`.
 - **The end-to-end test:** `e2e/scenarios/uc-atlas-28-todo.exs`.
-- **Prod at merge:** restart rela and the core (rela gets `flow_state`; `atlas restart` does both). Flow writes each state's name within its first round.
+- **Prod at merge:** restart rela and the core (rela gets `flow_state`; `atlas-ops restart` does both). Flow writes each state's name within its first round.

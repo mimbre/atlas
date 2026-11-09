@@ -1,23 +1,23 @@
 #!/usr/bin/env bash
-# atlas fetch-from-fly: copy an environment's data on Fly to this Mac (IS-Atlas-79): a
-# backup, or the copy a migration runs on. bin/atlas runs it for an environment whose
+# atlas-ops fetch-from-fly: copy an environment's data on Fly to this Mac (IS-Atlas-79): a
+# backup, or the copy a migration runs on. bin/atlas-ops runs it for an environment whose
 # settings have a "fly" section.
 #
-#   atlas fetch-from-fly --env test|prod --to <folder> [--hold]
+#   atlas-ops fetch-from-fly --env test|prod --to <folder> [--hold]
 #
 #  1. Holds both apps (/data/hold, then a restart; the core first, so nothing writes): the
 #     machines stay up but serve nothing, so the copy is whole.
 #  2. Copies /data/rela and /data/beam into <folder>/rela and <folder>/beam, the layout
 #     move-to-fly and a private instance on this Mac (ATLAS_ENV_FILE) use; counts it.
 #  3. Ends the hold and restarts rela, then the core. With --hold they stay held: for a
-#     migration on the copy, which `atlas move-to-fly --from <folder>` then brings back
+#     migration on the copy, which `atlas-ops move-to-fly --from <folder>` then brings back
 #     (that ends the hold). Until then the environment serves nothing.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd -P)"
-app="${ATLAS_FLY_APP:?run through bin/atlas fetch-from-fly}"
-rela_app="${ATLAS_FLY_RELA_APP:?run through bin/atlas fetch-from-fly}"
-env="${ATLAS_ENV:?run through bin/atlas fetch-from-fly}"
+app="${ATLAS_FLY_APP:?run through bin/atlas-ops fetch-from-fly}"
+rela_app="${ATLAS_FLY_RELA_APP:?run through bin/atlas-ops fetch-from-fly}"
+env="${ATLAS_ENV:?run through bin/atlas-ops fetch-from-fly}"
 to=""
 keep_held=""
 while [ $# -gt 0 ]; do
@@ -25,7 +25,7 @@ while [ $# -gt 0 ]; do
     --to) [ -n "${2:-}" ] || { echo "fetch-from-fly: --to needs a folder" >&2; exit 2; }; to="$2"; shift 2 ;;
     --to=?*) to="${1#--to=}"; shift ;;
     --hold) keep_held=1; shift ;;
-    *) echo "fetch-from-fly: unknown option $1; see atlas help" >&2; exit 2 ;;
+    *) echo "fetch-from-fly: unknown option $1; see atlas-ops --help" >&2; exit 2 ;;
   esac
 done
 fail() { echo "fetch-from-fly: $*" >&2; exit 1; }
@@ -73,7 +73,7 @@ echo "What it holds:"
 
 # 3. Release, or keep held for a migration.
 if [ -n "$keep_held" ]; then
-  echo "$env on Fly stays held: it serves nothing until atlas move-to-fly --env $env --from <migrated folder>."
+  echo "$env on Fly stays held: it serves nothing until atlas-ops move-to-fly --env $env --from <migrated folder>."
   exit 0
 fi
 for target in "$rela_app" "$app"; do

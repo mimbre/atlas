@@ -131,7 +131,7 @@ defmodule AtlasE2E.ControlReadyTest do
     File.chmod!(fly, 0o755)
 
     {out, 0} =
-      System.cmd(Path.join(@root, "bin/atlas"), ["status", "--env", "test"],
+      System.cmd(Path.join(@root, "bin/atlas-ops"), ["status", "--env", "test"],
         env: [
           {"ATLAS_ENV_FILE", file},
           {"ATLAS_NO_UPDATE", "1"},

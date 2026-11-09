@@ -1,5 +1,5 @@
 defmodule AtlasE2E.RelaDescriptionTest do
-  # IS-Atlas-73: `atlas restart` restarts rela when rela runs an older description than
+  # IS-Atlas-73: `atlas-ops restart` restarts rela when rela runs an older description than
   # the build, its data kept, and refuses when the build's description would leave data
   # without one. On a private instance (free ports, data in a temporary folder), never on
   # env/test.json's or env/prod.json's.
@@ -59,17 +59,16 @@ defmodule AtlasE2E.RelaDescriptionTest do
     ]
 
     on_exit(fn ->
-      atlas(env, ["stop"])
-      atlas(env, ["rela-stop"])
+      ops(env, ["stop", "--rela"])
       File.rm_rf!(dir)
     end)
 
     %{dir: dir, env: env, url: settings["rela"]["url"]}
   end
 
-  defp atlas(env, args),
+  defp ops(env, args),
     do:
-      System.cmd(Path.join(@root, "bin/atlas"), args ++ ["--env", "test"],
+      System.cmd(Path.join(@root, "bin/atlas-ops"), args ++ ["--env", "test"],
         env: env,
         stderr_to_stdout: true
       )
@@ -129,31 +128,31 @@ defmodule AtlasE2E.RelaDescriptionTest do
     assert "e2e_gone" in kinds(ctx.url)
     put(ctx.url, "scenes", "SC-Atlas-01", "Kept across the restart")
 
-    {out, 0} = atlas(ctx.env, ["status"])
-    assert out =~ "description: older than this build's; atlas restart --env test restarts rela"
+    {out, 0} = ops(ctx.env, ["status"])
+    assert out =~ "description: older than this build's; atlas-ops restart --env test restarts rela"
 
-    {out, status} = atlas(ctx.env, ["restart"])
+    {out, status} = ops(ctx.env, ["restart"])
     assert status == 0, out
 
     assert out =~
-             "atlas: rela test ran an older description; restarted it on this build's (its data stays)"
+             "atlas-ops: rela test ran an older description; restarted it on this build's (its data stays)"
 
-    assert out =~ "atlas: core ready"
+    assert out =~ "atlas-ops: core ready"
 
     refute "e2e_gone" in kinds(ctx.url)
     {scene, 0} = System.cmd("curl", ["-fsS", ctx.url <> "/scenes/SC-Atlas-01"])
     assert scene =~ "Kept across the restart"
 
-    {out, 0} = atlas(ctx.env, ["status"])
+    {out, 0} = ops(ctx.env, ["status"])
     assert out =~ "description: this build's"
 
     # Nothing to do the second time.
-    {out, 0} = atlas(ctx.env, ["restart"])
+    {out, 0} = ops(ctx.env, ["restart"])
     refute out =~ "older description"
   end
 
   test "include-only changes restart rela and preserve stored files byte for byte", ctx do
-    {out, status} = atlas(ctx.env, ["restart"])
+    {out, status} = ops(ctx.env, ["restart"])
     assert status == 0, out
     put(ctx.url, "scenes", "SC-Atlas-01", "Kept across an include-only restart")
     put(ctx.url, "use_cases", "UC-Atlas-01", "Kept child")
@@ -176,17 +175,17 @@ defmodule AtlasE2E.RelaDescriptionTest do
 
     data = Path.join(ctx.dir, "rela")
     # Stop the private core to avoid background reconciliation changing fixtures.
-    atlas(ctx.env, ["stop"])
+    ops(ctx.env, ["stop"])
     before = stored_files(data)
     included = Path.join(data, "modules/foundation/schema.yaml")
     File.write!(included, File.read!(included) <> "\n# earlier build's include\n")
-    {out, 0} = atlas(ctx.env, ["status"])
+    {out, 0} = ops(ctx.env, ["status"])
     assert out =~ "older than this build's"
-    {out, status} = atlas(ctx.env, ["restart"])
+    {out, status} = ops(ctx.env, ["restart"])
     assert status == 0, out
     assert out =~ "restarted it on this build's"
     for {file, contents} <- before, do: assert(File.read!(file) == contents)
-    {out, 0} = atlas(ctx.env, ["status"])
+    {out, 0} = ops(ctx.env, ["status"])
     assert out =~ "description: this build's"
   end
 
@@ -201,14 +200,14 @@ defmodule AtlasE2E.RelaDescriptionTest do
     start_older_rela(ctx)
     put(ctx.url, "e2e_gones", "G-1", "Data of a kind this build no longer has")
 
-    {out, status} = atlas(ctx.env, ["restart"])
+    {out, status} = ops(ctx.env, ["restart"])
     assert status == 1, out
 
     assert out =~
-             "atlas: rela test runs an older description, and this build's no longer describes data it holds:"
+             "atlas-ops: rela test runs an older description, and this build's no longer describes data it holds:"
 
     assert out =~ "e2e_gone"
-    assert out =~ "then: atlas restart --env test"
+    assert out =~ "then: atlas-ops restart --env test"
     refute out =~ "core ready"
 
     # rela was left as it was, on its own description, with its data.

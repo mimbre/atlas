@@ -32,7 +32,7 @@ defmodule AtlasControl.Faults do
      "Control closes every client's connection and takes none for 10 s. Each client shows " <>
        "it is not connected, and comes back by itself."},
     {"restart", "Restart the node",
-     "The node stops and starts again (atlas restart). Clients lose Control and come back; " <>
+     "The node stops and starts again (atlas-ops restart). Clients lose Control and come back; " <>
        "Runtime ends the turns that ran and starts them again; Flow starts the process of " <>
        "every open fact again."}
   ]
@@ -130,7 +130,7 @@ defmodule AtlasControl.Faults do
   defp own("restart") do
     case System.get_env("ATLAS_ROOT") do
       root when is_binary(root) and root != "" ->
-        atlas = Path.join(root, "bin/atlas")
+        ops = Path.join(root, "bin/atlas-ops")
 
         spawn(fn ->
           Process.sleep(200)
@@ -138,15 +138,15 @@ defmodule AtlasControl.Faults do
           System.cmd("/bin/sh", [
             "-c",
             ~s(nohup "$0" restart --env "$1" > /dev/null 2>&1 &),
-            atlas,
+            ops,
             AtlasBus.environment()
           ])
         end)
 
-        {:ok, "The node restarts (atlas restart)."}
+        {:ok, "The node restarts (atlas-ops restart)."}
 
       _ ->
-        {:error, "This node does not know its atlas (no ATLAS_ROOT): it cannot restart itself."}
+        {:error, "This node does not know its atlas-ops (no ATLAS_ROOT): it cannot restart itself."}
     end
   end
 

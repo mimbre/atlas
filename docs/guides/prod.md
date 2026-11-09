@@ -13,17 +13,18 @@ atlas
 The same as `atlas tui --env prod`. It opens the tunnel to prod's Control on Fly in the background (`fly proxy 7593:7591 -a eyra-atlas`, flyctl's WireGuard; flyctl must be logged in to organisation eyra), then Console. The header identifies the environment: `Atlas Console · prod` or `Atlas Console · test`.
 
 More:
-- `atlas status`: the tunnel, and both apps' machines, checks and deployed build (the image label `master-<commit>`).
-- `atlas logs`: the core's log on Fly; rela's is `fly logs -a eyra-atlas-rela`.
-- `atlas stop`, `atlas restart`: close or reopen this Mac's tunnel; prod keeps running on Fly.
-- `atlas env`: which environment a command works on.
+- `atlas-ops status`: the tunnel, and both apps' machines, checks and deployed build (the image label `master-<commit>`).
+- `atlas-ops logs`: the core's log on Fly; rela's is `fly logs -a eyra-atlas-rela`.
+- `atlas-ops tunnel status`, `atlas-ops tunnel close`: show or close this Mac's tunnel; the next `atlas` command opens it again. Prod keeps running on Fly: `atlas-ops stop` and `atlas-ops restart` refuse there.
+- `atlas-ops env`: which environment a command works on.
+- `atlas-ops install`: link `atlas` and `atlas-ops` into `~/.local/bin`, from the main clone.
 
 Before reusing or opening a tunnel, `atlas` sends a read-only Control hello through
 it. A local listening port alone is not enough: flyctl can keep that port open
 while its WireGuard tunnel or private DNS is unavailable. An unresponsive existing
 proxy is reopened; a new proxy must reach Control within a minute before a client
 starts. This changes only the local proxy, never the Fly machines or stored data,
-and never retries a client's write. `atlas status` reports an unavailable upstream
+and never retries a client's write. `atlas-ops status` reports an unavailable upstream
 separately from a closed tunnel.
 
 The probe proves transport, not State/rela health. An explicit hello refusal (for
@@ -34,7 +35,7 @@ Fly connectivity to recover; no public address is needed.
 
 **Prod runs master's build.** A merge to master deploys it (d-0014). A merge to develop changes this Mac's clients (the main clone follows develop) but not prod's core, so a new feature reaches prod only with the next merge to master. Control lets a client newer than itself in, and sends an older one away.
 
-A deploy first checks that the build's description describes all of prod's data on Fly, as `atlas restart` did on this Mac (IS-Atlas-73). When it does not, nothing is deployed, prod keeps its build, and the job names the data: migrate it first (`docs/guides/test-on-fly.md`, "A migration").
+A deploy first checks that the build's description describes all of prod's data on Fly, as `atlas-ops restart` does for a core on this Mac (IS-Atlas-73). When it does not, nothing is deployed, prod keeps its build, and the job names the data: migrate it first (`docs/guides/test-on-fly.md`, "A migration").
 
 ## Where it runs
 
@@ -60,7 +61,7 @@ A merge to master deploys prod (CI job `deploy-prod`, `fly/deploy.sh prod`). It 
 2. rela, then the core.
 3. The smoke check, which reads only.
 
-`env/prod.json` names the apps in its `"fly"` section. Until the switch below it said `"in_use": false`: `atlas` kept using this Mac's prod core and rela, and only `atlas move-to-fly --env prod` and `atlas fetch-from-fly --env prod` went to Fly.
+`env/prod.json` names the apps in its `"fly"` section. Until the switch below it said `"in_use": false`: `atlas` kept using this Mac's prod core and rela, and only `move-to-fly` and `fetch-from-fly` (today `atlas-ops move-to-fly --env prod` and `atlas-ops fetch-from-fly --env prod`) went to Fly.
 
 ### Secrets
 
@@ -101,10 +102,10 @@ Preserve both `rela/` and `beam/`, including State's provenance and answered-fac
    checkout on `fly.in_use=false` through verification. Stop independent Runtime nodes
    on every agent machine (`atlas runtime-stop --env prod`, when IS-91 is installed),
    close ordinary clients and stop other automated writers. Core stop alone does not
-   stop Runtime. Run `atlas stop --env prod`, then `atlas rela-stop --env prod` on the
+   stop Runtime. Run `atlas-ops stop --rela --env prod` (the core, then rela) on the
    source. Prevent clients, supervisors and unattended deploys from restarting either
-   authority during the maintenance window. After #61, `atlas stop` closes a Control
-   tunnel and `atlas rela-stop` refuses to stop Fly rela; use the old settings here.
+   authority during the maintenance window. After #61, `atlas-ops stop` refuses for an
+   environment on Fly; use the old settings here.
 2. **Preserve the stopped source and destination.** Copy the complete stopped Mac
    environment to a new timestamped folder; keep it immutable:
    ```sh
@@ -113,7 +114,7 @@ Preserve both `rela/` and `beam/`, including State's provenance and answered-fac
    Quiesce destination core writers BEFORE replacing destination rela. With old
    settings still in use, hold both destination services and preserve their data:
    ```sh
-   atlas fetch-from-fly --env prod --to <new-destination-backup> --hold
+   atlas-ops fetch-from-fly --env prod --to <new-destination-backup> --hold
    ```
    This holds/restarts the destination core first, then rela. Verify both holds and
    successful backup output before continuing. A failure can leave services held;
@@ -124,7 +125,7 @@ Preserve both `rela/` and `beam/`, including State's provenance and answered-fac
    backup and writer exclusion.
 3. **Dry run against the exact stopped source backup:**
    ```sh
-   atlas move-to-fly --env prod --from <source-backup> --dry-run
+   atlas-ops move-to-fly --env prod --from <source-backup> --dry-run
    ```
    Save the schema-fit result and counts per kind and relation, including Assignment,
    `assignment`, `accepted_by` and ownership links. Held destination files remain
@@ -182,14 +183,14 @@ is authoritative from the facts, not the client settings.
 After Fly accepts changes, reverting #61 and restarting the pre-move Mac dataset
 can discard them. First stop Runtime and every other writer, hold Fly and preserve a
 current consistent copy of BOTH `rela/` and `beam/` in a NEW folder:
-`atlas fetch-from-fly --env prod --to <new-latest-backup> --hold`. Check compatibility
+`atlas-ops fetch-from-fly --env prod --to <new-latest-backup> --hold`. Check compatibility
 with the intended rollback build, restore that latest copy to a separate local
 instance and verify through its Control, including ownership, acceptance and
 provenance. Only then, under rollback authorization, switch clients to that validated
 dataset. Keep Fly held until a single writable authority is established. Preserve
 pre-move backups; reverting settings reverses neither data nor external actions.
 
-`atlas fetch-from-fly --env prod --to <new-folder>` makes a consistent backup with a
+`atlas-ops fetch-from-fly --env prod --to <new-folder>` makes a consistent backup with a
 brief hold; `--hold` keeps both services held. A migration follows
 `docs/guides/test-on-fly.md`, "A migration", with its own authorization. Preserve
 previous worktrees, branches and backups; cleanup needs separate authorization.

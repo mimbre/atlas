@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# atlas move-to-fly: copy an environment's data from this Mac to its apps on Fly
-# (IS-Atlas-26, IS-Atlas-79). bin/atlas runs it for an environment whose settings have a
+# atlas-ops move-to-fly: copy an environment's data from this Mac to its apps on Fly
+# (IS-Atlas-26, IS-Atlas-79). bin/atlas-ops runs it for an environment whose settings have a
 # "fly" section.
 #
-#   atlas move-to-fly --env test|prod [--from <folder>] [--dry-run] [--replace-live]
+#   atlas-ops move-to-fly --env test|prod [--from <folder>] [--dry-run] [--replace-live]
 #
 # <folder> holds rela/ (rela's data folder) and beam/ (State's own data), as
 # ~/.local/share/atlas/<env> does; by default the folder in the settings' fly.move_from.
@@ -11,13 +11,13 @@
 #
 #  1. Checks, and sends nothing when one fails: rela/ and beam/ are there; no rela serves
 #     rela/ right now (a copy of a store in use can catch a half-written file); this build's
-#     description describes all of its data (what `atlas restart` checks too); and counts
+#     description describes all of its data (what `atlas-ops restart` checks too); and counts
 #     the items per kind and the links per relation (every Assignment, every accepted_by).
 #  2. Sends rela/ to the rela app and beam/ to the core app, as /data/incoming/<name>.tar.gz.
 #  3. Restarts both machines, rela first. At boot fly/apply-move.sh moves what was there
 #     to /data/before-move/<time>-<name> (kept), puts the copy in its place, writes the
 #     manifest of what arrived (fly/manifest.sh: every file and its SHA-256), and ends a
-#     hold (atlas fetch-from-fly --hold).
+#     hold (atlas-ops fetch-from-fly --hold).
 #  4. Compares, item by item: the manifests on Fly with those of what was sent, for rela/
 #     and beam/, and the counts on Fly with step 1.
 #
@@ -27,9 +27,9 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd -P)"
-app="${ATLAS_FLY_APP:?run through bin/atlas move-to-fly}"
-rela_app="${ATLAS_FLY_RELA_APP:?run through bin/atlas move-to-fly}"
-env="${ATLAS_ENV:?run through bin/atlas move-to-fly}"
+app="${ATLAS_FLY_APP:?run through bin/atlas-ops move-to-fly}"
+rela_app="${ATLAS_FLY_RELA_APP:?run through bin/atlas-ops move-to-fly}"
+env="${ATLAS_ENV:?run through bin/atlas-ops move-to-fly}"
 from="${ATLAS_MOVE_FROM:-}"
 dry=""
 replace_live=""
@@ -39,7 +39,7 @@ while [ $# -gt 0 ]; do
     --from=?*) from="${1#--from=}"; shift ;;
     --dry-run) dry=1; shift ;;
     --replace-live) replace_live=1; shift ;;
-    *) echo "move-to-fly: unknown option $1; see atlas help" >&2; exit 2 ;;
+    *) echo "move-to-fly: unknown option $1; see atlas-ops --help" >&2; exit 2 ;;
   esac
 done
 fail() { echo "move-to-fly: $*" >&2; exit 1; }
@@ -82,7 +82,7 @@ here="$("$root/fly/counts.sh" "$from/rela")"
 # The checks above are this Mac's; from here on it talks to Fly.
 fly="$(command -v fly || command -v flyctl)" || fail "install flyctl first (brew install flyctl), then: fly auth login"
 remote() { "$fly" ssh console -q -a "$1" -C "$2" 2>/dev/null | tr -d '\r'; }
-there="$(remote "$rela_app" "/app/fly/counts.sh /data/rela" || echo "(could not read: is $rela_app running? atlas status)")"
+there="$(remote "$rela_app" "/app/fly/counts.sh /data/rela" || echo "(could not read: is $rela_app running? atlas-ops status)")"
 echo
 echo "Here, to send:"
 echo "$here" | sed 's/^/  /'

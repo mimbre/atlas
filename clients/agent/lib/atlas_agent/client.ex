@@ -125,7 +125,7 @@ defmodule AtlasAgent.Client do
       {:error, _} ->
         {:error,
          "Control #{env} does not answer at #{host}:#{port}. " <>
-           "Is it running? See `atlas status --env #{env}`."}
+           "Is it running? See `atlas-ops status --env #{env}`."}
     end
   end
 

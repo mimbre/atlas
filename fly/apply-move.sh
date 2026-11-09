@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# At boot, before anything reads it: put data that `atlas move-to-fly` sent in place.
+# At boot, before anything reads it: put data that `atlas-ops move-to-fly` sent in place.
 #
 #   apply-move.sh <name>   when /data/incoming/<name>.tar.gz exists, /data/<name> moves to
 #                          /data/before-move/<time>-<name> (kept, never removed here) and
@@ -26,4 +26,4 @@ tar -xzf "$archive" -C "/data/$name.new" --no-same-owner
 /app/fly/manifest.sh "/data/$name.new" >"/data/$name.manifest"
 mv "/data/$name.new" "/data/$name"
 rm -f "$archive" /data/hold
-echo "apply-move: /data/$name is now the data that atlas move-to-fly sent"
+echo "apply-move: /data/$name is now the data that atlas-ops move-to-fly sent"
