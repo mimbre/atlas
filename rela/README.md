@@ -1,6 +1,6 @@
 # Versioned description
 
-`schema.yaml` selects native rela 26.10.14 includes. Foundation owns actors,
+`schema.yaml` selects native rela 26.11.2 includes. Foundation owns actors,
 Assignments and turns; optional foundation audit owns requests/steps; software
 factory owns Issue/PR and compatibility fields; module `eyra` owns Scene/Use Case and
 hierarchy/acceptance. The composition owns the complete `assignment` relation.

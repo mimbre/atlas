@@ -19,11 +19,11 @@ port="${ATLAS_RELA_PORT:-7690}"
 # Loopback on a Mac; on Fly the private network (fly/rela/run.sh sets it).
 bind="${ATLAS_RELA_BIND:-127.0.0.1}"
 
-version=26.10.14
+version=26.11.2
 # The archive for this machine: the MacBook and the Mac mini (darwin_arm64), CI (linux_amd64).
 case "$(uname -s)_$(uname -m)" in
-  Darwin_arm64) platform=darwin_arm64; sha256=8360fa3dfc396b71a9c1b1d0d97cadbef7b5308798c55248eb052946fdfc357e ;;
-  Linux_x86_64) platform=linux_amd64; sha256=b1fe71a52ede95d51ce86ae968217b63c0ae3789e3b786e453584972fd5cb096 ;;
+  Darwin_arm64) platform=darwin_arm64; sha256=340a9787dbf395e20ef2248d7a367dde91cba4f4c6e546f600635f84ed815c76 ;;
+  Linux_x86_64) platform=linux_amd64; sha256=b11d3dd5aa8f584a62acde4d396c491ff052487eb199e8d78c3b447b093dc3f2 ;;
   *) echo "start-test: no rela $version archive known for $(uname -s) $(uname -m)" >&2; exit 1 ;;
 esac
 archive="rela_${version}_${platform}.tar.gz"
