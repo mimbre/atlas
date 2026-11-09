@@ -75,6 +75,23 @@ func environment(dir string) []string {
 	return append(result, "MIX_ENV=test", "MIX_BUILD_PATH="+filepath.Join(dir, "build"), "ELIXIR_ERL_OPTIONS=+S 2:2")
 }
 
+// serviceCommands builds the Runtime service and runs tools/runtime/service.exs for the home
+// dir, with executable as the native host. Both run in the beam umbrella, the project whose
+// deps hold the model the service is wired to with server.json (beam/mix.exs, D-0083), as a
+// Runtime node does: atlas_runtime's own project has the model neither compiled nor on its code
+// path, and no platform app depends on it.
+func serviceCommands(dir, executable string) (build, run *exec.Cmd) {
+	project := filepath.Join(repoRoot, "beam")
+	build = exec.Command("mix", "compile", "--warnings-as-errors")
+	build.Dir = project
+	build.Env = environment(dir)
+	run = exec.Command("mix", "run", "--no-start", "--no-compile", "--no-deps-check",
+		filepath.Join(repoRoot, "tools/runtime/service.exs"), dir)
+	run.Dir = project
+	run.Env = append(environment(dir), "ATLAS_RUNTIME_EXECUTABLE="+executable)
+	return build, run
+}
+
 func service(dir, action string) (map[string]any, error) {
 	if action == "status" {
 		result, err := request(dir, map[string]any{"command": "service-status"})
@@ -133,9 +150,11 @@ func service(dir, action string) (map[string]any, error) {
 	if err = os.Remove(filepath.Join(dir, "runtime.sock")); err != nil && !os.IsNotExist(err) {
 		return nil, err
 	}
-	build := exec.Command("mix", "compile", "--warnings-as-errors")
-	build.Dir = filepath.Join(repoRoot, "beam", "apps", "atlas_runtime")
-	build.Env = environment(dir)
+	executable, err := os.Executable()
+	if err != nil {
+		return nil, err
+	}
+	build, cmd := serviceCommands(dir, executable)
 	build.Stdout = os.Stderr
 	build.Stderr = os.Stderr
 	if err = build.Run(); err != nil {
@@ -146,14 +165,6 @@ func service(dir, action string) (map[string]any, error) {
 		return nil, err
 	}
 	defer log.Close()
-	executable, err := os.Executable()
-	if err != nil {
-		return nil, err
-	}
-	cmd := exec.Command("mix", "run", "--no-start", "--no-compile", "--no-deps-check",
-		filepath.Join(repoRoot, "tools/runtime/service.exs"), dir)
-	cmd.Dir = filepath.Join(repoRoot, "beam", "apps", "atlas_runtime")
-	cmd.Env = append(environment(dir), "ATLAS_RUNTIME_EXECUTABLE="+executable)
 	cmd.Stdout = log
 	cmd.Stderr = log
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
