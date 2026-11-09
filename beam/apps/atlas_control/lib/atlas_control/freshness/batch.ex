@@ -3,7 +3,7 @@ defmodule AtlasControl.Freshness.Batch do
   The hints a session collects until it handles them at once (docs/design/page-freshness.md
   §4): it flushes once no hint came for `quiet` ms (20), and at the latest `most` ms (100)
   after the first. Pure: the time is passed in, in milliseconds. A hint is `%{position,
-  changes, by}`.
+  changes}`.
   """
 
   defstruct hints: [], first: nil, last: nil
@@ -38,7 +38,4 @@ defmodule AtlasControl.Freshness.Batch do
       positions -> Enum.max(positions)
     end
   end
-
-  @doc "Whether a hint was written by someone other than `writer` (Flow)."
-  def others?(hints, writer), do: Enum.any?(hints, &(&1.by != writer))
 end

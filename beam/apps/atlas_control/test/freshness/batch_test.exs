@@ -3,7 +3,7 @@ defmodule AtlasControl.Freshness.BatchTest do
 
   alias AtlasControl.Freshness.Batch
 
-  defp hint(p, by \\ "flow"), do: %{position: p, changes: [%{"key" => "W-#{p}"}], by: by}
+  defp hint(p), do: %{position: p, changes: [%{"key" => "W-#{p}"}]}
 
   test "it flushes once no hint came for a while, and at the latest a while after the first" do
     assert Batch.due(Batch.new()) == nil
@@ -18,13 +18,11 @@ defmodule AtlasControl.Freshness.BatchTest do
   end
 
   test "taken, the hints come oldest first, by position" do
-    batch = Batch.new() |> Batch.add(hint(1), 0) |> Batch.add(hint(3, "ada"), 1)
+    batch = Batch.new() |> Batch.add(hint(1), 0) |> Batch.add(hint(3), 1)
     {hints, rest} = Batch.take(batch)
     assert Batch.empty?(rest)
     assert Batch.changes(hints) == [{1, [%{"key" => "W-1"}]}, {3, [%{"key" => "W-3"}]}]
     assert Batch.position(hints) == 3
-    assert Batch.others?(hints, "flow")
-    refute Batch.others?([hint(1)], "flow")
     assert Batch.position([]) == nil
   end
 end
