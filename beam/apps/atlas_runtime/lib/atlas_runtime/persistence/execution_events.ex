@@ -9,20 +9,24 @@ defmodule AtlasRuntime.ExecutionEvents do
   @peer_question_kinds ~w(peer_question_routed peer_reply_bound)
 
   def append_question(dir, store, transition) do
-    duplicate = Enum.find(store["events"], fn event ->
-      event["kind"] in @question_kinds and event["turn_id"] == transition["turn_id"] and
-        event["question_id"] == transition["question_id"] and
-        event["revision"] == transition["revision"]
-    end)
+    duplicate =
+      Enum.find(store["events"], fn event ->
+        event["kind"] in @question_kinds and event["turn_id"] == transition["turn_id"] and
+          event["question_id"] == transition["question_id"] and
+          event["revision"] == transition["revision"]
+      end)
 
     if duplicate do
       unless Map.delete(duplicate, "sequence") == transition,
         do: raise(ArgumentError, "conflicting question event revision")
+
       store
     else
       event = Map.put(transition, "sequence", store["sequence"] + 1)
+
       unless transition["kind"] in @question_kinds and valid_event?(event),
         do: raise(ArgumentError, "invalid question event")
+
       store
       |> Map.put("sequence", event["sequence"])
       |> Map.put("events", Enum.take(store["events"] ++ [event], -@retention))
@@ -32,15 +36,21 @@ defmodule AtlasRuntime.ExecutionEvents do
 
   def append_peer_question(dir, store, transition) do
     event = Map.put(transition, "sequence", store["sequence"] + 1)
+
     unless transition["kind"] in @peer_question_kinds and valid_event?(event),
       do: raise(ArgumentError, "invalid peer question event")
-    duplicate = Enum.find(store["events"], fn previous ->
-      previous["kind"] in @peer_question_kinds and previous["turn_id"] == transition["turn_id"] and
-        previous["question_id"] == transition["question_id"] and previous["revision"] == transition["revision"]
-    end)
+
+    duplicate =
+      Enum.find(store["events"], fn previous ->
+        previous["kind"] in @peer_question_kinds and previous["turn_id"] == transition["turn_id"] and
+          previous["question_id"] == transition["question_id"] and
+          previous["revision"] == transition["revision"]
+      end)
+
     if duplicate do
       unless Map.delete(duplicate, "sequence") == transition,
         do: raise(ArgumentError, "conflicting peer question event revision")
+
       store
     else
       store
@@ -58,16 +68,21 @@ defmodule AtlasRuntime.ExecutionEvents do
       "record_ref" => record["record_ref"],
       "timestamp" => record["submitted_at"]
     }
-    duplicate = Enum.find(store["events"], fn previous ->
-      previous["kind"] == "handoff_submitted" and previous["turn_id"] == record["turn_id"]
-    end)
+
+    duplicate =
+      Enum.find(store["events"], fn previous ->
+        previous["kind"] == "handoff_submitted" and previous["turn_id"] == record["turn_id"]
+      end)
+
     if duplicate do
       unless Map.delete(duplicate, "sequence") == transition,
         do: raise(ArgumentError, "conflicting handoff event")
+
       store
     else
       event = Map.put(transition, "sequence", store["sequence"] + 1)
       unless valid_event?(event), do: raise(ArgumentError, "invalid handoff event")
+
       store
       |> Map.put("sequence", event["sequence"])
       |> Map.put("events", Enum.take(store["events"] ++ [event], -@retention))
@@ -128,7 +143,9 @@ defmodule AtlasRuntime.ExecutionEvents do
 
     event =
       if kind == "execution_accepted" do
-        operation = if get_in(run, [:selection, "reason"]) == "continuation", do: "continue", else: "start"
+        operation =
+          if get_in(run, [:selection, "reason"]) == "continuation", do: "continue", else: "start"
+
         Map.put(event, "operation", operation)
       else
         event
@@ -196,7 +213,8 @@ defmodule AtlasRuntime.ExecutionEvents do
     end
   end
 
-  defp gap(from, to), do: %{"reason" => "retention_gap", "from_sequence" => from, "to_sequence" => to}
+  defp gap(from, to),
+    do: %{"reason" => "retention_gap", "from_sequence" => from, "to_sequence" => to}
 
   defp page(store, sequence, limit, reset) do
     remaining = Enum.drop_while(store["events"], &(&1["sequence"] <= sequence))
@@ -225,7 +243,8 @@ defmodule AtlasRuntime.ExecutionEvents do
         raise ArgumentError, "execution event cursor is in the future"
 
       {:error, :stale, _sequence} ->
-        raise ArgumentError, "stale execution event cursor; earliest usable cursor: #{cursor(store, earliest)}"
+        raise ArgumentError,
+              "stale execution event cursor; earliest usable cursor: #{cursor(store, earliest)}"
 
       {:error, :malformed} ->
         raise ArgumentError, "malformed execution event cursor"
@@ -266,13 +285,15 @@ defmodule AtlasRuntime.ExecutionEvents do
     store
   end
 
-  defp validate!(%{
-         "version" => 1,
-         "epoch" => epoch,
-         "recording_started_at" => started_at,
-         "sequence" => sequence,
-         "events" => events
-       } = store) do
+  defp validate!(
+         %{
+           "version" => 1,
+           "epoch" => epoch,
+           "recording_started_at" => started_at,
+           "sequence" => sequence,
+           "events" => events
+         } = store
+       ) do
     valid =
       map_size(store) == 5 and is_binary(epoch) and
         Regex.match?(~r/\A[0-9a-f]{32}\z/, epoch) and timestamp?(started_at) and
@@ -287,21 +308,32 @@ defmodule AtlasRuntime.ExecutionEvents do
       unless valid_event?(event) and event["sequence"] == expected, do: invalid_store!()
     end)
 
-
     handoffs = Enum.filter(events, &(&1["kind"] == "handoff_submitted"))
+
     unless length(Enum.uniq_by(handoffs, & &1["turn_id"])) == length(handoffs),
       do: invalid_store!()
+
     peers = Enum.filter(events, &(&1["kind"] in @peer_question_kinds))
-    unless length(Enum.uniq_by(peers, &{&1["turn_id"], &1["question_id"], &1["revision"]})) == length(peers),
-      do: invalid_store!()
+
+    unless length(Enum.uniq_by(peers, &{&1["turn_id"], &1["question_id"], &1["revision"]})) ==
+             length(peers),
+           do: invalid_store!()
+
     store
   end
 
   defp validate!(_), do: invalid_store!()
 
-  defp valid_event?(%{"kind" => "handoff_submitted", "record_ref" => reference,
-         "turn_id" => turn, "worker_id" => worker,
-         "sequence" => sequence, "timestamp" => timestamp} = event) do
+  defp valid_event?(
+         %{
+           "kind" => "handoff_submitted",
+           "record_ref" => reference,
+           "turn_id" => turn,
+           "worker_id" => worker,
+           "sequence" => sequence,
+           "timestamp" => timestamp
+         } = event
+       ) do
     map_size(event) == 6 and is_integer(sequence) and sequence > 0 and
       sequence <= @max_sequence and is_binary(turn) and
       Regex.match?(~r/\Aturn-[0-9a-f]{16}\z/, turn) and is_binary(worker) and
@@ -309,10 +341,21 @@ defmodule AtlasRuntime.ExecutionEvents do
       reference == Path.join(["turns", turn, "handoff.json"]) and timestamp?(timestamp)
   end
 
-  defp valid_event?(%{"kind" => kind, "question_id" => question, "revision" => revision,
-         "record_ref" => reference, "turn_id" => turn, "worker_id" => worker,
-         "peer_worker_id" => peer, "peer_source_turn_id" => source, "response_turn_id" => response,
-         "sequence" => sequence, "timestamp" => timestamp} = event)
+  defp valid_event?(
+         %{
+           "kind" => kind,
+           "question_id" => question,
+           "revision" => revision,
+           "record_ref" => reference,
+           "turn_id" => turn,
+           "worker_id" => worker,
+           "peer_worker_id" => peer,
+           "peer_source_turn_id" => source,
+           "response_turn_id" => response,
+           "sequence" => sequence,
+           "timestamp" => timestamp
+         } = event
+       )
        when kind in @peer_question_kinds do
     map_size(event) == 11 and is_integer(revision) and is_integer(sequence) and sequence > 0 and
       sequence <= @max_sequence and is_binary(question) and
@@ -321,44 +364,65 @@ defmodule AtlasRuntime.ExecutionEvents do
       is_binary(worker) and Regex.match?(~r/\A[a-z][a-z0-9_-]{0,63}\z/, worker) and
       is_binary(peer) and Regex.match?(~r/\A[a-z][a-z0-9_-]{0,63}\z/, peer) and peer != worker and
       is_binary(source) and Regex.match?(~r/\Aturn-[0-9a-f]{16}\z/, source) and source != turn and
-      reference == Path.join(["turns", turn, "peer-questions", question <> ".json"]) and timestamp?(timestamp) and
+      reference == Path.join(["turns", turn, "peer-questions", question <> ".json"]) and
+      timestamp?(timestamp) and
       ((kind == "peer_question_routed" and revision == 1 and is_nil(response)) or
-       (kind == "peer_reply_bound" and revision == 2 and is_binary(response) and
-        Regex.match?(~r/\Aturn-[0-9a-f]{16}\z/, response) and response not in [turn, source]))
+         (kind == "peer_reply_bound" and revision == 2 and is_binary(response) and
+            Regex.match?(~r/\Aturn-[0-9a-f]{16}\z/, response) and response not in [turn, source]))
   end
 
-  defp valid_event?(%{"kind" => kind, "question_id" => question, "revision" => revision,
-         "record_ref" => reference, "turn_id" => turn, "worker_id" => worker,
-         "sequence" => sequence, "timestamp" => timestamp} = event)
+  defp valid_event?(
+         %{
+           "kind" => kind,
+           "question_id" => question,
+           "revision" => revision,
+           "record_ref" => reference,
+           "turn_id" => turn,
+           "worker_id" => worker,
+           "sequence" => sequence,
+           "timestamp" => timestamp
+         } = event
+       )
        when kind in @question_kinds do
     map_size(event) == 8 and is_integer(sequence) and sequence > 0 and
       sequence <= @max_sequence and is_integer(revision) and revision in 1..5 and
       is_binary(question) and Regex.match?(~r/\Aquestion-[0-9a-f]{1,64}\z/, question) and
       is_binary(turn) and Regex.match?(~r/\Aturn-[0-9a-f]{16}\z/, turn) and
       is_binary(worker) and Regex.match?(~r/\A[a-z][a-z0-9_-]{0,63}\z/, worker) and
-      reference == Path.join(["turns", turn, "questions", question <> ".json"]) and timestamp?(timestamp)
+      reference == Path.join(["turns", turn, "questions", question <> ".json"]) and
+      timestamp?(timestamp)
   end
 
-  defp valid_event?(%{
-         "sequence" => sequence,
-         "kind" => kind,
-         "turn_id" => turn,
-         "backend" => backend,
-         "session_id" => session,
-         "model" => model,
-         "timestamp" => timestamp
-       } = event) do
+  defp valid_event?(
+         %{
+           "sequence" => sequence,
+           "kind" => kind,
+           "turn_id" => turn,
+           "backend" => backend,
+           "session_id" => session,
+           "model" => model,
+           "timestamp" => timestamp
+         } = event
+       ) do
     worker_fields = if Map.has_key?(event, "worker_id"), do: 1, else: 0
-    worker_valid = worker_fields == 0 or
-      (is_binary(event["worker_id"]) and
-         Regex.match?(~r/\A[a-z][a-z0-9_-]{0,63}\z/, event["worker_id"]))
+
+    worker_valid =
+      worker_fields == 0 or
+        (is_binary(event["worker_id"]) and
+           Regex.match?(~r/\A[a-z][a-z0-9_-]{0,63}\z/, event["worker_id"]))
 
     shape =
       case kind do
         "execution_accepted" ->
           map_size(event) == 8 + worker_fields and event["operation"] in ["start", "continue"]
 
-        terminal when terminal in ["execution_finished", "execution_failed", "execution_stopped", "execution_killed"] ->
+        terminal
+        when terminal in [
+               "execution_finished",
+               "execution_failed",
+               "execution_stopped",
+               "execution_killed"
+             ] ->
           map_size(event) == 7 + worker_fields
 
         _ ->
@@ -373,7 +437,9 @@ defmodule AtlasRuntime.ExecutionEvents do
   defp valid_event?(_), do: false
   defp nullable_text?(nil, _), do: true
   defp nullable_text?(value, max), do: text?(value, max)
-  defp text?(value, max), do: is_binary(value) and byte_size(value) in 1..max and String.valid?(value)
+
+  defp text?(value, max),
+    do: is_binary(value) and byte_size(value) in 1..max and String.valid?(value)
 
   defp timestamp?(value) do
     text?(value, 64) and match?({:ok, _, _}, DateTime.from_iso8601(value))

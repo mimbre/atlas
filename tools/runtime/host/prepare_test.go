@@ -44,6 +44,13 @@ func preparationFolder(t *testing.T, files map[string]string) (user, home, dest 
 	if err != nil {
 		t.Fatal(err)
 	}
+	home, dest = preparationFolderIn(t, user, files)
+	return
+}
+
+// preparationFolderIn is preparationFolder beneath the test-owned user home.
+func preparationFolderIn(t *testing.T, user string, files map[string]string) (home, dest string) {
+	t.Helper()
 	t.Setenv("HOME", user)
 	limitCodexConfigWalk(t, user)
 	home, dest = filepath.Join(user, "runtime"), filepath.Join(user, "work")
@@ -155,7 +162,9 @@ func notReady(t *testing.T, err error, state string) map[string]any {
 }
 
 func TestPreparationInstallsOnlyItsOutputAndKeepsDiagnosticsPrivate(t *testing.T) {
-	user, home, dest := preparationFolder(t, packageFiles())
+	// Claude's worker settings below refuse a folder inside a system temp root.
+	user := outsideSystemTemp(t)
+	home, dest := preparationFolderIn(t, user, packageFiles())
 	if err := os.WriteFile(filepath.Join(user, ".npmrc"), []byte("//registry.npmjs.org/:_authToken=NPMRC-SENTINEL\n"), 0600); err != nil {
 		t.Fatal(err)
 	}

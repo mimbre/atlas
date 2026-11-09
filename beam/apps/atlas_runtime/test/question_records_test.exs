@@ -5,19 +5,31 @@ defmodule AtlasRuntime.QuestionRecordsTest do
 
   setup %{tmp_dir: dir} do
     run = %{id: "turn-0000000000000001", worker_id: "alpha"}
-    question = %{id: "question-ab12", questions: [%{"question" => "Choose?"}],
-      correlation: %{"session_id" => "00000000-0000-4000-8000-000000000001",
-        "model" => "claude-sonnet-4-6", "tool_use_id" => "tool-use-1",
-        "request_id" => "request-1", "native_pid" => 12345}}
+
+    question = %{
+      id: "question-ab12",
+      questions: [%{"question" => "Choose?"}],
+      correlation: %{
+        "session_id" => "00000000-0000-4000-8000-000000000001",
+        "model" => "claude-sonnet-4-6",
+        "tool_use_id" => "tool-use-1",
+        "request_id" => "request-1",
+        "native_pid" => 12345
+      }
+    }
+
     {record, events} = QuestionRecords.create(dir, ExecutionEvents.open(dir), run, question)
     %{dir: dir, run: run, question: question, record: record, events: events}
   end
 
-  defp save(dir, record), do: File.write!(Path.join(dir, record["record_ref"]), JSON.encode!(record))
+  defp save(dir, record),
+    do: File.write!(Path.join(dir, record["record_ref"]), JSON.encode!(record))
+
   defp events(store), do: ExecutionEvents.query(store, nil, 100)["events"]
   defp load(context), do: QuestionRecords.load(context.dir, context.run.id, context.question.id)
 
-  test "records retain original input, ownership, correlation and only bounded transition references", context do
+  test "records retain original input, ownership, correlation and only bounded transition references",
+       context do
     %{dir: dir, record: record, events: store, question: question} = context
     assert record["original_input"] == %{"questions" => question.questions}
     assert record["correlation"] == question.correlation
@@ -32,12 +44,15 @@ defmodule AtlasRuntime.QuestionRecordsTest do
     assert record["transitions"] == []
     assert record["processing"] == "processed"
     assert record["active"] == false
+
     assert Enum.map(events(store), & &1["kind"]) ==
-      ["question_available", "answer_accepted", "answer_delivered", "answer_processed"]
+             ["question_available", "answer_accepted", "answer_delivered", "answer_processed"]
+
     for event <- events(store) do
       assert Enum.sort(Map.keys(event)) ==
-        ~w(kind question_id record_ref revision sequence timestamp turn_id worker_id)
+               ~w(kind question_id record_ref revision sequence timestamp turn_id worker_id)
     end
+
     assert QuestionRecords.recover(dir, ExecutionEvents.open(dir)) == store
     assert load(context) == record
   end
@@ -70,8 +85,10 @@ defmodule AtlasRuntime.QuestionRecordsTest do
     File.write!(journal, bytes)
 
     recovered = QuestionRecords.recover(dir, ExecutionEvents.open(dir))
+
     assert Enum.map(events(recovered), & &1["kind"]) ==
-      ["question_available", "answer_accepted", "question_invalidated"]
+             ["question_available", "answer_accepted", "question_invalidated"]
+
     assert load(context)["transitions"] == []
     assert QuestionRecords.recover(dir, recovered) == recovered
     assert load(context)["published_revision"] == 3
@@ -84,8 +101,10 @@ defmodule AtlasRuntime.QuestionRecordsTest do
     save(dir, %{record | "published_revision" => 1, "transitions" => [transition]})
 
     recovered = QuestionRecords.recover(dir, ExecutionEvents.open(dir))
+
     assert Enum.map(events(recovered), & &1["kind"]) ==
-      ["question_available", "answer_accepted", "question_invalidated"]
+             ["question_available", "answer_accepted", "question_invalidated"]
+
     assert length(Enum.filter(events(recovered), &(&1["kind"] == "answer_accepted"))) == 1
     assert load(context)["transitions"] == []
     assert QuestionRecords.recover(dir, recovered) == recovered
@@ -94,12 +113,22 @@ defmodule AtlasRuntime.QuestionRecordsTest do
   test "checkpointed pruned transitions never republish and retention remains 256", context do
     %{dir: dir, record: record, events: store} = context
     {record, store} = QuestionRecords.invalidate(dir, store, record, "stopped")
-    store = Enum.reduce(1..270, store, fn number, store ->
-      run = %{id: "turn-" <> String.pad_leading(Integer.to_string(number, 16), 16, "0"),
-        worker_id: "alpha", state: "running", backend: "claude", session_id: nil,
-        model: nil, started_at: "2026-11-07T10:00:00Z"}
-      ExecutionEvents.append(dir, store, run)
-    end)
+
+    store =
+      Enum.reduce(1..270, store, fn number, store ->
+        run = %{
+          id: "turn-" <> String.pad_leading(Integer.to_string(number, 16), 16, "0"),
+          worker_id: "alpha",
+          state: "running",
+          backend: "claude",
+          session_id: nil,
+          model: nil,
+          started_at: "2026-11-07T10:00:00Z"
+        }
+
+        ExecutionEvents.append(dir, store, run)
+      end)
+
     assert length(store["events"]) == 256
     assert Enum.all?(store["events"], &(&1["kind"] == "execution_accepted"))
     assert ExecutionEvents.query(store, nil, 100)["retention_gap"]
@@ -109,19 +138,26 @@ defmodule AtlasRuntime.QuestionRecordsTest do
 
   test "corrupt records fail closed instead of dropping admission", context do
     %{dir: dir, record: record} = context
-    for bad <- [Map.put(record, "answers", %{"Choose?" => "unadmitted"}),
-                Map.put(record, "processing", "processed"),
-                Map.put(record, "active", false),
-                Map.put(record, "outcome", "invalidated"),
-                Map.put(record, "invalidation_reason", "stopped"),
-                Map.merge(record, %{"active" => false, "invalidation_reason" => "stopped"}),
-                Map.put(record, "published_revision", 2),
-                Map.put(record, "correlation", %{}),
-                Map.put(record, "worker_id", "../outside")] do
+
+    for bad <- [
+          Map.put(record, "answers", %{"Choose?" => "unadmitted"}),
+          Map.put(record, "processing", "processed"),
+          Map.put(record, "active", false),
+          Map.put(record, "outcome", "invalidated"),
+          Map.put(record, "invalidation_reason", "stopped"),
+          Map.merge(record, %{"active" => false, "invalidation_reason" => "stopped"}),
+          Map.put(record, "published_revision", 2),
+          Map.put(record, "correlation", %{}),
+          Map.put(record, "worker_id", "../outside")
+        ] do
       save(dir, bad)
       assert_raise QuestionRecords.StorageError, fn -> load(context) end
-      assert_raise QuestionRecords.StorageError, fn -> QuestionRecords.recover(dir, ExecutionEvents.open(dir)) end
+
+      assert_raise QuestionRecords.StorageError, fn ->
+        QuestionRecords.recover(dir, ExecutionEvents.open(dir))
+      end
     end
+
     save(dir, record)
     File.write!(Path.join(dir, record["record_ref"]), "{")
     assert_raise QuestionRecords.StorageError, fn -> load(context) end
@@ -132,19 +168,23 @@ defmodule AtlasRuntime.QuestionRecordsTest do
     {accepted, store} = QuestionRecords.admit(dir, store, record, %{"Choose?" => "yes"})
     {delivered, store} = QuestionRecords.delivered(dir, store, accepted)
     {processed, _store} = QuestionRecords.processed(dir, store, delivered)
+
     for bad <- [
-      Map.put(accepted, "outcome", "processed"),
-      Map.put(delivered, "outcome", "processed"),
-      Map.put(processed, "outcome", "unknown"),
-      Map.put(processed, "processing", "unknown"),
-      Map.put(processed, "transport", "unknown"),
-      Map.put(processed, "active", true),
-      Map.put(accepted, "active", false),
-      Map.put(accepted, "invalidation_reason", "stopped")
-    ] do
+          Map.put(accepted, "outcome", "processed"),
+          Map.put(delivered, "outcome", "processed"),
+          Map.put(processed, "outcome", "unknown"),
+          Map.put(processed, "processing", "unknown"),
+          Map.put(processed, "transport", "unknown"),
+          Map.put(processed, "active", true),
+          Map.put(accepted, "active", false),
+          Map.put(accepted, "invalidation_reason", "stopped")
+        ] do
       save(dir, bad)
       assert_raise QuestionRecords.StorageError, fn -> load(context) end
-      assert_raise QuestionRecords.StorageError, fn -> QuestionRecords.recover(dir, ExecutionEvents.open(dir)) end
+
+      assert_raise QuestionRecords.StorageError, fn ->
+        QuestionRecords.recover(dir, ExecutionEvents.open(dir))
+      end
     end
   end
 end

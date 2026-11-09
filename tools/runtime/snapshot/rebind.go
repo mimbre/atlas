@@ -127,7 +127,7 @@ func rebound(home, dest string) error {
 }
 
 // stopped holds the Runtime service lock, so no service starts meanwhile, and proves no service
-// listens on the socket: absent, or present with the connection refused. Anything else refuses.
+// listens on the socket: absent, or a socket with the connection refused. Anything else refuses.
 func stopped(home string) (*os.File, error) {
 	lock, err := os.OpenFile(filepath.Join(home, "service.lock"), os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
@@ -138,8 +138,14 @@ func stopped(home string) (*os.File, error) {
 		return nil, errors.New("the Runtime service is starting or stopping; nothing was changed, run the command again once it is stopped")
 	}
 	socket := filepath.Join(home, "runtime.sock")
-	if _, err = os.Lstat(socket); errors.Is(err, fs.ErrNotExist) {
+	info, err := os.Lstat(socket)
+	if errors.Is(err, fs.ErrNotExist) {
 		return lock, nil
+	}
+	// Linux refuses a connection to a non-socket as it does one to a stopped service; macOS does not.
+	if err == nil && info.Mode().Type() != fs.ModeSocket {
+		lock.Close()
+		return nil, errors.New("cannot establish that the Runtime service is stopped (runtime.sock is not a socket); nothing was changed")
 	}
 	conn, err := net.DialTimeout("unix", socket, time.Second)
 	if err == nil {

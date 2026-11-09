@@ -26,7 +26,10 @@ defmodule AtlasRuntime.Application do
   # Standalone turns' public output, read only through read.sock; the Bus endpoint below
   # serves Output alone, so it is never forwarded to Server.
   defp local_output,
-    do: Supervisor.child_spec({AtlasRuntime.Output, name: AtlasRuntime.LocalOutput}, id: AtlasRuntime.LocalOutput)
+    do:
+      Supervisor.child_spec({AtlasRuntime.Output, name: AtlasRuntime.LocalOutput},
+        id: AtlasRuntime.LocalOutput
+      )
 
   # Standalone lifecycle reporting (`:server_lifecycle`, its `server.json` machine) serves
   # output as that machine only, the one its Bus link authenticates; never this node's

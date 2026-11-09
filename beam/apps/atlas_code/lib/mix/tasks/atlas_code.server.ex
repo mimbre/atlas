@@ -12,7 +12,10 @@ defmodule Mix.Tasks.AtlasCode.Server do
 
   @impl true
   def run(_args) do
-    home = System.get_env("ATLAS_CODE_HOME") || Mix.raise("Set ATLAS_CODE_HOME to the Code home directory")
+    home =
+      System.get_env("ATLAS_CODE_HOME") ||
+        Mix.raise("Set ATLAS_CODE_HOME to the Code home directory")
+
     # Not app.start: the umbrella's runtime.exs belongs to the core and Runtime nodes.
     Mix.Task.run("compile")
     {:ok, _} = Application.ensure_all_started(:atlas_code)

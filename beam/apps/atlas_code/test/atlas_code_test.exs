@@ -66,7 +66,11 @@ defmodule AtlasCodeTest do
     source: source
   } do
     assert {200,
-            %{"repository" => "github.com/test/fixture", "reference" => "develop", "revision" => revision} =
+            %{
+              "repository" => "github.com/test/fixture",
+              "reference" => "develop",
+              "revision" => revision
+            } =
               reply} = resolve(port, "github.com/test/fixture", "develop")
 
     assert map_size(reply) == 3
@@ -86,9 +90,16 @@ defmodule AtlasCodeTest do
              resolve(port, "github.com/test/fixture", "develop")
   end
 
-  test "unknown references, forbidden repositories, invalid and legacy requests are refused", %{port: port} do
+  test "unknown references, forbidden repositories, invalid and legacy requests are refused", %{
+    port: port
+  } do
     assert {404,
-            %{"error" => %{"code" => "unknown_reference", "details" => %{"reference" => "missing"}}}} =
+            %{
+              "error" => %{
+                "code" => "unknown_reference",
+                "details" => %{"reference" => "missing"}
+              }
+            }} =
              resolve(port, "github.com/test/fixture", "missing")
 
     assert {403, %{"error" => %{"code" => "forbidden"}}} =
@@ -142,7 +153,12 @@ defmodule AtlasCodeTest do
     refute message =~ dir
     # A handle Code recorded earlier, whose remote has since gone away.
     revision = AtlasCode.put_revision(other, "github.com/test/gone", String.duplicate("a", 40))
-    snapshot = %{"repositories" => [%{"repository" => "github.com/test/gone", "revision" => revision, "path" => "gone"}]}
+
+    snapshot = %{
+      "repositories" => [
+        %{"repository" => "github.com/test/gone", "revision" => revision, "path" => "gone"}
+      ]
+    }
 
     assert {503, %{"error" => %{"code" => "provider_unavailable", "message" => message}}} =
              raw(port, :post, "/v1/snapshots", JSON.encode!(snapshot))
@@ -221,17 +237,27 @@ defmodule AtlasCodeTest do
 
       assert :ok = AtlasCode.stop(pid)
       refute File.exists?(Path.join(home, "service.owner"))
-      assert JSON.decode!(File.read!(Path.join([home, "service.owner.ended-" <> id, "owner.json"]))) == record
+
+      assert JSON.decode!(
+               File.read!(Path.join([home, "service.owner.ended-" <> id, "owner.json"]))
+             ) == record
+
       assert %{"changes" => 0, "reviews" => 0, "snapshots" => 0} = AtlasCode.Migration.run(home)
       {:ok, pid, _port} = AtlasCode.start(home)
       assert :ok = AtlasCode.stop(pid)
 
-      kinds = for t <- Path.wildcard(Path.join(home, "service.owner.ended-*")), do: JSON.decode!(File.read!(Path.join(t, "owner.json")))["kind"]
+      kinds =
+        for t <- Path.wildcard(Path.join(home, "service.owner.ended-*")),
+            do: JSON.decode!(File.read!(Path.join(t, "owner.json")))["kind"]
+
       assert Enum.sort(kinds) == ["migration", "service", "service"]
       assert Path.wildcard(Path.join(home, "service.owner.*.tmp")) == []
     end
 
-    test "an owner that exits abnormally never frees a home its server still uses", %{home: home, pid: pid} do
+    test "an owner that exits abnormally never frees a home its server still uses", %{
+      home: home,
+      pid: pid
+    } do
       :ok = AtlasCode.stop(pid)
       parent = self()
 
@@ -295,11 +321,12 @@ defmodule AtlasCodeTest do
       assert {:error, _} = AtlasCode.release(home, record["owner"])
     end
 
-    test "a stale owner is never reclaimed automatically and is recovered only when ps proves it stopped", %{
-      tmp_dir: dir,
-      home: home,
-      pid: pid
-    } do
+    test "a stale owner is never reclaimed automatically and is recovered only when ps proves it stopped",
+         %{
+           tmp_dir: dir,
+           home: home,
+           pid: pid
+         } do
       :ok = AtlasCode.stop(pid)
       stale = stale_owner(home, 4_000_000)
       record = owner(home)
@@ -335,7 +362,11 @@ defmodule AtlasCodeTest do
       assert message =~ "is owned by #{stale}"
 
       for pid <- ["4000000", 0, -1, nil] do
-        File.write!(Path.join([home, "service.owner", "owner.json"]), JSON.encode!(%{record | "os_pid" => pid}))
+        File.write!(
+          Path.join([home, "service.owner", "owner.json"]),
+          JSON.encode!(%{record | "os_pid" => pid})
+        )
+
         assert {:error, message} = AtlasCode.unlock(home, stale, absent)
         assert message =~ "no valid pid"
       end
@@ -360,11 +391,12 @@ defmodule AtlasCodeTest do
       assert :ok = AtlasCode.stop(pid)
     end
 
-    test "a stale unlock that read the old owner moves neither a newer owner nor a running service", %{
-      tmp_dir: dir,
-      home: home,
-      pid: pid
-    } do
+    test "a stale unlock that read the old owner moves neither a newer owner nor a running service",
+         %{
+           tmp_dir: dir,
+           home: home,
+           pid: pid
+         } do
       :ok = AtlasCode.stop(pid)
       absent = ps(dir, "absent", "exit 1")
       stale = stale_owner(home, 4_000_001)
@@ -386,8 +418,15 @@ defmodule AtlasCodeTest do
 
       assert {:error, :eexist} = AtlasCode.unlock(home, stale, racing)
       assert owner(home) == newer
-      assert JSON.decode!(File.read!(Path.join([home, "service.owner.ended-" <> stale, "owner.json"]))) == old
-      File.rename!(Path.join(home, "service.owner"), Path.join(home, "service.owner.ended-" <> newer["owner"]))
+
+      assert JSON.decode!(
+               File.read!(Path.join([home, "service.owner.ended-" <> stale, "owner.json"]))
+             ) == old
+
+      File.rename!(
+        Path.join(home, "service.owner"),
+        Path.join(home, "service.owner.ended-" <> newer["owner"])
+      )
 
       # The same stale unlock repeated against a newer running service re-reads and refuses.
       {:ok, pid, port} = AtlasCode.start(home)
@@ -401,12 +440,33 @@ defmodule AtlasCodeTest do
     end
   end
 
-  test "without an orchestrator token Code starts and refuses reviews and integrations", %{port: port} do
+  test "without an orchestrator token Code starts and refuses reviews and integrations", %{
+    port: port
+  } do
     for {path, body} <- [
-          {"/v1/reviews", %{"review_id" => uuid(1), "change_id" => uuid(2), "target" => "develop", "title" => "t", "body" => @attribution}},
-          {"/v1/integrations", %{"integration_id" => uuid(1), "review_id" => uuid(2), "revision" => rev(1), "target_revision" => rev(2)}}
+          {"/v1/reviews",
+           %{
+             "review_id" => uuid(1),
+             "change_id" => uuid(2),
+             "target" => "develop",
+             "title" => "t",
+             "body" => @attribution
+           }},
+          {"/v1/integrations",
+           %{
+             "integration_id" => uuid(1),
+             "review_id" => uuid(2),
+             "revision" => rev(1),
+             "target_revision" => rev(2)
+           }}
         ] do
-      assert {403, %{"error" => %{"code" => "forbidden", "message" => "Reviews and integrations are not configured"}}} =
+      assert {403,
+              %{
+                "error" => %{
+                  "code" => "forbidden",
+                  "message" => "Reviews and integrations are not configured"
+                }
+              }} =
                orchestrate(port, path, body, @token)
     end
   end
@@ -501,11 +561,17 @@ defmodule AtlasCodeTest do
       assert {200, ^created} = snapshot(port, Enum.reverse(repositories))
 
       assert {200,
-              %{"snapshot_id" => ^id, "entries" => entries, "repositories" => ^listed, "version" => 2} =
+              %{
+                "snapshot_id" => ^id,
+                "entries" => entries,
+                "repositories" => ^listed,
+                "version" => 2
+              } =
                 manifest} = request(port, :get, "/v1/snapshots/#{id}/manifest")
 
       # No commit appears in what clients see.
-      for commit <- [app_commit, docs_commit], reply <- [created, manifest],
+      for commit <- [app_commit, docs_commit],
+          reply <- [created, manifest],
           do: refute(JSON.encode!(reply) =~ commit)
 
       # The ID is the SHA-256 of the canonical manifest JSON, recomputable from the response.
@@ -591,12 +657,19 @@ defmodule AtlasCodeTest do
         %{"repository" => "github.com/test/app", "revision" => revisions["app"], "path" => path}
       end
 
-      assert {404, %{"error" => %{"code" => "unknown_revision", "details" => %{"revision" => unknown}}}} =
+      assert {404,
+              %{"error" => %{"code" => "unknown_revision", "details" => %{"revision" => unknown}}}} =
                snapshot(port, [%{entry.("app") | "revision" => rev(0)}])
 
       assert unknown == rev(0)
 
-      assert {409, %{"error" => %{"code" => "repository_mismatch", "details" => %{"repository" => "github.com/test/app"}}}} =
+      assert {409,
+              %{
+                "error" => %{
+                  "code" => "repository_mismatch",
+                  "details" => %{"repository" => "github.com/test/app"}
+                }
+              }} =
                snapshot(port, [%{entry.("app") | "revision" => revisions["docs"]}])
 
       for path <- [
@@ -635,7 +708,11 @@ defmodule AtlasCodeTest do
             "[]",
             ~s({"repositories": []}),
             JSON.encode!(%{"repositories" => [Map.put(entry.("a"), "x", 1)]}),
-            JSON.encode!(%{"repositories" => [entry.("a") |> Map.delete("revision") |> Map.put("commit", app_commit)]})
+            JSON.encode!(%{
+              "repositories" => [
+                entry.("a") |> Map.delete("revision") |> Map.put("commit", app_commit)
+              ]
+            })
           ] do
         assert {400, %{"error" => %{"code" => "invalid_request"}}} =
                  raw(port, :post, "/v1/snapshots", body)
@@ -652,7 +729,11 @@ defmodule AtlasCodeTest do
                 }
               }} =
                snapshot(port, [
-                 %{"repository" => "github.com/test/bad", "revision" => revisions["bad"], "path" => "bad"}
+                 %{
+                   "repository" => "github.com/test/bad",
+                   "revision" => revisions["bad"],
+                   "path" => "bad"
+                 }
                ])
 
       assert Enum.sort_by(refused, & &1["path"]) == [
@@ -713,7 +794,9 @@ defmodule AtlasCodeTest do
       assert revision == revisions["app"]
 
       {200, %{"snapshot_id" => id}} =
-        snapshot(port, [%{"repository" => "github.com/test/app", "revision" => revision, "path" => "app"}])
+        snapshot(port, [
+          %{"repository" => "github.com/test/app", "revision" => revision, "path" => "app"}
+        ])
 
       {200, manifest} = request(port, :get, "/v1/snapshots/#{id}/manifest")
       {200, tar} = archive(port, id, "app")
@@ -724,7 +807,9 @@ defmodule AtlasCodeTest do
       assert {200, ^tar} = archive(port, id, "app")
 
       assert {200, %{"snapshot_id" => ^id}} =
-               snapshot(port, [%{"repository" => "github.com/test/app", "revision" => revision, "path" => "app"}])
+               snapshot(port, [
+                 %{"repository" => "github.com/test/app", "revision" => revision, "path" => "app"}
+               ])
 
       AtlasCode.stop(pid)
     end
@@ -761,7 +846,9 @@ defmodule AtlasCodeTest do
       {200, %{"revision" => revision}} = resolve(port, "github.com/test/app", "develop")
 
       {200, %{"snapshot_id" => snapshot_id}} =
-        snapshot(port, [%{"repository" => "github.com/test/app", "revision" => revision, "path" => "app"}])
+        snapshot(port, [
+          %{"repository" => "github.com/test/app", "revision" => revision, "path" => "app"}
+        ])
 
       # The source branch moves on after the snapshot; changes still build on the snapshot base.
       File.write!(Path.join(source, "later.txt"), "later\n")
@@ -780,7 +867,15 @@ defmodule AtlasCodeTest do
         }
       end
 
-      %{port: port, home: home, source: source, base: base, revision: revision, cache: cache, change: change}
+      %{
+        port: port,
+        home: home,
+        source: source,
+        base: base,
+        revision: revision,
+        cache: cache,
+        change: change
+      }
     end
 
     test "a mixed change uploads, seals onto the exact base and stays private", %{
@@ -829,7 +924,12 @@ defmodule AtlasCodeTest do
                submit(port, change.(id, tl(entries)))
 
       assert {422,
-              %{"error" => %{"code" => "incomplete_upload", "details" => %{"missing" => ^expected}}}} =
+              %{
+                "error" => %{
+                  "code" => "incomplete_upload",
+                  "details" => %{"missing" => ^expected}
+                }
+              }} =
                seal(port, id)
 
       readme = files["README.md"]
@@ -844,7 +944,10 @@ defmodule AtlasCodeTest do
                upload(port, id, hex("unreferenced"), "unreferenced")
 
       remaining = expected -- [hex(readme)]
-      assert {200, %{"state" => "open", "missing" => ^remaining}} = upload(port, id, hex(readme), readme)
+
+      assert {200, %{"state" => "open", "missing" => ^remaining}} =
+               upload(port, id, hex(readme), readme)
+
       assert {200, %{"missing" => ^remaining}} = upload(port, id, hex(readme), readme)
 
       for bytes <- [script | Map.values(files)] do
@@ -853,7 +956,8 @@ defmodule AtlasCodeTest do
 
       assert {200, %{"state" => "open", "missing" => []}} = submit(port, change.(id, entries))
 
-      assert {200, %{"change_id" => ^id, "state" => "sealed", "missing" => [], "revision" => revision} =
+      assert {200,
+              %{"change_id" => ^id, "state" => "sealed", "missing" => [], "revision" => revision} =
                 sealed} = seal(port, id)
 
       assert map_size(sealed) == 4
@@ -895,7 +999,10 @@ defmodule AtlasCodeTest do
       # Nothing was published: no remote ref moved and the remote never received the commit.
       assert git(cache, ["for-each-ref", "refs/heads"]) == heads
       assert git(source, ["for-each-ref"]) == source_refs
-      assert {_, status} = System.cmd("git", ["cat-file", "-e", commit], cd: source, stderr_to_stdout: true)
+
+      assert {_, status} =
+               System.cmd("git", ["cat-file", "-e", commit], cd: source, stderr_to_stdout: true)
+
       assert status != 0
     end
 
@@ -910,7 +1017,10 @@ defmodule AtlasCodeTest do
       # A newer revision of the same repository is not the snapshot's base.
       {200, %{"revision" => moved}} = resolve(port, "github.com/test/app", "develop")
 
-      assert {409, %{"error" => %{"code" => "base_mismatch", "details" => %{"base_revision" => ^moved}}}} =
+      assert {409,
+              %{
+                "error" => %{"code" => "base_mismatch", "details" => %{"base_revision" => ^moved}}
+              }} =
                submit(port, %{change.(id, ok) | "base_revision" => moved})
 
       for base <- [String.duplicate("a", 40), "rev_x", 1] do
@@ -918,11 +1028,18 @@ defmodule AtlasCodeTest do
                  submit(port, %{change.(id, ok) | "base_revision" => base})
       end
 
-      legacy = change.(id, ok) |> Map.delete("base_revision") |> Map.put("base_commit", String.duplicate("a", 40))
+      legacy =
+        change.(id, ok)
+        |> Map.delete("base_revision")
+        |> Map.put("base_commit", String.duplicate("a", 40))
+
       assert {400, %{"error" => %{"code" => "invalid_request"}}} = submit(port, legacy)
 
       assert {404, %{"error" => %{"code" => "not_found"}}} =
-               submit(port, %{change.(id, ok) | "snapshot_id" => "sha256:" <> String.duplicate("0", 64)})
+               submit(port, %{
+                 change.(id, ok)
+                 | "snapshot_id" => "sha256:" <> String.duplicate("0", 64)
+               })
 
       assert {404, %{"error" => %{"code" => "not_found", "details" => %{"repository" => _}}}} =
                submit(port, %{change.(id, ok) | "repository" => "github.com/test/other"})
@@ -936,7 +1053,8 @@ defmodule AtlasCodeTest do
       end
 
       for path <- ["../x", "/abs", "a//b", ".git/config", "x/.GIT", "a\\b", ""] do
-        assert {400, %{"error" => %{"code" => "invalid_request", "details" => %{"path" => ^path}}}} =
+        assert {400,
+                %{"error" => %{"code" => "invalid_request", "details" => %{"path" => ^path}}}} =
                  submit(port, change.(id, [write(path, "x")]))
       end
 
@@ -973,7 +1091,9 @@ defmodule AtlasCodeTest do
                 %{
                   "error" => %{
                     "code" => "unsupported_content",
-                    "details" => %{"entries" => [%{"path" => "lib/up", "reason" => "symlink_target"}]}
+                    "details" => %{
+                      "entries" => [%{"path" => "lib/up", "reason" => "symlink_target"}]
+                    }
                   }
                 }} = submit(port, change.(id, [symlink("lib/up", target)]))
       end
@@ -1003,7 +1123,9 @@ defmodule AtlasCodeTest do
   describe "reviews and integrations" do
     setup %{tmp_dir: dir}, do: provider(dir, "reviews-home")
 
-    test "only the orchestrator token reviews and integrates; it may call every endpoint", %{port: port} do
+    test "only the orchestrator token reviews and integrates; it may call every endpoint", %{
+      port: port
+    } do
       body = review(uuid(1), uuid(2))
 
       assert {403,
@@ -1014,7 +1136,8 @@ defmodule AtlasCodeTest do
                 }
               }} = orchestrate(port, "/v1/reviews", body, @token)
 
-      assert {404, %{"error" => %{"code" => "not_found"}}} = orchestrate(port, "/v1/reviews", body)
+      assert {404, %{"error" => %{"code" => "not_found"}}} =
+               orchestrate(port, "/v1/reviews", body)
 
       {status, reply} =
         send_request(port, :get, "/v1/health", "", [
@@ -1026,7 +1149,14 @@ defmodule AtlasCodeTest do
     end
 
     test "invalid, legacy and provider-specific review requests and unsealed changes are refused before any record",
-         %{port: port, home: home, remote: remote, sealed: sealed, snapshot_id: snapshot_id, revisions: revisions} do
+         %{
+           port: port,
+           home: home,
+           remote: remote,
+           sealed: sealed,
+           snapshot_id: snapshot_id,
+           revisions: revisions
+         } do
       change = uuid(10)
       sealed.(change, "github.com/test/plain", %{"README.md" => "x\n"})
       ok = review(uuid(11), change)
@@ -1036,7 +1166,11 @@ defmodule AtlasCodeTest do
             Map.delete(ok, "target"),
             Map.put(ok, "extra", 1),
             Map.put(ok, "branch", "work/x"),
-            Map.put(ok, "pull_request", %{"base" => "develop", "title" => "t", "body" => @attribution}),
+            Map.put(ok, "pull_request", %{
+              "base" => "develop",
+              "title" => "t",
+              "body" => @attribution
+            }),
             Map.put(ok, "review_url", "https://github.com/test/app/pull/1"),
             %{ok | "review_id" => "x"},
             %{ok | "change_id" => change <> "0"},
@@ -1049,7 +1183,8 @@ defmodule AtlasCodeTest do
             # Attribution is required in review bodies.
             %{ok | "body" => "No attribution"}
           ] do
-        assert {400, %{"error" => %{"code" => "invalid_request"}}} = orchestrate(port, "/v1/reviews", body)
+        assert {400, %{"error" => %{"code" => "invalid_request"}}} =
+                 orchestrate(port, "/v1/reviews", body)
       end
 
       assert {404, %{"error" => %{"code" => "not_found"}}} =
@@ -1108,7 +1243,10 @@ defmodule AtlasCodeTest do
       assert record["phase"] == "open"
       File.write!(file, JSON.encode!(%{record | "phase" => "pushing"}))
       assert {200, ^expected} = orchestrate(port, "/v1/reviews", body)
-      assert git(remote, ["reflog", "show", location]) |> String.split("\n", trim: true) |> length() == 1
+
+      assert git(remote, ["reflog", "show", location])
+             |> String.split("\n", trim: true)
+             |> length() == 1
 
       assert {409, %{"error" => %{"code" => "conflict"}}} =
                orchestrate(port, "/v1/reviews", %{body | "title" => "Other"})
@@ -1125,10 +1263,20 @@ defmodule AtlasCodeTest do
       sealed: sealed
     } do
       change = uuid(30)
-      commit = commit_of(home, sealed.(change, "github.com/test/plain", %{"README.md" => "taken\n"}))
-      [cache] = Path.wildcard(Path.join([home, "cache", "*.git"])) |> Enum.filter(&commit?(&1, commit))
+
+      commit =
+        commit_of(home, sealed.(change, "github.com/test/plain", %{"README.md" => "taken\n"}))
+
+      [cache] =
+        Path.wildcard(Path.join([home, "cache", "*.git"])) |> Enum.filter(&commit?(&1, commit))
+
       git(cache, ["push", "-q", remote, "#{commit}:refs/heads/work/review-#{uuid(32)}"])
-      other = remote |> git(["commit-tree", base <> "^{tree}", "-p", base, "-m", "other"]) |> String.trim()
+
+      other =
+        remote
+        |> git(["commit-tree", base <> "^{tree}", "-p", base, "-m", "other"])
+        |> String.trim()
+
       git(remote, ["update-ref", "refs/heads/work/review-#{uuid(31)}", other])
       refs = git(remote, ["for-each-ref"])
 
@@ -1139,7 +1287,8 @@ defmodule AtlasCodeTest do
         assert {409, %{"error" => %{"code" => "location_taken"}}} =
                  orchestrate(port, "/v1/reviews", review(uuid(n), change))
 
-        assert %{"phase" => "failed"} = JSON.decode!(File.read!(Path.join([home, "reviews", uuid(n) <> ".json"])))
+        assert %{"phase" => "failed"} =
+                 JSON.decode!(File.read!(Path.join([home, "reviews", uuid(n) <> ".json"])))
       end
 
       assert git(remote, ["for-each-ref"]) == refs
@@ -1166,12 +1315,20 @@ defmodule AtlasCodeTest do
 
       assert {200, ^reviewed} = orchestrate(port, "/v1/reviews", body)
       location = "work/review-" <> uuid(51)
-      assert git(remote, ["rev-parse", "refs/heads/" <> location]) == commit_of(home, revision) <> "\n"
+
+      assert git(remote, ["rev-parse", "refs/heads/" <> location]) ==
+               commit_of(home, revision) <> "\n"
+
       assert File.read!(Path.join(dir, "pr-body")) == body["body"]
 
       list = "1 pr list --repo=test/app --head=#{location} --state all --json url"
-      create = "1 pr create --repo=test/app --head=#{location} --base=develop --title=Fix --body-file="
-      assert [^list, created] = dir |> Path.join("gh-calls") |> File.read!() |> String.split("\n", trim: true)
+
+      create =
+        "1 pr create --repo=test/app --head=#{location} --base=develop --title=Fix --body-file="
+
+      assert [^list, created] =
+               dir |> Path.join("gh-calls") |> File.read!() |> String.split("\n", trim: true)
+
       assert String.starts_with?(created, create)
     end
 
@@ -1183,7 +1340,9 @@ defmodule AtlasCodeTest do
       location = "refs/heads/work/review-" <> uuid(61)
       File.write!(Path.join(dir, "fail-before"), "")
 
-      assert {502, %{"error" => %{"code" => "review_incomplete", "details" => %{"phase" => "pushed"}}} = error} =
+      assert {502,
+              %{"error" => %{"code" => "review_incomplete", "details" => %{"phase" => "pushed"}}} =
+                error} =
                orchestrate(port, "/v1/reviews", body)
 
       refute JSON.encode!(error) =~ "ghp_secret"
@@ -1193,7 +1352,9 @@ defmodule AtlasCodeTest do
       File.rm!(Path.join(dir, "fail-before"))
       File.write!(Path.join(dir, "fail-after"), "")
 
-      assert {502, %{"error" => %{"code" => "review_incomplete"}}} = orchestrate(port, "/v1/reviews", body)
+      assert {502, %{"error" => %{"code" => "review_incomplete"}}} =
+               orchestrate(port, "/v1/reviews", body)
+
       File.rm!(Path.join(dir, "fail-after"))
 
       assert {200, %{"review_url" => "https://github.com/test/app/pull/7"} = reviewed} =
@@ -1212,15 +1373,18 @@ defmodule AtlasCodeTest do
                ["1", "pr", "list"]
              ]
 
-      assert git(remote, ["reflog", "show", location]) |> String.split("\n", trim: true) |> length() == 1
+      assert git(remote, ["reflog", "show", location])
+             |> String.split("\n", trim: true)
+             |> length() == 1
     end
 
-    test "a review containing the exact target fast-forwards it once; repeats and lost responses replay it", %{
-      port: port,
-      home: home,
-      remote: remote,
-      sealed: sealed
-    } do
+    test "a review containing the exact target fast-forwards it once; repeats and lost responses replay it",
+         %{
+           port: port,
+           home: home,
+           remote: remote,
+           sealed: sealed
+         } do
       change = uuid(70)
       revision = sealed.(change, "github.com/test/plain", %{"README.md" => "integrated\n"})
       commit = commit_of(home, revision)
@@ -1247,7 +1411,10 @@ defmodule AtlasCodeTest do
       record = file |> File.read!() |> JSON.decode!()
       File.write!(file, JSON.encode!(Map.drop(%{record | "phase" => "integrating"}, ["result"])))
       assert {200, ^expected} = orchestrate(port, "/v1/integrations", body)
-      assert git(remote, ["reflog", "show", "refs/heads/develop"]) |> String.split("\n", trim: true) |> length() == 1
+
+      assert git(remote, ["reflog", "show", "refs/heads/develop"])
+             |> String.split("\n", trim: true)
+             |> length() == 1
 
       assert {409, %{"error" => %{"code" => "conflict"}}} =
                orchestrate(port, "/v1/integrations", %{body | "target_revision" => revision})
@@ -1256,19 +1423,26 @@ defmodule AtlasCodeTest do
       assert {200, %{"revision" => ^revision}} = resolve(port, "github.com/test/plain", "develop")
 
       assert {200, %{"method" => "already_integrated", "revision" => ^revision}} =
-               orchestrate(port, "/v1/integrations", integration(uuid(73), uuid(71), revision, revision))
+               orchestrate(
+                 port,
+                 "/v1/integrations",
+                 integration(uuid(73), uuid(71), revision, revision)
+               )
 
-      assert git(remote, ["reflog", "show", "refs/heads/develop"]) |> String.split("\n", trim: true) |> length() == 1
+      assert git(remote, ["reflog", "show", "refs/heads/develop"])
+             |> String.split("\n", trim: true)
+             |> length() == 1
     end
 
-    test "a moved target is refused, then merged when clean, and a conflicting review leaves it unchanged", %{
-      tmp_dir: dir,
-      port: port,
-      home: home,
-      remote: remote,
-      base: base,
-      sealed: sealed
-    } do
+    test "a moved target is refused, then merged when clean, and a conflicting review leaves it unchanged",
+         %{
+           tmp_dir: dir,
+           port: port,
+           home: home,
+           remote: remote,
+           base: base,
+           sealed: sealed
+         } do
       change = uuid(80)
       revision = sealed.(change, "github.com/test/plain", %{"README.md" => "merged\n"})
       commit = commit_of(home, revision)
@@ -1277,17 +1451,34 @@ defmodule AtlasCodeTest do
       advanced = advance(dir, remote, %{"other.txt" => "advanced\n"})
 
       assert {409,
-              %{"error" => %{"code" => "target_moved", "details" => %{"target" => "develop", "current" => current}}}} =
-               orchestrate(port, "/v1/integrations", integration(uuid(82), uuid(81), revision, stale))
+              %{
+                "error" => %{
+                  "code" => "target_moved",
+                  "details" => %{"target" => "develop", "current" => current}
+                }
+              }} =
+               orchestrate(
+                 port,
+                 "/v1/integrations",
+                 integration(uuid(82), uuid(81), revision, stale)
+               )
 
       assert {200, %{"revision" => ^current}} = resolve(port, "github.com/test/plain", "develop")
       assert git(remote, ["rev-parse", "refs/heads/develop"]) == advanced <> "\n"
 
       assert {409, %{"error" => %{"code" => "target_moved"}}} =
-               orchestrate(port, "/v1/integrations", integration(uuid(82), uuid(81), revision, stale))
+               orchestrate(
+                 port,
+                 "/v1/integrations",
+                 integration(uuid(82), uuid(81), revision, stale)
+               )
 
       assert {200, %{"method" => "merge", "revision" => merged, "state" => "integrated"}} =
-               orchestrate(port, "/v1/integrations", integration(uuid(83), uuid(81), revision, current))
+               orchestrate(
+                 port,
+                 "/v1/integrations",
+                 integration(uuid(83), uuid(81), revision, current)
+               )
 
       merge = commit_of(home, merged)
       assert git(remote, ["rev-parse", "refs/heads/develop"]) == merge <> "\n"
@@ -1305,7 +1496,12 @@ defmodule AtlasCodeTest do
       body = integration(uuid(86), uuid(85), other, merged)
 
       assert {409,
-              %{"error" => %{"code" => "integration_conflict", "details" => %{"paths" => ["README.md"]}}} = error} =
+              %{
+                "error" => %{
+                  "code" => "integration_conflict",
+                  "details" => %{"paths" => ["README.md"]}
+                }
+              } = error} =
                orchestrate(port, "/v1/integrations", body)
 
       assert {409, ^error} = orchestrate(port, "/v1/integrations", body)
@@ -1339,13 +1535,21 @@ defmodule AtlasCodeTest do
       File.chmod!(hook, 0o755)
       body = integration(uuid(92), uuid(91), revision, target)
 
-      assert {409, %{"error" => %{"code" => "integration_refused", "details" => %{"target" => "develop"}}} = error} =
+      assert {409,
+              %{
+                "error" => %{
+                  "code" => "integration_refused",
+                  "details" => %{"target" => "develop"}
+                }
+              } = error} =
                orchestrate(port, "/v1/integrations", body)
 
       refute JSON.encode!(error) =~ "protected"
       assert {409, ^error} = orchestrate(port, "/v1/integrations", body)
       assert git(remote, ["rev-parse", "refs/heads/develop"]) == base <> "\n"
-      assert %{"phase" => "refused"} = JSON.decode!(File.read!(Path.join([home, "integrations", uuid(92) <> ".json"])))
+
+      assert %{"phase" => "refused"} =
+               JSON.decode!(File.read!(Path.join([home, "integrations", uuid(92) <> ".json"])))
     end
 
     test "a target moved between the lease check and the update keeps the other work", %{
@@ -1358,14 +1562,28 @@ defmodule AtlasCodeTest do
       revision = sealed.(change, "github.com/test/plain", %{"README.md" => "raced\n"})
       {200, _} = orchestrate(port, "/v1/reviews", review(uuid(96), change))
       {200, %{"revision" => target}} = resolve(port, "github.com/test/plain", "develop")
-      other = remote |> git(["commit-tree", base <> "^{tree}", "-p", base, "-m", "other"]) |> String.trim()
+
+      other =
+        remote
+        |> git(["commit-tree", base <> "^{tree}", "-p", base, "-m", "other"])
+        |> String.trim()
+
       hook = Path.join([remote, "hooks", "pre-receive"])
       # Runs after the client checked its lease against the advertised refs.
-      File.write!(hook, "#!/bin/sh\nenv -u GIT_QUARANTINE_PATH git update-ref refs/heads/develop #{other}\n")
+      File.write!(
+        hook,
+        "#!/bin/sh\nenv -u GIT_QUARANTINE_PATH git update-ref refs/heads/develop #{other}\n"
+      )
+
       File.chmod!(hook, 0o755)
 
-      assert {409, %{"error" => %{"code" => "target_moved", "details" => %{"current" => "rev_" <> _}}}} =
-               orchestrate(port, "/v1/integrations", integration(uuid(97), uuid(96), revision, target))
+      assert {409,
+              %{"error" => %{"code" => "target_moved", "details" => %{"current" => "rev_" <> _}}}} =
+               orchestrate(
+                 port,
+                 "/v1/integrations",
+                 integration(uuid(97), uuid(96), revision, target)
+               )
 
       assert git(remote, ["rev-parse", "refs/heads/develop"]) == other <> "\n"
     end
@@ -1374,7 +1592,12 @@ defmodule AtlasCodeTest do
       {source, base} = fixture(dir, "race", &File.write!(Path.join(&1, "README.md"), "hello\n"))
       remote = Path.join(dir, "race.git")
       git(dir, ["clone", "-q", "--bare", source, remote])
-      other = remote |> git(["commit-tree", base <> "^{tree}", "-p", base, "-m", "other"]) |> String.trim()
+
+      other =
+        remote
+        |> git(["commit-tree", base <> "^{tree}", "-p", base, "-m", "other"])
+        |> String.trim()
+
       arm = Path.join(dir, "arm")
       wrapper = Path.join(dir, "transport")
 
@@ -1407,7 +1630,9 @@ defmodule AtlasCodeTest do
       {200, %{"revision" => target}} = resolve(port, "github.com/test/race", "develop")
 
       {200, %{"snapshot_id" => snapshot_id}} =
-        snapshot(port, [%{"repository" => "github.com/test/race", "revision" => target, "path" => "race"}])
+        snapshot(port, [
+          %{"repository" => "github.com/test/race", "revision" => target, "path" => "race"}
+        ])
 
       bytes = "raced\n"
 
@@ -1425,22 +1650,28 @@ defmodule AtlasCodeTest do
       {200, _} = orchestrate(port, "/v1/reviews", review(uuid(99), uuid(98)))
       File.write!(arm, "")
 
-      assert {409, %{"error" => %{"code" => "target_moved", "details" => %{"current" => current}}}} =
-               orchestrate(port, "/v1/integrations", integration(uuid(100), uuid(99), revision, target))
+      assert {409,
+              %{"error" => %{"code" => "target_moved", "details" => %{"current" => current}}}} =
+               orchestrate(
+                 port,
+                 "/v1/integrations",
+                 integration(uuid(100), uuid(99), revision, target)
+               )
 
       refute File.exists?(arm)
       assert git(remote, ["rev-parse", "refs/heads/develop"]) == other <> "\n"
       assert {200, %{"revision" => ^current}} = resolve(port, "github.com/test/race", "develop")
     end
 
-    test "unknown, foreign or mismatched handles, legacy fields and reviews that are not open are refused", %{
-      port: port,
-      home: home,
-      remote: remote,
-      base: base,
-      sealed: sealed,
-      revisions: revisions
-    } do
+    test "unknown, foreign or mismatched handles, legacy fields and reviews that are not open are refused",
+         %{
+           port: port,
+           home: home,
+           remote: remote,
+           base: base,
+           sealed: sealed,
+           revisions: revisions
+         } do
       change = uuid(100)
       revision = sealed.(change, "github.com/test/plain", %{"README.md" => "refused\n"})
       commit = commit_of(home, revision)
@@ -1451,7 +1682,13 @@ defmodule AtlasCodeTest do
       assert {404, %{"error" => %{"code" => "not_found"}}} =
                orchestrate(port, "/v1/integrations", %{ok | "review_id" => uuid(109)})
 
-      assert {409, %{"error" => %{"code" => "revision_mismatch", "details" => %{"revision" => ^revision}}}} =
+      assert {409,
+              %{
+                "error" => %{
+                  "code" => "revision_mismatch",
+                  "details" => %{"revision" => ^revision}
+                }
+              }} =
                orchestrate(port, "/v1/integrations", %{ok | "revision" => target})
 
       assert {404, %{"error" => %{"code" => "unknown_revision"}}} =
@@ -1472,7 +1709,8 @@ defmodule AtlasCodeTest do
             %{ok | "integration_id" => "x"},
             %{ok | "review_id" => 1}
           ] do
-        assert {400, %{"error" => %{"code" => "invalid_request"}}} = orchestrate(port, "/v1/integrations", body)
+        assert {400, %{"error" => %{"code" => "invalid_request"}}} =
+                 orchestrate(port, "/v1/integrations", body)
       end
 
       git(remote, ["update-ref", "refs/heads/work/review-#{uuid(103)}", base])
@@ -1489,17 +1727,18 @@ defmodule AtlasCodeTest do
   describe "migration" do
     setup %{tmp_dir: dir}, do: provider(dir, "migration-home")
 
-    test "an older home is refused until migrated; then its edits, phases and evidence carry over", %{
-      tmp_dir: dir,
-      port: port,
-      pid: pid,
-      home: home,
-      remote: remote,
-      base: base,
-      sealed: sealed,
-      snapshot_id: "sha256:" <> successor = snapshot_id,
-      revisions: revisions
-    } do
+    test "an older home is refused until migrated; then its edits, phases and evidence carry over",
+         %{
+           tmp_dir: dir,
+           port: port,
+           pid: pid,
+           home: home,
+           remote: remote,
+           base: base,
+           sealed: sealed,
+           snapshot_id: "sha256:" <> successor = snapshot_id,
+           revisions: revisions
+         } do
       pr = %{"base" => "develop", "title" => "Fix", "body" => "Fixes it." <> @attribution}
       {x, w, z, f, y} = {uuid(110), uuid(111), uuid(112), uuid(113), uuid(114)}
       x_revision = sealed.(x, "github.com/test/app", %{"README.md" => "published\n"})
@@ -1521,7 +1760,9 @@ defmodule AtlasCodeTest do
       AtlasCode.stop(pid)
 
       # Rewrite the home into the shape Code wrote before revision handles.
-      commits = Map.new([x_revision, w_revision, z_revision, f_revision], &{&1, commit_of(home, &1)})
+      commits =
+        Map.new([x_revision, w_revision, z_revision, f_revision], &{&1, commit_of(home, &1)})
+
       v2 = File.read!(Path.join([home, "snapshots", successor <> ".json"]))
       manifest = JSON.decode!(v2)
 
@@ -1529,7 +1770,10 @@ defmodule AtlasCodeTest do
         JSON.encode!(%{
           "entries" => manifest["entries"],
           "repositories" =>
-            for(r <- manifest["repositories"], do: %{"commit" => base, "path" => r["path"], "repository" => r["repository"]})
+            for(
+              r <- manifest["repositories"],
+              do: %{"commit" => base, "path" => r["path"], "repository" => r["repository"]}
+            )
         })
 
       old = hex(v1)
@@ -1568,13 +1812,29 @@ defmodule AtlasCodeTest do
         end
 
       File.rm_rf!(Path.join(home, "revisions"))
-      [cache] = Path.wildcard(Path.join([home, "cache", "*.git"])) |> Enum.filter(&commit?(&1, commits[x_revision]))
-      git(cache, ["push", "-q", remote, "#{commits[x_revision]}:refs/heads/work/p1", "#{commits[w_revision]}:refs/heads/work/p2"])
+
+      [cache] =
+        Path.wildcard(Path.join([home, "cache", "*.git"]))
+        |> Enum.filter(&commit?(&1, commits[x_revision]))
+
+      git(cache, [
+        "push",
+        "-q",
+        remote,
+        "#{commits[x_revision]}:refs/heads/work/p1",
+        "#{commits[w_revision]}:refs/heads/work/p2"
+      ])
+
       File.write!(Path.join(dir, "pr-url"), "https://github.com/test/app/pull/7")
 
       publications = %{
         uuid(120) => %{
-          "request" => %{"publication_id" => uuid(120), "change_id" => x, "branch" => "work/p1", "pull_request" => pr},
+          "request" => %{
+            "publication_id" => uuid(120),
+            "change_id" => x,
+            "branch" => "work/p1",
+            "pull_request" => pr
+          },
           "phase" => "published",
           "repository" => "github.com/test/app",
           "base_commit" => base,
@@ -1582,7 +1842,12 @@ defmodule AtlasCodeTest do
           "pull_request" => %{"url" => "https://github.com/test/app/pull/7", "base" => "develop"}
         },
         uuid(121) => %{
-          "request" => %{"publication_id" => uuid(121), "change_id" => w, "branch" => "work/p2", "pull_request" => pr},
+          "request" => %{
+            "publication_id" => uuid(121),
+            "change_id" => w,
+            "branch" => "work/p2",
+            "pull_request" => pr
+          },
           "phase" => "pushed",
           "repository" => "github.com/test/app",
           "base_commit" => base,
@@ -1605,10 +1870,15 @@ defmodule AtlasCodeTest do
       }
 
       File.mkdir_p!(Path.join(home, "publications"))
-      for {id, record} <- publications, do: File.write!(Path.join([home, "publications", id <> ".json"]), JSON.encode!(record))
+
+      for {id, record} <- publications,
+          do: File.write!(Path.join([home, "publications", id <> ".json"]), JSON.encode!(record))
+
       evidence = files(home)
 
-      assert_raise RuntimeError, ~r/records from before revision handles/, fn -> AtlasCode.start(home) end
+      assert_raise RuntimeError, ~r/records from before revision handles/, fn ->
+        AtlasCode.start(home)
+      end
 
       counts = %{"snapshots" => 1, "changes" => 5, "reviews" => 4}
       assert AtlasCode.Migration.run(home) == counts
@@ -1628,57 +1898,110 @@ defmodule AtlasCodeTest do
 
       {:ok, pid, port} = AtlasCode.start(home)
 
-      assert {409, %{"error" => %{"code" => "snapshot_superseded", "details" => %{"successor" => ^snapshot_id}}}} =
+      assert {409,
+              %{
+                "error" => %{
+                  "code" => "snapshot_superseded",
+                  "details" => %{"successor" => ^snapshot_id}
+                }
+              }} =
                request(port, :get, "/v1/snapshots/sha256:#{old}/manifest")
 
       assert {409, %{"error" => %{"code" => "snapshot_superseded"}}} =
                request(port, :get, "/v1/snapshots/sha256:#{old}/archive?path=app")
 
-      assert {200, %{"version" => 2}} = request(port, :get, "/v1/snapshots/#{snapshot_id}/manifest")
+      assert {200, %{"version" => 2}} =
+               request(port, :get, "/v1/snapshots/#{snapshot_id}/manifest")
 
       # The open change resumes with the same request; the sealed one replays its revision.
       assert {200, %{"state" => "open", "missing" => [^missing]}} = submit(port, open)
       {200, _} = upload(port, y, hex("b\n"), "b\n")
       assert {200, %{"state" => "sealed", "revision" => "rev_" <> _}} = seal(port, y)
-      assert {200, %{"state" => "sealed", "revision" => ^x_revision}} = submit(port, JSON.decode!(requests[x]))
+
+      assert {200, %{"state" => "sealed", "revision" => ^x_revision}} =
+               submit(port, JSON.decode!(requests[x]))
 
       # Each publication answers its equivalent review request from its recorded phase.
-      equivalent = &%{"review_id" => &1, "change_id" => &2, "target" => "develop", "title" => "Fix", "body" => pr["body"]}
+      equivalent =
+        &%{
+          "review_id" => &1,
+          "change_id" => &2,
+          "target" => "develop",
+          "title" => "Fix",
+          "body" => pr["body"]
+        }
 
-      assert {200, %{"revision" => ^x_revision, "review_url" => "https://github.com/test/app/pull/7"}} =
+      assert {200,
+              %{"revision" => ^x_revision, "review_url" => "https://github.com/test/app/pull/7"}} =
                orchestrate(port, "/v1/reviews", equivalent.(uuid(120), x))
 
       refute File.exists?(Path.join(dir, "gh-calls"))
-      assert {200, %{"revision" => ^w_revision, "state" => "open"}} = orchestrate(port, "/v1/reviews", equivalent.(uuid(121), w))
-      assert ["1 pr list --repo=test/app --head=work/p2 " <> _] = dir |> Path.join("gh-calls") |> File.read!() |> String.split("\n", trim: true)
+
+      assert {200, %{"revision" => ^w_revision, "state" => "open"}} =
+               orchestrate(port, "/v1/reviews", equivalent.(uuid(121), w))
+
+      assert ["1 pr list --repo=test/app --head=work/p2 " <> _] =
+               dir |> Path.join("gh-calls") |> File.read!() |> String.split("\n", trim: true)
+
       assert git(remote, ["rev-parse", "refs/heads/work/p2"]) == commits[w_revision] <> "\n"
-      assert git(remote, ["for-each-ref", "--format=%(refname)", "refs/heads/work/review-#{uuid(121)}"]) == ""
-      assert {409, %{"error" => %{"code" => "conflict"}}} = orchestrate(port, "/v1/reviews", equivalent.(uuid(122), z))
-      assert {409, %{"error" => %{"code" => "conflict"}}} = orchestrate(port, "/v1/reviews", equivalent.(uuid(123), f))
+
+      assert git(remote, [
+               "for-each-ref",
+               "--format=%(refname)",
+               "refs/heads/work/review-#{uuid(121)}"
+             ]) == ""
+
+      assert {409, %{"error" => %{"code" => "conflict"}}} =
+               orchestrate(port, "/v1/reviews", equivalent.(uuid(122), z))
+
+      assert {409, %{"error" => %{"code" => "conflict"}}} =
+               orchestrate(port, "/v1/reviews", equivalent.(uuid(123), f))
 
       # A migrated review integrates like any other; one without a target never does.
       target = revisions["app"]
 
       assert {200, %{"method" => "fast_forward", "revision" => ^x_revision}} =
-               orchestrate(port, "/v1/integrations", integration(uuid(124), uuid(120), x_revision, target))
+               orchestrate(
+                 port,
+                 "/v1/integrations",
+                 integration(uuid(124), uuid(120), x_revision, target)
+               )
 
       assert git(remote, ["rev-parse", "refs/heads/develop"]) == commits[x_revision] <> "\n"
 
       {200, %{"revision" => plain}} = resolve(port, "github.com/test/plain", "develop")
-      File.write!(Path.join([home, "reviews", uuid(122) <> ".json"]), JSON.encode!(%{JSON.decode!(migrated["reviews/#{uuid(122)}.json"]) | "phase" => "open"}))
+
+      File.write!(
+        Path.join([home, "reviews", uuid(122) <> ".json"]),
+        JSON.encode!(%{JSON.decode!(migrated["reviews/#{uuid(122)}.json"]) | "phase" => "open"})
+      )
 
       assert {409, %{"error" => %{"code" => "review_has_no_target"}}} =
-               orchestrate(port, "/v1/integrations", integration(uuid(125), uuid(122), z_revision, plain))
+               orchestrate(
+                 port,
+                 "/v1/integrations",
+                 integration(uuid(125), uuid(122), z_revision, plain)
+               )
 
       # The pushing publication's change is reviewed again at a new location.
-      assert {200, %{"revision" => ^z_revision}} = orchestrate(port, "/v1/reviews", review(uuid(126), z))
+      assert {200, %{"revision" => ^z_revision}} =
+               orchestrate(port, "/v1/reviews", review(uuid(126), z))
+
       AtlasCode.stop(pid)
 
       # An interrupted or contradicted migration keeps Code from starting.
       File.write!(Path.join(home, "migration.json"), ~s({"state":"running"}))
-      assert_raise RuntimeError, ~r/records from before revision handles \(migration.json\)/, fn -> AtlasCode.start(home) end
+
+      assert_raise RuntimeError,
+                   ~r/records from before revision handles \(migration.json\)/,
+                   fn -> AtlasCode.start(home) end
+
       File.write!(Path.join([home, "changes", x, "request.json"]), "{}")
-      assert_raise RuntimeError, ~r/exists with other content/, fn -> AtlasCode.Migration.run(home) end
+
+      assert_raise RuntimeError, ~r/exists with other content/, fn ->
+        AtlasCode.Migration.run(home)
+      end
+
       assert_raise RuntimeError, ~r/before revision handles/, fn -> AtlasCode.start(home) end
       File.write!(Path.join([home, "changes", x, "request.json"]), requests[x])
       assert AtlasCode.Migration.run(home) == counts
@@ -1740,12 +2063,20 @@ defmodule AtlasCodeTest do
       end)
 
     {200, %{"revision" => plain}} = resolve(port, "github.com/test/plain", "develop")
-    revisions = %{"plain" => plain, "app" => AtlasCode.put_revision(home, "github.com/test/app", base)}
+
+    revisions = %{
+      "plain" => plain,
+      "app" => AtlasCode.put_revision(home, "github.com/test/app", base)
+    }
 
     {200, %{"snapshot_id" => snapshot_id}} =
       snapshot(port, [
         %{"repository" => "github.com/test/app", "revision" => revisions["app"], "path" => "app"},
-        %{"repository" => "github.com/test/plain", "revision" => revisions["plain"], "path" => "plain"}
+        %{
+          "repository" => "github.com/test/plain",
+          "revision" => revisions["plain"],
+          "path" => "plain"
+        }
       ])
 
     sealed = fn id, repository, files ->
@@ -1790,7 +2121,9 @@ defmodule AtlasCodeTest do
 
   # Every file under home by relative path, with its bytes.
   defp files(home) do
-    for file <- Path.wildcard(Path.join(home, "**"), match_dot: true), File.regular?(file), into: %{},
+    for file <- Path.wildcard(Path.join(home, "**"), match_dot: true),
+        File.regular?(file),
+        into: %{},
         do: {Path.relative_to(file, home), File.read!(file)}
   end
 
@@ -1805,7 +2138,13 @@ defmodule AtlasCodeTest do
 
     File.write!(
       Path.join(staging, "owner.json"),
-      JSON.encode!(%{"kind" => "service", "node" => "nonode@nohost", "os_pid" => os_pid, "owner" => owner, "started_at" => "2026-11-09T00:00:00Z"})
+      JSON.encode!(%{
+        "kind" => "service",
+        "node" => "nonode@nohost",
+        "os_pid" => os_pid,
+        "owner" => owner,
+        "started_at" => "2026-11-09T00:00:00Z"
+      })
     )
 
     File.rename!(staging, Path.join(home, "service.owner"))
@@ -1834,15 +2173,31 @@ defmodule AtlasCodeTest do
   defp rev(n), do: "rev_" <> String.pad_leading(Integer.to_string(n), 64, "0")
 
   defp review(id, change),
-    do: %{"review_id" => id, "change_id" => change, "target" => "develop", "title" => "Fix", "body" => "Fixes it." <> @attribution}
+    do: %{
+      "review_id" => id,
+      "change_id" => change,
+      "target" => "develop",
+      "title" => "Fix",
+      "body" => "Fixes it." <> @attribution
+    }
 
   defp integration(id, review, revision, target),
-    do: %{"integration_id" => id, "review_id" => review, "revision" => revision, "target_revision" => target}
+    do: %{
+      "integration_id" => id,
+      "review_id" => review,
+      "revision" => revision,
+      "target_revision" => target
+    }
 
-  defp uuid(n), do: "00000000-0000-4000-8000-" <> String.pad_leading(Integer.to_string(n), 12, "0")
+  defp uuid(n),
+    do: "00000000-0000-4000-8000-" <> String.pad_leading(Integer.to_string(n), 12, "0")
 
   defp commit?(dir, commit),
-    do: match?({_, 0}, System.cmd("git", ["cat-file", "-e", commit], cd: dir, stderr_to_stdout: true))
+    do:
+      match?(
+        {_, 0},
+        System.cmd("git", ["cat-file", "-e", commit], cd: dir, stderr_to_stdout: true)
+      )
 
   defp orchestrate(port, path, body, token \\ @orchestrator) do
     body = if is_binary(body), do: body, else: JSON.encode!(body)
@@ -1879,7 +2234,10 @@ defmodule AtlasCodeTest do
   defp delete(path), do: %{"path" => path, "op" => "delete"}
   defp hex(bytes), do: Base.encode16(:crypto.hash(:sha256, bytes), case: :lower)
   defp submit(port, change), do: raw(port, :post, "/v1/changes", JSON.encode!(change))
-  defp upload(port, id, digest, bytes), do: raw(port, :put, "/v1/changes/#{id}/blobs/#{digest}", bytes)
+
+  defp upload(port, id, digest, bytes),
+    do: raw(port, :put, "/v1/changes/#{id}/blobs/#{digest}", bytes)
+
   defp seal(port, id), do: raw(port, :post, "/v1/changes/#{id}/seal", "")
 
   defp fixture(dir, name, build) do
@@ -1905,7 +2263,14 @@ defmodule AtlasCodeTest do
       )
 
   defp resolve(port, repository, reference),
-    do: raw(port, :post, "/v1/references/resolve", JSON.encode!(%{"repository" => repository, "reference" => reference}))
+    do:
+      raw(
+        port,
+        :post,
+        "/v1/references/resolve",
+        JSON.encode!(%{"repository" => repository, "reference" => reference})
+      )
+
   defp request(port, method, path), do: raw(port, method, path, "")
 
   defp raw(port, method, path, body) do

@@ -328,9 +328,10 @@ defmodule AtlasBus.LinkTest do
     :gen_tcp.close(socket)
   end
 
-  test "the supervised client authenticates and reconnects; its diagnostics never print the token", %{
-    port: port
-  } do
+  test "the supervised client authenticates and reconnects; its diagnostics never print the token",
+       %{
+         port: port
+       } do
     import ExUnit.CaptureLog
     token = "private-test-token"
     previous = Application.fetch_env(:atlas_bus, :link)
@@ -360,7 +361,15 @@ defmodule AtlasBus.LinkTest do
     end)
 
     {:ok, _} = Supervisor.start_child(AtlasBus.Supervisor, Link.Client)
-    authenticated? = fn -> try do Link.Client.status() catch :exit, _ -> false end end
+
+    authenticated? = fn ->
+      try do
+        Link.Client.status()
+      catch
+        :exit, _ -> false
+      end
+    end
+
     eventually(authenticated?, 500)
 
     # No settings, so no token, in the child spec or its start arguments.
@@ -378,7 +387,10 @@ defmodule AtlasBus.LinkTest do
       before = Process.whereis(Link.Client)
 
       spawn(fn ->
-        send(parent, {:caller, catch_exit(GenServer.call(Link.Client, :synthetic_verifier_crash))})
+        send(
+          parent,
+          {:caller, catch_exit(GenServer.call(Link.Client, :synthetic_verifier_crash))}
+        )
       end)
 
       assert_receive {:caller, reason}, 5_000
@@ -391,14 +403,21 @@ defmodule AtlasBus.LinkTest do
     for sasl <- [false, true] do
       {fun, config} = filters[:logger_translator]
       translator = {:logger_translator, {fun, %{config | sasl: sasl}}}
-      :ok = :logger.set_primary_config(:filters, List.keyreplace(filters, :logger_translator, 0, translator))
+
+      :ok =
+        :logger.set_primary_config(
+          :filters,
+          List.keyreplace(filters, :logger_translator, 0, translator)
+        )
 
       log = capture_log(fn -> send(self(), {:reason, crash.()}) end)
       assert_received {:reason, reason}
 
       # The failure stays real and diagnosable, without the token.
-      assert {{:function_clause, [{Link.Client, :handle_call, [:synthetic_verifier_crash | _], _} | _]},
+      assert {{:function_clause,
+               [{Link.Client, :handle_call, [:synthetic_verifier_crash | _], _} | _]},
               {GenServer, :call, _}} = reason
+
       refute inspect(reason, limit: :infinity) =~ token
       assert log =~ "AtlasBus.Link.Client"
       assert log =~ ":synthetic_verifier_crash"

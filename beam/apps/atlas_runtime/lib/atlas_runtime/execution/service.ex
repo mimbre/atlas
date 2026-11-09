@@ -18,7 +18,8 @@ defmodule AtlasRuntime.Service do
   import AtlasRuntime.Execution.Identity
 
   @doc "Start the service; `server` (without its token) opts into Atlas Server lifecycle reporting."
-  def start(dir, server \\ nil), do: GenServer.start_link(__MODULE__, {dir, server}, name: __MODULE__)
+  def start(dir, server \\ nil),
+    do: GenServer.start_link(__MODULE__, {dir, server}, name: __MODULE__)
 
   def init(dir) when is_binary(dir), do: init({dir, nil, []})
   def init({dir, server}), do: init({dir, server, []})
@@ -49,27 +50,41 @@ defmodule AtlasRuntime.Service do
       try do
         command(request, state)
       rescue
-        error in [QuestionRecords.StorageError, PeerQuestionRecords.StorageError, CommandAdmissions.StorageError, HandoffRecords.StorageError] -> reraise error, __STACKTRACE__
-        error -> {%{command_error: Exception.message(error)}, state, false}
+        error in [
+          QuestionRecords.StorageError,
+          PeerQuestionRecords.StorageError,
+          CommandAdmissions.StorageError,
+          HandoffRecords.StorageError
+        ] ->
+          reraise error, __STACKTRACE__
+
+        error ->
+          {%{command_error: Exception.message(error)}, state, false}
       catch
         :exit, why -> {%{command_error: "Operation not confirmed: #{inspect(why)}"}, state, false}
       end
 
     next = record_changes(state, next)
+
     reply =
       case {request, reply} do
         {_, {:admission, record, run}} ->
           state.dir |> CommandAdmissions.accept(record, run) |> CommandAdmissions.public()
+
         {%{"command" => name}, %{worker_id: id, id: turn}} when name in ["stop", "kill"] ->
           case Map.get(next.workers, id) do
             %{run: %{id: ^turn} = run} -> run
             _ -> reply
           end
+
         {%{"command" => "service-stop"}, %{workers: _}} ->
           reply = Map.put(reply, :workers, worker_runs(next))
           if Map.has_key?(reply, :agent), do: Map.put(reply, :agent, sole_run(next)), else: reply
-        _ -> reply
+
+        _ ->
+          reply
       end
+
     {:reply, {reply, shutdown?}, next}
   end
 
@@ -88,6 +103,7 @@ defmodule AtlasRuntime.Service do
       record ->
         if record["request"] != canonical,
           do: raise(ArgumentError, "Conflicting request ID: #{request_id}")
+
         {CommandAdmissions.public(record), state, false}
     end
   end
@@ -129,11 +145,18 @@ defmodule AtlasRuntime.Service do
   end
 
   defp command(%{"command" => name} = request, state)
-       when name in ["question", "answer", "peer-question", "route-peer-question", "bind-peer-reply"] do
-    {reply, events, workers} = Interactions.execute(request, state.dir, state.events, state.workers)
+       when name in [
+              "question",
+              "answer",
+              "peer-question",
+              "route-peer-question",
+              "bind-peer-reply"
+            ] do
+    {reply, events, workers} =
+      Interactions.execute(request, state.dir, state.events, state.workers)
+
     {reply, %{state | events: events, workers: workers}, false}
   end
-
 
   defp command(%{"command" => name} = request, state)
        when name in ["start", "status", "output", "stop", "kill", "continue"],
@@ -141,16 +164,24 @@ defmodule AtlasRuntime.Service do
 
   # Release only clears the worker's admission latch; it starts and resumes nothing.
   defp command(%{"command" => "release"} = request, state) do
-    if Map.keys(request) -- ["command", "worker_id"] != [] or not Map.has_key?(request, "worker_id"),
-      do: raise("Release requires exactly --worker")
+    if Map.keys(request) -- ["command", "worker_id"] != [] or
+         not Map.has_key?(request, "worker_id"),
+       do: raise("Release requires exactly --worker")
+
     id = request["worker_id"]
     if not valid_worker_id?(id), do: raise("Invalid worker ID")
     latch = History.latch(state.dir, id)
+
     case Map.get(state.workers, id) do
       %{agent: agent, run: run} when not is_nil(agent) and not is_nil(latch) ->
-        raise("Worker #{id} still owns turn #{run.id} (#{run.state}); release after its end is confirmed")
-      _ -> :ok
+        raise(
+          "Worker #{id} still owns turn #{run.id} (#{run.state}); release after its end is confirmed"
+        )
+
+      _ ->
+        :ok
     end
+
     if latch, do: History.release_latch!(state.dir, id)
     {%{worker_id: id, released: latch, admission_latch: nil}, state, false}
   end
@@ -175,14 +206,20 @@ defmodule AtlasRuntime.Service do
           {next, errors}
         end
       end)
+
     next = %{next | stopping: errors == []}
     owned = owned_workers(next)
+
     cond do
       errors != [] ->
-        {%{command_error: "Stop not confirmed: " <> Enum.join(errors, "; "),
-           workers: worker_runs(next)}, next, false}
+        {%{
+           command_error: "Stop not confirmed: " <> Enum.join(errors, "; "),
+           workers: worker_runs(next)
+         }, next, false}
+
       owned != [] ->
         {pending_stop(owned, next), next, false}
+
       true ->
         reply = %{service: "stopping", workers: worker_runs(next)}
         run = sole_run(next)
@@ -193,24 +230,38 @@ defmodule AtlasRuntime.Service do
   defp command(%{"command" => "events"} = request, state) do
     if Map.keys(request) -- ["command", "cursor", "limit"] != [],
       do: raise("Events accepts only an optional cursor and limit")
-    reply = ExecutionEvents.query(state.events, Map.get(request, "cursor"), Map.get(request, "limit", 50))
+
+    reply =
+      ExecutionEvents.query(
+        state.events,
+        Map.get(request, "cursor"),
+        Map.get(request, "limit", 50)
+      )
+
     {reply, state, false}
   end
 
   defp command(%{"command" => "turns"}, state),
     do: {History.list(state.dir, state.workers), state, false}
 
-
   defp command(%{"command" => "preferences"} = request, state) do
     now = System.system_time(:second)
-    policy = case request do
-      %{"preferred" => preferred, "fallback" => fallback} when map_size(request) == 3 ->
-        BackendPolicy.configure(state.policy, preferred, fallback)
-      %{"reenable" => backend} when map_size(request) == 2 ->
-        BackendPolicy.reenable(state.policy, backend, now)
-      _ when map_size(request) == 1 -> state.policy
-      _ -> raise("Use preferences, a preferred/fallback pair, or reenable; modes cannot mix")
-    end
+
+    policy =
+      case request do
+        %{"preferred" => preferred, "fallback" => fallback} when map_size(request) == 3 ->
+          BackendPolicy.configure(state.policy, preferred, fallback)
+
+        %{"reenable" => backend} when map_size(request) == 2 ->
+          BackendPolicy.reenable(state.policy, backend, now)
+
+        _ when map_size(request) == 1 ->
+          state.policy
+
+        _ ->
+          raise("Use preferences, a preferred/fallback pair, or reenable; modes cannot mix")
+      end
+
     if policy != state.policy, do: BackendPolicy.persist(state.dir, policy)
     {BackendPolicy.view(policy, now), %{state | policy: policy}, false}
   end
@@ -223,12 +274,11 @@ defmodule AtlasRuntime.Service do
     {if(run, do: Map.put(reply, :agent_state, run.state), else: reply), state, false}
   end
 
-
-
   defp worker_command(request, id, worker, saved, state, admission \\ nil)
 
   defp worker_command(%{"command" => "status"}, id, worker, saved, state, _admission),
-    do: {Map.put(saved || worker.run, :admission_latch, History.latch(state.dir, id)), state, false}
+    do:
+      {Map.put(saved || worker.run, :admission_latch, History.latch(state.dir, id)), state, false}
 
   defp worker_command(%{"command" => "output"}, _id, worker, saved, state, _admission) do
     run = saved || worker.run
@@ -241,115 +291,254 @@ defmodule AtlasRuntime.Service do
        when name in ["stop", "kill"] do
     if Enum.sort(Map.keys(request)) != ["command", "turn_id", "worker_id"],
       do: raise("#{String.capitalize(name)} requires exactly --worker and --turn")
+
     turn = request["turn_id"]
+
     cond do
       worker.agent && worker.run.id == turn ->
         {run, next} = control(name, id, worker, state)
         {run, next, false}
+
       worker.run[:id] == turn and worker.run.state in ["stopped", "killed"] ->
         {worker.run, state, false}
+
       saved["state"] in ["stopped", "killed"] ->
         {saved, state, false}
+
       true ->
         state_name = if worker.run[:id] == turn, do: worker.run.state, else: saved["state"]
-        raise("Turn #{turn} has no execution owned by this Runtime service to #{name} (#{state_name})")
+
+        raise(
+          "Turn #{turn} has no execution owned by this Runtime service to #{name} (#{state_name})"
+        )
     end
   end
 
-  defp worker_command(%{"command" => "start", "repository" => url, "branch" => branch,
-                 "permissions" => "dedicated-repository", "assignment" => assignment} = request,
-                 worker_id, worker, _saved, state, admission)
+  defp worker_command(
+         %{
+           "command" => "start",
+           "repository" => url,
+           "branch" => branch,
+           "permissions" => "dedicated-repository",
+           "assignment" => assignment
+         } = request,
+         worker_id,
+         worker,
+         _saved,
+         state,
+         admission
+       )
        when is_binary(url) and is_binary(branch) and is_binary(assignment) do
-    if worker.agent, do: raise("Worker #{worker_id} already has an active agent; use status or stop")
+    if worker.agent,
+      do: raise("Worker #{worker_id} already has an active agent; use status or stop")
+
     unlatched!(state, worker_id)
     selection = select_backend(request, state)
-    if Map.keys(request) -- ["command", "repository", "branch", "permissions", "assignment", "backend", "worker_id", "questions_enabled"] != [],
-      do: raise("Repository provisioning cannot be combined with cwd or sandbox")
-    prepared = Workspaces.repository_request(Path.join([state.dir, "workers", worker_id]), url, branch)
+
+    if Map.keys(request) --
+         [
+           "command",
+           "repository",
+           "branch",
+           "permissions",
+           "assignment",
+           "backend",
+           "worker_id",
+           "questions_enabled"
+         ] != [],
+       do: raise("Repository provisioning cannot be combined with cwd or sandbox")
+
+    prepared =
+      Workspaces.repository_request(Path.join([state.dir, "workers", worker_id]), url, branch)
+
     scope = prepared["permissions"]
     # The host's own preparation fetches develop and branches from it; Code is not involved.
-    start_turn(assignment, scope["root"], nil, scope, nil, state, worker_id, prepared["repository"], selection, nil, Map.get(request, "questions_enabled", false), admission)
+    start_turn(
+      assignment,
+      scope["root"],
+      nil,
+      scope,
+      nil,
+      state,
+      worker_id,
+      prepared["repository"],
+      selection,
+      nil,
+      Map.get(request, "questions_enabled", false),
+      admission
+    )
   end
 
-  defp worker_command(%{"command" => "start", "cwd" => cwd, "assignment" => assignment} = request,
-                      worker_id, worker, _saved, state, admission)
+  defp worker_command(
+         %{"command" => "start", "cwd" => cwd, "assignment" => assignment} = request,
+         worker_id,
+         worker,
+         _saved,
+         state,
+         admission
+       )
        when is_binary(cwd) and is_binary(assignment) do
-    if worker.agent, do: raise("Worker #{worker_id} already has an active agent; use status or stop")
+    if worker.agent,
+      do: raise("Worker #{worker_id} already has an active agent; use status or stop")
+
     unlatched!(state, worker_id)
-    if Map.keys(request) -- ["command", "cwd", "assignment", "permissions", "sandbox", "backend", "worker_id", "questions_enabled"] != [],
-      do: raise("Unknown start fields")
+
+    if Map.keys(request) --
+         [
+           "command",
+           "cwd",
+           "assignment",
+           "permissions",
+           "sandbox",
+           "backend",
+           "worker_id",
+           "questions_enabled"
+         ] != [],
+       do: raise("Unknown start fields")
+
     if Map.has_key?(request, "repository") or Map.has_key?(request, "branch"),
-      do: raise("Repository provisioning requires a URL, branch and dedicated-repository permissions")
+      do:
+        raise(
+          "Repository provisioning requires a URL, branch and dedicated-repository permissions"
+        )
+
     selection = select_backend(request, state)
+
     {sandbox, scope} =
       case Map.get(request, "permissions") do
         nil ->
           sandbox = Map.get(request, "sandbox", "read-only")
+
           if sandbox not in ["read-only", "workspace-write"],
             do: raise("Sandbox must be read-only or workspace-write")
+
           {sandbox, nil}
+
         profile when profile in ["dedicated-repository", "materialized-folder"] ->
-          if Map.has_key?(request, "sandbox"), do: raise("Permissions cannot be combined with sandbox")
+          if Map.has_key?(request, "sandbox"),
+            do: raise("Permissions cannot be combined with sandbox")
+
           {nil, current_scope(profile, cwd, state)}
-        _ -> raise("Unknown permission profile")
+
+        _ ->
+          raise("Unknown permission profile")
       end
-    start_turn(assignment, cwd, sandbox, scope, nil, state, worker_id, nil, selection, nil, Map.get(request, "questions_enabled", false), admission)
+
+    start_turn(
+      assignment,
+      cwd,
+      sandbox,
+      scope,
+      nil,
+      state,
+      worker_id,
+      nil,
+      selection,
+      nil,
+      Map.get(request, "questions_enabled", false),
+      admission
+    )
   end
 
-  defp worker_command(%{"command" => "continue", "assignment" => assignment} = request,
-                      worker_id, worker, saved, state, admission)
+  defp worker_command(
+         %{"command" => "continue", "assignment" => assignment} = request,
+         worker_id,
+         worker,
+         saved,
+         state,
+         admission
+       )
        when is_binary(assignment) do
     if Map.keys(request) -- ["command", "assignment", "turn_id", "worker_id"] != [],
-      do: raise("Continue accepts only an assignment, worker and optional turn ID; working directory and permissions cannot change")
-    if worker.agent, do: raise("Worker #{worker_id} already has an active agent; wait for completion or stop it")
+      do:
+        raise(
+          "Continue accepts only an assignment, worker and optional turn ID; working directory and permissions cannot change"
+        )
+
+    if worker.agent,
+      do: raise("Worker #{worker_id} already has an active agent; wait for completion or stop it")
+
     unlatched!(state, worker_id)
     run = saved || string_keys(worker.run)
     backend = Map.get(run, "backend", "codex")
-    if backend not in ["codex", "claude"], do: raise("Unknown saved backend; sessions cannot switch vendors")
+
+    if backend not in ["codex", "claude"],
+      do: raise("Unknown saved backend; sessions cannot switch vendors")
+
     questions_enabled = questions_enabled!(run, backend)
     # A stopped or killed turn continues from its saved native session and the current files.
     if run["state"] not in ["finished", "stopped", "killed"],
       do: raise("Continue requires a finished, stopped or killed turn")
+
     session = run["session_id"]
     cwd = run["cwd"]
     sandbox = run["sandbox"]
     scope = run["permissions"]
+
     if not is_binary(session) or String.trim(session) == "",
       do: raise("The selected turn has no confirmed native session")
+
     if not is_binary(cwd) or Path.type(cwd) != :absolute or
          not ((is_nil(scope) and sandbox in ["read-only", "workspace-write"]) or
-           (is_map(scope) and is_nil(sandbox))),
-      do: raise("The selected turn has no valid saved working directory and permissions")
+                (is_map(scope) and is_nil(sandbox))),
+       do: raise("The selected turn has no valid saved working directory and permissions")
+
     if scope && scope != current_scope(scope["profile"], cwd, state),
       do: raise("The selected turn's permission scope changed")
+
     context =
       if backend == "claude" do
         if not is_binary(run["model"]) or run["model"] == "",
           do: raise("The selected Claude turn has no confirmed model")
+
         case File.read(Path.join(run["artifacts"], "claude-context.json")) do
-          {:ok, bytes} -> JSON.decode!(bytes)
+          {:ok, bytes} ->
+            JSON.decode!(bytes)
+
           {:error, reason} ->
-            raise("The selected Claude turn has no saved native context: #{:file.format_error(reason)}")
+            raise(
+              "The selected Claude turn has no saved native context: #{:file.format_error(reason)}"
+            )
         end
       end
+
     target = %{"backend" => backend, "model" => run["model"] || run["requested_model"]}
     selection = %{"requested" => target, "selected" => target, "reason" => "continuation"}
-    start_turn(assignment, cwd, sandbox, scope, session, state, worker_id, run["repository"], selection, context, questions_enabled, admission, run["id"])
+
+    start_turn(
+      assignment,
+      cwd,
+      sandbox,
+      scope,
+      session,
+      state,
+      worker_id,
+      run["repository"],
+      selection,
+      context,
+      questions_enabled,
+      admission,
+      run["id"]
+    )
   end
 
   defp worker_command(_, _, _, _, _, _), do: raise("Unknown or malformed command")
 
-  defp current_scope("materialized-folder", cwd, state), do: Workspaces.folder_scope(cwd, state.dir)
+  defp current_scope("materialized-folder", cwd, state),
+    do: Workspaces.folder_scope(cwd, state.dir)
+
   defp current_scope(_dedicated, cwd, _state), do: Workspaces.permission_scope(cwd)
 
   defp select_worker(request, state) do
     explicit? = Map.has_key?(request, "worker_id")
     requested = request["worker_id"]
     if explicit? and not valid_worker_id?(requested), do: raise("Invalid worker ID")
+
     saved =
       if Map.has_key?(request, "turn_id") do
         if request["command"] not in ["output", "continue", "stop", "kill"],
           do: raise("This command does not accept a turn ID")
+
         History.historical(request["turn_id"], state.dir, state.workers)
       end
 
@@ -358,20 +547,30 @@ defmodule AtlasRuntime.Service do
         saved ->
           if explicit? and requested != saved["worker_id"],
             do: raise("Turn belongs to worker #{saved["worker_id"]}, not #{requested}")
+
           saved["worker_id"]
-        explicit? -> requested
-        map_size(state.workers) == 0 -> "default"
-        map_size(state.workers) == 1 -> state.workers |> Map.keys() |> hd()
-        true -> raise("Multiple workers are registered; specify --worker")
+
+        explicit? ->
+          requested
+
+        map_size(state.workers) == 0 ->
+          "default"
+
+        map_size(state.workers) == 1 ->
+          state.workers |> Map.keys() |> hd()
+
+        true ->
+          raise("Multiple workers are registered; specify --worker")
       end
 
     # Restart clears registrations; a durable latch still identifies its worker.
     if explicit? and is_nil(saved) and request["command"] != "start" and
-         not Map.has_key?(state.workers, worker_id) and is_nil(History.latch(state.dir, worker_id)),
-      do: raise("Unknown worker: #{worker_id}")
+         not Map.has_key?(state.workers, worker_id) and
+         is_nil(History.latch(state.dir, worker_id)),
+       do: raise("Unknown worker: #{worker_id}")
+
     {worker_id, saved}
   end
-
 
   defp worker_request(request, state) do
     {worker_id, saved} = select_worker(request, state)
@@ -381,33 +580,46 @@ defmodule AtlasRuntime.Service do
 
   defp unlatched!(state, worker_id) do
     if latch = History.latch(state.dir, worker_id),
-      do: raise("Worker #{worker_id} is latched after stopping turn #{latch["turn_id"]}; " <>
-        "run atlas-runtime release --worker #{worker_id} first")
+      do:
+        raise(
+          "Worker #{worker_id} is latched after stopping turn #{latch["turn_id"]}; " <>
+            "run atlas-runtime release --worker #{worker_id} first"
+        )
   end
 
-  defp owned_workers(state), do: for({id, %{agent: agent}} <- Enum.sort(state.workers), agent, do: id)
+  defp owned_workers(state),
+    do: for({id, %{agent: agent}} <- Enum.sort(state.workers), agent, do: id)
 
   defp pending_stop(owned, state) do
     names = Enum.map_join(owned, ", ", &"#{&1} (#{state.workers[&1].run.state})")
-    %{command_error: "Service stop pending: still owned executions: #{names}; " <>
-        "repeat service stop after their end is confirmed, or kill them",
-      workers: worker_runs(state)}
+
+    %{
+      command_error:
+        "Service stop pending: still owned executions: #{names}; " <>
+          "repeat service stop after their end is confirmed, or kill them",
+      workers: worker_runs(state)
+    }
   end
 
   defp idle_worker(id), do: %{agent: nil, monitor: nil, run: %{worker_id: id, state: "idle"}}
   defp worker_runs(state), do: Map.new(state.workers, fn {id, worker} -> {id, worker.run} end)
 
   defp sole_run(%{workers: workers}) when map_size(workers) == 0, do: idle_worker("default").run
+
   defp sole_run(%{workers: workers}) when map_size(workers) == 1 do
     {_id, worker} = Enum.at(workers, 0)
     worker.run
   end
+
   defp sole_run(_), do: nil
 
   defp select_backend(request, state) do
     if Map.has_key?(request, "backend") and is_nil(request["backend"]),
       do: raise("Backend must be codex or claude")
-    selection = BackendPolicy.select(state.policy, request["backend"], request, System.system_time(:second))
+
+    selection =
+      BackendPolicy.select(state.policy, request["backend"], request, System.system_time(:second))
+
     questions_enabled!(request, selection["selected"]["backend"])
     selection
   end
@@ -419,18 +631,38 @@ defmodule AtlasRuntime.Service do
     enabled
   end
 
-  defp start_turn(assignment, cwd, sandbox, scope, session, state, worker_id, repository, selection, context, questions_enabled, admission, source_turn_id \\ nil) do
+  defp start_turn(
+         assignment,
+         cwd,
+         sandbox,
+         scope,
+         session,
+         state,
+         worker_id,
+         repository,
+         selection,
+         context,
+         questions_enabled,
+         admission,
+         source_turn_id \\ nil
+       ) do
     backend = selection["selected"]["backend"]
     model = selection["selected"]["model"]
+
     if (not File.dir?(cwd) and is_nil(repository)) or String.trim(assignment) == "",
       do: raise("An existing working directory and nonempty assignment are required")
+
     cwd = Workspaces.workspace_path(cwd)
+
     Enum.each(state.workers, fn {id, worker} ->
       if not is_nil(worker.agent) and overlapping_paths?(cwd, worker.run.cwd),
         do: raise("Workspace overlaps active worker #{id}")
     end)
 
-    executable = System.find_executable(backend) || raise("Install #{backend} and authenticate with its official CLI")
+    executable =
+      System.find_executable(backend) ||
+        raise("Install #{backend} and authenticate with its official CLI")
+
     key = "turn-" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
     turns = Path.join(state.dir, "turns")
 
@@ -466,6 +698,7 @@ defmodule AtlasRuntime.Service do
       session_id: session,
       artifacts: Path.join(turns, key)
     }
+
     run = if scope, do: Map.put(run, :permissions, scope), else: run
     run = if repository, do: Map.put(run, :repository, repository), else: run
     run = if admission, do: Map.put(run, :request_id, elem(admission, 0)), else: run
@@ -477,6 +710,7 @@ defmodule AtlasRuntime.Service do
     record =
       if admission do
         {request_id, canonical} = admission
+
         binding = %{
           "worker_id" => worker_id,
           "source_turn_id" => source_turn_id,
@@ -489,6 +723,7 @@ defmodule AtlasRuntime.Service do
           "session_id" => session,
           "questions_enabled" => questions_enabled
         }
+
         CommandAdmissions.reserve(state.dir, request_id, canonical, binding, key, run)
       end
 
@@ -519,36 +754,60 @@ defmodule AtlasRuntime.Service do
     end
   end
 
-
   # The latch and the requested mode are durable before the host is signalled. Kill wins over
   # stop; repeats keep their first request time and are forwarded, so the host re-attempts only
   # a refused signal. The worker stays owned until the host confirms the group gone.
   defp control(name, id, worker, state) do
     run = worker.run
-    termination = run[:termination] ||
-      %{"mode" => nil, "stop_requested_at" => nil, "stop_signalled_at" => nil,
-        "kill_requested_at" => nil, "kill_signalled_at" => nil, "confirmed_at" => nil,
-        "exit_code" => nil, "native_result" => nil, "error" => nil}
+
+    termination =
+      run[:termination] ||
+        %{
+          "mode" => nil,
+          "stop_requested_at" => nil,
+          "stop_signalled_at" => nil,
+          "kill_requested_at" => nil,
+          "kill_signalled_at" => nil,
+          "confirmed_at" => nil,
+          "exit_code" => nil,
+          "native_result" => nil,
+          "error" => nil
+        }
+
     now = DateTime.to_iso8601(DateTime.utc_now())
 
     if name == "stop" and termination["mode"] == "kill" do
       {run, state}
     else
       History.latch!(state.dir, id, run.id, now)
+
       termination =
         if termination["mode"] in [nil, "stop"] and termination["mode"] != name,
-          do: %{termination | "mode" => name, name <> "_requested_at" => now},
+          do: %{termination | "mode" => name, (name <> "_requested_at") => now},
           else: termination
-      run = Map.merge(run, %{state: if(name == "kill", do: "killing", else: "stopping"),
-                             pending_question: nil, termination: termination})
+
+      run =
+        Map.merge(run, %{
+          state: if(name == "kill", do: "killing", else: "stopping"),
+          pending_question: nil,
+          termination: termination
+        })
+
       state = update_run(state, id, worker, run)
       worker = state.workers[id]
 
       case Native.control(worker.agent, String.to_existing_atom(name)) do
         :ok ->
           {state.workers[id].run, state}
+
         {:error, reason} ->
-          run = put_in(worker.run, [:termination, "error"], "#{name} not delivered: #{inspect(reason)}")
+          run =
+            put_in(
+              worker.run,
+              [:termination, "error"],
+              "#{name} not delivered: #{inspect(reason)}"
+            )
+
           state = update_run(state, id, worker, run)
           {state.workers[id].run, state}
       end
@@ -566,12 +825,25 @@ defmodule AtlasRuntime.Service do
     case Enum.find(state.workers, fn {_id, worker} ->
            worker.agent == pid and worker.monitor == ref and is_reference(ref)
          end) do
-      nil -> {:noreply, state}
+      nil ->
+        {:noreply, state}
+
       {id, worker} ->
         finish_output(worker.run)
-        run = Map.merge(worker.run, %{state: "failed", pending_question: nil, error: inspect(reason),
-          ended_at: DateTime.to_iso8601(DateTime.utc_now())})
-        run = if run[:termination], do: put_in(run, [:termination, "error"], inspect(reason)), else: run
+
+        run =
+          Map.merge(worker.run, %{
+            state: "failed",
+            pending_question: nil,
+            error: inspect(reason),
+            ended_at: DateTime.to_iso8601(DateTime.utc_now())
+          })
+
+        run =
+          if run[:termination],
+            do: put_in(run, [:termination, "error"], inspect(reason)),
+            else: run
+
         next = put_worker(state, id, %{worker | agent: nil, monitor: nil, run: run})
         {:noreply, record_changes(state, next)}
     end
@@ -581,7 +853,13 @@ defmodule AtlasRuntime.Service do
   def handle_info({:server_report, turn, attempt, report}, state) do
     case Enum.find(state.workers, fn {_id, worker} -> worker.run[:id] == turn end) do
       {id, %{run: %{server: %{"attempt" => ^attempt} = server}} = worker} ->
-        {:noreply, update_run(state, id, worker, Map.put(worker.run, :server, Map.put(server, "report", report)))}
+        {:noreply,
+         update_run(
+           state,
+           id,
+           worker,
+           Map.put(worker.run, :server, Map.put(server, "report", report))
+         )}
 
       nil ->
         History.server_report(state.dir, turn, attempt, report)
@@ -603,6 +881,7 @@ defmodule AtlasRuntime.Service do
 
   defp agent_message({kind, _} = message, id, worker, state) when kind in [:question, :answer] do
     {run, events} = Interactions.observe(message, worker.run, id, state.dir, state.events)
+
     if run == worker.run and events == state.events,
       do: state,
       else: update_run(%{state | events: events}, id, worker, run)
@@ -612,13 +891,31 @@ defmodule AtlasRuntime.Service do
     do: update_run(state, id, worker, Map.put(worker.run, :repository, repository))
 
   defp agent_message({:quota, evidence}, id, %{run: %{backend: "claude"}} = worker, state) do
-    policy = BackendPolicy.record_quota(state.policy, evidence, worker.run.id, System.system_time(:second))
+    policy =
+      BackendPolicy.record_quota(
+        state.policy,
+        evidence,
+        worker.run.id,
+        System.system_time(:second)
+      )
+
     if policy != state.policy, do: BackendPolicy.persist(state.dir, policy)
-    update_run(%{state | policy: policy}, id, worker, Map.put(worker.run, :quota, policy["claude_quota"]))
+
+    update_run(
+      %{state | policy: policy},
+      id,
+      worker,
+      Map.put(worker.run, :quota, policy["claude_quota"])
+    )
   end
 
-  defp agent_message({:identity, backend, model}, id, %{run: %{backend: backend}} = worker, state),
-    do: update_run(state, id, worker, Map.put(worker.run, :model, model))
+  defp agent_message(
+         {:identity, backend, model},
+         id,
+         %{run: %{backend: backend}} = worker,
+         state
+       ),
+       do: update_run(state, id, worker, Map.put(worker.run, :model, model))
 
   defp agent_message({:session, session}, id, worker, state),
     do: update_run(state, id, worker, Map.put(worker.run, :session_id, session))
@@ -626,6 +923,7 @@ defmodule AtlasRuntime.Service do
   defp agent_message({:activity, text}, id, worker, state) do
     if state[:server] && worker.run[:server],
       do: Lifecycle.activity(state.server.reporter, worker.run, text)
+
     put_worker(state, id, %{worker | run: Map.put(worker.run, :activity, text)})
   end
 
@@ -637,19 +935,38 @@ defmodule AtlasRuntime.Service do
   defp agent_message({:ended, text}, id, worker, state) do
     Process.demonitor(worker.monitor, [:flush])
     finish_output(worker.run)
-    run = Map.merge(worker.run, %{state: "finished", pending_question: nil, result: text,
-      ended_at: DateTime.to_iso8601(DateTime.utc_now())})
+
+    run =
+      Map.merge(worker.run, %{
+        state: "finished",
+        pending_question: nil,
+        result: text,
+        ended_at: DateTime.to_iso8601(DateTime.utc_now())
+      })
+
     next = put_worker(state, id, %{worker | agent: nil, monitor: nil, run: run})
     record_changes(state, next)
   end
 
-  defp agent_message({:signal, %{"control" => control} = signal}, id, %{run: %{termination: %{}}} = worker, state)
+  defp agent_message(
+         {:signal, %{"control" => control} = signal},
+         id,
+         %{run: %{termination: %{}}} = worker,
+         state
+       )
        when control in ["stop", "kill"] do
     termination =
       case signal["error"] do
-        nil -> Map.merge(worker.run.termination, %{control <> "_signalled_at" => DateTime.to_iso8601(DateTime.utc_now()), "error" => nil})
-        error -> Map.put(worker.run.termination, "error", "#{signal["signal"]} refused: #{error}")
+        nil ->
+          Map.merge(worker.run.termination, %{
+            (control <> "_signalled_at") => DateTime.to_iso8601(DateTime.utc_now()),
+            "error" => nil
+          })
+
+        error ->
+          Map.put(worker.run.termination, "error", "#{signal["signal"]} refused: #{error}")
       end
+
     update_run(state, id, worker, Map.put(worker.run, :termination, termination))
   end
 
@@ -659,17 +976,43 @@ defmodule AtlasRuntime.Service do
     Process.demonitor(worker.monitor, [:flush])
     finish_output(worker.run)
     now = DateTime.to_iso8601(DateTime.utc_now())
+
     {terminal, extra} =
       case {info["control"], info["native_result"]} do
-        {"kill", _} -> {"killed", %{}}
-        {"stop", _} -> {"stopped", %{}}
-        {_, true} -> {"finished", %{result: info["result"]}}
-        _ -> {"failed", %{error: "Native execution ended before the #{worker.run.termination["mode"]} was applied"}}
+        {"kill", _} ->
+          {"killed", %{}}
+
+        {"stop", _} ->
+          {"stopped", %{}}
+
+        {_, true} ->
+          {"finished", %{result: info["result"]}}
+
+        _ ->
+          {"failed",
+           %{
+             error:
+               "Native execution ended before the #{worker.run.termination["mode"]} was applied"
+           }}
       end
-    termination = Map.merge(worker.run.termination, %{"confirmed_at" => now,
-      "exit_code" => info["exit_code"], "native_result" => info["native_result"]})
-    run = worker.run |> Map.merge(extra) |> Map.merge(%{state: terminal, pending_question: nil,
-      termination: termination, ended_at: now})
+
+    termination =
+      Map.merge(worker.run.termination, %{
+        "confirmed_at" => now,
+        "exit_code" => info["exit_code"],
+        "native_result" => info["native_result"]
+      })
+
+    run =
+      worker.run
+      |> Map.merge(extra)
+      |> Map.merge(%{
+        state: terminal,
+        pending_question: nil,
+        termination: termination,
+        ended_at: now
+      })
+
     next = put_worker(state, id, %{worker | agent: nil, monitor: nil, run: run})
     record_changes(state, next)
   end
@@ -722,8 +1065,10 @@ defmodule AtlasRuntime.Service do
 
       if worker.run[:server] do
         if new?, do: Lifecycle.started(reporter, worker.run)
-        if worker.run.state in ["stopped", "killed", "finished", "failed"] and (new? or worker.run.state != old.state),
-          do: Lifecycle.ended(reporter, worker.run)
+
+        if worker.run.state in ["stopped", "killed", "finished", "failed"] and
+             (new? or worker.run.state != old.state),
+           do: Lifecycle.ended(reporter, worker.run)
       end
     end)
   end
@@ -734,5 +1079,4 @@ defmodule AtlasRuntime.Service do
     left == right or String.starts_with?(left, right <> "/") or
       String.starts_with?(right, left <> "/") or left == "/" or right == "/"
   end
-
 end

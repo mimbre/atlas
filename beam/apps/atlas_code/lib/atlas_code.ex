@@ -237,7 +237,14 @@ defmodule AtlasCode do
         File.rm_rf!(staging)
 
         case owner_record(home) do
-          {:ok, %{"kind" => kind, "os_pid" => pid, "node" => node, "started_at" => at, "owner" => current}} ->
+          {:ok,
+           %{
+             "kind" => kind,
+             "os_pid" => pid,
+             "node" => node,
+             "started_at" => at,
+             "owner" => current
+           }} ->
             raise "#{home} is owned by #{kind} pid #{pid} on #{node} since #{at} (owner #{current}); if that process has stopped, run ATLAS_CODE_HOME=#{home} mix atlas_code.unlock --owner #{current}"
 
           _ ->
@@ -291,7 +298,8 @@ defmodule AtlasCode do
         {:error, "#{home} is owned by #{current}, not #{owner}; nothing was moved"}
 
       _ ->
-        {:error, "#{Path.join(home, "service.owner")} is unreadable or invalid; nothing was moved"}
+        {:error,
+         "#{Path.join(home, "service.owner")} is unreadable or invalid; nothing was moved"}
     end
   end
 
@@ -340,10 +348,17 @@ defmodule AtlasCode do
   end
 
   defp ps(executable, pid) do
-    case System.cmd(executable, ["-p", Integer.to_string(pid), "-o", "pid="], stderr_to_stdout: true) do
-      {output, 0} -> if String.trim(output) == Integer.to_string(pid), do: :running, else: :unknown
-      {"", 1} -> :absent
-      _ -> :unknown
+    case System.cmd(executable, ["-p", Integer.to_string(pid), "-o", "pid="],
+           stderr_to_stdout: true
+         ) do
+      {output, 0} ->
+        if String.trim(output) == Integer.to_string(pid), do: :running, else: :unknown
+
+      {"", 1} ->
+        :absent
+
+      _ ->
+        :unknown
     end
   rescue
     _ -> :unknown
@@ -389,7 +404,9 @@ defmodule AtlasCode do
        when byte_size(body) + byte_size(chunk) > limit,
        do: {:error, error(413, "payload_too_large", "The body exceeds #{limit} bytes")}
 
-  defp receive_body(_request, {:ok, role, limit, body}, chunk), do: {:ok, role, limit, body <> chunk}
+  defp receive_body(_request, {:ok, role, limit, body}, chunk),
+    do: {:ok, role, limit, body <> chunk}
+
   defp receive_body(_request, {:error, _} = rejected, _chunk), do: rejected
 
   defp respond(request, body) do
@@ -399,9 +416,16 @@ defmodule AtlasCode do
     response =
       case body do
         {:ok, role, _limit, body} ->
-          route(mod(request, :method), path, Enum.join(query), body, Map.put(settings, :role, role))
+          route(
+            mod(request, :method),
+            path,
+            Enum.join(query),
+            body,
+            Map.put(settings, :role, role)
+          )
 
-        {:error, response} -> response
+        {:error, response} ->
+          response
       end
 
     case response do
@@ -464,7 +488,11 @@ defmodule AtlasCode do
         end
 
       _ ->
-        error(400, "invalid_request", "Body must be {\"repository\": string, \"reference\": string}")
+        error(
+          400,
+          "invalid_request",
+          "Body must be {\"repository\": string, \"reference\": string}"
+        )
     end
   end
 
@@ -718,7 +746,9 @@ defmodule AtlasCode do
     case File.read(Path.join([home, "revisions", handle <> ".json"])) do
       {:ok, json} ->
         %{"commit" => commit, "repository" => owner} = JSON.decode!(json)
-        unless handle(owner, commit) == handle, do: raise("revisions/#{handle}.json does not match its name")
+
+        unless handle(owner, commit) == handle,
+          do: raise("revisions/#{handle}.json does not match its name")
 
         if owner == repository,
           do: {:ok, commit},
@@ -742,11 +772,16 @@ defmodule AtlasCode do
     repositories = Enum.map(repositories, &Map.take(&1, ["path", "repository", "revision"]))
 
     acquired =
-      Enum.reduce_while(repositories, [], fn %{"repository" => repository, "revision" => handle} = item,
+      Enum.reduce_while(repositories, [], fn %{"repository" => repository, "revision" => handle} =
+                                               item,
                                              acc ->
         with {:ok, commit} <- revision(settings.home, repository, handle),
              {:ok, dir} <- acquire(settings, repository, commit, handle) do
-          {:cont, [{dir, %{"repository" => repository, "commit" => commit, "path" => item["path"]}} | acc]}
+          {:cont,
+           [
+             {dir, %{"repository" => repository, "commit" => commit, "path" => item["path"]}}
+             | acc
+           ]}
         else
           response -> {:halt, response}
         end
@@ -933,10 +968,15 @@ defmodule AtlasCode do
         {:error, :enoent} -> nil
       end
 
-    error(409, "snapshot_superseded", "The snapshot predates revision handles; use its successor", %{
-      "snapshot_id" => id,
-      "successor" => successor
-    })
+    error(
+      409,
+      "snapshot_superseded",
+      "The snapshot predates revision handles; use its successor",
+      %{
+        "snapshot_id" => id,
+        "successor" => successor
+      }
+    )
   end
 
   # Archive members are named relative to the repository root, not prefixed by its snapshot path.
@@ -1129,11 +1169,12 @@ defmodule AtlasCode do
        do: sha256?(entry["sha256"])
 
   # Symlink targets travel in the request; their size and sha256 must describe the target bytes.
-  defp entry?(
-         %{"op" => "write", "kind" => "symlink", "mode" => "120000", "path" => path} = entry
-       )
-       when map_size(entry) == 7 and is_binary(path) and is_binary(:erlang.map_get("target", entry)),
-       do: entry["size"] == byte_size(entry["target"]) and entry["sha256"] == sha256(entry["target"])
+  defp entry?(%{"op" => "write", "kind" => "symlink", "mode" => "120000", "path" => path} = entry)
+       when map_size(entry) == 7 and is_binary(path) and
+              is_binary(:erlang.map_get("target", entry)),
+       do:
+         entry["size"] == byte_size(entry["target"]) and
+           entry["sha256"] == sha256(entry["target"])
 
   defp entry?(_entry), do: false
 
@@ -1210,7 +1251,8 @@ defmodule AtlasCode do
         |> MapSet.difference(MapSet.new(deletes, & &1["path"]))
         |> MapSet.union(MapSet.new(writes, & &1["path"]))
 
-      directories = for path <- tree, directory <- ancestors(path), into: MapSet.new(), do: directory
+      directories =
+        for path <- tree, directory <- ancestors(path), into: MapSet.new(), do: directory
 
       conflict =
         Enum.find_value(writes, fn %{"path" => path} ->
@@ -1257,11 +1299,16 @@ defmodule AtlasCode do
         error(404, "not_found", "Repository is not in the snapshot", %{"repository" => repository})
 
       %{"revision" => revision} ->
-        error(409, "base_mismatch", "base_revision is not the repository's revision in the snapshot", %{
-          "repository" => repository,
-          "base_revision" => base,
-          "revision" => revision
-        })
+        error(
+          409,
+          "base_mismatch",
+          "base_revision is not the repository's revision in the snapshot",
+          %{
+            "repository" => repository,
+            "base_revision" => base,
+            "revision" => revision
+          }
+        )
     end
   end
 
@@ -1339,13 +1386,19 @@ defmodule AtlasCode do
   defp seal(settings, dir, %{"repository" => repository, "base_revision" => handle} = request) do
     case state(dir, request) do
       {200, %{"state" => "open", "missing" => [_ | _] = missing}} ->
-        error(422, "incomplete_upload", "Upload every blob before sealing", %{"missing" => missing})
+        error(422, "incomplete_upload", "Upload every blob before sealing", %{
+          "missing" => missing
+        })
 
       {200, %{"state" => "open"}} ->
         with {:ok, base} <- revision(settings.home, repository, handle),
              {:ok, git_dir} <- acquire(settings, repository, base, handle),
              {:ok, commit} <- locked(git_dir, fn -> commit(git_dir, dir, base, request) end) do
-          write_atomic(Path.join(dir, "revision"), put_revision(settings.home, repository, commit))
+          write_atomic(
+            Path.join(dir, "revision"),
+            put_revision(settings.home, repository, commit)
+          )
+
           state(dir, request)
         end
 
@@ -1384,7 +1437,12 @@ defmodule AtlasCode do
         for chunk <- Enum.chunk_every(digests, 500),
             oid <-
               String.split(
-                run.(["hash-object", "-w", "--no-filters", "--" | Enum.map(chunk, &("blobs/" <> &1))]),
+                run.([
+                  "hash-object",
+                  "-w",
+                  "--no-filters",
+                  "--" | Enum.map(chunk, &("blobs/" <> &1))
+                ]),
                 "\n"
               ),
             do: oid
@@ -1398,16 +1456,26 @@ defmodule AtlasCode do
         run.([
           "update-index",
           "--add"
-          | Enum.flat_map(chunk, &["--cacheinfo", "#{&1["mode"]},#{oid[&1["sha256"]]},#{&1["path"]}"])
+          | Enum.flat_map(
+              chunk,
+              &["--cacheinfo", "#{&1["mode"]},#{oid[&1["sha256"]]},#{&1["path"]}"]
+            )
         ])
       end
 
       tree = run.(["write-tree"])
-      commit = run.(["commit-tree", "--no-gpg-sign", "-p", base, "-m", "Atlas change #{id}", tree])
+
+      commit =
+        run.(["commit-tree", "--no-gpg-sign", "-p", base, "-m", "Atlas change #{id}", tree])
 
       case claim(git_dir, "refs/atlas/changes/" <> id, commit) do
-        :ok -> {:ok, commit}
-        :taken -> error(409, "conflict", "The change is sealed differently in Code's cache", %{"change_id" => id})
+        :ok ->
+          {:ok, commit}
+
+        :taken ->
+          error(409, "conflict", "The change is sealed differently in Code's cache", %{
+            "change_id" => id
+          })
       end
     after
       File.rm(index)
@@ -1432,7 +1500,9 @@ defmodule AtlasCode do
   # The empty old value makes update-ref refuse to move an existing ref; an existing ref
   # with the same (deterministic) commit is an attempt interrupted before it was recorded.
   defp claim(git_dir, ref, commit) do
-    case System.cmd("git", ["--git-dir", git_dir, "update-ref", ref, commit, ""], stderr_to_stdout: true) do
+    case System.cmd("git", ["--git-dir", git_dir, "update-ref", ref, commit, ""],
+           stderr_to_stdout: true
+         ) do
       {_, 0} ->
         :ok
 
@@ -1445,7 +1515,13 @@ defmodule AtlasCode do
   defp review_request(body) do
     case JSON.decode(body) do
       {:ok,
-       %{"review_id" => id, "change_id" => change, "target" => target, "title" => title, "body" => text} =
+       %{
+         "review_id" => id,
+         "change_id" => change,
+         "target" => target,
+         "title" => title,
+         "body" => text
+       } =
            request}
       when map_size(request) == 5 and is_binary(id) and is_binary(change) and is_binary(target) and
              is_binary(title) and is_binary(text) ->
@@ -1461,10 +1537,18 @@ defmodule AtlasCode do
 
           String.trim(title) == "" or String.length(title) > 256 or
               String.contains?(title, ["\n", "\r"]) ->
-            error(400, "invalid_request", "title must be one non-empty line of at most 256 characters")
+            error(
+              400,
+              "invalid_request",
+              "title must be one non-empty line of at most 256 characters"
+            )
 
           not String.contains?(text, "Written by an AI agent") ->
-            error(400, "invalid_request", ~s(body must carry the attribution "Written by an AI agent"))
+            error(
+              400,
+              "invalid_request",
+              ~s(body must carry the attribution "Written by an AI agent")
+            )
 
           true ->
             {:ok, request}
@@ -1587,9 +1671,14 @@ defmodule AtlasCode do
       if commit?(dir, commit),
         do: {:ok, %{url: url, dir: dir, slug: slug && hd(slug), commit: commit}},
         else:
-          error(409, "conflict", "The sealed revision is not in Code's cache for the configured remote", %{
-            "revision" => handle
-          })
+          error(
+            409,
+            "conflict",
+            "The sealed revision is not in Code's cache for the configured remote",
+            %{
+              "revision" => handle
+            }
+          )
     end
   end
 
@@ -1601,7 +1690,12 @@ defmodule AtlasCode do
 
   defp push(_file, %{"phase" => "pushed"} = record, _target, _first), do: {:ok, record}
 
-  defp push(file, %{"location" => location} = record, %{url: url, dir: dir, commit: commit}, first) do
+  defp push(
+         file,
+         %{"location" => location} = record,
+         %{url: url, dir: dir, commit: commit},
+         first
+       ) do
     ref = "refs/heads/" <> location
 
     # A repeat still in phase pushing may follow our own push whose response was lost, so the
@@ -1617,7 +1711,15 @@ defmodule AtlasCode do
         # (new ref) is our write.
         args =
           @git_config ++
-            ["--git-dir", dir, "push", "--porcelain", "--force-with-lease=#{ref}:", url, "#{commit}:#{ref}"]
+            [
+              "--git-dir",
+              dir,
+              "push",
+              "--porcelain",
+              "--force-with-lease=#{ref}:",
+              url,
+              "#{commit}:#{ref}"
+            ]
 
         {output, status} =
           System.cmd("git", args, env: [{"GIT_TERMINAL_PROMPT", "0"}], stderr_to_stdout: true)
@@ -1632,8 +1734,15 @@ defmodule AtlasCode do
 
           true ->
             case ls_remote(["--git-dir", dir], url, ref) do
-              [_ | _] -> failed(file, record)
-              _ -> error(503, "provider_unavailable", "git push was refused with exit status #{status}")
+              [_ | _] ->
+                failed(file, record)
+
+              _ ->
+                error(
+                  503,
+                  "provider_unavailable",
+                  "git push was refused with exit status #{status}"
+                )
             end
         end
 
@@ -1661,16 +1770,24 @@ defmodule AtlasCode do
   end
 
   defp location_taken,
-    do: error(409, "location_taken", "The review location already exists or is claimed; Code never overwrites it")
+    do:
+      error(
+        409,
+        "location_taken",
+        "The review location already exists or is claimed; Code never overwrites it"
+      )
 
   # An existing pull request for the location is one an earlier attempt created before its
   # response was lost, so it is adopted rather than duplicated. gh output is never returned.
   defp pull_request(_gh, _file, record, %{slug: nil}), do: {:ok, record}
 
   # Publications without a pull request were migrated without a target: nothing to open.
-  defp pull_request(_gh, _file, %{"request" => %{"target" => nil}} = record, _target), do: {:ok, record}
+  defp pull_request(_gh, _file, %{"request" => %{"target" => nil}} = record, _target),
+    do: {:ok, record}
 
-  defp pull_request(gh, file, %{"request" => request, "location" => location} = record, %{slug: slug}) do
+  defp pull_request(gh, file, %{"request" => request, "location" => location} = record, %{
+         slug: slug
+       }) do
     executable = System.find_executable(gh)
 
     run = fn args ->
@@ -1683,7 +1800,16 @@ defmodule AtlasCode do
 
     url =
       executable &&
-        case run.(["pr", "list", "--repo=" <> slug, "--head=" <> location, "--state", "all", "--json", "url"]) do
+        case run.([
+               "pr",
+               "list",
+               "--repo=" <> slug,
+               "--head=" <> location,
+               "--state",
+               "all",
+               "--json",
+               "url"
+             ]) do
           {output, 0} ->
             case JSON.decode(output) do
               {:ok, [%{"url" => url}]} -> url
@@ -1698,12 +1824,21 @@ defmodule AtlasCode do
     if is_binary(url),
       do: {:ok, Map.put(record, "review_url", url)},
       else:
-        error(502, "review_incomplete", "The review is pushed but its pull request is not created; repeat the request", %{
-          "phase" => "pushed"
-        })
+        error(
+          502,
+          "review_incomplete",
+          "The review is pushed but its pull request is not created; repeat the request",
+          %{
+            "phase" => "pushed"
+          }
+        )
   end
 
-  defp create_pull_request(run, file, slug, location, %{"target" => base, "title" => title, "body" => body}) do
+  defp create_pull_request(run, file, slug, location, %{
+         "target" => base,
+         "title" => title,
+         "body" => body
+       }) do
     body_file = file <> ".body.tmp"
     File.write!(body_file, body)
 
@@ -1741,7 +1876,12 @@ defmodule AtlasCode do
   defp integration_request(body) do
     case JSON.decode(body) do
       {:ok,
-       %{"integration_id" => id, "review_id" => review, "revision" => revision, "target_revision" => target} =
+       %{
+         "integration_id" => id,
+         "review_id" => review,
+         "revision" => revision,
+         "target_revision" => target
+       } =
            request}
       when map_size(request) == 4 and is_binary(id) and is_binary(review) ->
         cond do
@@ -1752,7 +1892,11 @@ defmodule AtlasCode do
             error(400, "invalid_request", "review_id must be a lowercase UUID")
 
           not (revision?(revision) and revision?(target)) ->
-            error(400, "invalid_request", "revision and target_revision must be rev_<64 lowercase hex characters>")
+            error(
+              400,
+              "invalid_request",
+              "revision and target_revision must be rev_<64 lowercase hex characters>"
+            )
 
           true ->
             {:ok, request}
@@ -1781,7 +1925,8 @@ defmodule AtlasCode do
         {:ok, json} ->
           case JSON.decode!(json) do
             %{"request" => ^request, "phase" => "integrating"} = record ->
-              with {:ok, context} <- context(settings, record), do: land(file, record, context, false)
+              with {:ok, context} <- context(settings, record),
+                   do: land(file, record, context, false)
 
             %{"request" => ^request} = record ->
               outcome(record)
@@ -1811,12 +1956,19 @@ defmodule AtlasCode do
 
         cond do
           review["phase"] != "open" ->
-            error(409, "review_not_open", "Only an open review can be integrated", %{"review_id" => review_id})
-
-          review["request"]["target"] == nil ->
-            error(409, "review_has_no_target", "The review has no target; open a new review of the change", %{
+            error(409, "review_not_open", "Only an open review can be integrated", %{
               "review_id" => review_id
             })
+
+          review["request"]["target"] == nil ->
+            error(
+              409,
+              "review_has_no_target",
+              "The review has no target; open a new review of the change",
+              %{
+                "review_id" => review_id
+              }
+            )
 
           review["revision"] != revision ->
             error(409, "revision_mismatch", "revision is not the review's revision", %{
@@ -1847,17 +1999,37 @@ defmodule AtlasCode do
          {:ok, change} <- revision(settings.home, repository, request["revision"]),
          {:ok, expected} <- revision(settings.home, repository, request["target_revision"]) do
       {:ok,
-       %{home: settings.home, url: url, dir: cache(settings.home, repository, url), change: change, expected: expected}}
+       %{
+         home: settings.home,
+         url: url,
+         dir: cache(settings.home, repository, url),
+         change: change,
+         expected: expected
+       }}
     end
   end
 
-  defp prepare(file, %{"target" => target} = record, %{url: url, dir: dir, expected: expected} = context) do
+  defp prepare(
+         file,
+         %{"target" => target} = record,
+         %{url: url, dir: dir, expected: expected} = context
+       ) do
     case ls_remote(["--git-dir", dir], url, "refs/heads/" <> target) do
       [^expected] ->
         case locked(dir, fn -> fetch(dir, url, expected) end) do
-          :ok -> candidate(file, record, context)
-          :missing -> moved(file, record, context, ls_remote(["--git-dir", dir], url, "refs/heads/" <> target))
-          {:failed, status} -> error(503, "provider_unavailable", "git fetch failed with exit status #{status}")
+          :ok ->
+            candidate(file, record, context)
+
+          :missing ->
+            moved(
+              file,
+              record,
+              context,
+              ls_remote(["--git-dir", dir], url, "refs/heads/" <> target)
+            )
+
+          {:failed, status} ->
+            error(503, "provider_unavailable", "git fetch failed with exit status #{status}")
         end
 
       current ->
@@ -1870,7 +2042,12 @@ defmodule AtlasCode do
 
     cond do
       ancestor?(dir, change, expected) ->
-        result = %{"phase" => "integrated", "method" => "already_integrated", "result" => record["request"]["target_revision"]}
+        result = %{
+          "phase" => "integrated",
+          "method" => "already_integrated",
+          "result" => record["request"]["target_revision"]
+        }
+
         outcome(save(file, Map.merge(record, result)))
 
       ancestor?(dir, expected, change) ->
@@ -1878,8 +2055,11 @@ defmodule AtlasCode do
 
       true ->
         case merge(dir, expected, change, id) do
-          {:ok, merged} -> land(file, candidate!(file, record, dir, merged, "merge"), context, true)
-          {:conflict, paths} -> outcome(save(file, Map.merge(record, %{"phase" => "conflicted", "paths" => paths})))
+          {:ok, merged} ->
+            land(file, candidate!(file, record, dir, merged, "merge"), context, true)
+
+          {:conflict, paths} ->
+            outcome(save(file, Map.merge(record, %{"phase" => "conflicted", "paths" => paths})))
         end
     end
   end
@@ -1893,7 +2073,17 @@ defmodule AtlasCode do
   # A merge of the review onto the exact target in Code's cache: no checkout, and a fixed
   # identity and date (the target's committer date), so a repeat gives the same commit.
   defp merge(dir, target, change, id) do
-    args = ["--git-dir", dir, "merge-tree", "--write-tree", "--name-only", "--no-messages", "-z", target, change]
+    args = [
+      "--git-dir",
+      dir,
+      "merge-tree",
+      "--write-tree",
+      "--name-only",
+      "--no-messages",
+      "-z",
+      target,
+      change
+    ]
 
     case System.cmd("git", ["-c", "core.hooksPath=/dev/null" | args]) do
       {output, 0} ->
@@ -1902,7 +2092,19 @@ defmodule AtlasCode do
         {merged, 0} =
           System.cmd(
             "git",
-            ["--git-dir", dir, "commit-tree", "--no-gpg-sign", "-p", target, "-p", change, "-m", "Atlas integration #{id}", tree],
+            [
+              "--git-dir",
+              dir,
+              "commit-tree",
+              "--no-gpg-sign",
+              "-p",
+              target,
+              "-p",
+              change,
+              "-m",
+              "Atlas integration #{id}",
+              tree
+            ],
             env: identity(dir, target)
           )
 
@@ -1915,7 +2117,9 @@ defmodule AtlasCode do
   end
 
   defp ancestor?(dir, ancestor, commit) do
-    case System.cmd("git", ["--git-dir", dir, "merge-base", "--is-ancestor", ancestor, commit], stderr_to_stdout: true) do
+    case System.cmd("git", ["--git-dir", dir, "merge-base", "--is-ancestor", ancestor, commit],
+           stderr_to_stdout: true
+         ) do
       {_, 0} -> true
       {_, 1} -> false
     end
@@ -1923,7 +2127,12 @@ defmodule AtlasCode do
 
   # Pushes the recorded candidate. A first attempt has just seen the target at
   # target_revision; a repeat asks the remote, since an earlier push may have landed.
-  defp land(file, %{"target" => target, "candidate" => candidate} = record, %{url: url, dir: dir, expected: expected} = context, first) do
+  defp land(
+         file,
+         %{"target" => target, "candidate" => candidate} = record,
+         %{url: url, dir: dir, expected: expected} = context,
+         first
+       ) do
     ref = "refs/heads/" <> target
 
     case if(first, do: [expected], else: ls_remote(["--git-dir", dir], url, ref)) do
@@ -1933,7 +2142,15 @@ defmodule AtlasCode do
       [^expected] ->
         args =
           @git_config ++
-            ["--git-dir", dir, "push", "--porcelain", "--force-with-lease=#{ref}:#{expected}", url, "#{candidate}:#{ref}"]
+            [
+              "--git-dir",
+              dir,
+              "push",
+              "--porcelain",
+              "--force-with-lease=#{ref}:#{expected}",
+              url,
+              "#{candidate}:#{ref}"
+            ]
 
         {output, status} =
           System.cmd("git", args, env: [{"GIT_TERMINAL_PROMPT", "0"}], stderr_to_stdout: true)
@@ -1951,10 +2168,21 @@ defmodule AtlasCode do
           true ->
             # Rejected: a target still at target_revision was refused by the remote itself.
             case ls_remote(["--git-dir", dir], url, ref) do
-              [^candidate] -> landed(file, record, context)
-              [^expected] -> outcome(save(file, %{record | "phase" => "refused"}))
-              {:failed, _} -> error(503, "provider_unavailable", "git push was refused with exit status #{status}")
-              current -> reconcile(file, record, context, current)
+              [^candidate] ->
+                landed(file, record, context)
+
+              [^expected] ->
+                outcome(save(file, %{record | "phase" => "refused"}))
+
+              {:failed, _} ->
+                error(
+                  503,
+                  "provider_unavailable",
+                  "git push was refused with exit status #{status}"
+                )
+
+              current ->
+                reconcile(file, record, context, current)
             end
         end
 
@@ -2003,8 +2231,19 @@ defmodule AtlasCode do
   defp moved(_file, _record, _context, _current),
     do: error(503, "provider_unavailable", "Git returned an ambiguous reference")
 
-  defp landed(file, %{"repository" => repository, "candidate" => candidate} = record, %{home: home}),
-    do: outcome(save(file, Map.merge(record, %{"phase" => "integrated", "result" => put_revision(home, repository, candidate)})))
+  defp landed(file, %{"repository" => repository, "candidate" => candidate} = record, %{
+         home: home
+       }),
+       do:
+         outcome(
+           save(
+             file,
+             Map.merge(record, %{
+               "phase" => "integrated",
+               "result" => put_revision(home, repository, candidate)
+             })
+           )
+         )
 
   defp outcome(%{"phase" => "integrated", "request" => request} = record),
     do:
@@ -2021,23 +2260,38 @@ defmodule AtlasCode do
 
   defp outcome(%{"phase" => "target_moved"} = record),
     do:
-      error(409, "target_moved", "The target is not at target_revision; resolve it again and use a new integration_id", %{
-        "target" => record["target"],
-        "current" => record["current"]
-      })
+      error(
+        409,
+        "target_moved",
+        "The target is not at target_revision; resolve it again and use a new integration_id",
+        %{
+          "target" => record["target"],
+          "current" => record["current"]
+        }
+      )
 
   defp outcome(%{"phase" => "conflicted"} = record),
     do:
-      error(409, "integration_conflict", "The review conflicts with the target; the target was not changed", %{
-        "target" => record["target"],
-        "paths" => record["paths"]
-      })
+      error(
+        409,
+        "integration_conflict",
+        "The review conflicts with the target; the target was not changed",
+        %{
+          "target" => record["target"],
+          "paths" => record["paths"]
+        }
+      )
 
   defp outcome(%{"phase" => "refused"} = record),
     do:
-      error(409, "integration_refused", "The remote refused to update the target, for example by branch policy; Code never bypasses it", %{
-        "target" => record["target"]
-      })
+      error(
+        409,
+        "integration_refused",
+        "The remote refused to update the target, for example by branch policy; Code never bypasses it",
+        %{
+          "target" => record["target"]
+        }
+      )
 
   defp save(file, record) do
     write_atomic(file, JSON.encode!(record))

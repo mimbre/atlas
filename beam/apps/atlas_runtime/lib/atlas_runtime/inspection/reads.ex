@@ -35,11 +35,20 @@ defmodule AtlasRuntime.Inspection.Reads do
     args = Map.drop(request, ["api", "op"])
 
     cond do
-      request["api"] != @api -> {:error, "unsupported_api"}
-      Map.keys(args) -- @fields[op] != [] -> {:error, "invalid_request"}
-      Enum.any?(Map.get(@required, op, []), &(not Map.has_key?(args, &1))) -> {:error, "invalid_request"}
-      not valid_args?(args) -> {:error, "invalid_request"}
-      true -> {:ok, op, args}
+      request["api"] != @api ->
+        {:error, "unsupported_api"}
+
+      Map.keys(args) -- @fields[op] != [] ->
+        {:error, "invalid_request"}
+
+      Enum.any?(Map.get(@required, op, []), &(not Map.has_key?(args, &1))) ->
+        {:error, "invalid_request"}
+
+      not valid_args?(args) ->
+        {:error, "invalid_request"}
+
+      true ->
+        {:ok, op, args}
     end
   end
 
@@ -88,12 +97,15 @@ defmodule AtlasRuntime.Inspection.Reads do
   defp run("turn", %{"turn_id" => id}, state) do
     with {:ok, run} <- saved(id, state) do
       {answer, truncated} = answer(run["artifacts"])
-      {:ok, %{"turn" => Map.merge(turn(run), %{"answer" => answer, "answer_truncated" => truncated})}}
+
+      {:ok,
+       %{"turn" => Map.merge(turn(run), %{"answer" => answer, "answer_truncated" => truncated})}}
     end
   end
 
   defp run("events", args, state) do
-    with {:ok, page} <- ExecutionEvents.read(state.events, args["cursor"], Map.get(args, "limit", 50)) do
+    with {:ok, page} <-
+           ExecutionEvents.read(state.events, args["cursor"], Map.get(args, "limit", 50)) do
       {:ok, Map.update!(page, "events", fn events -> Enum.map(events, &Map.take(&1, @event)) end)}
     end
   end
@@ -103,7 +115,13 @@ defmodule AtlasRuntime.Inspection.Reads do
          {server, execution} = output_stream(run),
          {:ok, page} <- read_output(execution, args["cursor"], server) do
       stream = Map.take(page["stream"], ~w(epoch first_sequence watermark ended))
-      {:ok, Map.put(page, "stream", Map.merge(stream, %{"turn_id" => id, "worker_id" => run["worker_id"]}))}
+
+      {:ok,
+       Map.put(
+         page,
+         "stream",
+         Map.merge(stream, %{"turn_id" => id, "worker_id" => run["worker_id"]})
+       )}
     end
   end
 
@@ -122,16 +140,22 @@ defmodule AtlasRuntime.Inspection.Reads do
     case run[:server] || run["server"] do
       %{} = server ->
         {Output,
-         %{"worker" => Map.take(server, ~w(environment machine worker)), "turn" => server["turn"],
-           "attempt" => server["attempt"]}}
+         %{
+           "worker" => Map.take(server, ~w(environment machine worker)),
+           "turn" => server["turn"],
+           "attempt" => server["attempt"]
+         }}
 
       _ ->
         turn = run[:id] || run["id"]
         worker = run[:worker_id] || run["worker_id"]
 
         {@local,
-         %{"worker" => %{"environment" => "local", "machine" => "local", "worker" => worker},
-           "turn" => turn, "attempt" => turn}}
+         %{
+           "worker" => %{"environment" => "local", "machine" => "local", "worker" => worker},
+           "turn" => turn,
+           "attempt" => turn
+         }}
     end
   end
 
@@ -152,7 +176,10 @@ defmodule AtlasRuntime.Inspection.Reads do
   end
 
   defp pending(%{} = question),
-    do: %{"question_id" => question[:id] || question["id"], "revision" => question[:revision] || question["revision"]}
+    do: %{
+      "question_id" => question[:id] || question["id"],
+      "revision" => question[:revision] || question["revision"]
+    }
 
   defp pending(_), do: nil
 
@@ -161,9 +188,14 @@ defmodule AtlasRuntime.Inspection.Reads do
       {:ok, file} ->
         try do
           case IO.binread(file, @answer_bytes + 1) do
-            :eof -> {"", false}
-            text when byte_size(text) > @answer_bytes -> {utf8_prefix(binary_part(text, 0, @answer_bytes)), true}
-            text -> {text, false}
+            :eof ->
+              {"", false}
+
+            text when byte_size(text) > @answer_bytes ->
+              {utf8_prefix(binary_part(text, 0, @answer_bytes)), true}
+
+            text ->
+              {text, false}
           end
         after
           File.close(file)

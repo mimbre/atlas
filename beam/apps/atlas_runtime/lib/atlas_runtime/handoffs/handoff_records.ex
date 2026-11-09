@@ -19,7 +19,7 @@ defmodule AtlasRuntime.HandoffRecords do
   def submit(dir, events, run, declaration) do
     unless is_map(run) and text_match?(run["worker_id"], @worker) and
              text_match?(run["turn_id"], @turn),
-      do: raise(ArgumentError, "Invalid handoff worker or turn")
+           do: raise(ArgumentError, "Invalid handoff worker or turn")
 
     validate_declaration!(declaration)
 
@@ -88,8 +88,12 @@ defmodule AtlasRuntime.HandoffRecords do
 
       names =
         case File.ls(turns) do
-          {:ok, names} -> names
-          {:error, :enoent} -> []
+          {:ok, names} ->
+            names
+
+          {:error, :enoent} ->
+            []
+
           {:error, reason} ->
             raise File.Error, reason: reason, action: "read handoff turns", path: turns
         end
@@ -107,9 +111,10 @@ defmodule AtlasRuntime.HandoffRecords do
   end
 
   defp publish(dir, events, %{"published" => true} = record) do
-    retained = Enum.any?(events["events"], fn event ->
-      event["kind"] == "handoff_submitted" and event["turn_id"] == record["turn_id"]
-    end)
+    retained =
+      Enum.any?(events["events"], fn event ->
+        event["kind"] == "handoff_submitted" and event["turn_id"] == record["turn_id"]
+      end)
 
     events = if retained, do: ExecutionEvents.append_handoff(dir, events, record), else: events
     {record, events}
@@ -142,9 +147,15 @@ defmodule AtlasRuntime.HandoffRecords do
 
   defp check_type(path, type) do
     case File.lstat(path) do
-      {:error, :enoent} -> :ok
-      {:ok, %{type: ^type, links: links}} when type != :regular or links == 1 -> :ok
-      {:ok, _} -> raise("Invalid handoff storage path")
+      {:error, :enoent} ->
+        :ok
+
+      {:ok, %{type: ^type, links: links}} when type != :regular or links == 1 ->
+        :ok
+
+      {:ok, _} ->
+        raise("Invalid handoff storage path")
+
       {:error, reason} ->
         raise File.Error, reason: reason, action: "inspect handoff path", path: path
     end
@@ -168,7 +179,9 @@ defmodule AtlasRuntime.HandoffRecords do
     valid =
       is_map(declaration) and declaration["kind"] in ["completion", "pull_request"] and
         Enum.sort(Map.keys(declaration)) ==
-          Enum.sort(@fields ++ if(declaration["kind"] == "pull_request", do: ["pr_url"], else: [])) and
+          Enum.sort(
+            @fields ++ if(declaration["kind"] == "pull_request", do: ["pr_url"], else: [])
+          ) and
         text?(declaration["branch"], 255) and text?(declaration["result"], 4096) and
         text_match?(declaration["base_sha"], @sha) and text_match?(declaration["head_sha"], @sha) and
         Enum.all?(~w(verification limits remaining_processes), &entries?(declaration[&1]))
@@ -179,7 +192,7 @@ defmodule AtlasRuntime.HandoffRecords do
 
     if declaration["kind"] == "pull_request" and
          pull_request_identity(declaration["pr_url"]) != repository,
-      do: raise(ArgumentError, "Handoff PR URL must match its GitHub repository")
+       do: raise(ArgumentError, "Handoff PR URL must match its GitHub repository")
 
     if byte_size(JSON.encode!(declaration)) > @max_declaration_bytes,
       do: raise(ArgumentError, "Oversized handoff declaration")
@@ -190,22 +203,27 @@ defmodule AtlasRuntime.HandoffRecords do
   defp bind_repository!(nil, _declaration), do: :ok
 
   defp bind_repository!(repository, declaration) when is_map(repository) do
-    Enum.each([{"url", "repository_url"}, {"branch", "branch"}, {"base_sha", "base_sha"}], fn {saved, field} ->
-      if Map.has_key?(repository, saved) do
-        matches =
-          if saved == "url" do
-            identity = repository_identity(repository[saved])
-            not is_nil(identity) and identity == repository_identity(declaration[field])
-          else
-            repository[saved] == declaration[field]
-          end
+    Enum.each(
+      [{"url", "repository_url"}, {"branch", "branch"}, {"base_sha", "base_sha"}],
+      fn {saved, field} ->
+        if Map.has_key?(repository, saved) do
+          matches =
+            if saved == "url" do
+              identity = repository_identity(repository[saved])
+              not is_nil(identity) and identity == repository_identity(declaration[field])
+            else
+              repository[saved] == declaration[field]
+            end
 
-        unless matches, do: raise(ArgumentError, "Handoff #{field} does not match saved repository")
+          unless matches,
+            do: raise(ArgumentError, "Handoff #{field} does not match saved repository")
+        end
       end
-    end)
+    )
   end
 
-  defp bind_repository!(_, _), do: raise(StorageError, message: "Invalid saved handoff repository")
+  defp bind_repository!(_, _),
+    do: raise(StorageError, message: "Invalid saved handoff repository")
 
   defp repository_identity(value) do
     case captures(value, @repository) do
@@ -227,15 +245,19 @@ defmodule AtlasRuntime.HandoffRecords do
   end
 
   defp captures(value, regex) do
-    if is_binary(value) and String.valid?(value), do: Regex.run(regex, value, capture: :all_but_first)
+    if is_binary(value) and String.valid?(value),
+      do: Regex.run(regex, value, capture: :all_but_first)
   end
 
   defp entries?(entries) when is_list(entries) and length(entries) <= 16,
     do: Enum.all?(entries, &text?(&1, 1024))
+
   defp entries?(_), do: false
 
   defp text?(value, max),
-    do: is_binary(value) and byte_size(value) in 1..max and String.valid?(value) and String.trim(value) != ""
+    do:
+      is_binary(value) and byte_size(value) in 1..max and String.valid?(value) and
+        String.trim(value) != ""
 
   defp text_match?(value, regex),
     do: is_binary(value) and String.valid?(value) and Regex.match?(regex, value)

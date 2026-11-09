@@ -144,8 +144,8 @@ defmodule AtlasRuntime.Persistence.History do
       events =
         if {worker.run[:id], worker.run.state} != {old[:id], old.state} and
              worker.run.state not in ["stopping", "killing"],
-          do: ExecutionEvents.append(dir, events, worker.run),
-          else: events
+           do: ExecutionEvents.append(dir, events, worker.run),
+           else: events
 
       {events, workers}
     end)
@@ -199,7 +199,8 @@ defmodule AtlasRuntime.Persistence.History do
 
   def release_latch!(dir, worker_id), do: File.rm!(latch_path(dir, worker_id))
 
-  defp latch_path(dir, worker_id), do: Path.join([dir, "workers", worker_id, "admission-latch.json"])
+  defp latch_path(dir, worker_id),
+    do: Path.join([dir, "workers", worker_id, "admission-latch.json"])
 
   @doc "A late Server report on a saved turn: kept only for its exact attempt."
   def server_report(dir, turn, attempt, report) do
@@ -207,8 +208,13 @@ defmodule AtlasRuntime.Persistence.History do
 
     with true <- valid_id?(turn),
          {:ok, bytes} <- File.read(path),
-         {:ok, %{"id" => ^turn, "server" => %{"attempt" => ^attempt} = server} = run} <- JSON.decode(bytes) do
-      File.write!(path <> ".tmp", JSON.encode!(Map.put(run, "server", Map.put(server, "report", report))))
+         {:ok, %{"id" => ^turn, "server" => %{"attempt" => ^attempt} = server} = run} <-
+           JSON.decode(bytes) do
+      File.write!(
+        path <> ".tmp",
+        JSON.encode!(Map.put(run, "server", Map.put(server, "report", report)))
+      )
+
       File.rename!(path <> ".tmp", path)
     end
 
