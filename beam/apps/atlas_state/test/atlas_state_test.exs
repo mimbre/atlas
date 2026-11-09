@@ -308,7 +308,7 @@ defmodule AtlasStateTest do
 
     older =
       "rela does not know ghost: its description is older than this build; " <>
-        "run atlas restart --env #{AtlasBus.environment()}"
+        "run atlas-ops restart --env #{AtlasBus.environment()}"
 
     assert %{"error" => ^older, "error_kind" => "answered"} = read("ghost")
     assert %{"error" => ^older} = read("ghost", %{"key" => "G-1"})
