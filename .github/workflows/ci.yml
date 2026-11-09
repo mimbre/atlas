@@ -1,3 +1,21 @@
+# CI tests a tree once (docs/guides/prod.md, "CI tests a tree once"). Job tested-tree
+# computes this run's git tree and base key (the blob of CI_BASE_FILE at CI_BASE). On a push
+# to develop or master, and on a pull request into master, it looks for the records of
+# successful runs of this workflow (artifacts tested-tree-<tree> and
+# tested-base-<tree>-<base key>, tools/ci/tested-tree.mjs). With the first, the test jobs
+# are skipped; with both, the base job too. The deploys still run.
+#
+# A new test job joins the scheme with these two lines:
+#     needs: tested-tree
+#     if: ${{ !cancelled() && needs.tested-tree.outputs.tested != 'true' }}
+# and its id in record-tested-tree's needs (and in a deploy's needs when that deploy waits
+# for it). A job whose result depends on the base as well as the tree is a base job instead:
+#     if: ${{ !cancelled() && needs.tested-tree.outputs.base_tested != 'true' }}
+# and its id in record-tested-base's needs. Exempt from both: tested-tree, the two record
+# jobs (they keep the implicit success() condition), and every job named deploy-*, which
+# needs tested-tree and keeps the four clauses of its if (no failure, no cancel, skipped
+# only when tested). tested-tree runs tools/ci/tested-tree.mjs check-workflow on this file:
+# CI fails while a job is outside the scheme, so nothing is recorded without that job.
 name: CI
 
 on:
@@ -5,9 +23,51 @@ on:
     branches: [develop, master]
   pull_request:
 
+# The base a base job checks against: a pull request's base branch, or a push's branch as it
+# was before the push.
+env:
+  CI_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event.before }}
+  CI_BASE_FILE: model/targets/proof/digests.json
+
 jobs:
+  tested-tree:
+    name: Tree tested before?
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      tree: ${{ steps.find.outputs.tree }}
+      base_key: ${{ steps.find.outputs.base_key }}
+      tested: ${{ steps.find.outputs.tested }}
+      run_id: ${{ steps.find.outputs.run_id }}
+      base_tested: ${{ steps.find.outputs.base_tested }}
+      base_run_id: ${{ steps.find.outputs.base_run_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The base commit, for the base key.
+          fetch-depth: 0
+      - name: Every job is in the scheme, and the lookup's own tests pass
+        run: |
+          node tools/ci/tested-tree.mjs check-workflow .github/workflows/ci.yml
+          node --test tools/ci/tested-tree.test.mjs
+      # Neither step fails: without a trusted record everything runs.
+      - name: This tree and base key
+        id: keys
+        run: node tools/ci/tested-tree.mjs keys
+      - name: Look for the records of this tree
+        id: find
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TREE: ${{ steps.keys.outputs.tree }}
+          BASE_KEY: ${{ steps.keys.outputs.base_key }}
+        run: node tools/ci/tested-tree.mjs find
+
   generator:
     name: Spec generator on its own
+    needs: tested-tree
+    if: ${{ !cancelled() && needs.tested-tree.outputs.tested != 'true' }}
     runs-on: ubuntu-latest
     env:
       MIX_ENV: test
@@ -33,6 +93,8 @@ jobs:
 
   contract:
     name: Contract and its file targets
+    needs: tested-tree
+    if: ${{ !cancelled() && needs.tested-tree.outputs.tested != 'true' }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -59,6 +121,8 @@ jobs:
 
   model-dsl:
     name: Rela DSL on its own
+    needs: tested-tree
+    if: ${{ !cancelled() && needs.tested-tree.outputs.tested != 'true' }}
     runs-on: ubuntu-latest
     env:
       MIX_ENV: test
@@ -84,6 +148,8 @@ jobs:
 
   model-contract:
     name: The model and its file targets
+    needs: tested-tree
+    if: ${{ !cancelled() && needs.tested-tree.outputs.tested != 'true' }}
     runs-on: ubuntu-latest
     env:
       # The pinned rela: --check validates flows.yaml with it and redraws the diagrams,
@@ -94,9 +160,6 @@ jobs:
         working-directory: model/contract
     steps:
       - uses: actions/checkout@v4
-        with:
-          # --base reads the base branch's digests.json.
-          fetch-depth: 0
       # The model names roles, never people (D-0083, slice 7): an owner is {kind, config:
       # role}, and each environment's settings say who fills the role (`actors`).
       - name: The model names no person
@@ -120,13 +183,50 @@ jobs:
       - run: mix format --check-formatted
       # Fails when a file of the Rela project (rela/) or of model/targets differs from what
       # the model generates, is missing or left over, or when rela refuses the generated
-      # description; and when a subflow's run identity changed without a migration the
-      # base branch can approve (its digests.json).
-      - run: mix model.gen --check --base origin/${{ github.base_ref || 'develop' }}
+      # description. The run identities against the base: job model-base.
+      - run: mix model.gen --check
       - run: mix test
+
+  # A base job: its result depends on the tree and on the base's digests.json, so it is
+  # recorded per base key and skipped only when this tree passed against the same file.
+  model-base:
+    name: The model's run identities against the base
+    needs: tested-tree
+    if: ${{ !cancelled() && needs.tested-tree.outputs.base_tested != 'true' }}
+    runs-on: ubuntu-latest
+    outputs:
+      tree: ${{ steps.keys.outputs.tree }}
+      base_key: ${{ steps.keys.outputs.base_key }}
+      base_commit: ${{ steps.keys.outputs.base_commit }}
+    defaults:
+      run:
+        working-directory: model/contract
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # --base reads the base's digests.json.
+          fetch-depth: 0
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28"
+          elixir-version: "1.18"
+      - name: This tree and base key
+        id: keys
+        run: node tools/ci/tested-tree.mjs keys
+        working-directory: .
+      # Fails when a subflow's run identity changed without a migration the base can
+      # approve (its digests.json). record-tested-base keys its record on what this job checked.
+      - name: The run identities against the base
+        env:
+          BASE: ${{ steps.keys.outputs.base_commit }}
+        run: |
+          [ -n "$BASE" ] || { echo "::error::The base $CI_BASE is no commit of this repository"; exit 1; }
+          mix model.gen --check --base "$BASE"
 
   beam:
     name: Bus, Facts, Control
+    needs: tested-tree
+    if: ${{ !cancelled() && needs.tested-tree.outputs.tested != 'true' }}
     runs-on: ubuntu-latest
     env:
       MIX_ENV: test
@@ -154,6 +254,8 @@ jobs:
 
   tui:
     name: TUI
+    needs: tested-tree
+    if: ${{ !cancelled() && needs.tested-tree.outputs.tested != 'true' }}
     runs-on: ubuntu-latest
     env:
       MIX_ENV: test
@@ -172,6 +274,8 @@ jobs:
 
   agent:
     name: Agents' command line and migration
+    needs: tested-tree
+    if: ${{ !cancelled() && needs.tested-tree.outputs.tested != 'true' }}
     runs-on: ubuntu-latest
     env:
       MIX_ENV: test
@@ -189,6 +293,8 @@ jobs:
 
   e2e:
     name: End to end (rela, core, two TUIs)
+    needs: tested-tree
+    if: ${{ !cancelled() && needs.tested-tree.outputs.tested != 'true' }}
     runs-on: ubuntu-latest
     env:
       TERM: xterm-256color
@@ -230,15 +336,80 @@ jobs:
           name: e2e-screens
           path: e2e/artifacts
 
+  # Every test job passed on this tree: record it, so a later run on the same tree (develop
+  # after integration, the release pull request, master) skips its tests. Only when this
+  # run tested it itself, and never from a fork.
+  record-tested-tree:
+    name: Record the tested tree
+    needs: [tested-tree, generator, contract, model-dsl, model-contract, beam, tui, agent, e2e]
+    if: >-
+      needs.tested-tree.outputs.tested != 'true' && needs.tested-tree.outputs.tree != ''
+      && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Write the record
+        env:
+          TREE: ${{ needs.tested-tree.outputs.tree }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/tested-tree"
+          jq -n --arg tree "$TREE" --arg sha "$GITHUB_SHA" --arg ref "$GITHUB_REF" --arg event "$GITHUB_EVENT_NAME" \
+            --argjson run_id "$GITHUB_RUN_ID" --argjson attempt "$GITHUB_RUN_ATTEMPT" \
+            '{tree: $tree, run_id: $run_id, attempt: $attempt, sha: $sha, ref: $ref, event: $event}' \
+            > "$RUNNER_TEMP/tested-tree/record.json"
+          echo "recorded: tree $TREE passed in run $GITHUB_RUN_ID" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tested-tree-${{ needs.tested-tree.outputs.tree }}
+          path: ${{ runner.temp }}/tested-tree/record.json
+          if-no-files-found: error
+          overwrite: true
+
+  # The base job passed: record this tree against the base key it checked.
+  record-tested-base:
+    name: Record the tree checked against its base
+    needs: [tested-tree, model-base]
+    if: >-
+      needs.model-base.outputs.tree != '' && needs.model-base.outputs.base_key != ''
+      && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Write the record
+        env:
+          TREE: ${{ needs.model-base.outputs.tree }}
+          BASE_KEY: ${{ needs.model-base.outputs.base_key }}
+          BASE_COMMIT: ${{ needs.model-base.outputs.base_commit }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/tested-base"
+          jq -n --arg tree "$TREE" --arg base_key "$BASE_KEY" --arg base_commit "$BASE_COMMIT" --arg sha "$GITHUB_SHA" --arg ref "$GITHUB_REF" \
+            --argjson run_id "$GITHUB_RUN_ID" --argjson attempt "$GITHUB_RUN_ATTEMPT" \
+            '{tree: $tree, base_key: $base_key, base_commit: $base_commit, run_id: $run_id, attempt: $attempt, sha: $sha, ref: $ref}' \
+            > "$RUNNER_TEMP/tested-base/record.json"
+          echo "recorded: tree $TREE passed against base file $BASE_KEY in run $GITHUB_RUN_ID" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tested-base-${{ needs.model-base.outputs.tree }}-${{ needs.model-base.outputs.base_key }}
+          path: ${{ runner.temp }}/tested-base/record.json
+          if-no-files-found: error
+          overwrite: true
+
   # A merge deploys its environment on Fly (d-0014): develop deploys test (IS-Atlas-26),
-  # master deploys prod (IS-Atlas-79), once every check above passed. fly/deploy.sh first
-  # checks that this build's description describes the data rela holds there (else it
-  # deploys nothing), then deploys rela and the core, then runs the smoke check, which
-  # reads only. Each app has its own deploy token (fly tokens create deploy -a <app>).
+  # master deploys prod (IS-Atlas-79), once every check above passed, or was skipped because
+  # this tree passed them before (tested-tree). fly/deploy.sh first checks that this build's
+  # description describes the data rela holds there (else it deploys nothing), then deploys
+  # rela and the core, then runs the smoke check, which reads only. Each app has its own
+  # deploy token (fly tokens create deploy -a <app>).
   deploy-test:
     name: Deploy test on Fly, and a smoke check
-    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
-    needs: [generator, contract, model-dsl, model-contract, beam, tui, agent]
+    needs: [tested-tree, generator, contract, model-dsl, model-contract, model-base, beam, tui, agent]
+    if: >-
+      ${{ !cancelled()
+      && github.event_name == 'push' && github.ref == 'refs/heads/develop'
+      && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
+      && (needs.tested-tree.outputs.tested == 'true' || !contains(needs.*.result, 'skipped')) }}
     runs-on: ubuntu-latest
     env:
       ATLAS_RELA_BIN: ${{ github.workspace }}/.rela-bin
@@ -270,8 +441,12 @@ jobs:
 
   deploy-prod:
     name: Deploy prod on Fly, and a smoke check
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-    needs: [generator, contract, model-dsl, model-contract, beam, tui, agent, e2e]
+    needs: [tested-tree, generator, contract, model-dsl, model-contract, model-base, beam, tui, agent, e2e]
+    if: >-
+      ${{ !cancelled()
+      && github.event_name == 'push' && github.ref == 'refs/heads/master'
+      && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
+      && (needs.tested-tree.outputs.tested == 'true' || !contains(needs.*.result, 'skipped')) }}
     runs-on: ubuntu-latest
     env:
       ATLAS_RELA_BIN: ${{ github.workspace }}/.rela-bin

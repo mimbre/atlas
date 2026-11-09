@@ -32,6 +32,8 @@ Test deployment waits for the focused generator, contract, core, TUI and agent j
 not the full native end-to-end suite. End-to-end checks still run independently;
 production deployment continues to require them. Data compatibility checks, paired
 deployment serialization and the deployed read-only smoke remain mandatory.
+When the merged tree already passed every test job (on its pull request), those jobs are
+skipped and test deploys right away; see `docs/guides/prod.md`, "CI tests a tree once".
 
 1. On rela's machine, on a copy of its data: does this build's description describe all of it? When it does not, nothing is deployed and test keeps its build; that data needs a migration first (below).
 2. rela, then the core.
