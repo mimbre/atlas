@@ -22,6 +22,34 @@ again. Ctrl-C stops the viewer, never Runtime.
 Requires Elixir 1.18 and OTP's `inets` and `crypto` applications; there are no Hex
 dependencies.
 
+## Focused tests in a worker folder
+
+From `atlas/clients/viewer` in a prepared assignment folder, use the worker's owned
+`TMPDIR` for build output:
+
+```sh
+MIX_BUILD_PATH="$TMPDIR/viewer-build" mix test test/read_client_test.exs
+MIX_BUILD_PATH="$TMPDIR/viewer-build" mix test test/atlas_viewer_test.exs
+MIX_BUILD_PATH="$TMPDIR/viewer-build" mix test test/atlas_viewer_test.exs
+```
+
+The first file checks pure request validation. The second starts an ephemeral loopback
+HTTP server and synthetic Unix-socket listeners; repeat it to check fixture cleanup.
+ExUnit owns the listeners and stops them before exit callbacks stop HTTP and remove
+the fixture directory. Directory cleanup is registered before creating files or starting
+HTTP; HTTP cleanup is registered immediately after startup, so later setup failures
+also clean up. No live Runtime or Code, Hex dependencies, npm installation or asset
+build is needed; HTTP tests create their own static fixtures. The npm preparation
+described below is for asset work.
+
+Run these commands within the existing worker permissions. With Mix 1.18.4, even the
+pure file needs a TCP socket for Mix.PubSub before tests start. In the step12 worker
+sandbox, with loopback networking and Unix sockets allowed inside the worker's private
+temp directory (which contains `TMPDIR`), all three commands exit 0: 2 tests and twice
+5 tests, 0 failures, with no `avw-*` fixture directories left behind. Without the
+Unix-socket allowance the listener fixtures fail with `{:error, :eperm}`. Record the exact
+failure if blocked; do not broaden permissions or disable sandbox checks to run tests.
+
 ## What it shows
 
 - **Live / reconnecting.** Polls every two seconds. When the viewer backend or Runtime is

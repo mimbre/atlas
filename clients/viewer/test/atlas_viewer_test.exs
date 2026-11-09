@@ -8,6 +8,11 @@ defmodule AtlasViewerTest do
         "avw-#{Base.encode16(:crypto.strong_rand_bytes(4), case: :lower)}"
       )
 
+    on_exit(fn ->
+      File.rm_rf!(dir)
+      refute File.exists?(dir)
+    end)
+
     home = Path.join(dir, "home")
     static = Path.join(dir, "static")
     File.mkdir_p!(home)
@@ -22,8 +27,10 @@ defmodule AtlasViewerTest do
     {:ok, pid, port, token} = AtlasViewer.start(home: home, static: static, read_ms: 300)
 
     on_exit(fn ->
-      AtlasViewer.stop(pid)
-      File.rm_rf!(dir)
+      monitor = Process.monitor(pid)
+      :ok = AtlasViewer.stop(pid)
+      assert_receive {:DOWN, ^monitor, :process, ^pid, _}
+      refute Process.alive?(pid)
     end)
 
     %{home: home, port: port, token: token, dir: dir}
@@ -34,30 +41,64 @@ defmodule AtlasViewerTest do
   defp listen(path, reply) do
     test = self()
 
-    spawn_link(fn ->
-      {:ok, listener} =
-        :gen_tcp.listen(0, [:binary, ifaddr: {:local, path}, packet: :line, active: false])
+    id = make_ref()
 
-      send(test, :listening)
-      serve(listener, test, path, reply)
-    end)
+    pid =
+      start_supervised!(
+        {Task,
+         fn ->
+           {:ok, listener} =
+             :gen_tcp.listen(0, [:binary, ifaddr: {:local, path}, packet: :line, active: false])
 
-    assert_receive :listening
+           try do
+             send(test, {:listening, self()})
+             serve(listener, test, path, reply)
+           after
+             :gen_tcp.close(listener)
+           end
+         end},
+        id: id
+      )
+
+    # ExUnit stops supervised children before on_exit, closing their owned sockets too.
+    on_exit(fn -> refute Process.alive?(pid) end)
+    assert_receive {:listening, ^pid}
+    {id, pid, path}
+  end
+
+  defp stop_listener({id, pid, path}) do
+    stop_supervised!(id)
+    refute Process.alive?(pid)
+    File.rm!(path)
   end
 
   defp serve(listener, test, path, reply) do
     {:ok, socket} = :gen_tcp.accept(listener)
-    {:ok, line} = :gen_tcp.recv(socket, 0, 1000)
-    send(test, {:received, Path.basename(path), JSON.decode!(line)})
-    if reply != :silent, do: :gen_tcp.send(socket, reply.(line) <> "\n")
-    if reply == :silent, do: Process.sleep(1000)
-    :gen_tcp.close(socket)
+
+    try do
+      {:ok, line} = :gen_tcp.recv(socket, 0, 1000)
+      send(test, {:received, Path.basename(path), JSON.decode!(line)})
+      if reply != :silent, do: :gen_tcp.send(socket, reply.(line) <> "\n")
+      if reply == :silent, do: Process.sleep(1000)
+    after
+      :gen_tcp.close(socket)
+    end
+
     serve(listener, test, path, reply)
   end
 
   # Raw HTTP, so Host and Origin are exactly what the test says.
   defp http(port, method, path, headers, body \\ "") do
     {:ok, socket} = :gen_tcp.connect({127, 0, 0, 1}, port, [:binary, active: false])
+
+    try do
+      http_response(socket, method, path, headers, body)
+    after
+      :gen_tcp.close(socket)
+    end
+  end
+
+  defp http_response(socket, method, path, headers, body) do
     lines = Enum.map(headers, fn {k, v} -> "#{k}: #{v}\r\n" end)
 
     :ok =
@@ -169,16 +210,18 @@ defmodule AtlasViewerTest do
     assert {503, _, %{"viewer_error" => %{"code" => "runtime_unreachable"}}} =
              api(context, %{"op" => "workers"})
 
-    listen(path, fn _ -> ~s({"api":"runtime.read/1","op":"workers","workers":[]}) end)
+    listener =
+      listen(path, fn _ -> ~s({"api":"runtime.read/1","op":"workers","workers":[]}) end)
+
     assert {200, _, %{"workers" => []}} = api(context, %{"op" => "workers"})
 
-    File.rm!(path)
-    listen(path, :silent)
+    stop_listener(listener)
+    listener = listen(path, :silent)
 
     assert {504, _, %{"viewer_error" => %{"code" => "read_timeout"}}} =
              api(context, %{"op" => "workers"})
 
-    File.rm!(path)
+    stop_listener(listener)
     listen(path, fn _ -> "not json" end)
 
     assert {502, _, %{"viewer_error" => %{"code" => "bad_reply"}}} =
