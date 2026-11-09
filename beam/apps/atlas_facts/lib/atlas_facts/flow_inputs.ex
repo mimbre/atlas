@@ -102,32 +102,6 @@ defmodule AtlasFacts.FlowInputs do
     end
   end
 
-  def validate(_d, nil), do: :ok
-
-  def validate(d, c) do
-    spec = Description.kind(d, c["kind"])
-
-    valid =
-      Map.keys(c) |> Enum.sort() == ~w(acl fields kind roles) and
-        Map.keys(c["fields"]) |> Enum.sort() == Enum.sort(@fields) and
-        length(Enum.uniq(Map.values(c["fields"]))) == length(@fields) and
-        Enum.all?(c["fields"], fn {slot, field} ->
-          type = if slot in ~w(entry generation position), do: "integer", else: "string"
-          get_in(spec, ["properties", field, "type"]) == type
-        end) and
-        Enum.sort(Map.keys(c["roles"])) == Enum.sort(Map.keys(c["acl"])) and
-        Enum.all?(c["roles"], fn {role, relation} ->
-          is_binary(role) and is_map(c["acl"][role]) and
-            Map.keys(c["acl"][role]) == ["update"] and is_list(c["acl"][role]["update"]) and
-            is_map(d["relations"][relation]) and
-            Enum.all?(c["acl"][role]["update"] || [], &(&1 in d["relations"][relation]["from"]))
-        end)
-
-    if valid, do: :ok, else: {:error, :invalid_input_mapping}
-  rescue
-    _ -> {:error, :invalid_input_mapping}
-  end
-
   def read(rela, d, e, %{"run" => run_key}, now, position, write) do
     with true <- e.sender == d["flow_runtime"]["writer"]["sender"],
          {:ok, run} <- run(rela, d, run_key),

@@ -201,10 +201,14 @@ defmodule AtlasControl.ConsoleTest do
     s = connect(port, %{"surface" => "console", "client" => "agent"})
     assert %{"op" => "welcome", "surface" => "console"} = read(s)
     read(s)
+    # Who may link is the model's rule, checked by Facts: the agent's write goes as the
+    # agent's own, linking only itself, never as the member at the TUI; Facts refuses it.
+    FakeStore.refuse("W-1", "agent is not a member")
     put(s, %{"op" => "submit", "to" => "/k/widget/W-1/set/approved_by", "values" => %{}})
-    assert %{"op" => "notice", "text" => text} = read(s)
-    assert text =~ "only a member approves"
-    assert FakeStore.sent() == []
+    assert %{"op" => "notice", "text" => "Sent to Facts" <> _} = read(s)
+    # The page comes back refused once Facts (the store) has answered the write.
+    assert %{"reason" => "refused"} = page(s)
+    assert [%{"by" => "agent", "links" => %{"approved_by" => ["agent"]}}] = FakeStore.sent()
   end
 
   test "failed projection declines Console before welcome without affecting legacy" do

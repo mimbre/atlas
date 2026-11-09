@@ -4,57 +4,65 @@ defmodule AtlasFacts.GuidanceVisibilityTest do
   alias AtlasFacts.CountingRela
   @moduletag :tmp_dir
 
-  defp schema do
-    roles = %{
-      "execution" =>
-        ~w(environment worker turn attempt machine harness harness_version configured_model reported_model capability_version queued_input durable_accept_query consumption_evidence recorded_at recorded_position),
-      "interaction" =>
-        ~w(environment actor client_key body body_digest worker turn attempt mode execution cause recorded_at recorded_position),
-      "receipt" =>
-        ~w(environment interaction worker turn attempt execution stage evidence_id admission_id consumption_id reason writer cause recorded_at recorded_position)
-    }
-
-    mapping =
-      Map.new(roles, fn {role, fields} ->
-        {role,
-         %{"kind" => "synthetic_" <> role, "fields" => Map.new(fields, &{&1, "slot_" <> &1})}}
-      end)
-
-    entities =
-      Map.new(mapping, fn {role, spec} ->
-        properties =
-          Map.new(spec["fields"], fn {slot, field} ->
-            type =
-              cond do
-                slot in ~w(queued_input durable_accept_query consumption_evidence) -> "boolean"
-                slot == "recorded_position" -> "integer"
-                true -> "string"
-              end
-
-            {field, %{"type" => type}}
-          end)
-
-        {spec["kind"], %{"plural" => role <> "s", "properties" => properties}}
-      end)
-
-    CountingRela.schema()
-    |> Map.put("guidance", mapping)
-    |> Map.update!("entities", &Map.merge(&1, entities))
-    |> put_in(["entities", "run"], %{
-      "plural" => "runs",
-      "properties" => Map.new(~w(host fence status), &{&1, %{"type" => "string"}})
-    })
-    |> put_in(["relations", "performer"], %{"from" => ["run"], "to" => ["clerk"]})
-    |> Map.put("runtime", %{
-      "turn" => %{
-        "kind" => "run",
-        "machine" => "host",
-        "attempt" => "fence",
-        "by" => "performer",
-        "state" => "status",
-        "running" => "live"
+  defmodule Description do
+    @moduledoc false
+    def of do
+      roles = %{
+        "execution" =>
+          ~w(environment worker turn attempt machine harness harness_version configured_model reported_model capability_version queued_input durable_accept_query consumption_evidence recorded_at recorded_position),
+        "interaction" =>
+          ~w(environment actor client_key body body_digest worker turn attempt mode execution cause recorded_at recorded_position),
+        "receipt" =>
+          ~w(environment interaction worker turn attempt execution stage evidence_id admission_id consumption_id reason writer cause recorded_at recorded_position)
       }
-    })
+
+      mapping =
+        Map.new(roles, fn {role, fields} ->
+          {role,
+           %{"kind" => "synthetic_" <> role, "fields" => Map.new(fields, &{&1, "slot_" <> &1})}}
+        end)
+
+      entities =
+        Map.new(mapping, fn {role, spec} ->
+          properties =
+            Map.new(spec["fields"], fn {slot, field} ->
+              type =
+                cond do
+                  slot in ~w(queued_input durable_accept_query consumption_evidence) -> "boolean"
+                  slot == "recorded_position" -> "integer"
+                  true -> "string"
+                end
+
+              {field, %{"type" => type}}
+            end)
+
+          {spec["kind"], %{"plural" => role <> "s", "properties" => properties}}
+        end)
+
+      CountingRela.schema()
+      |> Map.put("guidance", mapping)
+      |> Map.update!("entities", &Map.merge(&1, entities))
+      |> put_in(["entities", "run"], %{
+        "plural" => "runs",
+        "properties" => Map.new(~w(host fence status), &{&1, %{"type" => "string"}})
+      })
+      |> put_in(["relations", "performer"], %{"from" => ["run"], "to" => ["clerk"]})
+      |> Map.put("runtime", %{
+        "turn" => %{
+          "kind" => "run",
+          "machine" => "host",
+          "attempt" => "fence",
+          "by" => "performer",
+          "state" => "status",
+          "running" => "live"
+        }
+      })
+    end
+  end
+
+  defmodule Guided do
+    @moduledoc "The counting kinds, with the guidance records and the turn."
+    use AtlasFacts.TestModel, description: AtlasFacts.GuidanceVisibilityTest.Description.of()
   end
 
   setup %{tmp_dir: dir} do
@@ -64,13 +72,14 @@ defmodule AtlasFacts.GuidanceVisibilityTest do
       "protocol-visibility-#{System.unique_integer([:positive])}"
     )
 
-    {:ok, backend} = CountingRela.start_link(0, schema: schema())
+    {:ok, backend} = CountingRela.start_link(0, schema: Guided.rela_schema())
     assert {:ok, []} = CountingRela.create(backend, "clerks", "worker-a", %{}, %{})
 
     server =
       start_supervised!(
         {AtlasFacts.Server,
          rela: {CountingRela, backend},
+         model: Guided,
          data_dir: dir,
          collection_clock: fn -> CountingRela.clock(backend) end}
       )
@@ -220,7 +229,7 @@ defmodule AtlasFacts.GuidanceVisibilityTest do
       |> Map.put("recorded_position", 999)
       |> Map.put("recorded_at", "2026-11-12T00:00:00Z")
 
-    fields = schema()["guidance"]["receipt"]["fields"]
+    fields = Guided.guidance()["receipt"]["fields"]
     props = Map.new(values, fn {slot, value} -> {Map.fetch!(fields, slot), value} end)
     assert {:ok, []} = CountingRela.create(c.backend, "receipts", "direct-closure", props, %{})
     :ok = AtlasFacts.Server.flush_collections(c.server)

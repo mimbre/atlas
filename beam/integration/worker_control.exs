@@ -22,8 +22,8 @@ case System.cmd("go", ["-C", "tools/runtime", "build", "-o", executable, "."],
   {output, _} -> raise("Building the Runtime CLI failed:\n#{output}")
 end
 
-# The model Control serves the synthetic kinds with: the same kinds, turn, guidance
-# records and flow as the description Facts' stand-in stores them by (below).
+# The model Control serves the synthetic kinds with, and Facts stores them by: the kinds,
+# turn, guidance records and flow; the private store serves its schema.
 defmodule WorkerControlModel.Kinds do
   @moduledoc false
   use RelaDSL
@@ -53,9 +53,22 @@ defmodule WorkerControlModel.Kinds do
     for f <- ~w(title step handover)a, do: field(f, :string)
   end
 
+  # The slots Facts keeps as a flag or a position; every other is text.
+  @flags ~w(queued_input durable_accept_query consumption_evidence)a
+
   for {kind, fields} <- @roles do
-    entity kind, label: to_string(kind), plural: "#{kind}s", id_type: :manual do
-      for f <- fields, do: field(f, :string)
+    entity kind,
+      label: to_string(kind),
+      plural: String.replace_prefix("#{kind}s", "synthetic_", ""),
+      id_type: :manual do
+      for f <- fields do
+        cond do
+          f in @flags -> field(f, :boolean)
+          f == :recorded_position -> field(f, :integer)
+          true -> field(f, :string)
+        end
+      end
+
       top(false)
       by_hand(false)
     end
@@ -133,101 +146,13 @@ defmodule WorkerControlTest do
   alias AtlasBFFContract.Wire.Control.Workers.Protocol, as: Wire
   @moduletag :tmp_dir
 
-  defp description do
-    roles = %{
-      "execution" =>
-        ~w(environment worker turn attempt machine harness harness_version configured_model reported_model capability_version queued_input durable_accept_query consumption_evidence recorded_at recorded_position),
-      "interaction" =>
-        ~w(environment actor client_key body body_digest worker turn attempt mode execution cause recorded_at recorded_position),
-      "receipt" =>
-        ~w(environment interaction worker turn attempt execution stage evidence_id admission_id consumption_id reason writer cause recorded_at recorded_position)
-    }
-
-    mapping =
-      Map.new(roles, fn {role, fields} ->
-        {role, %{"kind" => "synthetic_" <> role, "fields" => Map.new(fields, &{&1, &1})}}
-      end)
-
-    ordinary = %{
-      "reader" => {"readers", "H-", ~w(name)},
-      "operator" => {"operators", "W-", ~w(name)},
-      "run" => {"runs", "R-", ~w(host fence state activity lease outcome why ended_at)},
-      "ticket" => {"tickets", "T-", ~w(title step handover)}
-    }
-
-    entities =
-      Map.new(ordinary, fn {kind, {plural, prefix, fields}} ->
-        {kind,
-         %{
-           "plural" => plural,
-           "id_prefix" => prefix,
-           "properties" => Map.new(fields, &{&1, %{"type" => "string"}})
-         }}
-      end)
-
-    entities =
-      Enum.reduce(mapping, entities, fn {role, spec}, acc ->
-        properties =
-          Map.new(spec["fields"], fn {slot, field} ->
-            type =
-              cond do
-                slot in ~w(queued_input durable_accept_query consumption_evidence) -> "boolean"
-                slot == "recorded_position" -> "integer"
-                true -> "string"
-              end
-
-            {field, %{"type" => type}}
-          end)
-
-        Map.put(acc, spec["kind"], %{
-          "plural" => role <> "s",
-          "properties" => properties,
-          "top" => false,
-          "by_hand" => false
-        })
-      end)
-
-    %{
-      "entities" => entities,
-      "relations" => %{
-        "performer" => %{"from" => ["run"], "to" => ["operator"]},
-        "task" => %{"from" => ["run"], "to" => ["ticket"]},
-        "owner" => %{"from" => ["ticket"], "to" => ["operator"]}
-      },
-      "guidance" => mapping,
-      "runtime" => %{
-        "turn" => %{
-          "kind" => "run",
-          "machine" => "host",
-          "attempt" => "fence",
-          "by" => "performer",
-          "on" => "task",
-          "state" => "state",
-          "running" => "running",
-          "ended" => "ended",
-          "lease" => "lease",
-          "activity" => "activity",
-          "why" => "why",
-          "outcome" => "outcome"
-        }
-      },
-      "flows" => %{
-        "work" => %{
-          "kinds" => ["ticket"],
-          "state_field" => "step",
-          "handover_field" => "handover",
-          "owner_relation" => "owner",
-          "field" => "title",
-          "states" => [%{"name" => "work", "owner" => "W-1", "expected" => "work"}]
-        }
-      }
-    }
-  end
-
   setup %{tmp_dir: dir} = context do
     previous_store = Application.get_env(:atlas_bus, :store)
     Application.put_env(:atlas_bus, :store, "worker-proof-#{System.unique_integer([:positive])}")
-    {:ok, backend} = GuidanceStore.start(Path.join(dir, "facts.json"), description())
+
+    {:ok, backend} =
+      GuidanceStore.start(Path.join(dir, "facts.json"), WorkerControlModel.rela_schema())
+
     rela = {GuidanceStore, backend}
 
     for actor <- ["H-1", "H-2", "H-3"] do
@@ -256,7 +181,8 @@ defmodule WorkerControlTest do
         %{"performer" => {"operator", ["W-1"]}, "task" => {"ticket", ["T-1"]}}
       )
 
-    server = start_supervised!({AtlasFacts.Server, rela: rela, data_dir: dir})
+    server =
+      start_supervised!({AtlasFacts.Server, rela: rela, data_dir: dir, model: WorkerControlModel})
 
     {:stored, %{"fact" => execution}} =
       bus("runtime@box", "synthetic_execution", %{
@@ -284,9 +210,13 @@ defmodule WorkerControlTest do
        model: WorkerControlModel,
        settings: %{
          "tabs" => [%{"id" => "workers", "label" => "Workers", "to" => "/workers"}],
-         "workers" => %{"read" => %{"actors" => ["H-1", "H-2"]}, "submit" => %{"actors" => ["H-1"]}}
+         "workers" => %{
+           "read" => %{"actors" => ["H-1", "H-2"]},
+           "submit" => %{"actors" => ["H-1"]}
+         }
        }}
     )
+
     port = AtlasControl.Gateway.port(:worker_proof_gateway)
 
     on_exit(fn ->
@@ -470,7 +400,8 @@ defmodule WorkerControlTest do
              guidance_every: :manual,
              ownership: %{"owner_relation" => "owner"},
              # The guidance records, as a model gives them to the engine's turns.
-             guidance_mapping: Map.take(description()["guidance"], ~w(execution interaction receipt))
+             guidance_mapping:
+               Map.take(WorkerControlModel.guidance(), ~w(execution interaction receipt))
            }},
           restart: :temporary
         )

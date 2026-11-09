@@ -12,15 +12,13 @@ url = System.fetch_env!("GATES_RELA_URL")
 root = Path.expand("../..", __DIR__)
 data = Path.join(System.tmp_dir!(), "atlas-gates-facts-#{System.unique_integer([:positive])}")
 
-{:ok, _facts} =
-  AtlasFacts.Server.start_link(
-    rela: {AtlasFacts.Rela.Http, url},
-    data_dir: data,
-    description_extra: Path.join(root, "rela/atlas.json")
-  )
-
-# Gates evaluates the model's gates (config :atlas, model:), here wired by hand.
+# Facts stores by, and Gates evaluates the gates of, the model (config :atlas, model:),
+# here wired by hand.
 Application.put_env(:atlas, :model, Model.AtlasEyra)
+
+{:ok, _facts} =
+  AtlasFacts.Server.start_link(rela: {AtlasFacts.Rela.Http, url}, data_dir: data)
+
 {:ok, facts} = AtlasGates.Facts.Bus.attach("gates")
 bytes = File.read!(file)
 evidence = JSON.decode!(bytes)

@@ -138,28 +138,8 @@ defmodule FlowGateProof do
     {:ok, [_]} = reconcile(ctx)
     refute FakeFacts.get("decision", "D-proof")["values"]["unverified"]
 
-    d = %{
-      "entities" => %{"decision" => %{}},
-      "relations" => %{
-        "based_on" => %{
-          "from" => ["issue"],
-          "to" => ["decision"],
-          "review" => [
-            %{
-              "field" => "status",
-              "value" => "superseded",
-              "label" => "Review: based on a superseded decision"
-            },
-            %{
-              "field" => "unverified",
-              "value" => true,
-              "label" => "Based on unverified decisions"
-            }
-          ]
-        }
-      }
-    }
-
+    # The review rules are the model's, compiled with it (relation reviews and the run
+    # mapping's): what Facts works out on a read.
     work = %{key: "IS-proof", properties: %{}, links: %{"based_on" => ["D-proof"]}}
 
     for {status, flag, label} <- [
@@ -173,8 +153,13 @@ defmodule FlowGateProof do
         links: %{}
       }
 
-      assert (AtlasFacts.Review.of(d, %{"decision" => [anchor]}, "issue", work) || %{})["label"] ==
-               label
+      list = fn
+        "decision" -> {:ok, [anchor]}
+        _ -> {:ok, []}
+      end
+
+      assert {:ok, [derived]} = Model.AtlasEyra.derived("issue", [work], %{"list" => list})
+      assert (derived["review"] || %{})["label"] == label
     end
   end
 end

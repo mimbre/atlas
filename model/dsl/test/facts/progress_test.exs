@@ -1,7 +1,7 @@
-defmodule AtlasFacts.ProgressTest do
+defmodule RelaDSL.Facts.ProgressTest do
   use ExUnit.Case, async: true
 
-  alias AtlasFacts.Progress
+  alias RelaDSL.Facts.Derived
 
   # Made-up kinds, two levels: a box holds crates, a crate holds jars. A jar says how far it
   # is in `phase`; a crate and a box in `group` while nothing is under them. A jar is
@@ -52,7 +52,7 @@ defmodule AtlasFacts.ProgressTest do
 
   defp plain_progress(kind, facts, lists) do
     {:ok, annotated} =
-      Progress.annotate(@description, kind, facts, fn of -> {:ok, lists[of] || []} end)
+      Derived.annotate(@description, kind, facts, fn of -> {:ok, lists[of] || []} end)
 
     Enum.map(annotated, & &1.progress)
   end
@@ -169,7 +169,7 @@ defmodule AtlasFacts.ProgressTest do
     ]
 
     {:ok, annotated} =
-      Progress.annotate(@description, "jar", jars, fn
+      Derived.annotate(@description, "jar", jars, fn
         "label" -> {:ok, [sent, draft, other]}
         _ -> {:ok, []}
       end)
@@ -183,7 +183,7 @@ defmodule AtlasFacts.ProgressTest do
     refute Map.has_key?(hd(annotated), :progress)
 
     {:ok, [crate]} =
-      Progress.annotate(@description, "crate", [fact("C-1", %{}, %{"signed_by" => ["K-1"]})], fn
+      Derived.annotate(@description, "crate", [fact("C-1", %{}, %{"signed_by" => ["K-1"]})], fn
         _ -> {:ok, []}
       end)
 
@@ -204,7 +204,7 @@ defmodule AtlasFacts.ProgressTest do
     jars = [fact("J-1", %{"phase" => "draft"}), fact("J-2", %{"phase" => "draft"})]
 
     {:ok, [one, two]} =
-      Progress.annotate(description, "jar", jars, fn
+      Derived.annotate(description, "jar", jars, fn
         "label" -> {:ok, [pending, dropped]}
         _ -> {:ok, []}
       end)
@@ -223,7 +223,7 @@ defmodule AtlasFacts.ProgressTest do
     jars = [fact("J-1", %{"phase" => "draft"}, %{"in_crate" => ["C-1"]})]
 
     {:ok, [crate]} =
-      Progress.annotate(description, "crate", [fact("C-1", %{})], fn
+      Derived.annotate(description, "crate", [fact("C-1", %{})], fn
         "label" -> {:ok, [pending]}
         "jar" -> {:ok, jars}
         _ -> {:ok, []}
@@ -236,12 +236,12 @@ defmodule AtlasFacts.ProgressTest do
     facts = [fact("L-1", %{"state" => "sent"})]
 
     assert {:ok, ^facts} =
-             Progress.annotate(@description, "label", facts, fn _ -> raise "read" end)
+             Derived.annotate(@description, "label", facts, fn _ -> raise "read" end)
   end
 
   test "when the children cannot be read, neither can the progress" do
     assert {:error, :unavailable} =
-             Progress.annotate(@description, "crate", [fact("C-1", %{})], fn _ ->
+             Derived.annotate(@description, "crate", [fact("C-1", %{})], fn _ ->
                {:error, :unavailable}
              end)
   end
@@ -311,7 +311,7 @@ defmodule AtlasFacts.ProgressTest do
     review = fact("R-12", %{"state" => review_state}, %{"in_item" => ["I-1"]})
 
     {:ok, [annotated]} =
-      Progress.annotate(@reviewed, kind, [fact], fn
+      Derived.annotate(@reviewed, kind, [fact], fn
         "item" -> {:ok, [item()]}
         "review" -> {:ok, [review]}
         _ -> {:ok, []}

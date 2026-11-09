@@ -3,12 +3,12 @@ defmodule AtlasFlow.Engine do
   Flow's engine: keeps one process (`AtlasFlow.Item`) running for every open fact that a
   flow of the model runs on (`AtlasFlow.Model`, given as `model:` or configured).
 
-  - At boot, and on its own timer, it reads the description (its kinds and relations)
-    and every fact of each kind a flow runs on, and starts a process for each fact that
+  - At boot, and on its own timer, it reads rela's schema (its kinds) and every fact of
+    each kind a flow runs on, and starts a process for each fact that
     has none. A process stops
     by itself once its fact is done; reading again starts it when the fact opens again.
   - It listens to every kind. A hint pokes the processes of the fact it is about and of
-    every fact above it (through its parent links, read plainly from Facts), so those look
+    every fact above it (through the model's parent relations, read plainly from Facts), so those look
     again at once; one that has no process yet gets one. A hint about a delete pokes them
     all, since what was above it can no longer be read, and so does a new fact of a kind a
     flow assigns to (an owner that did not exist yet). A hint of Flow's own write is
@@ -51,7 +51,6 @@ defmodule AtlasFlow.Engine do
        flows: [],
        kinds: [],
        owners: [],
-       description: %{},
        listening: MapSet.new(),
        timer: nil
      }}
@@ -80,14 +79,14 @@ defmodule AtlasFlow.Engine do
       _ when all? ->
         for {_, pid, _, _} <- DynamicSupervisor.which_children(AtlasFlow.Supervisor),
             is_pid(pid),
-            do: Item.poke(pid, state.description)
+            do: Item.poke(pid)
 
       %{"key" => key} when is_binary(key) ->
-        for {kind, key} <- up(state.flows, state.description, kind, key, @depth),
+        for {kind, key} <- up(state.flows, state.runner, kind, key, @depth),
             kind in state.kinds,
             pid = ensure(kind, key, state),
             is_pid(pid),
-            do: Item.poke(pid, state.description)
+            do: Item.poke(pid)
 
       _ ->
         :ok
@@ -126,10 +125,9 @@ defmodule AtlasFlow.Engine do
     state =
       case Talk.read("_description", %{}) do
         %{"description" => description} ->
-          state = %{state | description: description} |> reconcile()
-          description = state.description
-          report(description)
-          flows = Legacy.runnable(state.runner.legacy, description)
+          state = reconcile(state)
+          relations = state.runner.relations
+          flows = state.runner.legacy
           kinds = Legacy.kinds(flows)
 
           # Listen to every kind: what hangs under a fact can change its state.
@@ -145,7 +143,7 @@ defmodule AtlasFlow.Engine do
                 for fact <- facts,
                     runnable?(state, kind, fact) and
                       (Store.selected(state.runner.config, kind, fact) != nil or
-                         open?(description, kind, flow, fact)),
+                         open?(relations, kind, flow, fact)),
                     do: ensure(kind, fact["key"], state)
 
               other ->
@@ -156,9 +154,8 @@ defmodule AtlasFlow.Engine do
           %{
             state
             | kinds: kinds,
-              owners: Legacy.owner_kinds(flows, description),
+              owners: Legacy.owner_kinds(flows, relations),
               flows: flows,
-              description: description,
               listening: listening
           }
 
@@ -209,25 +206,26 @@ defmodule AtlasFlow.Engine do
     end
   end
 
-  # The fact and every fact above it, through the parent relations the description marks.
-  defp up(_flows, _description, _kind, _key, 0), do: []
+  # The fact and every fact above it, through the parent relations the model marks.
+  defp up(_flows, _runner, _kind, _key, 0), do: []
 
-  defp up(flows, description, kind, key, depth) do
+  defp up(flows, runner, kind, key, depth) do
+    relations = runner.relations
+
     parents =
       case Talk.read(kind, %{"key" => key, "plain" => true}) do
         %{"fact" => %{"links" => links} = fact} ->
           parents =
-            for {relation, %{"parent" => true, "from" => from, "to" => [to]}} <-
-                  description["relations"] || %{},
+            for {relation, %{"parent" => true, "from" => from, "to" => [to]}} <- relations,
                 kind in from,
                 parent <- links[relation] || [],
                 do: {to, parent}
 
-          n = get_in(description, ["runtime", "turn"]) || %{}
+          n = runner.turn || %{}
 
           ended =
             if kind == n["kind"] and fact["values"][n["state"]] != n["running"] do
-              for to <- get_in(description, ["relations", n["on"], "to"]) || [],
+              for to <- get_in(relations, [n["on"], "to"]) || [],
                   item <- links[n["on"]] || [],
                   do: {to, item}
             else
@@ -237,23 +235,22 @@ defmodule AtlasFlow.Engine do
           # Component changes wake open work, but do not reopen a completed fact's
           # stopped process (including historical owners left for a migration).
           components =
-            for {relation, %{"component" => %{}, "to" => to, "from" => from}} <-
-                  description["relations"] || %{},
+            for {relation, %{"component" => %{}, "to" => to, "from" => from}} <- relations,
                 kind in to,
                 from_kind <- from,
                 %{"facts" => facts} <- [
                   Talk.read(from_kind, %{"linked" => %{relation => key}})
                 ],
                 item <- facts,
-                component_open?(flows, description, from_kind, item),
+                component_open?(flows, relations, from_kind, item),
                 do: {from_kind, item["key"]}
 
           # An association a flow reads (`empty`): the fact it points at may wait for it.
           anchors =
             for flow <- flows,
                 to <- flow.kinds(),
-                relation <- Legacy.pointing(flow, description, to),
-                kind in (get_in(description, ["relations", relation, "from"]) || []),
+                relation <- Legacy.pointing(flow, relations, to),
+                kind in (get_in(relations, [relation, "from"]) || []),
                 anchor <- links[relation] || [],
                 uniq: true,
                 do: {to, anchor}
@@ -266,22 +263,22 @@ defmodule AtlasFlow.Engine do
 
     [
       {kind, key}
-      | Enum.flat_map(parents, fn {k, p} -> up(flows, description, k, p, depth - 1) end)
+      | Enum.flat_map(parents, fn {k, p} -> up(flows, runner, k, p, depth - 1) end)
     ]
   end
 
-  defp component_open?(flows, description, kind, fact) do
+  defp component_open?(flows, relations, kind, fact) do
     case Legacy.for_kind(flows, kind) do
       nil -> true
-      flow -> open?(description, kind, flow, fact)
+      flow -> open?(relations, kind, flow, fact)
     end
   end
 
   # A fact that is done by itself alone (what hangs under it can only reopen work its own
   # facts already say is open) needs no process. Nothing is taken to point at it through the
   # associations its flow reads (`empty`): its process reads them and stops when done.
-  defp open?(description, kind, flow, fact) do
-    {current, _} = flow.state(fact, [], [], Legacy.pointing(flow, description, kind))
+  defp open?(relations, kind, flow, fact) do
+    {current, _} = flow.state(fact, [], [], Legacy.pointing(flow, relations, kind))
     not flow.done?(current)
   end
 
@@ -305,13 +302,6 @@ defmodule AtlasFlow.Engine do
       {:ok, pid} -> pid
       {:error, {:already_started, pid}} -> pid
       other -> Logger.warning("flow could not start #{key}: #{inspect(other)}")
-    end
-  end
-
-  # A definition Facts refused is not run; say why once per round.
-  defp report(description) do
-    for {name, problems} <- description["flow_problems"] || %{}, problems != [] do
-      Logger.error("flow #{name} is not run: #{Enum.join(problems, "; ")}")
     end
   end
 end

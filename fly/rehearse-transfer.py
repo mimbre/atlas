@@ -75,7 +75,7 @@ def settings(folder, binary):
         "control": {"host": "127.0.0.1", "port": control_port},
         "rela": {"url": f"http://127.0.0.1:{rela_port}/api/v1",
                  "port": rela_port, "data": str(folder / "rela"),
-                 "bin": str(binary), "extra": "rela/atlas.json"},
+                 "bin": str(binary)},
         "facts": {"data": str(folder / "beam")},
         "connectors": {}, "reconcile_seconds": 1,
         "flow": {"tick_seconds": 1}

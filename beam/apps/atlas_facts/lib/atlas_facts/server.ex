@@ -1,6 +1,9 @@
 defmodule AtlasFacts.Server do
   @moduledoc """
-  Facts on the Bus: the store endpoint. Generic: what a kind is, it reads from rela.
+  Facts on the Bus: the store endpoint. Generic: what a kind is, it reads from rela; what
+  may be written, what a write brings along and what is worked out on a read, it asks the
+  model (`AtlasFacts.Model`), wired at boot. At boot rela must serve the schema the model
+  was built with (`rela_schema/0`); otherwise Facts refuses to start, and says why.
 
   - A `fact` is stored in rela and answered with one `stored` (acknowledgement and hint,
     with the fact's position) or one `refused` (final, with reasons). Never silence.
@@ -8,19 +11,19 @@ defmodule AtlasFacts.Server do
   - A `read` is answered with the facts of a kind (all, or `"linked" => %{relation => key}`
     for those that point at `key`), one fact (`"key" => key`) with the keys of the facts
     that point at it and, for a copy of an outside fact, when a connector last read it
-    (`"copy"`, see `AtlasFacts.Copies`), or (kind `_description`) rela's description.
-    Facts carry their outgoing `links`, with the `origins` of those links (the fact that
-    set each: since, by, cause; `AtlasFacts.Links`), and their `progress` when the
-    description has a rule for their kind (`AtlasFacts.Progress`), and why they are
-    completed (`completion`, `AtlasFacts.Completion`): worked out on every read, never
-    stored. One fact also carries the `history` of its links.
+    (`"copy"`, see `AtlasFacts.Copies`), or (kind `_description`) rela's schema, as rela
+    serves it. Facts carry their outgoing `links`, with the `origins` of those links (the
+    fact that set each: since, by, cause; `AtlasFacts.Links`), and what the model works
+    out for them (`derived/3`: `progress`, why they are `completion`, `review`, `late`):
+    worked out on every read, never stored. One fact also carries the `history` of its
+    links.
 
   Fact content: `%{"op" => "create" | "change" | "delete", "key" => id,
   "values" => %{property => value}, "version" => version read before, or nil,
   "links" => %{relation => [keys]}, "cause" => why, optional, "by" => who, optional,
   "was" => %{property or relation => value or keys} on a change, optional}`.
-  A fact's components (`AtlasFacts.Components`, its Assignment) are made in the same write,
-  before it, and deleted with it; a component alone is not deleted while its fact exists.
+  A fact's components (the model's `with_change/3`) are made in the same write, before
+  it, and deleted with it; a component alone is not deleted while its fact exists.
   On a create the links are the fact's first; on a change each relation named is replaced
   by the keys given (`[]` removes its links), so a fact moves to another parent or an
   association is set or removed; the hint then reaches every listener of its kind, on
@@ -36,20 +39,7 @@ defmodule AtlasFacts.Server do
 
   alias AtlasBus.Envelope
 
-  alias AtlasFacts.{
-    Components,
-    Copies,
-    Description,
-    Flows,
-    Guards,
-    Late,
-    Ledger,
-    Links,
-    Progress,
-    Rela,
-    Review,
-    Subflows
-  }
+  alias AtlasFacts.{Copies, Description, Ledger, Links, Rela}
 
   @description "_description"
   @page "_page"
@@ -65,21 +55,50 @@ defmodule AtlasFacts.Server do
     {:reply, :ok, state}
   end
 
+  # A lookup that could not read the store: the write is not recorded.
+  @lookup_failed :atlas_facts_lookup_failed
+
+  # The model is checked first, then rela's schema against it: a rela that cannot be
+  # reached yet is read again on the first request, and checked then.
   @impl true
   def init(opts) do
+    model =
+      AtlasFacts.Model.check!(Keyword.get_lazy(opts, :model, &AtlasFacts.Model.configured!/0))
+
+    rela = AtlasFacts.Collections.open(Keyword.fetch!(opts, :rela), opts)
+
+    case Rela.description(rela) do
+      {:ok, served} ->
+        case AtlasFacts.Model.mismatch(model, served) do
+          nil ->
+            start(opts, model, rela, served)
+
+          reason ->
+            Logger.error("Facts does not start: " <> reason)
+            {:stop, {:schema_mismatch, reason}}
+        end
+
+      {:error, reason} ->
+        Logger.warning(
+          "Facts starts without rela's schema (#{inspect(reason)}); it reads it again"
+        )
+
+        start(opts, model, rela, nil)
+    end
+  end
+
+  defp start(opts, model, rela, schema) do
     :ok = AtlasBus.attach(AtlasBus.store())
     dir = Keyword.fetch!(opts, :data_dir)
 
     {:ok,
      %{
-       rela: AtlasFacts.Collections.open(Keyword.fetch!(opts, :rela), opts),
+       rela: rela,
        ledger: Ledger.open(dir),
        links: Links.open(dir),
-       description: nil,
-       input_clock: Keyword.get(opts, :flow_input_clock, fn -> DateTime.utc_now() end),
-       extra: Keyword.get(opts, :description_extra),
-       flow_runtime:
-         Keyword.get(opts, :flow_runtime, Application.get_env(:atlas_facts, :flow_runtime))
+       model: model,
+       description: schema,
+       input_clock: Keyword.get(opts, :flow_input_clock, fn -> DateTime.utc_now() end)
      }}
   end
 
@@ -134,7 +153,7 @@ defmodule AtlasFacts.Server do
   defp dispatch(envelope, content, state) do
     input_protocol? = envelope.class == "fact" or match?(%{"run" => _}, content)
 
-    if AtlasFacts.FlowInputs.kind?(state.description || %{}, envelope.kind) and input_protocol? do
+    if AtlasFacts.FlowInputs.kind?(context(state), envelope.kind) and input_protocol? do
       flow_input(envelope, content, state)
     else
       capture =
@@ -142,7 +161,7 @@ defmodule AtlasFacts.Server do
           do:
             AtlasFacts.FlowInputs.capture(
               AtlasFacts.Collections.uncached(state.rela),
-              state.description || %{},
+              context(state),
               envelope,
               content
             ),
@@ -151,7 +170,7 @@ defmodule AtlasFacts.Server do
       case capture do
         {:capture, input} ->
           flow_input(
-            %{envelope | kind: state.description["flow_runtime"]["inputs"]["kind"]},
+            %{envelope | kind: state.model.run_mapping()["inputs"]["kind"]},
             input,
             state
           )
@@ -162,7 +181,7 @@ defmodule AtlasFacts.Server do
             "refused",
             %{
               "code" => guidance_code(reason),
-              "reasons" => AtlasFacts.FlowInputs.reasons(reason, state.description)
+              "reasons" => AtlasFacts.FlowInputs.reasons(reason, context(state))
             },
             nil
           )
@@ -173,6 +192,16 @@ defmodule AtlasFacts.Server do
           dispatch_ordinary(envelope, content, state)
       end
     end
+  end
+
+  # What the records Facts keeps (runs and their inputs, guidance) are read by: rela's
+  # schema, with the model's run mapping, turn and guidance records.
+  defp context(state) do
+    Map.merge(state.description || %{}, %{
+      "flow_runtime" => state.model.run_mapping(),
+      "guidance" => state.model.guidance(),
+      "runtime" => %{"turn" => state.model.turn()}
+    })
   end
 
   defp flow_input(envelope, content, state) do
@@ -226,7 +255,7 @@ defmodule AtlasFacts.Server do
 
     args = [
       rela,
-      state.description,
+      context(state),
       envelope,
       content,
       state.input_clock,
@@ -256,7 +285,7 @@ defmodule AtlasFacts.Server do
           if(envelope.class == "read", do: "answer", else: "refused"),
           %{
             "error" => inspect(reason),
-            "reasons" => AtlasFacts.FlowInputs.reasons(reason, state.description)
+            "reasons" => AtlasFacts.FlowInputs.reasons(reason, context(state))
           },
           nil
         )
@@ -266,12 +295,12 @@ defmodule AtlasFacts.Server do
   end
 
   defp dispatch_ordinary(envelope, content, state) do
-    case AtlasFacts.Guidance.role(state.description || %{}, envelope.kind) do
+    case AtlasFacts.Guidance.role(context(state), envelope.kind) do
       nil ->
         if envelope.class == "fact" do
           case AtlasFacts.Guidance.authorize_turn(
                  state.rela,
-                 state.description || %{},
+                 context(state),
                  envelope,
                  content
                ) do
@@ -329,7 +358,7 @@ defmodule AtlasFacts.Server do
       _ ->
         before_delete = fn fact ->
           if fact == nil or
-               AtlasFacts.Guidance.deletion_target(state.description, fact) == target,
+               AtlasFacts.Guidance.deletion_target(context(state), fact) == target,
              do: Ledger.prepare_delete(state.ledger, envelope.id, binding, target),
              else: {:error, :delete_target_changed}
         end
@@ -400,10 +429,10 @@ defmodule AtlasFacts.Server do
     result =
       if envelope.class == "fact",
         do:
-          AtlasFacts.Guidance.write(rela, state.description, role, envelope, content, fn ->
+          AtlasFacts.Guidance.write(rela, context(state), role, envelope, content, fn ->
             Ledger.reserve(state.ledger)
           end),
-        else: AtlasFacts.Guidance.read(rela, state.description, role, content)
+        else: AtlasFacts.Guidance.read(rela, context(state), role, content)
 
     case result do
       {:ok, answer} when envelope.class == "fact" ->
@@ -521,48 +550,18 @@ defmodule AtlasFacts.Server do
     end
   end
 
-  # rela's description, with Atlas's additions (`rela/atlas.json`) merged in, key by key.
-  # The file is read every time, so a change to it needs no restart.
+  # rela's schema, as rela serves it, read every time it is asked for. One that is not the
+  # model's (rela was restarted with another build) is no schema Facts writes by.
   defp describe(state) do
-    with {:ok, description} <- Rela.description(state.rela) do
-      description = Description.merge(description, extra(state.extra))
-      description = runtime_description!(description, state.flow_runtime)
+    with {:ok, served} <- Rela.description(state.rela) do
+      case AtlasFacts.Model.mismatch(state.model, served) do
+        nil ->
+          {:ok, served}
 
-      # Flow definitions are checked before anyone runs them (rule 4).
-      # The generated subflows, with their owners and what each state shows, checked too.
-      description = Subflows.describe(description)
-
-      if is_map(description["flows"]),
-        do: {:ok, Map.put(description, "flow_problems", Flows.check(description))},
-        else: {:ok, description}
-    end
-  end
-
-  defp runtime_description!(description, nil), do: description
-
-  defp runtime_description!(description, path) do
-    with {:ok, bytes} <- File.read(path),
-         {:ok, fragment} <- JSON.decode(bytes),
-         {:ok, description} <- AtlasFacts.FlowRuntime.describe(description, fragment) do
-      description
-    else
-      error -> raise "Flow runtime configuration refused: #{inspect(error)}"
-    end
-  end
-
-  defp extra(nil), do: %{}
-
-  defp extra(path) do
-    with {:ok, json} <- File.read(path),
-         {:ok, extra} <- JSON.decode(json) do
-      Map.drop(extra, ["_about"])
-    else
-      error ->
-        Logger.warning(
-          "Facts could not read #{path}: #{inspect(error)}; using rela's description alone"
-        )
-
-        %{}
+        reason ->
+          Logger.error(reason)
+          {:error, {:failed, reason}}
+      end
     end
   end
 
@@ -585,7 +584,7 @@ defmodule AtlasFacts.Server do
       map_size(content) == 1 and kinds != [] and length(kinds) <= map_size(entities) and
         Enum.all?(kinds, fn kind ->
           is_binary(kind) and is_binary(get_in(entities, [kind, "plural"])) and
-            AtlasFacts.Guidance.role(state.description, kind) == nil
+            AtlasFacts.Guidance.role(context(state), kind) == nil
         end)
 
     if valid? do
@@ -753,13 +752,26 @@ defmodule AtlasFacts.Server do
     end)
   end
 
-  # How far each fact is, from the facts under it, as the description's rule says; and
-  # whether it is to be reviewed, from the facts it points at.
+  # What the model works out for each fact, from the facts it reads: how far it is,
+  # whether it is completed, to be reviewed, late.
   defp with_progress(state, kind, facts) do
-    list = fn of -> collection(state, get_in(state.description, ["entities", of, "plural"])) end
+    list = fn of -> collection(state, plural(state, of)) end
 
-    with {:ok, facts} <- Progress.annotate(state.description, kind, facts, list),
-         do: Review.annotate(state.description, kind, facts, list)
+    with {:ok, derived} <- state.model.derived(kind, facts, %{"list" => list}) do
+      {:ok, Enum.zip_with(facts, derived, &derive/2)}
+    end
+  end
+
+  defp derive(fact, derived) do
+    for {name, key} <- [
+          progress: "progress",
+          completion: "completion",
+          review: "review",
+          late: "late"
+        ],
+        Map.has_key?(derived, key),
+        into: fact,
+        do: {name, derived[key]}
   end
 
   # Only successful raw lists are shared inside this synchronous page request.
@@ -800,10 +812,15 @@ defmodule AtlasFacts.Server do
     wired = if fact[:review], do: Map.put(wired, "review", fact.review), else: wired
 
     # Late is worked out on every read, plain ones too: it costs no read.
-    case Late.of(state.description, kind, fact[:properties]) do
-      nil -> wired
-      late -> Map.put(wired, "late", late)
-    end
+    late =
+      if Map.has_key?(fact, :late) do
+        fact.late
+      else
+        {:ok, [derived]} = state.model.derived(kind, [fact], %{})
+        derived["late"]
+      end
+
+    if late == nil, do: wired, else: Map.put(wired, "late", late)
   end
 
   # Facts
@@ -811,35 +828,11 @@ defmodule AtlasFacts.Server do
   defp store(state, kind, %{"op" => op, "key" => key} = content) when is_binary(key) do
     case kind_spec(state, kind) do
       {:ok, spec, state} ->
-        values = content["values"] || %{}
-
         result =
-          case Description.targets(state.description, kind, content["links"] || %{}) do
-            {:ok, targets} ->
-              with {:ok, targets} <- target_kinds(state, op, targets),
-                   :ok <- targets_exist(state, op, targets),
-                   :ok <- not_a_part(state, kind, op, key),
-                   rules = Guards.of(state.description, kind),
-                   :ok <- guarded(state, spec, rules, op, key, values, targets, content["by"]),
-                   :ok <-
-                     AtlasFacts.FlowInputs.fence(state.rela, state.description, kind, key, values) do
-                parts = Components.of(state.description, kind, key)
-                was = content["was"]
-
-                if state[:validate_only] do
-                  case Description.check(spec, values, :change) do
-                    :ok -> :stored
-                    {:error, problems} -> {:refused, problems}
-                  end
-                else
-                  state
-                  |> write(spec, op, key, values, content["version"], targets, was, parts)
-                  |> replace(state, spec, rules, op, key)
-                end
-              end
-
-            {:error, problems} ->
-              {:refused, problems}
+          try do
+            store(state, kind, spec, op, key, content)
+          catch
+            {@lookup_failed, error} -> failure(error)
           end
 
         {result, state}
@@ -854,45 +847,104 @@ defmodule AtlasFacts.Server do
 
   defp store(state, _kind, _content), do: {{:refused, ["a fact needs an op and a key"]}, state}
 
-  # The kind's write rules (`AtlasFacts.Guards`), on the fact as it is stored now.
-  defp guarded(_state, _spec, rules, _op, _key, _values, _targets, _writer) when rules == %{},
-    do: :ok
+  # What the write makes (the model's `with_change/3`), checked by the model (`check/4`)
+  # once the facts it links to are known to exist.
+  defp store(state, kind, spec, op, key, content) do
+    values = content["values"] || %{}
 
-  # `writer`: who sent the write, as Control says (`by`).
-  defp guarded(state, spec, rules, op, key, values, targets, writer) do
-    with {:ok, current} <- current(state, spec, op, key) do
-      values = Map.new(values, fn {k, v} -> {k, if(v == "", do: nil, else: v)} end)
-      links = Map.new(targets, fn {relation, {_kind, keys}} -> {relation, keys} end)
+    with {:ok, _} <- Description.targets(state.description, kind, content["links"] || %{}) do
+      lookup = lookup(state, kind, spec, op, key)
 
-      Guards.check(rules, op, key, current, values, links, %{
-        "writer" => writer,
-        "sender" => state[:sender],
-        "kind_of" => &linked_kind(state, &1, &2),
-        "verdict" => fn gate, subject ->
-          config = get_in(rules, ["authority", "decider"]) || %{}
+      change = %{
+        "op" => op,
+        "key" => key,
+        "values" => values,
+        "links" => content["links"] || %{},
+        "by" => content["by"]
+      }
 
-          AtlasFacts.Decider.lookup(
-            state.description,
-            AtlasFacts.Collections.uncached(state.rela),
-            config,
-            gate,
-            subject
-          )
-        end,
-        "fetch" => fn old ->
-          case Rela.get(state.rela, spec["plural"], old) do
-            {:ok, fact} -> fact.properties
-            _ -> nil
+      changes = state.model.with_change(kind, change, lookup)
+      [own] = for %{"as" => "fact"} = c <- changes, do: c
+
+      parts =
+        for %{"as" => "component"} = c <- changes,
+            do: {c["relation"], c["kind"], c["key"], c["values"]}
+
+      replaced = for %{"as" => "replaced"} = c <- changes, do: {c["key"], c["values"]}
+      actor = %{"by" => content["by"], "sender" => state[:sender]}
+
+      with {:ok, targets} <- Description.targets(state.description, kind, own["links"] || %{}),
+           {:ok, targets} <- target_kinds(state, op, targets),
+           :ok <- targets_exist(state, op, targets),
+           :ok <-
+             checked(
+               state.model.check(
+                 kind,
+                 Map.put(change, "links", own["links"] || %{}),
+                 actor,
+                 lookup
+               )
+             ),
+           :ok <- AtlasFacts.FlowInputs.fence(state.rela, context(state), kind, key, values) do
+        if state[:validate_only] do
+          case Description.check(spec, values, :change) do
+            :ok -> :stored
+            {:error, problems} -> {:refused, problems}
           end
-        end,
-        "incoming" => fn relation ->
-          case Rela.incoming(state.rela, spec["plural"], key, relation) do
-            {:ok, keys} -> keys
-            _ -> []
-          end
+        else
+          state
+          |> write(spec, op, key, values, content["version"], targets, content["was"], parts)
+          |> replace(state, spec, replaced, op, key)
         end
-      })
+      end
+    else
+      {:error, problems} -> {:refused, problems}
     end
+  end
+
+  defp checked(:ok), do: :ok
+  defp checked({:refuse, reasons}), do: {:refused, reasons}
+
+  # Facts' reader for the model's rules, on the store as it is now. The fact as stored is
+  # read once, when a rule asks; a read that fails stops the write (not recorded).
+  defp lookup(state, kind, spec, op, key) do
+    memo = make_ref()
+
+    current = fn ->
+      case Process.get(memo) do
+        {:read, fact} ->
+          fact
+
+        nil ->
+          fact =
+            case current(state, spec, op, key) do
+              {:ok, fact} -> fact
+              error -> throw({@lookup_failed, error})
+            end
+
+          Process.put(memo, {:read, fact})
+          fact
+      end
+    end
+
+    %{
+      "current" => current,
+      "fact" => fn of, at ->
+        case Rela.get(state.rela, plural(state, of), at) do
+          {:ok, fact} -> fact
+          _ -> nil
+        end
+      end,
+      "list" => fn of -> collection(state, plural(state, of)) end,
+      "incoming" => fn of, at, relation ->
+        case Rela.incoming(state.rela, plural(state, of), at, relation) do
+          {:ok, keys} -> keys
+          _ -> []
+        end
+      end,
+      "fingerprint" => &AtlasBus.SubjectFingerprint.of/2,
+      "kind" => kind
+    }
   end
 
   defp current(_state, _spec, "create", _key), do: {:ok, nil}
@@ -901,50 +953,27 @@ defmodule AtlasFacts.Server do
     case Rela.get(state.rela, spec["plural"], key) do
       {:ok, fact} -> {:ok, %{"values" => fact.properties, "links" => fact[:links] || %{}}}
       {:error, :not_found} -> {:ok, nil}
-      error -> failure(error)
+      error -> error
     end
   end
 
-  defp linked_kind(state, relation, key) do
-    kinds = get_in(state.description, ["relations", relation, "to"]) || []
-    Enum.find(kinds, &kind_has?(state, &1, key))
-  end
+  # A stored fact marks the facts it replaces in the same write. When one cannot be
+  # marked, the write is not recorded, so sending it again finishes it.
+  defp replace(:stored, state, spec, replaced, op, key) when op in ["create", "change"] do
+    Enum.reduce_while(replaced, :stored, fn {old, set}, :stored ->
+      case Rela.change(state.rela, spec["plural"], old, set, nil, %{}) do
+        {:ok, []} ->
+          {:cont, :stored}
 
-  # A stored fact that replaces others marks them in the same write (`replaces.set`). When
-  # one cannot be marked, the write is not recorded, so sending it again finishes it.
-  defp replace(:stored, state, spec, %{"replaces" => %{"set" => set}} = rules, op, key)
-       when op in ["create", "change"] do
-    fetch = fn old ->
-      case Rela.get(state.rela, spec["plural"], old) do
-        {:ok, fact} -> fact
-        _ -> nil
+        other ->
+          {:halt,
+           {:unavailable,
+            "#{key} is stored, but #{old} is not marked yet (#{inspect(other)}); send it again"}}
       end
-    end
-
-    case fetch.(key) do
-      %{} = fact ->
-        stored = %{"values" => fact.properties, "links" => fact[:links] || %{}}
-
-        rules
-        |> Guards.replaced(stored, &(fetch.(&1) && fetch.(&1).properties))
-        |> Enum.reduce_while(:stored, fn old, :stored ->
-          case Rela.change(state.rela, spec["plural"], old, set, nil, %{}) do
-            {:ok, []} ->
-              {:cont, :stored}
-
-            other ->
-              {:halt,
-               {:unavailable,
-                "#{key} is stored, but #{old} is not marked yet (#{inspect(other)}); send it again"}}
-          end
-        end)
-
-      nil ->
-        {:unavailable, "#{key} is stored, but could not be read again; send it again"}
-    end
+    end)
   end
 
-  defp replace(result, _state, _spec, _rules, _op, _key), do: result
+  defp replace(result, _state, _spec, _replaced, _op, _key), do: result
 
   defp write(state, spec, op, key, values, version, targets, was, []) do
     if op == "delete",
@@ -1037,22 +1066,6 @@ defmodule AtlasFacts.Server do
   end
 
   defp plural(state, kind), do: get_in(state.description, ["entities", kind, "plural"])
-
-  # A component goes with its fact, never alone while that fact exists.
-  defp not_a_part(state, kind, "delete", key) do
-    owners =
-      for {relation, _from} <- Components.owners(state.description, kind),
-          {:ok, keys} <- [Rela.incoming(state.rela, plural(state, kind), key, relation)],
-          owner <- keys,
-          do: owner
-
-    case owners do
-      [] -> :ok
-      _ -> {:refused, ["#{key} goes with #{Enum.join(owners, ", ")}; delete that instead"]}
-    end
-  end
-
-  defp not_a_part(_state, _kind, _op, _key), do: :ok
 
   defp store(rela, spec, "create", key, values, _version, targets, _was) do
     values = Map.reject(values, fn {_, v} -> v in [nil, ""] end)
@@ -1292,9 +1305,8 @@ defmodule AtlasFacts.Server do
   defp failure({:error, problems}) when is_list(problems), do: {:refused, problems}
   defp failure({:error, other}), do: {:refused, [inspect(other)]}
 
-  # A kind rela describes has a plural (its collection). One that only Atlas's additions
-  # (rela/atlas.json) name is one rela does not know: it runs an older description than
-  # this build. The description is read again first, in case rela was restarted since.
+  # A kind rela describes has a plural (its collection). The schema is read again first,
+  # in case rela was restarted since; one that is not the model's is said so.
   defp kind_spec(state, kind) do
     case state.description && Description.kind(state.description, kind) do
       %{"plural" => _} = spec ->
@@ -1306,20 +1318,17 @@ defmodule AtlasFacts.Server do
             state = %{state | description: description}
 
             case Description.kind(description, kind) do
-              nil -> {:error, "rela does not describe #{inspect(kind)}", state}
               %{"plural" => _} = spec -> {:ok, spec, state}
-              _ -> {:error, older(kind), state}
+              _ -> {:error, "rela does not describe #{inspect(kind)}", state}
             end
+
+          {:error, {:failed, reason}} ->
+            {:error, reason, state}
 
           {:error, _} ->
             {:error, :unavailable, state}
         end
     end
-  end
-
-  defp older(kind) do
-    "rela does not know #{kind}: its description is older than this build; " <>
-      "run atlas-ops restart --env #{AtlasBus.environment()}"
   end
 
   defp content_op(%{"op" => op}) when is_binary(op), do: op

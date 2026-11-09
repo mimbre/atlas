@@ -1,8 +1,9 @@
 defmodule AtlasGates.FactsBusTest do
   @moduledoc """
-  Recording over the Bus, against a stand-in store that answers as Facts does: the
-  description, reads of a kind, and facts answered once per id (a resent id gets its first
-  answer again), refusing a key that is taken with `exists`.
+  Recording over the Bus, against a stand-in store that answers as Facts does: reads of a
+  kind, and facts answered once per id (a resent id gets its first answer again), refusing
+  a key that is taken with `exists`. How a key is made is the model's
+  (`AtlasGates.Neutral.ids/0`).
   """
   use ExUnit.Case, async: false
 
@@ -33,15 +34,6 @@ defmodule AtlasGates.FactsBusTest do
 
     @impl true
     def handle_info({:atlas_bus, _e, _c}, %{silent: true} = s), do: {:noreply, s}
-
-    def handle_info({:atlas_bus, %Envelope{class: "read", kind: "_description"} = e, _}, s) do
-      description = %{
-        "entities" => %{"ruling" => %{"create" => %{"id" => %{"prefix" => "RU-", "digits" => 3}}}}
-      }
-
-      :ok = AtlasBus.send(Envelope.reply(e, "answer"), %{"description" => description})
-      {:noreply, s}
-    end
 
     def handle_info(
           {:atlas_bus, %Envelope{class: "read"} = e, %{"key" => key, "plain" => true}},

@@ -3,8 +3,7 @@ ExUnit.start(seed: 0)
 
 # Runtime runs the neutral model of its tests (AtlasRuntime.TestModel). Flow's side: the
 # same legacy flow, compiled from the Rela DSL into the model Flow's items run (a neutral
-# one, with no runs selected); the stand-in Facts answers Flow's description reads with
-# the neutral model's description.
+# one, with no runs selected), walking that neutral model's relations and turn.
 defmodule HandoverPack do
   use RelaDSL.Flow.Legacy,
     name: :pack,
@@ -29,7 +28,11 @@ defmodule HandoverPack do
 end
 
 defmodule HandoverModel do
-  use AtlasFlow.TestModel, legacy: [HandoverPack], selection: %{"sort" => nil}
+  use AtlasFlow.TestModel,
+    legacy: [HandoverPack],
+    selection: %{"sort" => nil},
+    relations: AtlasRuntime.TestModel.relations(),
+    turn: AtlasRuntime.TestModel.turn()
 end
 
 defmodule RuntimeFlowHandoverTest do

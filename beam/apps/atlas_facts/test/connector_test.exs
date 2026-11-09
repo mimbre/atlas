@@ -30,38 +30,43 @@ defmodule AtlasFacts.ConnectorTest do
     def asked(agent), do: Agent.get_and_update(agent, &{&1.asked, %{&1 | asked: []}})
   end
 
-  # As `rela/atlas.json` adds it: an address, the fields it fills, and when to stop.
-  @extra %{
-    "entities" => %{
-      "widget" => %{
-        "properties" => %{"link" => %{"type" => "string"}, "title" => %{"set_by" => "connector"}},
-        "connector" => %{
-          "system" => "outside",
-          "address" => "link",
-          "fields" => %{"title" => "name", "shade" => "tone", "done" => "finished"},
-          "until" => %{"done" => [true]},
-          # A finished widget whose name names parts was also done for them.
-          "names" => %{
-            "field" => "title",
-            "relation" => "also_for",
-            "when" => %{"done" => [true]}
-          }
-        }
-      },
-      "part" => %{"create" => %{"id" => %{"prefix" => "P-"}}}
-    },
-    "relations" => %{"also_for" => %{"from" => ["part"], "to" => ["widget"]}}
-  }
+  # The workshop as the model gives its connector: an address, the fields it fills, when
+  # to stop, and what a finished widget's name names.
+  defmodule Copied do
+    @moduledoc false
+    use AtlasFacts.TestModel,
+      description:
+        AtlasFacts.Workshop.Description.with(%{
+          "entities" => %{
+            "widget" => %{
+              "properties" => %{
+                "link" => %{"type" => "string"},
+                "title" => %{"set_by" => "connector"}
+              },
+              "connector" => %{
+                "system" => "outside",
+                "address" => "link",
+                "fields" => %{"title" => "name", "shade" => "tone", "done" => "finished"},
+                "until" => %{"done" => [true]},
+                # A finished widget whose name names parts was also done for them.
+                "names" => %{
+                  "field" => "title",
+                  "relation" => "also_for",
+                  "when" => %{"done" => [true]}
+                }
+              }
+            },
+            "part" => %{"create" => %{"id" => %{"prefix" => "P-"}}}
+          },
+          "relations" => %{"also_for" => %{"from" => ["part"], "to" => ["widget"]}}
+        })
+  end
 
   setup %{tmp_dir: dir} do
     Application.put_env(:atlas_bus, :store, "state-#{System.unique_integer([:positive])}")
-    extra = Path.join(dir, "extra.json")
-    File.write!(extra, JSON.encode!(@extra))
-    rela = FakeRela.start()
+    rela = FakeRela.start(Copied)
 
-    start_supervised!(
-      {AtlasFacts.Server, rela: {FakeRela, rela}, data_dir: dir, description_extra: extra}
-    )
+    start_supervised!({AtlasFacts.Server, rela: {FakeRela, rela}, data_dir: dir, model: Copied})
 
     :ok = AtlasBus.attach("tester-#{System.unique_integer([:positive])}")
     {:ok, outside} = Agent.start_link(fn -> %{things: %{}, asked: []} end)
@@ -70,7 +75,12 @@ defmodule AtlasFacts.ConnectorTest do
 
   defp start_connector(%{dir: dir, outside: outside}) do
     start_supervised!(
-      {Connector, system: "outside", source: {Outside, outside}, every: 3_600_000, data_dir: dir}
+      {Connector,
+       system: "outside",
+       source: {Outside, outside},
+       every: 3_600_000,
+       data_dir: dir,
+       model: Copied}
     )
   end
 

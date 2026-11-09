@@ -1,9 +1,22 @@
 defmodule Model.PresentationTest do
   use ExUnit.Case, async: true
 
-  # A component reading the committed target, as a running one would.
+  # The committed target, read as the proof it is (no component reads it, D-0083).
   defmodule Committed do
-    use RelaDSL.Runtime, target: "../../targets/atlas/flows.json"
+    @moduledoc false
+    @path Path.expand("../../targets/atlas/flows.json", __DIR__)
+    @external_resource @path
+    @data @path |> File.read!() |> JSON.decode!()
+
+    def flows, do: @data["flows"]
+    def gates, do: @data["gates"]
+    def rela_flows_sha256, do: @data["rela_flows_sha256"]
+
+    def check_rela_flows(yaml) do
+      if RelaDSL.Atlas.sha256(yaml) == rela_flows_sha256(),
+        do: :ok,
+        else: {:error, "flows.yaml is not the one generated with flows.json"}
+    end
   end
 
   # The v1 flows of the description (design, section 9), as the committed atlas.json holds them. Each type's entry is

@@ -33,6 +33,18 @@ defmodule AtlasFlow.Model do
   @doc "The configured actors the model needs."
   @callback actors() :: [atom]
 
+  @doc """
+  Every relation, by name, as rela describes it with the model's additions: `from`,
+  `to`, `max_outgoing`, and `parent` (a fact belongs under the one it points at) and
+  `component` (made and deleted with the fact it starts at), which Flow walks.
+  """
+  @callback relations() :: %{String.t() => map}
+
+  # The callback of the component that runs turns Flow calls too: the turn (its kind, the
+  # relation to what it works `on`, `by` whom, its `state` field and the `running` value),
+  # so an owner is not handed over while a turn of theirs runs on a fact.
+  @shared [turn: 0]
+
   @doc "The model Flow is wired to, checked: raises when it is missing or wrong."
   def configured!, do: check!(Application.fetch_env!(:atlas, :model))
 
@@ -42,7 +54,7 @@ defmodule AtlasFlow.Model do
       do: raise(ArgumentError, "the model #{inspect(model)} is not a module Flow can load")
 
     missing =
-      for {name, arity} <- __MODULE__.behaviour_info(:callbacks),
+      for {name, arity} <- __MODULE__.behaviour_info(:callbacks) ++ @shared,
           not function_exported?(model, name, arity),
           do: "#{name}/#{arity}"
 
@@ -58,12 +70,20 @@ defmodule AtlasFlow.Model do
   @doc """
   What Flow runs of `model` in `environment`: its legacy flows, its compiled subflows by
   name, the run configuration (`AtlasFlow.Runs.Store.activate/2`) and why it refuses to
-  run the selected ones, if it does.
+  run the selected ones, if it does, with the relations and the turn it walks.
   """
   def load(model, environment) do
     model = check!(model)
     flows = Map.new(model.subflows(environment), &{&1.name(), &1})
     {config, refusal} = AtlasFlow.Runs.Store.activate(model, flows)
-    %{legacy: model.legacy(), flows: flows, config: config, refusal: refusal}
+
+    %{
+      legacy: model.legacy(),
+      flows: flows,
+      config: config,
+      refusal: refusal,
+      relations: model.relations(),
+      turn: model.turn()
+    }
   end
 end

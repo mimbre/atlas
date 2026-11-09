@@ -6,38 +6,29 @@ defmodule AtlasFacts.FakeRela do
   """
   @behaviour AtlasFacts.Rela
 
-  def description do
-    %{
-      "entities" => %{
-        "widget" => %{
-          "plural" => "widgets",
-          "primary" => "title",
-          "id_type" => "manual",
-          "id_prefixes" => ["W-"],
-          "properties" => %{
-            "title" => %{"type" => "string", "required" => true},
-            "shade" => %{"type" => "shade", "values" => ["light", "dark"]},
-            "done" => %{"type" => "boolean"}
-          }
-        },
-        "part" => %{"plural" => "parts", "properties" => %{"title" => %{"type" => "string"}}},
-        "maker" => %{"plural" => "makers", "properties" => %{"title" => %{"type" => "string"}}}
-      },
-      "relations" => %{
-        "of_widget" => %{"from" => ["part"], "to" => ["widget"], "max_outgoing" => 1},
-        "made_by" => %{"from" => ["widget", "part"], "to" => ["maker"], "max_outgoing" => 1}
-      }
-    }
-  end
+  @doc "What it serves at `_schema` by default: the neutral workshop's schema, as rela serves it."
+  def description, do: AtlasFacts.Workshop.rela_schema()
 
-  def start do
+  @doc "A rela that serves `model`'s schema (`rela_schema/0`)."
+  def start(model \\ AtlasFacts.Workshop) do
     {:ok, pid} =
       Agent.start_link(fn ->
-        %{facts: %{}, reserved: MapSet.new(), up: true, links: %{}, n: 0, plurals: %{}}
+        %{
+          facts: %{},
+          reserved: MapSet.new(),
+          up: true,
+          links: %{},
+          n: 0,
+          plurals: %{},
+          schema: model.rela_schema()
+        }
       end)
 
     pid
   end
+
+  @doc "Serve `model`'s schema from now on, as a rela restarted with it would."
+  def serve(pid, model), do: Agent.update(pid, &%{&1 | schema: model.rela_schema()})
 
   def down(pid), do: Agent.update(pid, &%{&1 | up: false})
   def up(pid), do: Agent.update(pid, &%{&1 | up: true})
@@ -68,7 +59,7 @@ defmodule AtlasFacts.FakeRela do
   end
 
   @impl true
-  def description(pid), do: call(pid, &{{:ok, description()}, &1})
+  def description(pid), do: call(pid, &{{:ok, &1.schema}, &1})
 
   @impl true
   def list(pid, _plural) do

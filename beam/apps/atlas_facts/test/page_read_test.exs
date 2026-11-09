@@ -2,41 +2,44 @@ defmodule AtlasFacts.PageReadTest do
   use ExUnit.Case, async: false
   alias AtlasBus.Envelope
 
+  defmodule Paged do
+    @moduledoc "Boxes of jars, a jar signed off, a box replaced, and an execution record."
+    use AtlasFacts.TestModel,
+      description: %{
+        "entities" => %{
+          "box" => %{
+            "plural" => "boxes",
+            "progress" => %{"over" => "in_box", "field" => "phase"}
+          },
+          "jar" => %{
+            "plural" => "jars",
+            "completion" => %{"by" => "signed_by"},
+            "properties" => %{"phase" => %{"labels" => %{}}}
+          },
+          "execution" => %{"plural" => "executions"}
+        },
+        "relations" => %{
+          "in_box" => %{
+            "from" => ["jar"],
+            "to" => ["box"],
+            "review" => %{
+              "field" => "status",
+              "value" => "replaced",
+              "label" => "Review: its box was replaced"
+            }
+          },
+          "signed_by" => %{"from" => ["jar"], "to" => ["clerk"]}
+        },
+        "progress" => %{
+          "order" => ["packing", "sealed", "check"],
+          "to_test" => %{"value" => "check", "label" => "Check"}
+        },
+        "guidance" => %{"execution" => %{"kind" => "execution"}}
+      }
+  end
+
   defmodule Backend do
-    def description(_) do
-      {:ok,
-       %{
-         "entities" => %{
-           "box" => %{
-             "plural" => "boxes",
-             "progress" => %{"over" => "in_box", "field" => "phase"}
-           },
-           "jar" => %{
-             "plural" => "jars",
-             "completion" => %{"by" => "signed_by"},
-             "properties" => %{"phase" => %{"labels" => %{}}}
-           },
-           "execution" => %{"plural" => "executions"}
-         },
-         "relations" => %{
-           "in_box" => %{
-             "from" => ["jar"],
-             "to" => ["box"],
-             "review" => %{
-               "field" => "status",
-               "value" => "replaced",
-               "label" => "Review: its box was replaced"
-             }
-           },
-           "signed_by" => %{"from" => ["jar"], "to" => ["clerk"]}
-         },
-         "progress" => %{
-           "order" => ["packing", "sealed", "check"],
-           "to_test" => %{"value" => "check", "label" => "Check"}
-         },
-         "guidance" => %{"execution" => %{"kind" => "execution"}}
-       }}
-    end
+    def description(_), do: {:ok, AtlasFacts.PageReadTest.Paged.rela_schema()}
 
     def list(agent, plural) do
       Agent.get_and_update(agent, fn state ->
@@ -85,6 +88,7 @@ defmodule AtlasFacts.PageReadTest do
       start_supervised!(
         {AtlasFacts.Server,
          rela: {Backend, backend},
+         model: Paged,
          data_dir: dir,
          collection_clock: fn -> Agent.get(clock, & &1) end}
       )

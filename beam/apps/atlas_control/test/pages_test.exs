@@ -404,31 +404,6 @@ defmodule AtlasControl.PagesTest do
     assert second["empty"] == "No spares yet. Press s to create one."
   end
 
-  test "a limit on a relation: only children whose field counts, never the fact itself" do
-    tag = fn key, note -> fact(key, %{"name" => key, "note" => note}) end
-    over = &Pages.over_limit(@d, "on_part", "tag", &1, "P-1", &2)
-
-    assert Pages.limited(@d, %{"on_part" => ["P-1"], "of_widget" => ["W-1"]}) == [
-             {"on_part", "P-1"}
-           ]
-
-    assert over.(nil, []) == nil
-    # A dropped one, or one not read yet, does not count.
-    assert over.(nil, [tag.("T-1", "dropped"), tag.("T-2", nil)]) == nil
-
-    assert over.(nil, [tag.("T-2", "kept"), tag.("T-1", "live")]) ==
-             "P-1 already has T-1 (live); one tag per part"
-
-    # The same fact again (a create sent twice, a change that stays) is not over the limit.
-    assert over.("T-1", [tag.("T-1", "live")]) == nil
-
-    # The value as the model labels it.
-    labelled = shop(Labelled)
-
-    assert Pages.over_limit(labelled, "on_part", "tag", nil, "P-1", [tag.("T-1", "live")]) ==
-             "P-1 already has T-1 (Live); one tag per part"
-  end
-
   test "a hint of a child kind refreshes its parent's page" do
     assert Pages.shows?({:item, "widget", "W-1"}, @d, "part")
     assert Pages.shows?({:item, "widget", "W-1"}, @d, "widget")
@@ -1897,7 +1872,7 @@ defmodule AtlasControl.PagesTest do
       refute Enum.any?(keys.(page), &(elem(&1, 0) == "a"))
     end
 
-    test "approve asks first; refused while a fact under it is open, and for an agent" do
+    test "approve asks first, also while a fact under it is open (Facts says so); not an agent" do
       route = Pages.route("/k/widget/W-1/set/approved_by")
       assert route == {:set, "widget", "W-1", "approved_by"}
       assert Pages.resolve(Pages.route("/k/_/W-1/set/approved_by"), @d) == route
@@ -1914,23 +1889,20 @@ defmodule AtlasControl.PagesTest do
 
       assert confirm["text"] =~ "will be approved by ada"
 
+      # What is under it is the model's rule for Facts (requires_completed_children).
       %{blocks: [%{"props" => confirm}]} =
         Pages.render(route, @d, [widget(%{}), %{"facts" => [done, open]}], @member)
 
-      assert confirm["text"] == "W-1 has P-2 open"
-      refute confirm["confirm_to"]
+      assert confirm["confirm_to"]
 
-      assert Pages.set_problem(@d, route, [widget(%{}), %{"facts" => []}], "agent", nil) =~
-               "only a member approves"
+      %{blocks: [%{"props" => no}]} =
+        Pages.render(route, @d, [widget(%{}), %{"facts" => []}], @agent)
 
-      assert Pages.set_problem(
-               @d,
-               route,
-               [widget(%{"approved_by" => ["ada"]}), %{"facts" => []}],
-               "ada",
-               "member"
-             ) =~
-               "already"
+      assert no["text"] =~ "only a member approves"
+      refute no["confirm_to"]
+
+      assert Pages.set_problem(@d, route, [widget(%{"approved_by" => ["ada"]})]) =~ "already"
+      assert Pages.set_problem(@d, route, [widget(%{})]) == nil
     end
 
     test "withdraw asks for a note; an agent cannot" do
@@ -1958,10 +1930,10 @@ defmodule AtlasControl.PagesTest do
         Pages.render(route, @d, [widget(%{}), %{"facts" => []}], @agent)
 
       assert no["text"] == "Approved by is not set here: only a member approves."
-      assert Pages.may_link_to?(@d, "approved_by", "ada", "member", ["ada"])
-      refute Pages.may_link_to?(@d, "approved_by", "ada", "member", ["bob"])
-      assert Pages.may_link_to?(@d, "approved_by", "migration", nil, ["bob"])
-      refute Pages.may_link_to?(@d, "approved_by", "agent", nil, ["ada"])
+      # What the page offers; who may set it to what, Facts checks (only_target).
+      assert Pages.may_link?(@d, "approved_by", "ada", "member")
+      assert Pages.may_link?(@d, "approved_by", "migration", nil)
+      refute Pages.may_link?(@d, "approved_by", "agent", nil)
     end
 
     test "approved by shows only once approved, with who did it; progress then says so" do
@@ -1996,15 +1968,6 @@ defmodule AtlasControl.PagesTest do
       approved = fields.(approved)
       assert %{"value" => "ada", "origin" => %{"by" => "ada"}} = approved["Approved by"]
       assert %{"value" => "Done · 1/1 · approved by ada"} = approved["Progress"]
-    end
-
-    test "nothing new goes under an approved fact" do
-      approved = %{"key" => "W-1", "links" => %{"approved_by" => ["ada"]}}
-
-      assert Pages.closed_problem(@d, "part", "widget", approved) ==
-               "W-1 is approved; withdraw it first, or put this under another widget"
-
-      assert Pages.closed_problem(@d, "part", "widget", %{"key" => "W-1", "links" => %{}}) == nil
     end
   end
 
@@ -2065,35 +2028,5 @@ defmodule AtlasControl.PagesTest do
 
     assert {:refuse, _} = Shop.Reviewed.answer("widget", "f", item, %{key: "bob", kind: "member"})
     assert {:refuse, _} = Shop.Reviewed.answer("widget", "v", item, viewer)
-  end
-
-  test "a change that sets a deciding value names its writer as decider, unless it is already" do
-    # A widget's state is decided by who checked it (`Shop.Reviewed`).
-    d = shop(Reviewed)
-
-    assert Pages.decider_link(d, "widget", %{"state" => "final"}, %{}, "ada") ==
-             %{"checked_by" => ["ada"]}
-
-    assert Pages.decider_link(
-             d,
-             "widget",
-             %{"state" => "final"},
-             %{"checked_by" => ["bob"]},
-             "ada"
-           ) ==
-             %{"checked_by" => ["ada"]}
-
-    assert Pages.decider_link(
-             d,
-             "widget",
-             %{"state" => "final"},
-             %{"checked_by" => ["ada"]},
-             "ada"
-           ) ==
-             %{}
-
-    assert Pages.decider_link(d, "widget", %{"state" => "open"}, %{}, "ada") == %{}
-    assert Pages.decider_link(d, "widget", %{"title" => "x"}, %{}, "ada") == %{}
-    assert Pages.decider_link(d, "part", %{"state" => "final"}, %{}, "ada") == %{}
   end
 end

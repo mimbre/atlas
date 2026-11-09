@@ -57,7 +57,8 @@ defmodule Model.DescriptionTest do
     manifest = JSON.decode!(committed("atlas.manifest.json"))
     sha = &(:crypto.hash(:sha256, committed(&1)) |> Base.encode16(case: :lower))
     for {path, digest} <- manifest["inputs"], do: assert(sha.(path) == digest, path)
-    assert manifest["output_sha256"] == sha.("atlas.json")
+    # atlas.json is a proof only: nothing checks or reads it where Atlas runs.
+    refute Map.has_key?(manifest, "output_sha256")
     assert manifest["flows"] == %{"source" => "flows.yaml", "sha256" => sha.("flows.yaml")}
 
     refute Enum.any?(
@@ -158,10 +159,19 @@ defmodule Model.DescriptionTest do
   end
 
   # What test_assembly.py proved about the images: each Dockerfile's COPY rela/... lines
-  # carry every packaged input, so verify.py passes in the image.
-  test "both image recipes copy every input the manifest names, atlas.json and the manifest" do
+  # carry every packaged input, so verify.py passes in the image. The core copies no
+  # generated JSON (D-0083): the model is compiled in.
+  test "both image recipes copy every input the manifest names and the manifest" do
     manifest = JSON.decode!(committed("atlas.manifest.json"))
-    needed = Map.keys(manifest["inputs"]) ++ ["atlas.json", "atlas.manifest.json"]
+    needed = Map.keys(manifest["inputs"]) ++ ["atlas.manifest.json"]
+
+    copies =
+      for line <- String.split(File.read!("../../fly/core.Dockerfile"), "\n"),
+          String.starts_with?(line, "COPY "),
+          do: line
+
+    for proof <- ["atlas.json", "flow-runtime.json", "flows.json"],
+        do: refute(Enum.any?(copies, &(&1 =~ proof)), "core.Dockerfile copies #{proof}")
 
     for recipe <- ["core", "rela"] do
       copied =

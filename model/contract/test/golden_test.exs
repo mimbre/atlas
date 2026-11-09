@@ -4,9 +4,22 @@ defmodule Model.GoldenTest do
   alias Model.AtlasEyra
   alias RelaDSL.{Atlas, Rela}
 
-  # A component reading the committed target, as a running one would.
+  # The committed target, read as the proof it is (no component reads it, D-0083).
   defmodule Committed do
-    use RelaDSL.Runtime, target: "../../targets/atlas/flows.json"
+    @moduledoc false
+    @path Path.expand("../../targets/atlas/flows.json", __DIR__)
+    @external_resource @path
+    @data @path |> File.read!() |> JSON.decode!()
+
+    def flows, do: @data["flows"]
+    def gates, do: @data["gates"]
+    def rela_flows_sha256, do: @data["rela_flows_sha256"]
+
+    def check_rela_flows(yaml) do
+      if RelaDSL.Atlas.sha256(yaml) == rela_flows_sha256(),
+        do: :ok,
+        else: {:error, "flows.yaml is not the one generated with flows.json"}
+    end
   end
 
   # test/golden/<file>.flows.yaml are the approved subflows (the design's

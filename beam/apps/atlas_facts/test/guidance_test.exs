@@ -3,58 +3,68 @@ defmodule AtlasFacts.GuidanceTest do
   alias AtlasBus.Envelope
   alias AtlasFacts.{Guidance, GuidanceStore, Rela}
   @moduletag :tmp_dir
-  defp description do
-    roles = %{
-      "execution" =>
-        ~w(environment worker turn attempt machine harness harness_version configured_model reported_model capability_version queued_input durable_accept_query consumption_evidence recorded_at recorded_position),
-      "interaction" =>
-        ~w(environment actor client_key body body_digest worker turn attempt mode execution cause recorded_at recorded_position),
-      "receipt" =>
-        ~w(environment interaction worker turn attempt execution stage evidence_id admission_id consumption_id reason writer cause recorded_at recorded_position)
-    }
+  defmodule Description do
+    @moduledoc false
+    def of do
+      roles = %{
+        "execution" =>
+          ~w(environment worker turn attempt machine harness harness_version configured_model reported_model capability_version queued_input durable_accept_query consumption_evidence recorded_at recorded_position),
+        "interaction" =>
+          ~w(environment actor client_key body body_digest worker turn attempt mode execution cause recorded_at recorded_position),
+        "receipt" =>
+          ~w(environment interaction worker turn attempt execution stage evidence_id admission_id consumption_id reason writer cause recorded_at recorded_position)
+      }
 
-    mapping =
-      Map.new(roles, fn {role, fields} ->
-        {role,
-         %{"kind" => "synthetic_" <> role, "fields" => Map.new(fields, &{&1, "slot_" <> &1})}}
-      end)
+      mapping =
+        Map.new(roles, fn {role, fields} ->
+          {role,
+           %{"kind" => "synthetic_" <> role, "fields" => Map.new(fields, &{&1, "slot_" <> &1})}}
+        end)
 
-    entities =
-      Map.new(mapping, fn {role, spec} ->
-        props =
-          Map.new(spec["fields"], fn {slot, field} ->
-            {field,
-             %{
-               "type" =>
-                 if(slot in ~w(queued_input durable_accept_query consumption_evidence),
-                   do: "boolean",
-                   else: if(slot == "recorded_position", do: "integer", else: "string")
-                 )
-             }}
-          end)
+      entities =
+        Map.new(mapping, fn {role, spec} ->
+          props =
+            Map.new(spec["fields"], fn {slot, field} ->
+              {field,
+               %{
+                 "type" =>
+                   if(slot in ~w(queued_input durable_accept_query consumption_evidence),
+                     do: "boolean",
+                     else: if(slot == "recorded_position", do: "integer", else: "string")
+                   )
+               }}
+            end)
 
-        {spec["kind"], %{"plural" => role <> "s", "properties" => props}}
-      end)
+          {spec["kind"], %{"plural" => role <> "s", "properties" => props}}
+        end)
 
-    %{
-      "guidance" => mapping,
-      "entities" =>
-        Map.put(entities, "run", %{
-          "plural" => "runs",
-          "properties" => Map.new(~w(host fence status), &{&1, %{"type" => "string"}})
-        }),
-      "runtime" => %{
-        "turn" => %{
-          "kind" => "run",
-          "machine" => "host",
-          "attempt" => "fence",
-          "by" => "performer",
-          "state" => "status",
-          "running" => "live"
+      %{
+        "guidance" => mapping,
+        "entities" =>
+          Map.put(entities, "run", %{
+            "plural" => "runs",
+            "properties" => Map.new(~w(host fence status), &{&1, %{"type" => "string"}})
+          }),
+        "runtime" => %{
+          "turn" => %{
+            "kind" => "run",
+            "machine" => "host",
+            "attempt" => "fence",
+            "by" => "performer",
+            "state" => "status",
+            "running" => "live"
+          }
         }
       }
-    }
+    end
   end
+
+  defmodule Guided do
+    @moduledoc "Synthetic guidance records and the runs (turns) they are fenced by."
+    use AtlasFacts.TestModel, description: AtlasFacts.GuidanceTest.Description.of()
+  end
+
+  defp description, do: Description.of()
 
   setup %{tmp_dir: dir} do
     d = description()
@@ -65,7 +75,7 @@ defmodule AtlasFacts.GuidanceTest do
       "guidance-state-#{System.unique_integer([:positive])}"
     )
 
-    {:ok, store} = GuidanceStore.start(Path.join(dir, "facts.json"), d)
+    {:ok, store} = GuidanceStore.start(Path.join(dir, "facts.json"), Guided.rela_schema())
     rela = {GuidanceStore, store}
 
     {:ok, []} =
@@ -77,7 +87,7 @@ defmodule AtlasFacts.GuidanceTest do
         %{"performer" => {"actor", ["worker-a"]}}
       )
 
-    server = start_supervised!({AtlasFacts.Server, rela: rela, data_dir: dir})
+    server = start_supervised!({AtlasFacts.Server, rela: rela, data_dir: dir, model: Guided})
     :ok = AtlasBus.attach("control/session-#{System.unique_integer([:positive])}")
 
     assert {"stored", %{"fact" => ex}, _} =
@@ -428,8 +438,12 @@ defmodule AtlasFacts.GuidanceTest do
     stop_supervised!(AtlasFacts.Server)
     Task.shutdown(task, :brutal_kill)
     Agent.stop(c.store)
-    {:ok, fresh} = GuidanceStore.start(Path.join(c.dir, "facts.json"), c.d)
-    start_supervised!({AtlasFacts.Server, rela: {GuidanceStore, fresh}, data_dir: c.dir})
+    {:ok, fresh} = GuidanceStore.start(Path.join(c.dir, "facts.json"), Guided.rela_schema())
+
+    start_supervised!(
+      {AtlasFacts.Server, rela: {GuidanceStore, fresh}, data_dir: c.dir, model: Guided}
+    )
+
     assert {"stored", %{"key" => ^key, "fact" => original}, _} = request("interaction", content)
     assert {:ok, [_]} = Rela.list({GuidanceStore, fresh}, "interactions")
 
@@ -441,7 +455,11 @@ defmodule AtlasFacts.GuidanceTest do
              )
 
     stop_supervised!(AtlasFacts.Server)
-    start_supervised!({AtlasFacts.Server, rela: {GuidanceStore, fresh}, data_dir: c.dir})
+
+    start_supervised!(
+      {AtlasFacts.Server, rela: {GuidanceStore, fresh}, data_dir: c.dir, model: Guided}
+    )
+
     assert {"stored", %{"fact" => restored}, _} = request("interaction", content)
     assert restored["recorded_at"] == original["recorded_at"]
     assert restored["receipt_count"] == 1
@@ -629,7 +647,7 @@ defmodule AtlasFacts.GuidanceTest do
     end)
 
     stop_supervised!(AtlasFacts.Server)
-    server = start_supervised!({AtlasFacts.Server, rela: c.rela, data_dir: c.dir})
+    server = start_supervised!({AtlasFacts.Server, rela: c.rela, data_dir: c.dir, model: Guided})
     assert_unbound_delete_refused(%{c | server: server}, "old-unbound")
     assert {:ok, _} = Rela.get(c.rela, "runs", "run-a")
   end
@@ -722,8 +740,12 @@ defmodule AtlasFacts.GuidanceTest do
     assert elem(first, 0) == "stored"
     stop_supervised!(AtlasFacts.Server)
     Agent.stop(c.store)
-    {:ok, fresh} = GuidanceStore.start(Path.join(c.dir, "facts.json"), c.d)
-    start_supervised!({AtlasFacts.Server, rela: {GuidanceStore, fresh}, data_dir: c.dir})
+    {:ok, fresh} = GuidanceStore.start(Path.join(c.dir, "facts.json"), Guided.rela_schema())
+
+    start_supervised!(
+      {AtlasFacts.Server, rela: {GuidanceStore, fresh}, data_dir: c.dir, model: Guided}
+    )
+
     assert as("runtime@box", "unused", content, kind: "run", id: "delete-lost") == first
 
     for changed <- [
@@ -823,8 +845,12 @@ defmodule AtlasFacts.GuidanceTest do
     stop_supervised!(AtlasFacts.Server)
     Task.shutdown(task, :brutal_kill)
     Agent.stop(c.store)
-    {:ok, fresh} = GuidanceStore.start(Path.join(c.dir, "facts.json"), c.d)
-    start_supervised!({AtlasFacts.Server, rela: {GuidanceStore, fresh}, data_dir: c.dir})
+    {:ok, fresh} = GuidanceStore.start(Path.join(c.dir, "facts.json"), Guided.rela_schema())
+
+    start_supervised!(
+      {AtlasFacts.Server, rela: {GuidanceStore, fresh}, data_dir: c.dir, model: Guided}
+    )
+
     recovered = as("runtime@box", "unused", content, kind: "run", id: "delete-commit-gap")
     assert elem(recovered, 0) == "stored"
     assert GuidanceStore.mutations(fresh) == []
@@ -855,7 +881,7 @@ defmodule AtlasFacts.GuidanceTest do
     assert GuidanceStore.mutations(c.store) == []
     assert {:ok, []} = Rela.change(c.rela, "runs", "run-a", %{"fence" => "replacement"}, nil, %{})
     stop_supervised!(AtlasFacts.Server)
-    start_supervised!({AtlasFacts.Server, rela: c.rela, data_dir: c.dir})
+    start_supervised!({AtlasFacts.Server, rela: c.rela, data_dir: c.dir, model: Guided})
 
     assert {"refused", _, _} =
              as("runtime@box", "unused", content, kind: "run", id: "pending-delete")
@@ -909,8 +935,12 @@ defmodule AtlasFacts.GuidanceTest do
     assert length(persisted) == 101
     stop_supervised!(AtlasFacts.Server)
     Agent.stop(c.store)
-    {:ok, fresh} = GuidanceStore.start(Path.join(c.dir, "facts.json"), c.d)
-    start_supervised!({AtlasFacts.Server, rela: {GuidanceStore, fresh}, data_dir: c.dir})
+    {:ok, fresh} = GuidanceStore.start(Path.join(c.dir, "facts.json"), Guided.rela_schema())
+
+    start_supervised!(
+      {AtlasFacts.Server, rela: {GuidanceStore, fresh}, data_dir: c.dir, model: Guided}
+    )
+
     assert {"stored", %{"fact" => after_restart}, _} = request("interaction", content)
     assert after_restart == replay
     assert receipt_history(f["key"], 0, []) == evidence

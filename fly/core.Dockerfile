@@ -6,14 +6,12 @@ FROM hexpm/elixir:1.18.4-erlang-28.5.0.2-debian-bookworm-20260610-slim AS build
 ENV MIX_ENV=prod
 # What the umbrella reads outside beam/ to compile: Control and Runtime the contract (a
 # path dependency, which compiles with its generator); the release the model (model/contract,
-# which Flow, Gates, Runtime and Control are wired to) and the Rela DSL it is written in
-# (model/dsl); Facts the subflows model/dsl generated, read at compile time.
+# which Facts, Flow, Gates, Runtime and Control are wired to) and the Rela DSL it is written
+# in (model/dsl). No generated JSON: the model is compiled in (D-0083).
 COPY bff/generator /src/bff/generator
 COPY bff/contract /src/bff/contract
 COPY model/dsl /src/model/dsl
 COPY model/contract /src/model/contract
-COPY model/targets/atlas/flows.json /src/model/targets/atlas/flows.json
-COPY model/targets/test/atlas/flows.json /src/model/targets/test/atlas/flows.json
 COPY beam /src/beam
 WORKDIR /src/beam
 RUN mix compile --warnings-as-errors && mix release atlas
@@ -26,11 +24,11 @@ RUN apt-get update \
 
 ENV LANG=C.UTF-8 ATLAS_ROOT=/app RELEASE_DISTRIBUTION=none
 COPY --from=build /src/beam/_build/prod/rel/atlas /app/release
-# What the core reads from the repository at run time: the description's extra and its
-# settings per environment, which mix model.gen writes from the model (model/contract).
-# Flow runs the compiled model, so no flows.yaml is copied (the running rela must not load
-# flows either, D-0068).
-COPY rela/schema.yaml rela/data-entry.yaml rela/atlas.json rela/atlas.manifest.json rela/flow-runtime.json /app/rela/
+# The Rela project the model generated, checked against its manifest at build and at start
+# (verify.py). The core reads none of it: Facts compares rela's served schema with the
+# compiled model at boot. No atlas.json, flow-runtime.json or flows.yaml: proofs only, or
+# rela's (the running rela must not load flows either, D-0068).
+COPY rela/schema.yaml rela/data-entry.yaml rela/atlas.manifest.json /app/rela/
 COPY rela/modules /app/rela/modules
 COPY rela/compositions /app/rela/compositions
 COPY rela/scripts/verify.py /app/rela/scripts/verify.py

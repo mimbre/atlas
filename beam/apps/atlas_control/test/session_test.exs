@@ -516,23 +516,21 @@ defmodule AtlasControl.SessionTest do
     refute Map.has_key?(FakeStore.last_fact(), "links")
   end
 
-  test "a limited relation: a create or a move to a full parent is refused, never sent",
+  # How many facts a parent takes (a relation's `limit`) is the model's rule, and Facts
+  # enforces it (AtlasFacts.RelationRulesTest): Control sends the create and the move, and
+  # shows what Facts says.
+  test "a create or a move under a limited parent is sent; Facts says when it is full",
        %{port: port} do
     FakeStore.link("P-1", "W-1")
-    FakeStore.link("P-2", "W-1")
     FakeStore.put("T-a-1", %{"name" => "#a/1", "note" => "live"}, "tag", %{"on_part" => ["P-1"]})
-    FakeStore.put("T-b-1", %{"name" => "#b/1", "note" => "live"}, "tag", %{"on_part" => ["P-2"]})
+    FakeStore.put("T-b-1", %{"name" => "#b/1", "note" => "live"}, "tag")
+    FakeStore.refuse("T-b-1", "P-1 already has T-a-1 (live); one tag per part")
     a = client(port)
     next(a, "page")
 
     put(a, %{"op" => "submit", "to" => "/k/tag/new/on_part/P-1", "values" => %{"name" => "#c/1"}})
-    assert %{"tone" => "error", "text" => "Not sent: the form says why."} = next(a, "notice")
-
-    assert %{"reason" => "refused", "blocks" => [%{"props" => %{"errors" => [error]}}]} =
-             next(a, "page")
-
-    assert error == "P-1 already has T-a-1 (live); one tag per part"
-    assert FakeStore.last_fact() == nil
+    assert %{"path" => "/k/tag/T-c-1", "reason" => "stored"} = next(a, "page")
+    assert %{"op" => "create", "links" => %{"on_part" => ["P-1"]}} = FakeStore.last_fact()
 
     put(a, %{"op" => "open", "to" => "/k/tag/T-b-1/edit"})
     next(a, "page")
@@ -543,16 +541,12 @@ defmodule AtlasControl.SessionTest do
       "values" => %{"name" => "#b/1", "on_part" => "P-1"}
     })
 
-    assert %{"reason" => "refused", "blocks" => [%{"props" => %{"errors" => [^error]}}]} =
+    assert %{"reason" => "refused", "blocks" => [%{"props" => %{"errors" => errors}}]} =
              next(a, "page")
 
-    # Once the one there no longer counts, the same create goes through.
-    FakeStore.put("T-a-1", %{"name" => "#a/1", "note" => "dropped"}, "tag", %{
-      "on_part" => ["P-1"]
-    })
+    assert errors == ["P-1 already has T-a-1 (live); one tag per part"]
 
-    put(a, %{"op" => "submit", "to" => "/k/tag/new/on_part/P-1", "values" => %{"name" => "#c/1"}})
-    assert %{"path" => "/k/tag/T-c-1", "reason" => "stored"} = next(a, "page")
+    assert %{"op" => "change", "links" => %{"on_part" => ["P-1"]}} = FakeStore.last_fact()
   end
 
   test "a submit to anything but a submit endpoint of the contract is refused, unsent",
@@ -1032,11 +1026,15 @@ defmodule AtlasControl.SessionTest do
     assert was == %{"title" => "One"}
   end
 
-  test "a link only a migration sets is never sent", %{port: port} do
+  # Who sets a link (`set_by`, `only_target`) is the model's rule, and Facts enforces it:
+  # Control sends the link as the client, and shows what Facts says.
+  test "a link only a migration sets is sent as the client; Facts refuses anyone else",
+       %{port: port} do
     FakeStore.put("W-1", %{"title" => "One"})
+    FakeStore.put("T-1", %{"name" => "#t/1"}, "tag")
     a = client(port)
     next(a, "page")
-    sent = FakeStore.sent()
+    FakeStore.refuse("W-1", "only a migration sets seen_in")
 
     put(a, %{
       "op" => "submit",
@@ -1044,11 +1042,12 @@ defmodule AtlasControl.SessionTest do
       "values" => %{"to" => "T-1"}
     })
 
-    assert %{"reason" => "refused", "blocks" => [%{"type" => "confirm"}]} = next(a, "page")
-    assert FakeStore.sent() == sent
+    assert %{"reason" => "refused"} = next(a, "page")
 
-    # A client that says it is the migration may.
-    FakeStore.put("T-1", %{"name" => "#t/1"}, "tag")
+    assert %{"links" => %{"seen_in" => ["T-1"]}, "by" => "agent"} = FakeStore.last_fact()
+
+    # A client that says it is the migration sends it as the migration.
+    FakeStore.put("W-2", %{"title" => "Two"})
     {:ok, m} = :gen_tcp.connect(~c"127.0.0.1", port, [:binary, packet: :line, active: false])
 
     put(m, %{
@@ -1062,13 +1061,13 @@ defmodule AtlasControl.SessionTest do
 
     put(m, %{
       "op" => "submit",
-      "to" => "/k/widget/W-1/links/seen_in",
+      "to" => "/k/widget/W-2/links/seen_in",
       "values" => %{"to" => "T-1"}
     })
 
     assert %{"reason" => "stored"} = next(m, "page")
 
-    assert %{"links" => %{"seen_in" => ["T-1"]}, "by" => "migration"} =
+    assert %{"key" => "W-2", "links" => %{"seen_in" => ["T-1"]}, "by" => "migration"} =
              List.last(FakeStore.sent())
   end
 
@@ -1121,13 +1120,10 @@ defmodule AtlasControl.SessionTest do
     assert %{"links" => %{"approved_by" => []}, "cause" => "found a bug"} =
              List.last(FakeStore.sent())
 
-    # An agent is refused, and nothing is sent.
+    # An agent's link goes to Facts as the agent's; Facts refuses it (only_target).
     a = client(port)
     next(a, "page")
-    sent = FakeStore.sent()
-    put(a, %{"op" => "submit", "to" => "/k/widget/W-1/set/approved_by", "values" => %{}})
-    assert %{"text" => text} = next(a, "notice")
-    assert text =~ "only a member approves"
+    FakeStore.refuse("W-1", "only a member approves, as themselves")
 
     put(a, %{
       "op" => "submit",
@@ -1136,37 +1132,22 @@ defmodule AtlasControl.SessionTest do
     })
 
     assert %{"reason" => "refused"} = next(a, "page")
-    assert FakeStore.sent() == sent
+
+    assert %{"links" => %{"approved_by" => ["ada"]}, "by" => "agent"} = FakeStore.last_fact()
   end
 
-  test "nothing new is created under an approved fact", %{port: port} do
-    FakeStore.put("W-1", %{"title" => "One"}, "widget", %{"approved_by" => ["ada"]})
-    a = client(port)
-    next(a, "page")
-    sent = FakeStore.sent()
-
-    put(a, %{
-      "op" => "submit",
-      "to" => "/k/part/new/of_widget/W-1",
-      "values" => %{"title" => "Wheel"}
-    })
-
-    assert %{"reason" => "refused", "blocks" => [%{"props" => %{"errors" => [why]}}]} =
-             next(a, "page")
-
-    assert why == "W-1 is approved; withdraw it first, or put this under another widget"
-    assert FakeStore.sent() == sent
-  end
-
-  test "nothing is moved under an approved fact", %{port: port} do
+  # A parent closed by a link (`closes_parent`) is the model's rule, and Facts enforces it.
+  test "a create or a move under an approved fact is sent; Facts says it is closed",
+       %{port: port} do
+    closed = "W-2 is approved; withdraw it first, or put this under another widget"
     FakeStore.put("W-1", %{"title" => "One"})
     FakeStore.put("W-2", %{"title" => "Two"}, "widget", %{"approved_by" => ["ada"]})
     FakeStore.link("P-1", "W-1")
+    FakeStore.refuse("P-1", closed)
     a = client(port)
     next(a, "page")
     put(a, %{"op" => "open", "to" => "/k/part/P-1/edit"})
     next(a, "page")
-    sent = FakeStore.sent()
 
     put(a, %{
       "op" => "submit",
@@ -1174,11 +1155,8 @@ defmodule AtlasControl.SessionTest do
       "values" => %{"title" => "P-1", "of_widget" => "W-2"}
     })
 
-    assert %{"reason" => "refused", "blocks" => [%{"props" => %{"errors" => [why]}}]} =
-             next(a, "page")
-
-    assert why == "W-2 is approved; withdraw it first, or put this under another widget"
-    assert FakeStore.sent() == sent
+    assert %{"reason" => "refused"} = next(a, "page")
+    assert %{"op" => "change", "links" => %{"of_widget" => ["W-2"]}} = FakeStore.last_fact()
   end
 
   test "a declared answer submits one self change, requires its note, and rechecks a stale owner" do
@@ -1237,7 +1215,7 @@ defmodule AtlasControl.SessionTest do
     assert FakeStore.sent() == sent
   end
 
-  test "an update that decides names the client as decider; a kind never deleted refuses unsent" do
+  test "an update that decides goes as the client's, with what it read; a kind never deleted refuses unsent" do
     # Who checked a widget decides its dark shade; a widget is never deleted (`Shop.Kept`).
     port = gateway(Shop.Kept)
     FakeStore.put("W-1", %{"title" => "One", "shade" => "light"})
@@ -1260,15 +1238,17 @@ defmodule AtlasControl.SessionTest do
 
     assert %{"reason" => "stored"} = next(a, "page")
 
-    # The client here is the agent: it decides as itself, and Facts checks it may.
-    assert %{
-             "by" => "agent",
-             "values" => %{"shade" => "dark"},
-             "links" => %{"checked_by" => ["agent"]},
-             "was" => %{"shade" => "light", "checked_by" => []}
-           } = List.last(FakeStore.sent())
+    # The client here is the agent: it decides as itself. Facts links it as the one who
+    # decides (the model's rule) and checks it may; Control sends what the form read of
+    # the links, so Facts can tell when they changed meanwhile.
+    sent = List.last(FakeStore.sent())
 
-    # A change that decides nothing names nobody.
+    assert %{"by" => "agent", "values" => %{"shade" => "dark"}, "was" => %{"shade" => "light"}} =
+             sent
+
+    refute Map.has_key?(sent, "links")
+
+    # A change that decides nothing is sent the same way.
     put(a, %{"op" => "open", "to" => "/k/widget/W-1/edit"})
     next(a, "page")
     put(a, %{"op" => "submit", "to" => "/k/widget/W-1/edit", "values" => %{"title" => "Uno"}})

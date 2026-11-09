@@ -26,11 +26,8 @@ defmodule AtlasFlow.Item do
 
   def via(kind, key), do: {:via, Registry, {AtlasFlow.Items, {kind, key}}}
 
-  @doc """
-  Look again soon: something it depends on may have changed. `description` is the
-  engine's copy (read every round), so a poke costs no read of it; the timer reads it.
-  """
-  def poke(pid, description \\ nil), do: send(pid, {:poke, description})
+  @doc "Look again soon: something it depends on may have changed."
+  def poke(pid), do: send(pid, :poke)
 
   @impl true
   def init({kind, key, opts}) do
@@ -45,34 +42,31 @@ defmodule AtlasFlow.Item do
        clock: Keyword.get(opts, :clock, {Clock, nil}),
        runner: Keyword.get_lazy(opts, :runner, fn -> runner(opts) end),
        timer: nil,
-       soon: false,
-       description: nil
+       soon: false
      }}
   end
 
   @impl true
-  def handle_info({:poke, description}, %{soon: true} = state),
-    do: {:noreply, %{state | description: description || state.description}}
+  def handle_info(:poke, %{soon: true} = state), do: {:noreply, state}
 
-  def handle_info({:poke, description}, state) do
+  def handle_info(:poke, state) do
     Clock.schedule(state.clock, self(), {:look, :poked}, @settle)
-    {:noreply, %{state | soon: true, description: description}}
+    {:noreply, %{state | soon: true}}
   end
 
-  # On its timer it reads everything, the description too.
-  def handle_info(:look, state), do: handle_info({:look, :timer}, %{state | description: nil})
+  # On its timer it reads everything again.
+  def handle_info(:look, state), do: handle_info({:look, :timer}, state)
 
   def handle_info({:look, _why}, state) do
     if state.timer, do: Clock.cancel(state.clock, state.timer)
     state = %{state | soon: false, timer: nil}
 
     case look(state) do
-      # Back to waiting: hibernate, so the copies of the description the look read are
-      # collected now rather than kept as garbage until the next look. The engine's copy a
-      # poke brought is let go too: the next look gets a fresh one (a poke) or reads it.
+      # Back to waiting: hibernate, so what the look read is collected now rather than
+      # kept as garbage until the next look.
       {:wait, every} ->
         timer = Clock.schedule(state.clock, self(), :look, every)
-        {:noreply, %{state | timer: timer, description: nil}, :hibernate}
+        {:noreply, %{state | timer: timer}, :hibernate}
 
       :stop ->
         {:stop, :normal, state}
@@ -94,16 +88,16 @@ defmodule AtlasFlow.Item do
   end
 
   defp look(state) do
-    with %{"description" => description} <- description(state),
-         flow when flow != nil <-
-           Legacy.for_kind(Legacy.runnable(state.runner.legacy, description), state.kind),
+    relations = state.runner.relations
+
+    with flow when flow != nil <- Legacy.for_kind(state.runner.legacy, state.kind),
          %{"fact" => fact} when is_map(fact) <-
            Talk.read(state.kind, %{"key" => state.key, "incoming" => false}) do
-      parents = parent_relations(description, state.kind)
-      pointing = Legacy.pointing(flow, description, state.kind)
+      parents = parent_relations(relations, state.kind)
+      pointing = Legacy.pointing(flow, relations, state.kind)
 
       children =
-        children(parents, description, state.key) ++ pointed(pointing, description, state.key)
+        children(parents, relations, state.key) ++ pointed(pointing, relations, state.key)
 
       selected = Store.selected(state.runner.config, state.kind, fact)
 
@@ -114,7 +108,7 @@ defmodule AtlasFlow.Item do
         end
 
       current = projection(state, selected, flow, fact, children, parents, pointing)
-      result = if current, do: move(state, description, {flow.name(), binding}, fact, current)
+      result = if current, do: move(state, relations, {flow.name(), binding}, fact, current)
 
       if current["done"] == true and result != :held,
         do: :stop,
@@ -198,15 +192,12 @@ defmodule AtlasFlow.Item do
     end
   end
 
-  defp description(%{description: nil}), do: Talk.read("_description", %{})
-  defp description(%{description: description}), do: %{"description" => description}
-
   # Store what differs: what is expected, and the owner, in one change with its cause, on
   # the fact the definition writes on: its own, or the one its `on` relation points at.
-  defp move(state, description, {name, flow}, fact, current) do
-    case written(description, flow, state.kind, fact) do
+  defp move(state, relations, {name, flow}, fact, current) do
+    case written(relations, flow, state.kind, fact) do
       {:ok, kind, target} ->
-        write(state, description, name, flow, kind, target, current)
+        write(state, name, flow, kind, target, current)
 
       {:missing, relation} ->
         Logger.warning("flow #{name}: #{state.key} has no #{relation} to write on; tried again")
@@ -216,8 +207,8 @@ defmodule AtlasFlow.Item do
     end
   end
 
-  defp written(description, %{"on" => relation}, _kind, fact) when is_binary(relation) do
-    with [to] <- get_in(description, ["relations", relation, "to"]),
+  defp written(relations, %{"on" => relation}, _kind, fact) when is_binary(relation) do
+    with [to] <- get_in(relations, [relation, "to"]),
          [key] <- get_in(fact, ["links", relation]) || [],
          %{"fact" => target} when is_map(target) <-
            Talk.read(to, %{"key" => key, "plain" => true}) do
@@ -229,9 +220,9 @@ defmodule AtlasFlow.Item do
     end
   end
 
-  defp written(_description, _flow, kind, fact), do: {:ok, kind, fact}
+  defp written(_relations, _flow, kind, fact), do: {:ok, kind, fact}
 
-  defp write(state, description, name, flow, kind, fact, current) do
+  defp write(state, name, flow, kind, fact, current) do
     expected = if current["done"] == true, do: nil, else: current["expected"] || ""
     field = flow["field"]
 
@@ -269,7 +260,7 @@ defmodule AtlasFlow.Item do
 
     hold? =
       wanted? and current["done"] != true and held_field != nil and
-        running?(description, fact["key"], owners)
+        running?(state.runner.turn, fact["key"], owners)
 
     links = if owner? == :yes and not hold?, do: %{relation => List.wrap(owner)}, else: %{}
 
@@ -353,10 +344,10 @@ defmodule AtlasFlow.Item do
   end
 
   # Unknown Facts availability preserves the owner and durable deferred handover.
-  defp running?(_description, _key, []), do: false
+  defp running?(_turn, _key, []), do: false
 
-  defp running?(description, key, owners) do
-    case get_in(description, ["runtime", "turn"]) do
+  defp running?(turn, key, owners) do
+    case turn do
       %{"kind" => kind} = n ->
         case Talk.read(kind, %{"linked" => %{n["on"] => key}, "plain" => true}) do
           %{"facts" => turns} ->
@@ -444,16 +435,16 @@ defmodule AtlasFlow.Item do
     end
   end
 
-  # The relations by which facts belong under one of `kind`, as the description marks them.
-  defp parent_relations(description, kind) do
-    for {relation, %{"parent" => true, "to" => to}} <- description["relations"] || %{},
+  # The relations by which facts belong under one of `kind`, as the model marks them.
+  defp parent_relations(relations, kind) do
+    for {relation, %{"parent" => true, "to" => to}} <- relations,
         kind in to,
         do: relation
   end
 
-  defp children(parents, description, key) do
+  defp children(parents, relations, key) do
     Enum.flat_map(parents, fn relation ->
-      [from | _] = get_in(description, ["relations", relation, "from"]) || [nil]
+      [from | _] = get_in(relations, [relation, "from"]) || [nil]
 
       case from && Talk.read(from, %{"linked" => %{relation => key}, "plain" => true}) do
         %{"facts" => facts} -> facts
@@ -465,9 +456,9 @@ defmodule AtlasFlow.Item do
   # The facts that point at it through the associations its flow reads (`empty`), of every
   # kind they start at. A read Facts does not answer counts as something pointing at it:
   # not knowing is never "nothing is based on it".
-  defp pointed(relations, description, key) do
-    for relation <- relations,
-        from <- get_in(description, ["relations", relation, "from"]) || [],
+  defp pointed(pointing, relations, key) do
+    for relation <- pointing,
+        from <- get_in(relations, [relation, "from"]) || [],
         fact <-
           (case Talk.read(from, %{"linked" => %{relation => key}, "plain" => true}) do
              %{"facts" => facts} -> facts

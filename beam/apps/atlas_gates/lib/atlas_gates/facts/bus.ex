@@ -3,8 +3,8 @@ defmodule AtlasGates.Facts.Bus do
   Records verdicts in Facts over the Bus, from the calling process, which `attach/2` makes
   an endpoint. Reads and facts go to the store as every layer sends them.
 
-  A new verdict's key is the kind's id prefix and the next number (`create.id` in the
-  description Facts answers for `_description`, as Control makes it). Each try is sent
+  A new verdict's key is the kind's id prefix and the next number (the model's `ids/0`,
+  `AtlasGates.Model`; `ids` in the state, else the configured model's). Each try is sent
   with the id `<request id>.<try>`, so Facts stores a resend once and answers it as it did
   the first time; when the key is taken meanwhile (`exists`, `reserved`) the next number is
   tried. Links are set in one change right after it is made, as `atlas put --link` does. No answer within `wait` milliseconds is asked again, a few times, then an error.
@@ -16,32 +16,31 @@ defmodule AtlasGates.Facts.Bus do
   @tries 3
   @key_tries 5
 
-  @doc "Attach the calling process as `endpoint`: `{:ok, {AtlasGates.Facts.Bus, state}}`. `opts`: `wait` (ms, default 2000)."
+  @doc """
+  Attach the calling process as `endpoint`: `{:ok, {AtlasGates.Facts.Bus, state}}`.
+  `opts`: `wait` (ms, default 2000) and `ids` (the key rules; default the configured
+  model's).
+  """
   def attach(endpoint, opts \\ []) do
     with :ok <- AtlasBus.attach(endpoint),
-         do: {:ok, {__MODULE__, %{wait: Keyword.get(opts, :wait, 2_000)}}}
+         do:
+           {:ok,
+            {__MODULE__, %{wait: Keyword.get(opts, :wait, 2_000), ids: Keyword.get(opts, :ids)}}}
   end
 
   @impl true
   def fetch(state, nil, key) when is_binary(key) do
-    case read(state, "_description", %{}) do
-      %{"description" => description} ->
-        candidates =
-          for {kind, spec} <- description["entities"],
-              prefix <- [
-                get_in(spec, ["create", "id", "prefix"]) || spec["id_prefix"]
-                | spec["id_prefixes"] || []
-              ],
-              is_binary(prefix) and prefix != "" and String.starts_with?(key, prefix),
-              do: {byte_size(prefix), kind}
+    ids = ids(state)
 
-        case Enum.sort(candidates, :desc) do
-          [{_, kind} | _] -> fetch(state, kind, key)
-          [] -> fetch_unprefixed(state, description, key)
-        end
+    candidates =
+      for {kind, rule} <- ids,
+          prefix <- rule["prefixes"] || [],
+          is_binary(prefix) and prefix != "" and String.starts_with?(key, prefix),
+          do: {byte_size(prefix), kind}
 
-      other ->
-        {:error, "Facts answered #{inspect(other)}"}
+    case Enum.sort(candidates, :desc) do
+      [{_, kind} | _] -> fetch(state, kind, key)
+      [] -> fetch_unprefixed(state, ids, key)
     end
   end
 
@@ -56,13 +55,9 @@ defmodule AtlasGates.Facts.Bus do
     end
   end
 
-  defp fetch_unprefixed(state, description, key) do
-    Enum.reduce_while(description["entities"], {:ok, nil}, fn {kind, spec}, acc ->
-      prefixes = [
-        get_in(spec, ["create", "id", "prefix"]) || spec["id_prefix"] | spec["id_prefixes"] || []
-      ]
-
-      if Enum.any?(prefixes, &(is_binary(&1) and &1 != "")) do
+  defp fetch_unprefixed(state, ids, key) do
+    Enum.reduce_while(Enum.sort(ids), {:ok, nil}, fn {kind, rule}, acc ->
+      if Enum.any?(rule["prefixes"] || [], &(is_binary(&1) and &1 != "")) do
         {:cont, acc}
       else
         case fetch(state, kind, key) do
@@ -171,24 +166,22 @@ defmodule AtlasGates.Facts.Bus do
     end
   end
 
-  # The id rule of `kind`, from the description: its prefix and digits.
+  # The id rule of `kind`, the model's: its prefix and digits.
   defp id_rule(state, kind) do
-    case read(state, "_description", %{}) do
-      %{"description" => %{"entities" => %{^kind => spec}}} ->
-        prefix = get_in(spec, ["create", "id", "prefix"]) || spec["id_prefix"]
-        digits = get_in(spec, ["create", "id", "digits"]) || 2
+    case ids(state)[kind] do
+      %{"prefix" => prefix, "digits" => digits} when is_binary(prefix) and prefix != "" ->
+        {:ok, %{prefix: prefix, digits: digits}}
 
-        if is_binary(prefix) and prefix != "",
-          do: {:ok, %{prefix: prefix, digits: digits}},
-          else: {:error, "#{kind} has no id prefix in the description"}
+      %{} ->
+        {:error, "#{kind} has no id prefix in the model"}
 
-      %{"description" => _} ->
-        {:error, "the description has no kind #{kind}"}
-
-      %{"error" => why} ->
-        {:error, "Facts could not read the description: #{why}"}
+      nil ->
+        {:error, "the model has no kind #{kind}"}
     end
   end
+
+  defp ids(%{ids: ids}) when is_map(ids), do: ids
+  defp ids(_state), do: AtlasGates.Model.configured!().ids()
 
   defp next(%{prefix: prefix, digits: digits}, keys, after_number) do
     {:ok, pattern} = Regex.compile("^" <> Regex.escape(prefix) <> "(\\d+)$")

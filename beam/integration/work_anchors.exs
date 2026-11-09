@@ -47,11 +47,9 @@ defmodule WorkAnchorsTest do
     rela = {Rela.Http, "http://127.0.0.1:#{port}/api/v1"}
     wait(rela, 200)
 
+    # Facts stores by the compiled model; rela must serve the schema it was built with.
     start_supervised!(
-      {AtlasFacts.Server,
-       rela: rela,
-       data_dir: Path.join(dir, "beam"),
-       description_extra: Path.join(@root, "rela/atlas.json")}
+      {AtlasFacts.Server, rela: rela, data_dir: Path.join(dir, "beam"), model: Model.AtlasEyra}
     )
 
     :ok = AtlasBus.attach("control/session-anchors-#{System.unique_integer([:positive])}")
@@ -106,14 +104,14 @@ defmodule WorkAnchorsTest do
   end
 
   # The state the model's compiled legacy flow puts a fact in, from what Facts answers.
-  defp state(description, kind, key) do
+  defp state(relations, kind, key) do
     flow = AtlasFlow.Legacy.for_kind(Model.AtlasEyra.legacy(), kind)
     %{"fact" => fact} = ask(kind, %{"key" => key, "incoming" => false})
-    pointing = AtlasFlow.Legacy.pointing(flow, description, kind)
+    pointing = AtlasFlow.Legacy.pointing(flow, relations, kind)
 
     pointed =
       for relation <- pointing,
-          from <- description["relations"][relation]["from"],
+          from <- relations[relation]["from"],
           fact <- ask(from, %{"linked" => %{relation => key}, "plain" => true})["facts"],
           do: fact
 
@@ -122,10 +120,11 @@ defmodule WorkAnchorsTest do
   end
 
   test "an accepted record waits for work, flags replaced work, and is read first" do
-    %{"description" => d} = ask("_description", %{})
-    # The definitions as they ship are sound (what the assembler checks).
-    assert Enum.all?(d["flow_problems"], fn {_, problems} -> problems == [] end),
-           inspect(d["flow_problems"])
+    # Facts answers rela's schema; what Flow walks is the model's (its relations, with
+    # the parent and component marks). The flows are compiled and checked with the model.
+    %{"description" => served} = ask("_description", %{})
+    assert served["entities"]["decision"]["plural"] == "decisions"
+    d = Model.AtlasEyra.relations()
 
     put("person", %{"op" => "create", "key" => "melle", "values" => %{"name" => "Melle"}})
 

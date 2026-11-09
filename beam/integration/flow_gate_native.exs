@@ -45,12 +45,11 @@ try do
   facts_opts = [
     rela: {AtlasFacts.Rela.Http, "http://127.0.0.1:#{port}/api/v1"},
     data_dir: Path.join(dir, "facts"),
-    description_extra: Path.join(root, "rela/atlas.json"),
-    flow_runtime: Path.join(root, "rela/flow-runtime.json"),
     flow_input_clock: fn -> ManualClock.now(clock) end
   ]
 
-  # Flow and Gates run the model, compiled for the test environment (its answer limits).
+  # Facts, Flow and Gates run the model, compiled for the test environment (its answer
+  # limits); Facts starts once rela serves the schema the model was built with.
   Application.put_env(:atlas, :model, Model.AtlasEyra)
   {:ok, facts} = AtlasFacts.Server.start_link(facts_opts)
   {:ok, gates} = AtlasGates.Endpoint.start_link(now: fn -> ManualClock.now(clock) end)
@@ -59,8 +58,8 @@ try do
 
   await = fn await ->
     case Talk.read("_description", %{}) do
-      %{"description" => %{"flow_runtime" => %{} = c} = d} ->
-        {d, c}
+      %{"description" => %{"entities" => %{}} = d} ->
+        d
 
       other ->
         assert System.monotonic_time(:millisecond) < readiness_deadline, inspect(other)
@@ -68,11 +67,12 @@ try do
     end
   end
 
-  {description, served} = await.(await)
+  # Facts answers rela's schema, the model's (Facts checked it at boot).
+  served = await.(await)
+  assert Map.take(served, ~w(entities relations types)) == Model.AtlasEyra.rela_schema()
   %{config: config, flows: flows} = AtlasFlow.Model.load(Model.AtlasEyra, :test)
-  # Facts serves the same run configuration it checks writes by (its own reader, until
-  # its cutover); Flow runs the compiled one.
-  assert Map.take(served, ~w(kind fields writer inputs)) ==
+  # Facts keeps runs by the same compiled run mapping Flow runs them by.
+  assert Map.take(Model.AtlasEyra.run_mapping(), ~w(kind fields writer inputs)) ==
            Map.take(config, ~w(kind fields writer inputs))
 
   reconcile = fn ->
@@ -268,7 +268,7 @@ try do
   assert work["review"]["label"] == "Review: based on a superseded decision"
   assert {:ok, final_runs} = reconcile.()
   assert Enum.find(final_runs, &(&1["key"] == fixed["key"]))["state"] == "for_person_always"
-  assert description["relations"]["reviewed_by"]["only_target"]
+  assert Model.AtlasEyra.relations()["reviewed_by"]["only_target"]
   GenServer.stop(gates)
   GenServer.stop(facts)
   Agent.stop(clock)

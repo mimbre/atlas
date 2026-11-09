@@ -27,6 +27,16 @@ defmodule AtlasFactsTest do
     send_and_wait(envelope, content)
   end
 
+  # Facts again, on `model`, and a rela that serves its schema.
+  defp restart(rela, dir, model, opts \\ []) do
+    FakeRela.serve(rela, model)
+    stop_supervised!(AtlasFacts.Server)
+
+    start_supervised!(
+      {AtlasFacts.Server, [rela: {FakeRela, rela}, data_dir: dir, model: model] ++ opts}
+    )
+  end
+
   defp read(kind, content \\ %{}) do
     {"answer", answer, _} = send_and_wait(Envelope.new("read", kind), content)
     answer
@@ -223,24 +233,60 @@ defmodule AtlasFactsTest do
     assert %{"fact" => nil} = read("widget", %{"key" => "W-9", "plain" => true})
   end
 
-  test "Atlas's additions are merged into the description Facts answers", %{rela: rela, dir: dir} do
-    extra = Path.join(dir, "atlas.json")
-
-    File.write!(
-      extra,
-      ~s({"_about": "x", "entities": {"widget": {"create": {"ask": ["title"]}}}})
-    )
-
-    stop_supervised!(AtlasFacts.Server)
-
-    start_supervised!(
-      {AtlasFacts.Server, rela: {FakeRela, rela}, data_dir: dir, description_extra: extra}
-    )
+  test "the description Facts answers is rela's schema, none of the model's additions", %{
+    rela: rela,
+    dir: dir
+  } do
+    restart(rela, dir, AtlasFacts.Workshops.Asked)
 
     %{"description" => description} = read("_description")
-    assert description["entities"]["widget"]["create"] == %{"ask" => ["title"]}
+    assert description == AtlasFacts.Workshops.Asked.rela_schema()
+    refute Map.has_key?(description["entities"]["widget"], "create")
     assert description["entities"]["widget"]["plural"] == "widgets"
     refute Map.has_key?(description, "_about")
+  end
+
+  @tag :capture_log
+  test "Facts does not start on a rela that serves another schema, and says why", %{
+    rela: rela,
+    dir: dir
+  } do
+    stop_supervised!(AtlasFacts.Server)
+    FakeRela.serve(rela, AtlasFacts.Workshops.Tagged)
+
+    assert {:error, {{:schema_mismatch, reason}, _}} =
+             start_supervised(
+               {AtlasFacts.Server,
+                rela: {FakeRela, rela}, data_dir: dir, model: AtlasFacts.Workshop}
+             )
+
+    assert reason =~ "rela serves another schema than this build's model AtlasFacts.Workshop"
+    assert reason =~ "entities.tag is served, but not built"
+    assert reason =~ "Deploy rela and the core from the same build"
+  end
+
+  @tag :capture_log
+  test "a rela not reachable at boot is read, and checked, on the first request", %{
+    rela: rela,
+    dir: dir
+  } do
+    stop_supervised!(AtlasFacts.Server)
+    FakeRela.down(rela)
+    start_supervised!({AtlasFacts.Server, rela: {FakeRela, rela}, data_dir: dir})
+    assert %{"error" => "rela is not reachable", "error_kind" => "unreachable"} = read("widget")
+
+    # rela comes back with another build's schema: no write goes by it.
+    FakeRela.serve(rela, AtlasFacts.Workshops.Tagged)
+    FakeRela.up(rela)
+
+    assert {"refused", %{"reasons" => [reason]}, nil} = fact("create", "W-1", %{"title" => "x"})
+    assert reason =~ "rela serves another schema"
+    assert %{"error" => ^reason, "error_kind" => "answered"} = read("widget")
+    assert FakeRela.facts(rela) == %{}
+
+    # Its own build again: Facts goes on.
+    FakeRela.serve(rela, AtlasFacts.Workshop)
+    assert {"stored", _, _} = fact("create", "W-1", %{"title" => "x"})
   end
 
   # A widget has a tag, made and deleted with it (a made-up component, as the Assignment).
@@ -248,30 +294,7 @@ defmodule AtlasFactsTest do
     rela: rela,
     dir: dir
   } do
-    extra = Path.join(dir, "atlas.json")
-
-    File.write!(
-      extra,
-      JSON.encode!(%{
-        "entities" => %{
-          "tag" => %{"plural" => "tags", "properties" => %{"title" => %{"type" => "string"}}}
-        },
-        "relations" => %{
-          "tagged" => %{
-            "from" => ["widget"],
-            "to" => ["tag"],
-            "max_outgoing" => 1,
-            "component" => %{"key" => "T-{key}", "values" => %{"title" => "{key}"}}
-          }
-        }
-      })
-    )
-
-    stop_supervised!(AtlasFacts.Server)
-
-    start_supervised!(
-      {AtlasFacts.Server, rela: {FakeRela, rela}, data_dir: dir, description_extra: extra}
-    )
+    restart(rela, dir, AtlasFacts.Workshops.Tagged)
 
     assert {"stored", _, _} = fact("create", "W-1", %{"title" => "One"}, cause: "made")
     assert {%{"title" => "W-1"}, _} = FakeRela.facts(rela)["T-W-1"]
@@ -293,27 +316,11 @@ defmodule AtlasFactsTest do
     assert FakeRela.facts(rela) == %{}
   end
 
-  test "a kind rela does not know says so, and what to do; never 'not reachable'", %{
-    rela: rela,
-    dir: dir
-  } do
-    # The build's additions name a kind the running rela's description does not have.
-    extra = Path.join(dir, "atlas.json")
-    File.write!(extra, ~s({"entities": {"ghost": {"create": {"ask": ["title"]}}}}))
-    stop_supervised!(AtlasFacts.Server)
+  test "a kind rela does not describe says so; never 'not reachable'", %{rela: rela} do
+    assert %{"error" => "rela does not describe \"ghost\"", "error_kind" => "answered"} =
+             read("ghost")
 
-    start_supervised!(
-      {AtlasFacts.Server, rela: {FakeRela, rela}, data_dir: dir, description_extra: extra}
-    )
-
-    older =
-      "rela does not know ghost: its description is older than this build; " <>
-        "run atlas-ops restart --env #{AtlasBus.environment()}"
-
-    assert %{"error" => ^older, "error_kind" => "answered"} = read("ghost")
-    assert %{"error" => ^older} = read("ghost", %{"key" => "G-1"})
-
-    assert {"refused", %{"reasons" => [^older]}, nil} =
+    assert {"refused", %{"reasons" => ["rela does not describe \"ghost\""]}, nil} =
              fact("create", "G-1", %{"title" => "x"}, kind: "ghost")
 
     # Only a rela that does not answer is "not reachable".
@@ -323,24 +330,10 @@ defmodule AtlasFactsTest do
 
   test "reads carry how far a fact is, from the facts under it, as the description's rule says",
        %{rela: rela, dir: dir} do
-    extra = Path.join(dir, "atlas.json")
-
-    File.write!(
-      extra,
-      ~s({"progress": {"order": ["rough", "fine"]},
-      "entities": {"widget": {"progress": {"over": "of_widget", "field": "phase", "own": "shade"}}}})
-    )
-
-    stop_supervised!(AtlasFacts.Server)
-
     {:ok, clock} = Agent.start_link(fn -> 0 end)
 
-    start_supervised!(
-      {AtlasFacts.Server,
-       rela: {FakeRela, rela},
-       data_dir: dir,
-       description_extra: extra,
-       collection_clock: fn -> Agent.get(clock, & &1) end}
+    restart(rela, dir, AtlasFacts.Workshops.Phased,
+      collection_clock: fn -> Agent.get(clock, & &1) end
     )
 
     fact("create", "W-1", %{"title" => "One"})
@@ -523,18 +516,7 @@ defmodule AtlasFactsTest do
   # a maker or a part.
   test "a link to one of several kinds: a key of none of them is refused, naming the kinds",
        %{rela: rela, dir: dir} do
-    extra = Path.join(dir, "atlas.json")
-
-    File.write!(
-      extra,
-      ~s({"relations": {"owned_by": {"from": ["widget"], "to": ["maker", "part"], "max_outgoing": 1}}})
-    )
-
-    stop_supervised!(AtlasFacts.Server)
-
-    start_supervised!(
-      {AtlasFacts.Server, rela: {FakeRela, rela}, data_dir: dir, description_extra: extra}
-    )
+    restart(rela, dir, AtlasFacts.Workshops.Owned)
 
     fact("create", "M-1", %{"title" => "Coordinator"}, kind: "maker")
     fact("create", "P-1", %{"title" => "Ann"}, kind: "part")
@@ -646,36 +628,7 @@ defmodule AtlasFactsTest do
     rela: rela,
     dir: dir
   } do
-    extra = Path.join(dir, "atlas.json")
-
-    File.write!(
-      extra,
-      JSON.encode!(%{
-        "relations" => %{"replaces" => %{"from" => ["widget"], "to" => ["widget"]}},
-        "entities" => %{
-          "widget" => %{
-            "frozen" => %{
-              "when" => %{"shade" => ["dark", "light"]},
-              "only" => %{"shade" => ["light"]},
-              "error" => "{key} is {value}"
-            },
-            "replaces" => %{
-              "relation" => "replaces",
-              "when" => %{"shade" => ["dark"]},
-              "of" => %{"shade" => ["dark", "light"]},
-              "set" => %{"shade" => "light"},
-              "error" => "{key} is not dark"
-            }
-          }
-        }
-      })
-    )
-
-    stop_supervised!(AtlasFacts.Server)
-
-    start_supervised!(
-      {AtlasFacts.Server, rela: {FakeRela, rela}, data_dir: dir, description_extra: extra}
-    )
+    restart(rela, dir, AtlasFacts.Workshops.Lit)
 
     assert {"stored", _, _} = fact("create", "W-1", %{"title" => "One", "shade" => "dark"})
 
@@ -706,43 +659,8 @@ defmodule AtlasFactsTest do
     rela: rela,
     dir: dir
   } do
-    extra = Path.join(dir, "atlas.json")
     error = "only the delegator sets under, to themselves"
-
-    File.write!(
-      extra,
-      JSON.encode!(%{
-        "relations" => %{
-          "under" => %{
-            "from" => ["widget"],
-            "to" => ["maker"],
-            "max_outgoing" => 1,
-            "only_target" => %{"error" => error, "also" => ["importer"]}
-          },
-          "ruled_by" => %{"from" => ["widget"], "to" => ["maker", "part"], "max_outgoing" => 1}
-        },
-        "entities" => %{
-          "widget" => %{
-            "authority" => %{
-              "when" => %{"shade" => ["dark"]},
-              "by" => "ruled_by",
-              "kind" => "maker",
-              "only_kind_when" => [%{"done" => [true]}],
-              "delegated_by" => "under",
-              "writes" => %{"shade" => ["dark"]},
-              "error" => "needs authority",
-              "writer_error" => "only its ruler decides"
-            }
-          }
-        }
-      })
-    )
-
-    stop_supervised!(AtlasFacts.Server)
-
-    start_supervised!(
-      {AtlasFacts.Server, rela: {FakeRela, rela}, data_dir: dir, description_extra: extra}
-    )
+    restart(rela, dir, AtlasFacts.Workshops.Delegated)
 
     for key <- ["M-1", "M-2"] do
       assert {"stored", _, _} = fact("create", key, %{"title" => key}, kind: "maker")
@@ -784,39 +702,17 @@ defmodule AtlasFactsTest do
              fact("change", "W-1", %{"done" => true}, by: "P-1")
   end
 
+  # A change that decides links its writer as the one it is made by (the model's rule, as
+  # Control did for its clients): someone who is no maker of the workshop is no target.
   test "a write that decides is stored only from the one the fact names", %{rela: rela, dir: dir} do
-    extra = Path.join(dir, "atlas.json")
-
-    File.write!(
-      extra,
-      JSON.encode!(%{
-        "entities" => %{
-          "widget" => %{
-            "authority" => %{
-              "when" => %{"shade" => ["dark"]},
-              "by" => "made_by",
-              "kind" => "maker",
-              "writes" => %{"shade" => ["dark"]},
-              "error" => "needs its maker",
-              "writer_error" => "only its maker makes it dark"
-            }
-          }
-        }
-      })
-    )
-
-    stop_supervised!(AtlasFacts.Server)
-
-    start_supervised!(
-      {AtlasFacts.Server, rela: {FakeRela, rela}, data_dir: dir, description_extra: extra}
-    )
+    restart(rela, dir, AtlasFacts.Workshops.Made)
 
     assert {"stored", _, _} = fact("create", "M-1", %{"title" => "Maker"}, kind: "maker")
 
     assert {"stored", _, _} =
              fact("create", "W-1", %{"title" => "One"}, links: %{"made_by" => ["M-1"]})
 
-    assert {"refused", %{"reasons" => ["only its maker makes it dark"]}, nil} =
+    assert {"refused", %{"reasons" => ["someone does not exist"]}, nil} =
              fact("change", "W-1", %{"shade" => "dark"}, by: "someone")
 
     assert {"refused", %{"reasons" => ["only its maker makes it dark"]}, nil} =
@@ -824,5 +720,23 @@ defmodule AtlasFactsTest do
 
     assert {"stored", _, _} = fact("change", "W-1", %{"shade" => "dark"}, by: "M-1")
     assert %{"W-1" => {%{"shade" => "dark"}, _}} = FakeRela.facts(rela)
+    assert %{"W-1" => %{"made_by" => ["M-1"]}} = FakeRela.links(rela)
+  end
+
+  test "a change that decides links the maker who sends it, in the same write", %{
+    rela: rela,
+    dir: dir
+  } do
+    restart(rela, dir, AtlasFacts.Workshops.Made)
+    fact("create", "M-1", %{"title" => "Maker"}, kind: "maker")
+    fact("create", "M-2", %{"title" => "Other maker"}, kind: "maker")
+    fact("create", "W-1", %{"title" => "One"}, links: %{"made_by" => ["M-1"]})
+
+    assert {"stored", _, _} = fact("change", "W-1", %{"shade" => "dark"}, by: "M-2")
+    assert %{"W-1" => %{"made_by" => ["M-2"]}} = FakeRela.links(rela)
+
+    # A value it has already decides nothing: no link moves.
+    assert {"stored", _, _} = fact("change", "W-1", %{"shade" => "dark"}, by: "M-1")
+    assert %{"W-1" => %{"made_by" => ["M-2"]}} = FakeRela.links(rela)
   end
 end

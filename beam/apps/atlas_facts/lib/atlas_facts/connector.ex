@@ -1,12 +1,12 @@
 defmodule AtlasFacts.Connector do
   @moduledoc """
   A connector at Facts' edge: it copies an outside system's facts into Atlas, read-only
-  (architecture, sections 11 and 13). Generic: which kinds and fields it fills comes from
-  rela's description, as `connector` per kind in `rela/atlas.json`:
+  (architecture, sections 11 and 13). Generic: which kinds and fields it fills is the
+  model's (`AtlasFacts.Model.connector/1`), for each kind rela describes:
 
-      "connector": {"system": "github", "address": "url",
-                    "fields": {"title": "title", "state": "state", "draft": "isDraft"},
-                    "until": {"state": ["merged", "closed"]}}
+      %{"system" => "github", "address" => "url",
+        "fields" => %{"title" => "title", "state" => "state", "draft" => "isDraft"},
+        "until" => %{"state" => ["merged", "closed"]}}
 
   For every fact of such a kind, its `source` (the module that knows the outside system,
   see the callbacks) reads the thing at the fact's `address` and answers its fields. The
@@ -20,10 +20,11 @@ defmodule AtlasFacts.Connector do
 
   A rule may also say what a copied field names (`names`):
 
-      "names": {"field": "title", "relation": "done_in", "when": {"state": ["merged"]}}
+      "names" => %{"field" => "title", "relation" => "done_in", "when" => %{"state" => ["merged"]},
+                    "kind" => "task", "prefix" => "TA-"}
 
   Every round, for each fact whose values match `when`, the keys in `field` that fit the
-  id prefix of the relation's `from` kind (other than the facts it points at already) are
+  id `prefix` of the relation's `from` kind (other than the facts it points at already) are
   facts it was also done for: each such fact that exists gets a link to it through
   `relation`, one change with its cause. Links that are there already stay; a link is
   never removed by this.
@@ -68,6 +69,7 @@ defmodule AtlasFacts.Connector do
 
     {:ok,
      %{
+       model: Keyword.get_lazy(opts, :model, &AtlasFacts.Model.configured!/0),
        system: system,
        source: Keyword.fetch!(opts, :source),
        every: Keyword.get(opts, :every, 300_000),
@@ -111,7 +113,7 @@ defmodule AtlasFacts.Connector do
     {state, next} =
       case call("read", @description, %{}) do
         {:ok, %{"description" => description}} ->
-          state = %{state | kinds: kinds(description, state.system)}
+          state = %{state | kinds: kinds(state.model, description, state.system)}
 
           for {kind, rule} <- state.kinds do
             :ok = AtlasBus.listen(kind)
@@ -119,7 +121,7 @@ defmodule AtlasFacts.Connector do
             case call("read", kind, %{}) do
               {:ok, %{"facts" => facts}} ->
                 refresh(state, kind, Enum.reject(facts, &done?(&1, rule)))
-                link_named(state, description, kind, rule)
+                link_named(state, kind, rule)
 
               other ->
                 Logger.warning("#{name(state)} could not list #{kind}: #{inspect(other)}")
@@ -136,23 +138,25 @@ defmodule AtlasFacts.Connector do
     %{state | timer: Process.send_after(self(), :round, next)}
   end
 
-  @doc "The kinds whose `connector.system` is `system`: `%{kind => connector rule}`."
-  def kinds(description, system) do
-    for {kind, %{"connector" => %{"system" => ^system} = rule}} <-
-          description["entities"] || %{},
+  @doc """
+  The kinds of rela's schema (`description`) that `model` copies from `system`:
+  `%{kind => connector rule}`.
+  """
+  def kinds(model, description, system) do
+    for kind <- Map.keys(description["entities"] || %{}),
+        %{"system" => ^system} = rule <- [model.connector(kind)],
         into: %{},
         do: {kind, rule}
   end
 
   # The facts each fact names in a field, linked to it (`names` in the rule), when its
   # values match `when`. Read again, so what this round just copied counts.
-  defp link_named(state, description, kind, %{"names" => %{} = names}) do
+  defp link_named(state, kind, %{"names" => %{} = names}) do
     relation = names["relation"]
-    from = get_in(description, ["relations", relation, "from"])
+    target = names["kind"]
+    prefix = names["prefix"]
 
-    with [target] <- from,
-         prefix when is_binary(prefix) and prefix != "" <-
-           get_in(description, ["entities", target, "create", "id", "prefix"]),
+    with true <- is_binary(target) and is_binary(prefix) and prefix != "",
          {:ok, %{"facts" => facts}} <- call("read", kind, %{}) do
       {:ok, pattern} = Regex.compile(Regex.escape(prefix) <> "\\d+")
 
@@ -171,7 +175,7 @@ defmodule AtlasFacts.Connector do
     :ok
   end
 
-  defp link_named(_state, _description, _kind, _rule), do: :ok
+  defp link_named(_state, _kind, _rule), do: :ok
 
   defp matches?(fact, conditions),
     do: Enum.all?(conditions, fn {name, values} -> fact["values"][name] in List.wrap(values) end)
