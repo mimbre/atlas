@@ -39,6 +39,8 @@ defmodule Model.GoldenTest do
   # 0971d09c2b1a34ad).
   # Slice 11: test_and_accept_use_case loses its passes; the decider's verdict ends
   # to_test (was a207d811b03394f4).
+  # Slice 12: test_and_accept_scene loses its passes; the decider's verdict ends to_test,
+  # and a new open use case sends it back from to_test (was 8dc48c7180394ded).
   @versions [
     {"issue", [issue: "de930a7511675ac8"]},
     {"pull_request", [pull_request: "0684c47a59a3e818"]},
@@ -46,7 +48,7 @@ defmodule Model.GoldenTest do
     {"pr_test", [pr_test: "816eaa1d9ee76d3b"]},
     {"use_case",
      [design_and_accept: "dcf324cd5ccd6218", test_and_accept_use_case: "87b0c759cc5226cb"]},
-    {"scene", [test_and_accept_scene: "8dc48c7180394ded"]},
+    {"scene", [test_and_accept_scene: "b3c10271c51b8945"]},
     {"decision", [decide: "e2ad1048cd8a4748"]}
   ]
 
@@ -136,7 +138,8 @@ defmodule Model.GoldenTest do
     # request of the issue is current. Slice 10 selects design_and_accept on the use case,
     # so the use case's count of its issues applies (both ends are selected); slice 11
     # selects test_and_accept_use_case too, the child of the scene's count of its use
-    # cases, which waits for slice 12 to select a subflow on the scene.
+    # cases, which slice 12 applies by selecting test_and_accept_scene: every subflow is
+    # selected, and both counts apply.
     for env <- [:prod, :test] do
       runner = AtlasFlow.Model.load(AtlasEyra, env, %{"decider" => "someone"})
 
@@ -147,6 +150,7 @@ defmodule Model.GoldenTest do
                "pr_review",
                "pr_test",
                "pull_request",
+               "test_and_accept_scene",
                "test_and_accept_use_case"
              ]
 
@@ -160,7 +164,7 @@ defmodule Model.GoldenTest do
                runner.config["composition"]["counts"],
                &{&1["child"], &1["parent_subject"]}
              ) ==
-               [{"issue", "use_case"}]
+               [{"issue", "use_case"}, {"test_and_accept_use_case", "scene"}]
 
       assert runner.refusal == nil
     end

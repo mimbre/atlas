@@ -65,9 +65,23 @@ defmodule Model.PresentationTest do
   end
 
   # v1 states whose answers keep their keys and labels but write a change the run moves
-  # on (slice 11): the use case's Accept and Reject write its verdict, Accept still with
-  # accepted_by set to the one who answers, Reject with its note.
+  # on (slice 11, and slice 12 for the scene): the use case's and the scene's Accept and
+  # Reject write its verdict, Accept still with accepted_by set to the one who answers,
+  # Reject with its note.
   @answers_write %{
+    {"test_and_accept", "to_test"} => [
+      %{
+        "key" => "a",
+        "label" => "Accept",
+        "change" => %{"self" => "accepted_by", "values" => %{"verdict" => "accept"}}
+      },
+      %{
+        "key" => "f",
+        "label" => "Reject",
+        "note" => true,
+        "change" => %{"values" => %{"verdict" => "reject"}}
+      }
+    ],
     {"design_and_accept", "to_test"} => [
       %{
         "key" => "a",

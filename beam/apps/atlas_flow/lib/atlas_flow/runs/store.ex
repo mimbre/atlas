@@ -458,9 +458,13 @@ defmodule AtlasFlow.Runs.Store do
     end
   end
 
-  # The latest generation of the run of subflow `name` on `{kind, key}`, or nil. Runs are
-  # numbered from 1 without gaps, so the first missing key ends the search.
-  defp latest(config, name, kind, key, generation \\ 1, found \\ nil)
+  @doc """
+  The latest generation of the run of subflow `name` on `{kind, key}`: `{:ok, run}`,
+  `{:ok, nil}` when it has none, or `{:error, why}`. Runs are numbered from 1 without
+  gaps, so the first missing key ends the search. An explicit restart's run is the one
+  that counts, presents and is drained, never the completed generation before it.
+  """
+  def latest(config, name, kind, key), do: latest(config, name, kind, key, 1, nil)
 
   defp latest(_config, _name, _kind, _key, 65, found), do: {:ok, found}
 

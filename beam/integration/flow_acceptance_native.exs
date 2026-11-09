@@ -1,8 +1,10 @@
-# Native proof of slices 10 and 11: a use case on Flow's durable runs, its design on
+# Native proof of slices 10, 11 and 12: a use case on Flow's durable runs, its design on
 # design_and_accept and its building, testing and acceptance on test_and_accept_use_case,
-# together taking every use case from the legacy flow design_and_accept, against a private
-# Rela and real Facts, with the model compiled for the test environment, Flow's engine and
-# its processes, and a manual clock. Owns and stops its private Rela and Facts.
+# together taking every use case from the legacy flow design_and_accept; and a scene on
+# test_and_accept_scene, taking every scene from the legacy flow test_and_accept, so all
+# eight generated subflows are selected; against a private Rela and real Facts, with the
+# model compiled for the test environment, Flow's engine and its processes, and a manual
+# clock. Owns and stops its private Rela and Facts.
 # MIX_ENV=test mix run integration/flow_acceptance_native.exs PRIVATE_DIR RELA_BIN_DIR
 #
 # It proves, on the use cases as test and prod hold them (written; approved with and
@@ -16,6 +18,15 @@
 # its predicate, on its own cursor; issues under it are built and their completion hands it
 # to the decider, across a restart; the decider's accept ends it; reopening it starts no
 # new generation.
+#
+# For scenes (built; empty; with all its use cases completed; accepted), as test and prod
+# hold them: before slice 12 the legacy flow presents each and no scene holds a count of
+# its use cases (nothing counts them while no subflow runs on a scene); the cutover keeps
+# what each presents and its owner, leaves none to the legacy flow, imports each as its
+# table says and writes nothing on it but its count (and the reset of the verdict of the
+# one it tests); restart while it is tested moves nothing; the decider's accept ends it;
+# a use case under it reopened, the scene reopened and open work added under it start no
+# new generation (its count still changes), and only an explicit restart does.
 import ExUnit.Assertions
 alias AtlasFlow.{Engine, ManualClock, Talk}
 alias AtlasFlow.Runs.{Run, Store}
@@ -55,7 +66,8 @@ server =
 {:os_pid, os_pid} = Port.info(server, :os_pid)
 rela = {AtlasFacts.Rela.Http, "http://127.0.0.1:#{port}/api/v1"}
 
-# The composition as Flow ran it before slice 11: the same, with the build not selected.
+# The composition as Flow ran it before slice 11: the same, with the build and the scene
+# not selected.
 defmodule AcceptanceProof.Before do
   @moduledoc false
   @behaviour AtlasFlow.Model
@@ -68,6 +80,23 @@ defmodule AcceptanceProof.Before do
   defdelegate relations(), to: Model.AtlasEyra
   defdelegate turn(), to: Model.AtlasEyra
   def selection("test_and_accept_use_case"), do: nil
+  def selection("test_and_accept_scene"), do: nil
+  def selection(name), do: Model.AtlasEyra.selection(name)
+end
+
+# The composition as Flow ran it before slice 12: the same, with the scene not selected.
+defmodule AcceptanceProof.Slice11 do
+  @moduledoc false
+  @behaviour AtlasFlow.Model
+  defdelegate subflows(environment), to: Model.AtlasEyra
+  defdelegate legacy(), to: Model.AtlasEyra
+  defdelegate runs(), to: Model.AtlasEyra
+  defdelegate migrations(), to: Model.AtlasEyra
+  defdelegate composition(), to: Model.AtlasEyra
+  defdelegate actors(), to: Model.AtlasEyra
+  defdelegate relations(), to: Model.AtlasEyra
+  defdelegate turn(), to: Model.AtlasEyra
+  def selection("test_and_accept_scene"), do: nil
   def selection(name), do: Model.AtlasEyra.selection(name)
 end
 
@@ -104,7 +133,7 @@ try do
   %{config: config, refusal: nil} = runner
 
   assert Enum.sort(Map.keys(config["selection"])) ==
-           ~w(decide design_and_accept issue pr_review pr_test pull_request test_and_accept_use_case)
+           ~w(decide design_and_accept issue pr_review pr_test pull_request test_and_accept_scene test_and_accept_use_case)
 
   restart = fn facts ->
     GenServer.stop(facts)
@@ -220,6 +249,22 @@ try do
     end
   end
 
+  # What a scene presents, and its run of generation `generation`.
+  scene_presents = fn key ->
+    [assignment] = read.("scene", key)["links"]["assignment"]
+    a = read.("assignment", assignment)
+
+    {blank.(a["values"]["expected"]), blank.(a["links"]["assigned_to"]),
+     blank.(a["values"]["flow_state"])}
+  end
+
+  scene_run = fn key, generation ->
+    case read.(config["kind"], Run.key("test_and_accept_scene", "scene", key, generation)) do
+      nil -> nil
+      fact -> elem(Store.decode(config, fact), 1)
+    end
+  end
+
   design = fn key -> run_of.("design_and_accept", key, 1) end
   build = fn key -> run_of.("test_and_accept_use_case", key, 1) end
   summary = fn run -> run && {run["state"], run["status"], run["entry"]} end
@@ -292,6 +337,57 @@ try do
     })
   end
 
+  # The scenes as test and prod hold them (status refine; a scene has a manual id, SC-).
+  scene = fn n ->
+    key = "SC-Proof-#{n}"
+
+    put.("scene", %{
+      "op" => "create",
+      "key" => key,
+      "values" => %{"title" => "Scene #{n}", "description" => "Proof", "status" => "refine"}
+    })
+
+    key
+  end
+
+  in_scene = fn key, scene ->
+    put.("use_case", %{
+      "op" => "change",
+      "key" => key,
+      "values" => %{},
+      "links" => %{"in_scene" => [scene]}
+    })
+  end
+
+  # Accepted and reopened as Control sends them for the decider, on a scene.
+  accept_scene = fn key ->
+    put.("scene", %{
+      "op" => "change",
+      "key" => key,
+      "values" => %{"verdict" => "accept"},
+      "links" => %{"accepted_by" => ["reviewer-1"]},
+      "by" => "reviewer-1"
+    })
+  end
+
+  reopen_scene = fn key ->
+    put.("scene", %{
+      "op" => "change",
+      "key" => key,
+      "values" => %{},
+      "links" => %{"accepted_by" => []},
+      "by" => "reviewer-1",
+      "cause" => "Not right yet"
+    })
+  end
+
+  # Built (use cases under it, open), empty, tested (its one use case accepted), accepted.
+  built_scene = scene.(1)
+  empty_scene = scene.(2)
+  tested_scene = scene.(3)
+  accepted_scene = scene.(4)
+  scenes = [built_scene, empty_scene, tested_scene, accepted_scene]
+
   writing = use_case.(1, "writing")
   building = use_case.(2, "approved")
   _ = issue.(1, building, %{})
@@ -301,7 +397,11 @@ try do
   reviewing = use_case.(5, "in_review")
   sent_back = use_case.(6, "changes_requested")
   done = use_case.(7, "approved")
+  in_scene.(building, built_scene)
+  in_scene.(phaseless, built_scene)
+  in_scene.(done, tested_scene)
   accept.(done)
+  accept_scene.(accepted_scene)
   phaseless_built = use_case.(8, nil)
   _ = issue.(5, phaseless_built, %{})
   all = [writing, building, breaking, phaseless, reviewing, sent_back, done, phaseless_built]
@@ -331,13 +431,36 @@ try do
   assert summary.(design.(sent_back)) == {"redesign", "active", 1}
   for key <- [reviewing, sent_back], do: assert(design.(key)["last_input"]["import"] == true)
   for key <- all, do: assert(build.(key) == nil)
+
+  # The legacy flow presents every scene: built, broken down, tested by the decider (all
+  # under it completed), nothing for the accepted one; no scene holds a count of its use
+  # cases, and none has a run.
+  scene_live = %{
+    built_scene => {"Build it", coordinator, "building"},
+    empty_scene => {"Break it down into use cases and issues", coordinator, "break_down"},
+    tested_scene => {"Test it", decider, "to_test"},
+    accepted_scene => {nil, nil, nil}
+  }
+
+  uncounted = fn ->
+    for key <- scenes do
+      assert scene_presents.(key) == scene_live[key], key
+      assert scene_run.(key, 1) == nil, key
+      fact = read.("scene", key)
+      assert blank.(fact["values"]["children"]) == nil, key
+      assert blank.(fact["values"]["open_children"]) == nil, key
+    end
+  end
+
+  uncounted.()
   stop_engine.(engine)
   values = Map.new(all, &{&1, read.("use_case", &1)})
 
-  # The cutover. The build run takes every use case the design run does not: approved or
-  # with no design phase it joins building, its count moving it where the legacy flow had
-  # it; accepted, it is completed history. Each writes nothing but its count of issues.
-  engine = start_engine.(Model.AtlasEyra)
+  # The cutover of slice 11. The build run takes every use case the design run does not:
+  # approved or with no design phase it joins building, its count moving it where the
+  # legacy flow had it; accepted, it is completed history. Each writes nothing but its
+  # count of issues.
+  engine = start_engine.(AcceptanceProof.Slice11)
 
   for {key, at} <- [
         {building, {"building", "active", 1}},
@@ -385,14 +508,61 @@ try do
     end
   end
 
+  # Still no scene holds a count, though use cases are under them and their build runs
+  # run: the count of a scene's use cases applies only once a subflow runs on the scene,
+  # and only that run writes it. The legacy flow presents every scene as before.
+  uncounted.()
+  stop_engine.(engine)
+  scene_values = Map.new(scenes, &{&1, read.("scene", &1)})
+
+  # The cutover of slice 12: every scene is the scene run's, none the legacy flow's. Not
+  # completed, it joins building, and its count, on its first entry, moves it where the
+  # legacy flow had it (break down with none under it, to test with all completed);
+  # accepted, it is completed history. Each writes nothing on the scene but its count, and
+  # the one it tests the reset of its verdict.
+  engine = start_engine.(Model.AtlasEyra)
+
+  for {key, at, count} <- [
+        {built_scene, {"building", "active", 1}, {2, 2}},
+        {empty_scene, {"break_down", "active", 2}, {0, 0}},
+        {tested_scene, {"to_test", "active", 2}, {1, 0}},
+        {accepted_scene, {"accepted", "completed", 1}, {0, 0}}
+      ] do
+    run = scene_run.(key, 1)
+    assert summary.(run) == at, key
+    assert run["last_input"]["import"] == true or run["entry"] > 1, key
+    assert run["pending"]["writes"] == [], key
+    assert scene_presents.(key) == scene_live[key], key
+    assert {"test_and_accept_scene", _} = Store.selected(config, "scene", read.("scene", key))
+    fact = read.("scene", key)
+    assert {fact["values"]["children"], fact["values"]["open_children"]} == count, key
+    changed = if key == tested_scene, do: %{"verdict" => "none"}, else: %{}
+
+    assert Map.drop(fact["values"], ~w(children open_children)) ==
+             Map.merge(scene_values[key]["values"], changed),
+           key
+  end
+
+  # The imports: building and history straight from the table.
+  for key <- [built_scene, accepted_scene],
+      do: assert(scene_run.(key, 1)["last_input"]["import"] == true, key)
+
+  # Nothing moved a use case: what each presents is what it presented before.
+  for key <- all, do: assert(presents.(key) == live[key], key)
+
   # Restart while waiting (Facts and Flow): nothing moves, nothing is written again.
   stop_engine.(engine)
   facts = restart.(facts)
   runs = fn key -> {design.(key), build.(key), read.("use_case", key)["version"]} end
   waiting = Map.new(all, &{&1, runs.(&1)})
+  scene_runs = fn key -> {scene_run.(key, 1), read.("scene", key)["version"]} end
+  scenes_waiting = Map.new(scenes, &{&1, scene_runs.(&1)})
   engine = start_engine.(Model.AtlasEyra)
   for key <- all, do: assert(runs.(key) == waiting[key], key)
   for key <- all, do: assert(presents.(key) == live[key], key)
+  # The scene in acceptance too: its test waits, its verdict is not reset again.
+  for key <- scenes, do: assert(scene_runs.(key) == scenes_waiting[key], key)
+  for key <- scenes, do: assert(scene_presents.(key) == scene_live[key], key)
 
   # Its review asks for changes: back to the Architect; written again, in review again.
   set = fn key, status ->
@@ -538,6 +708,89 @@ try do
     assert (run != nil and run["status"] == "active") == (presents.(key) != {nil, nil, nil}), key
   end
 
+  # The scene: the decider accepts the tested one, as Control sends the answer: its run
+  # ends, nothing is presented any more, and Facts completes it.
+  tested = scene_run.(tested_scene, 1)
+  accept_scene.(tested_scene)
+  round.(engine)
+  ended_scene = scene_run.(tested_scene, 1)
+  assert summary.(ended_scene) == {"accepted", "completed", tested["entry"] + 1}
+  assert scene_presents.(tested_scene) == {nil, nil, nil}
+
+  assert %{"fact" => %{"completion" => scene_completion}} =
+           Talk.read("scene", %{"key" => tested_scene, "incoming" => false})
+
+  assert scene_completion != nil
+
+  # A use case under it reopened after it was accepted: its build run stays completed
+  # (explicit), so the count stays, and the scene's run neither moves nor starts again.
+  reopen.(done)
+  round.(engine)
+  assert summary.(build.(done)) == {"accepted", "completed", 1}
+  assert scene_run.(tested_scene, 1) == ended_scene
+  assert scene_run.(tested_scene, 2) == nil
+  fact = read.("scene", tested_scene)
+  assert {fact["values"]["children"], fact["values"]["open_children"]} == {1, 0}
+
+  # The scene reopened (accepted_by removed with a note), and open work added under it:
+  # its count changes and is written, but no new generation starts; nothing presents it.
+  reopen_scene.(tested_scene)
+  round.(engine)
+  added = use_case.(9, "writing")
+  in_scene.(added, tested_scene)
+  round.(engine)
+  round.(engine)
+  fact = read.("scene", tested_scene)
+  assert {fact["values"]["children"], fact["values"]["open_children"]} == {2, 1}
+  assert scene_run.(tested_scene, 1)["state"] == "accepted"
+  assert scene_run.(tested_scene, 1)["status"] == "completed"
+  assert scene_run.(tested_scene, 2) == nil
+  assert scene_presents.(tested_scene) == {nil, nil, nil}
+
+  # Only an explicit restart makes one: the next generation, stored as Flow stores a run
+  # while no engine runs; the engine then drains it, its count moving it to building.
+  stop_engine.(engine)
+
+  {:ok, second} =
+    Run.restart(
+      scene_run.(tested_scene, 1),
+      runner.flows["test_and_accept_scene"],
+      read.("scene", tested_scene),
+      now
+    )
+
+  assert {second["generation"], summary.(second)} == {2, {"break_down", "active", 1}}
+
+  as_flow.(fn ->
+    assert {:stored, _} =
+             Talk.put(
+               config["kind"],
+               %{
+                 "op" => "create",
+                 "key" => second["key"],
+                 "values" => Store.encode(config, second),
+                 "by" => config["writer"]["by"]
+               },
+               Run.digest({second["key"], "create"})
+             )
+  end)
+
+  engine = start_engine.(Model.AtlasEyra)
+  restarted = scene_run.(tested_scene, 2)
+  assert {restarted["state"], restarted["status"]} == {"building", "active"}
+  assert scene_presents.(tested_scene) == {"Build it", coordinator, "building"}
+  assert scene_run.(tested_scene, 1)["status"] == "completed"
+  assert scene_run.(tested_scene, 3) == nil
+
+  # One writer per scene at every moment: its latest run, presenting while it is active;
+  # never the legacy flow.
+  for key <- scenes do
+    assert {"test_and_accept_scene", _} = Store.selected(config, "scene", read.("scene", key))
+    run = scene_run.(key, 2) || scene_run.(key, 1)
+    active? = run["status"] == "active"
+    assert active? == (scene_presents.(key) != {nil, nil, nil}), key
+  end
+
   stop_engine.(engine)
   GenServer.stop(facts)
   Agent.stop(clock)
@@ -546,7 +799,10 @@ try do
     "flow-acceptance native proof: live presentations kept, none left to the legacy flow, " <>
       "design and build imports, restart while waiting, changes requested, design accepted " <>
       "once, one build run across a restart before it was made, issues built and tested " <>
-      "across a restart, accepted by the decider, reopening starts no new generation"
+      "across a restart, accepted by the decider, reopening starts no new generation; " <>
+      "scenes: live presentations kept, uncounted before the cutover, imports and counts, " <>
+      "restart in acceptance, accepted by the decider, a reopened use case, a reopened " <>
+      "scene and open work start no new generation, an explicit restart does"
   )
 after
   System.cmd("/bin/kill", ["-TERM", to_string(os_pid)], stderr_to_stdout: true)

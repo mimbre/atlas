@@ -172,6 +172,9 @@ defmodule Model.AtlasEyra do
   # Work based on a decision an agent decided unverified is to be reviewed.
   review(:based_on, field: :unverified, value: true, label: "Based on unverified decisions")
 
+  # Since slice 12 this flow drives no scene: the subflow test_and_accept_scene admits every
+  # one. It stays defined, the states it took over named by it, until slice 14 removes the
+  # old flows.
   legacy_flow(:test_and_accept,
     on: :assignment,
     state_field: :flow_state,

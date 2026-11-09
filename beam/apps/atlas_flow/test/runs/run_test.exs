@@ -552,4 +552,116 @@ defmodule AtlasFlow.Runs.RunTest do
     assert {:ok, _} = reconcile.()
     assert Enum.count(FakeFacts.sent(), &(&1["op"] == "create")) == 3
   end
+
+  # An aggregate parent taken over from facts as they were (the neutral yard: a tray counts
+  # its cups, and its tally ends once none is open): its import table holds on whether the
+  # parent is completed, as Facts derives it, and leads to its wait otherwise; its count,
+  # given on its first entry, moves it on. No row reads the children: no parent holds a
+  # count before a subflow runs on it. Reopening is explicit only. Each reconcile is a
+  # restart over what Facts holds; no timer is waited on.
+  test "an aggregate's imports: history, an empty and a non-empty wait; a reopened child after the end" do
+    %{config: config, flows: flows} = AtlasFlow.Model.load(AtlasFlow.Yard, :prod)
+
+    config =
+      config
+      |> update_in(["selection"], &Map.delete(&1, "fill"))
+      |> put_in(["selection", "tally", "reopen"], "explicit")
+      |> put_in(["selection", "tally", "imports"], [
+        %{"completed" => true, "state" => "counted"},
+        %{"completed" => false, "state" => "counting"}
+      ])
+
+    reconcile = fn -> Store.reconcile(config, flows, @now) end
+
+    tally = fn key, generation ->
+      case FakeFacts.get("cursor", Run.key("tally", "tray", key, generation)) do
+        nil -> nil
+        fact -> elem(Store.decode(config, fact), 1)
+      end
+    end
+
+    at = fn run -> {run["state"], run["status"], run["entry"]} end
+    counts = fn key -> Map.take(FakeFacts.get("tray", key)["values"], ~w(cups open_cups)) end
+
+    tray = fn key, extra ->
+      FakeFacts.put("tray", Map.merge(%{"key" => key, "values" => %{"phase" => "first"}}, extra))
+    end
+
+    cup = fn key, on, values ->
+      FakeFacts.put("cup", %{
+        "key" => key,
+        "values" => Map.merge(%{"phase" => "first", "revision" => "r1"}, values),
+        "links" => %{"on_tray" => [on]}
+      })
+    end
+
+    # Completed (history), empty and open, and open with one cup of two still open.
+    tray.("T-1", %{"completion" => %{"by" => "signed_by"}})
+    cup.("C-1", "T-1", %{"level" => "full"})
+    tray.("T-2", %{})
+    tray.("T-3", %{})
+    cup.("C-2", "T-3", %{"level" => "full"})
+    cup.("C-3", "T-3", %{})
+    assert {:ok, _} = reconcile.()
+
+    assert at.(tally.("T-1", 1)) == {"counted", "completed", 1}
+    assert at.(tally.("T-2", 1)) == {"counting", "active", 1}
+    assert at.(tally.("T-3", 1)) == {"counting", "active", 1}
+    for key <- ~w(T-1 T-2 T-3), do: assert(tally.(key, 1)["last_input"]["import"] == true)
+
+    # Nothing was written on a parent but its count: the empty one zero, the history its
+    # cups as they are.
+    assert counts.("T-1") == %{"cups" => 1, "open_cups" => 0}
+    assert counts.("T-2") == %{"cups" => 0, "open_cups" => 0}
+    assert counts.("T-3") == %{"cups" => 2, "open_cups" => 1}
+
+    for w <- FakeFacts.sent(),
+        w["key"] in ~w(T-1 T-2 T-3),
+        do: assert(Map.keys(w["values"]) -- ~w(cups open_cups) == [])
+
+    # Restarted while waiting: nothing moves, nothing is written again.
+    sent = FakeFacts.sent()
+    assert {:ok, _} = reconcile.()
+    assert FakeFacts.sent() == sent
+
+    # Its last open cup completes: the count moves the imported wait to its end, once.
+    FakeFacts.put("cup", put_in(FakeFacts.get("cup", "C-3"), ["values", "level"], "full"))
+    assert {:ok, _} = reconcile.()
+    done = tally.("T-3", 1)
+    assert at.(done) == {"counted", "completed", 2}
+    assert counts.("T-3") == %{"cups" => 2, "open_cups" => 0}
+
+    # A cup reopened after its tray's tally ended (its run stays completed: explicit), and a
+    # new open cup under it: the count changes and is written, but the ended run stays as
+    # it is and no new generation is made.
+    FakeFacts.put(
+      "cup",
+      update_in(FakeFacts.get("cup", "C-3"), ["values"], &Map.delete(&1, "level"))
+    )
+
+    cup.("C-4", "T-3", %{})
+    assert {:ok, _} = reconcile.()
+    assert {:ok, _} = reconcile.()
+    assert counts.("T-3") == %{"cups" => 3, "open_cups" => 1}
+    assert tally.("T-3", 1) == done
+    assert tally.("T-3", 2) == nil
+
+    # The explicit restart: the next generation, as a new run starts, stored as Flow stores
+    # a run; the next reconcile drains it, and the count moves it as any other.
+    {:ok, second} = Run.restart(done, flows["tally"], FakeFacts.get("tray", "T-3"), @now)
+    assert {second["generation"], at.(second)} == {2, {"counting", "active", 1}}
+
+    FakeFacts.put("cursor", %{
+      "key" => second["key"],
+      "values" => Store.encode(config, second),
+      "links" => %{}
+    })
+
+    assert {:ok, _} = reconcile.()
+    assert at.(tally.("T-3", 2)) == {"counting", "active", 1}
+    FakeFacts.put("cup", put_in(FakeFacts.get("cup", "C-4"), ["values", "level"], "full"))
+    assert {:ok, _} = reconcile.()
+    assert at.(tally.("T-3", 2)) == {"counted", "completed", 2}
+    assert tally.("T-3", 1) == done
+  end
 end

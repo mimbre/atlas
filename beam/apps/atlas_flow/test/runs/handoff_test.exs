@@ -309,6 +309,47 @@ defmodule AtlasFlow.Runs.HandoffTest do
     end
   end
 
+  test "an explicit restart presents its new generation, never the completed one before it",
+       %{clock: clock} do
+    FakeFacts.put("box", %{"key" => "B-4", "values" => %{"phase" => "second"}})
+    engine = start_supervised!({Engine, every: 3_600_000, clock: clock, model: Phased})
+    Engine.round(engine)
+    flush_items()
+    assert presented("B-4") == {"Stack it", ["bob"]}
+
+    # It ends: nothing presents the box.
+    FakeFacts.put("box", put_in(box("B-4"), ["values", "mark"], "stacked"))
+    Engine.round(engine)
+    flush_items()
+    assert %{"status" => "completed"} = done = stack(Phased, "B-4")
+    assert blank(presented("B-4")) == {nil, []}
+
+    # Reopened, then restarted explicitly: the next generation, stored as Flow stores a run.
+    # It presents the box again, to its owner; the first stays completed, as it was.
+    FakeFacts.put("box", update_in(box("B-4"), ["values"], &Map.delete(&1, "mark")))
+    {:ok, second} = Run.restart(done, Stacking, box("B-4"), @now)
+    assert second["generation"] == 2
+
+    FakeFacts.put("cursor", %{
+      "key" => second["key"],
+      "values" => Store.encode(config(Phased), second),
+      "links" => %{}
+    })
+
+    Engine.round(engine)
+    flush_items()
+    assert %{"state" => "stacking", "status" => "active"} = stack(Phased, "B-4", 2)
+    assert presented("B-4") == {"Stack it", ["bob"]}
+    assert stack(Phased, "B-4") == done
+
+    # The new generation ends too: nothing presents the box any more.
+    FakeFacts.put("box", put_in(box("B-4"), ["values", "mark"], "stacked"))
+    Engine.round(engine)
+    flush_items()
+    assert %{"status" => "completed"} = stack(Phased, "B-4", 2)
+    assert blank(presented("B-4")) == {nil, []}
+  end
+
   test "restarted between the first's end and the second's creation: exactly one second run",
        %{clock: clock} do
     # The first phase's run ended and its last write reached Facts; Flow stopped before it

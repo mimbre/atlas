@@ -1,5 +1,6 @@
 # Software: Scene. Replaces today's test_and_accept for scenes.
-# children and open_children are kept by the Atlas link on the use case flow.
+# children and open_children are kept by the Atlas count on the use case flow.
+# Slice 12: no passes; the decider's verdict ends to_test (as test_and_accept_use_case).
 flows:
   test_and_accept_scene:
     label: Build, test and accept
@@ -23,23 +24,18 @@ flows:
             - { to: to_test, roles: [atlas-flow], when: "entity.open_children == 0" }
       to_test:
         label: Test it
-        status: input_required
-        waiting_for: [acceptor]
         outputs:
           - set: { properties: { verdict: none } }
         on:
           change:
-            - { to: accepted, roles: [acceptor], when: "entity.verdict == 'accept'" }
-            - { to: rework, roles: [acceptor], when: "entity.verdict == 'reject'" }
+            - { to: accepted, when: "entity.verdict == 'accept'" }
+            - { to: rework, when: "entity.verdict == 'reject'" }
+            - { to: building, roles: [atlas-flow], when: "entity.open_children > 0" }
       rework:
         label: Rework it
-        outputs:
-          - set: { properties: { pass_result: none } }
         on:
           change:
             - { to: building, roles: [atlas-flow], when: "entity.open_children > 0" }
-            - { to: to_test, roles: [atlas-flow], when: "entity.pass_result == 'delivered'" }
-            - { to: to_test, roles: [atlas-flow], label: Rework failed; the acceptor decides, when: "entity.pass_result == 'failed'" }
       accepted:
         label: Accepted
         final: true
