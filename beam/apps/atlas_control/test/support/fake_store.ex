@@ -1,9 +1,11 @@
 defmodule AtlasControl.FakeStore do
   @moduledoc """
-  A stand-in for Facts on the Bus, for Control's tests: answers reads, stores facts in
-  memory, answers every fact with stored or refused. What it knows of kinds (which fields
-  are required, which relations point at a kind) is the neutral model's
-  (`AtlasControl.Shop`, or the `model:` it is started with).
+  A stand-in for Facts on the Bus, for Control's tests: answers reads (one at a time, or
+  a page of them, `_page`, each with what it depended on, `deps`), stores facts in
+  memory, answers every fact with stored or refused (a stored says what changed,
+  `changes`). What it knows of kinds (which fields are required, which relations point
+  at a kind) is the neutral model's (`AtlasControl.Shop`, or the `model:` it is started
+  with).
   """
   use GenServer
 
@@ -25,7 +27,20 @@ defmodule AtlasControl.FakeStore do
   def link(part, widget), do: put(part, %{"title" => part}, "part", %{"of_widget" => [widget]})
   def silent(on?), do: GenServer.call(__MODULE__, {:silent, on?})
 
-  @doc "Leave reads unanswered: `true` for every kind, a list for those kinds, `false` for none."
+  @doc """
+  A hint of a write someone else made, as Facts sends it to every listener of `kind`:
+  `changes` as a `stored` says them, at the next position. Nothing is stored.
+  """
+  def hint(kind, key, changes, by \\ "someone"),
+    do: GenServer.call(__MODULE__, {:hint, kind, key, changes, by})
+
+  @doc "How many reads it was sent (a page read is one), and of which kinds: `[kind]`."
+  def reads, do: GenServer.call(__MODULE__, :reads)
+
+  @doc """
+  Leave reads unanswered: `true` for every kind, a list for those kinds (a page that reads
+  one of them too), `false` for none.
+  """
   def silent_reads(kinds), do: GenServer.call(__MODULE__, {:silent_reads, kinds})
 
   @doc "Tell `pid` `{:unanswered, id}` of each read it leaves unanswered, as it leaves it."
@@ -56,7 +71,8 @@ defmodule AtlasControl.FakeStore do
        last: nil,
        refusing: %{},
        origins: %{},
-       sent: []
+       sent: [],
+       reads: []
      }}
   end
 
@@ -86,6 +102,14 @@ defmodule AtlasControl.FakeStore do
     do: {:reply, :ok, put_in(s.origins[{kind, key, relation}], origin)}
 
   def handle_call(:sent, _from, s), do: {:reply, Enum.reverse(s.sent), s}
+  def handle_call(:reads, _from, s), do: {:reply, Enum.reverse(s.reads), s}
+
+  def handle_call({:hint, kind, key, changes, by}, _from, s) do
+    s = %{s | position: s.position + 1}
+    envelope = %{AtlasBus.Envelope.new("stored", kind) | position: s.position}
+    content = %{"op" => "change", "key" => key, "by" => by, "changes" => changes}
+    {:reply, AtlasBus.send(envelope, content), s}
+  end
 
   def handle_call({:refuse, key, reason}, _from, s),
     do: {:reply, :ok, put_in(s.refusing[key], reason)}
@@ -94,54 +118,31 @@ defmodule AtlasControl.FakeStore do
     do: {:reply, :ok, %{s | reserved: MapSet.put(s.reserved, key)}}
 
   @impl true
-  def handle_info({:atlas_bus, %Envelope{class: "read", kind: kind} = e, _content}, s)
-      when s.silent_reads == :all or is_map_key(s.silent_reads, kind) do
-    if s.tell_unanswered, do: send(s.tell_unanswered, {:unanswered, e.id})
-    {:noreply, s}
-  end
-
   def handle_info({:atlas_bus, %Envelope{class: "read"} = e, content}, s) do
-    answer =
-      case {e.kind, content} do
-        {kind, %{"key" => key}} ->
-          case s.facts[{kind, key}] do
-            nil ->
-              %{"fact" => nil}
+    s = %{s | reads: [e.kind | s.reads]}
 
-            {values, n, links} ->
-              incoming =
-                for {relation, %{to: to}} <- s.model.relations,
-                    kind in to,
-                    into: %{} do
-                  {relation,
-                   for({{_, k}, {_, _, l}} <- s.facts, key in (l[relation] || []), do: k)}
-                end
+    if silent?(s, e.kind, content) do
+      if s.tell_unanswered, do: send(s.tell_unanswered, {:unanswered, e.id})
+      {:noreply, s}
+    else
+      answer =
+        case {e.kind, content} do
+          {"_page", %{"reads" => reads}} ->
+            %{
+              "answers" =>
+                for(
+                  [kind, read] <- reads,
+                  do: Map.put(answer(s, kind, read), "position", s.position)
+                )
+            }
 
-              %{
-                "fact" => %{
-                  "key" => key,
-                  "values" => values,
-                  "links" => links,
-                  "origins" => origins(s, kind, key),
-                  "version" => "v#{n}"
-                },
-                "incoming" => incoming
-              }
-          end
+          {kind, content} ->
+            answer(s, kind, content)
+        end
 
-        {kind, content} ->
-          linked = content["linked"] || %{}
-
-          facts =
-            for {{^kind, k}, {v, _, l}} <- Enum.sort(s.facts),
-                Enum.all?(linked, fn {rel, parent} -> parent in (l[rel] || []) end),
-                do: %{"key" => k, "values" => v, "links" => l, "version" => nil}
-
-          %{"facts" => facts}
-      end
-
-    :ok = AtlasBus.send(Envelope.reply(e, "answer"), Map.put(answer, "position", s.position))
-    {:noreply, s}
+      :ok = AtlasBus.send(Envelope.reply(e, "answer"), Map.put(answer, "position", s.position))
+      {:noreply, s}
+    end
   end
 
   def handle_info({:atlas_bus, %Envelope{class: "fact"}, _content}, %{silent: true} = s),
@@ -150,6 +151,7 @@ defmodule AtlasControl.FakeStore do
   def handle_info({:atlas_bus, %Envelope{class: "fact"} = e, %{"op" => op, "key" => key} = c}, s) do
     s = %{s | last: c}
     about = %{"op" => op, "key" => key}
+    about = if is_binary(c["by"]), do: Map.put(about, "by", c["by"]), else: about
     s = %{s | sent: [c | s.sent]}
     id = {e.kind, key}
 
@@ -192,9 +194,115 @@ defmodule AtlasControl.FakeStore do
               end)
           end
 
+        changes = changed(e.kind, key, s.facts[id], facts[id])
         s = %{s | facts: facts, position: s.position + 1}
+        about = Map.put(about, "changes", changes)
         :ok = AtlasBus.send(Envelope.reply(e, "stored", position: s.position), about)
         {:noreply, s}
+    end
+  end
+
+  defp silent?(%{silent_reads: :all}, _kind, _content), do: true
+
+  defp silent?(s, "_page", %{"reads" => reads}),
+    do: Enum.any?(reads, fn [kind, _] -> is_map_key(s.silent_reads, kind) end)
+
+  defp silent?(s, kind, _content), do: is_map_key(s.silent_reads, kind)
+
+  # What a write changed, as Facts says it in `changes`: what differs between before and
+  # after (each `{values, version, links}` or nil).
+  defp changed(_kind, _key, nil, nil), do: []
+
+  defp changed(kind, key, before, later) do
+    {old, _, old_links} = before || {%{}, 0, %{}}
+    {new, _, new_links} = later || {%{}, 0, %{}}
+    names = Enum.uniq(Map.keys(old) ++ Map.keys(new))
+    relations = Enum.uniq(Map.keys(old_links) ++ Map.keys(new_links))
+
+    {op, fields, relinked} =
+      case {before, later} do
+        {nil, _} ->
+          {"create", Map.keys(new), Map.keys(new_links)}
+
+        {_, nil} ->
+          {"delete", Map.keys(old), Map.keys(old_links)}
+
+        _ ->
+          {"change", Enum.filter(names, &(old[&1] != new[&1])),
+           Enum.filter(relations, &(old_links[&1] != new_links[&1]))}
+      end
+
+    links =
+      for relation <- relations,
+          keys = Enum.uniq(List.wrap(old_links[relation]) ++ List.wrap(new_links[relation])),
+          keys != [],
+          into: %{},
+          do: {relation, Enum.sort(keys)}
+
+    if op == "change" and fields == [] and relinked == [] do
+      []
+    else
+      [
+        %{
+          "kind" => kind,
+          "key" => key,
+          "op" => op,
+          "fields" => Enum.sort(fields),
+          "relinked" => Enum.sort(relinked),
+          "links" => links
+        }
+      ]
+    end
+  end
+
+  # One read's answer, with what it depended on, as Facts says it.
+  defp answer(s, kind, content) do
+    case {kind, content} do
+      {kind, %{"key" => key}} ->
+        case s.facts[{kind, key}] do
+          nil ->
+            %{"fact" => nil, "deps" => [["key", kind, key, "*"]]}
+
+          {values, n, links} ->
+            incoming =
+              for {relation, %{to: to}} <- s.model.relations,
+                  kind in to,
+                  into: %{} do
+                {relation, for({{_, k}, {_, _, l}} <- s.facts, key in (l[relation] || []), do: k)}
+              end
+
+            %{
+              "fact" => %{
+                "key" => key,
+                "values" => values,
+                "links" => links,
+                "origins" => origins(s, kind, key),
+                "version" => "v#{n}"
+              },
+              "incoming" => incoming,
+              "deps" =>
+                Enum.sort([
+                  ["key", kind, key, "*"]
+                  | for({relation, _} <- incoming, do: ["linked", relation, key, "*"])
+                ])
+            }
+        end
+
+      {kind, content} ->
+        linked = content["linked"] || %{}
+
+        facts =
+          for {{^kind, k}, {v, _, l}} <- Enum.sort(s.facts),
+              Enum.all?(linked, fn {rel, parent} -> parent in (l[rel] || []) end),
+              do: %{"key" => k, "values" => v, "links" => l, "version" => nil}
+
+        members =
+          if linked == %{},
+            do: [["kind", kind]],
+            else: for({rel, parent} <- linked, do: ["linked", rel, parent, "*"])
+
+        deps = Enum.sort(members ++ for(f <- facts, do: ["key", kind, f["key"], "*"]))
+        %{"facts" => facts, "deps" => deps}
     end
   end
 

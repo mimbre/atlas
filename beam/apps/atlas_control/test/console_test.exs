@@ -12,6 +12,7 @@ defmodule AtlasControl.ConsoleTest do
     AtlasBus.drop_hints(0)
     # The shop with its shell: widgets, then parts (`AtlasControl.Shop.Console`).
     start_supervised!({FakeStore, model: AtlasControl.Shop.Console})
+    start_supervised!(AtlasControl.FakeFlow)
 
     start_supervised!(
       {AtlasControl.Gateway, port: 0, name: :console_gateway, model: AtlasControl.Shop.Console}

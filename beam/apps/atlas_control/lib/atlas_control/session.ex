@@ -5,10 +5,19 @@ defmodule AtlasControl.Session do
 
   - Opening a path reads what the page needs from Facts and sends the page.
   - A submit becomes a fact. The client is told it waits; the change shows only once
-    Facts has stored it. A fact without an answer is sent again with the same id, after
-    5 seconds, then twice as long each time, up to a minute.
-  - A hint (a `stored` of a kind on screen) re-reads and sends the page again. A form is
-    never redrawn under the user's hands; they get a notice instead.
+    Facts has stored it, and Flow has done what the write made it do (read-your-writes,
+    docs/design/page-freshness.md §2.2): the page goes out once Flow says it has settled
+    past the write (`_settled`), or once `settle_ms` (1 s) ran out, which is logged. A
+    fact without an answer is sent again with the same id, after 5 seconds, then twice
+    as long each time, up to a minute.
+  - Every page is read in one `_page` read, and the session keeps what it depended on
+    (`AtlasControl.Freshness`): for the path on screen and the paths viewed before it.
+    Hints (`stored`, by anyone) are collected for a moment and handled at once: a page
+    is read again only when what the hints say changed is something it depended on. The
+    page on screen is sent again; up to 3 other recent pages are pushed, the most
+    recently viewed first. A form is never redrawn under the user's hands; they get a
+    notice instead. Before handling hints of others' writes the session waits, briefly
+    (`hint_settle_ms`), for Flow to have settled past them.
   - The client asks for a refresh on an interval (it reconciles); a lost hint only delays.
   - Each fact says who sent it (`by`): the user at a TUI (`tui_user` in the environment's
     settings; one for now), `migration` for a migration (which may set what the
@@ -23,13 +32,18 @@ defmodule AtlasControl.Session do
   require Logger
 
   alias AtlasBus.Envelope
-  alias AtlasControl.{Faults, Pages}
+  alias AtlasControl.{Faults, PageReads, Pages}
+  alias AtlasControl.Freshness.{Affected, Batch, ReadSet, Recent}
 
   @read_attempts 3
   @first_resend 5_000
   @last_resend 60_000
   # How often a create tries the next number when its key turns out to be taken.
   @key_tries 10
+  # Who answers how far Flow has settled (`_settled`), and whose hints are Flow's.
+  @flow "flow"
+  # How many recent pages, besides the one on screen, one batch of hints pushes.
+  @pushes 3
 
   def start_link({socket, model}), do: GenServer.start_link(__MODULE__, {socket, model})
 
@@ -56,10 +70,20 @@ defmodule AtlasControl.Session do
        by: "agent",
        by_kind: nil,
        # What is assigned to the client, for the header of every page (`start.assigned`):
-       # its words, and whether a hint has made it stale since.
-       count: nil,
-       count_stale: true,
-       cause: nil
+       # its words and what they were read from (`set`; nil: to be read again with the
+       # next page, the words meanwhile those read last).
+       count: %{text: nil, set: nil},
+       cause: nil,
+       # The pages sent lately, by path, with what each depended on.
+       recent: Recent.new(),
+       # The hints not handled yet, and the wait that handles them.
+       batch: Batch.new(),
+       flush_timer: nil,
+       # A wait for Flow to settle (`%{id, ref, timer, position, budget, stored}`): after
+       # a stored write of this client (`stored`: the page to show then), or before
+       # handling hints of others' writes. The highest settled position Flow reported.
+       settling: nil,
+       settled: nil
      }}
   end
 
@@ -122,6 +146,7 @@ defmodule AtlasControl.Session do
     case class do
       "stored" ->
         state = %{state | form: %{}}
+        changes = content["changes"] || []
 
         text =
           case pending do
@@ -136,8 +161,12 @@ defmodule AtlasControl.Session do
               "Stored by Facts (position #{envelope.position})."
           end
 
-        state = notice(state, "ok", text)
-        {:noreply, show(state, pending.after, "stored", envelope.position)}
+        # Its own write is a hint too: the recent pages it changed are pushed once settled.
+        hint = %{position: envelope.position, changes: changes, by: state.by}
+        state = %{state | batch: Batch.add(state.batch, hint, now_ms())}
+        keys = changes |> Enum.map(& &1["key"]) |> Enum.uniq() |> length()
+        stored = %{after: pending.after, text: text, opened: false, keys: keys}
+        {:noreply, settle(state, envelope.position, settle_ms(), stored)}
 
       "refused" when retry? ->
         {:noreply, retry_create(state, pending)}
@@ -157,27 +186,72 @@ defmodule AtlasControl.Session do
     end
   end
 
-  # A hint: a fact of some kind was stored, by anyone.
+  # A hint: facts were stored, by anyone. Collected, and handled with the hints that come
+  # with it (`:flush`).
   def handle_info({:atlas_bus, %Envelope{class: "stored"} = envelope, content}, state) do
-    state = %{state | count_stale: true}
+    hint = %{position: envelope.position, changes: content["changes"] || [], by: content["by"]}
+    now = now_ms()
+    batch = Batch.add(state.batch, hint, now)
+    state = cancel_flush(%{state | batch: batch})
+    wait = max(Batch.due(batch, batch_timing()) - now, 0)
+    {:noreply, %{state | flush_timer: AtlasControl.Clock.after_ms(:flush, wait)}}
+  end
 
-    if Pages.shows?(state.route, state.model, envelope.kind) do
-      if Pages.form?(state.route) do
-        {:noreply,
-         notice(
-           state,
-           "info",
-           "#{content["key"]} was changed elsewhere (position #{envelope.position})."
-         )}
-      else
-        {:noreply, show(state, state.route, "hint", envelope.position)}
-      end
-    else
-      {:noreply, state}
+  # How far Flow has settled. The wait it answers ends once Flow is past its position.
+  def handle_info(
+        {:atlas_bus, %Envelope{class: "answer", kind: "_settled", id: id}, content},
+        state
+      ) do
+    settled = content["settled"]
+
+    state =
+      if is_integer(settled),
+        do: %{state | settled: max(state.settled || settled, settled)},
+        else: state
+
+    case state.settling do
+      %{id: ^id, position: position} when is_integer(settled) and settled >= position ->
+        {:noreply, settled(state)}
+
+      _ ->
+        {:noreply, state}
     end
   end
 
   def handle_info({:atlas_bus, _envelope, _content}, state), do: {:noreply, state}
+
+  # While Flow is waited for, hints wait too: they are handled once it answers.
+  def handle_info(:flush, %{settling: %{}} = state), do: {:noreply, %{state | flush_timer: nil}}
+
+  def handle_info(:flush, state) do
+    state = %{state | flush_timer: nil}
+
+    cond do
+      Batch.empty?(state.batch) ->
+        {:noreply, state}
+
+      Batch.others?(state.batch.hints, @flow) and is_integer(Batch.position(state.batch.hints)) ->
+        {:noreply, settle(state, Batch.position(state.batch.hints), hint_settle_ms(), nil)}
+
+      true ->
+        {:noreply, flush(state)}
+    end
+  end
+
+  # Flow did not say it settled in time: the page goes out as Facts has it now. Flow's
+  # later writes come as hints and refresh it.
+  def handle_info({:settle_timeout, ref}, %{settling: %{ref: ref} = settling} = state) do
+    if settling.stored do
+      Logger.warning(
+        "control: settle timeout position=#{settling.position} budget_ms=#{settling.budget} " <>
+          "settled=#{state.settled || "none"} marked_keys=#{settling.stored.keys}"
+      )
+    end
+
+    {:noreply, settled(state)}
+  end
+
+  def handle_info({:settle_timeout, _ref}, state), do: {:noreply, state}
 
   def handle_info({:resend, id}, state) do
     case state.pending[id] do
@@ -454,7 +528,18 @@ defmodule AtlasControl.Session do
     end
   end
 
+  # An open while a stored write waits for Flow: the client went elsewhere, so the stored
+  # page is not shown; its notice still comes.
   defp handle_op("open", %{"to" => to}, state) do
+    state =
+      case state.settling do
+        %{stored: %{} = stored} = settling ->
+          %{state | settling: %{settling | stored: %{stored | opened: true}}}
+
+        _ ->
+          state
+      end
+
     {:noreply, show(%{state | form: %{}}, route(to, state), "open", nil)}
   end
 
@@ -715,7 +800,7 @@ defmodule AtlasControl.Session do
   end
 
   defp submit({:answer, kind, key, name} = route, raw, state) do
-    answers = Enum.map(Pages.reads(route, state.model), fn {k, c} -> ask(k, c) end)
+    answers = page_answers(route, state.model)
     item = Pages.answer_item(state.model, kind, answers)
     viewer = %{key: state.by, kind: state.by_kind}
     state = %{state | route: route, form: Map.put(state.form, :values, raw)}
@@ -732,7 +817,7 @@ defmodule AtlasControl.Session do
 
   # Link the fact to the client itself (Accept), when the page would let it.
   defp submit({:set, kind, key, relation} = route, _raw, state) do
-    answers = Enum.map(Pages.reads(route, state.model), fn {k, c} -> ask(k, c) end)
+    answers = page_answers(route, state.model)
 
     case Pages.set_problem(state.model, route, answers) do
       nil ->
@@ -1032,7 +1117,7 @@ defmodule AtlasControl.Session do
   defp read_timeout, do: Application.get_env(:atlas_control, :read_timeout_ms, 2_000)
 
   defp page_answers(route, m) do
-    AtlasControl.PageReads.answers(route, m, fn kind, content, budget ->
+    PageReads.answers(route, m, fn kind, content, budget ->
       ask(kind, content, @read_attempts, read_timeout() * budget)
     end)
   end
@@ -1055,32 +1140,8 @@ defmodule AtlasControl.Session do
           state
       end
 
-    answers = page_answers(route, state.model)
-
-    state = count(state, route, answers)
-
-    form = Map.merge(state.form, %{by: state.by, by_kind: state.by_kind})
-
-    page =
-      case route do
-        {:worker_page, _, _} = worker_route ->
-          AtlasControl.WorkerPages.render(
-            worker_route,
-            state.model,
-            %{key: state.by, kind: actor_kind(state)},
-            &ask/2,
-            Map.put(state.form, :output_capability, &AtlasControl.Output.capability/1)
-          )
-
-        {:faults, on} ->
-          Faults.page(route, Faults.offers(on))
-
-        {:fault, _fault, on} ->
-          Faults.page(route, Faults.offers(on))
-
-        route ->
-          route |> Pages.render(state.model, answers, form) |> Faults.with_action(route)
-      end
+    {page, answers, set} = page(state, route, state.form)
+    state = count(state, route, answers, set)
 
     # Remember the version a change form was made from, so the change names it; the values
     # it was read with, so only a change to the same fields refuses it; and the parents the
@@ -1102,31 +1163,121 @@ defmodule AtlasControl.Session do
       end
 
     as_of = position || Enum.find_value(answers, & &1["position"])
+    message = message(state, route, page, reason, as_of, refused)
+    deliver(state, message, welcome)
+    recent = Recent.viewed(state.recent, message["path"], entry(route, set, message))
+    %{state | route: route, form: form, recent: recent}
+  end
 
-    message =
-      %{
-        "op" => "page",
-        "path" => current_path(route),
-        "title" => page.title,
-        "back" => page.back,
-        "blocks" => page.blocks,
-        "markup" => page.markup,
-        "reason" => reason,
-        "position" => as_of,
-        "at" => now()
-      }
-      |> then(&if(refused, do: Map.put(&1, "refused", refused), else: &1))
-      |> then(&if(state.count, do: Map.put(&1, "count", state.count), else: &1))
+  # A recent page off screen, read again and pushed (reason "hint"), without the form or
+  # the route on screen.
+  defp push(state, path, position) do
+    %{route: route} = Recent.get(state.recent, path)
+    {page, _answers, set} = page(state, route, %{})
+    message = message(state, route, page, "hint", position, nil)
+    deliver(state, message, nil)
+    %{state | recent: Recent.sent(state.recent, path, entry(route, set, message))}
+  end
+
+  # A page off screen that can be read again as it is: none that holds what is typed or
+  # what the session only has while on it.
+  defp pushable?(%{route: route}) do
+    not Pages.form?(route) and
+      not match?({tag, _, _} when tag in [:worker_page, :fault], route) and
+      not match?({tag, _} when tag in [:faults], route) and
+      not match?({:unavailable, _, _}, route) and route != :unknown
+  end
+
+  # The page `route` shows, the answers it was read from and what it depended on.
+  defp page(state, route, form) do
+    answers = page_answers(route, state.model)
+
+    case route do
+      {:worker_page, _, _} = worker_route ->
+        {page, read} =
+          recording(fn ask ->
+            AtlasControl.WorkerPages.render(
+              worker_route,
+              state.model,
+              %{key: state.by, kind: actor_kind(state)},
+              ask,
+              Map.put(form, :output_capability, &AtlasControl.Output.capability/1)
+            )
+          end)
+
+        reads = for {kind, _} <- read, do: {kind, :rows}
+        {page, answers, ReadSet.of(reads, Enum.map(read, &elem(&1, 1)), page.blocks)}
+
+      {:faults, on} ->
+        {Faults.page(route, Faults.offers(on)), answers, ReadSet.none()}
+
+      {:fault, _fault, on} ->
+        {Faults.page(route, Faults.offers(on)), answers, ReadSet.none()}
+
+      route ->
+        viewer = Map.merge(form, %{by: state.by, by_kind: state.by_kind})
+        page = route |> Pages.render(state.model, answers, viewer) |> Faults.with_action(route)
+        set = ReadSet.of(PageReads.roles(route, state.model), answers, page.blocks)
+        {page, answers, set}
+    end
+  end
+
+  # `fun` given a read that notes each read and its answer: `{fun's result, [{kind,
+  # answer}]}`, for a page that reads as it renders.
+  defp recording(fun) do
+    key = {__MODULE__, :reads}
+    Process.put(key, [])
+
+    ask = fn kind, content ->
+      answer = ask(kind, content)
+      Process.put(key, [{kind, answer} | Process.get(key, [])])
+      answer
+    end
+
+    try do
+      result = fun.(ask)
+      {result, Enum.reverse(Process.get(key, []))}
+    after
+      Process.delete(key)
+    end
+  end
+
+  defp entry(route, set, message),
+    do: %{
+      route: route,
+      deps: set.deps,
+      row_keys: set.row_keys,
+      view: message,
+      as_of: set.as_of,
+      until: set.until,
+      last_sent: now_ms()
+    }
+
+  defp message(state, route, page, reason, position, refused) do
+    %{
+      "op" => "page",
+      "path" => current_path(route),
+      "title" => page.title,
+      "back" => page.back,
+      "blocks" => page.blocks,
+      "markup" => page.markup,
+      "reason" => reason,
+      "position" => position,
+      "at" => now()
+    }
+    |> then(&if(refused, do: Map.put(&1, "refused", refused), else: &1))
+    |> then(&if(text = count_text(state), do: Map.put(&1, "count", text), else: &1))
+    |> Map.put(:console_actions, Map.get(page, :console_actions, []))
+  end
+
+  defp deliver(state, message, welcome) do
+    {console_actions, message} = Map.pop(message, :console_actions)
 
     projected =
       if state.surface == "console" do
         with {:ok, shell} <- AtlasControl.Shell.boot(state.model, state.by_kind),
              {:ok, page} <-
-               AtlasControl.Console.project(
-                 message,
-                 length(shell["tabs"]),
-                 Map.get(page, :console_actions, [])
-               ),
+               AtlasControl.Console.project(message, length(shell["tabs"]), console_actions),
              do: {:ok, page}
       else
         {:ok, message}
@@ -1141,9 +1292,144 @@ defmodule AtlasControl.Session do
         send_client(state, %{"op" => "bye", "text" => "Console projection unavailable: #{why}"})
         send(self(), :presentation_failed)
     end
-
-    %{state | route: route, form: form}
   end
+
+  # Hints
+
+  # The hints collected so far, handled at once: each page they made stale is read once.
+  # The page on screen is sent again (a form gets a notice); up to `@pushes` other recent
+  # pages are pushed, the most recently viewed first; the other stale ones are forgotten,
+  # and read when they are opened again.
+  defp flush(state) do
+    state = cancel_flush(state)
+    {hints, batch} = Batch.take(state.batch)
+    state = %{state | batch: batch}
+
+    if hints == [] do
+      state
+    else
+      changes = Batch.changes(hints)
+      position = Batch.position(hints)
+      {state, count?} = stale_count(state, changes)
+      screen = current_path(state.route)
+      stale = Affected.affected(state.recent, changes)
+      state = screen(state, screen, screen in stale, count?, changes, position)
+
+      {pushed, dropped} =
+        stale
+        |> List.delete(screen)
+        |> Enum.split_with(&pushable?(Recent.get(state.recent, &1)))
+        |> then(fn {pushable, unpushable} ->
+          {first, rest} = Enum.split(pushable, @pushes)
+          {first, rest ++ unpushable}
+        end)
+
+      state = Enum.reduce(pushed, state, &push(&2, &1, position))
+      %{state | recent: Recent.drop(state.recent, dropped)}
+    end
+  end
+
+  # The page on screen after hints: sent again when what it, or its header's count,
+  # depended on changed; a form only says so.
+  defp screen(state, _path, false, false, _changes, _position), do: state
+
+  defp screen(state, path, stale?, _count?, changes, position) do
+    if Pages.form?(state.route) do
+      entry = Recent.get(state.recent, path)
+
+      case stale? && entry && Affected.first(entry.deps, entry.as_of, changes) do
+        {at, change} ->
+          notice(state, "info", "#{change["key"]} was changed elsewhere (position #{at}).")
+
+        _ ->
+          state
+      end
+    else
+      show(state, state.route, "hint", position)
+    end
+  end
+
+  # The header's count, made due when what it was read from changed: `{state, changed?}`.
+  defp stale_count(%{count: %{set: %ReadSet{} = set}} = state, changes) do
+    if Affected.stale?(set.deps, set.as_of, changes),
+      do: {put_in(state.count.set, nil), true},
+      else: {state, false}
+  end
+
+  defp stale_count(state, _changes), do: {state, false}
+
+  defp cancel_flush(%{flush_timer: nil} = state), do: state
+
+  defp cancel_flush(state) do
+    Process.cancel_timer(state.flush_timer)
+    %{state | flush_timer: nil}
+  end
+
+  # Wait for Flow to have settled past `position`, at most `budget` ms; then show the
+  # stored page (`stored`), if any, and handle the hints collected meanwhile. A wait still
+  # running gives way: a stored page it held is not shown, its notice is.
+  defp settle(state, position, budget, stored) do
+    state =
+      case state.settling do
+        nil ->
+          state
+
+        old ->
+          Process.cancel_timer(old.timer)
+          state = %{state | settling: nil}
+          if old.stored, do: notice(state, "ok", old.stored.text), else: state
+      end
+
+    envelope = %{Envelope.new("request", "_settled") | address: @flow}
+    _ = AtlasBus.send(envelope, %{"position" => position})
+    ref = make_ref()
+    timer = AtlasControl.Clock.after_ms({:settle_timeout, ref}, budget)
+
+    settling = %{
+      id: envelope.id,
+      ref: ref,
+      timer: timer,
+      position: position,
+      budget: budget,
+      stored: stored
+    }
+
+    %{state | settling: settling}
+  end
+
+  # Flow settled, or the wait ran out: the stored page, then the hints.
+  defp settled(%{settling: settling} = state) do
+    Process.cancel_timer(settling.timer)
+    state = %{state | settling: nil}
+
+    state =
+      case settling.stored do
+        nil ->
+          state
+
+        stored ->
+          state = notice(state, "ok", stored.text)
+          # The count it heads is read with it when the write, or one meanwhile, changed it.
+          {state, _} = stale_count(state, Batch.changes(state.batch.hints))
+
+          if stored.opened,
+            do: state,
+            else: show(state, stored.after, "stored", settling.position)
+      end
+
+    flush(state)
+  end
+
+  defp settle_ms, do: Application.get_env(:atlas_control, :settle_ms, 1_000)
+  defp hint_settle_ms, do: Application.get_env(:atlas_control, :hint_settle_ms, 250)
+
+  defp batch_timing,
+    do: [
+      quiet: Application.get_env(:atlas_control, :batch_quiet_ms, 20),
+      most: Application.get_env(:atlas_control, :batch_most_ms, 100)
+    ]
+
+  defp now_ms, do: System.monotonic_time(:millisecond)
 
   # `/` for a client that is a fact of a kind the start's relation points at:
   # what is assigned to it, when the model has such a start page.
@@ -1156,23 +1442,25 @@ defmodule AtlasControl.Session do
   defp start(route, _state), do: route
 
   # The header's count: from the page when it is the start page of assignments, else read
-  # again only after a hint (a fact may have moved to or away from the client).
-  defp count(state, {:assigned, _} = _route, answers),
-    do: %{state | count: Pages.assigned_count(state.model, answers), count_stale: false}
+  # with the page when what it was read from changed (its own read set) or it was never
+  # read.
+  defp count(state, {:assigned, _} = _route, answers, set),
+    do: %{state | count: %{text: Pages.assigned_count(state.model, answers), set: set}}
 
-  defp count(%{count_stale: true} = state, _route, _answers) do
+  defp count(%{count: %{set: nil}} = state, _route, _answers, _set) do
     if Pages.assigned_start?(state.model, state.by_kind) do
       route = {:assigned, state.by}
-
       answers = page_answers(route, state.model)
-
-      count(state, route, answers)
+      set = ReadSet.of(PageReads.roles(route, state.model), answers, [])
+      count(state, route, answers, set)
     else
-      %{state | count: nil, count_stale: false}
+      %{state | count: %{text: nil, set: ReadSet.none()}}
     end
   end
 
-  defp count(state, _route, _answers), do: state
+  defp count(state, _route, _answers, _set), do: state
+
+  defp count_text(%{count: %{text: text}}), do: text
 
   defp current_path({:assigned, _}), do: "/"
   defp current_path(:home), do: "/"

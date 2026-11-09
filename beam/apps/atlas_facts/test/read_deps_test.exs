@@ -156,7 +156,7 @@ defmodule AtlasFacts.ReadDepsTest do
   end
 
   test "a page has one position, and each of its answers says what it depended on" do
-    page = read("_page", %{"kinds" => ["widget", "part"]})
+    page = read("_page", %{"reads" => [["widget", %{}], ["part", %{}]]})
     [widgets, parts] = page["answers"]
     assert widgets == read("widget")
     assert parts == read("part")
@@ -171,6 +171,26 @@ defmodule AtlasFacts.ReadDepsTest do
 
     assert widgets["until"] == "2999-01-01T00:00:00.000001Z"
     refute Map.has_key?(parts, "until")
+  end
+
+  test "a page of mixed reads answers each as it alone would, in order, at one position" do
+    reads = [
+      ["widget", %{"key" => "W-1"}],
+      ["part", %{"linked" => %{"of_widget" => "W-1"}}],
+      ["maker", %{}],
+      ["part", %{"key" => "P-2", "plain" => true}]
+    ]
+
+    page = read("_page", %{"reads" => reads})
+    alone = for [kind, content] <- reads, do: read(kind, content)
+    assert page["answers"] == alone
+    assert [p] = page["answers"] |> Enum.map(& &1["position"]) |> Enum.uniq()
+    assert p == page["position"]
+
+    assert Enum.at(page["answers"], 1)["deps"] == [
+             ["key", "part", "P-1", "*"],
+             ["linked", "of_widget", "W-1", "*"]
+           ]
   end
 
   test "the description and an answer that is an error depend on nothing", %{up: up} do

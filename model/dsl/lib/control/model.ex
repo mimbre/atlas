@@ -227,7 +227,6 @@ defmodule RelaDSL.Control.Model do
             do: %{hidden: [spec["progress"]["own"]]}
           ),
         shows_progress: is_map(spec["progress"]) or completion_rules(spec) != [],
-        progress_from: progress_from(d, kind, 8),
         done_label: get_in(d, ["progress", "done_label"]),
         late:
           case spec["late"] do
@@ -354,35 +353,6 @@ defmodule RelaDSL.Control.Model do
 
   # A fact belongs under the one it points at through a parent relation; at most one.
   defp parent?(spec), do: spec["parent"] == true and spec["max_outgoing"] == 1
-
-  # The kinds whose facts change the progress of `kind` or whether it is completed.
-  defp progress_from(_d, _kind, 0), do: []
-
-  defp progress_from(d, kind, depth) do
-    spec = get_in(d, ["entities", kind]) || %{}
-
-    children =
-      with over when is_binary(over) <- get_in(spec, ["progress", "over"]),
-           [from] <- get_in(d, ["relations", over, "from"]) do
-        [from | progress_from(d, from, depth - 1)]
-      else
-        _ -> []
-      end
-
-    while = List.wrap(get_in(spec, ["progress", "while"]))
-
-    completion =
-      for rule <- completion_rules(spec) ++ while,
-          kind <-
-            (case rule do
-               %{"over" => relation} -> get_in(d, ["relations", relation, "from"])
-               %{"through" => relation} -> get_in(d, ["relations", relation, "to"])
-               _ -> []
-             end) || [],
-          do: kind
-
-    Enum.uniq(completion ++ children)
-  end
 
   defp completion_rules(spec) do
     case spec["completion"] do
