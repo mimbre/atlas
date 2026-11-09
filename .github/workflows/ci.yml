@@ -120,6 +120,11 @@ jobs:
         with:
           otp-version: "28"
           elixir-version: "1.18"
+      # integration/worker_control.exs builds the atlas-runtime native host from tools/runtime.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: false
       - run: python3 -m pip install -r rela/scripts/requirements.txt
       - run: ATLAS_RELA_BIN="$ATLAS_E2E_RELA_BIN" rela/scripts/start-test.sh install
       - run: python3 rela/scripts/assemble.py --check

@@ -143,7 +143,8 @@ and availability ceiling. No direct Console-to-Runtime path is introduced.
 
 ### Private integrated producer verification
 
-From `beam`, run `MIX_ENV=test mix run integration/worker_control.exs`.
+From `beam`, run `MIX_ENV=test mix run integration/worker_control.exs` with Go on
+`PATH`: it builds the `atlas-runtime` native host from `tools/runtime`.
 The native-output scenario uses the real Codex adapter/runner and Runtime Turn
 with a bounded deterministic protocol executable, not a paid model or user daemon.
 Output travels through the real addressed Bus and admitted Control TCP sessions,
