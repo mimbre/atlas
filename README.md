@@ -24,8 +24,9 @@ The BEAM side runs the system. rela describes it. Entities, schemas, flows and t
 | `clients/` | The Console (`tui/`), the agents' command line (`agent/`) and the Runtime viewer (`viewer/`, see [its README](clients/viewer/README.md)). |
 | `env/` | One settings file per environment. |
 | `fly/` | Images and deploy scripts for the hosted environments. |
-| `bin/atlas` | The `atlas` command, Control's client. Its header comment lists the subcommands. |
+| `bin/atlas` | The `atlas` command, Control's client: the Console, the commands on facts during a turn, and provisioning. `atlas help` lists them. |
 | `bin/atlas-ops` | The `atlas-ops` command: operating an environment (status, logs, restart, the tunnel, data moves, install). |
+| `bin/atlas-dev` | Development and test tooling, run from the checkout and never installed. |
 | `e2e/` | The end-to-end test: only the flows that must never break, driving real Consoles. |
 | `tools/` | Supporting tools, such as the Runtime CLI in Go ([tools/runtime/README.md](tools/runtime/README.md)). |
 | `skills/` | Instructions for the agent roles that work on Atlas. |
@@ -46,11 +47,18 @@ cd e2e && mix test               # the atlas launcher's own rules
 bin/atlas-dev e2e --env test     # the end-to-end test, on a private instance
 ```
 
-`atlas` works on prod by default. Pass `--env test` to work on test. Scripts, tests and agents must always pass `--env test` or a private `ATLAS_ENV_FILE`.
+Four commands, each with its own purpose:
+
+- `atlas`: Control's client. The Console (`atlas tui`), the agents' commands on facts, and provisioning (`atlas help`).
+- `atlas-ops`: operating an environment: its processes, logs, tunnel and data.
+- `bin/atlas-dev`: development and test tooling, from the checkout.
+- `atlas-runtime`: the Runtime CLI ([tools/runtime/README.md](tools/runtime/README.md)); `atlas-runtime node` runs this machine as a node of an environment.
+
+They work on prod by default. Pass `--env test` to work on test. Scripts, tests and agents must always pass `--env test` or a private `ATLAS_ENV_FILE`.
 
 ```sh
-atlas tui --env test     # open the Console on test
-atlas-ops status --env test  # what runs, and which build
+atlas tui --env test           # open the Console on test
+atlas-ops status --env test    # what runs, and which build
 ```
 
 ## Read more

@@ -1,32 +1,42 @@
 #!/usr/bin/env bash
 # atlas: try Atlas from any folder.
+# It is Control's client: its commands go through Control, as the TUI does, and start
+# nothing; Control must run (`atlas-ops status`). Each command is one word after `atlas`.
 #
+# The person (operator): the Console
 #   atlas              open a TUI on prod; prod runs on Fly, so it opens the tunnel to its
-#                      Control first (see "On Fly" below). It starts nothing else: for an
-#                      environment on this Mac, start rela and the core with `atlas-ops restart`
+#                      Control first (see "On Fly" below). For an environment on this Mac,
+#                      start rela and the core with `atlas-ops restart`
 #   atlas tui          the same; open as many as you like, each in its own terminal
-#   atlas discover --machine <name> [--json]   is runtime@<name> registered: a granted read of
-#                      Control's registry (ATLAS_RUNTIME_READ_TOKEN). This machine's Runtime node
-#                      itself is `atlas-runtime node start|stop|status`
 #
-#   atlas help [<kind>] [--json]    the agents' commands, and every kind from rela's description:
-#                      what a create asks, its id, its parent, its fields (Control must run)
-#   atlas put <kind> [--in <key>] --title <text> --description-file <path>   create
-#   atlas set <key> <field>=<text> ...       change, e.g. `atlas set IS-Atlas-12 stage=design`
+# Working with facts during a turn (agents, the planner, scripts; Runtime for its workers)
+#   atlas turn [--json]                      the current turn, its item and what to do
+#   atlas turn end <outcome>                 record its outcome; Runtime ends the turn
 #   atlas get <key> [--json]                 one item, and what hangs under it
 #   atlas list <kind> [--json]               the items of a kind
+#   atlas set <key> <field>=<text> ...       change, e.g. `atlas set IS-Atlas-12 stage=design`
+#   atlas put <kind> [--in <key>] --title <text> --description-file <path>   create
 #   atlas delete <key> [--json]              delete; refused while anything hangs under it
-#   atlas turn [--json]                     the current turn, its item and what to do
-#   atlas turn end <outcome>                 record its outcome; Runtime ends the turn
 #   atlas tools [--json]                     the agent's tools: Control's actions, from the description
 #   atlas plan --on <key> <request>          what the agent proposes for a request on that page;
 #                      it reads through Control and writes nothing (UC-Atlas-16)
 #   atlas steer                              the agent behind the TUI's `:`, in JSON lines on
 #                      stdin and stdout; the TUI starts it (UC-Atlas-17)
+#
+# Provisioning (the person or a script)
+#   atlas help [<kind>] [--json]    the agents' commands, and every kind from rela's description:
+#                      what a create asks, its id, its parent, its fields
+#   atlas discover --machine <name> [--json]   is runtime@<name> registered: a granted read of
+#                      Control's registry (ATLAS_RUNTIME_READ_TOKEN)
 #   atlas migrate-done-owner [--dry-run]     IS-Atlas-88: a done fact has no owner: removes the owner a
 #                      migration gave a fact Flow expects nothing of; never one set by hand or Flow
-#                      put, set, get, list, delete, tools, plan and the migration go
-#                      through Control like the TUI, and start nothing: Control must run (`atlas-ops status`).
+#
+# Everything else is another command:
+#   atlas-ops          operating an environment: its processes, logs, tunnel, data moves, and
+#                      installing these commands (`atlas-ops --help`)
+#   bin/atlas-dev      development and test tooling, from the checkout (`bin/atlas-dev --help`)
+#   atlas-runtime      the Runtime CLI, and this machine's Runtime node
+#                      (`atlas-runtime node start|stop|status`; tools/runtime/README.md)
 #
 # On Fly (IS-Atlas-26, IS-Atlas-79): an environment whose settings have a "fly" section runs
 # its core and rela on Fly, each environment on its own private network; a merge deploys
@@ -34,9 +44,6 @@
 # WireGuard tunnel (`fly proxy`) that they open in the background. With "in_use": false in
 # that section (an environment whose data has not moved and been checked yet) the clients
 # still use this Mac's core.
-#
-# Operating an environment (its processes, logs, tunnel, data moves, and installing these
-# commands) is `atlas-ops`: `atlas-ops --help`.
 #
 # Every command works on prod unless it gets --env test: `atlas tui --env test`. Scripts,
 # tests and agents always pass --env test, or ATLAS_ENV_FILE: a private instance (other
