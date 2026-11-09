@@ -16,6 +16,12 @@ if server do
   # (AtlasRuntime.Model). The service runs with MIX_ENV=test, where no model is
   # configured, so it is wired here, as config.exs wires it for a node.
   Application.put_env(:atlas, :model, Model.AtlasEyra, persistent: true)
+  # Flow's passes for this machine reach the Service here (AtlasRuntime.FlowPasses), at
+  # `runtime@<machine>/passes`, the one pass endpoint the link lets this machine attach;
+  # its journal is under this Service's home, whose admissions it recovers.
+  Application.put_env(:atlas_runtime, :flow_passes, [machine: server.machine, dir: dir],
+    persistent: true
+  )
 end
 
 Application.put_env(:atlas_runtime, :start, false)

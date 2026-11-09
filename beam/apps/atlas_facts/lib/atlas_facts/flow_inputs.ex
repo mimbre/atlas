@@ -18,42 +18,57 @@ defmodule AtlasFacts.FlowInputs do
             Enum.any?(s["choices"] || [], &Map.has_key?(content["values"] || %{}, &1))
         end)
 
-    if selection && String.starts_with?(e.sender || "", "control/session-") do
-      case Rela.get(rela, plural(d), identity(e.id)) do
-        {:ok, fact} ->
-          value = decode(d, fact)
+    cond do
+      # The run writer's own change is the output of a transition its run already took
+      # (an answer a pass gave for its owner), stored with the run before it is sent:
+      # never an input. The rules of the kind still decide whether it may be stored.
+      selection && e.sender == c["writer"]["sender"] ->
+        :ordinary
 
-          if value["actor"] == actor and value["changed_fields"] == content["values"] and
-               (value["links"] || %{}) == (content["links"] || %{}) do
-            {:capture,
-             %{
-               "op" => "submit",
-               "by" => actor,
-               "values" => %{
-                 "request_id" => e.id,
-                 "run" => value["run"],
-                 "entry" => value["entry"],
-                 "source_version" => value["source_version"],
-                 "changed_fields" => value["changed_fields"],
-                 "links" => value["links"] || %{}
-               }
-             }}
-          else
-            {:error, :request_conflict}
-          end
+      selection && String.starts_with?(e.sender || "", "control/session-") ->
+        session_capture(rela, d, e, content, selection, actor)
 
-        {:error, :not_found} ->
-          capture_new(rela, d, e, content, selection)
+      selection ->
+        {:error, :input_authority}
 
-        other ->
-          other
-      end
-    else
-      if selection, do: {:error, :input_authority}, else: :ordinary
+      true ->
+        :ordinary
     end
   end
 
   def capture(_, _, _, _), do: :ordinary
+
+  defp session_capture(rela, d, e, content, selection, actor) do
+    case Rela.get(rela, plural(d), identity(e.id)) do
+      {:ok, fact} ->
+        value = decode(d, fact)
+
+        if value["actor"] == actor and value["changed_fields"] == content["values"] and
+             (value["links"] || %{}) == (content["links"] || %{}) do
+          {:capture,
+           %{
+             "op" => "submit",
+             "by" => actor,
+             "values" => %{
+               "request_id" => e.id,
+               "run" => value["run"],
+               "entry" => value["entry"],
+               "source_version" => value["source_version"],
+               "changed_fields" => value["changed_fields"],
+               "links" => value["links"] || %{}
+             }
+           }}
+        else
+          {:error, :request_conflict}
+        end
+
+      {:error, :not_found} ->
+        capture_new(rela, d, e, content, selection)
+
+      other ->
+        other
+    end
+  end
 
   defp capture_new(rela, d, e, content, selection) do
     c = d["flow_runtime"]

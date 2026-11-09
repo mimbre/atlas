@@ -639,7 +639,7 @@ func TestPeerCorrelationRequiresExactTargetsAndNoDispatchOptions(t *testing.T) {
 func TestSnapshotMaterializeNeedsExactFlagsAndNoRuntimeService(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("ATLAS_RUNTIME_HOME", dir)
-	usage := "use snapshot materialize --snapshot sha256:HEX --dest NEW_PATH, snapshot prepare --dest PATH --npm-ci REPO_PATH[/SUBDIR] | --npm-run REPO_PATH[/SUBDIR] --script NAME --output REPO_PATH/OUT..., snapshot status|diff --dest PATH [--path REPO_PATH]..., snapshot submit --dest PATH [--path REPO_PATH] --change-id UUID [--fingerprint fpr_HEX], snapshot freeze --dest PATH --turn TURN_ID --packet NEW_PATH --packet-id UUID [--previous PACKET_ID], snapshot findings --packet PATH --turn TURN_ID, snapshot packets --dest PATH, snapshot discard --packet PATH | --packet-id UUID, or snapshot rebind --dest PATH"
+	usage := "use snapshot materialize --snapshot sha256:HEX --dest NEW_PATH, snapshot prepare --dest PATH --npm-ci REPO_PATH[/SUBDIR] | --npm-run REPO_PATH[/SUBDIR] --script NAME --output REPO_PATH/OUT..., snapshot status|diff --dest PATH [--path REPO_PATH]..., snapshot submit --dest PATH [--path REPO_PATH] --change-id UUID [--fingerprint fpr_HEX], snapshot freeze --dest PATH --turn TURN_ID --packet NEW_PATH --packet-id UUID [--previous PACKET_ID] [--revision REVISION], snapshot findings --packet PATH --turn TURN_ID, snapshot packets --dest PATH, snapshot discard --packet PATH | --packet-id UUID, or snapshot rebind --dest PATH"
 	for _, args := range [][]string{
 		{"snapshot"},
 		{"snapshot", "download"},

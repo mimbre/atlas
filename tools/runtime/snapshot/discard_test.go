@@ -37,7 +37,7 @@ func frozen(t *testing.T, id string) (*fixture, string, string) {
 	t.Helper()
 	f, _, _, dest := authorFolder(t)
 	path := packetFolder(t, f.parent, "packet")
-	_, err := Freeze(f.home, dest, authorTurn(t, f.home, dest, "finished"), path, id, "")
+	_, err := Freeze(f.home, dest, authorTurn(t, f.home, dest, "finished"), path, id, "", "")
 	must(t, err)
 	return f, dest, path
 }
@@ -181,7 +181,7 @@ func TestDiscardByPathSelectsThePacketNotYetDiscarded(t *testing.T) {
 	f, dest, path := frozen(t, packetA)
 	first, err := Discard(f.home, path, "")
 	must(t, err)
-	_, err = Freeze(f.home, dest, authorTurn(t, f.home, dest, "stopped"), path, packetB, packetA)
+	_, err = Freeze(f.home, dest, authorTurn(t, f.home, dest, "stopped"), path, packetB, packetA, "")
 	must(t, err)
 	second, err := Discard(f.home, path, "")
 	must(t, err)

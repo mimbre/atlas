@@ -1,6 +1,7 @@
 package snapshot
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -14,13 +15,27 @@ import (
 	"testing"
 )
 
+func TestReadFindingsTypedRefusals(t *testing.T) {
+	dir := t.TempDir()
+	missing := filepath.Join(dir, "missing.json")
+	oversize := filepath.Join(dir, "oversize.json")
+	must(t, os.WriteFile(oversize, bytes.Repeat([]byte("x"), maxFindings+1), 0600))
+	for path, code := range map[string]string{missing: "findings_missing", dir: "findings_invalid", oversize: "findings_invalid"} {
+		_, err := readFindings(path)
+		var refusal *FindingsRefusal
+		if !errors.As(err, &refusal) || refusal.Result()["code"] != code {
+			t.Fatalf("%s: want %s, got %v", path, code, err)
+		}
+	}
+}
+
 // reviewedPacket freezes the author folder into packet id and saves an ended review turn named
 // name that ran in its tree, as Runtime saves a review-packet pass. It returns the packet folder,
 // the review turn and the packet's fingerprint.
 func reviewedPacket(t *testing.T, f *fixture, dest, author, name, id, previous string) (string, string, string) {
 	t.Helper()
 	path := packetFolder(t, f.parent, name)
-	p, err := Freeze(f.home, dest, author, path, id, previous)
+	p, err := Freeze(f.home, dest, author, path, id, previous, "")
 	must(t, err)
 	return path, savedReview(t, f.home, filepath.Join(path, "tree"), name, "finished", id, p["fingerprint"].(string)), p["fingerprint"].(string)
 }

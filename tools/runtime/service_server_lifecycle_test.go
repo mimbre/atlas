@@ -77,6 +77,10 @@ func TestServiceStartsWithServerLifecycleAndItsModel(t *testing.T) {
 			if status["service"] != "running" {
 				t.Fatalf("service-status = %v", status)
 			}
+			// Flow's pass receiver runs beside it, its journal under the same home.
+			if info, err := os.Stat(filepath.Join(dir, "passes")); err != nil || !info.IsDir() {
+				t.Fatalf("no pass receiver journal: %v", err)
+			}
 			return
 		}
 	}

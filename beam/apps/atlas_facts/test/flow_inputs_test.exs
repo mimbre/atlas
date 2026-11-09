@@ -463,6 +463,34 @@ defmodule AtlasFacts.FlowInputsTest do
              FlowInputs.capture(c.rela, d, %{e | sender: "client"}, content)
   end
 
+  test "the run writer's own change of a choice field is no input; anyone else's still is", c do
+    d =
+      put_in(c.d, ["flow_runtime", "selection"], %{
+        "sort" => %{"subject" => "box", "choices" => ["choice"]}
+      })
+
+    # A pass's answer, written by Flow for the owner it names: the output of a transition
+    # its run took, left to the kind's rules (who may set the relation) as any change is.
+    content = %{
+      "op" => "change",
+      "key" => "B-1",
+      "by" => "flow",
+      "values" => %{"choice" => "yes"},
+      "links" => %{"chosen_by" => ["ada"]}
+    }
+
+    e = %{Envelope.new("fact", "box", id: "answered") | sender: "flow"}
+    assert FlowInputs.capture(c.rela, d, e, content) == :ordinary
+
+    # The writer's name is no authority from another sender, nor is the sender's from
+    # another configured writer.
+    assert {:error, :input_authority} =
+             FlowInputs.capture(c.rela, d, %{e | sender: "flow/passes"}, content)
+
+    other = put_in(d, ["flow_runtime", "writer", "sender"], "elsewhere")
+    assert {:error, :input_authority} = FlowInputs.capture(c.rela, other, e, content)
+  end
+
   test "a choice after the deadline or outside a waiting state writes nothing", c do
     {:ok, current} = Rela.get(c.rela, "cursors", "R-1")
 

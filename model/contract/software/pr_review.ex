@@ -12,14 +12,29 @@ defmodule Model.PrReview do
     * No verdict in three days escalates it to a maintainer, next to the reviewer.
     * A newer revision of the pull request supersedes it (`superseded`).
 
-  Slice 7 runs it on Flow's durable runs (`select`). Two parity fixes keep it to what
-  runs today, where no flow ran on a review at all:
+  It runs on Flow's durable runs (`select`). Its owner is its reviewer (`review_by`).
+  While it is `working`, a reviewer that is an agent with a Runtime (its `machine`)
+  reviews through that Runtime, once:
 
-    * no pass yet: a pass with the person needs Flow to resolve the reviewer's Runtime
-      and a materialized revision, which it cannot; a pass it cannot run would refuse
-      every selected subflow;
-    * `superseded` is taken as it is written (no role): nothing writes it as Atlas; a
-      run cannot write a field on its child, so it is set by hand.
+    * the pass is a Claude turn on the frozen review packet that the review names
+      (`packet_tree`, `packet_id`, `packet_fingerprint`), with `review-packet` permissions;
+      the packet must have been frozen for `revision` (`atlas-runtime snapshot freeze
+      --revision`, on the reviewer's machine), or Runtime refuses it; until the review
+      names one, or for a reviewer with no machine (a person), there is no pass, and the
+      reviewer answers by hand, as before;
+    * its findings' verdict (`atlas-runtime snapshot findings`) is the reviewer's own
+      answer: `pass` approves, `changes_required` requests changes; Flow writes the
+      `verdict` and names the reviewer in `verdict_by`. An `uncertain` verdict, findings
+      Runtime refuses, or a packet it refuses (another revision's, changed, or not a
+      packet) answer nothing: the review waits for the reviewer by hand and escalates in
+      three days, as before;
+    * an offline Runtime leaves the pass waiting (the three days still count); a changed
+      revision, packet or reviewer makes it another pass, also after a pass that answered
+      nothing, and the first one's late result changes nothing; superseded, a late result
+      changes nothing either.
+
+  `superseded` is taken as it is written (no role): nothing writes it as Atlas; a run
+  cannot write a field on its child, so it is set by hand.
   """
   use RelaDSL
 
@@ -43,6 +58,14 @@ defmodule Model.PrReview do
     field(:revision, :string,
       description: "The exact revision of the pull request this review is for (its head commit)"
     )
+
+    field(:packet_tree, :string,
+      description:
+        "The tree of the frozen review packet of the revision, on the reviewer's machine (an absolute path)"
+    )
+
+    field(:packet_id, :string, description: "The frozen review packet's id")
+    field(:packet_fingerprint, :string, description: "The frozen review packet's fingerprint")
   end
 
   relation(:review_of,
@@ -54,8 +77,20 @@ defmodule Model.PrReview do
     inverse: {:reviews, "reviews"}
   )
 
+  # Who reviews it, and so owns it while it runs: an agent reviews through its Runtime's
+  # pass, a person by hand. Anyone may hand a review to its reviewer, as with assigned_to.
+  relation(:review_by,
+    label: "review by",
+    description: "Who reviews it; one, a person or an agent.",
+    from: [:pr_review],
+    to: [:person, :agent],
+    max_outgoing: 1,
+    inverse: {:reviews_to_do, "reviews to do"}
+  )
+
   # The review and the test of a pull request each take one verdict, from whoever names
-  # themselves here as they give it: the one relation their roles are checked by.
+  # themselves here as they give it: the one relation their roles are checked by. Flow
+  # names the reviewer here for the verdict their own Runtime's review pass gave.
   relation(:verdict_by,
     label: "verdict by",
     description: "Who gave the verdict of a review or test; one, a person or an agent.",
@@ -65,17 +100,58 @@ defmodule Model.PrReview do
     inverse: {:verdicts, "verdicts"},
     only_target: [
       error: "only the one who gives the verdict sets verdict_by, to themselves",
-      also: [:migration]
+      also: [:migration, :flow]
     ]
   )
 
   subflow :pr_review, label: "PR review", subject: :pr_review do
-    owner relation: :assigned_to
+    owner relation: :review_by
     start :create
     initial :working
 
-    state :working, label: "PR review in progress" do
+    # It waits for the reviewer's answer, by hand or through their pass (`input_required`
+    # given, as a state with a mechanism is otherwise working).
+    state :working, label: "PR review in progress", status: :input_required do
       branch to: :superseded, when: "entity.superseded == true"
+
+      # An agent reviewer's Runtime reviews the frozen packet; its answer is the reviewer's.
+      pass :reviewer,
+        with_person: true,
+        writes: :none,
+        contract: 1,
+        name: "review",
+        routing: [machine_field: "machine"],
+        fingerprint: [
+          fields: ["revision", "packet_tree", "packet_id", "packet_fingerprint"],
+          relations: []
+        ],
+        packet_from: [
+          cwd: "packet_tree",
+          packet_id: "packet_id",
+          fingerprint: "packet_fingerprint",
+          revision: "revision"
+        ],
+        request: [
+          mode: "start",
+          assignment: """
+          Review the pull request revision frozen in this folder (a review packet: the
+          tree, ../packet.json and ../diff.json). Write your findings to
+          ../findings/findings.json as the review-packet findings contract says: version
+          1, this packet's packet_id and fingerprint, your verdict (pass,
+          changes_required or uncertain), a summary, the findings, and what you checked
+          and did not check. Then end.
+          """,
+          permissions: "review-packet",
+          packet_contract: 1,
+          backend: "claude",
+          vendors: ["claude"]
+        ],
+        answer: [
+          field: "verdict",
+          by: "verdict_by",
+          role: "reviewer",
+          outcomes: [pass: "approved", changes_required: "changes_requested"]
+        ]
 
       wait_for [:reviewer],
         on: :verdict,
@@ -121,11 +197,25 @@ defmodule Model.PrReview do
   # The approved migration of its runs, from the digest the base branch recorded
   # (RelaDSL.RunIdentity); the same in prod and test. No run had that digest: the
   # subflow was never selected before slice 7. A run that did would move along it as a
-  # state migration (re-entering its state), never as a re-key, since the pass went.
+  # state migration (re-entering its state), never as a re-key, since the pass went; it
+  # leads on to the next migration.
   migrate(:pr_review,
     from: "ee1314e80a41b4d4102923cc46d08126403ea5fc3c58bcf49d88617823acd86b",
     to: "7291ab5579991c4083ad2d1f18c211a7cc7c85ec27735c8d00d0d99e8752542e",
     states: :same,
     reason: "Slice 7: selected without its pass; superseded taken as written"
+  )
+
+  # The pass back in `working`, for a reviewer with a Runtime. Every run keeps its state,
+  # entry, timers and anything frozen (`preserve_entry`): the three days of a waiting
+  # review still count from where they did, and no state is entered again. A run waiting
+  # in `working` then starts its pass, once its reviewer has a machine and the review
+  # names its packet; any other run goes on as it did.
+  migrate(:pr_review,
+    from: "7291ab5579991c4083ad2d1f18c211a7cc7c85ec27735c8d00d0d99e8752542e",
+    to: "05019b5d840dc936ea1f6f59f7be2849967f321a975b62bba01dacde16fa1682",
+    states: :same,
+    preserve_entry: true,
+    reason: "The review pass for a reviewer with a Runtime; live entries and timers kept"
   )
 end

@@ -20,6 +20,9 @@ import (
 
 var (
 	savedTurn = regexp.MustCompile(`^turn-[0-9a-f]{16}$`)
+	// packetRevision is what --revision may name: the revision of the reviewed change a packet is for
+	// (a commit or a Code revision), recorded as given and never interpreted.
+	packetRevision = regexp.MustCompile(`^[!-~]{1,255}$`)
 	// cloneFile creates one file of a packet tree; tests replace it to force the streamed copy.
 	cloneFile = clone
 	// afterFolderScan runs between the scan of the author folder and the copy; tests change the folder there.
@@ -54,6 +57,7 @@ type packet struct {
 	Version         int                `json:"version"`
 	PacketID        string             `json:"packet_id"`
 	Previous        *packetLink        `json:"previous"`
+	Revision        string             `json:"revision,omitempty"`
 	Fingerprint     string             `json:"fingerprint"`
 	SnapshotID      string             `json:"snapshot_id"`
 	CreatedAt       string             `json:"created_at"`
@@ -97,15 +101,19 @@ func PacketDir(home, id string) string { return filepath.Join(home, "packets", i
 // review packet folder at path: a read-only tree recorded as a materialization of the same
 // snapshot, packet.json, diff.json and an empty findings folder. The authoritative packet.json and
 // diff.json are kept under <home>/packets/<id>/. previous, when set, names the packet this one
-// follows. It runs offline under the folder's lock and writes nothing to dest or its baseline.
+// follows. revision, when set, is the revision of the reviewed change the packet is for, recorded in
+// packet.json as given, so whoever binds a review to the packet can check it is that revision's.
+// It runs offline under the folder's lock and writes nothing to dest or its baseline.
 // A repeat with the same packet ID and arguments returns the recorded packet.
-func Freeze(home, dest, turn, path, id, previous string) (map[string]any, error) {
+func Freeze(home, dest, turn, path, id, previous, revision string) (map[string]any, error) {
 	started := time.Now()
 	switch {
 	case !changeID.MatchString(id):
 		return nil, errors.New("packet ID must be a lowercase UUID")
 	case previous != "" && !changeID.MatchString(previous):
 		return nil, errors.New("previous packet ID must be a lowercase UUID")
+	case revision != "" && !packetRevision.MatchString(revision):
+		return nil, errors.New("revision must be 1 to 255 visible ASCII characters")
 	case previous == id:
 		return nil, fmt.Errorf("packet %s cannot follow itself; --previous names an earlier packet", id)
 	case !savedTurn.MatchString(turn):
@@ -119,7 +127,7 @@ func Freeze(home, dest, turn, path, id, previous string) (map[string]any, error)
 	if err != nil {
 		return nil, err
 	}
-	if existing, err := repeated(home, dest, turn, target, id, previous); existing != nil || err != nil {
+	if existing, err := repeated(home, dest, turn, target, id, previous, revision); existing != nil || err != nil {
 		return existing, err
 	}
 
@@ -258,7 +266,7 @@ func Freeze(home, dest, turn, path, id, previous string) (map[string]any, error)
 	}
 	summary, _ := report["preparation"].(map[string]any)
 	author["dest"] = f.dest
-	metadata, err := json.Marshal(packet{Version: 1, PacketID: id, Previous: link, Fingerprint: packetFingerprint(f.id, repositories),
+	metadata, err := json.Marshal(packet{Version: 1, PacketID: id, Previous: link, Revision: revision, Fingerprint: packetFingerprint(f.id, repositories),
 		SnapshotID: f.id, CreatedAt: time.Now().UTC().Format(time.RFC3339), Author: author, Tree: tree,
 		Findings: filepath.Join(target, "findings"), Repositories: repositories, Outside: outside, IncompleteDiffs: incomplete, Preparation: summary})
 	if err != nil {
@@ -319,7 +327,7 @@ func packetPath(path string) (string, error) {
 
 // repeated returns the recorded packet id when this request repeats its freeze; another request
 // under a recorded ID is a conflict. It returns nothing when the ID is unused.
-func repeated(home, dest, turn, target, id, previous string) (map[string]any, error) {
+func repeated(home, dest, turn, target, id, previous, revision string) (map[string]any, error) {
 	data, err := os.ReadFile(filepath.Join(PacketDir(home, id), "packet.json"))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
@@ -344,9 +352,10 @@ func repeated(home, dest, turn, target, id, previous string) (map[string]any, er
 	if link != nil {
 		was, _ = link["packet_id"].(string)
 	}
+	revisionWas, _ := recorded["revision"].(string)
 	tree, _ := recorded["tree"].(string)
-	if author["dest"] != dest || author["turn_id"] != turn || filepath.Dir(tree) != target || was != previous {
-		return nil, fmt.Errorf("packet ID %s was already used to freeze turn %v of %v into %s with previous %q; use a new packet ID", id, author["turn_id"], author["dest"], filepath.Dir(tree), was)
+	if author["dest"] != dest || author["turn_id"] != turn || filepath.Dir(tree) != target || was != previous || revisionWas != revision {
+		return nil, fmt.Errorf("packet ID %s was already used to freeze turn %v of %v into %s with previous %q and revision %q; use a new packet ID", id, author["turn_id"], author["dest"], filepath.Dir(tree), was, revisionWas)
 	}
 	recorded["state"], recorded["packet"] = "existing", filepath.Dir(tree)
 	return recorded, nil
