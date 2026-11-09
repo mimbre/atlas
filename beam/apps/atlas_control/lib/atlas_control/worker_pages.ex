@@ -208,20 +208,9 @@ defmodule AtlasControl.WorkerPages do
     )
     |> Map.put(
       :console_actions,
-      [details_action()] ++ history_actions ++ output_actions
+      [Pages.details_action()] ++ history_actions ++ output_actions
     )
   end
-
-  defp details_action,
-    do: %{
-      label: "Show or hide details",
-      keys: ["d"],
-      operation: %{"name" => "sections_toggle"},
-      on: nil,
-      row: nil,
-      available: true,
-      reason: nil
-    }
 
   defp history(execution, m, actor, read) do
     case call("worker_history", %{"execution" => execution}, m, actor, read) do
