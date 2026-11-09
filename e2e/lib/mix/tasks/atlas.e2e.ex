@@ -4,7 +4,7 @@ defmodule Mix.Tasks.Atlas.E2e do
       mix atlas.e2e                 # every scenario in e2e/scenarios, in order
       mix atlas.e2e uc-atlas-22     # only the scenarios whose file name has this
 
-  Also `bin/atlas e2e`. Starts a private instance (fresh rela data, free ports; see
+  Also `bin/atlas-dev e2e`. Starts a private instance (fresh rela data, free ports; see
   `AtlasE2E.Instance`), the core, and two TUIs in tmux, then runs the scenarios. When a
   step fails it saves both screens and the logs in `e2e/artifacts/` (or
   `ATLAS_E2E_ARTIFACTS`) and exits with an error. Needs tmux.

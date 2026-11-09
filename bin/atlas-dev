@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# atlas-dev: development and test tooling, run from the checkout (never installed).
+#
+#   bin/atlas-dev e2e [uc-atlas-01 ...] [--env test]   the end-to-end test, on a private
+#                      test instance of its own; refuses any other --env
+set -euo pipefail
+
+# Nothing here needs the read capability; keep it from every child.
+unset ATLAS_RUNTIME_READ_TOKEN
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+. "$root/bin/lib/env.sh"
+# The comment above, up to `set -euo pipefail`: the usage.
+header() { sed -n '2,/^set -euo/p' "$root/bin/atlas-dev" | sed '$d' | sed 's/^# \{0,1\}//'; }
+usage() { header; exit 2; }
+no_env() { echo "atlas-dev: --env needs test or prod" >&2; exit 2; }
+
+case "${1:-}" in e2e) cmd="$1"; shift ;; -h|--help|"") usage ;; *) echo "atlas-dev: unknown command $1" >&2; usage ;; esac
+env=""
+args=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --env) [ -n "${2:-}" ] || no_env; env="$2"; shift 2 ;;
+    --env=?*) env="${1#--env=}"; shift ;;
+    --env=) no_env ;;
+    *) args+=("$1"); shift ;;
+  esac
+done
+
+# The end-to-end test makes its own private test instance; it never reads env/<env>.json
+# and never runs on prod. It needs no setup: unless ATLAS_E2E_RELA_BIN names rela's binaries,
+# it installs the pinned rela into a per-user cache (and reuses it later), and unless
+# ATLAS_CONFIG_PYTHON is set (or .venv-config found) or python3 already has
+# rela/scripts/requirements.txt, it makes a private Python for rela's scripts there too.
+if [ "$cmd" = e2e ]; then
+  if [ -n "$env" ] && [ "$env" != test ]; then
+    echo "atlas-dev: e2e runs only on a private test instance, never on $env" >&2; exit 1
+  fi
+  cache="${XDG_CACHE_HOME:-$HOME/.cache}/atlas"
+  if [ -z "${ATLAS_E2E_RELA_BIN:-}" ]; then
+    version="$(sed -n 's/^version=//p' "$root/rela/scripts/start-test.sh")"
+    export ATLAS_E2E_RELA_BIN="$cache/rela-$version"
+    ATLAS_RELA_BIN="$ATLAS_E2E_RELA_BIN" "$root/rela/scripts/start-test.sh" install >&2
+  fi
+  requirements="$root/rela/scripts/requirements.txt"
+  if [ -z "${ATLAS_CONFIG_PYTHON:-}" ] && ! python3 - "$requirements" 2>/dev/null <<'PY'
+import sys
+from importlib.metadata import version
+for line in open(sys.argv[1]):
+    name, _, pinned = line.split('#')[0].strip().partition('==')
+    if name and version(name) != pinned:
+        sys.exit(1)
+PY
+  then
+    venv="$cache/python"
+    if ! cmp -s "$requirements" "$venv/requirements.txt"; then
+      echo "atlas-dev e2e: installing rela's Python requirements into $venv" >&2
+      rm -rf "$venv"
+      python3 -m venv "$venv"
+      "$venv/bin/pip" install -q --disable-pip-version-check -r "$requirements" >&2
+      cp "$requirements" "$venv/requirements.txt"
+    fi
+    export ATLAS_CONFIG_PYTHON="$venv/bin/python"
+  fi
+  cd "$root/e2e" && exec mix atlas.e2e ${args[@]+"${args[@]}"}
+fi

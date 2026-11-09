@@ -31,7 +31,7 @@ For a sandboxed port, explicitly include `put turn` in the agent's local `allowe
 setting alongside its other commands. The existing restricted default stays in place;
 this change does not start a model or grant commands to deployed agents.
 
-The private stub test is `atlas e2e uc-atlas-08`. It creates two use cases and an issue
+The private stub test is `bin/atlas-dev e2e uc-atlas-08`. It creates two use cases and an issue
 under each before ending the turn, sees both in the TUI, checks the outcome and subsequent
 handover to the coordinator without a replacement turn, and checks a human cancellation
 of a second turn. The file

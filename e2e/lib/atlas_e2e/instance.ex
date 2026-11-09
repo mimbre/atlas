@@ -9,7 +9,7 @@ defmodule AtlasE2E.Instance do
   writes each address to `opened.txt` in the run's folder (`opened/1`), so a run never
   opens a browser.
 
-  rela's binaries are shared between runs (`ATLAS_E2E_RELA_BIN`). `bin/atlas e2e` sets it,
+  rela's binaries are shared between runs (`ATLAS_E2E_RELA_BIN`). `bin/atlas-dev e2e` sets it,
   when unset, to a per-user cache it installs the pinned rela into; a bare `mix atlas.e2e`
   falls back to the test instance's `~/.local/share/atlas/test/bin`, where
   `rela/scripts/start-test.sh` downloads the pinned version when it is missing.
