@@ -409,6 +409,49 @@ Freezes a materialized folder after its author turn, so a review has a stable su
 - **Result:** `packet.json` plus `state: "frozen"`, `packet` and `cost`: `elapsed_ms`, `files`, `bytes`, `cloned_files`, `copied_files`, `copied_bytes`, `free_bytes_before`, `free_bytes_after` and `disk_used_bytes` (the drop in free space; noisy on a busy volume). A repeat with the same packet ID and arguments returns the recorded packet with `state: "existing"` and no cost; other arguments under a used ID are a conflict.
 - **Limits:** read-only modes do not stop a process of the same user; enforcement for review passes is the planned `review-packet` profile. Clones keep extended attributes and ACLs. Nothing removes packets yet (`snapshot discard` is a later step).
 
+## Review findings and the packet chain (snapshot findings, snapshot packets)
+
+```sh
+atlas-runtime snapshot findings --packet /abs/packet --turn REVIEW_TURN_ID
+atlas-runtime snapshot packets --dest /abs/assignment
+```
+
+`snapshot findings` records what a review pass wrote to `/abs/packet/findings/findings.json`. Fixed rules only: Runtime never writes a verdict, and a refusal is never a pass. Offline: no Code, Runtime service or Git.
+
+- **The file:** at most 65536 bytes (64 KiB) of UTF-8 JSON, one object without repeated keys and with exactly these fields:
+
+  ```json
+  {"version": 1, "packet_id": "<this packet>", "fingerprint": "<this packet's fpr_>",
+   "verdict": "pass | changes_required | uncertain", "summary": "…",
+   "findings": [{"id": "F1", "severity": "blocking | should-fix | note", "repository": "github.com/o/r", "path": "atlas/x.go",
+                 "lines": {"side": "new | old", "start": 10, "end": 14}, "problem": "…", "evidence": "…", "direction": "…"}],
+   "checked": ["…"], "not_checked": ["…"]}
+  ```
+
+  `repository`, `path` and `lines` may be `null` but must be present. `repository` and `path` are as `diff.json` names them: the repository name, and the path relative to the tree. The path must be in the tree or its baseline (a deleted file), reached through real directories only, and in the named repository. `lines` must lie within the tree's file (`new`) or the baseline's file (`old`). `id`, `summary` and `problem` are nonempty, and IDs are unique. A `blocking` finding with verdict `pass` is invalid.
+- **Refused, with nothing recorded:**
+  - the turn did not run in `/abs/packet/tree`, is not a `review-packet` pass of this packet and fingerprint, or is not finished, stopped or killed;
+  - an owner holds the tree's lock;
+  - code `packet_modified`: the tree, `packet.json` or `diff.json` changed after the freeze;
+  - code `findings_missing`: no file;
+  - code `findings_invalid`: anything else above, including a file over 64 KiB or a symlink.
+
+  The CLI prints `{"error": …, "code": …}` for the coded refusals and exits 1.
+- **Record:** `<home>/packets/PACKET_ID/findings/REVIEW_TURN_ID.json` (0444, never replaced) and the result are `{version: 1, packet_id, fingerprint, review_turn, reviewer: {worker_id, backend, model, selection}, author: {turn_id, worker_id, backend, model, selection}, recorded_at, sha256, findings}`. `findings` is the file, compacted. `sha256` is the hash of its original bytes. The reviewer comes from the review turn's record. The author comes from `packet.json`, with the selection from the author turn's record (`null` if that record is gone). The result adds `state: "recorded"` and `record`.
+- **Repeat:** the same turn with an unchanged file returns the record with `state: "existing"`. A changed or removed file is a conflict. Each review turn is recorded once, and a packet can have several.
+
+`snapshot packets` lists every packet frozen from the folder, oldest first along the `previous` links (then by `created_at` and ID). Each entry has `packet_id`, `fingerprint`, `previous`, `snapshot_id`, `created_at`, `author`, `packet` (the packet folder) and `findings` (every findings record, oldest first). It only reads, and the folder need not exist any more.
+
+Tests (review step 5, 2026-11-11): Go tests in `snapshot/findings_test.go` cover:
+- a recorded file with both selections, a repeat, a conflict after a change, and the exact 64 KiB boundary;
+- every refusal above, including one byte past 64 KiB;
+- a three-packet chain whose IDs sort opposite to the chain, listed in chain order with its findings.
+
+Limits:
+- Findings move through the Runtime record only. Delivering them as Issue channel messages is UC-Chan-04 (channels S9).
+- Line bounds are checked against the whole file, not the diff hunks.
+- The list includes full records, so its size grows with the chain.
+
 ## Claude scoped repository writes
 
 Select Claude repository writes explicitly with `atlas-runtime start --backend claude --cwd /canonical/independent/repository --permissions dedicated-repository "Edit the assigned file and create a local commit"`, or use managed `--repo` provisioning below. This reuses independent-root validation and owned directory locking. It enables Bash alongside read-only Read/Glob/Grep, never Edit/Write. Native settings require sandbox availability, disable unsandboxed escape and excluded commands, retain the existing GitHub domain list, and deny writes to `.agents`, `.codex`, `.aws`, `.claude`, `.git/config` and `.git/hooks`. Generic workspace-write remains refused.

@@ -312,14 +312,14 @@ func execute(args []string) (map[string]any, error) {
 
 func executeTo(args []string, out io.Writer) (map[string]any, error) {
 	if len(args) == 0 {
-		return nil, errors.New("use service start|status|stop, start [--worker NAME] [--questions] --cwd PATH ASSIGNMENT, continue [--worker NAME] [--turn TURN_ID] ASSIGNMENT, answer --worker NAME --turn TURN_ID --question QUESTION_ID --answers JSON_OBJECT, preferences, status [--worker NAME], turns, events [--cursor CURSOR] [--limit N | --follow], output [--worker NAME] [--follow | --turn TURN_ID], stop|kill --worker NAME --turn TURN_ID, release --worker NAME, snapshot materialize --snapshot sha256:HEX --dest NEW_PATH, snapshot prepare --dest PATH --npm-ci REPO_PATH[/SUBDIR] | --npm-run REPO_PATH[/SUBDIR] --script NAME --output REPO_PATH/OUT..., snapshot status|diff --dest PATH [--path REPO_PATH]..., snapshot submit --dest PATH [--path REPO_PATH] --change-id UUID [--fingerprint fpr_HEX], snapshot freeze --dest PATH --turn TURN_ID --packet NEW_PATH --packet-id UUID [--previous PACKET_ID], or snapshot rebind --dest PATH")
+		return nil, errors.New("use service start|status|stop, start [--worker NAME] [--questions] --cwd PATH ASSIGNMENT, continue [--worker NAME] [--turn TURN_ID] ASSIGNMENT, answer --worker NAME --turn TURN_ID --question QUESTION_ID --answers JSON_OBJECT, preferences, status [--worker NAME], turns, events [--cursor CURSOR] [--limit N | --follow], output [--worker NAME] [--follow | --turn TURN_ID], stop|kill --worker NAME --turn TURN_ID, release --worker NAME, snapshot materialize --snapshot sha256:HEX --dest NEW_PATH, snapshot prepare --dest PATH --npm-ci REPO_PATH[/SUBDIR] | --npm-run REPO_PATH[/SUBDIR] --script NAME --output REPO_PATH/OUT..., snapshot status|diff --dest PATH [--path REPO_PATH]..., snapshot submit --dest PATH [--path REPO_PATH] --change-id UUID [--fingerprint fpr_HEX], snapshot freeze --dest PATH --turn TURN_ID --packet NEW_PATH --packet-id UUID [--previous PACKET_ID], snapshot findings --packet PATH --turn TURN_ID, snapshot packets --dest PATH, or snapshot rebind --dest PATH")
 	}
 	dir, err := home()
 	if err != nil {
 		return nil, err
 	}
 	// Offline inspection only reads the home, so it also runs where the home is read-only.
-	if len(args) > 1 && args[0] == "snapshot" && (args[1] == "status" || args[1] == "diff") {
+	if len(args) > 1 && args[0] == "snapshot" && (args[1] == "status" || args[1] == "diff" || args[1] == "packets") {
 		if value := os.Getenv("ATLAS_RUNTIME_HOME"); value != "" && !filepath.IsAbs(value) {
 			return nil, errors.New("ATLAS_RUNTIME_HOME must be an absolute path")
 		}
@@ -344,12 +344,15 @@ func executeTo(args []string, out io.Writer) (map[string]any, error) {
 		return service(dir, args[1])
 	}
 	if args[0] == "snapshot" {
-		usage := errors.New("use snapshot materialize --snapshot sha256:HEX --dest NEW_PATH, snapshot prepare --dest PATH --npm-ci REPO_PATH[/SUBDIR] | --npm-run REPO_PATH[/SUBDIR] --script NAME --output REPO_PATH/OUT..., snapshot status|diff --dest PATH [--path REPO_PATH]..., snapshot submit --dest PATH [--path REPO_PATH] --change-id UUID [--fingerprint fpr_HEX], snapshot freeze --dest PATH --turn TURN_ID --packet NEW_PATH --packet-id UUID [--previous PACKET_ID], or snapshot rebind --dest PATH")
-		if len(args) < 2 || args[1] != "materialize" && args[1] != "prepare" && args[1] != "status" && args[1] != "diff" && args[1] != "submit" && args[1] != "rebind" && args[1] != "freeze" {
+		usage := errors.New("use snapshot materialize --snapshot sha256:HEX --dest NEW_PATH, snapshot prepare --dest PATH --npm-ci REPO_PATH[/SUBDIR] | --npm-run REPO_PATH[/SUBDIR] --script NAME --output REPO_PATH/OUT..., snapshot status|diff --dest PATH [--path REPO_PATH]..., snapshot submit --dest PATH [--path REPO_PATH] --change-id UUID [--fingerprint fpr_HEX], snapshot freeze --dest PATH --turn TURN_ID --packet NEW_PATH --packet-id UUID [--previous PACKET_ID], snapshot findings --packet PATH --turn TURN_ID, snapshot packets --dest PATH, or snapshot rebind --dest PATH")
+		if len(args) < 2 || args[1] != "materialize" && args[1] != "prepare" && args[1] != "status" && args[1] != "diff" && args[1] != "submit" && args[1] != "rebind" && args[1] != "freeze" && args[1] != "findings" && args[1] != "packets" {
 			return nil, usage
 		}
 		flags := flag.NewFlagSet("snapshot "+args[1], flag.ContinueOnError)
-		dest := flags.String("dest", "", "materialized destination folder")
+		dest := new(string)
+		if args[1] != "findings" {
+			dest = flags.String("dest", "", "materialized destination folder")
+		}
 		id, path, paths := new(string), new(string), []string{}
 		run, script, approved := new(string), new(string), new(string)
 		turn, previous := new(string), new(string)
@@ -373,6 +376,10 @@ func executeTo(args []string, out io.Writer) (map[string]any, error) {
 			path = flags.String("packet", "", "new packet folder, outside --dest, the Runtime home and any Git work tree")
 			id = flags.String("packet-id", "", "caller-chosen lowercase UUID; repeat it to get the same packet")
 			previous = flags.String("previous", "", "recorded packet this one follows")
+		case "findings":
+			path = flags.String("packet", "", "packet folder made by snapshot freeze")
+			turn = flags.String("turn", "", "ended review-packet turn that ran in the packet tree")
+		case "packets":
 		case "rebind":
 		default:
 			flags.Func("path", "materialized repository path; repeat to select several", func(value string) error {
@@ -383,7 +390,7 @@ func executeTo(args []string, out io.Writer) (map[string]any, error) {
 		if err = flags.Parse(args[2:]); err != nil {
 			return nil, err
 		}
-		if flags.NArg() != 0 || *dest == "" || (args[1] == "materialize" || args[1] == "submit" || args[1] == "freeze") && *id == "" || args[1] == "freeze" && (*turn == "" || *path == "") {
+		if flags.NArg() != 0 || *dest == "" && args[1] != "findings" || args[1] == "findings" && (*path == "" || *turn == "") || (args[1] == "materialize" || args[1] == "submit" || args[1] == "freeze") && *id == "" || args[1] == "freeze" && (*turn == "" || *path == "") {
 			return nil, usage
 		}
 		// A preparation is exactly one npm-ci, or one npm-run with its script and outputs.
@@ -404,6 +411,10 @@ func executeTo(args []string, out io.Writer) (map[string]any, error) {
 			return snapshot.Rebind(dir, *dest)
 		case "freeze":
 			return snapshot.Freeze(dir, *dest, *turn, *path, *id, *previous)
+		case "findings":
+			return snapshot.Findings(dir, *path, *turn)
+		case "packets":
+			return snapshot.Packets(dir, *dest)
 		}
 		return snapshot.Inspect(dir, *dest, paths, args[1] == "diff")
 	}
@@ -866,6 +877,7 @@ func main() {
 		fmt.Println("Offline snapshot inspection (no Code, Runtime service or Git):\natlas-runtime snapshot status --dest PATH [--path REPO_PATH]...\natlas-runtime snapshot diff --dest PATH [--path REPO_PATH]...\nCompares a materialized folder with its verified baseline and writes to neither. Reports added, deleted, modified (binary flagged), mode, symlink and kind changes sorted by path; diff adds a unified diff per text content change. Symlinks are compared, never followed. --path selects repository paths; without it, files outside every repository are reported as added. Files over 1 MiB are not classified or diffed. Missing or invalid records or baselines fail.")
 		fmt.Println("Snapshot change submission (Code service required, Runtime service and Git not):\natlas-runtime snapshot submit --dest PATH [--path REPO_PATH] --change-id UUID [--fingerprint fpr_HEX]\nSends one materialized repository's changes from its verified baseline to Code as a change based on the snapshot's revision and seals it; the result names the sealed revision, nothing is reviewed or integrated. --path may be omitted only with one repository. A clean repository returns state clean and sends nothing. Written files are captured into a private copy and the folder is scanned again before anything is sent; a folder that changed meanwhile is refused. FIFOs, sockets, devices, .git paths, symlinks leaving the repository and files over 64 MiB are refused; empty directories cannot be represented. Repeating the same command and change ID resumes an incomplete submission or returns the sealed revision; different content under the same ID is a conflict. Writes to neither the folder nor its baseline. Every result reports the repository fingerprint: fpr_ plus the SHA-256 of the canonical change request without its change ID, {base_revision, entries, repository, snapshot_id} with sorted keys and entries, so a clean repository has the fingerprint of entries []. With --fingerprint, content with any other fingerprint on either scan exits nonzero before Code is contacted.")
 		fmt.Println("Review packet freeze (no Code, Runtime service or Git):\natlas-runtime snapshot freeze --dest PATH --turn TURN_ID --packet NEW_PATH --packet-id UUID [--previous PACKET_ID]\nFreezes a materialized folder after its author turn into a new packet folder for review. The turn must have run in PATH and be finished, stopped or killed. Takes the folder lock workers and submissions take and refuses while another owner holds it. NEW_PATH must not exist, overlap PATH or the Runtime home, or lie in a Git work tree. Scans PATH like submit and refuses what submit refuses, then builds NEW_PATH/tree: each file an APFS clone (copy-on-write) or, where the filesystem cannot clone, a streamed copy; directories 0555, files without write bits. The tree is recorded as a materialization of the same snapshot with the packet ID, a preparation result is copied with it, and the tree is scanned again: content that differs from the first scan is refused (folder changed during freeze) and the packet folder removed. NEW_PATH then holds packet.json (packet and repository fingerprints, entries exactly as submit sends them, the author turn, previous packet, outside paths and incomplete diffs), diff.json (exactly snapshot diff --dest NEW_PATH/tree) and an empty writable findings folder; the Runtime home keeps the authoritative packet.json and diff.json in packets/PACKET_ID/. The packet fingerprint is fpr_ plus the SHA-256 of {repositories: [{fingerprint, path, repository}] sorted by path, snapshot_id, version: 1}; each repository fingerprint is the one submit reports for the same content. --previous must name a recorded packet other than this one; its ID and fingerprint are recorded. The result is packet.json plus state frozen, the packet folder and cost: elapsed_ms, files, bytes, cloned_files, copied_files, copied_bytes and the free space before and after (disk_used_bytes). A repeat with the same packet ID and arguments returns the recorded packet with state existing; other arguments under a used ID are a conflict. Writes to neither PATH nor its baseline.")
+		fmt.Println("Review findings (no Code, Runtime service or Git):\natlas-runtime snapshot findings --packet PATH --turn TURN_ID\nRecords the findings a review pass wrote to PATH/findings/findings.json. PATH is a packet folder made by snapshot freeze; TURN_ID is a review-packet turn of that packet that ran in PATH/tree and is finished, stopped or killed. Takes the tree's lock and refuses while an owner holds it. The tree, packet.json and diff.json must still match the packet (code packet_modified). The file is at most 65536 bytes (64 KiB) of UTF-8 JSON with exactly the fields version 1, packet_id and fingerprint of this packet, verdict (pass, changes_required or uncertain), summary, findings, checked and not_checked (arrays of strings), with no repeated keys; each finding has exactly id (unique), severity (blocking, should-fix or note), repository, path, lines, problem, evidence and direction. repository, path and lines may be null; repository and path are as diff.json names them, the path must be in the tree or its baseline and in that repository, and lines {side: new|old, start, end} must lie within the tree's (new) or baseline's (old) file. pass with a blocking finding is invalid. A missing file is refused with code findings_missing, any other invalid one with findings_invalid; Runtime never writes a verdict and a refusal is never a pass. The result, also written read-only to packets/PACKET_ID/findings/TURN_ID.json in the Runtime home, holds the file (compacted) as findings, the sha256 of its original bytes, review_turn, reviewer {worker_id, backend, model, selection} from the review turn, author {turn_id, worker_id, backend, model, selection} from the packet and its author turn, packet_id, fingerprint and recorded_at, plus state recorded and the record path. A repeat for the same turn with an unchanged file returns the record with state existing; a changed or removed file is a conflict.\natlas-runtime snapshot packets --dest PATH\nLists the packets frozen from PATH, oldest first along their previous links: packet_id, fingerprint, previous, snapshot_id, created_at, author, the packet folder and every findings record. Reads only; PATH need not still exist.")
 		fmt.Println("Snapshot rebind (Code required, Runtime service stopped):\natlas-runtime snapshot rebind --dest PATH\nMoves a folder materialized before revision handles to the successor snapshot Code names for it, which must have exactly the same entries, repositories and paths. Copies a new baseline from the old one with every file re-hashed, then switches the saved turns bound to the folder's exact old scope, their Claude contexts and the materialization record, so they still continue; admissions, process logs, events and other turns are untouched. Never writes the folder. Backs up every original and journals each step under rebinds/; an interrupted rebind resumes when repeated, and until then the folder's status, diff, submit and scope refuse. Refuses while the Runtime service runs or may be starting, or while a worker owns the folder. A folder that already uses revision handles reports state current. Status, diff and submit of an older folder refuse until it is rebound.")
 		return
 	}

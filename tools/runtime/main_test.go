@@ -639,7 +639,7 @@ func TestPeerCorrelationRequiresExactTargetsAndNoDispatchOptions(t *testing.T) {
 func TestSnapshotMaterializeNeedsExactFlagsAndNoRuntimeService(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("ATLAS_RUNTIME_HOME", dir)
-	usage := "use snapshot materialize --snapshot sha256:HEX --dest NEW_PATH, snapshot prepare --dest PATH --npm-ci REPO_PATH[/SUBDIR] | --npm-run REPO_PATH[/SUBDIR] --script NAME --output REPO_PATH/OUT..., snapshot status|diff --dest PATH [--path REPO_PATH]..., snapshot submit --dest PATH [--path REPO_PATH] --change-id UUID [--fingerprint fpr_HEX], snapshot freeze --dest PATH --turn TURN_ID --packet NEW_PATH --packet-id UUID [--previous PACKET_ID], or snapshot rebind --dest PATH"
+	usage := "use snapshot materialize --snapshot sha256:HEX --dest NEW_PATH, snapshot prepare --dest PATH --npm-ci REPO_PATH[/SUBDIR] | --npm-run REPO_PATH[/SUBDIR] --script NAME --output REPO_PATH/OUT..., snapshot status|diff --dest PATH [--path REPO_PATH]..., snapshot submit --dest PATH [--path REPO_PATH] --change-id UUID [--fingerprint fpr_HEX], snapshot freeze --dest PATH --turn TURN_ID --packet NEW_PATH --packet-id UUID [--previous PACKET_ID], snapshot findings --packet PATH --turn TURN_ID, snapshot packets --dest PATH, or snapshot rebind --dest PATH"
 	for _, args := range [][]string{
 		{"snapshot"},
 		{"snapshot", "download"},
@@ -657,6 +657,11 @@ func TestSnapshotMaterializeNeedsExactFlagsAndNoRuntimeService(t *testing.T) {
 		{"snapshot", "freeze", "--dest", dir, "--turn", "turn-0000000000000000", "--packet-id", "00000000-0000-0000-0000-000000000000"},
 		{"snapshot", "freeze", "--dest", dir, "--packet", filepath.Join(dir, "p"), "--packet-id", "00000000-0000-0000-0000-000000000000"},
 		{"snapshot", "freeze", "--turn", "turn-0000000000000000", "--packet", filepath.Join(dir, "p"), "--packet-id", "00000000-0000-0000-0000-000000000000"},
+		{"snapshot", "findings", "--packet", filepath.Join(dir, "p")},
+		{"snapshot", "findings", "--turn", "turn-0000000000000000"},
+		{"snapshot", "findings", "--packet", filepath.Join(dir, "p"), "--turn", "turn-0000000000000000", "extra"},
+		{"snapshot", "packets"},
+		{"snapshot", "packets", "--dest", dir, "extra"},
 		{"snapshot", "prepare", "--dest", dir},
 		{"snapshot", "prepare", "--npm-ci", "repo/app"},
 		{"snapshot", "prepare", "--dest", dir, "--npm-ci", "repo/app", "extra"},
@@ -681,6 +686,8 @@ func TestSnapshotMaterializeNeedsExactFlagsAndNoRuntimeService(t *testing.T) {
 		{"snapshot", "status", "--dest", dir, "--output", "repo/out"},
 		{"snapshot", "submit", "--dest", dir, "--change-id", "x", "--script", "build"},
 		{"snapshot", "freeze", "--dest", dir, "--change-id", "x"},
+		{"snapshot", "findings", "--dest", dir, "--packet", filepath.Join(dir, "p"), "--turn", "turn-0000000000000000"},
+		{"snapshot", "packets", "--dest", dir, "--path", "beta"},
 	} {
 		if _, err := execute(args); err == nil || !strings.Contains(err.Error(), "flag provided but not defined") {
 			t.Fatalf("%q: %v", args, err)
@@ -691,6 +698,13 @@ func TestSnapshotMaterializeNeedsExactFlagsAndNoRuntimeService(t *testing.T) {
 	_, err := execute([]string{"snapshot", "materialize", "--snapshot", id, "--dest", filepath.Join(dir, "work")})
 	if err == nil || !strings.HasPrefix(err.Error(), "Code service unavailable: not configured; write ") {
 		t.Fatalf("got %v", err)
+	}
+	// Findings and packets run without the Runtime socket or Code.
+	if _, err = execute([]string{"snapshot", "findings", "--packet", t.TempDir(), "--turn", "turn-0000000000000000"}); err == nil || !strings.Contains(err.Error(), "is not a review packet folder") {
+		t.Fatalf("findings: %v", err)
+	}
+	if listed, err := execute([]string{"snapshot", "packets", "--dest", filepath.Join(dir, "work")}); err != nil || len(listed["packets"].([]any)) != 0 {
+		t.Fatalf("packets: %v %v", listed, err)
 	}
 	// Preparation reaches the folder without the Runtime socket; this one, outside the home, was never materialized.
 	if _, err = execute([]string{"snapshot", "prepare", "--dest", t.TempDir(), "--npm-ci", "repo/app"}); err == nil || !strings.HasPrefix(err.Error(), "no materialization record for ") {
