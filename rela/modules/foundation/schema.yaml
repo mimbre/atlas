@@ -43,6 +43,21 @@ types:
       accepted: Accepted
       rejected: Rejected
       superseded: Superseded
+  gate_flavor:
+    values: [rule, smart]
+    descriptions:
+      rule: Deterministic rules alone decide
+      smart: Jev advises; deterministic rules on top decide
+  gate_purpose:
+    values: [flow, decider]
+    descriptions:
+      flow: Decides the next step of a flow
+      decider: Decides whether a person or an agent makes a decision
+  gate_unsettled:
+    values: [uncertain, error]
+    descriptions:
+      uncertain: The gate could not tell; its policy took the safe outcome
+      error: The evaluation failed or timed out; never a pass
   turn_state:
     values:
     - running
@@ -348,6 +363,101 @@ entities:
       decided_at:
         type: datetime
         description: When it was accepted or rejected
+  gate_verdict:
+    label: Gate verdict
+    plural: gate_verdicts
+    id_type: manual
+    id_prefix: GV-
+    description: 'One gate decision, recorded in full: what the gate saw, what it chose, what
+
+      it could have chosen and, later, how good that turned out. Immutable once written;
+
+      each later outcome is set once. The id is GV- and a number, e.g. GV-0001.
+
+      '
+    properties:
+      gate:
+        type: string
+        required: true
+        description: Which gate decided, e.g. integrate
+      gate_version:
+        type: string
+        required: true
+        description: The version of the gate's definition that decided
+      flavor:
+        type: gate_flavor
+        required: true
+        description: Rule or smart
+      purpose:
+        type: gate_purpose
+        required: true
+        description: Flow or decider
+      subject:
+        type: string
+        required: true
+        description: What it decided on, the key or reference of the fact or change
+      fingerprint:
+        type: string
+        required: true
+        description: The exact version of the subject it decided on
+      evidence:
+        type: string
+        description: References to the evidence it decided on, one per line
+      evidence_digest:
+        type: string
+        required: true
+        description: The content digest of the immutable evidence snapshot, e.g. sha256:...
+      rule_outcome:
+        type: string
+        description: What the deterministic rules said
+      rule_version:
+        type: string
+        description: The version of those rules
+      advisor:
+        type: string
+        description: Who advised a smart gate, e.g. jev
+      model:
+        type: string
+        description: The model, prompt and evaluator settings the advice came from
+      rationale:
+        type: string
+        description: Why the advice is what it is
+      scores:
+        type: string
+        description: The advice per outcome, as text, e.g. pass 0.7, changes_required 0.3
+      verdict:
+        type: string
+        required: true
+        description: The outcome the gate chose; one of allowed_outcomes
+      allowed_outcomes:
+        type: string
+        required: true
+        description: The outcomes it could choose, separated by commas
+      unsettled:
+        type: gate_unsettled
+        description: Uncertain or error, when the gate could not decide on its own
+      cost:
+        type: string
+        description: What the evaluation cost, e.g. 0.012 USD
+      duration_ms:
+        type: integer
+        description: How long the evaluation took, in milliseconds
+      decided_at:
+        type: datetime
+        required: true
+        description: When it decided
+      overrule_reason:
+        type: string
+        description: Later, why a person overruled it
+      rework_after:
+        type: string
+        description: Later, the rework needed after all, and what showed it
+      defect_after:
+        type: string
+        description: Later, a problem found afterwards, and where
+      effort:
+        type: string
+        description: Later, the time and human effort spent after it
 relations:
   assigned_to:
     label: assigned to
@@ -426,3 +536,25 @@ relations:
     inverse:
       id: elaborated_by
       label: elaborated by
+  follows:
+    label: follows
+    description: The previous verdict on the same subject; verdicts so form an episode.
+    from:
+    - gate_verdict
+    to:
+    - gate_verdict
+    max_outgoing: 1
+    inverse:
+      id: followed_by
+      label: followed by
+  overruled_by:
+    label: overruled by
+    description: Later, the person who overruled the verdict; at most one.
+    from:
+    - gate_verdict
+    to:
+    - person
+    max_outgoing: 1
+    inverse:
+      id: overruled
+      label: overruled
