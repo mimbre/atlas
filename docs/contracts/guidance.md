@@ -1,5 +1,9 @@
 # Durable exact-turn guidance (IS-Atlas-105 / IS-Atlas-109)
 
+**Interactions are channel messages.** Everything a person or agent says to another (guidance, questions and answers, questions between workers, handoffs, review findings, rework input, PR comments) is stored as a message in a Rela Channel on the work item it is about, never in a custom entity or record. Conversations run over the protocol: which execution and attempt may receive a message, fencing, and the receipts that prove arrival are Atlas protocol records, never channel messages. They carry the message's id and digest, do not hold its text, and never interpret it. Message text never decides anything: Flow and Runtime act only on typed operations.
+
+This is the target rule, not today's behaviour. Today's guidance (the Rela `interaction` entity, with `worker_execution` and `interaction_receipt`) and Runtime's question, peer-question and handoff records predate it. They migrate as the channels migration design specifies; until then this contract describes the current store.
+
 The selected description maps execution, interaction and receipt roles to kinds and
 properties. Foundation supplies the three immutable entities. No organisation-specific work kinds
 appear in the BEAM protocol; existing turn/Assignment links resolve the work item.
