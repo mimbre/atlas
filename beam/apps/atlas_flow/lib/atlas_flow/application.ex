@@ -24,6 +24,8 @@ defmodule AtlasFlow.Application do
         AtlasFlow.Activities.Pass.Inbox,
         AtlasFlow.Activities.Effect.Inbox,
         {Registry, keys: :unique, name: AtlasFlow.Items},
+        # The processes whose owner does not exist yet, by that owner (`AtlasFlow.Item`).
+        {Registry, keys: :duplicate, name: AtlasFlow.Waiting},
         {DynamicSupervisor, name: AtlasFlow.Supervisor, strategy: :one_for_one}
       ] ++ engine
 

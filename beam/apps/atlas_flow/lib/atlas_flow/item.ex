@@ -16,6 +16,10 @@ defmodule AtlasFlow.Item do
   whoever poked it `{:looked, self(), ticket, wrote: position}`: the highest ticket it
   had and the highest position it wrote (nil: none), so the engine knows how far Flow
   has settled (`AtlasFlow.Settled`).
+
+  While the owner its state names does not exist yet, it is registered under that owner,
+  `{kind, key}`, in `AtlasFlow.Waiting`, so the hint of the owner's creation pokes it
+  (and no other process).
   """
   use GenServer, restart: :transient
 
@@ -26,6 +30,8 @@ defmodule AtlasFlow.Item do
 
   # A burst of hints is looked at once.
   @settle 50
+  # The owner the last look found missing, `{kind, key}`, while it looks.
+  @waits {__MODULE__, :waits}
 
   def start_link({kind, key, opts}),
     do: GenServer.start_link(__MODULE__, {kind, key, opts}, name: via(kind, key))
@@ -53,7 +59,9 @@ defmodule AtlasFlow.Item do
        timer: nil,
        soon: false,
        # Who poked it, with the highest ticket each gave since its last look.
-       tickets: %{}
+       tickets: %{},
+       # The owner it waits for (`AtlasFlow.Waiting`), or nil.
+       waits: nil
      }}
   end
 
@@ -76,7 +84,9 @@ defmodule AtlasFlow.Item do
     if state.timer, do: Clock.cancel(state.clock, state.timer)
     # Every poke received so far is answered by this look.
     {tickets, state} = {state.tickets, %{state | soon: false, timer: nil, tickets: %{}}}
+    Process.delete(@waits)
     {result, wrote} = Talk.writing(fn -> look(state) end)
+    state = waits(state, Process.delete(@waits))
     for {from, ticket} <- tickets, do: send(from, {:looked, self(), ticket, wrote: wrote})
 
     case result do
@@ -94,6 +104,15 @@ defmodule AtlasFlow.Item do
   # Answers that came after their wait, and anything else: back to waiting as it was.
   def handle_info(_message, %{soon: true} = state), do: {:noreply, state}
   def handle_info(_message, state), do: {:noreply, state, :hibernate}
+
+  # Registered under the owner it waits for, and only that one.
+  defp waits(%{waits: same} = state, same), do: state
+
+  defp waits(state, owner) do
+    if state.waits, do: Registry.unregister(AtlasFlow.Waiting, state.waits)
+    if owner, do: {:ok, _} = Registry.register(AtlasFlow.Waiting, owner, nil)
+    %{state | waits: owner}
+  end
 
   # Started by itself (not by the engine): the model given, or the one configured.
   defp runner(opts) do
@@ -409,6 +428,7 @@ defmodule AtlasFlow.Item do
 
           %{"fact" => nil} ->
             Logger.warning("flow: #{kind} #{key} does not exist; the owner waits for it")
+            Process.put(@waits, {kind, key})
             :no
 
           _ ->
