@@ -2,7 +2,7 @@ defmodule Mix.Tasks.Atlas.E2e do
   @shortdoc "The end-to-end test: a private rela, the core and two TUIs"
   @moduledoc """
       mix atlas.e2e                 # every scenario in e2e/scenarios, in order
-      mix atlas.e2e uc-atlas-02     # only the scenarios whose file name has this
+      mix atlas.e2e uc-atlas-22     # only the scenarios whose file name has this
 
   Also `bin/atlas e2e`. Starts a private instance (fresh rela data, free ports; see
   `AtlasE2E.Instance`), the core, and two TUIs in tmux, then runs the scenarios. When a

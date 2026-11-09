@@ -1,6 +1,6 @@
 # Try UC-Atlas-28: My work on the front page
 
-This guide grows with the use case. IS-Atlas-55: **Assigned to you** shows your Assignments (IS-Atlas-78), each shown as the open fact it belongs to. Each row shows what is expected and since when and why. Console boot supplies the configured tabs and initial view; the header counts assignments on every page.
+This guide grows with the use case. IS-Atlas-55: **Assigned to you** shows your Assignments (IS-Atlas-78), each shown as the open fact it belongs to. Each row shows what is expected; the fact's page shows since when and why (UC-Atlas-44: a Console row is one line). Console boot supplies the configured tabs and initial view; the header counts assignments on every page.
 
 ## Start
 
@@ -15,7 +15,7 @@ The TUI's user is `tui_user` in `env/<env>.json` (`melle`), and a person of that
 | Step | Keys / command | What you should see |
 |---|---|---|
 | Empty | `atlas tui --env test`, select **Assigned to you** | With no assignments, the list explains that nothing is assigned to you. The header says `Atlas Console · test · 0 assigned to you`. Existing open assignments to `melle` appear here when present. |
-| One for you | in a second terminal: `atlas set UC-Atlas-NN assigned_to=melle --cause "all its issues are completed" --env test` | Within a second, in every open TUI: `UC-Atlas-NN  Its title`, and under it what is expected and why: `Build it · since 3 Nov 19:14 · all its issues are completed`. The header says `1 assigned to you`. |
+| One for you | in a second terminal: `atlas set UC-Atlas-NN assigned_to=melle --cause "all its issues are completed" --env test` | Within a second, in every open TUI, one line: `UC-Atlas-NN  Its title  Build it`. The header says `1 assigned to you`. Its page says why: **What to do: Build it**, **Why** `all its issues are completed`, `since 3 Nov 19:14 · by agent`. |
 | Newest first | assign a second one | It comes first. |
 | Moved away | `atlas set UC-Atlas-NN assigned_to=coordinator --cause … --env test` | Gone, in every TUI; the count goes down. |
 | The scenes | `s` | The scenes list, with the count in the header; `esc` comes back. |
@@ -42,7 +42,7 @@ A session that is not a person (an agent on the command line, a migration) opens
   - Each row has the fact's title, its expected action (the field the flow writes, on the Assignment since the flow is `on` it), and the since and cause of that link.
   - No kind is named: the relation is the description's `start.assigned.relation`, and the rest follows from the `component` mark.
   - Every page message carries `count`, which a client shows in its header. Control reads it again after a hint of any kind; the page itself follows every hint, as the start page always did.
-- **TUI:** the header shows the count. A row whose detail is longer than its column shows the detail whole, under the row, so the cause is never cut. A list's empty text wraps.
+- **TUI:** the header shows the count. A row is one line: its summary keeps what is expected and leaves out Control's ` · since …` and cause, which the fact's page shows whole (UC-Atlas-44). A list's empty text wraps.
 
 ## What changed for this
 
@@ -67,7 +67,7 @@ Nobody else sees the part. `atlas get` shows it to a client that is the owner: a
 
 | Step | Keys / command | What you should see |
 |---|---|---|
-| A use case to test | a use case whose issues are all done (its pull requests merged); Flow makes it yours | On Assigned to you: `UC-Atlas-NN  …  Test it · since … · Flow test_and_accept: all under it is completed → melle`. |
+| A use case to test | a use case whose issues are all done (its pull requests merged); Flow makes it yours | On Assigned to you: `UC-Atlas-NN  …  Test it`. |
 | Its page | `↵` on it | **What to do: Test it** first, with Why, How (`Try the test below, then accept it, or reject it with a note.`), **Melle can test** with the text from its description, and **Answers** `a Accept   f Reject` (IS-Atlas-56). |
 | Not yours | a fact the coordinator owns | No What to do part. |
 | An agent's | `ATLAS_AS=coordinator atlas get IS-Atlas-NN --env test` on an open issue | `What to do: Build it`, `Why: …`, `How: Build it in one pull request and get that merged; link the pull request to it.`, before the issue itself. Without `ATLAS_AS`, no such part. |
