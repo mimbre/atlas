@@ -187,7 +187,7 @@ defmodule AtlasControl.Session do
       pending ->
         :ok = AtlasBus.send(pending.envelope, pending.content)
         wait = min(pending.wait * 2, @last_resend)
-        timer = Process.send_after(self(), {:resend, id}, wait)
+        timer = AtlasControl.Clock.after_ms({:resend, id}, wait)
         state = put_in(state.pending[id], %{pending | wait: wait, timer: timer})
         {:noreply, notice(state, "pending", "No answer from Facts yet; sent again.")}
     end
@@ -950,7 +950,7 @@ defmodule AtlasControl.Session do
     content = if state.cause, do: Map.put(content, "cause", state.cause), else: content
     envelope = Envelope.new("fact", kind)
     :ok = AtlasBus.send(envelope, content)
-    timer = Process.send_after(self(), {:resend, envelope.id}, @first_resend)
+    timer = AtlasControl.Clock.after_ms({:resend, envelope.id}, @first_resend)
 
     pending = %{
       envelope: envelope,
@@ -1061,14 +1061,25 @@ defmodule AtlasControl.Session do
 
   defp await_read(_envelope, _content, 0, _timeout), do: %{"error" => "Facts did not answer"}
 
+  # Each try waits `timeout` from its send (`AtlasControl.Clock`); answers to other reads do
+  # not stretch it. An answer cancels the try's timer, and drops its message if it came.
   defp await_read(envelope, content, attempts, timeout) do
     :ok = AtlasBus.send(envelope, content)
     id = envelope.id
+    timer = AtlasControl.Clock.after_ms({:read_expired, id, attempts}, timeout)
 
     receive do
-      {:atlas_bus, %Envelope{id: ^id, class: "answer"}, answer} -> answer
-    after
-      timeout -> await_read(envelope, content, attempts - 1, timeout)
+      {:atlas_bus, %Envelope{id: ^id, class: "answer"}, answer} ->
+        Process.cancel_timer(timer)
+
+        receive do
+          {:read_expired, ^id, ^attempts} -> answer
+        after
+          0 -> answer
+        end
+
+      {:read_expired, ^id, ^attempts} ->
+        await_read(envelope, content, attempts - 1, timeout)
     end
   end
 
