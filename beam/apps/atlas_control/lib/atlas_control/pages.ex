@@ -83,6 +83,9 @@ defmodule AtlasControl.Pages do
       {:ok, page, p} when page in [:links, :set, :remove] ->
         {page, p.kind, p.key, p.relation}
 
+      {:ok, :answer, p} ->
+        {:answer, p.kind, p.key, p.answer}
+
       {:ok, :faults, _} ->
         {:faults, nil}
 
@@ -225,6 +228,7 @@ defmodule AtlasControl.Pages do
   def submit_route(:delete, p), do: {:delete, p.kind, p.key}
   def submit_route(:link, p), do: {:links, p.kind, p.key, p.relation}
   def submit_route(:accept, p), do: {:set, p.kind, p.key, p.relation}
+  def submit_route(:answer, p), do: {:answer, p.kind, p.key, p.answer}
   def submit_route(:reopen, p), do: {:remove, p.kind, p.key, p.relation}
   def submit_route(:fault, p), do: {:fault, p.fault, nil}
   def submit_route(:fact_fault, p), do: {:fault, p.fault, {p.kind, p.key}}
@@ -268,6 +272,9 @@ defmodule AtlasControl.Pages do
   def submit_call(_message), do: :error
 
   # A route's path, by the contract's page for it.
+  def path({:answer, kind, key, answer}),
+    do: Blocks.path(:answer, kind: kind, key: key, answer: answer)
+
   def path(:home), do: Blocks.path(:home)
   def path({:worker_page, page, params}), do: Blocks.path(page, params)
   def path(:kinds), do: Blocks.path(:kinds)
@@ -398,7 +405,7 @@ defmodule AtlasControl.Pages do
   end
 
   def form?({:worker_page, :worker_guidance, _}), do: true
-  def form?(route), do: elem_match?(route, [:new, :edit, :links, :remove])
+  def form?(route), do: elem_match?(route, [:new, :edit, :links, :remove, :answer])
 
   defp elem_match?(route, pages), do: is_tuple(route) and elem(route, 0) in pages
 
@@ -488,6 +495,8 @@ defmodule AtlasControl.Pages do
   def reads({_, kind, key}, _), do: [{kind, %{"key" => key}}]
 
   # Setting a link that needs the facts under it completed reads them, as the page does.
+  def reads({:answer, kind, key, _}, description), do: reads({:item, kind, key}, description)
+
   def reads({:set, kind, key, _relation}, description), do: reads({:item, kind, key}, description)
   # Removing reads as the page does too: an owner's answer may remove what is not set.
   def reads({:remove, kind, key, _relation}, description),
@@ -832,7 +841,9 @@ defmodule AtlasControl.Pages do
 
   # A kind the agent alone writes (`"by_hand": false`) offers no keys to make, change or
   # delete one; its forms still answer at their paths. `"by_hand": "update"` offers only the
-  # key to change one (a kind made and deleted with another fact).
+  # key to change one (a kind made and deleted with another fact). A kind that is never
+  # deleted (`"delete_error"`: why, e.g. an append-only ledger) offers no key to delete one.
+  defp by_hand?(%{"delete_error" => why}, :delete) when is_binary(why), do: false
   defp by_hand?(%{"by_hand" => false}, _op), do: false
   defp by_hand?(%{"by_hand" => "update"}, op), do: op == :update
   defp by_hand?(_spec, _op), do: true
@@ -1202,6 +1213,48 @@ defmodule AtlasControl.Pages do
     end
   end
 
+  defp page({:answer, kind, key, name} = route, kind, _spec, description, answers, form) do
+    back = path({:item, kind, key})
+
+    case declared_answer(description, kind, name, answers, form) do
+      nil ->
+        missing(key, "This answer is only available to the current owner in this state.", back)
+
+      answer ->
+        title = "#{answer["label"]} #{key}"
+
+        block =
+          if answer["note"] do
+            Blocks.form(
+              title: title,
+              inputs: [
+                Blocks.input(
+                  name: "note",
+                  label: "Note",
+                  kind: "multiline",
+                  required: true,
+                  value: (form[:values] || %{})["note"]
+                )
+              ],
+              submit_label: answer["label"],
+              submit_to: call_to(route),
+              cancel_to: back,
+              errors: form[:errors] || []
+            )
+          else
+            Blocks.confirm(
+              title: "#{title}?",
+              text: title,
+              confirm_label: answer["label"],
+              confirm_to: call_to(route),
+              cancel_to: back
+            )
+          end
+
+        page(title, back, [block])
+    end
+  end
+
   # Link the fact to the client itself (Accept), after asking; refused, with why, while it
   # may not: another client, already linked, or facts under it not completed.
   defp page({:set, kind, key, relation} = route, kind, spec, description, answers, form) do
@@ -1385,6 +1438,10 @@ defmodule AtlasControl.Pages do
       %{"error" => _} = failed ->
         unavailable(failed, back)
     end
+  end
+
+  defp page({:delete, kind, key}, kind, %{"delete_error" => error}, _description, _answers, _form) do
+    missing("Delete #{key}", error, path({:item, kind, key}))
   end
 
   defp page({:delete, kind, key}, kind, spec, description, [answer], _form) do
@@ -1916,10 +1973,28 @@ defmodule AtlasControl.Pages do
          by when is_binary(by) <- form[:by],
          true <- by in (get_in(written, ["links", flow["owner_relation"]]) || []),
          name when name not in [nil, ""] <- get_in(written, ["values", flow["state_field"]]),
-         %{} = state <- Enum.find(flow["states"] || [], &(&1["name"] == name)) do
+         %{} = state <- presented_state(description, kind, flow, name) do
       {flow, written, state}
     else
       _ -> nil
+    end
+  end
+
+  defp presented_state(description, kind, flow, name) do
+    selected =
+      Enum.find(description["flow_runtime"]["selection"] || %{}, fn {_name, s} ->
+        s["subject"] == kind and description["flows"][s["legacy"]] == flow
+      end)
+
+    case selected do
+      {subflow, _} ->
+        case get_in(description, ["subflows", subflow, "states", name, "present"]) do
+          %{} = present -> Map.put(present, "name", name)
+          _ -> Enum.find(flow["states"] || [], &(&1["name"] == name))
+        end
+
+      _ ->
+        Enum.find(flow["states"] || [], &(&1["name"] == name))
     end
   end
 
@@ -1936,17 +2011,62 @@ defmodule AtlasControl.Pages do
     end
   end
 
+  @doc """
+  The link that makes `by` the one who decides, when a change sets a value that decides
+  (the kind's `authority`: `writes` a value, decided `by` a relation) and does not name
+  them already; otherwise none. Facts still checks that they may decide.
+  """
+  def decider_link(description, kind, values, links, by) do
+    case get_in(description, ["entities", kind, "authority"]) do
+      %{"by" => relation, "writes" => %{} = writes} when is_binary(by) and by != "" ->
+        decides? =
+          Enum.any?(writes, fn {field, allowed} ->
+            Map.has_key?(values, field) and
+              to_string(values[field]) in Enum.map(List.wrap(allowed), &to_string/1)
+          end)
+
+        if decides? and List.wrap(links[relation]) != [by],
+          do: %{relation => [by]},
+          else: %{}
+
+      _ ->
+        %{}
+    end
+  end
+
+  @doc "Find an answer from fresh item reads, for this owner and state only."
+  def declared_answer(description, kind, name, [%{"fact" => fact} | rest], form)
+      when is_map(fact) do
+    Enum.find(
+      owner_answers(description, kind, fact, item_parts(description, kind, rest), form),
+      &(&1["key"] == name and is_map(&1["change"]))
+    )
+  end
+
+  def declared_answer(_, _, _, _, _), do: nil
+
   # Each answer that sets or removes an association of the fact, as an action to its page.
   defp answer_actions(description, kind, fact, parts, form) do
-    for answer <- owner_answers(description, kind, fact, parts, form),
-        {op, relation} <- [{:set, answer["set"]}, {:remove, answer["remove"]}],
-        is_binary(relation),
-        do:
-          Blocks.action(
-            label: answer["label"],
-            key: answer["key"],
-            to: path({op, kind, fact["key"], relation})
-          )
+    changes =
+      for answer <- owner_answers(description, kind, fact, parts, form),
+          is_map(answer["change"]),
+          do:
+            Blocks.action(
+              label: answer["label"],
+              key: answer["key"],
+              to: path({:answer, kind, fact["key"], answer["key"]})
+            )
+
+    changes ++
+      for answer <- owner_answers(description, kind, fact, parts, form),
+          {op, relation} <- [{:set, answer["set"]}, {:remove, answer["remove"]}],
+          is_binary(relation),
+          do:
+            Blocks.action(
+              label: answer["label"],
+              key: answer["key"],
+              to: path({op, kind, fact["key"], relation})
+            )
   end
 
   # The answers first among an item's actions: an action on the same key gives way to one.

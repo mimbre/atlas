@@ -89,6 +89,12 @@ defmodule AtlasFlow.Item do
       children =
         children(parents, description, state.key) ++ pointed(pointing, description, state.key)
 
+      flow =
+        case Store.selected(description, state.kind, fact) do
+          {_, selection} -> Map.merge(flow, selection["projection"])
+          _ -> flow
+        end
+
       {current, vars} = projection(state, description, flow, fact, children, parents, pointing)
       result = if current, do: move(state, description, {name, flow}, fact, current, vars)
 
@@ -129,10 +135,20 @@ defmodule AtlasFlow.Item do
             run["status"] == "active" ->
               flow = state.target.flows()[name]
               current = flow["states"][run["state"]]
-              owner = (current["owner"] || flow["owner"] || %{})["default"]
+              binding = current["owner"] || flow["owner"] || %{}
+              owner = binding["default"]
 
-              {Map.merge(current["present"] || %{}, %{"name" => run["state"], "owner" => owner}),
-               fact["values"] || %{}}
+              deadline =
+                Enum.find_value(run["deadlines"]["timers"] || [], fn timer ->
+                  if timer["name"] == current["present"]["deadline"], do: timer["due"]
+                end)
+
+              {Map.merge(current["present"] || %{}, %{
+                 "name" => run["state"],
+                 "owner" => owner,
+                 "preserve_kind" => binding["preserve_kind"],
+                 "deadline" => deadline
+               }), fact["values"] || %{}}
 
             true ->
               {nil, %{}}
@@ -185,6 +201,7 @@ defmodule AtlasFlow.Item do
         do: %{field => expected || ""},
         else: %{}
 
+    current = preserve_owner(current, fact, flow["owner_relation"])
     owner = Definition.owner(current)
     relation = flow["owner_relation"]
     # A move is a change of state: what is expected changes from one thing to another. The
@@ -201,9 +218,15 @@ defmodule AtlasFlow.Item do
 
     wanted? =
       relation != nil and owners != List.wrap(owner) and
-        (moved? or deferred? or (not cancelled? and not by_hand?(fact, relation)))
+        (current["preserve_kind"] != nil or moved? or deferred? or
+           (not cancelled? and not by_hand?(fact, relation)))
 
-    owner? = if wanted?, do: owner_exists(current), else: :no
+    owner? =
+      cond do
+        current["owner_unavailable"] -> :unknown
+        wanted? -> owner_exists(current)
+        true -> :no
+      end
 
     hold? =
       wanted? and current["done"] != true and held_field != nil and
@@ -224,6 +247,17 @@ defmodule AtlasFlow.Item do
     # The state's name, so a page can show its owner what to do (`state_field`). Written
     # with the rest, and alone when only it differs; it never counts as a move by itself.
     values = Map.merge(values, state_value(flow["state_field"], fact, current))
+
+    # The due time of the timer the state presents (`present.deadline`), for a selected
+    # flow whose projection names a `deadline_field`; cleared in every other state.
+    values =
+      if field = flow["deadline_field"] do
+        if same_time?(fact["values"][field], current["deadline"]),
+          do: values,
+          else: Map.put(values, field, current["deadline"] || "")
+      else
+        values
+      end
 
     cond do
       # Facts did not say whether the owner exists: write nothing now, rather than what
@@ -262,6 +296,12 @@ defmodule AtlasFlow.Item do
     end
 
     if hold?, do: :held, else: :ok
+  end
+
+  defp preserve_owner(current, fact, relation) do
+    AtlasFlow.Ownership.resolve(current, get_in(fact, ["links", relation]) || [], fn kind, key ->
+      Talk.read(kind, %{"key" => key, "plain" => true})
+    end)
   end
 
   defp pending(_fact, nil), do: %{}
@@ -342,6 +382,23 @@ defmodule AtlasFlow.Item do
 
   defp blank(value) when value in [nil, ""], do: nil
   defp blank(value), do: value
+
+  # The same instant however it is written (Facts may store it with other precision).
+  defp same_time?(a, b) do
+    case {blank(a), blank(b)} do
+      {nil, nil} ->
+        true
+
+      {a, b} when is_binary(a) and is_binary(b) ->
+        with {:ok, x, _} <- DateTime.from_iso8601(a),
+             {:ok, y, _} <- DateTime.from_iso8601(b),
+             do: DateTime.compare(x, y) == :eq,
+             else: (_ -> a == b)
+
+      _ ->
+        false
+    end
+  end
 
   # The relations by which facts belong under one of `kind`, as the description marks them.
   defp parent_relations(description, kind) do

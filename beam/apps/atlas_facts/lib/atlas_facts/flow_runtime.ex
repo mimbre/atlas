@@ -127,9 +127,11 @@ defmodule AtlasFacts.FlowRuntime do
 
   defp valid_migrations?(migrations) when is_list(migrations) do
     Enum.all?(migrations, fn m ->
-      Map.keys(Map.drop(m, ["reason", "rekey"])) |> Enum.sort() == ~w(from states to) and
+      Map.keys(Map.drop(m, ["reason", "rekey", "preserve_entry"])) |> Enum.sort() ==
+        ~w(from states to) and
         (m["rekey"] == nil or m["rekey"] == true) and
-        (m["rekey"] != true or
+        (m["preserve_entry"] == nil or m["preserve_entry"] == true) and
+        ((m["rekey"] != true and m["preserve_entry"] != true) or
            Enum.all?(m["states"] || %{}, fn {a, b} -> a == b end)) and
         (m["reason"] == nil or (is_binary(m["reason"]) and m["reason"] != "")) and
         Enum.all?(
@@ -160,7 +162,10 @@ defmodule AtlasFacts.FlowRuntime do
 
   defp valid_projection?(description, s) do
     legacy = description["flows"][s["legacy"]]
-    s["projection"] == Map.take(legacy, ~w(on field state_field handover_field owner_relation))
+
+    Map.drop(s["projection"], ["deadline_field"]) ==
+      Map.take(legacy, ~w(on field state_field handover_field owner_relation)) and
+      (s["projection"]["deadline_field"] == nil or is_binary(s["projection"]["deadline_field"]))
   end
 
   defp valid_follow_through?(_spec, nil), do: true

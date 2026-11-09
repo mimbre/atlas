@@ -667,10 +667,18 @@ defmodule AtlasControl.Session do
             into: %{},
             do: {name, value}
 
+      # Setting a value that decides (the kind's `authority.writes`) decides as oneself: the
+      # one who decides (`authority.by`) is the client, in the same change, as an answer does.
+      linked = state.form[:links] || %{}
+      decider = Pages.decider_link(state.description, kind, values, linked, state.by)
+
       seen =
         Map.merge(
           Map.new(values, fn {name, _} -> {name, read[name]} end),
-          Map.new(links, fn {relation, _} -> {relation, List.wrap(was[relation])} end)
+          Map.merge(
+            Map.new(links, fn {relation, _} -> {relation, List.wrap(was[relation])} end),
+            Map.new(decider, fn {relation, _} -> {relation, linked[relation] || []} end)
+          )
         )
 
       content = %{
@@ -685,6 +693,11 @@ defmodule AtlasControl.Session do
         if links == %{},
           do: content,
           else: Map.merge(content, %{"links" => links, "cause" => moved(links, was)})
+
+      content =
+        if decider == %{},
+          do: content,
+          else: Map.put(content, "links", Map.merge(content["links"] || %{}, decider))
 
       put_fact(state, kind, content, {:item, kind, key})
     else
@@ -704,26 +717,12 @@ defmodule AtlasControl.Session do
     state |> show(Faults.after_run(on), "open", nil) |> notice(tone, text)
   end
 
+  # A kind that is never deleted: its page says why; nothing goes to Facts (which refuses
+  # a delete of it too).
   defp submit({:delete, kind, key} = route, _raw, state) do
-    answer = ask(kind, %{"key" => key})
-
-    held =
-      Pages.children(state.description, kind, answer)
-      |> Enum.reject(fn {_, keys} -> keys == [] end)
-
-    case answer do
-      %{"fact" => %{"version" => version}} when held == [] ->
-        content = %{"op" => "delete", "key" => key, "values" => %{}, "version" => version}
-
-        put_fact(
-          %{state | route: route},
-          kind,
-          content,
-          Pages.after_delete(state.description, kind, answer)
-        )
-
-      _ ->
-        show(state, route, "open", nil)
+    case get_in(state.description || %{}, ["entities", kind, "delete_error"]) do
+      why when is_binary(why) -> not_sent(%{state | route: route}, route, [why])
+      _ -> delete(route, kind, key, state)
     end
   end
 
@@ -750,6 +749,30 @@ defmodule AtlasControl.Session do
       put_fact(state, kind, content, {:item, kind, key})
     else
       show(state, route, "refused", nil)
+    end
+  end
+
+  defp submit({:answer, kind, key, name} = route, raw, state) do
+    answers = Enum.map(Pages.reads(route, state.description), fn {k, c} -> ask(k, c) end)
+
+    answer =
+      Pages.declared_answer(state.description, kind, name, answers, %{
+        by: state.by,
+        by_kind: state.by_kind
+      })
+
+    state = %{state | route: route, form: Map.put(state.form, :values, raw)}
+
+    if answer == nil do
+      not_sent(state, route, ["This answer is only available to the current owner in this state."])
+    else
+      case AtlasControl.Answers.change(answer, key, state.by, raw["note"], DateTime.utc_now()) do
+        {:error, problem} ->
+          not_sent(state, route, [problem])
+
+        {:ok, content, cause} ->
+          put_fact(%{state | cause: cause}, kind, content, {:item, kind, key})
+      end
     end
   end
 
@@ -905,6 +928,29 @@ defmodule AtlasControl.Session do
 
       %{"error" => error} ->
         "#{error}; could not check how many #{parent} has"
+    end
+  end
+
+  defp delete(route, kind, key, state) do
+    answer = ask(kind, %{"key" => key})
+
+    held =
+      Pages.children(state.description, kind, answer)
+      |> Enum.reject(fn {_, keys} -> keys == [] end)
+
+    case answer do
+      %{"fact" => %{"version" => version}} when held == [] ->
+        content = %{"op" => "delete", "key" => key, "values" => %{}, "version" => version}
+
+        put_fact(
+          %{state | route: route},
+          kind,
+          content,
+          Pages.after_delete(state.description, kind, answer)
+        )
+
+      _ ->
+        show(state, route, "open", nil)
     end
   end
 
@@ -1153,7 +1199,13 @@ defmodule AtlasControl.Session do
       case {route, answers} do
         {{:edit, kind, _}, [%{"fact" => %{"version" => version} = fact} | _]} ->
           parents = Pages.parent_values(state.description, kind, fact)
-          Map.merge(state.form, %{version: version, parents: parents, was: fact["values"] || %{}})
+
+          Map.merge(state.form, %{
+            version: version,
+            parents: parents,
+            was: fact["values"] || %{},
+            links: fact["links"] || %{}
+          })
 
         _ ->
           state.form

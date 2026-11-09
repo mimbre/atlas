@@ -273,13 +273,16 @@ defmodule AtlasFacts.FlowInputs do
   end
 
   defp prepare(rela, d, run, actor, v, key, digest, now, position, write) do
-    with true <-
-           run["status"] == "active" and run["entry"] == v["entry"] and
-             run["pending"]["writes"] == [],
-         true <- choice_state?(d, run),
-         true <- before_deadline?(run, now.()),
+    with :ok <-
+           need(
+             run["status"] == "active" and run["entry"] == v["entry"] and
+               run["pending"]["writes"] == [],
+             :input_moved_on
+           ),
+         :ok <- need(choice_state?(d, run), :not_waiting_for_choice),
+         :ok <- need(before_deadline?(run, now.()), :answer_too_late),
          {:ok, subject} <- subject(rela, d, run),
-         true <- subject.version == v["source_version"],
+         :ok <- need(subject.version == v["source_version"], :subject_changed),
          roles =
            roles(
              d,
@@ -287,7 +290,7 @@ defmodule AtlasFacts.FlowInputs do
              %{subject | links: Map.merge(subject.links, v["links"] || %{})},
              actor
            ),
-         true <- roles != [],
+         :ok <- need(roles != [], :not_named_to_choose),
          :ok <-
            write.authorize.(
              run["subject_kind"],
@@ -327,11 +330,66 @@ defmodule AtlasFacts.FlowInputs do
       with {:ok, []} <- Rela.create(rela, plural(d), key, encode(d, value), %{}),
            {:ok, fact} <- Rela.get(rela, plural(d), key),
            do: apply_prepared(rela, d, fact, Map.put(value, "key", key), now, position, write)
-    else
-      false -> {:error, :stale_or_unauthorized_input}
-      error -> error
     end
   end
+
+  defp need(true, _reason), do: :ok
+  defp need(_, reason), do: {:error, reason}
+
+  @doc """
+  Why a choice was refused, in sentences for the one who made it: never a code. The
+  relations that give a role (`inputs.roles`) are named, so the chooser knows what to set.
+  """
+  def reasons(reason, d \\ %{})
+
+  def reasons({:subject_authority, {:refused, reasons}}, _d) when is_list(reasons), do: reasons
+  def reasons({:subject_authority, _}, _d), do: ["Facts could not check it now; try again."]
+  def reasons({:subject_write, _}, _d), do: ["Facts could not store it now; try again."]
+
+  def reasons(:input_moved_on, _d),
+    do: ["Its flow moved on meanwhile; open it again and answer what it shows now."]
+
+  def reasons(:not_waiting_for_choice, _d),
+    do: ["Its flow is not waiting for this choice now; open it again to see what it waits for."]
+
+  def reasons(:answer_too_late, _d),
+    do: ["The time to answer has passed; Flow asks again who answers it."]
+
+  def reasons(:subject_changed, _d),
+    do: ["It changed since you opened it; open it again and retry."]
+
+  def reasons(:not_named_to_choose, d) do
+    relations =
+      (get_in(d, ["flow_runtime", "inputs", "roles"]) || %{})
+      |> Map.values()
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    case relations do
+      [] ->
+        ["You may not make this choice."]
+
+      _ ->
+        [
+          "Only the one its #{Enum.join(relations, " or ")} names may make this choice; " <>
+            "name yourself there in the same change."
+        ]
+    end
+  end
+
+  def reasons(:input_authority, _d),
+    do: ["Only Control, for the one who answers, may make this choice."]
+
+  def reasons(:request_conflict, _d),
+    do: ["This request was already sent with other content; open it again and retry."]
+
+  def reasons(:prepared_input_needs_reconciliation, _d),
+    do: ["An earlier answer to it is still being applied; try again shortly."]
+
+  def reasons(reason, _d) when is_atom(reason),
+    do: ["Facts refused it: " <> String.replace(Atom.to_string(reason), "_", " ") <> "."]
+
+  def reasons(_reason, _d), do: ["Facts refused it."]
 
   defp choice_state?(d, run) do
     states = get_in(d, ["flow_runtime", "selection", run["flow"], "choice_states"])

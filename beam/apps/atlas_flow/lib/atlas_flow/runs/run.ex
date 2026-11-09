@@ -68,7 +68,7 @@ defmodule AtlasFlow.Runs.Run do
       end)
 
     cond do
-      mapping && mapping["rekey"] == true ->
+      mapping && (mapping["rekey"] == true or mapping["preserve_entry"] == true) ->
         # An explicitly reviewed encoding change carries the exact same definition.
         # Keep entry, deadlines, frozen requests and outbox IDs intact, even mid-entry.
         if state != nil and state == run["state"] and Map.has_key?(flow["states"], state),

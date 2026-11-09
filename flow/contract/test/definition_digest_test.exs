@@ -21,12 +21,22 @@ defmodule AtlasFlowContract.DefinitionDigestTest do
         |> JSON.decode!()
         |> get_in(["flows", "decide"])
 
-      assert DefinitionDigest.canonical(flow) ==
-               File.read!("test/golden/decide-#{env}.canonical.json")
+      old_flow = JSON.decode!(File.read!("test/golden/decide-#{env}.canonical.json"))
+      assert DefinitionDigest.of(old_flow) == new
+      assert Map.drop(flow, ["states"]) == Map.drop(old_flow, ["states"])
 
-      assert DefinitionDigest.of(flow) == new
+      for {state, data} <- flow["states"] do
+        assert Map.drop(data, ["owner", "present"]) ==
+                 Map.drop(old_flow["states"][state], ["owner", "present"])
+      end
 
-      assert Base.encode16(:crypto.hash(:sha256, :erlang.term_to_binary(flow)), case: :lower) ==
+      migration =
+        Enum.find(migrations, &(&1["from"] == new and &1["to"] == DefinitionDigest.of(flow)))
+
+      assert migration["preserve_entry"] == true
+      assert migration["states"] == Map.new(flow["states"], fn {s, _} -> {s, s} end)
+
+      assert Base.encode16(:crypto.hash(:sha256, :erlang.term_to_binary(old_flow)), case: :lower) ==
                old
 
       mapping = Enum.find(migrations, &(&1["from"] == old and &1["to"] == new))

@@ -299,6 +299,7 @@
       "by_hand": false
     },
     "decision": {
+      "delete_error": "Decisions are an append-only ledger; a decision is never deleted. Record a new one that supersedes it instead.",
       "primary": "title",
       "order": "newest",
       "create": {

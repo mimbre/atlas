@@ -157,7 +157,17 @@ defmodule AtlasFacts.Server do
           )
 
         {:error, reason} ->
-          refusal(envelope, reason, state)
+          reply(
+            envelope,
+            "refused",
+            %{
+              "code" => guidance_code(reason),
+              "reasons" => AtlasFacts.FlowInputs.reasons(reason, state.description)
+            },
+            nil
+          )
+
+          {:noreply, state}
 
         :ordinary ->
           dispatch_ordinary(envelope, content, state)
@@ -244,7 +254,10 @@ defmodule AtlasFacts.Server do
         reply(
           envelope,
           if(envelope.class == "read", do: "answer", else: "refused"),
-          %{"error" => inspect(reason), "reasons" => [inspect(reason)]},
+          %{
+            "error" => inspect(reason),
+            "reasons" => AtlasFacts.FlowInputs.reasons(reason, state.description)
+          },
           nil
         )
     end

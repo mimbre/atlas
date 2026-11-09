@@ -39,7 +39,7 @@ class AssemblyTest(unittest.TestCase):
         # The decision ledger and the use case design phase, added since the baseline.
         self.assertTrue(prior['_about'].startswith(self.original['_about']))
         prior['_about'] = self.original['_about']
-        self.assertEqual(set(prior['entities'].pop('decision')), {'primary', 'order', 'create', 'properties', 'requires', 'authority', 'frozen', 'replaces', 'layering'})
+        self.assertEqual(set(prior['entities'].pop('decision')), {'primary', 'order', 'create', 'properties', 'requires', 'authority', 'frozen', 'replaces', 'layering', 'delete_error'})
         self.assertIn('only_target', prior['relations'].pop('decided_by'))
         self.assertEqual(prior['relations'].pop('delegated_by'), {'only_target': {
             'error': 'only the person who delegates sets delegated_by, to themselves',
@@ -103,6 +103,8 @@ class AssemblyTest(unittest.TestCase):
             lambda d: d['layering']['not'].update({'unknown': ['instance']}),
             lambda d: d['layering']['not'].update({'platform': ['unknown']}),
             lambda d: d['layering'].update({'below': {}}),
+            lambda d: d.update({'delete_error': ' '}),
+            lambda d: d.update({'delete_error': True}),
         ]
         for mutate in mutations:
             bad = copy.deepcopy(extra)
