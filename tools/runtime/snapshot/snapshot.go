@@ -89,6 +89,9 @@ func Materialize(home, id, dest string) (map[string]any, error) {
 	}
 	baseline := filepath.Join(home, "snapshots", match[1])
 	reuse, err := complete(baseline)
+	if err == nil && reuse {
+		err = seal(baseline)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -154,9 +157,6 @@ func Materialize(home, id, dest string) (map[string]any, error) {
 		if err = readOnly(filepath.Join(building, "complete"), []byte(id+"\n")); err != nil {
 			return nil, err
 		}
-		if err = os.Chmod(building, 0555); err != nil {
-			return nil, err
-		}
 		err = renameExclusive(building, baseline)
 		if err == nil {
 			building = ""
@@ -165,6 +165,9 @@ func Materialize(home, id, dest string) (map[string]any, error) {
 		} else if ok, cerr := complete(baseline); !ok {
 			// Otherwise a concurrent materialization published the same baseline first.
 			return nil, errors.Join(err, cerr)
+		}
+		if err = seal(baseline); err != nil {
+			return nil, err
 		}
 	}
 
@@ -708,6 +711,13 @@ func readOnly(path string, data []byte) error {
 		return err
 	}
 	return os.Chmod(path, 0444)
+}
+
+// seal makes a published baseline folder read-only. It runs only after the rename, because
+// macOS 15 refuses to rename a directory without write permission, and again on every reuse,
+// so a crash between the two never leaves a complete baseline writable for long.
+func seal(baseline string) error {
+	return os.Chmod(baseline, 0555)
 }
 
 // remove deletes a staging folder, first making its read-only directories writable again.

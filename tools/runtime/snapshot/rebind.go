@@ -564,8 +564,10 @@ func (j *journal) verify(home, dir string) error {
 // copyBaseline publishes the successor's baseline from the old one, re-hashing every file.
 func (j *journal) copyBaseline() error {
 	reuse, err := complete(j.To.Baseline)
-	if err != nil || reuse {
+	if err != nil {
 		return err
+	} else if reuse {
+		return seal(j.To.Baseline)
 	}
 	raw, err := os.ReadFile(filepath.Join(j.From.Baseline, "manifest.json"))
 	if err != nil {
@@ -623,15 +625,12 @@ func (j *journal) copyBaseline() error {
 	if err = readOnly(filepath.Join(building, "complete"), []byte(j.To.SnapshotID+"\n")); err != nil {
 		return err
 	}
-	if err = os.Chmod(building, 0555); err != nil {
-		return err
-	}
 	if err = renameExclusive(building, j.To.Baseline); err == nil {
 		building = ""
 	} else if ok, cerr := complete(j.To.Baseline); !errors.Is(err, fs.ErrExist) || !ok {
 		return errors.Join(err, cerr)
 	}
-	return nil
+	return seal(j.To.Baseline)
 }
 
 func copyFile(source string, e *entry, t *tree) error {

@@ -51,8 +51,8 @@ func oldFolder(t *testing.T) *old {
 		must(t, os.WriteFile(filepath.Join(built, name), data, 0644))
 		must(t, os.Chmod(filepath.Join(built, name), 0444))
 	}
-	must(t, os.Chmod(built, 0555))
 	must(t, os.Rename(built, baseline))
+	must(t, os.Chmod(baseline, 0555))
 	record, _ := json.Marshal(map[string]string{"destination": o.dest, "materialized_at": "2026-11-08T22:40:09Z", "snapshot_id": o.oldID})
 	must(t, os.WriteFile(recordPath(o.home, o.dest), record, 0600))
 

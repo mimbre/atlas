@@ -271,7 +271,11 @@ func TestMaterializesRealCodeSnapshotWithBaselineAndRecord(t *testing.T) {
 		t.Fatalf("staging left behind: %v", left)
 	}
 
-	// A second destination reuses the published baseline untouched.
+	// A second destination reuses the published baseline untouched, sealing it again if a
+	// crash between publishing and sealing left it writable.
+	if err = os.Chmod(baseline, 0700); err != nil {
+		t.Fatal(err)
+	}
 	before, _ := os.Stat(baseline)
 	second := filepath.Join(f.parent, "second")
 	if _, err = Materialize(f.home, id, second); err != nil {
@@ -280,6 +284,8 @@ func TestMaterializesRealCodeSnapshotWithBaselineAndRecord(t *testing.T) {
 	after, _ := os.Stat(baseline)
 	if !os.SameFile(before, after) {
 		t.Fatal("baseline was rebuilt instead of reused")
+	} else if after.Mode().Perm() != 0555 {
+		t.Fatalf("reused baseline is %o, not read-only", after.Mode().Perm())
 	}
 	equal(t, describe(t, second), codeTree(0644, 0755, 0755))
 
