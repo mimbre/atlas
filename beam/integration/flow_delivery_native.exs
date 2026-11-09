@@ -1,5 +1,5 @@
-# Native proof of slice 8: the pull request on Flow's durable runs, in place of the legacy
-# flow review_and_merge, against a private Rela and real Facts, with the model compiled
+# Native proof of slices 8 and 9: the pull request and the issue on Flow's durable runs, in
+# place of the legacy flows review_and_merge and build_and_merge, against a private Rela and real Facts, with the model compiled
 # for the test environment and a manual clock. Owns and stops its private Rela and Facts.
 # MIX_ENV=test mix run integration/flow_delivery_native.exs PRIVATE_DIR RELA_BIN_DIR
 #
@@ -10,6 +10,12 @@
 # revision starts the checks again and the replaced revision's late verdict counts for
 # nothing; review and test on the current revision together lead to the merge, once,
 # across a Facts restart between the verdict and its reconcile; the merge by hand ends it.
+# Slice 9: issues are imported as the table says (one whose pull request reported its merge
+# completes as it was; every other, in Specification as on test and prod, starts building,
+# with nothing written on it); the run owns every issue; an issue whose pull request is in
+# its checks builds on; one whose merged pull request is linked to it completes through the
+# link; changes requested on its pull request are written to it once and it builds on; the
+# merge of its pull request ends it, once, in the reconcile that ends the pull request.
 import ExUnit.Assertions
 alias AtlasFlow.{ManualClock, Talk}
 alias AtlasFlow.Runs.Store
@@ -78,7 +84,9 @@ try do
   served = await.(await)
   assert Map.take(served, ~w(entities relations types)) == Model.AtlasEyra.rela_schema()
   %{config: config, flows: flows, refusal: nil} = AtlasFlow.Model.load(Model.AtlasEyra, :test)
-  assert Enum.sort(Map.keys(config["selection"])) == ~w(decide pr_review pr_test pull_request)
+
+  assert Enum.sort(Map.keys(config["selection"])) ==
+           ~w(decide issue pr_review pr_test pull_request)
 
   # Each reconcile runs in a fresh Flow process: Flow keeps nothing, only Facts does.
   reconcile = fn ->
@@ -197,7 +205,40 @@ try do
   review_r1 = review.(open, %{"revision" => "r1"})
   test_r1 = test.(open, %{"revision" => "r1"})
   history = [merged, closed, ready]
+
+  # Slice 9. The issues as on test and prod today: in Specification, with nothing a flow
+  # wrote on them, presented by the legacy flow. One whose open pull request (r1, above)
+  # is in its checks, one whose merged pull request is linked to it, and one on which its
+  # pull request's merge was reported already (the import table's one row).
+  issue = fn number, values ->
+    key = "IS-Atlas-#{number}"
+
+    put.("issue", %{
+      "op" => "create",
+      "key" => key,
+      "values" =>
+        Map.merge(
+          %{"title" => "Issue #{number}", "description" => "Proof", "stage" => "specification"},
+          values
+        )
+    })
+
+    key
+  end
+
+  link = fn pr, key ->
+    put.("pull_request", %{"op" => "change", "key" => pr, "links" => %{"in_issue" => [key]}})
+  end
+
+  building = issue.(91, %{})
+  link.(open, building)
+  built = issue.(92, %{})
+  link.(merged, built)
+  reported = issue.(93, %{"pr_outcome" => "integrated"})
+  issues = [building, built, reported]
   before = Map.new(history, &{&1, read.("pull_request", &1)})
+  untouched = Map.new(issues, &{&1, read.("issue", &1)})
+  issue_run = fn runs, key -> run_of.(runs, "issue", key) end
 
   assert {:ok, runs} = reconcile.()
   assert summary.(pr_run.(runs, merged)) == {"integrated", "completed", 1}
@@ -219,6 +260,21 @@ try do
 
   assert summary.(run_of.(runs, "pr_review", review_r1)) == {"working", "active", 1}
 
+  # Every issue: completed history as the table says, every other building, writing nothing.
+  assert summary.(issue_run.(runs, reported)) == {"done", "completed", 1}
+  assert issue_run.(runs, reported)["last_input"]["import"] == true
+
+  for key <- [building, built] do
+    assert summary.(issue_run.(runs, key)) == {"author", "active", 1}
+    refute Map.has_key?(issue_run.(runs, key)["last_input"], "import")
+  end
+
+  for {key, fact} <- untouched, do: assert(read.("issue", key)["version"] == fact["version"])
+
+  # The run is the one writer of every issue: the legacy flow presents none.
+  for key <- issues,
+      do: assert({"issue", _} = Store.selected(config, "issue", read.("issue", key)))
+
   # The run is the one writer of every pull request: the legacy flow presents none.
   for key <- [open | history],
       do:
@@ -227,6 +283,7 @@ try do
         )
 
   joined = pr_run.(runs, ready)
+  first = runs
   # Restart while waiting: nothing moves, nothing is written again.
   facts = restart.(facts)
   version = read.("pull_request", open)["version"]
@@ -235,11 +292,32 @@ try do
   assert pr_run.(runs, ready) == joined
   assert read.("pull_request", open)["version"] == version
 
+  # The issue whose pull request is in its checks builds on: the link reports nothing yet.
+  # On this fresh store the merged pull request's run was made after its issue's, in the
+  # first reconcile; this one completes the issue through the link, once (on test and prod
+  # the pull requests' runs exist already, so it completes in the reconcile that imports it).
+  assert issue_run.(runs, building) == issue_run.(first, building)
+  assert read.("issue", building)["version"] == untouched[building]["version"]
+  assert read.("issue", building)["values"]["pr_outcome"] == nil
+  done = issue_run.(runs, built)
+  assert summary.(done) == {"done", "completed", 2}
+  assert read.("issue", built)["values"]["pr_outcome"] == "integrated"
+  assert [%{"child" => ^merged}] = done["last_input"]["sources"]
+  assert issue_run.(runs, reported) == issue_run.(first, reported)
+
   # The test of r1 fails: the pull request goes back for changes.
   verdict.("pr_test", test_r1, "tester-1", "failed")
   assert {:ok, runs} = reconcile.()
   assert summary.(pr_run.(runs, open)) == {"changes_requested", "active", 2}
   assert outcomes.(open)["test_outcome"] == "failed"
+
+  # Its issue hears of it in the same reconcile, once, and builds on: a new entry of the
+  # same state, nothing else written.
+  rebuilding = issue_run.(runs, building)
+  assert summary.(rebuilding) == {"author", "active", 2}
+  assert rebuilding["last_input"]["synthetic"]
+  assert read.("issue", building)["values"]["pr_outcome"] == "changes_requested"
+  assert issue_run.(runs, built) == done
 
   # A new revision: whoever pushes it reports it, and replaces the review and test of r1.
   put.("pull_request", %{
@@ -253,6 +331,8 @@ try do
 
   assert {:ok, runs} = reconcile.()
   assert summary.(pr_run.(runs, open)) == {"checking", "active", 3}
+  # Its checks start again: the issue builds on, hearing nothing new.
+  assert issue_run.(runs, building) == rebuilding
 
   assert outcomes.(open) == %{
            "review_outcome" => "none",
@@ -299,10 +379,17 @@ try do
   put.("pull_request", %{"op" => "change", "key" => open, "values" => %{"state" => "merged"}})
   assert {:ok, runs} = reconcile.()
   assert summary.(pr_run.(runs, open)) == {"integrated", "completed", 5}
+  # Its issue is done in the same reconcile, through the link, once.
+  assert summary.(issue_run.(runs, building)) == {"done", "completed", 3}
+  assert read.("issue", building)["values"]["pr_outcome"] == "integrated"
   assert {:ok, settled} = reconcile.()
 
   for key <- [open | history],
       do: assert(pr_run.(settled, key) == pr_run.(runs, key))
+
+  for key <- issues, do: assert(issue_run.(settled, key) == issue_run.(runs, key))
+  assert issue_run.(settled, reported) == issue_run.(first, reported)
+  assert read.("issue", reported)["version"] == untouched[reported]["version"]
 
   for {key, fact} <- before, do: assert(read.("pull_request", key)["version"] == fact["version"])
 
@@ -311,7 +398,8 @@ try do
 
   IO.puts(
     "flow-delivery native proof: imports, one writer, restart while waiting, changes " <>
-      "requested, new revision with the replaced verdict ignored, merge once, merged ok"
+      "requested, new revision with the replaced verdict ignored, merge once, merged; issues " <>
+      "imported, building, done through the link once ok"
   )
 after
   System.cmd("/bin/kill", ["-TERM", to_string(os_pid)], stderr_to_stdout: true)

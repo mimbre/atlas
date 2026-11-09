@@ -203,8 +203,15 @@
     },
     "issue": {
       "prod": {
-        "digest": "99b406f1da0c908d703acd82c37c2bd07ec5c103e352809afed37b676693ed5e",
+        "digest": "6dcb5eefa0dd0aec97748b7280249678cb64d759808b81e2104b3992c7b38052",
         "history": [
+          {
+            "digest": "6dcb5eefa0dd0aec97748b7280249678cb64d759808b81e2104b3992c7b38052",
+            "states": [
+              "author",
+              "done"
+            ]
+          },
           {
             "digest": "99b406f1da0c908d703acd82c37c2bd07ec5c103e352809afed37b676693ed5e",
             "states": [
@@ -223,20 +230,19 @@
         ],
         "states": [
           "author",
-          "closed",
-          "delivery_gate",
-          "done",
-          "in_pr",
-          "needs_person",
-          "publish",
-          "review",
-          "review_gate",
-          "rework"
+          "done"
         ]
       },
       "test": {
-        "digest": "99b406f1da0c908d703acd82c37c2bd07ec5c103e352809afed37b676693ed5e",
+        "digest": "6dcb5eefa0dd0aec97748b7280249678cb64d759808b81e2104b3992c7b38052",
         "history": [
+          {
+            "digest": "6dcb5eefa0dd0aec97748b7280249678cb64d759808b81e2104b3992c7b38052",
+            "states": [
+              "author",
+              "done"
+            ]
+          },
           {
             "digest": "99b406f1da0c908d703acd82c37c2bd07ec5c103e352809afed37b676693ed5e",
             "states": [
@@ -255,15 +261,7 @@
         ],
         "states": [
           "author",
-          "closed",
-          "delivery_gate",
-          "done",
-          "in_pr",
-          "needs_person",
-          "publish",
-          "review",
-          "review_gate",
-          "rework"
+          "done"
         ]
       }
     },

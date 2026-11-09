@@ -41,7 +41,7 @@ defmodule Model.PresentationTest do
     {"design_and_accept", "to_test"} => [{"test_and_accept_use_case", "to_test"}],
     {"design_and_accept", "break_down"} => [{"test_and_accept_use_case", "break_down"}],
     {"design_and_accept", "building"} => [{"test_and_accept_use_case", "building"}],
-    # v1's one manual state became passes, gates and the publish effect; it begins with the author pass.
+    # v1's one manual state is the issue's author state, built by hand until its passes come.
     {"build_and_merge", "building"} => [{"issue", "author"}],
     {"review_and_merge", "open"} => [{"pull_request", "checking"}]
   }

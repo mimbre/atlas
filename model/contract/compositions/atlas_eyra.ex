@@ -9,8 +9,8 @@ defmodule Model.AtlasEyra do
     * a pull request's review and test report their outcome to it (`review_outcome`,
       `test_outcome`); a result from a review or test that a newer one replaced is
       dropped;
-    * a pull request reports to its issue (`pr_outcome`), which waits for it in
-      `in_pr`;
+    * a pull request reports to its issue (`pr_outcome`), which waits for it while it
+      is built (`author`);
     * a use case counts its issues, and a scene its use cases (`children`, and
       `open_children`: those whose subflow has not ended), to know when all are built.
 

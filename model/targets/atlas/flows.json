@@ -667,29 +667,32 @@
       "run_as": "system:sf-flow",
       "start": [
         {
-          "on": "predicate",
-          "when": "entity.stage == 'development'"
+          "on": "create"
         }
       ],
       "states": {
         "author": {
-          "awaits": [],
+          "awaits": ["pr_outcome"],
           "branches": [
             {
               "roles": ["atlas-flow"],
-              "to": "delivery_gate",
-              "when": "entity.pass_result == 'delivered'"
+              "to": "author",
+              "when": "entity.pr_outcome == 'changes_requested'"
             },
             {
               "roles": ["atlas-flow"],
-              "to": "needs_person",
-              "when": "entity.pass_result == 'failed'"
+              "to": "done",
+              "when": "entity.pr_outcome == 'integrated'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "author",
+              "when": "entity.pr_outcome == 'closed'"
             }
           ],
           "creates": [],
           "final": false,
-          "kind": "pass",
-          "label": "Author pass",
+          "label": "Building",
           "present": {
             "expected": "Build it",
             "todo": {
@@ -697,81 +700,8 @@
             },
             "why": "its pull request is not merged"
           },
-          "set": [
-            {
-              "field": "pass_result",
-              "value": "none"
-            }
-          ],
-          "spec": {
-            "folder": ["materialize", "target"],
-            "freeze": "packet",
-            "mode": "author",
-            "permissions": "materialized_folder",
-            "profile": "developer"
-          },
-          "timers": [
-            {
-              "label": "The owner's Runtime did not finish the pass",
-              "name": "runtime_wait",
-              "period": "2d",
-              "to": "needs_person"
-            }
-          ],
-          "waiting_for": []
-        },
-        "closed": {
-          "awaits": [],
-          "branches": [],
-          "creates": [],
-          "final": true,
-          "label": "Closed",
           "set": [],
-          "status": "cancelled",
           "timers": [],
-          "waiting_for": []
-        },
-        "delivery_gate": {
-          "awaits": [],
-          "branches": [
-            {
-              "roles": ["atlas-flow"],
-              "to": "review",
-              "when": "entity.gate_result == 'review'"
-            },
-            {
-              "roles": ["atlas-flow"],
-              "to": "rework",
-              "when": "entity.gate_result == 'rework'"
-            },
-            {
-              "roles": ["atlas-flow"],
-              "to": "needs_person",
-              "when": "entity.gate_result == 'person'"
-            }
-          ],
-          "creates": [],
-          "final": false,
-          "kind": "gate",
-          "label": "Delivery-evidence gate",
-          "set": [
-            {
-              "field": "gate_result",
-              "value": "none"
-            }
-          ],
-          "spec": {
-            "gate": "delivery_evidence",
-            "version": 1
-          },
-          "timers": [
-            {
-              "label": "No gate decision within an hour",
-              "name": "no_decision",
-              "period": "1h",
-              "to": "needs_person"
-            }
-          ],
           "waiting_for": []
         },
         "done": {
@@ -782,241 +712,6 @@
           "label": "Integrated",
           "set": [],
           "timers": [],
-          "waiting_for": []
-        },
-        "in_pr": {
-          "awaits": ["pr_outcome"],
-          "branches": [
-            {
-              "roles": ["atlas-flow"],
-              "to": "rework",
-              "when": "entity.pr_outcome == 'changes_requested'"
-            },
-            {
-              "roles": ["atlas-flow"],
-              "to": "done",
-              "when": "entity.pr_outcome == 'integrated'"
-            },
-            {
-              "roles": ["atlas-flow"],
-              "to": "closed",
-              "when": "entity.pr_outcome == 'closed'"
-            }
-          ],
-          "creates": [],
-          "final": false,
-          "label": "In pull request",
-          "set": [],
-          "timers": [],
-          "waiting_for": []
-        },
-        "needs_person": {
-          "awaits": [],
-          "branches": [
-            {
-              "roles": ["maintainer"],
-              "to": "review",
-              "when": "entity.gate_result == 'review'"
-            },
-            {
-              "roles": ["maintainer"],
-              "to": "rework",
-              "when": "entity.gate_result == 'rework'"
-            },
-            {
-              "roles": ["maintainer"],
-              "to": "publish",
-              "when": "entity.gate_result == 'ready'"
-            },
-            {
-              "roles": ["maintainer"],
-              "to": "closed",
-              "when": "entity.gate_result == 'close'"
-            }
-          ],
-          "creates": [],
-          "final": false,
-          "label": "A person decides",
-          "set": [
-            {
-              "field": "gate_result",
-              "value": "none"
-            }
-          ],
-          "status": "input_required",
-          "timers": [],
-          "waiting_for": ["maintainer"]
-        },
-        "publish": {
-          "awaits": [],
-          "branches": [
-            {
-              "roles": ["atlas-flow"],
-              "to": "in_pr",
-              "when": "entity.effect_result == 'done'"
-            },
-            {
-              "roles": ["atlas-flow"],
-              "to": "needs_person",
-              "when": "entity.effect_result == 'refused'"
-            }
-          ],
-          "creates": [],
-          "final": false,
-          "kind": "effect",
-          "label": "Create or update the PR",
-          "set": [
-            {
-              "field": "effect_result",
-              "value": "none"
-            }
-          ],
-          "spec": {
-            "action": "publish_review",
-            "also": {
-              "pr_outcome": "open"
-            },
-            "field": "effect_result",
-            "fingerprint": ["approved_by", "review_gate"],
-            "records": ["pull_request", "in_issue"],
-            "service": "code",
-            "submit": ["from", "packet"]
-          },
-          "timers": [
-            {
-              "label": "Code did not answer within an hour",
-              "name": "no_effect",
-              "period": "1h",
-              "to": "needs_person"
-            }
-          ],
-          "waiting_for": []
-        },
-        "review": {
-          "awaits": [],
-          "branches": [
-            {
-              "roles": ["atlas-flow"],
-              "to": "review_gate",
-              "when": "entity.pass_result == 'delivered'"
-            },
-            {
-              "roles": ["atlas-flow"],
-              "to": "needs_person",
-              "when": "entity.pass_result == 'failed'"
-            }
-          ],
-          "creates": [],
-          "final": false,
-          "kind": "pass",
-          "label": "Review pass",
-          "set": [
-            {
-              "field": "pass_result",
-              "value": "none"
-            }
-          ],
-          "spec": {
-            "diversity": "other_vendor",
-            "findings": "required",
-            "folder": ["packet", "last"],
-            "mode": "review",
-            "permissions": "review_packet",
-            "profile": "developer"
-          },
-          "timers": [
-            {
-              "label": "The owner's Runtime did not finish the review",
-              "name": "runtime_wait",
-              "period": "2d",
-              "to": "needs_person"
-            }
-          ],
-          "waiting_for": []
-        },
-        "review_gate": {
-          "awaits": [],
-          "branches": [
-            {
-              "roles": ["atlas-flow"],
-              "to": "publish",
-              "when": "entity.gate_result == 'ready'"
-            },
-            {
-              "roles": ["atlas-flow"],
-              "to": "rework",
-              "when": "entity.gate_result == 'rework'"
-            },
-            {
-              "roles": ["atlas-flow"],
-              "to": "needs_person",
-              "when": "entity.gate_result == 'person'"
-            }
-          ],
-          "creates": [],
-          "final": false,
-          "kind": "gate",
-          "label": "Review gate",
-          "set": [
-            {
-              "field": "gate_result",
-              "value": "none"
-            }
-          ],
-          "spec": {
-            "gate": "review",
-            "version": 1
-          },
-          "timers": [
-            {
-              "label": "No gate decision within an hour",
-              "name": "no_decision",
-              "period": "1h",
-              "to": "needs_person"
-            }
-          ],
-          "waiting_for": []
-        },
-        "rework": {
-          "awaits": [],
-          "branches": [
-            {
-              "roles": ["atlas-flow"],
-              "to": "delivery_gate",
-              "when": "entity.pass_result == 'delivered'"
-            },
-            {
-              "roles": ["atlas-flow"],
-              "to": "needs_person",
-              "when": "entity.pass_result == 'failed'"
-            }
-          ],
-          "creates": [],
-          "final": false,
-          "kind": "pass",
-          "label": "Rework pass",
-          "set": [
-            {
-              "field": "pass_result",
-              "value": "none"
-            }
-          ],
-          "spec": {
-            "folder": ["continue", "author"],
-            "freeze": "packet",
-            "input": ["channel", "newest_since_last_pass"],
-            "mode": "rework",
-            "permissions": "materialized_folder",
-            "profile": "developer"
-          },
-          "timers": [
-            {
-              "label": "The owner's Runtime did not finish the rework",
-              "name": "runtime_wait",
-              "period": "2d",
-              "to": "needs_person"
-            }
-          ],
           "waiting_for": []
         }
       },
@@ -1991,6 +1686,6 @@
       "version": 1
     }
   },
-  "rela_flows_sha256": "804c9b63e45633e856ece558794c9d14d590d6ee9a7d54a153808125ba865ad1",
+  "rela_flows_sha256": "fbd2e17397cde695a82635651009ec97e661af1e15ea3170d05498bba5ba8130",
   "writer": "system:atlas-flow"
 }
