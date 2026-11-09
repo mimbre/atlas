@@ -138,7 +138,7 @@ In the test environment, every browsing page (the start page, a list, a fact) ha
 - **Each opens a confirm** that says what will be seen; `y` causes it, and Control says what happened as a notice.
 - **The stand-in only:** an agent's modes are offered for agents whose port is `stub`, never for a real agent (`claude`).
 - **Melle can test:** in the TUI on a private test instance (or Fly test once Runtime runs agents there), press `!` on a page. The e2e scenario `uc-atlas-07-failures` walks every row of the table with a stand-in agent, `tester`.
-- **Not here:** what an owner that stops working leads to (a decision, IS-Atlas-22) and Melle offline as a fact (IS-Atlas-25). "Go offline" here is Control unreachable for a while.
+- **Not here:** what an owner that stops working leads to (a decision, IS-Atlas-22) and the operator offline as a fact (IS-Atlas-25). "Go offline" here is Control unreachable for a while.
 
 
 ## A separate Runtime machine (IS-Atlas-91)

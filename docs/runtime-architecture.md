@@ -1,6 +1,6 @@
 # Runtime architecture
 
-Status: proposed target architecture, recorded from the architecture discussion with Melle. This document does not claim that the current implementation has these boundaries, nor authorize a refactor or permission changes.
+Status: proposed target architecture, recorded from the architecture discussion with the operator. This document does not claim that the current implementation has these boundaries, nor authorize a refactor or permission changes.
 
 ## Purpose: make the architecture express the product
 
@@ -20,7 +20,7 @@ Not every domain concept needs a separate layer, application, process or service
 
 ## Planned local isolation and centralized GitHub access
 
-Decision from Melle: GitHub access should be centralized, not independently available to every agent. This is a planned architecture direction, not an expansion of the current workspace-to-Go migration.
+Decision: GitHub access should be centralized, not independently available to every agent. This is a planned architecture direction, not an expansion of the current workspace-to-Go migration.
 
 Runtime remains local-first, running native agent CLIs on macOS. Neither Linux nor a VM is required. The implementation stack is Elixir and Go; Python has been removed from Runtime, and no Rust is planned.
 
@@ -37,7 +37,7 @@ Runtime remains local-first, running native agent CLIs on macOS. Neither Linux n
 
 Status: every endpoint below (health, reference resolution, snapshot creation, manifest, archive, change submission, review and integration) is implemented in `beam/apps/atlas_code`. Clients see repository names, reference names, `sha256:` snapshot IDs, opaque `rev_<64 hex>` revision handles and their own UUIDs; commits, branches, refs, remote URLs and Git output stay inside Code. Runtime can materialize a snapshot, inspect it offline and submit a repository's changes as a sealed change with its own revision handle with `atlas-runtime snapshot materialize|status|diff|submit|rebind` (below); reviews and integrations are requested by the orchestrator, not by Runtime. Managed worker starts do not use snapshots yet. Everything under "Current callers" was cited from source at `f4492cbeb0f199b0228282c507ae6f8f05b05596` and is kept as that record. The earlier commit-, publication- and release-based contract is superseded; see "Superseded design" below.
 
-Decisions from Melle that this contract follows:
+Decisions that this contract follows:
 - Code is a separate local Elixir service beside Runtime, reached over authenticated loopback HTTP. The same contract can later be hosted on Atlas Server. No VM, Linux, filesystem mount or private Git server is required, and Runtime keeps working without Atlas Server.
 - Code owns Git metadata, repository/provider credentials and Git operations.
 - Runtime materializes snapshots into one or more temporary ordinary worker folders. Workers receive folder paths only: no Git metadata, no Code API, no credentials.
@@ -237,7 +237,7 @@ The superseded publication and release text, as it stood:
 >    - **Limits:**
 >      - All publications are serialized by one lock, including remote calls.
 >      - A failed publication's branch claim is permanent.
->      - The fixture tests prove PR creation and adoption only against a fixture `gh`. The coordinator's real local cycle then published real PR #178 through Code from a Runtime-submitted sealed change (`dfaa38cc96fa209b9696ce1a621ec50ae811274a`), verified the exact head and merged it at `760891d6b9bf13fb87d0a12f79afbf99f564087e` (evidence `/Users/melle/.dv-mtwh41yj/verification/local-development-cycle.json`). That proves publication, not worker-profile security.
+>      - The fixture tests prove PR creation and adoption only against a fixture `gh`. The coordinator's real local cycle then published real PR #178 through Code from a Runtime-submitted sealed change (`dfaa38cc96fa209b9696ce1a621ec50ae811274a`), verified the exact head and merged it at `760891d6b9bf13fb87d0a12f79afbf99f564087e` (evidence `~/.dv-mtwh41yj/verification/local-development-cycle.json`). That proves publication, not worker-profile security.
 > 8. **Release.** `POST /v1/releases`, orchestrator token only.
 >    - Request: `{"release_id", "pr_url", "expected_head": "<sha>"}`.
 >    - Code merges only if the PR head equals `expected_head` and GitHub reports it mergeable; otherwise `409 conflict`.

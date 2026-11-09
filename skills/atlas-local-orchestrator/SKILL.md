@@ -119,7 +119,7 @@ Diversity is a preference: it never blocks a review and does not prove independe
 
 Answer from repository/runtime evidence and the approved scope. Prove suspected causes before presenting them as causes or requesting a human decision. Investigate reachable facts yourself.
 
-Track each unresolved question with its ID, worker/turn, evidence, owner, next action and resolution. Ask Melle only for genuine intent, authorization or tradeoffs tools cannot resolve. Keep blocked workers visibly blocked; do not claim an answer was processed merely because it was delivered.
+Track each unresolved question with its ID, worker/turn, evidence, owner, next action and resolution. Ask the operator only for genuine intent, authorization or tradeoffs tools cannot resolve. Keep blocked workers visibly blocked; do not claim an answer was processed merely because it was delivered.
 
 ## Monitoring and completion
 

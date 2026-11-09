@@ -1,6 +1,6 @@
 # 0003: Test on Fly: two apps on test's own private network
 
-Status: accepted, 2026-11-03 (Melle: "i think we just need to create a new fly eyra-atlas-test", "and eyra-atlas (the prod)"; d-0005, d-0014). IS-Atlas-26; prod follows the same way in IS-Atlas-79.
+Status: accepted, 2026-11-03 (decision: "i think we just need to create a new fly eyra-atlas-test", "and eyra-atlas (the prod)"; d-0005, d-0014). IS-Atlas-26; prod follows the same way in IS-Atlas-79.
 
 ## Context
 

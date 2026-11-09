@@ -14,7 +14,7 @@ In prod, after the migration below, every fact has an owner:
 |---|---|---|
 | An owner | `atlas get UC-Atlas-01 --env prod` | `Assigned to: coordinator (since 3 Nov …, by migration: owner introduced)`, and under it the list **Assigned to** with `coordinator  Agent`. `--json` gives `origins["Assigned to"]`: `since`, `by` and `cause`. |
 | On its page | any scene, use case, issue or pull request in the TUI | **Assigned to** in the content, with since, by and cause, and in the references, the owner as a row. |
-| The owner's page | `enter` on that row, or `atlas get coordinator --env prod` | **Agent coordinator**, with what is assigned to it, one list per kind: **Assignments: Scenes**, **Assignments: Use cases**, … Melle's page (`atlas get melle`) the same for Melle. |
+| The owner's page | `enter` on that row, or `atlas get coordinator --env prod` | **Agent coordinator**, with what is assigned to it, one list per kind: **Assignments: Scenes**, **Assignments: Use cases**, … A person's page (`atlas get melle`) the same for that person. |
 | Change it | `atlas set UC-Atlas-01 assigned_to=melle --cause "all 12 issues completed" --env test`, or `u` on the page (**Assigned to**, a person or an agent, `ctrl-s`) | One owner, the new one, with its own since, by and cause. The earlier owner stays in the facts as history. |
 | Only who can own | `atlas set UC-Atlas-01 assigned_to=nobody --env test` | Refused: `nobody is not a person or agent`. |
 

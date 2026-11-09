@@ -139,7 +139,7 @@ Public-CLI verification on 2026-11-07 used two separately labelled proofs. A syn
 
 The independent real-provider documentation exchange used default-model Claude (`claude-opus-5-5[1m]`) without model or safety changes. Peer source `turn-331188a7413e35e7` read the handoff README section. Sender `turn-f6d114e6a89ff5be` emitted native question `question-be3e022e4784482fbc0f070de647728b`; explicit continuation `turn-a554012197811559` returned `atlas-runtime handoff --worker NAME --turn TURN_ID`. Routing and binding left the pending question and turn set unchanged. A separate explicit answer delivered the actual reply; native processing was observed and the sender returned that exact command. This fresh documentation task did not retry the earlier provider-blocked constant task; its failure evidence and native identity guard remain unchanged.
 
-Focused checks cover stale attempts, wrong ownership/source/session/scope, missing legacy source metadata, concurrent duplicates/conflicts, backward clock movement, event recovery and namespace isolation. All six owned native groups and three isolated daemons were absent afterward; disposable binaries, fixture executable and builds were removed. Compact evidence remains at `/Users/melle/.ac-pc-xwkhvk4s/public-peer-proof-evidence.json`. No default installation, default-daemon restart, deployment or authenticated peer-delivery claim.
+Focused checks cover stale attempts, wrong ownership/source/session/scope, missing legacy source metadata, concurrent duplicates/conflicts, backward clock movement, event recovery and namespace isolation. All six owned native groups and three isolated daemons were absent afterward; disposable binaries, fixture executable and builds were removed. Compact evidence remains at `~/.ac-pc-xwkhvk4s/public-peer-proof-evidence.json`. No default installation, default-daemon restart, deployment or authenticated peer-delivery claim.
 
 ## Durable execution discovery
 
@@ -268,7 +268,7 @@ Inspector contract verified on 2026-11-08 in an isolated daemon whose `atlas-run
 - With the older CLI explicitly first on `PATH`, a bare `atlas-runtime` resolved to `~/.local/bin/atlas-runtime` and failed (Codex: `mkdir …: file exists`; Claude: `chmod …: operation not permitted`). The explicit `"$ATLAS_RUNTIME_EXECUTABLE"` in the same command succeeded.
 - Runtime ran no Git. The only Git calls came from native Claude's own launch probes.
 
-Evidence: `/Users/melle/.ac-ic-m7lo4zo9/folder-inspector-evidence.json`.
+Evidence: `~/.ac-ic-m7lo4zo9/folder-inspector-evidence.json`.
 
 Verified on 2026-11-08 in an isolated daemon (Codex 0.166.0, `gpt-6.1-sol`). Snapshot `sha256:cdf993d12d454292b0499266d03df591cc45629dd8559d3b94b8c0ab92f72c9a` (repositories `app`, `docs`) was materialized; the worker is `fw`, session `01a1bc16-3d75-7821-a326-04a23f27043e`.
 
@@ -290,7 +290,7 @@ Verified on 2026-11-08 in an isolated daemon (Codex 0.166.0, `gpt-6.1-sol`). Sna
 - A stopped long turn (`turn-a97676d65224d5dd`) released the lock and removed its scratch folder.
 - The baseline and record were unchanged.
 
-Evidence: `/Users/melle/.ac-nf-p6hmdtmf/codex-folder-profile-evidence.json`. No installation, default-daemon restart or deployment.
+Evidence: `~/.ac-nf-p6hmdtmf/codex-folder-profile-evidence.json`. No installation, default-daemon restart or deployment.
 
 Claude verified on 2026-11-08 in an isolated daemon (Claude Code 2.1.280, `claude-opus-5-5[1m]`). Snapshot `sha256:cb304b7a4aca253fdb8c005f6b5df71c74aef519624ba56c9b2a64d71e46e485` (`app`, `docs`), session `07267e9f-3820-4d16-bcd3-0fca908c0fe6`, with `--questions`.
 
@@ -311,7 +311,7 @@ Claude verified on 2026-11-08 in an isolated daemon (Claude Code 2.1.280, `claud
 - **Stop with a pending question:** stopping `turn-0ff852f0dded00b9` reaped the group, released the lock and removed the private temp. A late answer was refused.
 - Sentinels were removed afterwards.
 
-Evidence: `/Users/melle/.ac-cf-taaclyk6/claude-folder-profile-evidence.json`. No installation, default-daemon restart or deployment.
+Evidence: `~/.ac-cf-taaclyk6/claude-folder-profile-evidence.json`. No installation, default-daemon restart or deployment.
 
 ## Explicit folder preparation (npm ci)
 
@@ -629,7 +629,7 @@ No installation, default-daemon restart or deployment.
   - unknown snapshot: 404.
 - The token never appeared in responses or the log.
 
-Evidence: `/Users/melle/.ac-sn-r3489bll/code-snapshots-evidence.json`. No installation, default-daemon restart or deployment.
+Evidence: `~/.ac-sn-r3489bll/code-snapshots-evidence.json`. No installation, default-daemon restart or deployment.
 
 2026-11-08: added `atlas-runtime snapshot materialize --snapshot sha256:<hex> --dest NEW_PATH`. It downloads a Code snapshot's manifest and archives, verifies every entry, publishes the destination atomically, and keeps an immutable baseline under `<runtime home>/snapshots/`. Managed starts do not use it yet. Go packages passed, including deterministic tests for unsafe manifests, corrupt archives, partial downloads, existing destinations and Code errors. Real CLI proof against a separate Code process:
 
@@ -640,7 +640,7 @@ Evidence: `/Users/melle/.ac-sn-r3489bll/code-snapshots-evidence.json`. No instal
 - A second destination reused the same baseline.
 - An unknown snapshot returned `Code refused snapshot …: 404 not_found`, and a stopped Code returned `Code service unavailable: … connection refused`. Neither left a partial destination or staging folder.
 
-Evidence: `/Users/melle/.ac-mt-uz2po9t1/materialization-evidence.json`. No installation, default-daemon restart or deployment.
+Evidence: `~/.ac-mt-uz2po9t1/materialization-evidence.json`. No installation, default-daemon restart or deployment.
 
 2026-11-08: added offline `atlas-runtime snapshot status --dest PATH [--path REPO_PATH]...` and `atlas-runtime snapshot diff …`. They compare a materialized folder with its Runtime-owned baseline without the daemon, Code, network or Git. Go packages passed, with deterministic tests for every change kind, symlinks not followed, `--path` filtering, record/baseline/manifest refusals and read-only behaviour. Real CLI proof:
 
@@ -657,7 +657,7 @@ Evidence: `/Users/melle/.ac-mt-uz2po9t1/materialization-evidence.json`. No insta
 - A missing record failed with `no materialization record for …`.
 - Destination and baseline modes, mtimes, bytes and links were unchanged by inspection.
 
-Evidence: `/Users/melle/.ac-od-l2jz2wti/offline-status-diff-evidence.json`. No installation, daemon restart or deployment.
+Evidence: `~/.ac-od-l2jz2wti/offline-status-diff-evidence.json`. No installation, daemon restart or deployment.
 
 2026-11-08: added Code change submission (`POST /v1/changes`, `PUT /v1/changes/{id}/blobs/{sha256}`, `POST /v1/changes/{id}/seal`). Runtime does not upload yet. `atlas_code` tests (10) passed. Isolated HTTP proof against a separate Code process:
 
@@ -674,7 +674,7 @@ Evidence: `/Users/melle/.ac-od-l2jz2wti/offline-status-diff-evidence.json`. No i
 - A repeated seal and a repeated POST returned the same commit.
 - The cache `refs/heads/develop` and all fixture-remote refs were unchanged, and the commit is absent from the remote.
 
-Evidence: `/Users/melle/.ac-cs-tzajs3ev/change-submission-evidence.json`. No installation, daemon restart or deployment.
+Evidence: `~/.ac-cs-tzajs3ev/change-submission-evidence.json`. No installation, daemon restart or deployment.
 
 2026-11-08: added `atlas-runtime snapshot submit --dest PATH [--path REPO_PATH] --change-id UUID`. It submits one materialized repository's offline changes to Code and returns the sealed private commit; nothing is pushed or published. Go packages passed, with tests for mixed conversion, clean results, partial-upload resume, repeat, conflict, unavailable Code, and the local refusals listed in the architecture document. Real CLI proof against a separate Code process:
 
@@ -687,7 +687,7 @@ Evidence: `/Users/melle/.ac-cs-tzajs3ev/change-submission-evidence.json`. No ins
 - With Code stopped, submit failed as unavailable.
 - Destination and baseline modes, mtimes, bytes and links were unchanged, and no temporary copies remained. Neither commit exists in the fixture remotes.
 
-Evidence: `/Users/melle/.ac-fs-avnie5kj/folder-submit-evidence.json`. No installation, daemon restart or deployment.
+Evidence: `~/.ac-fs-avnie5kj/folder-submit-evidence.json`. No installation, daemon restart or deployment.
 
 2026-11-08: added Code publication (`POST /v1/publications`, orchestrator token only); see the architecture document for configuration, authorization and retry phases. `atlas_code` tests (19) passed. They cover role refusal, validation, open and unknown changes, exact create-only pushes, existing branches at another commit, at the same commit and at an ancestor, a pre-receive race, same-ID replay and conflict, and PR create/adopt/partial-failure reconciliation through a fixture `gh`. Separate Code process proof against a local fixture remote:
 
@@ -702,7 +702,7 @@ Evidence: `/Users/melle/.ac-fs-avnie5kj/folder-submit-evidence.json`. No install
 - Pre-existing remote branches at the base (fast-forward possible) and at the sealed commit itself both gave `409 branch_exists` and stayed unchanged.
 - The cache `refs/heads` stayed at `develop`.
 
-This is fixture evidence only; real GitHub PR creation was not exercised. Evidence: `/Users/melle/.ac-pb-10wtc6jv/code-publication-evidence.json`. No installation, daemon restart or deployment.
+This is fixture evidence only; real GitHub PR creation was not exercised. Evidence: `~/.ac-pb-10wtc6jv/code-publication-evidence.json`. No installation, daemon restart or deployment.
 
 2026-11-08: moved Claude `answer.txt` persistence from the Python provider into `AtlasRuntime.Agent.Native`. Session/model confirmation stays in Python, before records are forwarded. Each forwarded string result, error results included, overwrites the artifact before terminal notification; a failed write fails the turn. Focused native, admission, service, question, Codex and protocol ExUnit tests (84) and both Python runner modules (20 and 25) passed. In an isolated daemon, real Claude start `turn-3db17cd9af722dda` and saved continuation `turn-c8b6c3fe665d9d34` (same session/model/repository) had their saved answers returned by `output --turn`, including the question-dependent `ANSWER_BETA`; that answer was delivered and processed. Cancelled continuation `turn-3b52fce43ea74d83` wrote no answer, released its lock and removed its group/private temp. The daemon stopped; disposable binary/build/clone were removed. No installation, default-daemon restart or deployment.
 
