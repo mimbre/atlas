@@ -10,6 +10,12 @@ defmodule AtlasFlow.Item do
 
   Registered as `{kind, key}` in `AtlasFlow.Items`, so there is one per fact; starting a
   second one fails.
+
+  A poke carries a ticket (the position of the hint it is for). After the next look, with
+  every write it made stored (`AtlasFlow.Talk.put` waits for the answer), it reports to
+  whoever poked it `{:looked, self(), ticket, wrote: position}`: the highest ticket it
+  had and the highest position it wrote (nil: none), so the engine knows how far Flow
+  has settled (`AtlasFlow.Settled`).
   """
   use GenServer, restart: :transient
 
@@ -26,8 +32,11 @@ defmodule AtlasFlow.Item do
 
   def via(kind, key), do: {:via, Registry, {AtlasFlow.Items, {kind, key}}}
 
-  @doc "Look again soon: something it depends on may have changed."
-  def poke(pid), do: send(pid, :poke)
+  @doc """
+  Look again soon: something it depends on may have changed (the hint at `ticket`).
+  The caller gets `{:looked, pid, ticket, wrote: position}` after that look.
+  """
+  def poke(pid, ticket), do: send(pid, {:poke, self(), ticket})
 
   @impl true
   def init({kind, key, opts}) do
@@ -42,16 +51,22 @@ defmodule AtlasFlow.Item do
        clock: Keyword.get(opts, :clock, {Clock, nil}),
        runner: Keyword.get_lazy(opts, :runner, fn -> runner(opts) end),
        timer: nil,
-       soon: false
+       soon: false,
+       # Who poked it, with the highest ticket each gave since its last look.
+       tickets: %{}
      }}
   end
 
   @impl true
-  def handle_info(:poke, %{soon: true} = state), do: {:noreply, state}
+  def handle_info({:poke, from, ticket}, state) do
+    state = %{state | tickets: Map.update(state.tickets, from, ticket, &max(&1, ticket))}
 
-  def handle_info(:poke, state) do
-    Clock.schedule(state.clock, self(), {:look, :poked}, @settle)
-    {:noreply, %{state | soon: true}}
+    if state.soon do
+      {:noreply, state}
+    else
+      Clock.schedule(state.clock, self(), {:look, :poked}, @settle)
+      {:noreply, %{state | soon: true}}
+    end
   end
 
   # On its timer it reads everything again.
@@ -59,9 +74,12 @@ defmodule AtlasFlow.Item do
 
   def handle_info({:look, _why}, state) do
     if state.timer, do: Clock.cancel(state.clock, state.timer)
-    state = %{state | soon: false, timer: nil}
+    # Every poke received so far is answered by this look.
+    {tickets, state} = {state.tickets, %{state | soon: false, timer: nil, tickets: %{}}}
+    {result, wrote} = Talk.writing(fn -> look(state) end)
+    for {from, ticket} <- tickets, do: send(from, {:looked, self(), ticket, wrote: wrote})
 
-    case look(state) do
+    case result do
       # Back to waiting: hibernate, so what the look read is collected now rather than
       # kept as garbage until the next look.
       {:wait, every} ->

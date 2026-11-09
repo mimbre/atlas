@@ -36,7 +36,8 @@ defmodule RelaDSL.Facts.Derived do
   the relation.
 
   **Late** (`late` per kind, `%{"after" => field, "while" => field}`): while the time in
-  `after` has passed and `while` is not empty.
+  `after` has passed and `while` is not empty. **Until**: while a fact is not late yet
+  but will be by time alone, the first instant it is (a reader re-reads then).
   """
 
   # Rules that point back at a kind already on the way down end here.
@@ -44,17 +45,22 @@ defmodule RelaDSL.Facts.Derived do
 
   @doc """
   What is worked out for each of `facts` (as rela gives them) of `kind`, in order:
-  `{:ok, [%{"progress", "completion", "review", "late"}]}` with only what applies, or the
-  error `lookup["list"]` gave. Without `lookup["list"]`, only what needs no other fact
-  (`late`).
+  `{:ok, [%{"progress", "completion", "review", "late", "until"}]}` with only what
+  applies, or the error `lookup["list"]` gave. Without `lookup["list"]`, only what needs
+  no other fact (`late`, `until`).
   """
   def of(d, kind, facts, lookup) do
     now = lookup["now"] || DateTime.utc_now()
-    late = fn fact -> late(d, kind, fact.properties, now) end
+
+    late = fn derived, fact ->
+      derived
+      |> put("late", late(d, kind, fact.properties, now))
+      |> put("until", until(d, kind, fact.properties, now))
+    end
 
     case lookup["list"] do
       nil ->
-        {:ok, Enum.map(facts, &put(%{}, "late", late.(&1)))}
+        {:ok, Enum.map(facts, &late.(%{}, &1))}
 
       list ->
         with {:ok, facts} <- annotate(d, kind, facts, list),
@@ -65,7 +71,7 @@ defmodule RelaDSL.Facts.Derived do
              |> put("progress", fact[:progress] || nil)
              |> put("completion", fact[:completion] || nil)
              |> put("review", fact[:review] || nil)
-             |> put("late", late.(fact))
+             |> late.(fact)
            end)}
         end
     end
@@ -438,6 +444,25 @@ defmodule RelaDSL.Facts.Derived do
          text when is_binary(text) and text != "" <- (values || %{})[after_field],
          {:ok, at, _offset} <- DateTime.from_iso8601(text) do
       DateTime.compare(now, at) == :gt and (values[while] || "") not in ["", nil]
+    else
+      _ -> nil
+    end
+  end
+
+  @doc """
+  The first instant at which a fact with `values` of `kind` turns late by time alone
+  (an ISO 8601 text): while it is not late at `now`, has a time in `after` and something
+  in `while`. Nil otherwise: late already, never by time, or without a rule.
+  """
+  def until(d, kind, values, now \\ DateTime.utc_now()) do
+    with %{"after" => after_field, "while" => while}
+         when is_binary(after_field) and is_binary(while) <-
+           get_in(d, ["entities", kind, "late"]),
+         text when is_binary(text) and text != "" <- (values || %{})[after_field],
+         {:ok, at, _offset} <- DateTime.from_iso8601(text),
+         true <- (values[while] || "") not in ["", nil],
+         true <- DateTime.compare(now, at) != :gt do
+      at |> DateTime.add(1, :microsecond) |> DateTime.to_iso8601()
     else
       _ -> nil
     end

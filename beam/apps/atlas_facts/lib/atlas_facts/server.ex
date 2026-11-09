@@ -7,7 +7,9 @@ defmodule AtlasFacts.Server do
 
   - A `fact` is stored in rela and answered with one `stored` (acknowledgement and hint,
     with the fact's position) or one `refused` (final, with reasons). Never silence.
-    A resent id gets its first answer again and is not stored twice.
+    A resent id gets its first answer again and is not stored twice. `stored` says what
+    the write changed (`changes`, one entry per fact, what it brought along included:
+    `AtlasFacts.Freshness.Changes`).
   - A `read` is answered with the facts of a kind (all, or `"linked" => %{relation => key}`
     for those that point at `key`), one fact (`"key" => key`) with the keys of the facts
     that point at it and, for a copy of an outside fact, when a connector last read it
@@ -16,7 +18,9 @@ defmodule AtlasFacts.Server do
     fact that set each: since, by, cause; `AtlasFacts.Links`), and what the model works
     out for them (`derived/3`: `progress`, why they are `completion`, `review`, `late`):
     worked out on every read, never stored. One fact also carries the `history` of its
-    links.
+    links. A read of facts (each answer of a `_page` too) says what it depended on
+    (`deps`) and, when a value in it changes by time alone, when (`until`;
+    `AtlasFacts.Freshness.Deps`).
 
   Fact content: `%{"op" => "create" | "change" | "delete", "key" => id,
   "values" => %{property => value}, "version" => version read before, or nil,
@@ -40,6 +44,7 @@ defmodule AtlasFacts.Server do
   alias AtlasBus.Envelope
 
   alias AtlasFacts.{Copies, Description, Ledger, Links, Rela}
+  alias AtlasFacts.Freshness.{Changes, Deps}
 
   @description "_description"
   @page "_page"
@@ -119,11 +124,22 @@ defmodule AtlasFacts.Server do
       AtlasFacts.Collections.mutation(state.rela, fn ->
         if Ledger.matches_request?(state.ledger, envelope.id, binding) do
           rela = state.rela
+          log = Changes.open()
 
-          {:noreply, state} =
-            dispatch(envelope, content, %{state | rela: AtlasFacts.Collections.uncached(rela)})
+          # Every write rela accepts while this fact is handled is noted, for its hint.
+          recording =
+            rela
+            |> AtlasFacts.Collections.uncached()
+            |> AtlasFacts.Collections.through(&Changes.recorder(&1, log))
 
-          {:noreply, %{state | rela: rela}}
+          try do
+            {:noreply, state} =
+              dispatch(envelope, content, Map.merge(state, %{rela: recording, changes: log}))
+
+            {:noreply, %{Map.delete(state, :changes) | rela: rela}}
+          after
+            Changes.close(log)
+          end
         else
           refusal(envelope, :request_conflict, state)
         end
@@ -271,13 +287,12 @@ defmodule AtlasFacts.Server do
       end
 
     case result do
+      {:ok, value} when envelope.class == "read" ->
+        reply(envelope, "answer", value, value["position"])
+
       {:ok, value} ->
-        reply(
-          envelope,
-          if(envelope.class == "read", do: "answer", else: "stored"),
-          value,
-          value["position"]
-        )
+        changes = changes(state, envelope.kind, content["key"] || value["key"])
+        reply(envelope, "stored", Map.put(value, "changes", changes), value["position"])
 
       {:error, reason} ->
         reply(
@@ -437,7 +452,17 @@ defmodule AtlasFacts.Server do
     case result do
       {:ok, answer} when envelope.class == "fact" ->
         position = answer["recorded_position"]
-        reply(envelope, "stored", %{"key" => answer["key"], "fact" => answer}, position)
+
+        reply(
+          envelope,
+          "stored",
+          %{
+            "key" => answer["key"],
+            "fact" => answer,
+            "changes" => record_changes(state, role, envelope.kind, answer)
+          },
+          position
+        )
 
       {:ok, answer} ->
         reply(envelope, "answer", answer, nil)
@@ -454,6 +479,21 @@ defmodule AtlasFacts.Server do
     end
 
     {:noreply, state}
+  end
+
+  # A guidance record is made once and never changed: its answer, a replay's too, says it
+  # was made, as the first answer did (its fields as rela holds them).
+  defp record_changes(state, role, kind, answer) do
+    mapping = get_in(context(state), ["guidance", role, "fields"]) || %{}
+
+    values =
+      for {name, value} <- answer,
+          field = mapping[name],
+          field != nil,
+          into: %{},
+          do: {field, value}
+
+    [Changes.entry(kind, answer["key"], nil, %{values: values, links: %{}})]
   end
 
   defp guidance_code(reason) when is_atom(reason), do: Atom.to_string(reason)
@@ -481,11 +521,21 @@ defmodule AtlasFacts.Server do
         do: %{state | rela: AtlasFacts.Collections.uncached(original)},
         else: state
 
-    {answer, state} = read(state, envelope.kind, content || %{})
+    {answer, state} = answered_read(state, envelope.kind, content || %{})
     state = %{state | rela: original}
 
     reply(envelope, "answer", Map.put(answer, "position", Ledger.position(state.ledger)), nil)
     {:noreply, state}
+  end
+
+  # A read of facts says what it depended on (`AtlasFacts.Freshness.Deps`); a page says
+  # it per answer, and the description depends on no fact.
+  defp answered_read(state, kind, content) when kind in [@description, @page],
+    do: read(state, kind, content)
+
+  defp answered_read(state, kind, content) do
+    {{answer, state}, frame} = Deps.collect(fn -> read(state, kind, content) end)
+    {Deps.attach(answer, frame), state}
   end
 
   defp answer(state, envelope, content, result) do
@@ -499,6 +549,7 @@ defmodule AtlasFacts.Server do
 
     case result do
       :stored ->
+        about = Map.put(about, "changes", changes(state, envelope.kind, about["key"]))
         position = Ledger.stored(state.ledger, envelope.id, about)
         remember_links(state, envelope.kind, content, about, position)
         reply(envelope, "stored", about, position)
@@ -523,6 +574,10 @@ defmodule AtlasFacts.Server do
         reply(envelope, "refused", Map.put(about, "reasons", [reason]), nil)
     end
   end
+
+  # What the write changed (docs/design/page-freshness.md §1.2): every fact rela accepted
+  # a write of while this one was handled, the fact it is about first.
+  defp changes(state, kind, key), do: Changes.of(state[:changes], state.description, {kind, key})
 
   # The fact that set each link it names: when, by whom, why (`AtlasFacts.Links`).
   defp remember_links(state, kind, %{"op" => "delete", "key" => key}, _about, _position),
@@ -594,7 +649,7 @@ defmodule AtlasFacts.Server do
       try do
         {answers, state} =
           Enum.map_reduce(kinds, Map.put(state, :page_lists, key), fn kind, state ->
-            {answer, state} = read(state, kind, %{})
+            {answer, state} = answered_read(state, kind, %{})
             {Map.put(answer, "position", Ledger.position(state.ledger)), state}
           end)
 
@@ -656,6 +711,12 @@ defmodule AtlasFacts.Server do
              end)
            end),
          {:ok, facts} <- if(progress?, do: with_progress(state, kind, facts), else: {:ok, facts}) do
+      # Which facts are in it: every fact of the kind, or those that point at the keys.
+      if linked == %{},
+        do: Deps.kind(kind),
+        else: for({relation, keys} <- linked, key <- keys, do: Deps.linked(relation, key))
+
+      for fact <- facts, do: Deps.key(kind, fact.key)
       %{"facts" => Enum.map(facts, &wire(state, kind, &1))}
     else
       {:error, reason} -> read_error(reason)
@@ -675,6 +736,9 @@ defmodule AtlasFacts.Server do
              plural when is_binary(plural) <-
                get_in(state.description, ["entities", to, "plural"]),
              {:ok, facts} <- collection(state, plural) do
+          # Which facts meet the condition: those that point at its keys.
+          for {rel, key} <- inner, do: Deps.linked(rel, key)
+
           keys =
             for fact <- facts,
                 Enum.all?(inner, fn {rel, key} -> key in (fact.links[rel] || []) end),
@@ -694,6 +758,8 @@ defmodule AtlasFacts.Server do
   # Only the fact, as rela has it, with its links: one call to rela, for a reader that
   # needs no progress, completion or what points at it (Flow walking up to the parents).
   defp read_plain(state, kind, spec, key) do
+    Deps.key(kind, key)
+
     case Rela.get(AtlasFacts.Collections.uncached(state.rela), spec["plural"], key) do
       {:ok, fact} -> %{"fact" => wire(state, kind, fact)}
       {:error, :not_found} -> %{"fact" => nil}
@@ -703,7 +769,10 @@ defmodule AtlasFacts.Server do
 
   # `full?` false (`"incoming": false`): the fact with its progress and completion, without
   # what points at it, the kinds of its links, its history or its copy: what Flow needs.
+  # One fact depends on itself, found or not: a fact made later is a change of it.
   defp read_one(state, kind, spec, key, false) do
+    Deps.key(kind, key)
+
     with {:ok, fact} <- Rela.get(state.rela, spec["plural"], key),
          {:ok, [fact]} <- with_progress(state, kind, [fact]) do
       %{"fact" => wire(state, kind, fact)}
@@ -714,6 +783,8 @@ defmodule AtlasFacts.Server do
   end
 
   defp read_one(state, kind, spec, key, true) do
+    Deps.key(kind, key)
+
     with {:ok, fact} <-
            Rela.get(AtlasFacts.Collections.uncached(state.rela), spec["plural"], key),
          {:ok, [fact]} <- with_progress(state, kind, [fact]),
@@ -745,6 +816,8 @@ defmodule AtlasFacts.Server do
   defp incoming(state, kind, spec, key) do
     Description.incoming(state.description, kind)
     |> Enum.reduce_while({:ok, %{}}, fn {relation, _from}, {:ok, acc} ->
+      Deps.linked(relation, key)
+
       case Rela.incoming(state.rela, spec["plural"], key, relation) do
         {:ok, keys} -> {:cont, {:ok, Map.put(acc, relation, keys)}}
         error -> {:halt, error}
@@ -754,15 +827,23 @@ defmodule AtlasFacts.Server do
 
   # What the model works out for each fact, from the facts it reads: how far it is,
   # whether it is completed, to be reviewed, late.
+  # What the model reads for them is a dependency of the answer: a whole kind, for now
+  # (docs/design/page-freshness.md F10 makes it the linked sets the rule reads).
   defp with_progress(state, kind, facts) do
-    list = fn of -> collection(state, plural(state, of)) end
+    list = fn of ->
+      Deps.kind(of)
+      collection(state, plural(state, of))
+    end
 
     with {:ok, derived} <- state.model.derived(kind, facts, %{"list" => list}) do
       {:ok, Enum.zip_with(facts, derived, &derive/2)}
     end
   end
 
+  # When a derived value changes by time alone (`until`), the answer says when.
   defp derive(fact, derived) do
+    Deps.until(derived["until"])
+
     for {name, key} <- [
           progress: "progress",
           completion: "completion",
@@ -817,6 +898,7 @@ defmodule AtlasFacts.Server do
         fact.late
       else
         {:ok, [derived]} = state.model.derived(kind, [fact], %{})
+        Deps.until(derived["until"])
         derived["late"]
       end
 
@@ -1272,7 +1354,12 @@ defmodule AtlasFacts.Server do
         keys = links[relation] || [],
         keys != [],
         into: %{} do
-      {relation, Map.new(keys, fn key -> {key, Enum.find(kinds, &kind_has?(state, &1, key))} end)}
+      {relation,
+       Map.new(keys, fn key ->
+         found = Enum.find(kinds, &kind_has?(state, &1, key))
+         if found, do: Deps.key(found, key)
+         {key, found}
+       end)}
     end
   end
 
