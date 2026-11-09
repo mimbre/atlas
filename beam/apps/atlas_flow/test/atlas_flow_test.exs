@@ -13,6 +13,14 @@ defmodule AtlasFlowTest do
     # Registry drops a stopped process's name a moment later; till then the engine finds it.
     eventually(fn -> Registry.count(AtlasFlow.Items) == 0 end)
 
+    # None is left for another test either: a later test that looks at every process in the
+    # supervisor, or starts one under the same name, finds only its own. Stopping is
+    # synchronous; a name the Registry still holds for a stopped process can be taken.
+    on_exit(fn ->
+      for {_, pid, _, _} <- DynamicSupervisor.which_children(AtlasFlow.Supervisor),
+          do: DynamicSupervisor.terminate_child(AtlasFlow.Supervisor, pid)
+    end)
+
     start_supervised!(FakeFacts)
     # Who can own, as facts: the owners the definition names must exist.
     for key <- ["ada", "bob"], do: FakeFacts.put("clerk", %{"key" => key})
