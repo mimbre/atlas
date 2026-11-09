@@ -1,41 +1,31 @@
-Code.require_file("../../../beam/apps/atlas_bus/lib/atlas_bus/digest.ex", __DIR__)
-Code.require_file("../../../beam/apps/atlas_bus/lib/atlas_bus/subject_fingerprint.ex", __DIR__)
-# Exercise the pure platform evaluators against the contract without starting any apps
-# or adding a production dependency from declarations to runtime services.
-for file <- ["definitions", "request", "rules", "verdict"] do
-  Code.require_file("../../../beam/apps/atlas_gates/lib/atlas_gates/#{file}.ex", __DIR__)
-end
-
+# Facts' pure guards are exercised against the model without starting any app; Flow and
+# Gates are the model's (compile-time) dependencies.
 Code.require_file("../../../beam/apps/atlas_facts/lib/atlas_facts/guards.ex", __DIR__)
-
-for file <- ~w(conditions inputs run) do
-  Code.require_file("../../../beam/apps/atlas_flow/lib/atlas_flow/runs/#{file}.ex", __DIR__)
-end
-
-Code.require_file("../../../beam/apps/atlas_flow/lib/atlas_flow/activities/gate.ex", __DIR__)
 
 defmodule Model.DeciderTest do
   use ExUnit.Case, async: true
   alias AtlasGates.{Definitions, Request, Rules, Verdict}
   alias AtlasBus.Digest
 
+  # The decide subflow as the model compiled it for `env`.
+  defp decide(env), do: Enum.find(Model.AtlasEyra.subflows(env), &(&1.name() == "decide"))
+
   test "slice-1 cursors migrate against both deployed definition digests" do
     alias AtlasFlow.Runs.Run
     now = ~U[2026-11-12 00:00:00Z]
     old_digest = "8ca16b332a083209e6e44ffc3feeca0f152c632caa4d5206ab24fe540ab3770c"
-    config = JSON.decode!(File.read!("../../rela/flow-runtime.json"))["flow_runtime"]
-    selection = config["selection"]["decide"]
+    selection = Model.AtlasEyra.selection("decide")
     # Captured from the deployed slice-1 runs in both environments, rather than
     # inferred from a reconstruction of the old declaration.
     assert Enum.count(selection["migrations"], &(&1["from"] == old_digest)) == 2
     assert length(selection["migrations"]) == 6
 
-    for path <- ["../targets/atlas/flows.json", "../targets/test/atlas/flows.json"] do
-      definition = JSON.decode!(File.read!(path))["flows"]["decide"]
+    for env <- [:prod, :test] do
+      definition = decide(env)
 
       assert Enum.count(
                selection["migrations"],
-               &(&1["from"] == old_digest and &1["to"] == Run.digest(definition))
+               &(&1["from"] == old_digest and &1["to"] == definition.digest())
              ) == 1
 
       for state <- ~w(proposed accepted rejected) do
@@ -54,7 +44,7 @@ defmodule Model.DeciderTest do
         if state == "proposed" do
           assert migrated["state"] == "deciding"
           assert migrated["entry"] == old["entry"] + 1
-          assert migrated["definition_sha256"] == Run.digest(definition)
+          assert migrated["definition_sha256"] == definition.digest()
           assert migrated["pending"]["gate"] == nil
           assert length(migrated["pending"]["migrations"]) == 1
 
@@ -76,10 +66,10 @@ defmodule Model.DeciderTest do
   end
 
   test "only person waits declare person ownership and owner answers" do
-    definition = JSON.decode!(File.read!("../targets/atlas/flows.json"))["flows"]["decide"]
+    definition = decide(:prod)
 
     for state <- ~w(for_person for_person_always) do
-      assert definition["states"][state]["owner"] == %{
+      assert definition.owner(state) == %{
                "via" => "assignment",
                "relation" => "assigned_to",
                "default" => %{"kind" => "person", "key" => "melle"},
@@ -102,76 +92,86 @@ defmodule Model.DeciderTest do
                    "values" => %{"status" => "rejected", "decided_at" => "$now"}
                  }
                }
-             ] =
-               get_in(definition, ["states", state, "present", "todo", "answers"])
+             ] = get_in(definition.present(state, %{}), ["todo", "answers"])
     end
 
     for state <- ~w(for_agent for_agent_unverified accepted rejected) do
-      assert definition["states"][state]["owner"] == nil
-      assert get_in(definition, ["states", state, "present", "todo", "answers"]) == nil
+      assert definition.owner(state) == definition.owner()
+      assert get_in(definition.present(state, %{}) || %{}, ["todo", "answers"]) == nil
     end
 
-    assert definition["states"]["for_person"]["present"]["deadline"] == "no_answer"
-    refute definition["states"]["for_person_always"]["present"]["deadline"]
+    assert definition.present("for_person", %{})["deadline"] == "no_answer"
+    refute definition.present("for_person_always", %{})["deadline"]
   end
 
   test "the executable decider uses recorded gate results and trusted choices with environment limits" do
-    [flow] = Model.Decision.__flows__()
-    gates = Model.AtlasEyra.__rela__(:gates)
-    [resolved] = RelaDSL.Limits.resolve([flow], gates, :test)
-    json = RelaDSL.Atlas.flows_json([resolved], gates, "test") |> JSON.decode!()
-    definition = json["flows"]["decide"]
-    assert AtlasFlow.Runs.Run.validate(definition) == :ok
+    alias AtlasFlow.Runs.Run
+    definition = decide(:test)
+    assert Run.validate(definition) == :ok
 
-    assert definition["initial"] == "deciding"
-    assert definition["states"]["deciding"]["kind"] == "gate"
+    assert definition.initial() == "deciding"
+    assert {:gate, %{"gate" => "accept_decision"}} = definition.mechanism("deciding")
 
-    assert definition["states"]["for_person"]["timers"] == [
+    assert definition.timers("for_person") == [
              %{"name" => "no_answer", "period" => "5m", "to" => "deciding"}
            ]
 
-    assert definition["states"]["for_person_always"]["timers"] == []
+    assert definition.timers("for_person_always") == []
+    assert definition.enter("for_agent_unverified", %{}) == [{:set, %{"unverified" => true}}]
 
-    assert definition["states"]["for_agent_unverified"]["set"] == [
-             %{"field" => "unverified", "value" => true}
-           ]
+    # Only a role's input moves a waiting decision: a change alone never does.
+    for state <- ~w(for_person for_person_always for_agent for_agent_unverified) do
+      assert definition.next(state, %{"status" => "accepted"}, nil) == :stay
+      [role | _] = definition.waiting_for(state)
+      input = %{roles: [role], changed: %{"status" => "accepted"}}
+      assert definition.next(state, %{"status" => "accepted"}, input) == {:to, "accepted"}
+    end
 
-    for state <- ~w(for_person for_person_always for_agent for_agent_unverified),
-        branch <- definition["states"][state]["branches"],
-        do: assert(branch["roles"] != [])
+    assert [%{"period" => "48h"}] = decide(:prod).timers("for_person")
 
-    [prod] = RelaDSL.Limits.resolve([flow], gates, :prod)
+    runs = Model.AtlasEyra.runs()
+    assert runs["inputs"]["roles"]["decider"] == "decided_by"
 
-    assert Enum.find(prod.states, &(&1.name == :for_person)).timers |> hd() |> Map.fetch!(:period) ==
-             "48h"
+    selected =
+      for f <- Model.AtlasEyra.subflows(:prod),
+          Model.AtlasEyra.selection(f.name()) != nil,
+          do: f.name()
 
-    config = File.read!("../../rela/flow-runtime.json") |> JSON.decode!()
-    assert Map.keys(config["flow_runtime"]["selection"]) == ["decide"]
-    assert config["flow_runtime"]["inputs"]["roles"]["decider"] == "decided_by"
-    selection = config["flow_runtime"]["selection"]["decide"]
-    assert selection["subject"] == definition["subject"]
-
-    assert Enum.any?(
-             selection["migrations"],
-             &(&1["to"] == AtlasFlow.Runs.Run.digest(definition))
-           )
+    assert selected == ["decide"]
+    selection = Model.AtlasEyra.selection("decide")
+    assert selection["subject"] == definition.subject()
+    assert Enum.any?(selection["migrations"], &(&1["to"] == definition.digest()))
 
     for status <- ~w(accepted rejected superseded) do
       subject = %{"key" => "D-history", "values" => %{"status" => status}}
-
-      run =
-        AtlasFlow.Runs.Run.new(
-          "decide",
-          definition,
-          subject,
-          selection["imports"],
-          ~U[2026-11-12 00:00:00Z]
-        )
-
+      run = Run.new("decide", definition, subject, selection["imports"], ~U[2026-11-12 00:00:00Z])
       assert run["status"] == "completed"
       assert run["pending"]["writes"] == []
       assert run["state"] == if(status == "rejected", do: "rejected", else: "accepted")
     end
+  end
+
+  test "the legacy decide fills what is expected; a field the decision lacks leaves no braces" do
+    waiting = Model.AtlasEyra.Legacy.Decide
+
+    {state, vars} =
+      waiting.state(
+        %{"values" => %{"status" => "accepted", "consequences" => "the ledger changes"}},
+        [],
+        [],
+        ["based_on"]
+      )
+
+    assert waiting.expected(state, vars) =~ "the ledger changes"
+
+    # Accepted on the timeout path, without consequences (an agent decided it, unverified).
+    {state, vars} =
+      waiting.state(%{"values" => %{"status" => "accepted", "unverified" => true}}, [], [], [
+        "based_on"
+      ])
+
+    assert state == "waiting"
+    refute waiting.expected(state, vars) =~ "{"
   end
 
   test "the frozen rule only permits clearing the unverified flag, and only Flow writes it" do

@@ -58,19 +58,16 @@ defmodule FlowGateProof do
   @now ~U[2026-11-12 00:00:00Z]
 
   setup do
-    root = Path.expand("../..", __DIR__)
-    %{"flow_runtime" => c} = JSON.decode!(File.read!(Path.join(root, "rela/flow-runtime.json")))
+    # The model Flow and Gates run, compiled for the test environment (its answer limits).
+    Application.put_env(:atlas, :model, Model.AtlasEyra)
+    %{config: c, flows: flows} = AtlasFlow.Model.load(Model.AtlasEyra, :test)
     c = Map.delete(c, "inputs")
-    d = %{"flow_runtime" => c, "entities" => %{"decision" => %{}, "gate_verdict" => %{}}}
+    d = %{"entities" => %{"decision" => %{}, "gate_verdict" => %{}}}
     start_supervised!({FakeFacts, description: d})
     clock = start_supervised!({ManualClock, @now})
     start_supervised!({AtlasGates.Endpoint, facts: {FlowGateFacts, nil}, now: @now})
     :ok = AtlasBus.attach("flow")
-
-    {:ok, target} =
-      RelaDSL.Runtime.read(Path.join(root, "model/targets/test/atlas/flows.json"))
-
-    %{c: c, flows: target["flows"], clock: clock}
+    %{c: c, flows: flows, clock: clock}
   end
 
   defp subject(force \\ "direction") do

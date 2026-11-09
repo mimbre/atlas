@@ -46,6 +46,13 @@ defmodule RelaDSL.Composition do
     * root keys of Rela's schema that Atlas does not use (`worlds`, `copies`,
       `default_world`, root `validations`) are refused: no construct writes them.
 
+  ## What it compiles
+
+  The composition is the model a runner is wired to: it compiles each subflow it runs,
+  per environment (`RelaDSL.Flow.Subflow`), and each legacy flow (`RelaDSL.Flow.Legacy`),
+  and gets their callbacks (`RelaDSL.Flow.Model`). `use RelaDSL.Composition` takes
+  `subflow_behaviour:` and `legacy_behaviour:`, the behaviours those modules declare.
+
   ## Introspection
 
   `__rela__(:description)` is everything the targets are written from: the schema
@@ -301,7 +308,20 @@ defmodule RelaDSL.Composition do
 
     migrations = Enum.map(migrations, &Map.take(&1, [:subflow, :opts]))
 
+    compiled =
+      RelaDSL.Flow.Model.body(
+        env.module,
+        opts,
+        flows,
+        gates,
+        environments,
+        extension,
+        flow_runtime
+      )
+
     quote do
+      unquote(compiled)
+
       @doc "The model, as plain data (see `RelaDSL.Composition`)."
       def __rela__(:description), do: unquote(Macro.escape(description))
       def __rela__(:gates), do: unquote(Macro.escape(gates))

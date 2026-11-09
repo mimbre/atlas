@@ -1,4 +1,5 @@
-# Private neutral contract, real Bus and durable receiver journal, fake Facts/native worker.
+# Private neutral model (atlas_flow's test depot), real Bus and durable receiver journal,
+# fake Facts/native worker.
 # From beam/: MIX_ENV=test mix run integration/flow_pass.exs
 # This proves protocol recovery, not a provider run or a deployed environment. Runtime's
 # native receiver is opt-in via config :atlas_runtime, :flow_passes,
@@ -35,9 +36,10 @@ defmodule FlowPassProof do
   @moduletag :tmp_dir
 
   setup %{tmp_dir: dir} do
-    d = FakeFacts.run_description()
-    c = put_in(d["flow_runtime"], ["selection", "sort", "imports"], [])
-    d = Map.put(d, "flow_runtime", c)
+    # The neutral depot's runs, with its sort replaced by an inspection pass (compiled
+    # from the Rela DSL, test/support of atlas_flow); no import makes a run final.
+    c = put_in(AtlasFlow.TestModel.config(), ["selection", "sort", "imports"], [])
+    d = FakeFacts.description()
     start_supervised!({FakeFacts, description: d})
     clock = start_supervised!({ManualClock, @now})
     receiver = start_supervised!({Agent, fn -> %{starts: 0, requests: %{}} end})
@@ -52,41 +54,7 @@ defmodule FlowPassProof do
 
     FakeFacts.put("clerk", %{"key" => "ada", "values" => %{"node" => "desk"}})
     FakeFacts.put("clerk", %{"key" => "bob", "values" => %{"node" => "other-desk"}})
-    state = %{"set" => [], "creates" => [], "branches" => [], "timers" => [], "final" => true}
-
-    flow = %{
-      "subject" => "box",
-      "owner" => %{"relation" => "owned_by"},
-      "initial" => "working",
-      "per_subject" => "one",
-      "start" => [%{"on" => "create"}],
-      "states" => %{
-        "done" => state,
-        "working" =>
-          Map.merge(state, %{
-            "final" => false,
-            "kind" => "pass",
-            "branches" => [
-              %{"when" => "entity.pass_result == 'finished'", "roles" => [], "to" => "done"}
-            ],
-            "spec" => %{
-              "contract" => 1,
-              "name" => "inspect",
-              "routing" => %{"machine_field" => "node"},
-              "fingerprint" => %{"fields" => ["revision"], "relations" => []},
-              "request" => %{
-                "mode" => "start",
-                "assignment" => "Inspect this input",
-                "cwd" => dir,
-                "permissions" => "read-only",
-                "backend" => "codex",
-                "vendors" => ["codex"]
-              }
-            }
-          })
-      }
-    }
-
+    flow = AtlasFlow.Sorts.Inspect
     assert :ok = AtlasFlow.Runs.Run.validate(flow)
 
     %{
@@ -133,7 +101,7 @@ defmodule FlowPassProof do
       put_in(s.requests[id], %{
         "execution" => "execution-1",
         "status" => "completed",
-        "outcome" => "finished"
+        "outcome" => "delivered"
       })
     end)
 
@@ -190,7 +158,8 @@ defmodule FlowPassProof do
     fact = FakeFacts.get("box", "B-1")
     fact = put_in(fact, ["links", "holder"], ["J-1"])
     FakeFacts.put("box", put_in(fact, ["links", "owned_by"], ["bob"]))
-    c = put_in(c.flows["sort"]["owner"]["via"], "holder")
+    # The same pass, owned through the box's holder.
+    c = %{c | flows: %{"sort" => AtlasFlow.Sorts.InspectHeld}}
     {:ok, [run]} = reconcile(c)
     r = run["pending"]["pass"]["request"]
     assert r["owner"] == "ada" and r["machine"] == "desk"

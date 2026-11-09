@@ -113,6 +113,18 @@ defmodule AtlasE2E.CompositionTest do
 
     assert status == 0, out
     File.cp_r!(Path.join(@root, "rela/scripts"), Path.join(ctx.dir, "rela/scripts"))
+    # Flow and Gates run the profile itself (the compiled model), not Model.AtlasEyra.
+    settings = Path.join(ctx.dir, "test.json")
+
+    File.write!(
+      settings,
+      settings
+      |> File.read!()
+      |> JSON.decode!()
+      |> Map.put("model", @profiles[profile])
+      |> JSON.encode!()
+    )
+
     {out, status} = ops(ctx, ["restart"])
     assert status == 0, out
   end

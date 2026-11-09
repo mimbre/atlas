@@ -66,8 +66,9 @@ is written with sorted keys, so its bytes depend only on what the model says.
 `flows.yaml` holds the subflows; `acl.yaml` the roles the flows name, so rela can check
 them. Rela defines and checks the flows; Atlas Flow runs them (D-0068). Neither file is
 part of the selected closure, so startup never copies them into a running rela's data
-(which runs without an `acl.yaml`, and would refuse flows that name roles). The core
-image holds `rela/flows.yaml` for Flow (`fly/core.Dockerfile`); the rela image does not.
+(which runs without an `acl.yaml`, and would refuse flows that name roles). Neither
+image holds `rela/flows.yaml`: Flow runs the compiled model (`model/contract`), whose
+subflows have the same digests as the flows Rela checks.
 `flow-runtime.json` maps the durable runs; its migrations come from the `migrate`
 declarations beside each subflow, which `model/targets/proof/digests.json` proves.
 

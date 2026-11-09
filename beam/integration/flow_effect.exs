@@ -21,9 +21,9 @@ defmodule FlowEffectProof do
   @moduletag :tmp_dir
 
   setup %{tmp_dir: dir} do
-    d = FakeFacts.run_description()
-    c = put_in(d["flow_runtime"], ["selection", "sort", "imports"], [])
-    start_supervised!({FakeFacts, description: Map.put(d, "flow_runtime", c)})
+    # The neutral depot's runs (atlas_flow's test model); no import makes a run final.
+    c = put_in(AtlasFlow.TestModel.config(), ["selection", "sort", "imports"], [])
+    start_supervised!(FakeFacts)
     clock = start_supervised!({ManualClock, @now})
     :ok = AtlasBus.attach("flow")
     FakeFacts.put("box", %{"key" => "B-1", "values" => %{"phase" => "first", "title" => "a"}})
@@ -48,31 +48,8 @@ defmodule FlowEffectProof do
     }
   end
 
-  defp flow do
-    base = %{"set" => [], "creates" => [], "branches" => [], "timers" => [], "final" => false}
-
-    %{
-      "subject" => "box",
-      "owner" => %{"default" => %{"kind" => "clerk", "key" => "ada"}},
-      "initial" => "publishing",
-      "per_subject" => "one",
-      "start" => [%{"on" => "create"}],
-      "states" => %{
-        "done" => Map.put(base, "final", true),
-        "stuck" => base,
-        "publishing" =>
-          Map.merge(base, %{
-            "kind" => "effect",
-            "set" => [%{"field" => "effect_result", "value" => "none"}],
-            "branches" => [
-              %{"when" => "entity.effect_result == 'done'", "roles" => [], "to" => "done"},
-              %{"when" => "entity.effect_result == 'refused'", "roles" => [], "to" => "stuck"}
-            ],
-            "spec" => spec()
-          })
-      }
-    }
-  end
+  # The depot's sort, publishing the box (an effect), compiled from the Rela DSL.
+  defp flow, do: AtlasFlow.Sorts.Publish
 
   defp receiver(c), do: start_supervised!({EffectReceiver, dir: c.journal, address: @address})
   defp reconcile(c), do: Store.reconcile(c.c, %{"sort" => flow()}, ManualClock.now(c.clock))

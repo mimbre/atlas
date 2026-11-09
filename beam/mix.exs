@@ -6,12 +6,13 @@ defmodule Atlas.MixProject do
       apps_path: "apps",
       version: "0.1.0",
       start_permanent: Mix.env() == :prod,
-      deps: [],
+      deps: deps(),
       # The core as one release, for Fly (fly/core.Dockerfile); on a Mac it runs with `mix run`.
       releases: [
         atlas: [
           applications: [
             atlas_bus: :permanent,
+            model: :permanent,
             atlas_facts: :permanent,
             atlas_gates: :permanent,
             atlas_flow: :permanent,
@@ -31,4 +32,11 @@ defmodule Atlas.MixProject do
       ]
     ]
   end
+
+  # The model Flow and Gates run (D-0083): the domain, written in the Rela DSL and
+  # compiled into the release. No platform app depends on it; config :atlas, model: wires
+  # it at boot. Outside prod it is compiled with its private profiles, which a private
+  # instance can be wired to instead (its settings' "model").
+  defp deps,
+    do: [{:model, path: "../model/contract", env: Mix.env()}]
 end

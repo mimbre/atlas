@@ -2,7 +2,8 @@ defmodule AtlasFlow.Item do
   @moduledoc """
   One open fact's process (architecture, rule 2): alive while the fact is open, with a
   timer in every state. On its timer, and at once when poked (a hint), it reads its fact
-  and what hangs under it from Facts, works out its state from the flow definition, and
+  and what hangs under it from Facts, works out its state from the model's compiled flow
+  (a legacy flow, or the run of a selected subflow), and
   when the owner or what is expected differs from what is stored, stores the change, with
   its cause. It keeps nothing Facts does not hold: restarted at any moment, it goes on
   from Facts. When its fact is done (or gone) it stops.
@@ -14,7 +15,7 @@ defmodule AtlasFlow.Item do
 
   require Logger
 
-  alias AtlasFlow.{Definition, Talk}
+  alias AtlasFlow.{Legacy, Talk}
   alias AtlasFlow.Runs.{Clock, Run, Store}
 
   # A burst of hints is looked at once.
@@ -42,8 +43,7 @@ defmodule AtlasFlow.Item do
        key: key,
        every: Keyword.fetch!(opts, :every),
        clock: Keyword.get(opts, :clock, {Clock, nil}),
-       target: Keyword.get(opts, :target, AtlasFlow.Generated),
-       yaml: Keyword.get(opts, :deployed_yaml),
+       runner: Keyword.get_lazy(opts, :runner, fn -> runner(opts) end),
        timer: nil,
        soon: false,
        description: nil
@@ -83,29 +83,42 @@ defmodule AtlasFlow.Item do
   def handle_info(_message, %{soon: true} = state), do: {:noreply, state}
   def handle_info(_message, state), do: {:noreply, state, :hibernate}
 
+  # Started by itself (not by the engine): the model given, or the one configured.
+  defp runner(opts) do
+    model = Keyword.get_lazy(opts, :model, &AtlasFlow.Model.configured!/0)
+
+    AtlasFlow.Model.load(
+      model,
+      Keyword.get_lazy(opts, :environment, &AtlasFlow.Model.environment/0)
+    )
+  end
+
   defp look(state) do
     with %{"description" => description} <- description(state),
-         {name, flow} <- Definition.for_kind(description, state.kind),
+         flow when flow != nil <-
+           Legacy.for_kind(Legacy.runnable(state.runner.legacy, description), state.kind),
          %{"fact" => fact} when is_map(fact) <-
            Talk.read(state.kind, %{"key" => state.key, "incoming" => false}) do
       parents = parent_relations(description, state.kind)
-      pointing = Definition.pointing(description, flow, state.kind)
+      pointing = Legacy.pointing(flow, description, state.kind)
 
       children =
         children(parents, description, state.key) ++ pointed(pointing, description, state.key)
 
-      flow =
-        case Store.selected(description, state.kind, fact) do
-          {_, selection} -> Map.merge(flow, selection["projection"])
-          _ -> flow
+      selected = Store.selected(state.runner.config, state.kind, fact)
+
+      binding =
+        case selected do
+          {_, selection} -> Map.merge(flow.writes(), selection["projection"])
+          _ -> flow.writes()
         end
 
-      {current, vars} = projection(state, description, flow, fact, children, parents, pointing)
-      result = if current, do: move(state, description, {name, flow}, fact, current, vars)
+      current = projection(state, selected, flow, fact, children, parents, pointing)
+      result = if current, do: move(state, description, {flow.name(), binding}, fact, current)
 
       if current["done"] == true and result != :held,
         do: :stop,
-        else: {:wait, Definition.every(current || %{}, state.every)}
+        else: {:wait, current["every"] || state.every}
     else
       # Gone, or no flow runs on it any more: nothing to keep alive.
       %{"fact" => nil} -> :stop
@@ -115,52 +128,73 @@ defmodule AtlasFlow.Item do
     end
   end
 
-  defp projection(state, description, legacy, fact, children, parents, pointing) do
-    case Store.selected(description, state.kind, fact) do
-      nil ->
-        Definition.state_of(legacy, fact, children, parents, pointing)
+  # What the fact's owner is to do now, as `%{"name", "done", "owner", "why", "expected",
+  # "every", …}`, or nil when it is in no state: the legacy flow's state, or the state of
+  # the selected subflow's run.
+  defp projection(_state, nil, flow, fact, children, parents, pointing),
+    do: legacy(flow, fact, children, parents, pointing)
 
-      {name, selection} ->
-        with {:ok, config} <- Store.activate(description, state.target, state.yaml),
-             key = Run.key(name, state.kind, state.key, 1),
-             %{"fact" => %{} = stored} <-
-               Talk.read(config["kind"], %{"key" => key, "plain" => true}),
-             {:ok, run} <- Store.decode(config, stored),
-             true <- run["definition_sha256"] == Run.digest(state.target.flows()[name]) do
-          follow = selection["follow_through"]
+  defp projection(state, {name, selection}, flow, fact, children, parents, pointing) do
+    %{config: config, flows: flows, refusal: refusal} = state.runner
+    subflow = flows[name]
 
-          cond do
-            run["status"] == "completed" and follow != nil and run["state"] == follow["state"] and
-                Run.holds?(follow["when"], fact["values"] || %{}) ->
-              Definition.state_of(legacy, fact, children, parents, pointing)
+    with nil <- refusal,
+         true <- subflow != nil,
+         key = Run.key(name, state.kind, state.key, 1),
+         %{"fact" => %{} = stored} <-
+           Talk.read(config["kind"], %{"key" => key, "plain" => true}),
+         {:ok, run} <- Store.decode(config, stored),
+         true <- run["definition_sha256"] == subflow.digest() do
+      follow = selection["follow_through"]
 
-            run["status"] == "completed" ->
-              {%{"name" => run["state"], "done" => true}, %{}}
+      cond do
+        run["status"] == "completed" and follow != nil and run["state"] == follow["state"] and
+            Run.holds?(follow["when"], fact["values"] || %{}) ->
+          legacy(flow, fact, children, parents, pointing)
 
-            run["status"] == "active" ->
-              flow = state.target.flows()[name]
-              current = flow["states"][run["state"]]
-              binding = current["owner"] || flow["owner"] || %{}
-              owner = binding["default"]
+        run["status"] == "completed" ->
+          %{"name" => run["state"], "done" => true}
 
-              deadline =
-                Enum.find_value(run["deadlines"]["timers"] || [], fn timer ->
-                  if timer["name"] == current["present"]["deadline"], do: timer["due"]
-                end)
+        run["status"] == "active" ->
+          values = fact["values"] || %{}
+          present = subflow.present(run["state"], values) || %{}
+          binding = subflow.owner(run["state"])
 
-              {Map.merge(current["present"] || %{}, %{
-                 "name" => run["state"],
-                 "owner" => owner,
-                 "preserve_kind" => binding["preserve_kind"],
-                 "deadline" => deadline
-               }), fact["values"] || %{}}
+          deadline =
+            Enum.find_value(run["deadlines"]["timers"] || [], fn timer ->
+              if timer["name"] == present["deadline"], do: timer["due"]
+            end)
 
-            true ->
-              {nil, %{}}
-          end
-        else
-          _ -> {nil, %{}}
-        end
+          Map.merge(present, %{
+            "name" => run["state"],
+            "expected" => present["expected"] || "",
+            "owner" => binding["default"],
+            "preserve_kind" => binding["preserve_kind"],
+            "deadline" => deadline
+          })
+
+        true ->
+          nil
+      end
+    else
+      _ -> nil
+    end
+  end
+
+  defp legacy(flow, fact, children, parents, pointing) do
+    case flow.state(fact, children, parents, pointing) do
+      {nil, _vars} ->
+        nil
+
+      {name, vars} ->
+        %{
+          "name" => name,
+          "done" => flow.done?(name),
+          "owner" => flow.owner(name),
+          "why" => flow.why(name),
+          "expected" => flow.expected(name, vars),
+          "every" => flow.every(name)
+        }
     end
   end
 
@@ -169,10 +203,10 @@ defmodule AtlasFlow.Item do
 
   # Store what differs: what is expected, and the owner, in one change with its cause, on
   # the fact the definition writes on: its own, or the one its `on` relation points at.
-  defp move(state, description, {name, flow}, fact, current, vars) do
+  defp move(state, description, {name, flow}, fact, current) do
     case written(description, flow, state.kind, fact) do
       {:ok, kind, target} ->
-        write(state, description, name, flow, kind, target, current, vars)
+        write(state, description, name, flow, kind, target, current)
 
       {:missing, relation} ->
         Logger.warning("flow #{name}: #{state.key} has no #{relation} to write on; tried again")
@@ -197,8 +231,8 @@ defmodule AtlasFlow.Item do
 
   defp written(_description, _flow, kind, fact), do: {:ok, kind, fact}
 
-  defp write(state, description, name, flow, kind, fact, current, vars) do
-    expected = Definition.expected(current, vars)
+  defp write(state, description, name, flow, kind, fact, current) do
+    expected = if current["done"] == true, do: nil, else: current["expected"] || ""
     field = flow["field"]
 
     values =
@@ -207,7 +241,7 @@ defmodule AtlasFlow.Item do
         else: %{}
 
     current = preserve_owner(current, fact, flow["owner_relation"])
-    owner = Definition.owner(current)
+    owner = owner(current)
     relation = flow["owner_relation"]
     # A move is a change of state: what is expected changes from one thing to another. The
     # first look at a fact (nothing expected yet) is none, so an owner handed over before
@@ -353,7 +387,7 @@ defmodule AtlasFlow.Item do
   # The owner a state names must exist; until it does, only what is expected is written.
   # :yes, :no (Facts says there is no such fact), or :unknown (Facts did not answer).
   defp owner_exists(current) do
-    case {Definition.owner(current), Definition.owner_kind(current)} do
+    case {owner(current), current["owner"]["kind"]} do
       {key, kind} when is_binary(key) and is_binary(kind) ->
         case Talk.read(kind, %{"key" => key, "plain" => true}) do
           %{"fact" => %{}} ->
@@ -371,6 +405,11 @@ defmodule AtlasFlow.Item do
         :yes
     end
   end
+
+  # The owner of the current state, a fact's key (who is next in line), or nil when done.
+  defp owner(%{"done" => true}), do: nil
+  defp owner(%{"owner" => %{"key" => key}}), do: key
+  defp owner(_current), do: nil
 
   defp cause(name, current, owner) do
     why = current["why"] || current["name"]

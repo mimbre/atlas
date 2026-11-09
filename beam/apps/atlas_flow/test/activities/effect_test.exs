@@ -2,7 +2,7 @@ defmodule AtlasFlow.Activities.EffectTest do
   use ExUnit.Case, async: false
   alias AtlasBus.Digest
   alias AtlasFlow.Activities.Effect
-  alias AtlasFlow.{EffectReceiver, EffectReceiverContract, FakeFacts, ManualClock}
+  alias AtlasFlow.{EffectReceiver, EffectReceiverContract, FakeFacts, ManualClock, Sorts}
   alias AtlasFlow.Runs.{Run, Store}
   @now ~U[2026-11-12 00:00:00Z]
   @moduletag :tmp_dir
@@ -75,20 +75,10 @@ defmodule AtlasFlow.Activities.EffectTest do
       refute Effect.valid?(Map.delete(spec("update"), "target"), @receivers)
       refute Effect.valid?(Map.delete(spec("integrate"), "approved"), @receivers)
 
-      # The shape a contract's DSL emits today names no enabled contract: it is refused.
-      generated = %{
-        "action" => "publish",
-        "field" => "effect_result",
-        "service" => "ledger",
-        "fingerprint" => ["approved_by", "check"],
-        "records" => ["crate", "in_box"]
-      }
-
+      # The shape the flow format writes without a contract names no enabled one: refused.
+      {:effect, generated} = Sorts.Unbound.mechanism("publishing")
       refute Effect.valid?(generated, @receivers)
-      state = %{"kind" => "effect", "spec" => generated}
-      flow = put_in(AtlasFlow.FixtureTarget.flow(), ["states", "waiting"], state)
-      flow = update_in(flow, ["states", "waiting"], &Map.merge(state_base(), &1))
-      assert {:error, :unsupported_definition} = Run.validate(flow)
+      assert {:error, :unsupported_definition} = Run.validate(Sorts.Unbound)
     end
 
     test "has a stable identity per run, entry and activity name, and survives JSON" do
@@ -233,14 +223,13 @@ defmodule AtlasFlow.Activities.EffectTest do
     setup %{tmp_dir: dir} do
       Application.put_env(:atlas_flow, :effect_receivers, @receivers)
       on_exit(fn -> Application.delete_env(:atlas_flow, :effect_receivers) end)
-      d = FakeFacts.run_description()
-      c = put_in(d["flow_runtime"], ["selection", "sort", "imports"], [])
-      start_supervised!({FakeFacts, description: Map.put(d, "flow_runtime", c)})
+      c = put_in(AtlasFlow.TestModel.config(), ["selection", "sort", "imports"], [])
+      start_supervised!(FakeFacts)
       clock = start_supervised!({ManualClock, @now})
       receiver = start_supervised!({EffectReceiver, dir: dir, address: @address})
       :ok = AtlasBus.attach("flow")
       FakeFacts.put("box", subject())
-      flow = flow(spec())
+      flow = Sorts.Publish
       assert :ok = Run.validate(flow)
       %{c: c, flows: %{"sort" => flow}, clock: clock, receiver: receiver, dir: dir}
     end
@@ -312,7 +301,7 @@ defmodule AtlasFlow.Activities.EffectTest do
     end
 
     test "a refusal takes its branch and writes no record", c do
-      flows = %{"sort" => flow(spec("update"))}
+      flows = %{"sort" => Sorts.Update}
       c = %{c | flows: flows}
       FakeFacts.put("box", subject(%{"artifact" => "missing"}))
       {:ok, _} = reconcile(c)
@@ -370,7 +359,7 @@ defmodule AtlasFlow.Activities.EffectTest do
     end
 
     test "an integration is not frozen until this fingerprint is approved", c do
-      flows = %{"sort" => flow(spec("integrate"))}
+      flows = %{"sort" => Sorts.Integrate}
       c = %{c | flows: flows}
       FakeFacts.put("box", subject(%{"artifact" => "artifact-1", "approved" => "stale"}))
       {:ok, [waiting]} = reconcile(c)
@@ -429,43 +418,5 @@ defmodule AtlasFlow.Activities.EffectTest do
         f["op"] == "create",
         record = FakeFacts.get("crate", f["key"]),
         do: record
-  end
-
-  defp state_base,
-    do: %{"set" => [], "creates" => [], "branches" => [], "timers" => [], "final" => false}
-
-  defp flow(spec) do
-    final = Map.put(state_base(), "final", true)
-
-    %{
-      "subject" => "box",
-      "owner" => %{"default" => %{"kind" => "clerk", "key" => "ada"}},
-      "initial" => "publishing",
-      "per_subject" => "one",
-      "start" => [%{"on" => "create"}],
-      "states" => %{
-        "done" => final,
-        "stuck" => state_base(),
-        "publishing" =>
-          Map.merge(state_base(), %{
-            "kind" => "effect",
-            "set" => [%{"field" => "effect_result", "value" => "none"}],
-            "branches" => [
-              %{
-                "when" => "entity.effect_result == 'done'",
-                "roles" => ["atlas-flow"],
-                "to" => "done"
-              },
-              %{
-                "when" => "entity.effect_result == 'refused'",
-                "roles" => ["atlas-flow"],
-                "to" => "stuck"
-              }
-            ],
-            "timers" => [%{"name" => "no_answer", "period" => "1h", "to" => "stuck"}],
-            "spec" => spec
-          })
-      }
-    }
   end
 end

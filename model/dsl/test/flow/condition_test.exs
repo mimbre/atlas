@@ -1,6 +1,16 @@
-defmodule AtlasFlow.Runs.ConditionsTest do
+defmodule RelaDSL.Flow.ConditionTest do
   use ExUnit.Case, async: true
-  alias AtlasFlow.Runs.Conditions
+  alias RelaDSL.Flow.Condition
+
+  # The compiled code of a condition, run on `values`.
+  defp holds?(text, values) do
+    {:ok, tree} = Condition.compile(text)
+
+    {result, _} =
+      Code.eval_quoted(Condition.quoted(tree, Macro.var(:values, nil)), values: values)
+
+    result
+  end
 
   test "closed grammar table and pinned comparison, conjunction, disjunction precedence" do
     values = %{"x" => 3, "flag" => true, "choice" => "yes", "text" => "long value"}
@@ -21,9 +31,13 @@ defmodule AtlasFlow.Runs.ConditionsTest do
           {"entity.absent > 0 or entity.flag == true", true},
           {"entity.text > 1", false}
         ] do
-      assert {:ok, _} = Conditions.compile(expression)
-      assert Conditions.matches?(expression, values) == expected, expression
+      assert holds?(expression, values) == expected, expression
     end
+  end
+
+  test "the fields a condition reads" do
+    {:ok, tree} = Condition.compile("entity.x == 3 or (entity.y == 'a' and entity.x > 1)")
+    assert Condition.fields(tree) == ["x", "y"]
   end
 
   test "unknown syntax and executable text refuse compilation, including suffixes" do
@@ -42,9 +56,10 @@ defmodule AtlasFlow.Runs.ConditionsTest do
           "entity.x == nil",
           "System.cmd('anything')",
           "entity.x == 'unterminated",
-          "entity.x == 'a\\b'"
+          "entity.x == 'a\\b'",
+          nil
         ] do
-      assert {:error, :unsupported_condition} = Conditions.compile(text), text
+      assert {:error, :unsupported_condition} = Condition.compile(text), inspect(text)
     end
   end
 end

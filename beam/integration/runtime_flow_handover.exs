@@ -1,6 +1,35 @@
 # Run in the umbrella with MIX_ENV=test; invoked by the external e2e test harness.
 ExUnit.start(seed: 0)
 
+# Flow's side: the legacy flow Runtime's stand-in Facts describes, compiled from the Rela
+# DSL into the model Flow's items run (a neutral one, with no runs selected).
+defmodule HandoverPack do
+  use RelaDSL.Flow.Legacy,
+    name: :pack,
+    behaviour: AtlasFlow.Legacy,
+    flow: [
+      kinds: [:box],
+      on: :card,
+      field: :todo,
+      state_field: :step,
+      handover_field: :later,
+      owner_relation: :owned_by,
+      states: [
+        [
+          name: :checking,
+          when: [values: [phase: [:check]]],
+          owner: [kind: :clerk, key: "bob"],
+          expected: "Check it"
+        ],
+        [name: :packing, owner: [kind: :clerk, key: "ada"], expected: "Pack it"]
+      ]
+    ]
+end
+
+defmodule HandoverModel do
+  use AtlasFlow.TestModel, legacy: [HandoverPack], selection: %{"sort" => nil}
+end
+
 defmodule RuntimeFlowHandoverTest do
   use ExUnit.Case, async: false
 
@@ -105,7 +134,12 @@ defmodule RuntimeFlowHandoverTest do
       [{turn, _}] = Registry.lookup(AtlasRuntime.Turns, "R-C-B-1-1")
 
       {:ok, _} = Application.ensure_all_started(:atlas_flow)
-      flow = start_supervised!({AtlasFlow.Item, {"box", "B-1", [every: 3_600_000]}})
+
+      flow =
+        start_supervised!(
+          {AtlasFlow.Item, {"box", "B-1", [every: 3_600_000, model: HandoverModel]}}
+        )
+
       :sys.get_state(flow)
       item = FakeFacts.get("box", "B-1") |> put_in(["values", "phase"], "check")
       FakeFacts.put("box", item)
@@ -156,7 +190,12 @@ defmodule RuntimeFlowHandoverTest do
       :sys.resume(flow)
       # A fresh Flow process must also recover the pending transfer from Facts.
       stop_supervised!(AtlasFlow.Item)
-      flow = start_supervised!({AtlasFlow.Item, {"box", "B-1", [every: 3_600_000]}})
+
+      flow =
+        start_supervised!(
+          {AtlasFlow.Item, {"box", "B-1", [every: 3_600_000, model: HandoverModel]}}
+        )
+
       :sys.get_state(flow)
       card = FakeFacts.get("card", "C-B-1")
       assert card["links"]["owned_by"] == ["bob"]
@@ -192,7 +231,12 @@ defmodule RuntimeFlowHandoverTest do
     assert FakeFacts.all("run") == []
 
     {:ok, _} = Application.ensure_all_started(:atlas_flow)
-    flow = start_supervised!({AtlasFlow.Item, {"box", "B-1", [every: 3_600_000]}})
+
+    flow =
+      start_supervised!(
+        {AtlasFlow.Item, {"box", "B-1", [every: 3_600_000, model: HandoverModel]}}
+      )
+
     :sys.get_state(flow)
     assert FakeFacts.get("card", "C-B-1")["values"]["later"] == nil
     assert FakeFacts.get("card", "C-B-1")["links"]["owned_by"] == ["ada"]
