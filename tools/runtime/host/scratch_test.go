@@ -35,8 +35,12 @@ func readOnlyTree(t *testing.T) (scratch, outside, outsideFile string) {
 			t.Fatal(err)
 		}
 	}
-	for directory, mode := range map[string]os.FileMode{nested: 0500, filepath.Dir(nested): 0, filepath.Join(scratch, "tmp"): 0500} {
-		if err := os.Chmod(directory, mode); err != nil {
+	// Deepest first: a parent at mode 0 blocks every chmod beneath it.
+	for _, directory := range []struct {
+		path string
+		mode os.FileMode
+	}{{nested, 0500}, {filepath.Dir(nested), 0}, {filepath.Join(scratch, "tmp"), 0500}} {
+		if err := os.Chmod(directory.path, directory.mode); err != nil {
 			t.Fatal(err)
 		}
 	}
