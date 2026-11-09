@@ -727,5 +727,38 @@ defmodule AtlasRuntime.ReadApiTest do
 
       closed!(socket)
     end
+
+    # The exit after a service stop is asynchronous (and waits for Server ends first), so the
+    # service still answers calls then. A follower's reconnect in that window must not get a
+    # page, or it reports the stopping Runtime reachable again.
+    test "once a service stop began, a new follow ends service_stopping and is not admitted",
+         %{dir: dir} do
+      test = self()
+      service = launch(dir, [follow: @quiet, halt: &send(test, {:halted, &1})], name: Service)
+      first = follow(dir)
+      assert %{"cursor" => cursor} = page(first)
+
+      stop = connect(dir, "runtime.sock")
+      :ok = :gen_tcp.send(stop, ~s({"command":"service-stop"}\n))
+      assert {:ok, _} = :gen_tcp.recv(stop, 0, 5_000)
+      assert_receive {:halted, 0}, 5_000
+      assert %{"type" => "end", "reason" => "service_stopping"} = frame(first)
+      closed!(first)
+
+      for fields <- [%{}, %{"cursor" => cursor}] do
+        again = follow(dir, fields)
+
+        assert frame(again) == %{
+                 "api" => "runtime.read/1",
+                 "op" => "follow",
+                 "type" => "end",
+                 "reason" => "service_stopping"
+               }
+
+        closed!(again)
+      end
+
+      assert :sys.get_state(service).followers == %{}
+    end
   end
 end

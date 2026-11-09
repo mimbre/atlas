@@ -58,6 +58,10 @@ defmodule AtlasRuntime.Entrypoints.ReadSocket do
       {:ok, %{"error" => _} = error} ->
         write(connection, error)
 
+      # A service that began its shutdown admits no follower and sends no page.
+      {:ok, :service_stopping} ->
+        finish(connection, "service_stopping")
+
       {:ok, page} ->
         with {:ok, cursor} <- pages(connection, page),
              do: wait(connection, cursor, deadline(connection))
