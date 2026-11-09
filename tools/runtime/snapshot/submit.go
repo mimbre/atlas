@@ -52,9 +52,14 @@ func (e changeEntry) MarshalJSON() ([]byte, error) {
 // to Code as change id and seals them into a private revision. path selects the repository and
 // may be empty when there is only one. It writes to neither the folder nor its baseline;
 // a clean repository makes no request. A folder with an active Runtime owner is refused.
-func Submit(home, dest, path, id string) (map[string]any, error) {
+// The result reports the repository's fingerprint. A nonempty approved fingerprint must equal
+// it on both scans, or nothing is sent to Code and Code is not contacted.
+func Submit(home, dest, path, id, approved string) (map[string]any, error) {
 	if !changeID.MatchString(id) {
 		return nil, errors.New("change ID must be a lowercase UUID")
+	}
+	if approved != "" && !fingerprintID.MatchString(approved) {
+		return nil, errors.New("fingerprint must be fpr_<64 lowercase hex characters>")
 	}
 	f, err := openFolder(home, dest)
 	if err != nil {
@@ -88,13 +93,20 @@ func Submit(home, dest, path, id string) (map[string]any, error) {
 	if err = f.ancestors(r); err != nil {
 		return nil, err
 	}
+	// check compares one scan's entries with the approved fingerprint and reports it.
+	check := func(entries []changeEntry) (string, error) {
+		got := fingerprint(f.id, r.Repository, r.Revision, entries)
+		if approved != "" && got != approved {
+			return "", fmt.Errorf("repository %s of %s is %s, not the approved %s; nothing was sent to Code", r.Path, f.dest, got, approved)
+		}
+		return got, nil
+	}
 	result := map[string]any{"snapshot_id": f.id, "repository": r.Repository, "path": r.Path, "base_revision": r.Revision, "change_id": id, "state": "clean", "revision": nil}
 	if len(changes) == 0 {
+		if result["fingerprint"], err = check([]changeEntry{}); err != nil {
+			return nil, err
+		}
 		return result, nil
-	}
-	code, err := connect(home)
-	if err != nil {
-		return nil, err
 	}
 	if err = os.MkdirAll(filepath.Join(home, "submissions"), 0700); err != nil {
 		return nil, err
@@ -106,6 +118,9 @@ func Submit(home, dest, path, id string) (map[string]any, error) {
 	defer os.RemoveAll(blobs)
 	entries, err := f.convert(r, changes, blobs)
 	if err != nil {
+		return nil, err
+	}
+	if result["fingerprint"], err = check(entries); err != nil {
 		return nil, err
 	}
 	afterCapture()
@@ -121,6 +136,9 @@ func Submit(home, dest, path, id string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	if _, err = check(again); err != nil {
+		return nil, err
+	}
 	if !reflect.DeepEqual(again, entries) {
 		return nil, fmt.Errorf("folder %s changed during submission; nothing was sent to Code, run the command again", f.dest)
 	}
@@ -130,6 +148,11 @@ func Submit(home, dest, path, id string) (map[string]any, error) {
 	}
 	if len(body) > maxChange {
 		return nil, fmt.Errorf("the change request for %s is %d bytes, over Code's 1 MiB limit; nothing was sent to Code", r.Path, len(body))
+	}
+	// Code is contacted only once every local check, the fingerprint included, has passed.
+	code, err := connect(home)
+	if err != nil {
+		return nil, err
 	}
 	revision, err := code.submit(id, body, blobs)
 	if err != nil {

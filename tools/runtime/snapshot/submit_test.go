@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -245,7 +246,7 @@ func TestSubmitConvertsEveryChangeKindAndSeals(t *testing.T) {
 	baseline := filepath.Join(f.home, "snapshots", strings.TrimPrefix(id, "sha256:"))
 	before := state(t, dest, baseline)
 
-	result, err := Submit(f.home, dest, "one", changeA)
+	result, err := Submit(f.home, dest, "one", changeA, "")
 	must(t, err)
 	want := []map[string]any{
 		written("a.txt", "100644", "alpha\nbeta\n"),
@@ -276,7 +277,7 @@ func TestSubmitConvertsEveryChangeKindAndSeals(t *testing.T) {
 		t.Fatalf("request: %v", request)
 	}
 	revision := code.revisions[changeA]
-	if !reflect.DeepEqual(result, map[string]any{"snapshot_id": id, "repository": one.Repository, "path": "one", "base_revision": one.Revision, "change_id": changeA, "state": "sealed", "revision": revision}) || len(revision) != 68 {
+	if !reflect.DeepEqual(result, map[string]any{"snapshot_id": id, "repository": one.Repository, "path": "one", "base_revision": one.Revision, "change_id": changeA, "state": "sealed", "revision": revision, "fingerprint": approve(t, code.bodies[changeA])}) || len(revision) != 68 {
 		t.Fatalf("result: %v", result)
 	}
 	// Every file write was uploaded once with its exact bytes (the fake verifies each digest); links never are.
@@ -290,7 +291,7 @@ func TestSubmitConvertsEveryChangeKindAndSeals(t *testing.T) {
 	noTemporaries(t, f.home)
 
 	// The other repository is untouched by that change and submits on its own.
-	result, err = Submit(f.home, dest, "two", "1b5e1d4c-8f7a-4c2b-9d3e-1a2b3c4d5e6f")
+	result, err = Submit(f.home, dest, "two", "1b5e1d4c-8f7a-4c2b-9d3e-1a2b3c4d5e6f", "")
 	must(t, err)
 	if result["repository"] != two.Repository || result["base_revision"] != two.Revision || result["state"] != "sealed" ||
 		!reflect.DeepEqual(code.entries["1b5e1d4c-8f7a-4c2b-9d3e-1a2b3c4d5e6f"], []map[string]any{written("b.txt", "100644", "BETA\n")}) {
@@ -301,9 +302,9 @@ func TestSubmitConvertsEveryChangeKindAndSeals(t *testing.T) {
 func TestCleanRepositoryMakesNoRequest(t *testing.T) {
 	f, code, id, dest := submitFixture(t, false, memberA, memberRun, memberL)
 	must(t, os.Remove(filepath.Join(f.home, "code.json"))) // not even Code's configuration is read
-	result, err := Submit(f.home, dest, "", changeA)
+	result, err := Submit(f.home, dest, "", changeA, "")
 	must(t, err)
-	if !reflect.DeepEqual(result, map[string]any{"snapshot_id": id, "repository": one.Repository, "path": "one", "base_revision": one.Revision, "change_id": changeA, "state": "clean", "revision": nil}) || len(code.log) != 0 {
+	if !reflect.DeepEqual(result, map[string]any{"snapshot_id": id, "repository": one.Repository, "path": "one", "base_revision": one.Revision, "change_id": changeA, "state": "clean", "revision": nil, "fingerprint": fingerprint(id, one.Repository, one.Revision, []changeEntry{})}) || len(code.log) != 0 {
 		t.Fatalf("got %v, log %v", result, code.log)
 	}
 }
@@ -316,7 +317,7 @@ func TestRepeatResumesAPartialUploadAndReturnsTheSameRevision(t *testing.T) {
 	must(t, os.WriteFile(at("c.txt"), []byte("new c"), 0644))
 	code.failPut = 2
 
-	_, err := Submit(f.home, dest, "one", changeA)
+	_, err := Submit(f.home, dest, "one", changeA, "")
 	if err == nil || !strings.HasPrefix(err.Error(), "Code service unavailable: ") ||
 		!strings.HasSuffix(err.Error(), "; change "+changeA+" is not confirmed sealed and nothing was published: repeat the same command with --change-id "+changeA+" to resume") ||
 		strings.Contains(err.Error(), token) {
@@ -329,7 +330,7 @@ func TestRepeatResumesAPartialUploadAndReturnsTheSameRevision(t *testing.T) {
 
 	missing := code.missing(changeA)
 	code.log = nil
-	result, err := Submit(f.home, dest, "one", changeA)
+	result, err := Submit(f.home, dest, "one", changeA, "")
 	must(t, err)
 	wantLog := []string{"POST /v1/changes", "PUT /v1/changes/" + changeA + "/blobs/" + missing[0], "PUT /v1/changes/" + changeA + "/blobs/" + missing[1], "POST /v1/changes/" + changeA + "/seal"}
 	revision := code.revisions[changeA]
@@ -339,7 +340,7 @@ func TestRepeatResumesAPartialUploadAndReturnsTheSameRevision(t *testing.T) {
 
 	// A sealed change returns its revision without uploading or sealing again.
 	code.log = nil
-	result, err = Submit(f.home, dest, "one", changeA)
+	result, err = Submit(f.home, dest, "one", changeA, "")
 	must(t, err)
 	if !reflect.DeepEqual(code.log, []string{"POST /v1/changes"}) || result["revision"] != revision {
 		t.Fatalf("got %v, log %v", result, code.log)
@@ -347,7 +348,7 @@ func TestRepeatResumesAPartialUploadAndReturnsTheSameRevision(t *testing.T) {
 
 	// Different content under the same ID is Code's conflict, without a resume hint.
 	must(t, os.WriteFile(at("a.txt"), []byte("changed again"), 0644))
-	_, err = Submit(f.home, dest, "one", changeA)
+	_, err = Submit(f.home, dest, "one", changeA, "")
 	if err == nil || err.Error() != "Code refused change "+changeA+": 409 conflict: change_id was already used with a different body" {
 		t.Fatalf("got %v", err)
 	}
@@ -357,7 +358,7 @@ func TestUnavailableCodeIsNotSuccess(t *testing.T) {
 	f, _, _, dest := submitFixture(t, false, memberA)
 	must(t, os.WriteFile(filepath.Join(dest, "one", "a.txt"), []byte("changed"), 0644))
 	f.configure(t, "http://127.0.0.1:1", token)
-	result, err := Submit(f.home, dest, "one", changeA)
+	result, err := Submit(f.home, dest, "one", changeA, "")
 	if err == nil || !strings.HasPrefix(err.Error(), "Code service unavailable: ") || !strings.Contains(err.Error(), "to resume") || strings.Contains(err.Error(), token) {
 		t.Fatalf("got %v, %v", result, err)
 	}
@@ -421,7 +422,7 @@ func TestUnrepresentableChangesAreRefusedBeforeSending(t *testing.T) {
 				afterCapture = func() { test.during(t, at) }
 				t.Cleanup(func() { afterCapture = func() {} })
 			}
-			result, err := Submit(f.home, dest, test.path, test.id)
+			result, err := Submit(f.home, dest, test.path, test.id, "")
 			if err == nil || !strings.Contains(err.Error(), test.want) || strings.Contains(err.Error(), token) {
 				t.Fatalf("got %v, %v; want error containing %q", result, err, test.want)
 			}
@@ -472,7 +473,7 @@ func TestReplacedRepositoryAncestorIsRefused(t *testing.T) {
 			test.replace(t, x)
 			baseline := filepath.Join(f.home, "snapshots", strings.TrimPrefix(id, "sha256:"))
 			before, base := state(t, dest), state(t, baseline)
-			result, err := Submit(f.home, dest, "x/app", changeA)
+			result, err := Submit(f.home, dest, "x/app", changeA, "")
 			if err == nil || !strings.Contains(err.Error(), "cannot submit x/app: its folder x is no longer a directory") {
 				t.Fatalf("got %v, %v", result, err)
 			}
@@ -485,7 +486,7 @@ func TestReplacedRepositoryAncestorIsRefused(t *testing.T) {
 
 			// The other repository does not depend on that folder and still submits.
 			must(t, os.WriteFile(filepath.Join(dest, "two", "b.txt"), []byte("BETA\n"), 0644))
-			result, err = Submit(f.home, dest, "two", changeA)
+			result, err = Submit(f.home, dest, "two", changeA, "")
 			must(t, err)
 			if result["state"] != "sealed" || !reflect.DeepEqual(code.entries[changeA], []map[string]any{written("b.txt", "100644", "BETA\n")}) {
 				t.Fatalf("two: %v %v", result, code.entries)
@@ -497,7 +498,7 @@ func TestReplacedRepositoryAncestorIsRefused(t *testing.T) {
 		f, code, _, dest := setup(t)
 		must(t, os.WriteFile(filepath.Join(dest, "x", "app", "a.txt"), []byte("changed"), 0644))
 		must(t, os.WriteFile(filepath.Join(dest, "x", "outside.txt"), []byte("ignored by --path"), 0644))
-		result, err := Submit(f.home, dest, "x/app", changeA)
+		result, err := Submit(f.home, dest, "x/app", changeA, "")
 		must(t, err)
 		if result["state"] != "sealed" || !reflect.DeepEqual(code.entries[changeA], []map[string]any{written("a.txt", "100644", "changed")}) {
 			t.Fatalf("got %v %v", result, code.entries)
@@ -507,7 +508,7 @@ func TestReplacedRepositoryAncestorIsRefused(t *testing.T) {
 	t.Run("missing ancestor still deletes the repository's files", func(t *testing.T) {
 		f, code, _, dest := setup(t)
 		must(t, os.RemoveAll(filepath.Join(dest, "x")))
-		result, err := Submit(f.home, dest, "x/app", changeA)
+		result, err := Submit(f.home, dest, "x/app", changeA, "")
 		must(t, err)
 		if result["state"] != "sealed" || !reflect.DeepEqual(code.entries[changeA], []map[string]any{deleted("a.txt")}) {
 			t.Fatalf("got %v %v", result, code.entries)
@@ -543,7 +544,7 @@ func TestSubmitOwnsTheFolderLock(t *testing.T) {
 		before, base := state(t, dest), state(t, baseline)
 		afterCapture = func() { t.Error("captured while another owner held the folder") }
 		t.Cleanup(func() { afterCapture = func() {} })
-		result, err := Submit(f.home, dest, "one", changeA)
+		result, err := Submit(f.home, dest, "one", changeA, "")
 		if err == nil || err.Error() != "folder "+dest+" has an active Runtime owner; nothing was sent to Code, run the command again after it stops" {
 			t.Fatalf("got %v, %v", result, err)
 		}
@@ -560,7 +561,7 @@ func TestSubmitOwnsTheFolderLock(t *testing.T) {
 		// Once the owner is gone, the same command submits normally.
 		afterCapture = func() {}
 		must(t, owner.Close())
-		result, err = Submit(f.home, dest, "one", changeA)
+		result, err = Submit(f.home, dest, "one", changeA, "")
 		must(t, err)
 		if result["state"] != "sealed" || !reflect.DeepEqual(code.entries[changeA], []map[string]any{written("a.txt", "100644", "changed")}) {
 			t.Fatalf("got %v %v", result, code.entries)
@@ -576,7 +577,7 @@ func TestSubmitOwnsTheFolderLock(t *testing.T) {
 		must(t, err)
 		defer owner.Close()
 		must(t, syscall.Flock(int(owner.Fd()), syscall.LOCK_EX|syscall.LOCK_NB))
-		if _, err := Submit(f.home, dest, "", changeA); err == nil || !strings.Contains(err.Error(), "has an active Runtime owner") || len(code.log) != 0 {
+		if _, err := Submit(f.home, dest, "", changeA, ""); err == nil || !strings.Contains(err.Error(), "has an active Runtime owner") || len(code.log) != 0 {
 			t.Fatalf("got %v, log %v", err, code.log)
 		}
 	})
@@ -591,7 +592,7 @@ func TestSubmitOwnsTheFolderLock(t *testing.T) {
 			held[r.Method+" "+r.URL.Path] = !contend(t, dest)
 			return code.handle(w, r)
 		}
-		result, err := Submit(f.home, dest, "one", changeA)
+		result, err := Submit(f.home, dest, "one", changeA, "")
 		must(t, err)
 		want := map[string]bool{"capture": true, "POST /v1/changes": true, "PUT /v1/changes/" + changeA + "/blobs/" + code.entries[changeA][0]["sha256"].(string): true, "POST /v1/changes/" + changeA + "/seal": true}
 		if result["state"] != "sealed" || !reflect.DeepEqual(held, want) {
@@ -610,7 +611,7 @@ func TestSubmitOwnsTheFolderLock(t *testing.T) {
 			run  func() error
 		}{
 			{"clean", func() error {
-				result, err := Submit(f.home, dest, "one", changeA)
+				result, err := Submit(f.home, dest, "one", changeA, "")
 				if err == nil && result["state"] != "clean" {
 					t.Errorf("not clean: %v", result)
 				}
@@ -619,13 +620,13 @@ func TestSubmitOwnsTheFolderLock(t *testing.T) {
 			{"local refusal", func() error {
 				must(t, syscall.Mkfifo(at("one/pipe"), 0644))
 				defer os.Remove(at("one/pipe"))
-				if _, err := Submit(f.home, dest, "one", changeA); err == nil || !strings.Contains(err.Error(), "not a FIFO") {
+				if _, err := Submit(f.home, dest, "one", changeA, ""); err == nil || !strings.Contains(err.Error(), "not a FIFO") {
 					t.Errorf("FIFO not refused: %v", err)
 				}
 				return nil
 			}},
 			{"unknown path", func() error {
-				if _, err := Submit(f.home, dest, "three", changeA); err == nil {
+				if _, err := Submit(f.home, dest, "three", changeA, ""); err == nil {
 					t.Error("unknown path admitted")
 				}
 				return nil
@@ -634,7 +635,7 @@ func TestSubmitOwnsTheFolderLock(t *testing.T) {
 				must(t, os.WriteFile(at("one/a.txt"), []byte("first"), 0644))
 				afterCapture = func() { must(t, os.WriteFile(at("one/a.txt"), []byte("second"), 0644)) }
 				defer func() { afterCapture = func() {} }()
-				if _, err := Submit(f.home, dest, "one", changeA); err == nil || !strings.Contains(err.Error(), "changed during submission") {
+				if _, err := Submit(f.home, dest, "one", changeA, ""); err == nil || !strings.Contains(err.Error(), "changed during submission") {
 					t.Errorf("change not refused: %v", err)
 				}
 				return nil
@@ -642,7 +643,7 @@ func TestSubmitOwnsTheFolderLock(t *testing.T) {
 			{"Code failure", func() error {
 				code.failPut = code.puts + 1
 				defer func() { code.failPut = 0 }()
-				if _, err := Submit(f.home, dest, "one", changeA); err == nil || !strings.Contains(err.Error(), "to resume") {
+				if _, err := Submit(f.home, dest, "one", changeA, ""); err == nil || !strings.Contains(err.Error(), "to resume") {
 					t.Errorf("failure not reported: %v", err)
 				}
 				return nil
@@ -654,4 +655,137 @@ func TestSubmitOwnsTheFolderLock(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestApprovedFingerprint(t *testing.T) {
+	other := "fpr_" + strings.Repeat("0", 64)
+	// counted makes every request reaching the fake Code count, whatever its path.
+	counted := func(f *fixture, code *fakeCode) *int {
+		requests := new(int)
+		f.hook = func(w http.ResponseWriter, r *http.Request) bool {
+			*requests++
+			return code.handle(w, r)
+		}
+		return requests
+	}
+
+	t.Run("matching content seals and reports it", func(t *testing.T) {
+		f, code, _, dest := submitFixture(t, false, memberA)
+		must(t, os.WriteFile(filepath.Join(dest, "one", "a.txt"), []byte("approved\n"), 0644))
+		result, err := Submit(f.home, dest, "one", changeA, "")
+		must(t, err)
+		approved := approve(t, code.bodies[changeA])
+		if result["fingerprint"] != approved {
+			t.Fatalf("result %v, want fingerprint %s", result, approved)
+		}
+		// The same content under another change ID has the same fingerprint and passes the check.
+		result, err = Submit(f.home, dest, "one", "1b5e1d4c-8f7a-4c2b-9d3e-1a2b3c4d5e6f", approved)
+		must(t, err)
+		if result["state"] != "sealed" || result["fingerprint"] != approved {
+			t.Fatalf("approved submission: %v", result)
+		}
+	})
+
+	t.Run("other content is refused before contacting Code", func(t *testing.T) {
+		f, code, id, dest := submitFixture(t, false, memberA)
+		requests := counted(f, code)
+		must(t, os.WriteFile(filepath.Join(dest, "one", "a.txt"), []byte("approved\n"), 0644))
+		entries := []changeEntry{{Path: "a.txt", Op: "write", Kind: "file", Mode: "100644", Size: 9, SHA256: digestOf("approved\n")}}
+		got := fingerprint(id, one.Repository, one.Revision, entries)
+		_, err := Submit(f.home, dest, "one", changeA, other)
+		want := "repository one of " + dest + " is " + got + ", not the approved " + other + "; nothing was sent to Code"
+		if err == nil || err.Error() != want || *requests != 0 {
+			t.Fatalf("got %v after %d requests, want %q", err, *requests, want)
+		}
+		noTemporaries(t, f.home)
+		// The refusal happens before Code's configuration is even read.
+		must(t, os.Remove(filepath.Join(f.home, "code.json")))
+		if _, err = Submit(f.home, dest, "one", changeA, other); err == nil || err.Error() != want {
+			t.Fatalf("without Code configured: %v", err)
+		}
+	})
+
+	t.Run("a change after capture is refused on the second scan", func(t *testing.T) {
+		f, code, id, dest := submitFixture(t, false, memberA)
+		requests := counted(f, code)
+		at := filepath.Join(dest, "one", "a.txt")
+		must(t, os.WriteFile(at, []byte("approved\n"), 0644))
+		entries := []changeEntry{{Path: "a.txt", Op: "write", Kind: "file", Mode: "100644", Size: 9, SHA256: digestOf("approved\n")}}
+		approved := fingerprint(id, one.Repository, one.Revision, entries)
+		afterCapture = func() { must(t, os.WriteFile(at, []byte("edited\n"), 0644)) }
+		defer func() { afterCapture = func() {} }()
+		if _, err := Submit(f.home, dest, "one", changeA, approved); err == nil || !strings.Contains(err.Error(), ", not the approved "+approved+"; nothing was sent to Code") || *requests != 0 {
+			t.Fatalf("got %v after %d requests", err, *requests)
+		}
+		noTemporaries(t, f.home)
+	})
+
+	t.Run("a clean repository compares the empty entries", func(t *testing.T) {
+		f, code, id, dest := submitFixture(t, false, memberA)
+		requests := counted(f, code)
+		clean := fingerprint(id, one.Repository, one.Revision, []changeEntry{})
+		result, err := Submit(f.home, dest, "", changeA, clean)
+		must(t, err)
+		if result["state"] != "clean" || result["fingerprint"] != clean {
+			t.Fatalf("clean: %v", result)
+		}
+		if _, err = Submit(f.home, dest, "", changeA, other); err == nil || !strings.Contains(err.Error(), "is "+clean+", not the approved "+other) || *requests != 0 {
+			t.Fatalf("got %v after %d requests", err, *requests)
+		}
+	})
+
+	t.Run("a malformed fingerprint is refused", func(t *testing.T) {
+		f, _, _, dest := submitFixture(t, false, memberA)
+		for _, bad := range []string{"fpr_" + strings.Repeat("A", 64), strings.Repeat("0", 64), other + "0"} {
+			if _, err := Submit(f.home, dest, "", changeA, bad); err == nil || !strings.Contains(err.Error(), "fingerprint must be") {
+				t.Errorf("%q: %v", bad, err)
+			}
+		}
+	})
+}
+
+// A packet tree is a recorded materialization with extra record fields and read-only modes;
+// submit reads it like any other folder.
+func TestSubmitFromARecordedReadOnlyTree(t *testing.T) {
+	f, code, id, dest := submitFixture(t, false, memberA, memberRun)
+	must(t, os.WriteFile(filepath.Join(dest, "one", "a.txt"), []byte("frozen\n"), 0644))
+	must(t, os.WriteFile(filepath.Join(dest, "one", "new.txt"), []byte("new\n"), 0644))
+	record, _ := json.Marshal(map[string]string{"destination": dest, "snapshot_id": id, "packet_id": "5c0ffee0-0000-4000-8000-000000000001", "materialized_at": "2026-11-11T00:00:00Z"})
+	must(t, os.WriteFile(recordPath(f.home, dest), record, 0600))
+	dirs := []string{}
+	must(t, filepath.WalkDir(dest, func(name string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			dirs = append(dirs, name)
+			return nil
+		}
+		info, err := d.Info()
+		if err == nil {
+			err = os.Chmod(name, info.Mode().Perm()&^0222)
+		}
+		return err
+	}))
+	slices.Reverse(dirs)
+	for _, dir := range dirs {
+		must(t, os.Chmod(dir, 0555))
+	}
+	t.Cleanup(func() { remove(dest) })
+	before, err := Submit(f.home, dest, "", changeA, "fpr_"+strings.Repeat("0", 64))
+	if err == nil || len(code.log) != 0 {
+		t.Fatalf("mismatch admitted: %v %v", before, code.log)
+	}
+	approved := strings.TrimSuffix(strings.SplitN(err.Error(), " is ", 2)[1], ", not the approved fpr_"+strings.Repeat("0", 64)+"; nothing was sent to Code")
+	result, err := Submit(f.home, dest, "", changeA, approved)
+	must(t, err)
+	if result["state"] != "sealed" || result["fingerprint"] != approved || approve(t, code.bodies[changeA]) != approved ||
+		!reflect.DeepEqual(code.entries[changeA], []map[string]any{written("a.txt", "100644", "frozen\n"), written("new.txt", "100644", "new\n")}) {
+		t.Fatalf("result %v, entries %v", result, code.entries[changeA])
+	}
+}
+
+func digestOf(data string) string {
+	sum := sha256.Sum256([]byte(data))
+	return hex.EncodeToString(sum[:])
 }

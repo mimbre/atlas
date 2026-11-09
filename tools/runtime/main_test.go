@@ -639,7 +639,7 @@ func TestPeerCorrelationRequiresExactTargetsAndNoDispatchOptions(t *testing.T) {
 func TestSnapshotMaterializeNeedsExactFlagsAndNoRuntimeService(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("ATLAS_RUNTIME_HOME", dir)
-	usage := "use snapshot materialize --snapshot sha256:HEX --dest NEW_PATH, snapshot prepare --dest PATH --npm-ci REPO_PATH[/SUBDIR] | --npm-run REPO_PATH[/SUBDIR] --script NAME --output REPO_PATH/OUT..., snapshot status|diff --dest PATH [--path REPO_PATH]..., snapshot submit --dest PATH [--path REPO_PATH] --change-id UUID, or snapshot rebind --dest PATH"
+	usage := "use snapshot materialize --snapshot sha256:HEX --dest NEW_PATH, snapshot prepare --dest PATH --npm-ci REPO_PATH[/SUBDIR] | --npm-run REPO_PATH[/SUBDIR] --script NAME --output REPO_PATH/OUT..., snapshot status|diff --dest PATH [--path REPO_PATH]..., snapshot submit --dest PATH [--path REPO_PATH] --change-id UUID [--fingerprint fpr_HEX], or snapshot rebind --dest PATH"
 	for _, args := range [][]string{
 		{"snapshot"},
 		{"snapshot", "download"},

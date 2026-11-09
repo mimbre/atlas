@@ -232,7 +232,7 @@ head -c 1500000 /dev/zero | tr '\0' x
 			t.Fatalf("diffs=%v: %v %v", diffs, inspection, err)
 		}
 	}
-	if submitted, err := snapshot.Submit(home, dest, "", uuid); err != nil || submitted["state"] != "clean" {
+	if submitted, err := snapshot.Submit(home, dest, "", uuid, ""); err != nil || submitted["state"] != "clean" {
 		t.Fatalf("submit must find nothing to send, without Code: %v %v", submitted, err)
 	}
 	if err = os.WriteFile(filepath.Join(dest, "repo", "app", "README.md"), []byte("edited\n"), 0600); err != nil {
@@ -492,7 +492,7 @@ func TestWorkerPreparationAndSubmissionShareTheFolderLock(t *testing.T) {
 		lock.Close()
 		t.Fatal("a worker could take the folder during its preparation")
 	}
-	if _, err = snapshot.Submit(home, dest, "", uuid); err == nil || !strings.Contains(err.Error(), "has an active Runtime owner") {
+	if _, err = snapshot.Submit(home, dest, "", uuid, ""); err == nil || !strings.Contains(err.Error(), "has an active Runtime owner") {
 		t.Fatalf("submit during preparation: %v", err)
 	}
 	if _, err = Prepare(home, dest, "repo/app"); err == nil || !strings.Contains(err.Error(), "has an active Runtime owner") {
@@ -696,7 +696,7 @@ func TestRunPreparationRegeneratesTrackedOutputsOffline(t *testing.T) {
 			t.Fatalf("diffs=%v: %v %v", diffs, inspection, err)
 		}
 	}
-	if submitted, err := snapshot.Submit(home, dest, "", uuid); err != nil || submitted["state"] != "clean" {
+	if submitted, err := snapshot.Submit(home, dest, "", uuid, ""); err != nil || submitted["state"] != "clean" {
 		t.Fatalf("submit must find nothing to send, without Code: %v %v", submitted, err)
 	}
 	// A tracked output is never excluded: a file added in it is an ordinary change.

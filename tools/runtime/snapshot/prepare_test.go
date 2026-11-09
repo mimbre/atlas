@@ -72,7 +72,7 @@ func TestPreparedOutputIsSkippedOnlyAsARealDirectory(t *testing.T) {
 		t.Fatalf("got %v", changes)
 	}
 	must(t, os.WriteFile(filepath.Join(dest, "one", "app", "main.js"), []byte("run()\n"), 0644))
-	if submitted, err := Submit(home, dest, "", changeUUID); err != nil || submitted["state"] != "clean" {
+	if submitted, err := Submit(home, dest, "", changeUUID, ""); err != nil || submitted["state"] != "clean" {
 		t.Fatalf("a folder changed only in its output must submit as clean without Code: %v %v", submitted, err)
 	}
 
@@ -87,7 +87,7 @@ func TestPreparedOutputIsSkippedOnlyAsARealDirectory(t *testing.T) {
 	token := filepath.Join(t.TempDir(), "runtime.token")
 	must(t, os.WriteFile(token, []byte("secret\n"), 0600))
 	must(t, os.WriteFile(filepath.Join(home, "code.json"), []byte(fmt.Sprintf(`{"url":"http://127.0.0.1:1","token_file":%q}`, token)), 0600))
-	if _, err := Submit(home, dest, "", changeUUID); err == nil || !strings.Contains(err.Error(), "cannot submit one/app/node_modules") {
+	if _, err := Submit(home, dest, "", changeUUID, ""); err == nil || !strings.Contains(err.Error(), "cannot submit one/app/node_modules") {
 		t.Fatalf("submit must refuse the escaping output link locally: %v", err)
 	}
 }
@@ -130,7 +130,7 @@ func TestPreparationResultsFailClosed(t *testing.T) {
 			must(t, os.WriteFile(path, []byte(fmt.Sprintf(test.result, dest, id)), 0600))
 			for _, err := range []error{
 				func() error { _, err := Inspect(home, dest, nil, false); return err }(),
-				func() error { _, err := Submit(home, dest, "", changeUUID); return err }(),
+				func() error { _, err := Submit(home, dest, "", changeUUID, ""); return err }(),
 				func() error { _, err := Verified(home, dest); return err }(),
 			} {
 				if err == nil || !strings.Contains(err.Error(), test.want) {
@@ -188,7 +188,7 @@ func TestRunOutputsAreExcludedOnlyWhileWhollyUntracked(t *testing.T) {
 			t.Fatalf("diffs=%v: %v", diffs, result)
 		}
 	}
-	if submitted, err := Submit(home, dest, "", changeUUID); err != nil || submitted["state"] != "clean" {
+	if submitted, err := Submit(home, dest, "", changeUUID, ""); err != nil || submitted["state"] != "clean" {
 		t.Fatalf("got %v %v", submitted, err)
 	}
 	// The tracked output is not excluded: a file added there and an edit to its tracked file are changes.

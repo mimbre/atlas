@@ -138,7 +138,7 @@ func refusedFolder(t *testing.T, home, dest, want string) {
 	t.Helper()
 	_, err := Inspect(home, dest, nil, false)
 	_, verr := Verified(home, dest)
-	_, serr := Submit(home, dest, "beta", changeA)
+	_, serr := Submit(home, dest, "beta", changeA, "")
 	for _, err := range []error{err, verr, serr} {
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Fatalf("got %v, want an error containing %q", err, want)
@@ -246,7 +246,7 @@ func TestRebindMovesAnOldFolderAndItsSavedTurnsToTheSuccessor(t *testing.T) {
 	must(t, json.Unmarshal(raw, &decoded))
 	code.entries[changeA] = decoded
 	code.blobs[changeA+"/"+sum("new\n")] = []byte("new\n")
-	submitted, err := Submit(o.f.home, o.dest, "beta", changeA)
+	submitted, err := Submit(o.f.home, o.dest, "beta", changeA, "")
 	must(t, err)
 	if !slices.Equal(code.log, []string{"POST /v1/changes", "PUT /v1/changes/" + changeA + "/blobs/" + sum("worker edit\n"), "POST /v1/changes/" + changeA + "/seal"}) ||
 		submitted["state"] != "sealed" || submitted["base_revision"] != m.Repositories[0].Revision || submitted["snapshot_id"] != o.newID {
