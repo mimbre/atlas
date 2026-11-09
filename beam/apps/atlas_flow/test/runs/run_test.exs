@@ -343,6 +343,43 @@ defmodule AtlasFlow.Runs.RunTest do
              Run.step(open, Inspect, subject(%{"dropped" => true}), @now)
   end
 
+  test "a condition's nil allows no value; an import row may also say whether it is completed" do
+    # nil among the values: the field absent, nil or empty; any other value only itself.
+    for values <- [%{}, %{"phase" => nil}, %{"phase" => ""}],
+        do: assert(Run.holds?(%{"phase" => [nil, "second"]}, values), inspect(values))
+
+    assert Run.holds?(%{"phase" => [nil, "second"]}, %{"phase" => "second"})
+    refute Run.holds?(%{"phase" => [nil, "second"]}, %{"phase" => "first"})
+    refute Run.holds?(%{"phase" => ["second"]}, %{})
+    refute Run.holds?(%{"phase" => ["second"]}, %{"phase" => ""})
+    refute Run.holds?(%{"flag" => [nil]}, %{"flag" => false})
+
+    # A completed subject is history whatever it holds; one that is not, by its values.
+    imports = [
+      %{"completed" => true, "state" => "kept"},
+      %{"when" => %{"choice" => [nil]}, "state" => "looking"},
+      %{"when" => %{"choice" => ["no"]}, "completed" => false, "state" => "returned"}
+    ]
+
+    new = fn values, extra ->
+      Run.new("inspect", Inspect, Map.merge(subject(values), extra), imports, @now)
+    end
+
+    for extra <- [%{"completion" => %{"by" => "signed_by"}}, %{"completion" => true}] do
+      run = new.(%{"choice" => "no"}, extra)
+      assert {run["state"], run["status"]} == {"kept", "completed"}
+      assert run["last_input"]["import"]
+    end
+
+    for extra <- [%{}, %{"completion" => nil}] do
+      assert new.(%{}, extra)["state"] == "looking"
+      assert new.(%{"choice" => "no"}, extra)["state"] == "returned"
+      # No row holds: it starts as a new one does.
+      started = new.(%{"choice" => "maybe"}, extra)
+      assert {started["state"], started["last_input"]} == {"looking", %{"version" => 1}}
+    end
+  end
+
   test "an import into a state that writes or runs something on entry refuses, with zero writes" do
     defmodule BusyModel do
       use AtlasFlow.TestModel,

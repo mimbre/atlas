@@ -22,8 +22,10 @@ defmodule AtlasFlow.Model do
 
   @doc """
   How the runs of `subflow` are selected: `subject`, `admission`, `imports`,
-  `projection`, `follow_through`, `verification`, `legacy` and its approved `migrations`;
-  nil when it is not selected.
+  `projection`, `follow_through`, `verification`, `reopen`, `legacy` and its approved
+  `migrations`; nil when it is not selected. `reopen: "new_generation"` lets reopened
+  work start a new generation of a completed run; without it only an explicit restart
+  does (`AtlasFlow.Runs.Run.restart/4`).
   """
   @callback selection(subflow :: String.t()) :: nil | map
 

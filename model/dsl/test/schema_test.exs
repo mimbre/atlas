@@ -915,6 +915,30 @@ defmodule RelaDSL.SchemaTest do
                hd(flow.states).present.answers
     end
 
+    test "a change answer may link nobody, but always writes values" do
+      module =
+        compile!(
+          presented(
+            ~s|present expected: "Review", answers: [[key: "f", label: "Reject", note: true, change: %{values: %{phase: :dropped}}]]|
+          )
+        )
+
+      [flow] = module.__flows__()
+
+      assert [%{key: "f", change: %{values: %{phase: :dropped}} = change}] =
+               hd(flow.states).present.answers
+
+      refute Map.has_key?(change, :self)
+
+      refused(
+        presented(
+          ~s|present expected: "A", answers: [[key: "f", label: "F", change: %{self: :signed_by, values: %{}}]]|
+        ),
+        5,
+        "or change: %{values:, self:}]"
+      )
+    end
+
     test "a final state that has an owner" do
       refused(
         """
@@ -966,7 +990,7 @@ defmodule RelaDSL.SchemaTest do
           ~s|present expected: "A", answers: [[key: "a", label: "A", set: :r, remove: :r]]|
         ),
         5,
-        "must be [key:, label:, and set: or remove: a relation]"
+        "must be [key:, label:, and set: or remove: a relation, or change: %{values:, self:}]"
       )
 
       refused(

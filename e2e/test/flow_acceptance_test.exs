@@ -1,13 +1,15 @@
 defmodule AtlasE2E.FlowAcceptanceTest do
   @moduledoc """
-  Slice 10 on real persistence: the design of a use case runs on Flow's durable runs,
-  for the design phase of the legacy flow design_and_accept, which keeps the building
-  phase, against a private Rela and real Facts, with Flow's engine and its processes
-  (`beam/integration/flow_acceptance_native.exs`). The use cases as test and prod hold
-  them keep what they present and their owner; only a design being written or reviewed
-  gets a run, as the import table says; restart while waiting; changes requested; the
-  review's approval accepts it once, across a restart before its accepted write reached
-  Facts, with one writer at every step; the building phase goes on on the legacy flow.
+  Slices 10 and 11 on real persistence: a use case runs on Flow's durable runs, its
+  design on design_and_accept and its building, testing and acceptance on
+  test_and_accept_use_case, which together take every use case from the legacy flow
+  design_and_accept, against a private Rela and real Facts, with Flow's engine and its
+  processes (`beam/integration/flow_acceptance_native.exs`). The use cases as test and
+  prod hold them keep what they present and their owner, and none is left to the legacy
+  flow; both import tables; restart while waiting; changes requested; the design accepted
+  once; a restart between the design's acceptance and the build run's creation makes one
+  build run; its issues built, then tested across a restart, and accepted by the
+  decider; reopening it starts no new generation.
   """
   use ExUnit.Case, async: false
   @root Path.expand("../..", __DIR__)
@@ -18,7 +20,7 @@ defmodule AtlasE2E.FlowAcceptanceTest do
   @moduletag :tmp_dir
 
   # The child owns its private Rela and Facts and stops them even on an assertion failure.
-  test "the design of a use case on its run: live rows kept, imports, restart, accepted once",
+  test "a use case on its design and build runs: live rows kept, imports, restarts, accepted once",
        %{tmp_dir: dir} do
     on_exit(fn -> File.rm_rf!(dir) end)
     script = Path.join(@root, "beam/integration/flow_acceptance_native.exs")

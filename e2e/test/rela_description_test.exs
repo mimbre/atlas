@@ -156,8 +156,11 @@ defmodule AtlasE2E.RelaDescriptionTest do
   test "include-only changes restart rela and preserve stored files byte for byte", ctx do
     {out, status} = ops(ctx.env, ["restart"])
     assert status == 0, out
-    put(ctx.url, "scenes", "SC-Atlas-01", "Kept across an include-only restart")
-    put(ctx.url, "use_cases", "UC-Atlas-01", "Kept child")
+    # Facts of kinds no flow runs on, writes a count or link on, or presents: the agent's
+    # records, which only the agent writes. The core writes nothing on them, so the files
+    # are exactly what this test stored, before the restart and after it.
+    put(ctx.url, "agent_requests", "RQ-Atlas-01", "Kept across an include-only restart")
+    put(ctx.url, "agent_steps", "ST-Atlas-01", "Kept child")
 
     {_, 0} =
       System.cmd("curl", [
@@ -169,10 +172,10 @@ defmodule AtlasE2E.RelaDescriptionTest do
         "-d",
         JSON.encode!(%{
           "relations" => %{
-            "in_scene" => %{"data" => [%{"type" => "scene", "id" => "SC-Atlas-01"}]}
+            "in_request" => %{"data" => [%{"type" => "agent_request", "id" => "RQ-Atlas-01"}]}
           }
         }),
-        ctx.url <> "/use_cases/UC-Atlas-01"
+        ctx.url <> "/agent_steps/ST-Atlas-01"
       ])
 
     data = Path.join(ctx.dir, "rela")

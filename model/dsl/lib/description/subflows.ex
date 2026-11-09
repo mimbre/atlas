@@ -279,8 +279,16 @@ defmodule RelaDSL.Description.Subflows do
                   if(to_string(imp[:state]) in states,
                     do: [],
                     else: [at.("imports state #{imp[:state]}, which #{name} does not have")]
+                  ) ++
+                  if(Keyword.has_key?(imp, :completed) and not is_boolean(imp[:completed]),
+                    do: [at.("an import row's completed is true or false")],
+                    else: []
                   )
               end
+            ) ++
+            if(Keyword.has_key?(o, :reopen) and o[:reopen] not in [:explicit, :new_generation],
+              do: [at.("reopen: #{inspect(o[:reopen])} is neither :explicit nor :new_generation")],
+              else: []
             ) ++ verification(schema, kind, o[:verification], at)
       end
     end)
@@ -297,7 +305,8 @@ defmodule RelaDSL.Description.Subflows do
         prop == nil ->
           [at.("#{field} is not a field of #{kind}")]
 
-        enum && Enum.any?(List.wrap(allowed), &(to_string(&1) not in enum)) ->
+        # nil allows no value: the field empty.
+        enum && Enum.any?(List.wrap(allowed), &(&1 != nil and to_string(&1) not in enum)) ->
           [at.("#{kind}.#{field} has no value among #{inspect(allowed)}")]
 
         true ->

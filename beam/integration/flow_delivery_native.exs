@@ -86,7 +86,7 @@ try do
   %{config: config, flows: flows, refusal: nil} = AtlasFlow.Model.load(Model.AtlasEyra, :test)
 
   assert Enum.sort(Map.keys(config["selection"])) ==
-           ~w(decide design_and_accept issue pr_review pr_test pull_request)
+           ~w(decide design_and_accept issue pr_review pr_test pull_request test_and_accept_use_case)
 
   # Each reconcile runs in a fresh Flow process: Flow keeps nothing, only Facts does.
   reconcile = fn ->

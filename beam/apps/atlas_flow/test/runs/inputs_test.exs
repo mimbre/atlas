@@ -110,7 +110,8 @@ defmodule AtlasFlow.Runs.InputsTest do
 
   test "predicate edge is persisted while false, consumed once, and survives reconciliation restart" do
     f = Sorts.Ready
-    config = TestModel.config()
+    # Its selection lets reopened work start a new generation by itself.
+    config = put_in(TestModel.config(), ["selection", "sort", "reopen"], "new_generation")
 
     assert {:ok, [%{"status" => "idle", "entry" => 0}]} =
              Store.reconcile(config, %{"sort" => f}, @now)
@@ -130,5 +131,39 @@ defmodule AtlasFlow.Runs.InputsTest do
     assert {:ok, [%{"generation" => 2} = second]} = Store.reconcile(config, %{"sort" => f}, @now)
     assert {:ok, [^second]} = Store.reconcile(config, %{"sort" => f}, @now)
     assert second["key"] != started["key"]
+  end
+
+  test "by default reopened work starts no new generation: only an explicit restart makes one" do
+    f = Sorts.Ready
+    config = TestModel.config()
+    refute Map.has_key?(config["selection"]["sort"], "reopen")
+
+    FakeFacts.put("box", subject(%{"ready" => true}))
+    assert {:ok, [started]} = Store.reconcile(config, %{"sort" => f}, @now)
+    FakeFacts.put("box", subject(%{"ready" => true, "result" => "ok"}))
+    assert {:ok, [done]} = Store.reconcile(config, %{"sort" => f}, @now)
+    assert {done["status"], done["generation"]} == {"completed", 1}
+
+    # Its predicate false, then true again, through restarts of the reconcile: the same
+    # completed run, written no more.
+    for ready <- [false, true, false, true] do
+      FakeFacts.put("box", subject(%{"ready" => ready}))
+      assert {:ok, [^done]} = Store.reconcile(config, %{"sort" => f}, @now)
+    end
+
+    assert FakeFacts.get("cursor", Run.key("sort", "box", "B-1", 2)) == nil
+
+    # The explicit restart: the next generation, started on the subject as it is now.
+    assert {:ok, second} = Run.restart(done, f, subject(%{"ready" => true}), @now)
+    assert {second["generation"], second["state"], second["entry"]} == {2, "waiting", 1}
+    assert second["key"] == Run.key("sort", "box", "B-1", 2)
+    assert {:error, :not_completed} = Run.restart(started, f, subject(), @now)
+
+    # Declared explicitly, the policy is the same.
+    {:ok, unedged} =
+      Run.step(done, f, subject(%{"ready" => false}), @now, [], reopen: "explicit")
+
+    assert {:ok, ^done} =
+             Run.step(unedged, f, subject(%{"ready" => true}), @now, [], reopen: "explicit")
   end
 end

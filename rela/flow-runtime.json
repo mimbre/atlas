@@ -312,16 +312,53 @@
             "state": "redesign"
           }
         ],
-        "follow_through": {
-          "state": "accepted",
-          "when": {
-            "design_status": [
-              "writing",
-              "in_review",
-              "changes_requested"
-            ]
+        "reopen": "explicit"
+      },
+      "test_and_accept_use_case": {
+        "choices": [],
+        "choice_states": [],
+        "migrations": [
+          {"from":"439466529c0f51d0f91d8ace07c9f5fa6ca2cfb04bfcc4557b6ba57342b2e0f1","to":"d4222657ad88e5d0310136893bd47f89e9a447874ede4d0c21067622728d1b04","states":{"accepted":"accepted","break_down":"break_down","building":"building","rework":"rework","to_test":"to_test"},"reason":"Slice 11: selected without its passes; the decider's verdict ends to_test"}
+        ],
+        "subject": "use_case",
+        "legacy": "design_and_accept",
+        "projection": {
+          "on": "assignment",
+          "state_field": "flow_state",
+          "handover_field": "handover",
+          "owner_relation": "assigned_to",
+          "field": "expected"
+        },
+        "admission": {
+          "design_status": [
+            "approved",
+            "accepted",
+            null
+          ]
+        },
+        "imports": [
+          {
+            "completed": true,
+            "state": "accepted"
+          },
+          {
+            "when": {
+              "design_status": [
+                "approved"
+              ]
+            },
+            "state": "building"
+          },
+          {
+            "when": {
+              "design_status": [
+                null
+              ]
+            },
+            "state": "building"
           }
-        }
+        ],
+        "reopen": "explicit"
       }
     },
     "inputs": {

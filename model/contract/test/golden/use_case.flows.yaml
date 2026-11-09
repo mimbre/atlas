@@ -6,7 +6,11 @@
 # field is design_status, not design, which holds the Architect's text of the design.
 # Slice 10: design_and_accept has no passes, design gate, acceptor or maintainer yet;
 # each state moves on the design_status written by hand, and the review's approved
-# accepts the design. test_and_accept_use_case is unchanged (slice 11).
+# accepts the design.
+# Slice 11: test_and_accept_use_case has no passes yet; to_test resets verdict on entry
+# and moves on the verdict the decider's answers write, not on an acceptor's choice; a
+# new open issue sends it back to building; a use case without a design phase is neither
+# broken down nor tested while nothing is under it.
 flows:
   design_and_accept:
     label: Design and accept
@@ -59,27 +63,22 @@ flows:
         label: Build it
         on:
           change:
-            - { to: break_down, roles: [atlas-flow], when: "entity.children == 0" }
-            - { to: to_test, roles: [atlas-flow], when: "entity.open_children == 0" }
+            - { to: break_down, roles: [atlas-flow], when: "entity.children == 0 and (entity.design_status == 'approved' or entity.design_status == 'accepted')" }
+            - { to: to_test, roles: [atlas-flow], when: "entity.children > 0 and entity.open_children == 0" }
       to_test:
         label: Test it
-        status: input_required
-        waiting_for: [acceptor]
         outputs:
           - set: { properties: { verdict: none } }
         on:
           change:
-            - { to: accepted, roles: [acceptor], when: "entity.verdict == 'accept'" }
-            - { to: rework, roles: [acceptor], when: "entity.verdict == 'reject'" }
+            - { to: accepted, when: "entity.verdict == 'accept'" }
+            - { to: rework, when: "entity.verdict == 'reject'" }
+            - { to: building, roles: [atlas-flow], when: "entity.open_children > 0" }
       rework:
         label: Rework it
-        outputs:
-          - set: { properties: { pass_result: none } }
         on:
           change:
             - { to: building, roles: [atlas-flow], when: "entity.open_children > 0" }
-            - { to: to_test, roles: [atlas-flow], when: "entity.pass_result == 'delivered'" }
-            - { to: to_test, roles: [atlas-flow], label: Rework failed; the acceptor decides, when: "entity.pass_result == 'failed'" }
       accepted:
         label: Accepted
         final: true

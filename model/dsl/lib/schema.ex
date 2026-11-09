@@ -1084,7 +1084,8 @@ defmodule RelaDSL.Schema do
   defp also({s, ps}, earlier), do: {s, earlier ++ ps}
 
   # The texts are what the owner reads, so each is a text; an answer sets or removes
-  # one relation, and its key is the one the owner presses.
+  # one relation, or writes a change (values, and the relation `self` that links the one
+  # who answers, when it names one), and its key is the one the owner presses.
   defp present_problems(opts, p) do
     unknown = Keyword.keys(opts) -- @present_keys
     text? = &(is_binary(&1) and String.trim(&1) != "")
@@ -1107,12 +1108,12 @@ defmodule RelaDSL.Schema do
           not answer?(a, text?),
           do:
             "present's answer #{inspect(Map.to_list(a))} must be [key:, label:, " <>
-              "and set: or remove: a relation]"
+              "and set: or remove: a relation, or change: %{values:, self:}]"
   end
 
   defp answer?(%{change: change} = a, text?) do
     text?.(a[:key]) and text?.(a[:label]) and is_map(change) and
-      is_map(change[:values]) and is_atom(change[:self]) and change[:self] != nil and
+      is_map(change[:values]) and change[:values] != %{} and is_atom(change[:self]) and
       Map.keys(change) -- [:values, :self] == [] and
       a[:note] in [nil, true] and Map.keys(a) -- [:key, :label, :change, :note] == []
   end

@@ -523,10 +523,20 @@
     },
     "test_and_accept_use_case": {
       "prod": {
-        "digest": "439466529c0f51d0f91d8ace07c9f5fa6ca2cfb04bfcc4557b6ba57342b2e0f1",
+        "digest": "d4222657ad88e5d0310136893bd47f89e9a447874ede4d0c21067622728d1b04",
         "history": [
           {
             "digest": "439466529c0f51d0f91d8ace07c9f5fa6ca2cfb04bfcc4557b6ba57342b2e0f1",
+            "states": [
+              "accepted",
+              "break_down",
+              "building",
+              "rework",
+              "to_test"
+            ]
+          },
+          {
+            "digest": "d4222657ad88e5d0310136893bd47f89e9a447874ede4d0c21067622728d1b04",
             "states": [
               "accepted",
               "break_down",
@@ -545,10 +555,20 @@
         ]
       },
       "test": {
-        "digest": "439466529c0f51d0f91d8ace07c9f5fa6ca2cfb04bfcc4557b6ba57342b2e0f1",
+        "digest": "d4222657ad88e5d0310136893bd47f89e9a447874ede4d0c21067622728d1b04",
         "history": [
           {
             "digest": "439466529c0f51d0f91d8ace07c9f5fa6ca2cfb04bfcc4557b6ba57342b2e0f1",
+            "states": [
+              "accepted",
+              "break_down",
+              "building",
+              "rework",
+              "to_test"
+            ]
+          },
+          {
+            "digest": "d4222657ad88e5d0310136893bd47f89e9a447874ede4d0c21067622728d1b04",
             "states": [
               "accepted",
               "break_down",
