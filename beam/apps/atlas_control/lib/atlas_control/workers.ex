@@ -13,6 +13,7 @@ defmodule AtlasControl.Workers do
   @capabilities ~w(queued_input durable_accept_query consumption_evidence)
   @submission ~w(client_key body cause)
   @max_body 16_384
+  @finished 20
 
   def handle(operation, request, m, actor, read, write) do
     permission = if operation == "worker_submit", do: "submit", else: "read"
@@ -80,36 +81,107 @@ defmodule AtlasControl.Workers do
 
   def authorize(_, _, _, _), do: {:error, "forbidden"}
 
+  @doc """
+  What the Workers page shows, from one read of the turns: `"running"`, the views of the
+  turns whose state is the model's running value (as `worker_overview` returns them),
+  newest activity first; and `"finished"`, the #{@finished} turns that ended most
+  recently, newest end first, each with its exact execution, state, why it ended, when,
+  and its item. A finished turn without a full execution identity cannot be opened and
+  is left out.
+  """
+  def board(m, actor, read) do
+    with :ok <- authorize(m, actor, "read", read),
+         {:ok, n} <- names(m),
+         {:ok, turns} <- turns(n, read),
+         {:ok, running} <- running(m, actor, n, turns, read) do
+      {:ok,
+       %{
+         "running" => Enum.sort_by(running, &recency(&1["lease_until"]), :desc),
+         "finished" => finished(n, turns),
+         "confirmed_at" => now()
+       }}
+    end
+  end
+
   defp overview(m, actor, read) do
     with {:ok, n} <- names(m),
-         %{"facts" => turns} when is_list(turns) <- read.(n["kind"], %{"plain" => true}) do
-      # Each row is an exact execution. Never choose an arbitrary current turn
-      # when two running facts claim the same worker.
-      running = Enum.filter(turns, &(get_in(&1, ["values", n["state"]]) == n["running"]))
+         {:ok, turns} <- turns(n, read),
+         {:ok, rows} <- running(m, actor, n, turns, read) do
+      {:ok, %{"workers" => rows, "confirmed_at" => now()}}
+    end
+  end
 
-      if length(running) > 100 do
-        {:error, "overview_too_large"}
-      else
-        Enum.reduce_while(Enum.sort_by(running, & &1["key"]), {:ok, []}, fn turn, {:ok, rows} ->
-          case target_from_turn(n, turn) do
-            {:ok, target} ->
-              case inspect_execution(m, actor, target, read) do
-                {:ok, view} -> {:cont, {:ok, [view | rows]}}
-                {:error, error} -> {:halt, {:error, error}}
-              end
-
-            {:error, _} ->
-              {:halt, {:error, "execution_unregistered"}}
-          end
-        end)
-        |> case do
-          {:ok, rows} -> {:ok, %{"workers" => Enum.reverse(rows), "confirmed_at" => now()}}
-          error -> error
-        end
-      end
-    else
-      {:error, _} = error -> error
+  defp turns(n, read) do
+    case read.(n["kind"], %{"plain" => true}) do
+      %{"facts" => turns} when is_list(turns) -> {:ok, turns}
       _ -> {:error, "facts_unavailable"}
+    end
+  end
+
+  defp running(m, actor, n, turns, read) do
+    # Each row is an exact execution. Never choose an arbitrary current turn
+    # when two running facts claim the same worker.
+    running = Enum.filter(turns, &(get_in(&1, ["values", n["state"]]) == n["running"]))
+
+    if length(running) > 100 do
+      {:error, "overview_too_large"}
+    else
+      Enum.reduce_while(Enum.sort_by(running, & &1["key"]), {:ok, []}, fn turn, {:ok, rows} ->
+        case target_from_turn(n, turn) do
+          {:ok, target} ->
+            case inspect_execution(m, actor, target, read) do
+              {:ok, view} -> {:cont, {:ok, [view | rows]}}
+              {:error, error} -> {:halt, {:error, error}}
+            end
+
+          {:error, _} ->
+            {:halt, {:error, "execution_unregistered"}}
+        end
+      end)
+      |> case do
+        {:ok, rows} -> {:ok, Enum.reverse(rows)}
+        error -> error
+      end
+    end
+  end
+
+  # Read from the turn itself: a finished turn takes no guidance, so listing it needs
+  # no execution record (opening it inspects that).
+  defp finished(n, turns) do
+    if filled?(n["ended"]) do
+      for turn <- turns,
+          get_in(turn, ["values", n["state"]]) == n["ended"],
+          {:ok, target} <- [target_from_turn(n, turn)] do
+        values = turn["values"] || %{}
+
+        %{
+          "execution" => %{
+            "worker" => Map.take(target, ~w(environment machine worker)),
+            "turn" => target["turn"],
+            "attempt" => target["attempt"]
+          },
+          "state" => values[n["state"]],
+          "reason" => values[n["why"]],
+          "ended_at" => values[n["ended_at"]],
+          "item" =>
+            case get_in(turn, ["links", n["on"]]) do
+              [key] -> key
+              _ -> nil
+            end
+        }
+      end
+      |> Enum.sort_by(&{recency(&1["ended_at"]), &1["execution"]["turn"]}, :desc)
+      |> Enum.take(@finished)
+    else
+      []
+    end
+  end
+
+  # A timestamp as a sortable number; a missing or unreadable one sorts oldest.
+  defp recency(value) do
+    case DateTime.from_iso8601(to_string(value || "")) do
+      {:ok, at, _} -> DateTime.to_unix(at, :microsecond)
+      _ -> 0
     end
   end
 
