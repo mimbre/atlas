@@ -30,19 +30,112 @@ defmodule PageFreshness.Sessions do
   def watch(sessions) do
     tracer = spawn(fn -> collect([]) end)
     :erlang.trace_pattern({:gen_tcp, :send, 2}, true, [:global])
-    for pid <- sessions, do: :erlang.trace(pid, true, [:call, {:tracer, tracer}])
+
+    :erlang.trace_pattern(
+      {AtlasControl.Session, :handle_info, 2},
+      [{[{:atlas_bus, %{class: "answer", kind: "_settled"}, :_}, :_], [], []}],
+      [:global]
+    )
+
+    for pid <- sessions,
+        do: :erlang.trace(pid, true, [:call, :monotonic_timestamp, {:tracer, tracer}])
+
     tracer
   end
 
-  @doc "What `session` sent since `since` (`now/0`), in order: `{ms, message}`."
-  def sent(tracer, session, since) do
-    ref = make_ref()
-    send(tracer, {:sent, self(), ref})
+  @doc "Ordered events after the VM delivered its trace and the collector consumed it."
+  def events(tracer, session) do
+    delivered = :erlang.trace_delivered(session)
 
     receive do
-      {^ref, all} -> for {^session, at, message} <- all, at >= since, do: {at, message}
+      {:trace_delivered, ^session, ^delivered} -> :ok
+    after
+      5_000 -> raise "Control's session trace was not delivered"
+    end
+
+    ref = make_ref()
+    send(tracer, {:events, self(), ref})
+
+    receive do
+      {^ref, all} -> for {^session, event} <- all, do: event
     after
       5_000 -> raise "the trace of Control's sessions did not answer"
+    end
+  end
+
+  @doc "A drained sequence boundary, independent of clock resolution or collector scheduling."
+  def cursor(tracer, session),
+    do: events(tracer, session) |> List.last() |> then(&if(&1, do: &1.sequence, else: 0))
+
+  @doc "What `session` sent since `since` (`now/0`): VM event time in ms, never collection time."
+  def sent(tracer, session, since) do
+    for %{type: "send", at: at, message: message} <- events(tracer, session),
+        ms = System.convert_time_unit(at, :native, :millisecond),
+        ms >= since,
+        do: {ms, message}
+  end
+
+  @doc """
+  Classify every page in same-session event order. Session accepts any integer
+  _settled answer, even with an old id, clearing covered marks before it sends.
+  Page position/reason and the final session state never establish coverage.
+  """
+  def frames(events, position) do
+    {frames, _} =
+      Enum.map_reduce(events, nil, fn event, coverage ->
+        coverage =
+          if event.type == "coverage" do
+            [coverage, event.reported]
+            |> Enum.filter(&is_integer/1)
+            |> Enum.max(fn -> nil end)
+          else
+            coverage
+          end
+
+        phase = if is_integer(coverage) and coverage >= position, do: "covered", else: "pending"
+        {Map.merge(event, %{coverage: coverage, phase: phase}), coverage}
+      end)
+
+    frames
+  end
+
+  @doc "Full ledger, including non-page sends and invalid/uncovering coverage answers."
+  def ledger(tracer, session, cursor, position) do
+    events(tracer, session) |> frames(position) |> Enum.filter(&(&1.sequence > cursor))
+  end
+
+  @doc "Every event in order, with page identities/flags, retained in the core proof output."
+  def evidence(ledger) do
+    Enum.map(ledger, fn
+      %{type: "send", message: message} = event ->
+        event
+        |> Map.delete(:message)
+        |> Map.put(:message, Map.take(message, ~w(op path reason position)))
+        |> Map.put(:rows, rows(message))
+
+      event ->
+        event
+    end)
+  end
+
+  @doc "All assigned-list frames: both phases, retained pending row, then exact remaining order."
+  def assert_marker_frames(ledger, before, changed) do
+    import ExUnit.Assertions
+
+    lists =
+      for %{type: "send", message: %{"op" => "page", "path" => "/"}} = frame <- ledger, do: frame
+
+    assert Enum.any?(lists, &(&1.phase == "pending"))
+    assert Enum.any?(lists, &(&1.phase == "covered"))
+
+    for %{phase: phase, message: page} <- lists do
+      if phase == "pending" do
+        assert Map.put(changed, :pending, true) in rows(page)
+      else
+        refute changed.key in Enum.map(rows(page), & &1.key)
+        refute Enum.any?(rows(page), & &1.pending)
+        assert Enum.map(rows(page), & &1.key) == before -- [changed.key]
+      end
     end
   end
 
@@ -109,11 +202,25 @@ defmodule PageFreshness.Sessions do
 
   defp collect(all) do
     receive do
-      {:trace, pid, :call, {:gen_tcp, :send, [_socket, data]}} ->
+      {:trace_ts, pid, :call, {:gen_tcp, :send, [_socket, data]}, at} ->
         message = data |> IO.iodata_to_binary() |> String.trim() |> JSON.decode!()
-        collect([{pid, now(), message} | all])
+        event = %{sequence: length(all) + 1, at: at, type: "send", message: message}
+        collect([{pid, event} | all])
 
-      {:sent, from, ref} ->
+      {:trace_ts, pid, :call,
+       {AtlasControl.Session, :handle_info,
+        [{:atlas_bus, %{class: "answer", kind: "_settled"}, content}, state]}, at} ->
+        event = %{
+          sequence: length(all) + 1,
+          at: at,
+          type: "coverage",
+          prior: state.settled,
+          reported: content["settled"]
+        }
+
+        collect([{pid, event} | all])
+
+      {:events, from, ref} ->
         send(from, {ref, Enum.reverse(all)})
         collect(all)
 

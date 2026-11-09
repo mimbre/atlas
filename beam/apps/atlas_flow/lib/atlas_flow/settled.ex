@@ -11,10 +11,14 @@ defmodule AtlasFlow.Settled do
     its hint is not handled yet, so the settled position stops before it. Flow's own
     later writes are reached when their own hints come (`seen/2`).
   - `value/1`: the highest position settled.
-  - A hint whose runs could not be reconciled or whose required projection failed is
-    not settled: the engine holds it (`hold/2`), and the value stays below it, however
-    far later hints reach, until a round reconciles every run and successfully projects
-    every subject (`release/1`). Then it is settled through every hint looked at by then.
+  - A hint whose discovery, reconciliation or required projection failed is not
+    settled: the engine holds it (`hold/2`), and the value stays below it, however far
+    later hints reach, until a round reconciles every run after it. A round is planned
+    (`begin/1`) and then reconciles one subject after another, with hints looked at in
+    between; once every run reconciled and every subject projected (`release/1`), the hints
+    held before it began are settled, and the value goes on to the first hint held
+    since, if any (its subject may have been reconciled before it came): the next round
+    releases that one.
 
   It assumes what one store guarantees: hints reach the engine in position order (Facts
   sends them one after the other), so every hint before one the engine handles was
@@ -30,12 +34,14 @@ defmodule AtlasFlow.Settled do
 
   @most 256
 
-  defstruct seen: 0, reached: 0, held: nil, waiters: [], most: @most
+  defstruct seen: 0, reached: 0, held: [], mark: nil, waiters: [], most: @most
 
   @type t :: %__MODULE__{
           seen: non_neg_integer,
           reached: non_neg_integer,
-          held: nil | non_neg_integer,
+          # The positions held, ascending; the round begun is after those up to `mark`.
+          held: [non_neg_integer],
+          mark: nil | non_neg_integer,
           waiters: [{non_neg_integer, term}],
           most: pos_integer
         }
@@ -49,21 +55,44 @@ defmodule AtlasFlow.Settled do
   @doc "Every hint and write up to `position` was looked at and is stored."
   def seen(settled, position) do
     reached = max(settled.reached, position)
-    capped = if settled.held, do: min(reached, settled.held - 1), else: reached
+
+    capped =
+      case settled.held do
+        [] -> reached
+        held -> min(reached, Enum.min(held) - 1)
+      end
+
     due(%{settled | reached: reached, seen: max(settled.seen, capped)})
   end
 
   @doc """
-  The hint at `position` was looked at, but reconciliation or required projection
-  failed: settled no further than `position - 1` until `release/1`.
+  The hint at `position` was looked at, but discovery, reconciliation or projection
+  failed: settled no further than `position - 1` until a round begun after it is
+  released (`release/1`).
   """
-  def hold(settled, position) do
-    held = if settled.held, do: min(settled.held, position), else: position
-    seen(%{settled | held: held}, position)
+  def hold(settled, position), do: seen(%{settled | held: settled.held ++ [position]}, position)
+
+  @doc """
+  A round is planned now: it reconciles every run after every hint looked at so far, so
+  `release/1` at its end settles those held until now. Hints held from now on wait for
+  the next round. What is held now is kept as its lowest position: the value stops there.
+  """
+  def begin(settled) do
+    held = if settled.held == [], do: [], else: [Enum.min(settled.held)]
+    {[], %{settled | held: held, mark: settled.reached}}
   end
 
-  @doc "Every run reconciled and required projection succeeded: release every held hint."
-  def release(settled), do: seen(%{settled | held: nil}, settled.reached)
+  @doc """
+  The round begun last (`begin/1`) reconciled every run and projected every subject:
+  what was held before it began is settled, through every hint looked at, up to the
+  first hint held since. Nothing without a round begun.
+  """
+  def release(%{mark: nil} = settled), do: {[], settled}
+
+  def release(settled) do
+    held = Enum.reject(settled.held, &(&1 <= settled.mark))
+    seen(%{settled | held: held, mark: nil}, settled.reached)
+  end
 
   @doc """
   The hint at `position` was handled, and Flow's own writes for it are stored at `own`:

@@ -412,6 +412,12 @@ defmodule AtlasFlow.Runs.Run do
       })
 
   @doc """
+  Whether `run` takes inputs: only an active one does (`step/6` moves no other on one, and
+  Facts applies a prepared input to an active run only).
+  """
+  def takes_inputs?(run), do: run["status"] == "active"
+
+  @doc """
   The run after what `subject` and `inputs` say now: `{:ok, run}`. An idle run starts on
   its predicate. A completed one stays completed: reopened work (its start predicate false,
   then true again) starts a new generation only when the selection says so, `reopen:

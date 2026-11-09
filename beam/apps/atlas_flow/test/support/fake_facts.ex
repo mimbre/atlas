@@ -58,6 +58,17 @@ defmodule AtlasFlow.FakeFacts do
   """
   def reads, do: GenServer.call(__MODULE__, :reads)
 
+  @doc "How many times Flow read each run's inputs so far: `%{run key => reads}`."
+  def input_reads, do: GenServer.call(__MODULE__, :input_reads)
+
+  @doc """
+  Leave an input of a run as Facts holds it (`%{"key", "run", "entry", "status", …}`), as
+  when its answer was prepared and not yet applied. Facts applies a prepared input only to
+  the entry an active run is in: a read of the inputs of a run it was left on otherwise
+  fails, as Facts answers it (`:prepared_input_needs_reconciliation`).
+  """
+  def put_input(input), do: GenServer.call(__MODULE__, {:put_input, input})
+
   @doc "How many facts Flow sent so far, each attempt and replay counted: its round trips."
   def puts, do: GenServer.call(__MODULE__, :puts)
 
@@ -75,6 +86,7 @@ defmodule AtlasFlow.FakeFacts do
        ledger: %{},
        lose_ack: nil,
        reads: {0, 0},
+       input_reads: %{},
        facts_read: 0,
        puts: 0,
        from_flow: [],
@@ -102,6 +114,11 @@ defmodule AtlasFlow.FakeFacts do
   def handle_call(:reads, _from, s), do: {:reply, s.reads, s}
   def handle_call(:facts_read, _from, s), do: {:reply, s.facts_read, s}
   def handle_call(:puts, _from, s), do: {:reply, s.puts, s}
+
+  def handle_call(:input_reads, _from, s), do: {:reply, s.input_reads, s}
+
+  def handle_call({:put_input, input}, _from, s),
+    do: {:reply, :ok, put_in(s.inputs[input["key"]], input)}
 
   def handle_call({:drop, kind, key}, _from, s),
     do: {:reply, :ok, %{s | facts: Map.delete(s.facts, {kind, key})}}
@@ -152,12 +169,15 @@ defmodule AtlasFlow.FakeFacts do
 
           %{"facts" => facts}
 
-        # The inputs of a run, in their order.
+        # The inputs of a run, in their order; a prepared one fails the read unless the run
+        # is active in its entry (Facts would apply it there).
         {_kind, %{"run" => run}} ->
-          %{
-            "inputs" =>
-              for({_, i} <- s.inputs, i["run"] == run, do: i) |> Enum.sort_by(& &1["position"])
-          }
+          inputs = for({_, i} <- s.inputs, i["run"] == run, do: i)
+          cursor = cursor(s, run)
+
+          if Enum.any?(inputs, &(&1["status"] == "prepared" and not open?(cursor, &1))),
+            do: %{"error" => ":prepared_input_needs_reconciliation"},
+            else: %{"inputs" => Enum.sort_by(inputs, & &1["position"])}
 
         {kind, _} ->
           %{"facts" => for({{^kind, _}, fact} <- s.facts, do: fact)}
@@ -167,6 +187,17 @@ defmodule AtlasFlow.FakeFacts do
       if MapSet.member?(s.blocked_reads, {e.kind, content}),
         do: %{"error" => "Facts did not answer"},
         else: answer
+
+    s =
+      case content do
+        %{"run" => run} when is_binary(run) ->
+          if flow?(e.sender),
+            do: update_in(s.input_reads, &Map.update(&1, run, 1, fn n -> n + 1 end)),
+            else: s
+
+        _ ->
+          s
+      end
 
     s =
       if flow?(e.sender),
@@ -274,6 +305,11 @@ defmodule AtlasFlow.FakeFacts do
 
   defp cursor(s, run_key),
     do: Enum.find_value(s.facts, fn {{_, key}, fact} -> if key == run_key, do: fact end)
+
+  defp open?(nil, _input), do: false
+
+  defp open?(run, input),
+    do: run["values"]["status"] == "active" and run["values"]["entry"] == input["entry"]
 
   defp fact(e, %{"key" => key} = c, s) do
     old = s.facts[{e.kind, key}]

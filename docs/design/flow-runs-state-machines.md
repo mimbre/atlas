@@ -66,6 +66,8 @@ The assembler rejects unknown root keys and runtime keys (`rela/scripts/assemble
 
 Use one writer per run in this release. Claim entry changes with run version and `was`. On conflict, reread. Do not assume a transaction spanning run, subject and service. Persist the next cursor with pending entry writes first. Replay those writes with stable request ids. Clear pending after acknowledgement; the cleared list is stored with the run's next write, and a crash before it replays the writes under their ids. Store one reaction to one input once: transitions taken one after the other in memory are one versioned write, written sooner only before entry writes, an activity request, a consume, or an inputs read once the cursor moved. Consume no further input until entry writes finish. Bootstrap historical terminal subjects before any initial resets. Never turn an accepted subject back into proposed.
 
+Read flow inputs only for an active run whose cursor is durable. Completed, blocked and idle runs take no input; a stale prepared input left on one must not refuse reconciliation. A start or unblock is stored before reading its inputs; entry writes and consumes keep their existing recovery boundaries.
+
 At boot, load incomplete runs and pending writes. Scan selected subjects for missed starts. Restore wakeups from durable UTC deadlines. Process overdue timers immediately. Never restart their intervals. Inject a clock for now, scheduling and cancellation, including new engine rounds and debounce. Production persists UTC and uses monotonic waits. Tests advance a manual clock and drain a synchronous reconcile call. Old polling tests need not be rewritten in slice 1.
 
 A timer has identity `(run key, entry, timer name)`. Its versioned transition consumes it. Duplicate and old-entry wakeups do nothing. Human input stored by the deadline wins; otherwise the timer wins. Break timer ties by declaration order. Reread Facts before committing a timeout. Persist source entry and due time in `last_input`; the next gate request can carry `timed_out: true` and the original wait time. Resolve `since` from its named persisted field. Missing or invalid time blocks; never substitute now.
@@ -137,7 +139,9 @@ The same plan recognizes its audit and never increments entry again; altered con
 under its ID conflicts. It resumes outstanding work only in its committed migration
 entry. Later entries and completed migrations are returned without another drain;
 definition changes require separate review. The Engine then uses normal reconciliation
-and projection to update its state; target recovery does not waive settlement of
+and projection to update its state before answering the maintenance call. With stepped
+rounds this is a fresh round, queued after any round already in progress; target
+recovery does not waive settlement of
 other subjects. A successor refusal remains a terminal refusal under that successor
 ID, with no automatic fresh plan or entry. Refusal in general does not prove zero
 effects (Rela can store with warnings), which is why this operation is limited to
