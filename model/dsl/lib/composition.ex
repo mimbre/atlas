@@ -342,7 +342,23 @@ defmodule RelaDSL.Composition do
 
     presentations = presentations!(flows, gates, environments, file)
     runtime = RelaDSL.Runtime.Model.body(schema, extension, plain_runtime)
-    facts = RelaDSL.Facts.Model.body(schema, extension, plain_runtime, presentations)
+
+    authority =
+      for env <- environments,
+          {name, definition} <- RelaDSL.Flow.Subflow.definitions(flows, gates, env),
+          into: %{},
+          do:
+            {RelaDSL.DefinitionDigest.of(definition),
+             %{
+               "name" => name,
+               "owner" => definition["owner"],
+               "states" =>
+                 Map.new(definition["states"], fn {state, spec} ->
+                   {state, Map.take(spec, ["owner", "final"])}
+                 end)
+             }}
+
+    facts = RelaDSL.Facts.Model.body(schema, extension, plain_runtime, presentations, authority)
     control = RelaDSL.Control.Model.body(schema, extension, plain_runtime)
 
     quote do

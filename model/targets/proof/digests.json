@@ -255,8 +255,15 @@
     },
     "issue": {
       "prod": {
-        "digest": "6dcb5eefa0dd0aec97748b7280249678cb64d759808b81e2104b3992c7b38052",
+        "digest": "1750de74619999b627ea974d5e6c0652b607a7db344027bdaab215e050d838c7",
         "history": [
+          {
+            "digest": "1750de74619999b627ea974d5e6c0652b607a7db344027bdaab215e050d838c7",
+            "states": [
+              "author",
+              "done"
+            ]
+          },
           {
             "digest": "6dcb5eefa0dd0aec97748b7280249678cb64d759808b81e2104b3992c7b38052",
             "states": [
@@ -286,8 +293,15 @@
         ]
       },
       "test": {
-        "digest": "6dcb5eefa0dd0aec97748b7280249678cb64d759808b81e2104b3992c7b38052",
+        "digest": "1750de74619999b627ea974d5e6c0652b607a7db344027bdaab215e050d838c7",
         "history": [
+          {
+            "digest": "1750de74619999b627ea974d5e6c0652b607a7db344027bdaab215e050d838c7",
+            "states": [
+              "author",
+              "done"
+            ]
+          },
           {
             "digest": "6dcb5eefa0dd0aec97748b7280249678cb64d759808b81e2104b3992c7b38052",
             "states": [
@@ -451,10 +465,21 @@
     },
     "pull_request": {
       "prod": {
-        "digest": "9e9822b579c9f85bd577c278b2c8a10ee7be7d04ee029e12ad8bf790cdc703de",
+        "digest": "32f7024721ba7e62306c111f2b9ffa194774b5fb1bff3a69de64125fe8b0a2f6",
         "history": [
           {
             "digest": "0d65d9a4aa1cdf916e022547e3f4a1974505cd94c349e9809f1a441f13cd8335",
+            "states": [
+              "blocked",
+              "changes_requested",
+              "checking",
+              "closed",
+              "integrated",
+              "integrating"
+            ]
+          },
+          {
+            "digest": "32f7024721ba7e62306c111f2b9ffa194774b5fb1bff3a69de64125fe8b0a2f6",
             "states": [
               "blocked",
               "changes_requested",
@@ -496,10 +521,21 @@
         ]
       },
       "test": {
-        "digest": "9e9822b579c9f85bd577c278b2c8a10ee7be7d04ee029e12ad8bf790cdc703de",
+        "digest": "32f7024721ba7e62306c111f2b9ffa194774b5fb1bff3a69de64125fe8b0a2f6",
         "history": [
           {
             "digest": "0d65d9a4aa1cdf916e022547e3f4a1974505cd94c349e9809f1a441f13cd8335",
+            "states": [
+              "blocked",
+              "changes_requested",
+              "checking",
+              "closed",
+              "integrated",
+              "integrating"
+            ]
+          },
+          {
+            "digest": "32f7024721ba7e62306c111f2b9ffa194774b5fb1bff3a69de64125fe8b0a2f6",
             "states": [
               "blocked",
               "changes_requested",

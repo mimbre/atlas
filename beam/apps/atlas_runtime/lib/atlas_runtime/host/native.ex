@@ -46,6 +46,23 @@ defmodule AtlasRuntime.Agent.Native do
     end
   end
 
+  @impl AtlasRuntime.Agent
+  def stop_confirmed(pid) do
+    try do
+      GenServer.call(pid, {:control, :stop, :await}, 3_000)
+    catch
+      :exit, {:timeout, _} ->
+        try do
+          GenServer.call(pid, {:control, :kill, :await}, 10_000)
+        catch
+          :exit, _ -> {:error, :uncertain}
+        end
+
+      :exit, _ ->
+        {:error, :uncertain}
+    end
+  end
+
   defp await_control(pid, mode, timeout) do
     GenServer.call(pid, {:control, mode, :await}, timeout)
   catch
@@ -92,34 +109,7 @@ defmodule AtlasRuntime.Agent.Native do
     # Every backend runs in the Go host of the launching CLI.
     host = System.get_env("ATLAS_RUNTIME_EXECUTABLE")
 
-    valid_model =
-      is_nil(model) ||
-        (is_binary(model) && Regex.match?(~r/\A[A-Za-z0-9][A-Za-z0-9._:\/\[\]-]{0,199}\z/, model))
-
-    # Both backends refuse unknown profiles; a materialized folder or packet tree is never provisioned.
-    supported =
-      (backend == "codex" &&
-         (is_nil(scope) ||
-            (is_map(scope) &&
-               scope["profile"] in [
-                 "dedicated-repository",
-                 "materialized-folder",
-                 "review-packet"
-               ]))) ||
-        (backend == "claude" &&
-           (is_nil(session) || (is_map(resume_context) && is_binary(model))) &&
-           ((sandbox == "read-only" && is_nil(scope) && is_nil(repository)) ||
-              (is_nil(sandbox) && is_map(scope) &&
-                 (scope["profile"] == "dedicated-repository" ||
-                    (scope["profile"] in ["materialized-folder", "review-packet"] &&
-                       is_nil(repository))))))
-
-    if command && host &&
-         AtlasRuntime.Workspaces.valid_request?(workspace, sandbox, scope, repository) &&
-         is_binary(goal) && String.trim(goal) != "" && supported &&
-         valid_model && is_boolean(questions_enabled) &&
-         (not questions_enabled or backend == "claude") &&
-         (is_nil(session) || (is_binary(session) && session != "")) do
+    if ready?(Map.put(settings, "backend", backend)) and admission(turn, opts) == :ok do
       File.mkdir_p!(folder)
 
       kept =
@@ -180,6 +170,62 @@ defmodule AtlasRuntime.Agent.Native do
       {:stop, :native_requires_supported_backend_permissions_command_workspace_goal_and_host}
     end
   end
+
+  @doc "Side-effect-free capacity preflight for an explicitly configured native binding."
+  def ready?(settings) do
+    command = settings["command"] && System.find_executable(settings["command"])
+    host = System.get_env("ATLAS_RUNTIME_EXECUTABLE")
+    workspace = settings["workspace"]
+    goal = settings["goal"]
+    sandbox = Map.get(settings, "sandbox", "read-only")
+    session = settings["session_id"]
+    scope = settings["permissions"]
+    repository = settings["repository"]
+    backend = settings["backend"]
+    model = settings["model"]
+    resume_context = settings["resume_context"]
+    questions_enabled = Map.get(settings, "questions_enabled", false)
+
+    valid_model =
+      is_nil(model) ||
+        (is_binary(model) && Regex.match?(~r/\A[A-Za-z0-9][A-Za-z0-9._:\/\[\]-]{0,199}\z/, model))
+
+    # Both backends refuse unknown profiles; a materialized folder or packet tree is never provisioned.
+    supported =
+      (backend == "codex" &&
+         (is_nil(scope) ||
+            (is_map(scope) &&
+               scope["profile"] in [
+                 "dedicated-repository",
+                 "materialized-folder",
+                 "review-packet"
+               ]))) ||
+        (backend == "claude" &&
+           (is_nil(session) || (is_map(resume_context) && is_binary(model))) &&
+           ((sandbox == "read-only" && is_nil(scope) && is_nil(repository)) ||
+              (is_nil(sandbox) && is_map(scope) &&
+                 (scope["profile"] == "dedicated-repository" ||
+                    (scope["profile"] in ["materialized-folder", "review-packet"] &&
+                       is_nil(repository))))))
+
+    !!(command && host &&
+         AtlasRuntime.Workspaces.valid_request?(workspace, sandbox, scope, repository) &&
+         is_binary(goal) && String.trim(goal) != "" && supported &&
+         valid_model && is_boolean(questions_enabled) &&
+         (not questions_enabled or backend == "claude") &&
+         (is_nil(session) || (is_binary(session) && session != "")))
+  end
+
+  defp admission(%{capacity: capacity} = turn, opts) when not is_nil(capacity) do
+    with check when is_function(check, 0) <- Keyword.get(opts, :admission),
+         :ok <- AtlasBus.attach("runtime@#{turn.machine}/#{turn.key}/admission") do
+      check.()
+    else
+      _ -> {:error, :allocation_not_current}
+    end
+  end
+
+  defp admission(_turn, _opts), do: :ok
 
   @impl true
   def handle_call({:answer, question_id, answers}, from, state) do

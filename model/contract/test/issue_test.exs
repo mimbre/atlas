@@ -16,7 +16,7 @@ defmodule Model.IssueTest do
     owner: %{
       via: :assignment,
       relation: :assigned_to,
-      default: %{kind: :agent, key: :coordinator}
+      capacity: [backend: [:claude, :codex], model: :any]
     },
     channel: :work,
     start: [%{on: :create, when: nil, permission: nil, every: nil}]

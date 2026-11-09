@@ -621,7 +621,7 @@ defmodule AtlasFacts.Server do
     original = state.rela
 
     state =
-      if content["consistency"] == "transition",
+      if content["consistency"] == "transition" or is_map(content["admission"]),
         do: %{state | rela: AtlasFacts.Collections.uncached(original)},
         else: state
 
@@ -777,6 +777,32 @@ defmodule AtlasFacts.Server do
 
   defp read(state, @page, _content),
     do: {answered("page reads require a bounded list of reads of described kinds"), state}
+
+  defp read(state, kind, %{"key" => key, "admission" => admission}) when is_map(admission) do
+    with {:ok, spec, state} <- kind_spec(state, kind) do
+      result =
+        try do
+          state.model.check(
+            kind,
+            %{
+              "op" => "change",
+              "key" => key,
+              "values" => %{},
+              "links" => %{},
+              "admission" => admission
+            },
+            %{"sender" => state[:sender], "by" => "runtime"},
+            lookup(state, kind, spec, "change", key)
+          )
+        catch
+          {@lookup_failed, _} -> :unavailable
+        end
+
+      {%{"admitted" => result == :ok}, state}
+    else
+      _ -> {%{"admitted" => false}, state}
+    end
+  end
 
   defp read(state, kind, content) do
     with {:ok, spec, state} <- kind_spec(state, kind) do
@@ -1220,7 +1246,9 @@ defmodule AtlasFacts.Server do
         "key" => key,
         "values" => values,
         "links" => content["links"] || %{},
-        "by" => content["by"]
+        "by" => content["by"],
+        "was" => content["was"],
+        "allocation" => content["allocation"]
       }
 
       changes = state.model.with_change(kind, change, lookup)
@@ -1296,6 +1324,7 @@ defmodule AtlasFacts.Server do
         end
       end,
       "list" => fn of -> collection(state, plural(state, of)) end,
+      "origins" => fn of, at, links -> Links.origins(state.links, of, at, links) end,
       "incoming" => fn of, at, relation ->
         case Rela.incoming(state.rela, plural(state, of), at, relation) do
           {:ok, keys} -> keys

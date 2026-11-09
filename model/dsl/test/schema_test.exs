@@ -3,7 +3,43 @@ defmodule RelaDSL.SchemaTest do
 
   alias RelaDSL.Example
 
+  test "capacity owners compile as needs rather than a default worker" do
+    module =
+      compile!("""
+      subflow :work, subject: :ticket do # capacity owner
+        owner relation: :owner, capacity: [backend: [:codex, :claude], model: :any, differs_from: :author]
+        start :create
+        initial :work
+        state :work do
+          branch to: :done, when: "entity.result == 'done'"
+        end
+        final :done
+      end
+      """)
+
+    assert [flow] = module.__flows__()
+    assert flow.owner.capacity == [backend: [:codex, :claude], model: :any, differs_from: :author]
+    refute Map.has_key?(flow.owner, :default)
+  end
+
   @decide "[pass: :ok, changes_required: :no, uncertain: :person, error: :person]"
+
+  test "capacity ownership of a pass is rejected before it can execute" do
+    assert_raise CompileError, fn ->
+      compile!("""
+      subflow :work, subject: :ticket do # capacity owner
+        run_as "system:post"
+        owner relation: :owner, capacity: [backend: [:codex], model: :any]
+        start :create
+        initial :work
+        state :work do
+          pass :worker, on: [delivered: :done, failed: :done]
+        end
+        final :done
+      end
+      """)
+    end
+  end
 
   @smart [
     version: "1",

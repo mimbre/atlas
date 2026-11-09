@@ -64,7 +64,8 @@ defmodule AtlasRuntime.Turn do
         leaving: nil,
         guidance: nil,
         output_execution: nil,
-        attempt: AtlasBus.Envelope.new_id()
+        attempt: AtlasBus.Envelope.new_id(),
+        confirmed_quiescent: false
       })
 
     n = state.names
@@ -78,6 +79,15 @@ defmodule AtlasRuntime.Turn do
 
     values = if n[:attempt], do: Map.put(values, n.attempt, state.attempt), else: values
 
+    values =
+      if state[:capacity] do
+        Enum.reduce([:pick, :backend, :model, :step], values, fn slot, values ->
+          if n[slot], do: Map.put(values, n[slot], state.capacity[slot]), else: values
+        end)
+      else
+        values
+      end
+
     # The turn and its immutable execution identity precede any adapter/model input.
     with :ok <- put(state, "create", values, state.cause),
          {:ok, guidance} <- Guidance.register(state),
@@ -85,8 +95,13 @@ defmodule AtlasRuntime.Turn do
          true <-
            not Guidance.configured?(state) or match?({:eligible, _}, Guidance.eligible(state)),
          :ok <- prepare_output(guidance),
+         :ok <- admit(state),
          {:ok, {agent, ref}} <-
-           Agent.start_monitor(state.port, Guidance.context(state), state.port_opts) do
+           Agent.start_monitor(
+             state.port,
+             Guidance.context(state),
+             Keyword.put(state.port_opts, :admission, fn -> admit(state) end)
+           ) do
       state = %{
         state
         | agent_pid: agent,
@@ -110,6 +125,28 @@ defmodule AtlasRuntime.Turn do
     end
   end
 
+  # Recheck the exact stored turn and live cursor at the last pre-adapter boundary.
+  # Native repeats this after its own configuration checks, before opening the host.
+  defp admit(%{capacity: capacity} = state) when not is_nil(capacity) do
+    case Talk.read(
+           state.turn_kind,
+           %{
+             "key" => state.key,
+             "admission" => %{
+               "pick" => capacity.pick,
+               "entry" => capacity.entry,
+               "attempt" => state.attempt
+             }
+           },
+           state[:talk_opts] || []
+         ) do
+      %{"admitted" => true} -> :ok
+      _ -> {:error, :allocation_not_current}
+    end
+  end
+
+  defp admit(_state), do: :ok
+
   @impl true
   def handle_info({:agent, pid, {:activity, what}}, %{agent_pid: pid} = state),
     do: {:noreply, %{state | active: now(), what: what}}
@@ -127,10 +164,16 @@ defmodule AtlasRuntime.Turn do
         do: "#{state.leaving}, and the agent ended its turn by itself: #{why}",
         else: "the agent ended its turn: #{why}"
 
-    finish_turn(%{state | agent_pid: nil}, ended)
+    finish_turn(%{state | agent_pid: nil, confirmed_quiescent: true}, ended)
   end
 
   def handle_info({:left, why}, state), do: finish_turn(state, why)
+
+  def handle_info({:agent, pid, {:terminated, %{"exit_code" => code}}}, %{agent_pid: pid} = state)
+      when is_integer(code) do
+    Process.demonitor(state.ref, [:flush])
+    finish_turn(%{state | agent_pid: nil, confirmed_quiescent: true}, "execution stopped")
+  end
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, %{ref: ref} = state) do
     why =
@@ -141,6 +184,8 @@ defmodule AtlasRuntime.Turn do
 
     finish_turn(%{state | agent_pid: nil}, why)
   end
+
+  def handle_info(:tick, %{pending_end: why} = state), do: finish_turn(state, why)
 
   def handle_info(:tick, state) do
     now = now()
@@ -215,29 +260,70 @@ defmodule AtlasRuntime.Turn do
   def handle_cast({:leave, _why}, state), do: {:noreply, state}
 
   defp finish_turn(state, why) do
-    if state.agent_pid do
-      Agent.close_input(state.port, state.agent_pid)
-      # Reconcile one bounded page before stopping; Engine handles remaining history.
-      Guidance.round(state, state.guidance, state.agent_pid, :closed)
-      Agent.stop(state.port, state.agent_pid)
+    capacity? = state[:capacity] != nil or is_binary(state.names[:quiescent])
+    confirmed = state[:confirmed_quiescent] == true
+
+    stopped =
+      if state.agent_pid do
+        Agent.close_input(state.port, state.agent_pid)
+        # Reconcile one bounded page before stopping; Engine handles remaining history.
+        Guidance.round(state, state.guidance, state.agent_pid, :closed)
+
+        if capacity?,
+          do: Agent.stop_confirmed(state.port, state.agent_pid),
+          else: Agent.stop(state.port, state.agent_pid)
+      end
+
+    if capacity? and not confirmed and stopped != :ok do
+      n = state.names
+
+      _ =
+        put(
+          state,
+          "change",
+          %{n.activity => "execution outcome unknown; reconciliation required"},
+          why
+        )
+
+      if state.agent_pid && Process.alive?(state.agent_pid) do
+        schedule(state)
+        {:noreply, state}
+      else
+        {:stop, :normal, state}
+      end
+    else
+      if state.output_execution,
+        do: output_call(fn -> Output.finish(state.output_execution) end)
+
+      n = state.names
+
+      values = %{n.state => n.ended, n.why => why, n.lease => "", n.ended_at => at(now())}
+
+      values =
+        if is_binary(n[:quiescent]) and (confirmed or (capacity? and stopped == :ok)),
+          do: Map.put(values, n.quiescent, true),
+          else: values
+
+      case put(state, "change", values, why) do
+        :ok ->
+          Logger.info("runtime: #{state.key} ended: #{why}")
+          {:stop, :normal, state}
+
+        {:error, failed} ->
+          Logger.warning(
+            "runtime: #{state.key} not ended in Facts (#{failed}); retaining completion"
+          )
+
+          schedule(state)
+
+          {:noreply,
+           Map.merge(state, %{
+             agent_pid: nil,
+             confirmed_quiescent: confirmed or stopped == :ok,
+             pending_end: why
+           })}
+      end
     end
-
-    if state.output_execution,
-      do: output_call(fn -> Output.finish(state.output_execution) end)
-
-    n = state.names
-
-    values = %{n.state => n.ended, n.why => why, n.lease => "", n.ended_at => at(now())}
-
-    case put(state, "change", values, why) do
-      :ok ->
-        Logger.info("runtime: #{state.key} ended: #{why}")
-
-      {:error, failed} ->
-        Logger.warning("runtime: #{state.key} not ended in Facts (#{failed}); the engine ends it")
-    end
-
-    {:stop, :normal, state}
   end
 
   # Every write is a fact with its cause, by Runtime.
@@ -255,8 +341,25 @@ defmodule AtlasRuntime.Turn do
 
     content =
       if op == "create",
-        do: Map.put(content, "links", %{n.on => [state.item], n.by => [state.agent]}),
+        do:
+          content
+          |> Map.put("links", %{n.on => [state.item], n.by => [state.agent]})
+          |> Map.put("allocation", (state[:capacity] || %{})[:entry]),
         else: content
+
+    content =
+      if op == "change" and is_binary(n[:attempt]) do
+        was = %{n.attempt => state.attempt}
+
+        was =
+          if is_binary(n[:pick]),
+            do: Map.put(was, n.pick, (state[:capacity] || %{})[:pick]),
+            else: was
+
+        Map.put(content, "was", was)
+      else
+        content
+      end
 
     case Talk.put(state.turn_kind, content) do
       {:stored, _} -> :ok

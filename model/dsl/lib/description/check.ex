@@ -811,7 +811,7 @@ defmodule RelaDSL.Description.Check do
     runtime = ctx.x["runtime"] || %{}
     path = ["runtime"]
 
-    keys(runtime, ~w(turn agent), path) ++
+    keys(runtime, ~w(turn agent capacity), path) ++
       if(
         runtime != %{} and not (Map.has_key?(runtime, "turn") and Map.has_key?(runtime, "agent")),
         do: p(path, :runtime_mappings, [], "runtime requires both turn and agent mappings"),
@@ -821,8 +821,21 @@ defmodule RelaDSL.Description.Check do
         do: keys(runtime["agent"], ~w(cannot_run), path ++ ["agent"]),
         else: []
       ) ++
-      turn(ctx, runtime, path)
+      turn(ctx, runtime, path) ++ capacity(ctx, runtime, path)
   end
+
+  defp capacity(ctx, %{"capacity" => mapping, "turn" => turn}, path) do
+    path = path ++ ["capacity"]
+    slots = ~w(entry picked_entry pick backend model machine at)
+
+    keys(mapping, slots, path) ++
+      for slot <- slots,
+          kind <- (rel(ctx, turn["on"]) || %{})["to"] || [],
+          problem <- field(ctx, kind, mapping[slot], path),
+          do: problem
+  end
+
+  defp capacity(_ctx, _runtime, _path), do: []
 
   defp turn(ctx, %{"turn" => turn} = runtime, path) do
     path = path ++ ["turn"]
@@ -835,13 +848,14 @@ defmodule RelaDSL.Description.Check do
 
     keys(
       turn,
-      ~w(kind key on by state running ended machine lease activity why ended_at outcome attempt title model),
+      ~w(kind key on by state running ended machine lease activity why ended_at outcome attempt title model pick backend step quiescent lease_margin),
       path
     ) ++
       entity(ctx, kind, path) ++
       Enum.flat_map(missing, &p(path, :turn_missing, [&1], "runtime.turn: missing #{&1}")) ++
       for(
-        k <- ~w(state machine lease activity why ended_at outcome title model),
+        k <-
+          ~w(state machine lease activity why ended_at outcome title model pick backend step quiescent),
         Map.has_key?(turn, k),
         problem <- field(ctx, kind, turn[k], path),
         do: problem

@@ -26,13 +26,19 @@ defmodule AtlasControl.WorkerPages do
   # worker page of its exact execution.
   def render({:worker_page, :workers, _}, m, actor, read, _form) do
     case Workers.board(m, actor, read) do
-      {:ok, %{"running" => running, "finished" => finished}} ->
+      {:ok, %{"running" => running, "finished" => finished} = board} ->
         page("Workers", "/", [
           {"workers-running",
            Blocks.list(
              title: "Running",
              rows: Enum.map(running, &worker_row(&1, [&1["state"]])),
              empty: "No worker is running."
+           )},
+          {"workers-waiting",
+           Blocks.list(
+             title: "Waiting",
+             rows: Enum.map(board["waiting"] || [], &waiting_row/1),
+             empty: "No work is waiting for capacity."
            )},
           {"workers-finished",
            Blocks.list(
@@ -71,6 +77,25 @@ defmodule AtlasControl.WorkerPages do
       {:error, reason} ->
         error(reason, "/workers")
     end
+  end
+
+  defp waiting_row(row) do
+    rule = row["need"]
+
+    need =
+      Enum.join(rule["backend"], ", ") <>
+        " / " <>
+        Enum.join(List.wrap(rule["model"]), ", ")
+
+    need =
+      if rule["differs_from"], do: need <> " · differs from " <> rule["differs_from"], else: need
+
+    Blocks.row(
+      id: row["key"],
+      label: row["label"],
+      detail: "#{row["position"]} · #{row["state"]} · #{need} · #{row["since"]} · #{row["why"]}",
+      to: "/k/#{row["kind"]}/#{row["key"]}"
+    )
   end
 
   defp worker_row(worker, about) do

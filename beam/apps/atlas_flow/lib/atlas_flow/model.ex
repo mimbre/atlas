@@ -118,6 +118,7 @@ defmodule AtlasFlow.Model do
       refusal: refusal,
       relations: model.relations(),
       turn: model.turn(),
+      capacity: if(function_exported?(model, :capacity, 0), do: model.capacity()),
       actors: actors
     }
   end

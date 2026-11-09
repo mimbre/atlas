@@ -17,7 +17,11 @@ defmodule Model.Delivery do
 
   subflow :issue, label: "Issue", subject: :issue do
     run_as "system:sf-flow"
-    owner via: :assignment, relation: :assigned_to, default: {:agent, :coordinator}
+
+    owner via: :assignment,
+          relation: :assigned_to,
+          capacity: [backend: [:claude, :codex], model: :any]
+
     channel :work
     start :create
     initial :author

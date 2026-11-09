@@ -34,13 +34,23 @@ defmodule AtlasFlow.Runs.Presentation do
             if timer["name"] == present["deadline"], do: timer["due"]
           end)
 
-        Map.merge(present, %{
-          "name" => run["state"],
-          "expected" => present["expected"] || "",
-          "owner" => owner.(binding["default"]),
-          "preserve_kind" => binding["preserve_kind"],
-          "deadline" => deadline
-        })
+        shown =
+          Map.merge(present, %{
+            "name" => run["state"],
+            "expected" => present["expected"] || "",
+            "owner" => owner.(binding["default"]),
+            "preserve_kind" => binding["preserve_kind"],
+            "deadline" => deadline
+          })
+
+        if binding["capacity"] do
+          Map.merge(shown, %{
+            "capacity" => binding["capacity"],
+            "capacity_entry" => "#{run["key"]}:#{run["generation"]}:#{run["entry"]}"
+          })
+        else
+          shown
+        end
 
       true ->
         nil

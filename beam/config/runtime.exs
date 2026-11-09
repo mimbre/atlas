@@ -64,6 +64,7 @@ if config_env() != :test do
 
     # Flow looks at each open fact again this often, and at once on a hint.
     config :atlas_flow, tick_seconds: get_in(settings, ["flow", "tick_seconds"]) || 60
+    config :atlas_flow, capacity: settings["capacity"] || %{}
 
     # Code's receiver of Flow's integrate effect (AtlasCode.Effects), with its journal in
     # `code.data`, the repositories it may integrate (`code.repositories`, owner/repo) and

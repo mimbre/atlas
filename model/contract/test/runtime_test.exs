@@ -21,14 +21,15 @@ defmodule Model.RuntimeTest do
         is_binary(relation),
         [kind] <- [relations()[p["on"]]["to"]],
         uniq: true,
-        do: %{"kind" => kind, "owner_relation" => relation}
+        do: %{"kind" => kind, "owner_relation" => relation, "state_field" => p["state_field"]}
   end
 
   test "the turn, its agent and the guidance records are the committed description's" do
     names = @committed["runtime"]["turn"]
     turn = AtlasEyra.turn()
 
-    assert Map.drop(turn, ["items", "on_kinds"]) == names
+    assert Map.drop(turn, ["items", "on_kinds", "capacity"]) == names
+    assert turn["capacity"] == @committed["runtime"]["capacity"]
     assert turn["on_kinds"] == relations()[names["on"]]["to"]
     assert turn["items"] == written(@selection)
 
@@ -46,6 +47,80 @@ defmodule Model.RuntimeTest do
       assert %{"kind" => _, "items" => items} = model.turn()
       assert is_list(items)
       assert %{"execution" => %{"kind" => _}} = model.guidance()
+    end
+  end
+
+  test "test and prod admit only the current capacity entry on its actual assignment" do
+    n = AtlasEyra.turn()
+    f = AtlasEyra.capacity()
+    c = AtlasEyra.runs()
+
+    for env <- [:test, :prod] do
+      flow = Enum.find(AtlasEyra.subflows(env), &(&1.name() == "issue"))
+
+      run = %{
+        "flow" => "issue",
+        "subject_kind" => "issue",
+        "subject_key" => "I-1",
+        "generation" => 1,
+        "entry" => 1,
+        "status" => "active",
+        "state" => "author",
+        "definition_sha256" => flow.digest()
+      }
+
+      stored = %{properties: AtlasFlow.Runs.Store.encode(c, run), links: %{}}
+
+      item = %{
+        properties: %{
+          f["entry"] => "J:1:1",
+          f["picked_entry"] => "J:1:1",
+          f["pick"] => "p",
+          f["backend"] => "codex",
+          f["model"] => "synthetic",
+          f["machine"] => "proof"
+        },
+        links: %{"assigned_to" => ["worker"]}
+      }
+
+      change = %{
+        "op" => "create",
+        "key" => "R",
+        "allocation" => "J:1:1",
+        "values" => %{
+          n["state"] => n["running"],
+          n["attempt"] => "a",
+          n["pick"] => "p",
+          n["backend"] => "codex",
+          n["model"] => "synthetic",
+          n["machine"] => "proof",
+          n["step"] => "author"
+        },
+        "links" => %{n["on"] => ["AS-I-1"], n["by"] => ["worker"]}
+      }
+
+      lookup = %{
+        "current" => fn -> nil end,
+        "list" => fn _ -> {:ok, []} end,
+        "fact" => fn
+          "assignment", "AS-I-1" -> item
+          "issue", "I-1" -> %{properties: %{}, links: %{"assignment" => ["AS-I-1"]}}
+          "flow_run", "J" -> stored
+          _, _ -> nil
+        end
+      }
+
+      actor = %{"sender" => "runtime@proof/R", "by" => "runtime"}
+      assert :ok = AtlasEyra.check(n["kind"], change, actor, lookup)
+      stale = put_in(stored, [:properties, c["fields"]["entry"]], 2)
+
+      stale_lookup =
+        put_in(lookup, ["fact"], fn
+          "flow_run", "J" -> stale
+          kind, key -> lookup["fact"].(kind, key)
+        end)
+
+      assert {:refuse, [_ | _]} = AtlasEyra.check(n["kind"], change, actor, stale_lookup)
     end
   end
 

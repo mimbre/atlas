@@ -84,7 +84,7 @@ defmodule AtlasRuntime.Guidance do
 
   def context(turn),
     do:
-      Map.take(turn, [:key, :item, :kind, :agent, :attempt, :machine])
+      Map.take(turn, [:key, :item, :kind, :agent, :attempt, :machine, :capacity])
       |> Map.put(:environment, AtlasBus.environment())
 
   def round(turn, nil, _pid, _mode), do: {turn, nil}

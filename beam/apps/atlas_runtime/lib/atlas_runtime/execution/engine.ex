@@ -66,6 +66,15 @@ defmodule AtlasRuntime.Engine do
   @impl true
   def handle_info(:round, state), do: {:noreply, round_now(%{state | soon: false})}
 
+  def handle_info(
+        {:atlas_bus, %Envelope{class: "request", kind: "_capacity_binding"} = e, b},
+        state
+      ) do
+    ready = binding(b["agent"], b["machine"], b["backend"], b["model"], state.opts) != nil
+    AtlasBus.send(Envelope.reply(e, "answer"), Map.put(b, "ready", ready))
+    {:noreply, state}
+  end
+
   # A hint about a fact it runs turns on, or a turn: look again soon (a burst at once). Its
   # own writes change nothing it reads but the turns it already knows.
   def handle_info({:atlas_bus, %Envelope{class: "stored", kind: kind}, content}, state) do
@@ -115,7 +124,9 @@ defmodule AtlasRuntime.Engine do
     with %{"kind" => _} = turn <- state.turn,
          true <- agents != %{} do
       names = atomize(turn)
-      kinds = Enum.map(turn["items"] || [], &{&1["kind"], &1})
+
+      kinds =
+        Enum.map(turn["items"] || [], &{&1["kind"], Map.put(&1, "capacity", turn["capacity"])})
 
       for {kind, _flow} <- kinds, do: AtlasBus.listen(kind)
       AtlasBus.listen(names.kind)
@@ -138,7 +149,9 @@ defmodule AtlasRuntime.Engine do
         # 1. Running in Facts, with no process here.
         orphaned = Enum.reject(mine, &Map.has_key?(local, &1["key"]))
 
-        for turn <- orphaned do
+        for turn <- orphaned,
+            turn["values"][names.pick] in [nil, ""],
+            not is_binary(names.quiescent) do
           outcome = names.outcome && turn["values"][names.outcome]
 
           why =
@@ -146,7 +159,7 @@ defmodule AtlasRuntime.Engine do
               do: "the agent ended its turn: #{outcome}",
               else: "no process runs it on #{machine} any more (Runtime restarted)"
 
-          lost(names, turn["key"], why)
+          lost(names, turn, why)
         end
 
         # Let Flow reconcile those ends before another turn can start from this round's
@@ -171,7 +184,22 @@ defmodule AtlasRuntime.Engine do
         end
 
         # 3. An owned open fact without a turn: one, unless its agent is in one already.
-        busy = MapSet.new(for {_key, {agent, _item}} <- local, do: agent)
+        unknown =
+          for turn <- turns,
+              turn["values"][names.pick] not in [nil, ""],
+              turn["values"][names.state] == names.running or
+                turn["values"][names.quiescent] != true,
+              agent <- get_in(turn, ["links", names.by]) || [],
+              do: agent
+
+        busy = MapSet.new(for({_key, {agent, _item}} <- local, do: agent) ++ unknown)
+
+        reserved_items =
+          for t <- turns,
+              t["values"][names.state] != names.ended or
+                (is_binary(names.quiescent) and t["values"][names.quiescent] != true),
+              item <- get_in(t, ["links", names.on]) || [],
+              do: item
 
         turns_here =
           turns
@@ -184,7 +212,8 @@ defmodule AtlasRuntime.Engine do
 
         owned
         |> Enum.reject(
-          &(MapSet.member?(busy, &1.agent) or {&1.agent, &1.item} in Map.values(local))
+          &(MapSet.member?(busy, &1.agent) or &1.item in reserved_items or
+              {&1.agent, &1.item} in Map.values(local))
         )
         |> Enum.filter(&(&1.startable? and &1.agent in able))
         |> Enum.uniq_by(& &1.agent)
@@ -226,7 +255,8 @@ defmodule AtlasRuntime.Engine do
                       item: fact["key"],
                       kind: kind,
                       ownership: flow,
-                      startable?: handover_clear?(fact)
+                      capacity: capacity(fact, flow),
+                      startable?: handover_clear?(fact) and capacity_startable?(fact, flow)
                     }
 
               {:cont, {:ok, acc ++ open}}
@@ -245,6 +275,35 @@ defmodule AtlasRuntime.Engine do
 
   defp handover_clear?(fact), do: get_in(fact, ["presentation", "handover"]) == nil
 
+  defp capacity_startable?(fact, flow) do
+    names = flow["capacity"]
+
+    if names && get_in(fact, ["presentation", "manual"]) != true &&
+         fact["values"][names["entry"]] not in [nil, ""] do
+      capacity(fact, flow) != nil
+    else
+      true
+    end
+  end
+
+  defp capacity(fact, flow) do
+    names = flow["capacity"]
+    automatic = get_in(fact, ["presentation", "manual"]) != true
+
+    if names && automatic && fact["values"][names["entry"]] not in [nil, ""] &&
+         fact["values"][names["picked_entry"]] == fact["values"][names["entry"]] &&
+         fact["values"][names["pick"]] not in [nil, ""] do
+      %{
+        pick: fact["values"][names["pick"]],
+        backend: fact["values"][names["backend"]],
+        model: fact["values"][names["model"]],
+        machine: fact["values"][names["machine"]],
+        entry: fact["values"][names["picked_entry"]],
+        step: fact["values"][flow["state_field"]]
+      }
+    end
+  end
+
   # Open while its presentation has something to do.
   defp open?(fact), do: get_in(fact, ["presentation", "actionable"]) == true
 
@@ -256,7 +315,21 @@ defmodule AtlasRuntime.Engine do
       |> String.replace("{on}", owned.item)
       |> String.replace("{n}", Integer.to_string(n))
 
-    case port(agents[owned.agent], opts) do
+    {settings, execution_port} =
+      if owned.capacity do
+        binding(
+          owned.agent,
+          owned.capacity.machine,
+          owned.capacity.backend,
+          owned.capacity.model,
+          opts
+        ) ||
+          {nil, nil}
+      else
+        {agents[owned.agent], port(agents[owned.agent], opts)}
+      end
+
+    case execution_port do
       nil ->
         Logger.warning("runtime: #{owned.agent} has no port this machine knows; no turn")
 
@@ -267,7 +340,8 @@ defmodule AtlasRuntime.Engine do
           kind: owned.kind,
           agent: owned.agent,
           port: port,
-          port_opts: port_opts(agents[owned.agent], opts),
+          port_opts: port_opts(settings, opts),
+          capacity: owned.capacity,
           guidance_every: Keyword.get(opts, :guidance_every, Keyword.fetch!(opts, :lease)),
           guidance_mapping: Keyword.get(opts, :guidance),
           ownership: owned.ownership,
@@ -290,6 +364,35 @@ defmodule AtlasRuntime.Engine do
         DynamicSupervisor.start_child(AtlasRuntime.Supervisor, {Turn, turn})
     end
   end
+
+  # Backend-specific settings stand alone: another backend's command is never inherited.
+  # A single-backend agent may use its top-level explicit binding unchanged.
+  defp binding(agent, machine, backend, model, opts) do
+    with true <- is_binary(machine) and machine == Keyword.fetch!(opts, :machine),
+         true <- is_binary(backend) and backend != "" and is_binary(model) and model != "",
+         %{} = agent_settings <- Keyword.get(opts, :agents, %{})[agent],
+         %{} = settings <- get_in(agent_settings, ["backends", backend]) || agent_settings,
+         true <-
+           settings["port"] == backend and settings["backend"] == backend and
+             settings["model"] == model,
+         execution_port when not is_nil(execution_port) <- port(settings, opts),
+         true <- Code.ensure_loaded?(execution_port),
+         true <-
+           function_exported?(execution_port, :start_monitor, 2) or
+             function_exported?(execution_port, :start, 2),
+         true <- usable?(execution_port, settings) do
+      {settings, execution_port}
+    else
+      _ -> nil
+    end
+  end
+
+  defp usable?(Agent.Native, settings), do: Agent.Native.ready?(settings)
+
+  defp usable?(Agent.Claude, settings),
+    do: is_binary(settings["command"]) and System.find_executable(settings["command"]) != nil
+
+  defp usable?(_port, _settings), do: true
 
   # Explicit dependency injection for private proof tests, never read from machine settings.
   defp port(settings, opts),
@@ -374,10 +477,19 @@ defmodule AtlasRuntime.Engine do
   end
 
   # A turn without its process: ended in Facts, with why.
-  defp lost(names, key, why) do
+  defp lost(names, turn, why) do
+    key = turn["key"]
+
+    was =
+      for field <- [names.attempt, names.pick],
+          is_binary(field),
+          into: %{},
+          do: {field, turn["values"][field]}
+
     content = %{
       "op" => "change",
       "key" => key,
+      "was" => was,
       "values" => %{
         names.state => names.ended,
         names.why => why,
@@ -412,7 +524,7 @@ defmodule AtlasRuntime.Engine do
     end
   end
 
-  @names ~w(kind key on by state running ended machine lease activity why ended_at outcome attempt)
+  @names ~w(kind key on by state running ended machine lease activity why ended_at outcome attempt pick backend model step quiescent)
 
   # The ended turns of this machine, newest first: `[{agent, ended at (ms), crashed?}]`.
   defp mine_ended(turns, names, machine) do

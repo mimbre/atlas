@@ -145,7 +145,7 @@ defmodule AtlasFlow.Runs.Projection do
     cancelled? = pending != %{} and not deferred?
 
     wanted? =
-      relation != nil and owners != List.wrap(owner) and
+      current["capacity"] == nil and relation != nil and owners != List.wrap(owner) and
         (current["preserve_kind"] != nil or moved? or deferred? or
            (not cancelled? and not Presentation.manual?(fact, relation)))
 
@@ -177,6 +177,20 @@ defmodule AtlasFlow.Runs.Projection do
     # The state's name, so a page can show its owner what to do (`state_field`). Written
     # with the rest, and alone when only it differs; it never counts as a move by itself.
     values = Map.merge(values, state_value(projection["state_field"], fact, current))
+
+    # Capacity alone writes an owner in these states. Persist the run-entry fence
+    # with the projection so a pick cannot land after the subject moved on.
+    values =
+      if runner[:capacity] do
+        entry_field = runner.capacity["entry"]
+        entry = if current["capacity"], do: current["capacity_entry"], else: ""
+
+        if to_string(fact["values"][entry_field]) == entry,
+          do: values,
+          else: Map.put(values, entry_field, entry)
+      else
+        values
+      end
 
     # The due time of the timer the state presents (`present.deadline`), when the
     # projection names a `deadline_field`; cleared in every other state.
