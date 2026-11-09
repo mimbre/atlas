@@ -46,11 +46,13 @@ type inspection struct {
 	changes    []change
 }
 
-// folder is a destination published by Materialize, with its verified baseline.
+// folder is a destination published by Materialize, with its verified baseline and, once
+// prepared, its preparation result.
 type folder struct {
 	dest, id, baseline string
 	m                  *manifest
 	entries            map[string]*entry
+	preparation        *Preparation
 }
 
 // Inspect compares the folder dest, published by Materialize, with its recorded baseline
@@ -65,7 +67,11 @@ func Inspect(home, dest string, paths []string, diffs bool) (map[string]any, err
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"snapshot_id": f.id, "destination": f.dest, "clean": len(changes) == 0, "changes": changes}, nil
+	result := map[string]any{"snapshot_id": f.id, "destination": f.dest, "clean": len(changes) == 0, "changes": changes}
+	if p := f.preparation; p != nil {
+		result["preparation"] = map[string]any{"kind": p.Kind, "path": p.Path, "outputs": p.Outputs, "state": p.State, "ready": p.Ready()}
+	}
+	return result, nil
 }
 
 func openFolder(home, dest string) (*folder, error) {
@@ -92,7 +98,16 @@ func openRecorded(home, dest string) (*folder, error) {
 	} else if err != nil {
 		return nil, err
 	}
-	return &folder{dest: dest, id: id, baseline: baseline, m: m, entries: entries}, nil
+	preparation, err := LoadPreparation(home, dest)
+	if err != nil {
+		return nil, err
+	}
+	if preparation != nil {
+		if err = preparation.check(id, m, entries); err != nil {
+			return nil, err
+		}
+	}
+	return &folder{dest: dest, id: id, baseline: baseline, m: m, entries: entries, preparation: preparation}, nil
 }
 
 // Verified opens dest like Inspect does, without walking it, and returns its canonical root,
@@ -147,6 +162,10 @@ func (f *folder) changes(paths []string, diffs bool) ([]change, error) {
 			return err
 		}
 		rel = filepath.ToSlash(rel)
+		// A preparation's output holds no tracked path; status, diff and submit all skip it.
+		if f.excluded(rel, d) {
+			return filepath.SkipDir
+		}
 		r := owner(m.Repositories, rel)
 		if r == nil || !slices.Contains(selected, *r) {
 			if d.IsDir() && len(paths) > 0 && !slices.ContainsFunc(selected, func(s repository) bool { return within(rel, s.Path) }) {

@@ -284,6 +284,41 @@ Claude verified on 2026-11-08 in an isolated daemon (Claude Code 2.1.280, `claud
 
 Evidence: `/Users/melle/.ac-cf-taaclyk6/claude-folder-profile-evidence.json`. No installation, default-daemon restart or deployment.
 
+## Explicit folder preparation (npm ci)
+
+```sh
+atlas-runtime snapshot materialize --snapshot sha256:HEX --dest /abs/assignment
+atlas-runtime snapshot prepare --dest /abs/assignment --npm-ci atlas/clients/viewer/assets
+atlas-runtime start --worker NAME --backend claude --cwd /abs/assignment --permissions materialized-folder "Assignment"
+```
+
+The orchestrator authorizes setup by running `prepare` before the worker starts; Runtime never detects or runs setup by itself, and a folder that is never prepared works exactly as before. This first slice has one form: install the tracked lockfile of one package folder. Repository commands that generate assets or code (such as `npm run build`) are not part of it.
+
+- **What runs:** exactly `npm ci --ignore-scripts --no-audit --no-fund` in `REPO_PATH[/SUBDIR]`. No lifecycle script of the package or its dependencies runs, so no repository or package code runs while the registry is reachable. The command runs in the CLI process: no daemon, Code request, Git or model call.
+- **Refused before anything runs or is recorded:**
+  - a folder changed since materialization: preparation installs exactly the snapshot's lockfile, so the folder must be fresh. Nothing is discarded; a changed `package-lock.json` must first become part of a snapshot;
+  - an untracked `package.json` or `package-lock.json`;
+  - a `.npmrc` in the package folder or any folder above it in the destination;
+  - a lockfile entry that is not an `https://registry.npmjs.org/` tarball with a sha512 integrity, including other hosts, credentials in the URL, Git or local sources, links, workspaces and bundled packages;
+  - tracked files under `node_modules`;
+  - a package folder reached through a symlink;
+  - a folder already prepared, or one held by a worker, a submission or another preparation.
+- **Boundary:** `codex sandbox` with profile `atlas_setup`.
+  - Writes only `SUBDIR/node_modules` and an owned scratch under the Runtime home; the rest of the folder is read-only.
+  - Network only to `registry.npmjs.org` through Codex's network proxy.
+  - Denied: the Runtime home (records and diagnostics included), Git metadata, the Code token, the worker credential paths and `~/.npmrc`. The `~/.npmrc` deny applies to the preparation only; worker profiles are unchanged.
+- **Environment:** only `HOME`, `USER`, `LOGNAME`, `PATH`, `LANG`, `LC_ALL`, `LC_CTYPE` and `CODEX_HOME` are inherited. Tokens, API keys, `NODE_OPTIONS` and `npm_config_*` are not. npm's user and global configuration are empty files, and its cache and temp are in the scratch. Clearing the environment does not hide files: anything outside the deny-list stays readable under the `:read-only` base.
+- **Lifecycle:** the existing folder lock is held throughout, so workers, submissions and other preparations refuse while it runs. npm runs in an owned process group, killed and reaped on exit, after a fixed 10-minute timeout, or on Ctrl-C/SIGTERM. Each of stdout and stderr keeps its first 1 MiB; the rest is counted. Nothing is retried.
+- **Records** under `<runtime home>/preparations/<sha256(dest)>/`:
+  - `result.json` is the minimal result workers may read (destination, snapshot, package path, outputs, state, exit code, times). It is created with one exclusive rename before npm starts, as `running`, and replaced by the outcome.
+  - `private/` holds `request.json` (command and environment), `process.json`, `stdout.log`, `stderr.log` and `outcome.json`. No worker profile grants it.
+- **Result:** `{destination, snapshot_id, kind, path, outputs, state, ready, reason, exit_code, started_at, ended_at, diagnostics}`. A result that is not ready exits nonzero and adds `error`. A repeat returns the recorded result without running again.
+- **Readiness:** `succeeded` is ready. `failed` (`exit`, `timeout`, `interrupted`, `changed` when files outside the output changed, `start`, `cleanup`) and a leftover `running` are not ready. Workers refuse such a folder at start, continuation and launch. Recovery is a fresh materialization; the folder, its edits and diagnostics are kept for inspection, and status, diff and submit still work in it.
+- **Exclusion:** status, diff and submit skip the output only while it is a real directory, in any state, and only because the result names it and the snapshot tracks nothing under it. Nothing is followed: a symlink in its place is reported as an added link, and submit refuses one leaving the repository. Files a worker puts in `node_modules` are not published.
+- **Workers:** the folder scope is unchanged, so Elixir admission and saved turns are unaffected. Codex and Claude worker profiles additionally read only `result.json`.
+
+Verified on 2026-11-09: Go tests using stand-in Codex and npm commands cover the scrubbed environment, disabled lifecycle scripts, 1 MiB log cap, result records, status/diff/submit agreement, failures, interruption, timeout, tracked-file protection, refusals and shared lock. The coordinator also passed `TestSetupProfileIsEnforcedByInstalledCodexSandbox` outside the worker sandbox, including its direct network positive control and denied network/write probes. A real registry install through Codex's proxy installed 74 packages; offline use succeeded and all 550 tracked files remained unchanged. These checks do not establish which macOS trust services are necessary.
+
 ## Claude scoped repository writes
 
 Select Claude repository writes explicitly with `atlas-runtime start --backend claude --cwd /canonical/independent/repository --permissions dedicated-repository "Edit the assigned file and create a local commit"`, or use managed `--repo` provisioning below. This reuses independent-root validation and owned directory locking. It enables Bash alongside read-only Read/Glob/Grep, never Edit/Write. Native settings require sandbox availability, disable unsandboxed escape and excluded commands, retain the existing GitHub domain list, and deny writes to `.agents`, `.codex`, `.aws`, `.claude`, `.git/config` and `.git/hooks`. Generic workspace-write remains refused.

@@ -350,12 +350,14 @@ func claudeFolderSettings(scope map[string]any, temporary, user, inspector strin
 	}
 	allowRead := []string{record, baseline, filepath.Join(resolved, "shell-snapshots"), filepath.Join(resolved, "session-env")}
 	readOnly := []string{record, baseline}
-	// Status and diff of a rebound folder need its done marker, which a rebind never removes.
-	marker := snapshot.RebindMarker(home, root)
-	if _, err = os.Lstat(marker); err == nil {
-		allowRead, readOnly = append(allowRead, marker), append(readOnly, marker)
-	} else if !errors.Is(err, fs.ErrNotExist) {
-		return "", err
+	// Status and diff of a rebound folder need its done marker, which a rebind never removes, and
+	// of a prepared folder its minimal result, never the diagnostics beside it.
+	for _, file := range []string{snapshot.RebindMarker(home, root), snapshot.PreparationResult(home, root)} {
+		if _, err = os.Lstat(file); err == nil {
+			allowRead, readOnly = append(allowRead, file), append(readOnly, file)
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return "", err
+		}
 	}
 	// The sandbox's allowRead wins over its denyRead; grant only the inspector itself.
 	if slices.ContainsFunc(protected, func(path string) bool { return within(path, inspector) }) {

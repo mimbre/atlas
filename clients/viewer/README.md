@@ -61,6 +61,13 @@ npm ci          # package-lock.json pins both
 npm run build   # node build.js
 ```
 
+A Runtime worker folder gets these dependencies from the orchestrator before the worker starts, with
+`atlas-runtime snapshot prepare --dest DEST --npm-ci atlas/clients/viewer/assets` (where the snapshot mounts
+Atlas at `atlas`; scripts disabled, public
+registry only; see [the Runtime CLI](../../tools/runtime/README.md#explicit-folder-preparation-npm-ci)).
+Workers have no network for `npm ci` themselves. Running `npm run build` as declared, network-off setup is a
+later step.
+
 `build.js` inlines Prism's `css/base.css` and `css/components.css` with their `@import`s,
 copies every `url()` asset they reference into `priv/static/prism/`, rewrites those URLs to
 `/assets/prism/…`, then runs Tailwind with Prism's preset over `assets/app.css`. It fails on
