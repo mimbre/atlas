@@ -8,7 +8,9 @@ defmodule Mix.Tasks.AtlasCode.Unlock do
 
   OWNER is the ID a refused start or migration prints. The owner directory moves to its
   `service.owner.ended-OWNER` tombstone only when it still names OWNER and `ps` reports its
-  PID absent; a running or undeterminable PID refuses and moves nothing.
+  PID absent; a running or undeterminable PID refuses and moves nothing. A Code start runs
+  the same check itself, so this is needed only when that start could not decide (or the PID
+  was reused) or before a migration.
   """
   use Mix.Task
 

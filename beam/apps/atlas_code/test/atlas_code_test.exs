@@ -1,5 +1,6 @@
 defmodule AtlasCodeTest do
   use ExUnit.Case, async: true
+  import ExUnit.CaptureLog
 
   @moduletag :tmp_dir
   @token "runtime-secret-token"
@@ -321,7 +322,7 @@ defmodule AtlasCodeTest do
       assert {:error, _} = AtlasCode.release(home, record["owner"])
     end
 
-    test "a stale owner is never reclaimed automatically and is recovered only when ps proves it stopped",
+    test "a stale owner is recovered, by start or unlock, only when ps proves it stopped",
          %{
            tmp_dir: dir,
            home: home,
@@ -330,11 +331,6 @@ defmodule AtlasCodeTest do
       :ok = AtlasCode.stop(pid)
       stale = stale_owner(home, 4_000_000)
       record = owner(home)
-      error = assert_raise RuntimeError, fn -> AtlasCode.start(home) end
-      assert error.message =~ "is owned by service pid 4000000"
-      assert error.message =~ "mix atlas_code.unlock --owner #{stale}"
-      assert_raise RuntimeError, ~r/is owned by service/, fn -> AtlasCode.Migration.run(home) end
-
       absent = ps(dir, "absent", "exit 1")
       running = ps(dir, "running", ~s(echo "  $2"))
 
@@ -343,15 +339,28 @@ defmodule AtlasCodeTest do
       File.write!(blind, "#!/bin/sh\nexit 1\n")
       File.chmod!(blind, 0o755)
 
-      for script <- [
-            blind,
-            ps(dir, "failing", "echo 'ps: cannot read processes' >&2; exit 2"),
-            ps(dir, "warning", "echo 'ps: warning' >&2; exit 1"),
-            ps(dir, "noisy", "echo oops; exit 1"),
-            ps(dir, "other", "echo 12345"),
-            ps(dir, "silent", "exit 0"),
-            Path.join(dir, "no-such-ps")
-          ] do
+      undecided = [
+        blind,
+        ps(dir, "failing", "echo 'ps: cannot read processes' >&2; exit 2"),
+        ps(dir, "warning", "echo 'ps: warning' >&2; exit 1"),
+        ps(dir, "noisy", "echo oops; exit 1"),
+        ps(dir, "other", "echo 12345"),
+        ps(dir, "silent", "exit 0"),
+        Path.join(dir, "no-such-ps")
+      ]
+
+      # A start whose ps shows the PID running (or reused), or cannot tell, is refused as
+      # before and moves nothing; a migration never recovers.
+      for script <- [running | undecided] do
+        error = assert_raise RuntimeError, fn -> AtlasCode.start(home, ps: script) end
+        assert error.message =~ "is owned by service pid 4000000"
+        assert error.message =~ "mix atlas_code.unlock --owner #{stale}"
+        assert owner(home) == record
+      end
+
+      assert_raise RuntimeError, ~r/is owned by service/, fn -> AtlasCode.Migration.run(home) end
+
+      for script <- undecided do
         assert {:error, message} = AtlasCode.unlock(home, stale, script)
         assert message =~ "cannot establish that pid 4000000 has stopped"
       end
@@ -389,6 +398,99 @@ defmodule AtlasCodeTest do
       assert message =~ "still running"
       assert owner(home) == live
       assert :ok = AtlasCode.stop(pid)
+    end
+
+    test "a start recovers an owner whose process is gone, keeps its tombstone and logs it; later starts are normal",
+         %{tmp_dir: dir, home: home, pid: pid} do
+      :ok = AtlasCode.stop(pid)
+      absent = ps(dir, "absent", "exit 1")
+      stale = stale_owner(home, 4_000_000)
+      record = owner(home)
+
+      log =
+        capture_log(fn -> send(self(), {:started, AtlasCode.start(home, ps: absent)}) end)
+
+      assert_received {:started, {:ok, pid, port}}
+      assert log =~ "Code recovered #{home} from stopped owner #{stale} (service pid 4000000"
+      tombstone = Path.join(home, "service.owner.ended-" <> stale)
+      assert JSON.decode!(File.read!(Path.join(tombstone, "owner.json"))) == record
+      service = owner(home)
+      assert service["os_pid"] == String.to_integer(System.pid())
+      refute service["owner"] == stale
+      assert {200, _} = request(port, :get, "/v1/health")
+
+      # The new owner is alive: even a ps calling every other PID absent cannot take it.
+      error = assert_raise RuntimeError, fn -> AtlasCode.start(home, ps: absent) end
+      assert error.message =~ "is owned by service pid #{System.pid()}"
+      assert owner(home) == service
+      assert :ok = AtlasCode.stop(pid)
+
+      # Restarting a released home recovers nothing and logs nothing.
+      log =
+        capture_log(fn ->
+          {:ok, pid, _port} = AtlasCode.start(home, ps: absent)
+          assert :ok = AtlasCode.stop(pid)
+        end)
+
+      refute log =~ "recovered"
+      assert Path.wildcard(Path.join(home, "service.owner.ended-*")) |> length() == 4
+      assert Path.wildcard(Path.join(home, "service.owner.*.tmp")) == []
+      refute File.exists?(Path.join(home, "service.owner"))
+    end
+
+    test "a start never recovers a live owner of another OS process", %{
+      tmp_dir: dir,
+      home: home,
+      pid: pid
+    } do
+      :ok = AtlasCode.stop(pid)
+      # PID 1 always runs; the real ps reports it running, or cannot tell when restricted.
+      stale_owner(home, 1)
+      record = owner(home)
+
+      for script <- ["ps", ps(dir, "running", ~s(echo "  $2"))] do
+        error = assert_raise RuntimeError, fn -> AtlasCode.start(home, ps: script) end
+        assert error.message =~ "is owned by service pid 1 "
+        assert owner(home) == record
+      end
+
+      assert Path.wildcard(Path.join(home, "service.owner.*.tmp")) == []
+    end
+
+    test "concurrent starts recovering the same stale owner leave exactly one owner", %{
+      tmp_dir: dir,
+      home: home,
+      pid: pid
+    } do
+      :ok = AtlasCode.stop(pid)
+      absent = ps(dir, "absent", "exit 1")
+      stale = stale_owner(home, 4_000_000)
+
+      log =
+        capture_log(fn ->
+          send(
+            self(),
+            {:results,
+             1..4
+             |> Enum.map(fn _ ->
+               Task.async(fn ->
+                 try do
+                   {:ok, AtlasCode.start(home, ps: absent)}
+                 rescue
+                   error -> {:error, Exception.message(error)}
+                 end
+               end)
+             end)
+             |> Task.await_many(30_000)}
+          )
+        end)
+
+      assert log =~ "from stopped owner #{stale}"
+      assert_received {:results, results}
+      assert [{:ok, {:ok, pid, _port}}] = Enum.filter(results, &match?({:ok, _}, &1))
+      assert File.exists?(Path.join(home, "service.owner.ended-" <> stale))
+      assert :ok = AtlasCode.stop(pid)
+      assert Path.wildcard(Path.join(home, "service.owner.*.tmp")) == []
     end
 
     test "a stale unlock that read the old owner moves neither a newer owner nor a running service",

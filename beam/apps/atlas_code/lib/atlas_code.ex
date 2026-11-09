@@ -21,7 +21,10 @@ defmodule AtlasCode do
   - `service.owner/owner.json`: `{"kind", "owner", "os_pid", "node", "started_at"}` of the
     service or `mix atlas_code.migrate` that owns the home; while it exists nothing else may.
     Releasing renames it to `service.owner.ended-<owner>`, which is kept. After a crash,
-    SIGKILL or Ctrl-C it stays until `mix atlas_code.unlock --owner <owner>` recovers it.
+    SIGKILL or Ctrl-C it stays; the next `start/2` recovers it itself, through the same check
+    and tombstone as `unlock/3`, when `ps` proves the recorded PID gone, and logs the old
+    owner and PID. While that PID runs (or has been reused), or `ps` cannot tell, start is
+    refused as before and `mix atlas_code.unlock --owner <owner>` remains the manual recovery.
   - `cache/<sha256 of name and remote>.git`: Code's private bare clone per repository.
     Sealed changes live there on `refs/atlas/changes/<change id>`, integration candidates on
     `refs/atlas/integrations/<integration id>`.
@@ -41,6 +44,7 @@ defmodule AtlasCode do
   - `migration.json`: written by `AtlasCode.Migration`; Code starts only when it is complete
     and every older record has its counterpart.
   """
+  require Logger
   require Record
   Record.defrecordp(:mod, Record.extract(:mod, from_lib: "inets/include/httpd.hrl"))
 
@@ -66,9 +70,13 @@ defmodule AtlasCode do
   ]
   @ustar_size 0o77777777777
 
-  @doc "Starts the HTTP server for `home`; returns its pid and bound port."
-  def start(home) do
-    settings = open!(home)
+  @doc """
+  Starts the HTTP server for `home`; returns its pid and bound port. An owner left by a
+  stopped process is recovered first (see `unlock/3`). `ps:` names the ps executable used for
+  that check, `"ps"` by default.
+  """
+  def start(home, opts \\ []) do
+    settings = open!(home, opts)
 
     started =
       try do
@@ -142,7 +150,7 @@ defmodule AtlasCode do
   @doc false
   # Validates the home, takes its ownership and refuses records that predate revision
   # handles. Only the digests of the tokens are kept, for constant-time comparisons.
-  def open!(home) do
+  def open!(home, opts \\ []) do
     home = Path.expand(home)
     config = home |> Path.join("config.json") |> File.read!() |> JSON.decode!()
     port = config["port"]
@@ -170,7 +178,7 @@ defmodule AtlasCode do
       end
 
     if orchestrator == token, do: raise("orchestrator.token must differ from runtime.token")
-    owner = lock!(home, "service")
+    owner = lock!(home, "service", Keyword.get(opts, :ps, "ps"))
 
     try do
       case AtlasCode.Migration.pending(home) do
@@ -213,8 +221,10 @@ defmodule AtlasCode do
   # Makes `<home>/service.owner/` this process's: a directory staged with its `owner.json` and
   # renamed into place, which fails while any owner directory is there. Nothing but `release/2`
   # or `unlock/3` removes it, so neither a crash nor a dying process frees a home in use.
-  # Returns the random owner ID.
-  def lock!(home, kind) do
+  # With `ps` (service start), an owner directory found there is first offered to `unlock/3`
+  # with that ps: only when it proves the recorded PID gone is the owner retired to its
+  # tombstone and the rename tried once more. Returns the random owner ID.
+  def lock!(home, kind, ps \\ nil) do
     owner = Base.encode16(:crypto.strong_rand_bytes(16), case: :lower)
     staging = Path.join(home, "service.owner.#{owner}.tmp")
     File.mkdir!(staging)
@@ -229,7 +239,7 @@ defmodule AtlasCode do
 
     File.write!(Path.join(staging, "owner.json"), JSON.encode!(record))
 
-    case File.rename(staging, Path.join(home, "service.owner")) do
+    case take_owner(home, staging, ps) do
       :ok ->
         owner
 
@@ -253,6 +263,33 @@ defmodule AtlasCode do
     end
   end
 
+  # Renames the staged owner into place. When that fails and `ps` is given, the current owner
+  # goes through `unlock/3`, the same check as the operator's; a recovered (or meanwhile
+  # released) owner allows one more rename, which a concurrent start may still win.
+  defp take_owner(home, staging, ps) do
+    case File.rename(staging, Path.join(home, "service.owner")) do
+      :ok ->
+        :ok
+
+      {:error, reason} when is_nil(ps) ->
+        {:error, reason}
+
+      {:error, reason} ->
+        with {:ok, %{"owner" => stale} = record} <- owner_record(home),
+             {:ok, recovered} <- unlock(home, stale, ps) do
+          with {:recovered, tombstone} <- recovered do
+            Logger.warning(
+              "Code recovered #{home} from stopped owner #{stale} (#{record["kind"]} pid #{record["os_pid"]} on #{record["node"]}); tombstone #{tombstone}"
+            )
+          end
+
+          take_owner(home, staging, nil)
+        else
+          _ -> {:error, reason}
+        end
+    end
+  end
+
   @doc false
   # Ends `owner`'s ownership by renaming the owner directory to its tombstone, which is never
   # removed. A second release of the same owner, whether concurrent or late, finds the
@@ -265,11 +302,11 @@ defmodule AtlasCode do
   end
 
   @doc false
-  # Operator recovery of an owner that has stopped without releasing, after a crash, SIGKILL or
-  # Ctrl-C. Refused unless `ps` reports the recorded PID absent: a running PID, and any answer
+  # Recovery of an owner that has stopped without releasing, after a crash, SIGKILL or Ctrl-C:
+  # by the operator, and by every service start before it gives up. Refused unless `ps` reports the recorded PID absent: a running PID, and any answer
   # other than ps's documented ones, keep the home owned.
   # shortcut: a stale owner whose PID was reused by an unrelated process cannot be recovered
-  # here; after checking that no Code or migration uses the home, the operator renames
+  # here nor by a start, which refuses it as running; after checking that no Code or migration uses the home, the operator renames
   # service.owner to service.owner.ended-<owner> by hand. Upgrade to an OS-held lock that the
   # kernel releases with the BEAM itself if stale owners become routine.
   def unlock(home, owner, ps \\ "ps") do
