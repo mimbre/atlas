@@ -1,0 +1,68 @@
+flows:
+  letter:
+    label: Letter
+    subject: letter
+    run_as: system:post
+    per_subject: one
+    start:
+      - on: create
+      - on: predicate
+        when: "entity.kind == 'reply'"
+    initial: draft
+    states:
+      draft:
+        label: Write the draft
+        outputs:
+          - set: { properties: { pass_result: none } }
+        on:
+          change:
+            - { to: proofread, roles: [atlas-flow], when: "entity.pass_result == 'delivered'" }
+            - { to: stuck, roles: [atlas-flow], when: "entity.pass_result == 'failed'" }
+        after:
+          slow: { period: 1d, to: stuck, label: The writer did not finish }
+      proofread:
+        outputs:
+          - set: { properties: { gate_result: none } }
+        on:
+          change:
+            - { to: post, roles: [atlas-flow], when: "entity.gate_result == 'send'" }
+            - { to: draft, roles: [atlas-flow], when: "entity.gate_result == 'redo'" }
+            - { to: stuck, roles: [atlas-flow], when: "entity.gate_result == 'person'" }
+      post:
+        label: Post it
+        outputs:
+          - set: { properties: { post_result: none } }
+          - create:
+              type: receipt
+              properties: { title: Receipt }
+              relate: { type: receipt_of }
+        on:
+          change:
+            - { to: sent, roles: [atlas-flow], when: "entity.post_result == 'done'" }
+            - { to: stuck, roles: [atlas-flow], when: "entity.post_result == 'refused'" }
+      sent:
+        label: Sent
+        on:
+          change:
+            - { to: answered, roles: [atlas-flow], when: "entity.urgent == true" }
+            - { to: answered, roles: [atlas-flow], when: "entity.reply == 'received'" }
+            - { to: stuck, roles: [atlas-flow], when: "entity.reply == 'lost'" }
+      stuck:
+        label: Someone decides
+        status: input_required
+        waiting_for: [editor]
+        outputs:
+          - set: { properties: { choice: none } }
+        on:
+          change:
+            - { to: draft, roles: [editor], when: "entity.choice == 'retry'" }
+            - { to: dropped, roles: [editor], when: "entity.choice == 'drop'" }
+            - { to: dropped, roles: [admin], when: "entity.choice == 'drop'" }
+      answered:
+        label: Answered
+        final: true
+        outputs:
+          - set: { properties: { archived: true } }
+      dropped:
+        final: true
+        status: cancelled
