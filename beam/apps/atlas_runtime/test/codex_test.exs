@@ -159,12 +159,16 @@ defmodule AtlasRuntime.CodexTest do
         end
       end)
 
+    ended = Path.join(dir, "ended")
+    {_, 0} = System.cmd("mkfifo", [ended])
+
+    # The adapter stops as soon as its owner goes; the host reaps the group afterwards.
+    # The child and its sleep hold the FIFO's write end, so EOF is the kernel saying both ended.
     launch(
       dir,
       ~S"""
       printf '{"type":"item.started","item":{"text":"child=%s"}}\n' "$$"
-      sleep 60
-      """,
+      """ <> "exec 3>'#{ended}'\nsleep 60\n",
       owner
     )
 
@@ -172,9 +176,13 @@ defmodule AtlasRuntime.CodexTest do
     ref = Process.monitor(adapter)
     assert_receive {:activity, "codex: item started"}, 5_000
     child = native_child(dir)
+    on_exit(fn -> System.cmd("kill", ["-KILL", child], stderr_to_stdout: true) end)
+    {:ok, reader} = :file.open(String.to_charlist(ended), [:read, :raw, :binary])
     Process.exit(owner, :kill)
     assert_receive {:DOWN, ^ref, :process, ^adapter, :normal}, 8_000
-    assert_dead(String.trim(child))
+    assert :file.read(reader, 1) == :eof
+    :ok = :file.close(reader)
+    assert_dead(child)
   end
 
   test "an unsupported sandbox is refused before launching a process", %{tmp_dir: dir} do

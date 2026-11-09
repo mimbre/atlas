@@ -346,8 +346,11 @@ defmodule AtlasTui.App do
 
       true ->
         state = stop_output(state)
-        {:ok, pid} = WorkerOutputConnection.start(self(), state.model.env, state.settings)
-        %{state | output: pid, output_target: target, output_monitor: Process.monitor(pid)}
+
+        {:ok, {pid, monitor}} =
+          WorkerOutputConnection.start_monitor(self(), state.model.env, state.settings)
+
+        %{state | output: pid, output_target: target, output_monitor: monitor}
     end
   end
 
