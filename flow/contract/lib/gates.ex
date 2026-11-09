@@ -69,4 +69,59 @@ defmodule AtlasFlowContract.Gates do
     ],
     verdicts: [:integrate, :refuse, :person],
     decide: [pass: :integrate, changes_required: :refuse, uncertain: :person, error: :person]
+
+  defrules :person_always do
+    rule(:amends_principle, when: [{:includes, :forces, "principle"}], cites: "D-0024")
+
+    rule(:production_release,
+      when: [{:equals, :production_release, true}, {:equals, :rollback_automated, false}],
+      cites: "D-0028"
+    )
+  end
+
+  # Who accepts or rejects a proposed decision in the ledger.
+  defgate :accept_decision,
+    version: 1,
+    # slice 4 makes it :smart (a version change, data only)
+    flavor: :rule,
+    purpose: :decider,
+    fixed: :person_always,
+    evidence: [
+      forces: [{:field, :force}, {:linked, :supersedes, :force}],
+      category: {:field, :category},
+      reversibility: {:field, :reversibility},
+      scope: {:field, :scope},
+      delegated: {:present, :delegated_by},
+      # a ledger entry is not a release
+      production_release: {:constant, false},
+      # D-0028: not yet; changing it is a gate version a person reviews
+      rollback_automated: {:constant, false},
+      overrule_rate: {:history, :overruled, window: 50, same: [:category]},
+      verdicts_seen: {:history, :count, window: 50, same: [:category]},
+      timed_out: {:flow, :timed_out, default: false}
+    ],
+    rule: [
+      first: [
+        [when: [{:equals, :timed_out, true}], then: :agent_unverified],
+        [when: [{:in, :category, ["product", "security"]}], then: :person],
+        [when: [{:equals, :reversibility, "one_way"}], then: :person],
+        [
+          when: [{:at_least, :overrule_rate, 0.2}, {:at_least, :verdicts_seen, 10}],
+          then: :person
+        ],
+        [when: [{:equals, :delegated, true}], then: :agent]
+      ],
+      otherwise: :advise
+    ],
+    verdicts: [:person_always, :person, :agent, :agent_unverified],
+    decide: [
+      person_always: :person_always,
+      person: :person,
+      agent: :agent,
+      agent_unverified: :agent_unverified,
+      advise: :person,
+      uncertain: :person,
+      error: :person
+    ],
+    answer_within: [test: "5m", prod: "48h"]
 end

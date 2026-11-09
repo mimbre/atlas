@@ -54,6 +54,9 @@ defmodule AtlasFlowGenerator.Atlas do
     |> Map.update!(:decide, &Map.new/1)
     |> Map.update!(:policy, &Map.new/1)
     |> Map.take([
+      :fixed,
+      :fixed_rules,
+      :answer_within,
       :version,
       :flavor,
       :purpose,

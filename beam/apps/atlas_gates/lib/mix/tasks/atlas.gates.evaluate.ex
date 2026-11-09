@@ -6,7 +6,7 @@ defmodule Mix.Tasks.Atlas.Gates.Evaluate do
 
       cd beam/apps/atlas_gates && mix atlas.gates.evaluate --gate NAME --subject KEY \\
         --fingerprint FPR --evidence-file /abs/evidence.json --env test \\
-        [--allowed a,b] [--link about=KEY] [--link follows=KEY] [--atlas EXECUTABLE] [--json]
+        [--allowed a,b] [--link about=KEY] [--link follows=KEY] [--atlas EXECUTABLE] [--json] [--no-record]
 
   The evidence file is one JSON object of named fields; its digest (`sha256:` of the file
   as it is) is recorded with it, so keep the file. `--env` (`test` or `prod`) is the
@@ -14,7 +14,10 @@ defmodule Mix.Tasks.Atlas.Gates.Evaluate do
   gate, subject, fingerprint and evidence) prints the verdict recorded the first time and
   records nothing.
 
-  Exit status 0 when the verdict is recorded; 2 when it could not be evaluated or recorded:
+  With `--no-record`, evaluates and settles locally without contacting Control or Facts.
+  No `--env` is needed and the printed `recorded` and `recorded_as` values are null.
+
+  Exit status 0 when the verdict is recorded (or evaluated with `--no-record`); 2 when it could not be evaluated or recorded:
   then the printed verdict is the gate's safe one, and nothing may act as if it passed.
   """
   use Mix.Task
@@ -31,7 +34,8 @@ defmodule Mix.Tasks.Atlas.Gates.Evaluate do
     link: :keep,
     env: :string,
     atlas: :string,
-    json: :boolean
+    json: :boolean,
+    no_record: :boolean
   ]
 
   @impl true
@@ -42,7 +46,10 @@ defmodule Mix.Tasks.Atlas.Gates.Evaluate do
       do: Mix.raise("Unknown arguments: #{inspect(rest ++ invalid)}")
 
     env = opts[:env]
-    if env not in ["test", "prod"], do: Mix.raise("Give --env test or --env prod")
+
+    if opts[:no_record] != true and env not in ["test", "prod"],
+      do: Mix.raise("Give --env test or --env prod")
+
     file = opts[:evidence_file] || Mix.raise("Give --evidence-file PATH")
     bytes = File.read!(Path.expand(file))
 
@@ -72,12 +79,23 @@ defmodule Mix.Tasks.Atlas.Gates.Evaluate do
         {:error, why} -> Mix.raise("No verdict: #{why}")
       end
 
-    facts = AtlasGates.Facts.Control.new(env, executable: opts[:atlas] || "atlas")
-
     {status, verdict} =
-      case AtlasGates.decide(request, facts) do
-        {:ok, verdict} -> {0, verdict}
-        {:error, verdict, _why} -> {2, verdict}
+      if opts[:no_record] do
+        result =
+          case request.definition["flavor"] do
+            "rule" -> AtlasGates.Rules.evaluate(request.definition, request.evidence)
+            _ -> {"error", ["this flavor has no evaluator yet"]}
+          end
+
+        verdict = Verdict.settle(request, result, 0)
+        {if(verdict.unsettled == "error", do: 2, else: 0), verdict}
+      else
+        facts = AtlasGates.Facts.Control.new(env, executable: opts[:atlas] || "atlas")
+
+        case AtlasGates.decide(request, facts) do
+          {:ok, verdict} -> {0, verdict}
+          {:error, verdict, _why} -> {2, verdict}
+        end
       end
 
     if opts[:json],

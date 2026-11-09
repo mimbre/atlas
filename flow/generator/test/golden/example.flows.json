@@ -124,7 +124,7 @@
       "flavor": "rule",
       "person": "person",
       "policy": {},
-      "purpose": "decider",
+      "purpose": "flow",
       "rule": {
         "all": [
           ["equals", "pages", 1],
