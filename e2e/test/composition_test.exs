@@ -94,13 +94,20 @@ defmodule AtlasE2E.CompositionTest do
     end)
   end
 
-  defp start(ctx, profile) do
-    python = System.get_env("ATLAS_CONFIG_PYTHON") || "python3"
+  # The profiles are private compositions of the model (model/contract/profiles), compiled
+  # in its test environment only; mix model.gen writes the Rela project of one.
+  @profiles %{
+    "foundation" => "Model.Profiles.Foundation",
+    "incident" => "Model.Profiles.Incident"
+  }
 
+  defp start(ctx, profile) do
     {out, status} =
       System.cmd(
-        python,
-        [Path.join(@root, "rela/tests/profiles.py"), profile, Path.join(ctx.dir, "rela")],
+        "mix",
+        ["model.gen", "--contract", @profiles[profile], "--out", Path.join(ctx.dir, "rela")],
+        cd: Path.join(@root, "model/contract"),
+        env: [{"MIX_ENV", "test"}],
         stderr_to_stdout: true
       )
 

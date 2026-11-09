@@ -117,7 +117,7 @@ defmodule Model.DeciderTest do
 
   test "the executable decider uses recorded gate results and trusted choices with environment limits" do
     [flow] = Model.Decision.__flows__()
-    gates = Model.Gates.__gates__()
+    gates = Model.AtlasEyra.__rela__(:gates)
     [resolved] = RelaDSL.Limits.resolve([flow], gates, :test)
     json = RelaDSL.Atlas.flows_json([resolved], gates, "test") |> JSON.decode!()
     definition = json["flows"]["decide"]

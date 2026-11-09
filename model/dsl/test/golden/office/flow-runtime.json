@@ -1,0 +1,68 @@
+{
+  "flow_runtime": {
+    "version": 1,
+    "flags": {
+      "letter": {"field": "urgent", "value": true, "label": "Urgent letter"}
+    },
+    "reviews": {
+      "replies_to": [{"field": "urgent", "value": true, "label": "Answers an urgent letter"}]
+    },
+    "kind": "run",
+    "writer": {
+      "sender": "flow",
+      "by": "flow"
+    },
+    "fields": {
+      "flow": "flow",
+      "state": "state"
+    },
+    "selection": {
+      "letter": {
+        "choices": ["choice"],
+        "choice_states": ["stuck"],
+        "migrations": [],
+        "subject": "letter",
+        "legacy": "post",
+        "projection": {
+          "on": "desk",
+          "state_field": "flow_state",
+          "owner_relation": "held_by",
+          "field": "expected"
+        },
+        "admission": {
+          "state": [
+            "draft",
+            "sent"
+          ]
+        },
+        "imports": [
+          {
+            "when": {
+              "state": [
+                "sent"
+              ]
+            },
+            "state": "sent"
+          }
+        ]
+      }
+    },
+    "inputs": {
+      "kind": "input",
+      "fields": {
+        "run": "run",
+        "actor": "actor"
+      },
+      "acl": {
+        "editor": {
+          "update": [
+            "letter"
+          ]
+        }
+      },
+      "roles": {
+        "editor": "written_by"
+      }
+    }
+  }
+}

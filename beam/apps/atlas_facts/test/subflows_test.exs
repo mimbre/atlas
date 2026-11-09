@@ -6,7 +6,8 @@ defmodule AtlasFacts.SubflowsTest do
   test "Facts describes the same concrete environment pair that the runner selects" do
     root = Path.expand("../../../../model/targets", __DIR__)
     test_yaml = File.read!(Path.join(root, "test/rela/flows.yaml"))
-    prod_yaml = File.read!(Path.join(root, "rela/flows.yaml"))
+    # Prod's flows.yaml is the one in the Rela project, which mix model.gen writes.
+    prod_yaml = File.read!(Path.expand("../../../../rela/flows.yaml", __DIR__))
     assert Subflows.Test.check_rela_flows(test_yaml) == :ok
     assert Subflows.Prod.check_rela_flows(prod_yaml) == :ok
     assert {:error, _} = Subflows.Test.check_rela_flows(prod_yaml)

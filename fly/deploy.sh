@@ -36,7 +36,8 @@ as() { # rela|core, then a flyctl command
 }
 machines() { as "$1" status -a "$2" --json | jq '.Machines | length'; }
 
-"${ATLAS_CONFIG_PYTHON:-python3}" "$root/rela/scripts/assemble.py" --check
+# The description is generated from the model: refuse a stale one before anything is uploaded.
+(cd "$root/model/contract" && mix model.gen --check)
 
 held=""
 if [ "$(machines rela "$rela_app")" -gt 0 ]; then

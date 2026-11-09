@@ -33,54 +33,57 @@ image starts rela with native includes. No data migration is needed.
 Run `python3 -m unittest discover -s rela/tests -v`, pinned `rela --project rela
 validate`, and private e2e before delivery. `tests/fixtures/baseline-schema.yaml`
 is the delivered #79 schema: tests lock definitions and property/form order.
-`atlas.json` remains the single extension consumed by Facts. It is generated from
-`compositions/atlas-eyra/sources.json`; edit a listed module/composition fragment,
-then run the assembler with the pinned rela CLI installed:
+
+**Generated from the model.** Every file here but `data-entry.yaml` (rela-server's
+setting), the scripts and the tests is written by `mix model.gen` from the model in
+`model/contract` (Rela DSL design, slice 2): `schema.yaml`, `modules/**/schema.yaml`,
+`compositions/atlas-eyra/bindings.yaml`, `acl.yaml`, `atlas.json`, `flow-runtime.json`,
+`flows.yaml` and `atlas.manifest.json`. Do not edit them: change the concept, module
+or composition that declares the definition and regenerate (CI runs `--check`):
 
 ```sh
-"$ATLAS_CONFIG_PYTHON" rela/scripts/assemble.py
-"$ATLAS_CONFIG_PYTHON" rela/scripts/assemble.py --check
+cd model/contract && mix model.gen           # write rela/ and model/targets/
+cd model/contract && mix model.gen --check   # fail on a stale, missing or left-over file
 ```
 
-Each map leaf has one author (even identical duplicates fail). Whole arrays have
-one owner. The bounded assembler rejects unknown annotation keys, schema structural
-overrides, dangling fields/relations/types, ambiguous parents, overlapping flows
-and shortcut collisions. It calls pinned rela validation and the actual generic
-`AtlasFacts.Flows.check`, without starting an application. Optional `--actors file`
-checks an inventory obtained through Control, shaped `{kind: [keys]}`; actor facts
-are never shipped as configuration. Actor existence is also reconciled by Flow.
+A file under `modules/` or `compositions/` that the model does not write is left over:
+the task removes it, and `--check` fails on it. The model's checks are those the
+assembler had, now at compile time of the composition: each `atlas.json` leaf has one
+author (even identical duplicates fail), no key without a construct, no dangling
+fields, relations, types or values, no ambiguous parents, overlapping flows or shortcut
+collisions, and every legacy flow is sound. With `ATLAS_RELA_BIN` set, the task also has
+the pinned rela validate the generated description with the generated `flows.yaml`.
+Actor existence is reconciled by Flow.
 
-The hand-written schema YAML has one style, so a later generator can write it byte for
-byte (Rela DSL design, slice 0): two-space block maps and block lists (`- ` at the key's
-indent), no anchors or aliases, a plain scalar where that is safe and a single-quoted one
-otherwise, never folded across lines, multi-line text as a `|` block, no blank lines. The
-order is the concept order: a type sits before the types of the concepts that follow it
-(`turn_state` before the decision types), and properties keep their form order. The
-assembler writes `atlas.json` with sorted keys, so its bytes depend only on what the
-fragments say.
+The schema YAML keeps the one style of slice 0, which the writer now holds: two-space
+block maps and block lists (`- ` at the key's indent), no anchors or aliases, a plain
+scalar where that is safe and a single-quoted one otherwise, never folded across lines,
+multi-line text as a `|` block, no blank lines. The order is the concept order: a
+module's file holds its concepts' types, then their entities, then their relations, in
+the order the module lists the concepts; properties keep their form order. `atlas.json`
+is written with sorted keys, so its bytes depend only on what the model says.
 
-`flows.yaml` is generated too: the assembler copies `model/targets/rela/flows.yaml`
-(written by `mix model.gen` in `model/contract`) byte for byte, validates the
-description with it on a staging copy, records the source's hash under `flows` in
-`atlas.manifest.json`, and `--check` fails on a stale copy. `acl.yaml` holds the roles the
-flows name, so rela can check them. Rela defines and checks the flows; Atlas Flow runs
-them (D-0068). Neither file is part of the selected closure, so startup never copies them
-into a running rela's data (which runs without an `acl.yaml`, and would refuse flows that
-name roles). **Follow-up for the image:** the core image must hold `rela/flows.yaml` for
-Flow: add it to the `COPY rela/schema.yaml rela/data-entry.yaml …  /app/rela/` line of
-`fly/core.Dockerfile`, after the build stage copies `model/dsl` and `model/targets`.
-The rela image does not need it.
+`flows.yaml` holds the subflows; `acl.yaml` the roles the flows name, so rela can check
+them. Rela defines and checks the flows; Atlas Flow runs them (D-0068). Neither file is
+part of the selected closure, so startup never copies them into a running rela's data
+(which runs without an `acl.yaml`, and would refuse flows that name roles). The core
+image holds `rela/flows.yaml` for Flow (`fly/core.Dockerfile`); the rela image does not.
+`flow-runtime.json` maps the durable runs; its migrations come from the `migrate`
+declarations beside each subflow, which `model/targets/proof/digests.json` proves.
 
-`atlas.manifest.json` records every selected schema/JSON input and generated output
-hash. CI checks freshness; startup/images check the packaged hashes without needing
-Elixir or PyYAML in the core image. Packaging copies the same closure and generated
-extension, never work facts. Fly delivery checks both image labels/provenance and
-rela's copied schema before client smoke, with each app's own token. This is an
+`atlas.manifest.json` records the hash of every file of the selected closure and of
+`data-entry.yaml`, of `atlas.json` (`output_sha256`) and of `flows.yaml` (`flows`). CI
+checks freshness; startup/images check the packaged hashes without needing Elixir or
+PyYAML in the core image (`scripts/verify.py`). Packaging copies the same closure and
+generated extension, never work facts. Fly delivery checks both image labels/provenance
+and rela's copied schema before client smoke, with each app's own token. This is an
 internal consistency check within the existing merge-driven promotion route.
 
-`tests/profiles.py` creates disposable foundation-only and incident compositions.
-They are dependency proofs, not installed workflows. Foundation omits audit/software/
-`eyra`; incident reuses foundation/audit/software and selects independent person service
-resolution, with no Scene, Use Case or accepted_by. Its e2e uses private stores,
-Control, a GitHub stand-in and Runtime stub only. Existing populated `eyra` stores
-cannot switch to these fixtures; fits must continue refusing stranded data.
+The private foundation-only and incident compositions are profiles of the model
+(`model/contract/profiles`, compiled with `MIX_ENV=test` only); the e2e writes one with
+`mix model.gen --contract Model.Profiles.Foundation --out DIR`. They are dependency
+proofs, not installed workflows. Foundation omits audit/software/`eyra`; incident reuses
+foundation/audit/software and selects independent person service resolution, with no
+Scene, Use Case or accepted_by. Its e2e uses private stores, Control, a GitHub stand-in
+and Runtime stub only. Existing populated `eyra` stores cannot switch to these fixtures;
+fits must continue refusing stranded data.
