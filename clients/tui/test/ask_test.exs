@@ -167,6 +167,67 @@ defmodule AtlasTui.AskTest do
     assert {%{plan: nil}, []} = press(done, [:enter])
   end
 
+  test "running shows the agent's count; esc asks to stop, and a stopped plan keeps what was stored" do
+    {m, _} = asked()
+    m = Model.agent(m, plan("proposed", [step(1, "One"), step(2, "Two")]))
+    stored = Map.put(step(1, "One", "stored"), "detail", "Stored as T-7.")
+
+    running =
+      plan("running", [stored, step(2, "Two", "running")], %{"title" => "Running: 1 of 2 stored"})
+
+    m = Model.agent(m, running)
+    assert screen(m) =~ "Running: 1 of 2 stored"
+    # A running plan is not closed by enter; only esc stops it, after the current step.
+    assert {^m, []} = press(m, [:enter])
+    {m, [{:agent, %{"op" => "stop"}}]} = press(m, [:esc])
+    assert m.notice == %{tone: "pending", text: "Stopping after this step…"}
+    assert m.plan.state == "running"
+
+    not_run = Map.put(step(2, "Two", "not_run"), "detail", "Not run: stopped before it.")
+    m = Model.agent(m, plan("stopped", [stored, not_run], %{"title" => "Stopped: 1 of 2 stored"}))
+    assert m.notice == nil
+    text = screen(m)
+    assert text =~ "Stopped: 1 of 2 stored"
+    assert text =~ "Stored as T-7."
+    assert text =~ "Not run: stopped before it."
+    assert {%{plan: nil}, []} = press(m, [:enter])
+  end
+
+  test "after a run, closing the plan shows the page as hints left it" do
+    empty = "No parts yet. Press c to create one."
+    list = %{"type" => "list", "props" => %{"title" => "Parts", "rows" => [], "empty" => empty}}
+    page = update_in(@page, ["blocks"], &(&1 ++ [list]))
+    m = ConsoleProjectionFixture.model(page)
+    assert screen(m) =~ empty
+
+    {m, [{:agent, _}]} = press(m, [{:char, ":"}] ++ type("make parts") ++ [:enter])
+    m = Model.agent(m, plan("proposed", [step(1, "One"), step(2, "Two")]))
+    {m, [{:agent, %{"op" => "run"}}]} = press(m, [:enter])
+
+    # While the plan is shown, hints redraw the page underneath it.
+    rows = [
+      %{"label" => "One", "detail" => "T-7", "to" => "/k/thing/T-7"},
+      %{"label" => "Two", "detail" => "T-8", "to" => "/k/thing/T-8"}
+    ]
+
+    hinted = put_in(page, ["blocks", Access.at(1), "props", "rows"], rows)
+    {m, []} = ConsoleProjectionFixture.receive(m, Map.put(hinted, "reason", "hint"))
+
+    done =
+      for {n, key} <- [{1, "T-7"}, {2, "T-8"}],
+          do: Map.put(step(n, "x", "stored"), "detail", "Stored as #{key}.")
+
+    m = Model.agent(m, plan("done", done, %{"title" => "Done: 2 of 2 stored"}))
+    assert screen(m) =~ "Done: 2 of 2 stored"
+    refute screen(m) =~ "Parts · 2"
+
+    {m, []} = press(m, [:enter])
+    text = screen(m)
+    assert text =~ "Parts · 2"
+    assert text =~ "T-8"
+    refute text =~ empty
+  end
+
   test "undeclared request shortcuts do not replace a proposal, and cancelled asks ignore late plans" do
     {m, _} = asked()
     m = Model.agent(m, plan("proposed", [step(1, "One")]))
