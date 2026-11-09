@@ -149,9 +149,18 @@ defmodule AtlasBus.LinkTest do
     assert %{"op" => "deliver", "endpoint" => ^name, "content" => %{"value" => 42}} = recv(s)
     AtlasBus.send(%{Envelope.new("stored", "parcel") | address: nil}, %{"key" => "P-1"})
     assert recv(s)["envelope"]["class"] == "stored"
+    # One proxy owns both registrations, and each Registry drops its own entry after the proxy
+    # exits: wait for that exit, then for both entries, never for one and assert the other.
+    [{proxy, _}] = Registry.lookup(AtlasBus.Endpoints, name)
+    assert Registry.keys(AtlasBus.Listeners, proxy) == ["parcel"]
+    ref = Process.monitor(proxy)
     :gen_tcp.close(s)
-    eventually(fn -> Registry.lookup(AtlasBus.Endpoints, name) == [] end)
-    assert Registry.lookup(AtlasBus.Listeners, "parcel") == []
+    assert_receive {:DOWN, ^ref, :process, ^proxy, _}, 1_000
+
+    eventually(fn ->
+      Registry.lookup(AtlasBus.Endpoints, name) == [] and
+        Registry.lookup(AtlasBus.Listeners, "parcel") == []
+    end)
   end
 
   test "Control output requests and answers retain IDs, payload and authenticated sender", %{
@@ -337,7 +346,7 @@ defmodule AtlasBus.LinkTest do
     previous = Application.fetch_env(:atlas_bus, :link)
     %{filters: filters} = :logger.get_primary_config()
 
-    # Registered first, so they run last: the child is gone before the env is client-free.
+    # Restores the logger and the env once the test is done.
     on_exit(fn ->
       :ok = :logger.set_primary_config(:filters, filters)
 
@@ -355,12 +364,15 @@ defmodule AtlasBus.LinkTest do
       "token" => token
     })
 
-    on_exit(fn ->
-      Supervisor.terminate_child(AtlasBus.Supervisor, Link.Client)
-      Supervisor.delete_child(AtlasBus.Supervisor, Link.Client)
-    end)
-
-    {:ok, _} = Supervisor.start_child(AtlasBus.Supervisor, Link.Client)
+    # The test's own supervisor holds the client, so its deliberate crashes spend that
+    # supervisor's restart budget, never AtlasBus.Supervisor's. ExUnit stops it before the
+    # on_exit above, so the client is gone before the env is client-free.
+    supervisor =
+      start_supervised!(%{
+        id: :link_client_supervisor,
+        start: {Supervisor, :start_link, [[Link.Client], [strategy: :one_for_one]]},
+        type: :supervisor
+      })
 
     authenticated? = fn ->
       try do
@@ -373,7 +385,7 @@ defmodule AtlasBus.LinkTest do
     eventually(authenticated?, 500)
 
     # No settings, so no token, in the child spec or its start arguments.
-    {:ok, spec} = :supervisor.get_childspec(AtlasBus.Supervisor, Link.Client)
+    {:ok, spec} = :supervisor.get_childspec(supervisor, Link.Client)
     refute inspect(spec, limit: :infinity) =~ token
 
     # Reconnect with the same token after the core drops the connection.
