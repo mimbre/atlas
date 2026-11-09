@@ -164,6 +164,8 @@
             "fields": [
               "title",
               "decision",
+              "consequences",
+              "options",
               "category",
               "scope",
               "reversibility",
@@ -196,6 +198,7 @@
         "ask": [
           "title",
           "decision",
+          "options",
           "context",
           "consequences",
           "category",
@@ -213,6 +216,13 @@
           "first": 24,
           "prefix": "D-"
         }
+      },
+      "decision_options": {
+        "definition": "options",
+        "history": "option_history",
+        "revision": "selected_revision",
+        "selected": "selected_option",
+        "snapshot": "selected_definition"
       },
       "delete_error": "Decisions are an append-only ledger; a decision is never deleted. Record a new one that supersedes it instead.",
       "frozen": {
@@ -275,6 +285,15 @@
         },
         "no_work": {
           "label": "No work needed"
+        },
+        "option_history": {
+          "multiline": true
+        },
+        "options": {
+          "multiline": true
+        },
+        "selected_definition": {
+          "multiline": true
         },
         "unverified": {
           "label": "Unverified",

@@ -1,0 +1,159 @@
+defmodule AtlasTui.ChoiceInputTest do
+  use ExUnit.Case, async: true
+  alias AtlasTui.{Blocks, Interactions, Keys, Model}
+
+  defp ready(extra \\ false) do
+    path = "/k/decision/D-private"
+
+    pairs =
+      [{"0", "files"}, {"1", "files"}, {"2", "memory"}, {"3", "decline"}] ++
+        if(extra, do: [{"10", "ten"}], else: [])
+
+    actions =
+      for {key, id} <- pairs do
+        %{
+          "id" => "answer-" <> key,
+          "type" => "console_action",
+          "props" => %{
+            "label" => id,
+            "keys" => [key],
+            "available" => true,
+            "operation" => %{
+              "name" => "invoke",
+              "call" => %{
+                "endpoint" => "answer",
+                "params" => %{
+                  "kind" => "decision",
+                  "key" => "D-private",
+                  "answer" => "option-exact-revision-" <> id
+                }
+              }
+            },
+            "scope" => %{"page" => path, "revision" => "offer-v1", "context" => "browse"}
+          }
+        }
+      end
+
+    page = %{
+      "path" => path,
+      "actions_revision" => "offer-v1",
+      "blocks" => actions,
+      "markup" => [
+        %{
+          "kind" => "legend",
+          "start" => "answer-0",
+          "end" => List.last(actions)["id"],
+          "props" => %{"title" => "Answers", "context" => "browse"}
+        }
+      ]
+    }
+
+    model = Model.new("test")
+    model = %{model | path: path, connected: true, console: %{model.console | phase: :ready}}
+    {model, _} = Interactions.install(model, page)
+    assert model.console.action_error == nil
+    model
+  end
+
+  test "digit graphemes invoke only supplied semantic calls; zero and one are identical" do
+    model = ready()
+    assert {[{:char, "0"}, {:char, "1"}, {:char, "2"}, {:char, "3"}], ""} = Keys.parse("0123")
+    effects = for key <- ~w(0 1 2 3), do: elem(Model.key(model, {:char, key}), 1)
+    assert Enum.at(effects, 0) == Enum.at(effects, 1)
+
+    assert [
+             {:send,
+              %{
+                "op" => "submit",
+                "params" => %{"answer" => "option-exact-revision-memory"},
+                "values" => %{}
+              }}
+           ] = Enum.at(effects, 2)
+
+    assert [{:send, %{"params" => %{"answer" => "option-exact-revision-decline"}}}] =
+             Enum.at(effects, 3)
+
+    for key <- ~w(4 9), do: assert({^model, []} = Model.key(model, {:char, key}))
+  end
+
+  test "the same digits remain literal text while editing" do
+    model = ready()
+    input = %Blocks.Input{name: "title", label: "Title", kind: "text", value: ""}
+
+    model = %{
+      model
+      | blocks: [%Blocks.Form{title: "Edit", inputs: [input], submit_label: "Save"}],
+        focus: 0,
+        values: %{"title" => ""}
+    }
+
+    for key <- ~w(0 1 2 3) do
+      {edited, []} = Model.key(model, {:char, key})
+      assert edited.values["title"] == key
+    end
+  end
+
+  # A decline is given with a note: its key opens this form, as Control serves it. The
+  # note's bytes and then Ctrl+S (byte 19) as a terminal sends them submit the note. The
+  # terminal itself must pass byte 19 through (`stty -ixon`, as `bin/atlas tui` sets);
+  # with flow control on, the tty takes it as XOFF and the TUI never sees it.
+  test "a decline's note form submits the typed note on Ctrl+S" do
+    call = %{
+      "endpoint" => "answer",
+      "params" => %{"kind" => "decision", "key" => "D-private", "answer" => "option-r-decline"}
+    }
+
+    form = %{
+      "op" => "page",
+      "path" => "/k/decision/D-private/answer/option-r-decline",
+      "title" => "Do neither D-private",
+      "back" => "/k/decision/D-private",
+      "reason" => "open",
+      "blocks" => [
+        %{
+          "type" => "form",
+          "props" => %{
+            "title" => "Do neither D-private",
+            "submit_label" => "Do neither",
+            "submit_to" => call,
+            "cancel_to" => "/k/decision/D-private",
+            "inputs" => [
+              %{"name" => "note", "label" => "Note", "kind" => "multiline", "required" => true}
+            ]
+          }
+        }
+      ]
+    }
+
+    model = AtlasTui.ConsoleProjectionFixture.model(form)
+    note = "Neither storage rule fits."
+    {keys, ""} = Keys.parse(note <> <<19>>)
+    assert List.last(keys) == :ctrl_s
+
+    {typed, effects} =
+      Enum.reduce(keys, {model, []}, fn key, {model, _} -> Model.key(model, key) end)
+
+    assert typed.values["note"] == note
+
+    assert [{:send, %{"op" => "submit", "values" => %{"note" => ^note}} = sent}] = effects
+    assert Map.take(sent, ~w(endpoint params)) == call
+  end
+
+  test "multi-digit projected shortcuts wait for explicit Enter and reject out-of-range numbers" do
+    model = ready(true)
+    {pending, []} = Model.key(model, {:char, "1"})
+    {pending, []} = Model.key(pending, {:char, "0"})
+    assert pending.console.key_buffer == "10"
+
+    {_, [{:send, %{"params" => %{"answer" => "option-exact-revision-ten"}}}]} =
+      Model.key(pending, :enter)
+
+    {pending, []} = Model.key(model, {:char, "9"})
+    {pending, []} = Model.key(pending, {:char, "9"})
+    {cleared, []} = Model.key(pending, :enter)
+    assert cleared.console.key_buffer == ""
+    {pending, []} = Model.key(model, {:char, "0"})
+    {cleared, []} = Model.key(pending, :esc)
+    assert cleared.console.key_buffer == ""
+  end
+end

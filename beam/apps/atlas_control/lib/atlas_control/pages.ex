@@ -1137,7 +1137,7 @@ defmodule AtlasControl.Pages do
               {content, markup}
 
             todo ->
-              {[{"todo", todo_item(todo)} | content],
+              {[{"todo", todo_item(todo, kind, key)} | content],
                [Blocks.part("todo", "todo", title: todo.words.title, role: "todo") | markup]}
           end
 
@@ -1908,9 +1908,39 @@ defmodule AtlasControl.Pages do
   # What its owner is to do (IS-Atlas-54), as the model's `todo/4` gives it: what is
   # expected, why it came to them, the instructions, the section of the fact they name,
   # and the answers they can give. Every word is the model's or the fact's.
-  defp todo_item(todo) do
+  defp todo_item(%{choice: %{} = choice} = todo, kind, key) do
+    options =
+      Enum.zip(choice["options"], todo.answers)
+      |> Enum.map(fn {option, answer} ->
+        Blocks.choice_option(
+          id: option["id"],
+          text: option["text"],
+          details: option["details"],
+          effect: option["effect"],
+          rule: option["rule"],
+          consequences: option["consequences"],
+          answer: call_to({:answer, kind, key, answer.name}),
+          note: answer.note,
+          shortcut: answer.key
+        )
+      end)
+
+    Blocks.single_choice(
+      question: choice["question"],
+      options: options,
+      recommended: choice["recommended"],
+      rationale: choice["rationale"],
+      revision: choice["revision"],
+      instructions: todo.instructions <> choice_keys(length(options))
+    )
+  end
+
+  defp todo_item(todo, _kind, _key) do
     words = todo.words
-    answers = for a <- todo.answers, do: "#{a.key} #{a.label}"
+
+    answers =
+      for a <- todo.answers,
+          do: "#{a.key} #{a.label}" <> if(a[:details], do: " — #{a.details}", else: "")
 
     fields =
       [
@@ -1936,6 +1966,13 @@ defmodule AtlasControl.Pages do
     Blocks.item(title: "#{todo.title}: #{todo.expected}", fields: fields)
   end
 
+  # How the numbered shortcuts `answer_actions/3` binds select a choice. Past 9 choices
+  # a number takes more than one key, so it is typed and then confirmed.
+  defp choice_keys(count),
+    do:
+      "\n0 selects recommended choice 1." <>
+        if(count > 9, do: " Type a number, then Enter.", else: "")
+
   @doc "The owner's answer `name` (one that writes a change), from fresh item reads; or nil."
   def declared_answer(m, kind, "_restart-" <> run, answers, form) do
     case restart_offer(m, kind, answers, form) do
@@ -1946,8 +1983,11 @@ defmodule AtlasControl.Pages do
 
   def declared_answer(m, kind, name, [%{"fact" => fact} | rest], form) when is_map(fact) do
     case m.module.todo(kind, fact, parts_by_kind(item_parts(m, kind, rest)), viewer(form)) do
-      %{answers: answers} -> Enum.find(answers, &(&1.key == name and &1.change))
-      _ -> nil
+      %{answers: answers} ->
+        Enum.find(answers, &((Map.get(&1, :name) || &1.key) == name and &1.change))
+
+      _ ->
+        nil
     end
   end
 
@@ -2011,8 +2051,21 @@ defmodule AtlasControl.Pages do
             Blocks.action(
               label: a.label,
               key: a.key,
-              to: path({:answer, kind, fact["key"], a.key})
+              to: path({:answer, kind, fact["key"], Map.get(a, :name) || a.key}),
+              # One that needs a note (a decline) opens its form to ask for it first.
+              submit_to:
+                if(a[:name] && !a.note, do: call_to({:answer, kind, fact["key"], a.name}))
             )
+
+    changes =
+      case {todo.answers, changes} do
+        {[%{name: _, label: label} | _], [first | _]} ->
+          # `0` is the recommended choice 1 again: the same page, call and note.
+          changes ++ [Map.merge(first, %{"label" => "Recommended: " <> label, "key" => "0"})]
+
+        _ ->
+          changes
+      end
 
     changes ++
       for a <- todo.answers,

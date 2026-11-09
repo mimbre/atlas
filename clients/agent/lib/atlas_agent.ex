@@ -165,7 +165,11 @@ defmodule AtlasAgent do
         for %{"type" => "item", "props" => props} = b <- page["blocks"] || [],
             do: {b["id"], props}
 
-      todo = Enum.find_value(items, fn {id, props} -> id == "todo" && props end)
+      todo =
+        Enum.find_value(items, fn {id, props} -> id == "todo" && props end) ||
+          Enum.find_value(page["blocks"] || [], fn b ->
+            if b["type"] == "single_choice", do: b["props"]
+          end)
 
       case for({id, props} <- items, id != "todo", do: props) do
         [item] ->
@@ -198,6 +202,8 @@ defmodule AtlasAgent do
   end
 
   # What to do, as the page words it: its title and its fields.
+  defp todo_of(%{"options" => _, "revision" => _} = choice), do: choice
+
   defp todo_of(todo),
     do: %{
       "title" => todo["title"],

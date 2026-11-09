@@ -2,5 +2,5 @@
 /// The contract this package is generated from.
 public enum Contract {
     /// The contract's version: what a client says it implements.
-    public static let version = "0.16.0"
+    public static let version = "0.17.0"
 }

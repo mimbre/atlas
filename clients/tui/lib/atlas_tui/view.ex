@@ -39,7 +39,7 @@ defmodule AtlasTui.View do
   """
   def known,
     do: %{
-      blocks: ~w(list item form confirm plan console_action),
+      blocks: ~w(list item single_choice form confirm plan console_action),
       markup: ~w(part section highlight legend)
     }
 
@@ -510,6 +510,22 @@ defmodule AtlasTui.View do
 
   # Values keep their line breaks and blank lines; a heading line (`#`) is bold. A value
   # without a label (prose, such as what a worker said) takes the whole width.
+  defp block(%AtlasTui.Blocks.SingleChoice{} = choice, at, model, width, room) do
+    fields =
+      [%AtlasTui.Blocks.Pair{label: "Recommendation", value: choice.rationale}] ++
+        for option <- choice.options do
+          %AtlasTui.Blocks.Pair{
+            label: "#{option.shortcut} #{option.text}",
+            value:
+              option.details <>
+                if(option.id == choice.recommended, do: " (Recommended)", else: "")
+          }
+        end
+
+    fields = fields ++ [%AtlasTui.Blocks.Pair{label: "", value: choice.instructions}]
+    block(%Item{title: choice.question, fields: fields}, at, model, width, room)
+  end
+
   defp block(%Item{} = item, _at, _model, width, _room) do
     fields =
       Enum.flat_map(item.fields, fn pair ->
@@ -867,6 +883,9 @@ defmodule AtlasTui.View do
 
   defp console_notice(%Model{console: %{action_error: error}}) when is_binary(error),
     do: [{:error, " Console: " <> error}]
+
+  defp console_notice(%Model{console: %{key_buffer: buffer}}) when buffer != "",
+    do: [{:dim, "Shortcut: #{buffer} · Enter to select · Esc to cancel"}]
 
   defp console_notice(model), do: notice(model)
 

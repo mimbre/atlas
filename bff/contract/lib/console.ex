@@ -16,15 +16,35 @@ defmodule AtlasBFFContract.Console do
 
   def contexts, do: @contexts
   def named_keys, do: @tokens
-  def operations, do: @local ++ ~w(open open_url agent_ask) ++ @worker
+  def operations, do: @local ++ ~w(open open_url agent_ask invoke) ++ @worker
 
   def key?(key) when is_binary(key),
     do:
       key in @tokens or
-        (String.valid?(key) and String.length(key) == 1 and String.printable?(key) and
-           not String.match?(key, ~r/[\x00-\x1f\x7f]/))
+        (String.valid?(key) and
+           (String.match?(key, ~r/^[0-9]{2,6}$/) or
+              (String.length(key) == 1 and String.printable?(key) and
+                 not String.match?(key, ~r/[\x00-\x1f\x7f]/))))
 
   def key?(_), do: false
+
+  def operation?(%{"name" => "invoke", "call" => call} = op) when map_size(op) == 2 do
+    with %{"endpoint" => endpoint} <- call,
+         true <- Map.keys(call) -- ~w(endpoint params) == [],
+         true <- is_binary(endpoint),
+         params when is_map(params) <- call["params"] || %{},
+         true <- Enum.all?(params, fn {k, v} -> is_binary(k) and is_binary(v) end),
+         %{} = spec <-
+           Enum.find(
+             AtlasBFFContract.Contract.__schema__().endpoints,
+             &(&1.call == :submit and Atom.to_string(&1.name) == endpoint)
+           ) do
+      Enum.sort(Map.keys(params)) == Enum.sort(Enum.map(spec.params, &Atom.to_string/1)) and
+        Enum.all?(params, fn {_, value} -> value != "" end)
+    else
+      _ -> false
+    end
+  end
 
   def operation?(%{"name" => name, "execution" => execution} = op) when name in @worker do
     allowed =
