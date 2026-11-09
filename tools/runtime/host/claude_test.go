@@ -424,10 +424,10 @@ case "`+mode+`" in fail) exit 7 ;; stop) exec sleep 60 ;; esac
 }
 
 func TestClaudeLongHomeRefusesAndRemovesCreatedTemp(t *testing.T) {
-	// A test-owned home far too long for the private temp. TMPDIR moves to a sibling, so the
-	// repository beneath the home lies outside every system temp root.
-	root, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
+	// A test-owned home far too long for the private temp, outside /tmp and /var/tmp. TMPDIR moves
+	// to a sibling, so the repository beneath the home lies outside every system temp root.
+	root := filepath.Join(outsideSystemTemp(t), strings.Repeat("h", 44))
+	if err := os.Mkdir(root, 0700); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("TMPDIR", t.TempDir())

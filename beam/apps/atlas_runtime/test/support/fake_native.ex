@@ -5,7 +5,9 @@ defmodule AtlasRuntime.FakeNative do
 
   @doc "Writes an executable at `executable` that runs the fixture `mode` with its own argv."
   def install!(executable, mode, args \\ []) do
-    words = Enum.map_join([path(), mode | args], " ", &("'" <> String.replace(&1, "'", "'\\''") <> "'"))
+    words =
+      Enum.map_join([path(), mode | args], " ", &("'" <> String.replace(&1, "'", "'\\''") <> "'"))
+
     File.write!(executable, "#!/bin/sh\nexec #{words} \"$0\" \"$@\"\n")
     File.chmod!(executable, 0o700)
   end

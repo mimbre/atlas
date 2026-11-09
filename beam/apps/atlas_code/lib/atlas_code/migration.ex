@@ -29,7 +29,12 @@ defmodule AtlasCode.Migration do
     try do
       marker = Path.join(home, "migration.json")
       AtlasCode.write_atomic(marker, JSON.encode!(%{"state" => "running"}))
-      counts = %{"snapshots" => snapshots(home), "changes" => changes(home), "reviews" => reviews(home)}
+
+      counts = %{
+        "snapshots" => snapshots(home),
+        "changes" => changes(home),
+        "reviews" => reviews(home)
+      }
 
       case pending(home) do
         ["migration.json"] -> :ok
@@ -50,8 +55,11 @@ defmodule AtlasCode.Migration do
   def pending(home) do
     marker =
       case File.read(Path.join(home, "migration.json")) do
-        {:ok, json} -> if JSON.decode!(json)["state"] == "complete", do: [], else: ["migration.json"]
-        {:error, :enoent} -> []
+        {:ok, json} ->
+          if JSON.decode!(json)["state"] == "complete", do: [], else: ["migration.json"]
+
+        {:error, :enoent} ->
+          []
       end
 
     snapshots =
@@ -65,7 +73,8 @@ defmodule AtlasCode.Migration do
           change = Path.join([home, "changes", id]),
           File.exists?(Path.join(change, "change.json")),
           not File.exists?(Path.join(change, "request.json")) or
-            (File.exists?(Path.join(change, "commit")) and not File.exists?(Path.join(change, "revision"))),
+            (File.exists?(Path.join(change, "commit")) and
+               not File.exists?(Path.join(change, "revision"))),
           do: "changes/#{id}"
 
     publications =
@@ -77,12 +86,19 @@ defmodule AtlasCode.Migration do
   end
 
   defp current?(home, hex),
-    do: match?(%{"version" => 2}, home |> Path.join("snapshots/#{hex}.json") |> File.read!() |> JSON.decode!())
+    do:
+      match?(
+        %{"version" => 2},
+        home |> Path.join("snapshots/#{hex}.json") |> File.read!() |> JSON.decode!()
+      )
 
   defp successor?(home, hex) do
     case File.read(Path.join([home, "snapshots", hex <> ".successor"])) do
-      {:ok, "sha256:" <> successor} -> File.exists?(Path.join([home, "snapshots", successor <> ".json"]))
-      _ -> false
+      {:ok, "sha256:" <> successor} ->
+        File.exists?(Path.join([home, "snapshots", successor <> ".json"]))
+
+      _ ->
+        false
     end
   end
 
@@ -99,17 +115,31 @@ defmodule AtlasCode.Migration do
           %{"version" => 2} ->
             count
 
-          %{"entries" => entries, "repositories" => repositories} = manifest when map_size(manifest) == 2 ->
+          %{"entries" => entries, "repositories" => repositories} = manifest
+          when map_size(manifest) == 2 ->
             unless AtlasCode.sha256(bytes) == hex and JSON.encode!(manifest) == bytes,
               do: raise("snapshots/#{hex}.json is not the canonical manifest of its ID")
 
             repositories =
-              for %{"commit" => commit, "path" => path, "repository" => repository} = item <- repositories do
-                unless map_size(item) == 3, do: raise("snapshots/#{hex}.json has an unknown repository shape")
-                %{"path" => path, "repository" => repository, "revision" => AtlasCode.put_revision(home, repository, commit)}
+              for %{"commit" => commit, "path" => path, "repository" => repository} = item <-
+                    repositories do
+                unless map_size(item) == 3,
+                  do: raise("snapshots/#{hex}.json has an unknown repository shape")
+
+                %{
+                  "path" => path,
+                  "repository" => repository,
+                  "revision" => AtlasCode.put_revision(home, repository, commit)
+                }
               end
 
-            manifest = JSON.encode!(%{"entries" => entries, "repositories" => repositories, "version" => 2})
+            manifest =
+              JSON.encode!(%{
+                "entries" => entries,
+                "repositories" => repositories,
+                "version" => 2
+              })
+
             successor = AtlasCode.sha256(manifest)
             AtlasCode.publish!(Path.join(dir, successor <> ".json"), manifest)
             AtlasCode.publish!(Path.join(dir, hex <> ".successor"), "sha256:" <> successor)
@@ -121,17 +151,27 @@ defmodule AtlasCode.Migration do
   defp changes(home) do
     dir = Path.join(home, "changes")
 
-    for id <- listed(dir, ~r/\A([0-9a-f-]{36})\z/), File.exists?(Path.join([dir, id, "change.json"])), reduce: 0 do
+    for id <- listed(dir, ~r/\A([0-9a-f-]{36})\z/),
+        File.exists?(Path.join([dir, id, "change.json"])),
+        reduce: 0 do
       count ->
         change = Path.join(dir, id)
 
-        %{"change_id" => ^id, "snapshot_id" => "sha256:" <> hex, "repository" => repository, "base_commit" => base} =
+        %{
+          "change_id" => ^id,
+          "snapshot_id" => "sha256:" <> hex,
+          "repository" => repository,
+          "base_commit" => base
+        } =
           old = change |> Path.join("change.json") |> File.read!() |> JSON.decode!()
 
         successor =
           case File.read(Path.join([home, "snapshots", hex <> ".successor"])) do
-            {:ok, successor} -> successor
-            {:error, :enoent} -> raise("changes/#{id} names sha256:#{hex}, which has no successor")
+            {:ok, successor} ->
+              successor
+
+            {:error, :enoent} ->
+              raise("changes/#{id} names sha256:#{hex}, which has no successor")
           end
 
         request = %{
@@ -146,7 +186,10 @@ defmodule AtlasCode.Migration do
 
         case File.read(Path.join(change, "commit")) do
           {:ok, commit} ->
-            AtlasCode.publish!(Path.join(change, "revision"), AtlasCode.put_revision(home, repository, commit))
+            AtlasCode.publish!(
+              Path.join(change, "revision"),
+              AtlasCode.put_revision(home, repository, commit)
+            )
 
           {:error, :enoent} ->
             :ok
@@ -156,7 +199,12 @@ defmodule AtlasCode.Migration do
     end
   end
 
-  @phases %{"pushing" => "pushing", "pushed" => "pushed", "published" => "open", "failed" => "failed"}
+  @phases %{
+    "pushing" => "pushing",
+    "pushed" => "pushed",
+    "published" => "open",
+    "failed" => "failed"
+  }
 
   defp reviews(home) do
     dir = Path.join(home, "publications")
@@ -164,7 +212,8 @@ defmodule AtlasCode.Migration do
     for id <- listed(dir, ~r/\A([0-9a-f-]{36})\.json\z/), reduce: 0 do
       count ->
         %{
-          "request" => %{"publication_id" => ^id, "change_id" => change, "branch" => branch} = old,
+          "request" =>
+            %{"publication_id" => ^id, "change_id" => change, "branch" => branch} = old,
           "phase" => phase,
           "repository" => repository,
           "commit" => commit

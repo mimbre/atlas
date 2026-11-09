@@ -124,10 +124,16 @@ defmodule AtlasRuntime.CodexModelTest do
       Enum.map_join(
         [
           %{"type" => "session_meta", "payload" => %{"id" => @session}},
-          %{"type" => "turn_context", "timestamp" => "2020-01-01T00:00:00Z",
-            "payload" => %{"cwd" => workspace, "model" => "stale-model"}},
-          %{"type" => "turn_context", "timestamp" => stamp,
-            "payload" => %{"cwd" => workspace, "model" => "native-confirmed"}}
+          %{
+            "type" => "turn_context",
+            "timestamp" => "2020-01-01T00:00:00Z",
+            "payload" => %{"cwd" => workspace, "model" => "stale-model"}
+          },
+          %{
+            "type" => "turn_context",
+            "timestamp" => stamp,
+            "payload" => %{"cwd" => workspace, "model" => "native-confirmed"}
+          }
         ],
         &(JSON.encode!(&1) <> "\n")
       )

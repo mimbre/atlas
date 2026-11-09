@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -344,6 +346,12 @@ func isolatedHome(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
+	return isolatedHomeIn(t, root)
+}
+
+// isolatedHomeIn makes the test-owned root the isolated home.
+func isolatedHomeIn(t *testing.T, root string) string {
+	t.Helper()
 	for _, entry := range os.Environ() {
 		if name, _, _ := strings.Cut(entry, "="); strings.HasPrefix(name, "GIT_") {
 			t.Setenv(name, "")
@@ -355,6 +363,43 @@ func isolatedHome(t *testing.T) string {
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
 	limitCodexConfigWalk(t, root)
+	return root
+}
+
+// outsideSystemTemp is a test-owned root outside /tmp and /var/tmp, below which Claude's sandbox
+// denies writes and the Runtime refuses Claude folders; the caller moves TMPDIR to a sibling.
+// A temp dir qualifies under macOS's per-user TMPDIR, also in a worker sandbox. Linux's default
+// TMPDIR is /tmp, so there the root goes beneath the real home.
+func outsideSystemTemp(t *testing.T) string {
+	t.Helper()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	inside := false
+	for _, path := range []string{"/tmp", "/var/tmp"} {
+		if system, err := filepath.EvalSymlinks(path); err == nil && strings.HasPrefix(root, system+"/") {
+			inside = true
+		}
+	}
+	if !inside {
+		return root
+	}
+	home, err := os.UserHomeDir()
+	if err == nil {
+		home, err = filepath.EvalSymlinks(home)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err = os.MkdirTemp(home, ".atlas-host-test-")
+	if errors.Is(err, fs.ErrPermission) {
+		t.Skipf("TMPDIR is below a system temp root and home %s is not writable (sandboxed run); this test needs a root outside system temp roots", home)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(root) })
 	return root
 }
 

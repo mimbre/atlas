@@ -329,7 +329,7 @@ func claudeFolder(t *testing.T) (dest, home, gitLog string, scope map[string]any
 }
 
 func TestClaudeFolderSettingsAreTheEnforcementContract(t *testing.T) {
-	user := isolatedHome(t)
+	user := isolatedHomeIn(t, outsideSystemTemp(t))
 	// Claude denies writes below system temp roots; keep the fake user's folder outside TMPDIR.
 	system := t.TempDir()
 	t.Setenv("TMPDIR", system)

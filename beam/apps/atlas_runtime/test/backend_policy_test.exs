@@ -133,6 +133,7 @@ defmodule AtlasRuntime.BackendPolicyTest do
       "permissions" => "dedicated-repository",
       "repository" => "https://github.com/eyra/atlas.git"
     }
+
     assert Policy.select(configured(), nil, request, @now)["selected"] == @preferred
     assert Policy.select(blocked(), "claude", request, @now)["selected"] == @preferred
     assert Policy.select(blocked(), nil, request, @now)["selected"] == @fallback

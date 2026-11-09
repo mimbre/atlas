@@ -88,7 +88,10 @@ defmodule AtlasRuntime.Integrations.AtlasServer.Lifecycle do
   # Inside the home, no symbolic link on the way, a regular file only its owner can read.
   defp token!(dir, file) do
     home = Path.expand(dir)
-    if not is_binary(file) or file == "", do: invalid!("token_file must name a file in the Runtime home")
+
+    if not is_binary(file) or file == "",
+      do: invalid!("token_file must name a file in the Runtime home")
+
     path = Path.expand(file, home)
     relative = Path.relative_to(path, home)
 
@@ -97,18 +100,28 @@ defmodule AtlasRuntime.Integrations.AtlasServer.Lifecycle do
 
     owner =
       case File.stat(home) do
-        {:ok, %File.Stat{uid: uid}} -> uid
-        {:error, reason} -> invalid!("cannot read the Runtime home: #{:file.format_error(reason)}")
+        {:ok, %File.Stat{uid: uid}} ->
+          uid
+
+        {:error, reason} ->
+          invalid!("cannot read the Runtime home: #{:file.format_error(reason)}")
       end
 
     steps = Enum.scan(Path.split(relative), home, &Path.join(&2, &1))
 
     for {step, last?} <- Enum.zip(steps, Enum.map(steps, &(&1 == path))) do
       case File.lstat(step) do
-        {:ok, %File.Stat{type: :directory}} when not last? -> :ok
-        {:ok, %File.Stat{type: :regular} = stat} when last? -> owner_only!(stat, owner)
-        {:ok, _} -> invalid!("token_file must be a regular file, with no symbolic link on its path")
-        {:error, reason} -> invalid!("cannot read token_file: #{:file.format_error(reason)}")
+        {:ok, %File.Stat{type: :directory}} when not last? ->
+          :ok
+
+        {:ok, %File.Stat{type: :regular} = stat} when last? ->
+          owner_only!(stat, owner)
+
+        {:ok, _} ->
+          invalid!("token_file must be a regular file, with no symbolic link on its path")
+
+        {:error, reason} ->
+          invalid!("cannot read token_file: #{:file.format_error(reason)}")
       end
     end
 
@@ -180,8 +193,11 @@ defmodule AtlasRuntime.Integrations.AtlasServer.Lifecycle do
 
     attached =
       case AtlasBus.attach("runtime@" <> config.machine) do
-        :ok -> :ok
-        {:error, why} -> {:error, "Bus endpoint runtime@#{config.machine} not attached: #{inspect(why)}"}
+        :ok ->
+          :ok
+
+        {:error, why} ->
+          {:error, "Bus endpoint runtime@#{config.machine} not attached: #{inspect(why)}"}
       end
 
     {:ok,
@@ -238,9 +254,18 @@ defmodule AtlasRuntime.Integrations.AtlasServer.Lifecycle do
         wait = turn.written + state.lease - now()
 
         cond do
-          turn.timer -> {:noreply, put_in(state.turns[key], turn)}
-          wait <= 0 -> {:noreply, write_activity(state, key, turn)}
-          true -> {:noreply, put_in(state.turns[key], %{turn | timer: Process.send_after(self(), {:activity, key}, wait)})}
+          turn.timer ->
+            {:noreply, put_in(state.turns[key], turn)}
+
+          wait <= 0 ->
+            {:noreply, write_activity(state, key, turn)}
+
+          true ->
+            {:noreply,
+             put_in(state.turns[key], %{
+               turn
+               | timer: Process.send_after(self(), {:activity, key}, wait)
+             })}
         end
     end
   end
@@ -255,7 +280,13 @@ defmodule AtlasRuntime.Integrations.AtlasServer.Lifecycle do
         state = %{state | turns: turns}
         n = state.names
         why = why(run)
-        values = %{n["state"] => n["ended"], n["why"] => why, n["lease"] => "", n["ended_at"] => at(now())}
+
+        values = %{
+          n["state"] => n["ended"],
+          n["why"] => why,
+          n["lease"] => "",
+          n["ended_at"] => at(now())
+        }
 
         ended =
           case change(state, turn.server, values, why) do
@@ -271,8 +302,11 @@ defmodule AtlasRuntime.Integrations.AtlasServer.Lifecycle do
   @impl true
   def handle_info({:activity, key}, state) do
     case state.turns[key] do
-      %{timer: timer} = turn when timer != nil -> {:noreply, write_activity(state, key, %{turn | timer: nil})}
-      _ -> {:noreply, state}
+      %{timer: timer} = turn when timer != nil ->
+        {:noreply, write_activity(state, key, %{turn | timer: nil})}
+
+      _ ->
+        {:noreply, state}
     end
   end
 
@@ -281,7 +315,9 @@ defmodule AtlasRuntime.Integrations.AtlasServer.Lifecycle do
   defp create(state, run, server) do
     with {:ok, state} <- names(state) do
       n = state.names
-      cause = "standalone Runtime on #{server["machine"]}: worker #{server["worker"]} started local turn #{run.id}"
+
+      cause =
+        "standalone Runtime on #{server["machine"]}: worker #{server["worker"]} started local turn #{run.id}"
 
       content = %{
         "op" => "create",
@@ -311,9 +347,10 @@ defmodule AtlasRuntime.Integrations.AtlasServer.Lifecycle do
               _ -> %{}
             end
 
-          if values[n["attempt"]] == server["attempt"] and values[n["machine"]] == server["machine"],
-            do: {:ok, state},
-            else: {:error, why, state}
+          if values[n["attempt"]] == server["attempt"] and
+               values[n["machine"]] == server["machine"],
+             do: {:ok, state},
+             else: {:error, why, state}
       end
     else
       {:error, why} -> {:error, why, state}
@@ -338,7 +375,11 @@ defmodule AtlasRuntime.Integrations.AtlasServer.Lifecycle do
     }
 
     stored =
-      case Talk.fact(state.execution, %{"op" => "register_execution", "values" => values}, state.talk) do
+      case Talk.fact(
+             state.execution,
+             %{"op" => "register_execution", "values" => values},
+             state.talk
+           ) do
         {:stored, %{"fact" => execution}, _position} ->
           execution
 
@@ -454,5 +495,9 @@ defmodule AtlasRuntime.Integrations.AtlasServer.Lifecycle do
   defp now, do: System.system_time(:millisecond)
 
   defp at(ms),
-    do: ms |> DateTime.from_unix!(:millisecond) |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+    do:
+      ms
+      |> DateTime.from_unix!(:millisecond)
+      |> DateTime.truncate(:second)
+      |> DateTime.to_iso8601()
 end

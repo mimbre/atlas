@@ -14,7 +14,9 @@ defmodule Mix.Tasks.AtlasCode.Unlock do
 
   @impl true
   def run(args) do
-    home = System.get_env("ATLAS_CODE_HOME") || Mix.raise("Set ATLAS_CODE_HOME to the Code home directory")
+    home =
+      System.get_env("ATLAS_CODE_HOME") ||
+        Mix.raise("Set ATLAS_CODE_HOME to the Code home directory")
 
     owner =
       case OptionParser.parse(args, strict: [owner: :string]) do
@@ -25,10 +27,17 @@ defmodule Mix.Tasks.AtlasCode.Unlock do
     Mix.Task.run("compile")
 
     case AtlasCode.unlock(home, owner) do
-      {:ok, :not_owned} -> IO.puts(JSON.encode!(%{"state" => "not_owned"}))
-      {:ok, {:recovered, tombstone}} -> IO.puts(JSON.encode!(%{"state" => "recovered", "tombstone" => tombstone}))
-      {:error, why} when is_binary(why) -> Mix.raise(why)
-      {:error, reason} -> Mix.raise("The owner directory could not be moved (#{reason}); nothing was moved")
+      {:ok, :not_owned} ->
+        IO.puts(JSON.encode!(%{"state" => "not_owned"}))
+
+      {:ok, {:recovered, tombstone}} ->
+        IO.puts(JSON.encode!(%{"state" => "recovered", "tombstone" => tombstone}))
+
+      {:error, why} when is_binary(why) ->
+        Mix.raise(why)
+
+      {:error, reason} ->
+        Mix.raise("The owner directory could not be moved (#{reason}); nothing was moved")
     end
   end
 end

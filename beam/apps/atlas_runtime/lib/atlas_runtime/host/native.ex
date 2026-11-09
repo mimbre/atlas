@@ -93,7 +93,8 @@ defmodule AtlasRuntime.Agent.Native do
     # Both backends refuse unknown profiles; a materialized folder is never provisioned.
     supported =
       (backend == "codex" &&
-         (is_nil(scope) || (is_map(scope) && scope["profile"] in ["dedicated-repository", "materialized-folder"]))) ||
+         (is_nil(scope) ||
+            (is_map(scope) && scope["profile"] in ["dedicated-repository", "materialized-folder"]))) ||
         (backend == "claude" &&
            (is_nil(session) || (is_map(resume_context) && is_binary(model))) &&
            ((sandbox == "read-only" && is_nil(scope) && is_nil(repository)) ||
@@ -229,12 +230,17 @@ defmodule AtlasRuntime.Agent.Native do
         Enum.each(state.stopping.waiters, &GenServer.reply(&1, :ok))
         success = successful?(state)
 
-        send(state.owner, {:agent, self(), {:terminated, %{
-          "control" => state.ended_control,
-          "exit_code" => state.process_exit,
-          "native_result" => success,
-          "result" => if(success, do: state.result || "#{state.backend} completed the goal")
-        }}})
+        send(
+          state.owner,
+          {:agent, self(),
+           {:terminated,
+            %{
+              "control" => state.ended_control,
+              "exit_code" => state.process_exit,
+              "native_result" => success,
+              "result" => if(success, do: state.result || "#{state.backend} completed the goal")
+            }}}
+        )
 
         {:stop, :normal, %{state | port: nil}}
 
@@ -266,10 +272,18 @@ defmodule AtlasRuntime.Agent.Native do
   end
 
   defp consume(%{"type" => "runtime.process_ended", "exit_code" => code} = record, state),
-    do: %{NativeEvents.ended(record, state) | process_exit: code, ended_control: record["control"]}
+    do: %{
+      NativeEvents.ended(record, state)
+      | process_exit: code,
+        ended_control: record["control"]
+    }
 
   defp consume(%{"type" => "runtime.signal"} = record, state) do
-    send(state.owner, {:agent, self(), {:signal, Map.take(record, ["control", "signal", "error"])}})
+    send(
+      state.owner,
+      {:agent, self(), {:signal, Map.take(record, ["control", "signal", "error"])}}
+    )
+
     state
   end
 
