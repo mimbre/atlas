@@ -179,12 +179,14 @@ def validate(extra, schema, actors=None):
     shortcuts = []
     for kind, spec in extra.get('entities', {}).items():
         entity(kind)
-        keys(spec, 'top primary start create properties completion progress connector agent order by_hand late actions counts requires authority frozen replaces layering sealed', f'entities.{kind}')
+        keys(spec, 'top primary start create properties completion progress connector agent order by_hand late actions counts requires authority frozen replaces layering sealed delete_error', f'entities.{kind}')
         if 'start' in spec:
             navigation(spec['start'], kind + '.start')
             shortcuts.append(spec['start']['key'])
         if 'primary' in spec:
             field(kind, spec['primary'])
+        if 'delete_error' in spec and not (isinstance(spec['delete_error'], str) and spec['delete_error'].strip()):
+            raise ConfigError(f'{kind}.delete_error: expected the sentence a refused delete says')
         create = spec.get('create', {})
         keys(create, 'ask id defaults', kind + '.create')
         for name in create.get('ask', []):

@@ -2244,4 +2244,110 @@ defmodule AtlasControl.PagesTest do
       assert Pages.closed_problem(@d, "part", "widget", %{"key" => "W-1", "links" => %{}}) == nil
     end
   end
+
+  test "generated owner answers are offered only in the declared states, with note-only rejection" do
+    declarations = [
+      %{
+        "key" => "a",
+        "label" => "Accept",
+        "change" => %{"self" => "checked_by", "values" => %{"state" => "final"}}
+      },
+      %{
+        "key" => "f",
+        "label" => "Reject",
+        "note" => true,
+        "change" => %{"self" => "checked_by", "values" => %{"state" => "dropped"}}
+      }
+    ]
+
+    description =
+      @answering
+      |> Map.put("flow_runtime", %{
+        "selection" => %{"review" => %{"subject" => "widget", "legacy" => "f"}}
+      })
+      |> Map.put("subflows", %{
+        "review" => %{
+          "states" => %{
+            "check" => %{"present" => %{"todo" => %{"answers" => declarations}}},
+            "machine" => %{"present" => %{"expected" => "Work"}},
+            "final" => %{"final" => true}
+          }
+        }
+      })
+
+    route = {:item, "widget", "W-1"}
+    reads = answering_reads(route, "ada")
+    form = %{by: "ada", by_kind: "member"}
+    page = Pages.render(route, description, reads, form)
+    item = Enum.find(page.blocks, &(&1["id"] == "item"))["props"]
+
+    assert [%{"key" => "a", "label" => "Accept"}, %{"key" => "f", "label" => "Reject"} | _] =
+             item["actions"]
+
+    assert inspect(page.blocks) =~ "a Accept   f Reject"
+
+    assert Enum.find(item["actions"], &(&1["key"] == "f"))["to"] ==
+             Pages.path({:answer, "widget", "W-1", "f"})
+
+    assert Pages.declared_answer(description, "widget", "a", reads, %{by: "bob"}) == nil
+
+    # Someone else sees the item, but neither the answers nor what to do.
+    other = Pages.render(route, description, reads, %{by: "bob", by_kind: "member"})
+    refute inspect(other.blocks) =~ "Accept"
+    refute inspect(other.blocks) =~ "/answer/"
+
+    for state <- ["machine", "final", "unknown"] do
+      other =
+        Enum.map(reads, fn
+          %{"fact" => %{"key" => "C-W-1"} = card} ->
+            %{"fact" => put_in(card, ["values", "step"], state)}
+
+          answer ->
+            answer
+        end)
+
+      assert Pages.declared_answer(description, "widget", "a", other, form) == nil
+    end
+
+    %{blocks: [%{"type" => "form", "props" => reject}]} =
+      Pages.render({:answer, "widget", "W-1", "f"}, description, reads, form)
+
+    assert [%{"name" => "note", "required" => true}] = reject["inputs"]
+
+    %{blocks: [%{"type" => "confirm"}]} =
+      Pages.render({:answer, "widget", "W-1", "a"}, description, reads, form)
+  end
+
+  test "a change that sets a deciding value names its writer as decider, unless it is already" do
+    d = %{
+      "entities" => %{
+        "widget" => %{"authority" => %{"by" => "checked_by", "writes" => %{"state" => ["final"]}}}
+      }
+    }
+
+    assert Pages.decider_link(d, "widget", %{"state" => "final"}, %{}, "ada") ==
+             %{"checked_by" => ["ada"]}
+
+    assert Pages.decider_link(
+             d,
+             "widget",
+             %{"state" => "final"},
+             %{"checked_by" => ["bob"]},
+             "ada"
+           ) ==
+             %{"checked_by" => ["ada"]}
+
+    assert Pages.decider_link(
+             d,
+             "widget",
+             %{"state" => "final"},
+             %{"checked_by" => ["ada"]},
+             "ada"
+           ) ==
+             %{}
+
+    assert Pages.decider_link(d, "widget", %{"state" => "open"}, %{}, "ada") == %{}
+    assert Pages.decider_link(d, "widget", %{"title" => "x"}, %{}, "ada") == %{}
+    assert Pages.decider_link(d, "part", %{"state" => "final"}, %{}, "ada") == %{}
+  end
 end

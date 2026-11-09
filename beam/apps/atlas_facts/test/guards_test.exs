@@ -388,4 +388,70 @@ defmodule AtlasFacts.GuardsTest do
                })
     end
   end
+
+  test "an owner's answer (the state and the writer as decider, in one change) passes the decider gate only as it allows" do
+    fingerprint = %{"fields" => ["title"], "relations" => []}
+
+    rules = %{
+      "authority" => %{
+        "when" => %{"state" => ["final"]},
+        "writes" => %{"state" => ["final", "dropped"]},
+        "by" => "ruled_by",
+        "kind" => "judge",
+        "agent_kind" => "clerk",
+        "error" => "a judge decides unless a fresh verdict permits a clerk",
+        "writer_error" => "only who rules it decides it",
+        "decider" => %{"gate" => "allow", "fingerprint" => fingerprint}
+      }
+    }
+
+    open = %{"values" => %{"title" => "T", "state" => "open"}, "links" => %{}}
+
+    answer = fn writer, state, verdict ->
+      values = %{"state" => state, "signed_at" => "2026-11-12T00:00:00Z"}
+      fact = %{"values" => Map.merge(open["values"], values), "links" => %{}}
+
+      newest =
+        if verdict,
+          do: %{
+            "verdict" => verdict,
+            "fingerprint" => AtlasBus.SubjectFingerprint.of(fact, fingerprint)
+          }
+
+      Guards.check(rules, "change", "R-2", open, values, %{"ruled_by" => [writer]}, %{
+        "writer" => writer,
+        "kind_of" => &kind_of/2,
+        "verdict" => fn "allow", "R-2" -> newest end
+      })
+    end
+
+    # The named kind always may: accept and reject alike, with no verdict at all.
+    for state <- ["final", "dropped"], do: assert(:ok = answer.("J-1", state, nil))
+
+    # Another kind may not without a fresh verdict that permits it: neither accept nor reject.
+    for state <- ["final", "dropped"], verdict <- [nil, "judge_only"] do
+      assert {:refused, reasons} = answer.("C-1", state, verdict)
+      assert "only who rules it decides it" in reasons
+    end
+
+    for state <- ["final", "dropped"], do: assert(:ok = answer.("C-1", state, "agent"))
+  end
+
+  test "a ledger refuses deletion even with no children or verdict records" do
+    rules =
+      Guards.of(%{"entities" => %{"bead" => %{"delete_error" => "Append-only ledger"}}}, "bead")
+
+    assert {:refused, ["Append-only ledger"]} =
+             Guards.check(
+               rules,
+               "delete",
+               "B-1",
+               %{"values" => %{}, "links" => %{}},
+               %{},
+               %{},
+               %{}
+             )
+
+    assert :ok = Guards.check(rules, "change", "B-1", nil, %{"color" => "blue"}, %{}, %{})
+  end
 end

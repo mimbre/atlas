@@ -27,6 +27,7 @@ defmodule AtlasBFFContract.Endpoints do
       defendpoint :delete, "/k/:kind/:key/delete", @submit
       defendpoint :link, "/k/:kind/:key/links/:relation", @submit
       defendpoint :accept, "/k/:kind/:key/set/:relation", @submit
+      defendpoint :answer, "/k/:kind/:key/answer/:answer", @submit
       defendpoint :reopen, "/k/:kind/:key/remove/:relation", @submit
       defendpoint :fault, "/fault/:fault", @submit
       defendpoint :fact_fault, "/k/:kind/:key/fault/:fault", @submit

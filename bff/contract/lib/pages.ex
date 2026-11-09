@@ -21,6 +21,7 @@ defmodule AtlasBFFContract.Pages do
       defpage :delete, "/k/:kind/:key/delete"
       defpage :links, "/k/:kind/:key/links/:relation"
       defpage :set, "/k/:kind/:key/set/:relation"
+      defpage :answer, "/k/:kind/:key/answer/:answer"
       defpage :remove, "/k/:kind/:key/remove/:relation"
       # Test only: what can be made to fail (the node, or a fact), and the confirm for one.
       defpage :faults, "/faults"

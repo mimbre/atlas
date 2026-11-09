@@ -147,9 +147,9 @@ defmodule AtlasFacts.FlowInputsTest do
   test "only trusted Control and relation-derived roles under selected ACL authorize inputs", c do
     assert {:error, :input_authority} = submit(c, nil, "ada", "client")
     assert {:error, :input_authority} = submit(c, Map.put(c.v, "roles", ["clerk"]))
-    assert {:error, :stale_or_unauthorized_input} = submit(c, nil, "stranger")
+    assert {:error, :not_named_to_choose} = submit(c, nil, "stranger")
     empty_acl = put_in(c.d, ["flow_runtime", "inputs", "acl", "clerk", "update"], [])
-    assert {:error, :stale_or_unauthorized_input} = submit(%{c | d: empty_acl})
+    assert {:error, :not_named_to_choose} = submit(%{c | d: empty_acl})
     assert {:ok, accepted} = submit(c)
     assert accepted["roles"] == ["clerk"]
     assert accepted["actor"] == "ada"
@@ -169,7 +169,7 @@ defmodule AtlasFacts.FlowInputsTest do
     assert {:error, :request_conflict} =
              submit(c, put_in(c.v, ["changed_fields", "choice"], "no"))
 
-    assert {:error, :stale_or_unauthorized_input} =
+    assert {:error, :subject_changed} =
              submit(c, c.v |> Map.put("request_id", "choice-2") |> Map.put("entry", 2))
   end
 
@@ -228,7 +228,7 @@ defmodule AtlasFacts.FlowInputsTest do
         %{}
       )
 
-    assert {:error, :stale_or_unauthorized_input} = submit(c)
+    assert {:error, :answer_too_late} = submit(c)
     {:ok, current} = Rela.get(c.rela, "cursors", "R-1")
 
     {:ok, []} =
@@ -242,7 +242,7 @@ defmodule AtlasFacts.FlowInputsTest do
       )
 
     d = put_in(c.d, ["flow_runtime", "selection"], %{"sort" => %{"choice_states" => ["waiting"]}})
-    assert {:error, :stale_or_unauthorized_input} = submit(%{c | d: d})
+    assert {:error, :not_waiting_for_choice} = submit(%{c | d: d})
     assert {:ok, []} = Rela.list(c.rela, "choices")
     assert {:ok, subject} = Rela.get(c.rela, "boxes", "B-1")
     assert subject.properties["choice"] == "none"
@@ -382,8 +382,34 @@ defmodule AtlasFacts.FlowInputsTest do
     assert :ok = FlowInputs.fence(c.rela, c.d, "cursor", "R-1", claim)
   end
 
+  test "every refusal of a choice reads as sentences, naming the relation that gives a role", c do
+    for reason <- [
+          :input_moved_on,
+          :not_waiting_for_choice,
+          :answer_too_late,
+          :subject_changed,
+          :input_authority,
+          :request_conflict,
+          :prepared_input_needs_reconciliation,
+          :some_new_code,
+          {:subject_write, :unavailable},
+          {:subject_authority, :unavailable},
+          {:other, 1}
+        ] do
+      assert [sentence] = FlowInputs.reasons(reason, c.d)
+      refute sentence =~ ~r/:[a-z_]+|\{|_/
+      assert sentence =~ ~r/^[A-Z].*\.$/
+    end
+
+    assert ["Only the one its chosen_by names may make this choice; " <> _] =
+             FlowInputs.reasons(:not_named_to_choose, c.d)
+
+    assert FlowInputs.reasons({:subject_authority, {:refused, ["a clerk decides"]}}, c.d) ==
+             ["a clerk decides"]
+  end
+
   test "inputs name the exact entry, and refused subject authority leaves no prepare", c do
-    assert {:error, :stale_or_unauthorized_input} = submit(c, Map.put(c.v, "entry", 0))
+    assert {:error, :input_moved_on} = submit(c, Map.put(c.v, "entry", 0))
     callbacks = %{c.write | authorize: fn _, _, _ -> {:error, :subject_authority} end}
     assert {:error, :subject_authority} = submit(%{c | write: callbacks})
     assert {:ok, []} = Rela.list(c.rela, "choices")
