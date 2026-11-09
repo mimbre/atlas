@@ -362,12 +362,32 @@ jobs:
       # Foundation only: the same package builds for iOS.
       - run: xcodebuild -scheme AtlasControlKit -destination 'generic/platform=iOS Simulator' build
 
+  apple:
+    name: Apple clients (macOS app, shared package for iOS)
+    needs: tested-tree
+    if: ${{ !cancelled() && needs.tested-tree.outputs.tested != 'true' }}
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: clients/apple
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift --version
+      # ControlSession, BlockViews and the macOS app (AtlasMac), on AtlasControlKit by path.
+      - run: swift build
+      # A unit run: fakes for the connection and the clock. ControlIntegration is skipped
+      # without ATLAS_ENV_FILE (docs/design/apple-clients.md §7).
+      - run: swift test
+      # The shared libraries build for iOS too; the macOS app target is macOS only.
+      - run: xcodebuild -scheme ControlSession -destination 'generic/platform=iOS Simulator' build
+      - run: xcodebuild -scheme BlockViews -destination 'generic/platform=iOS Simulator' build
+
   # Every test job passed on this tree: record it, so a later run on the same tree (develop
   # after integration, the release pull request, master) skips its tests. Only when this
   # run tested it itself, and never from a fork.
   record-tested-tree:
     name: Record the tested tree
-    needs: [tested-tree, generator, contract, model-dsl, model-contract, beam, tui, agent, e2e, swift]
+    needs: [tested-tree, generator, contract, model-dsl, model-contract, beam, tui, agent, e2e, swift, apple]
     if: >-
       needs.tested-tree.outputs.tested != 'true' && needs.tested-tree.outputs.tree != ''
       && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
