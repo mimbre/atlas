@@ -678,23 +678,41 @@ defmodule AtlasControl.Pages do
 
     content = [{"summary", overview(items)}, {"list", list}]
 
-    case items do
-      [] ->
+    case technical_details(for item <- items, do: technical_pair(m, rule.relation, item)) do
+      {[], []} ->
         page(rule.title || "", nil, content)
 
-      _ ->
-        details =
-          Blocks.item(
-            title: "Technical details",
-            fields: for(item <- items, do: technical_pair(m, rule.relation, item))
-          )
-
-        page(rule.title || "", nil, content ++ [{"details", details}], [
-          Blocks.section("details", "details", title: "Details", collapsible: true)
-        ])
+      {details, markup} ->
+        page(rule.title || "", nil, content ++ details, markup)
         |> Map.put(:console_actions, details_actions(m))
     end
   end
+
+  @doc """
+  The Overview of a calm page (bff/README.md): an `item` titled "Overview" with one pair
+  per `{label, count}`; the first, the page's main count, always, the others only when
+  some are.
+  """
+  def summary([main | rest]) do
+    fields =
+      for {label, n} <- [main | Enum.filter(rest, fn {_, n} -> n > 0 end)],
+          do: Blocks.pair(label: label, value: Integer.to_string(n))
+
+    Blocks.item(title: "Overview", fields: fields)
+  end
+
+  @doc """
+  A calm page's detail on demand, as blocks and markup to add last: one pair per row, in
+  list order, in an `item` "details" titled "Technical details" inside a collapsible
+  `section` "Details"; nothing when there are no rows. A page that adds it offers
+  `details_action/0`.
+  """
+  def technical_details([]), do: {[], []}
+
+  def technical_details(pairs),
+    do:
+      {[{"details", Blocks.item(title: "Technical details", fields: pairs)}],
+       [Blocks.section("details", "details", title: "Details", collapsible: true)]}
 
   @doc """
   The console action that folds or unfolds a page's collapsible sections (`sections_toggle`,
@@ -728,12 +746,7 @@ defmodule AtlasControl.Pages do
     blocked =
       Enum.count(items, fn {_, fact, link} -> shown(fact, link, "status") == "blocked" end)
 
-    fields =
-      for {label, n} <- [{"To do", length(items)}, {"Late", late}, {"Blocked", blocked}],
-          label == "To do" or n > 0,
-          do: Blocks.pair(label: label, value: Integer.to_string(n))
-
-    Blocks.item(title: "Overview", fields: fields)
+    summary([{"To do", length(items)}, {"Late", late}, {"Blocked", blocked}])
   end
 
   # One calm row of what is assigned: the fact, why it is to be reviewed (the rule's label;
@@ -891,8 +904,8 @@ defmodule AtlasControl.Pages do
     end)
   end
 
-  # "3 Nov 17:14", in local time.
-  defp short_moment(iso) do
+  @doc ~s(A moment as a calm row says it: "3 Nov 17:14", in local time.)
+  def short_moment(iso) do
     case DateTime.from_iso8601(iso) do
       {:ok, at, _} ->
         {{y, mo, d}, {h, mi, _}} =

@@ -85,8 +85,8 @@ defmodule AtlasControl.Workers do
   What the Workers page shows, from one read of the turns: `"running"`, the views of the
   turns whose state is the model's running value (as `worker_overview` returns them),
   newest activity first; and `"finished"`, the #{@finished} turns that ended most
-  recently, newest end first, each with its exact execution, state, why it ended, when,
-  and its item. A finished turn without a full execution identity cannot be opened and
+  recently, newest end first, each with its exact execution, state, status (as `about/4`
+  says it), why it ended, when, its model and its item. A finished turn without a full execution identity cannot be opened and
   is left out.
   """
   def board(m, actor, read) do
@@ -161,8 +161,10 @@ defmodule AtlasControl.Workers do
             "attempt" => target["attempt"]
           },
           "state" => values[n["state"]],
+          "status" => status(n, values),
           "reason" => values[n["why"]],
           "ended_at" => values[n["ended_at"]],
+          "model" => known(values[n["model"]]),
           "item" =>
             case get_in(turn, ["links", n["on"]]) do
               [key] -> key
