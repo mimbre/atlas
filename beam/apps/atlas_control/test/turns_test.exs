@@ -76,4 +76,17 @@ defmodule AtlasControl.TurnsTest do
                read(put_in(turn, ["values", "result"], "different"), item)
              )
   end
+
+  test "after a human hands the item on, the old agent has no turn and cannot end it" do
+    {d, turn, item} = data()
+    item = put_in(item, ["links", "holder"], ["melle"])
+    ended = put_in(turn, ["values", "status"], "over")
+    message = %{"key" => "R-1", "outcome" => "too late"}
+
+    # Before Runtime ends the turn, and after: no current turn, and its outcome is refused.
+    for t <- [turn, ended] do
+      assert {:error, _} = Turns.current(d, "ada", read(t, item))
+      assert {:error, _} = Turns.outcome(d, "ada", message, read(t, item))
+    end
+  end
 end
