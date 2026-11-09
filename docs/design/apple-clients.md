@@ -323,6 +323,11 @@ how to start it. For a local Control (`atlas-ops restart --env test`) the launch
 the tunnel, as `bin/atlas tui` does. The macOS app runs as a local build; it needs no App
 Store Connect.
 
+An open tunnel is shared by every client on the Mac, so when Control is only slow to
+answer, `ensure_tunnel` keeps the tunnel and says so; it reopens it only once the proxy has
+died or its port no longer accepts. If Control stays unreachable, close the tunnel
+(`atlas-ops tunnel close --env <env>`); the next command opens a new one.
+
 ## 6. iOS: what maps differently, and how it reaches Control
 
 - **Layout.** As the shell says (§2): on iPhone a tab bar with More, and list → page as a

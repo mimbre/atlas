@@ -161,7 +161,7 @@ tunnel_line() {
     if control_ready; then
       echo "tunnel: open (pid $pid), Control reachable, 127.0.0.1:$port -> $fly_app:$fly_port, log $(tunnel_log)"
     else
-      echo "tunnel: unavailable (pid $pid still listens, but $probe_error); the next atlas command reopens it"
+      echo "tunnel: unavailable (pid $pid still listens, but $probe_error); atlas keeps it while it listens; if it persists: atlas-ops tunnel close --env $env"
     fi
   else
     echo "tunnel: closed; atlas opens it when a command needs Control"
