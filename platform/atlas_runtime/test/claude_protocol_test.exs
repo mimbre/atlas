@@ -69,9 +69,9 @@ defmodule AtlasRuntime.ClaudeProtocolTest do
     assert byte_size(profile["candidate"]["native_sha256"]) == 64
     assert profile["protocol"]["version"] == "0.3.280"
     assert profile["verdict"]["guidance"] == "unsupported"
-    assert {:error, :unsupported} = Agent.capabilities(Agent.Claude, self())
-    assert {:error, :unsupported} = Agent.accept(Agent.Claude, self(), @request)
-    assert {:error, :unsupported} = Agent.query(Agent.Claude, self(), @identity)
+    assert {:error, :unsupported} = Agent.capabilities(Agent.Native, self())
+    assert {:error, :unsupported} = Agent.accept(Agent.Native, self(), @request)
+    assert {:error, :unsupported} = Agent.query(Agent.Native, self(), @identity)
     assert {:error, :unsupported_profile} = Probe.new("2.1.247", @identity, @session, @uuid)
     assert {:error, :unsupported_profile} = Probe.new("future", @identity, @session, @uuid)
   end

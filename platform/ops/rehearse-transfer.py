@@ -33,7 +33,7 @@ def environment(file):
     env["ATLAS_RELA_BIN"] = json.loads(Path(file).read_text())["rela"]["bin"]
     # No model, cloud or keychain credentials are required.
     for key in ("GITHUB_TOKEN", "FLY_API_TOKEN", "ATLAS_BUS_LINK_TOKEN",
-                "ATLAS_RUNTIME_FILE", "ATLAS_RUNTIME_HOME"):
+                "ATLAS_RUNTIME_HOME"):
         env.pop(key, None)
     return env
 

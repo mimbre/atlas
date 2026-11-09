@@ -1,6 +1,6 @@
 defmodule AtlasRuntime.Agent.FakeInbox do
   @moduledoc """
-  Private, model-free proof harness. Deliberately absent from Agent.port/1.
+  Private, model-free proof harness; no machine's settings run it.
   Initialization is explicit; reopening missing/corrupt history fails closed.
   One owner per physical directory on this BEAM node. No distributed/disk-loss guarantee.
   consume/2 simulates a safe boundary, with no external side effect or model execution.

@@ -2,9 +2,8 @@
 
 `AtlasRuntime.Agent` keeps start/stop and adds optional capabilities/accept/query
 callbacks, accessed through the corresponding Agent wrappers. Missing, partial or
-unknown-version capabilities mean unsupported. Stub and Claude are unchanged and
-remain unsupported for guidance. The private fake is absent from the configured
-port catalogue. This contract adds no Bus listener, Facts receipt writer, model call,
+unknown-version capabilities mean unsupported. `Agent.Native` remains unsupported for
+guidance. No machine's settings run the private fake. This contract adds no Bus listener, Facts receipt writer, model call,
 Runtime reconciliation or Control/TUI input path. IS108 owns those admission checks.
 
 Capabilities version `1` requires queued_input, durable_accept_query,

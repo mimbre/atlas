@@ -6,7 +6,6 @@ config :atlas_control, start: false
 config :logger, level: :warning
 config :atlas_flow, start: false
 config :atlas_gates, start: false
-config :atlas_runtime, start: false
 # Flow told of Code's receiver as the core's runtime.exs tells it (`code` in its settings),
 # so tests and scripts run the model as the core does. No receiver runs here unless a test
 # or script starts one (AtlasCode.Effects.Endpoint); the endpoint then answers.

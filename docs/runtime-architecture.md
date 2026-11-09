@@ -84,7 +84,7 @@ Decisions that this contract follows:
 | Directory ownership | `workspace.Lock` (`workspace.go:394`), held by `native-host` until the group is reaped (`host.go:179`) | Runtime (unchanged) |
 | Worker GitHub network access | Codex profile `github.com`/`api.github.com` (`host/codex.go:50`); Claude `allowedDomains` from `network_hosts` plus the macOS trustd allowance (`host/claude.go:245–273`). Workers use the user's `gh` login | Removed once Code publishes |
 | Handoff identity | `handoff_records.ex:11,193`: `repository_url`, `branch`, `base_sha`, `head_sha`, `pr_url` declared by the coordinator and bound to saved repository metadata | Orchestrator declares; Code later verifies against the change and publication |
-| Atlas-connected path | `integrations/atlas_server/*` and `providers/claude.ex` contain no Git or GitHub calls (searched) | No change |
+| Atlas-connected path | `integrations/atlas_server/*` contains no Git or GitHub calls (searched) | No change |
 | Run metadata | Saved `repository: {url, branch, base_sha}` (`command_admissions.ex:200–207`); `runtime.repository_prepared` (`host/native.ex:217`) | Adds `snapshot_id` |
 | CLI | `atlas-runtime start --repo URL --branch NAME --permissions dedicated-repository` (`platform/atlas_runtime/host/main.go`) | Unchanged in step 2 |
 | Credentials | Only the user's existing `gh` login, read through Git's credential helper. No token is stored by Runtime | Code only |
@@ -603,25 +603,25 @@ The CLI and Atlas Server-facing transport translate requests into the same appli
 
 Transport-specific parsing and presentation remain at the edge. A truncated status summary must not substitute for full output or a structured handoff record.
 
-The one `atlas-runtime` command has two meanings: its service, worker, turn and snapshot commands drive the standalone service, and `atlas-runtime node start|stop|status` operates this machine as a node of an Atlas environment ([Runtime node](guides/runtime-node.md)). The node group is only a launcher: the node's lifecycle, environment resolution, Fly tunnel and keychain access stay in the checkout's `platform/ops/runtime.py` and `platform/ops/runtime_process.py`, and Go learns none of them. Discovery of a registered node is a Control read, so it is `atlas discover`, not part of `atlas-runtime`.
+Discovery of a registered Runtime machine is a Control read, so it is `atlas discover`, not part of `atlas-runtime`.
 
 ## Current implementation versus this target
 
-The current layout groups both execution paths by responsibility without treating their different contracts as interchangeable:
+The current layout groups the standalone execution path by responsibility:
 
 ```text
 platform/atlas_runtime/lib/atlas_runtime/
   application.ex
   entrypoints/{socket,read_socket}.ex
   inspection/reads.ex
-  execution/{service,command_admissions,backend_policy,identity,engine,turn,settings,faults}.ex
-  interactions/{commands,native_question,question_records,peer_question_records,guidance,output}.ex
+  execution/{service,command_admissions,backend_policy,identity,restart_reconciliation,settings}.ex
+  interactions/{commands,native_question,question_records,peer_question_records,output}.ex
   handoffs/{commands,handoff_records}.ex
   persistence/{history,execution_events}.ex
   workspaces/workspace.ex
   host/native.ex
-  providers/{agent,input,native_events,claude,fake_inbox,stub}.ex
-  integrations/atlas_server/{talk,output_endpoint,broker,commands}.ex
+  providers/{agent,input,native_events,codex,fake_inbox}.ex
+  integrations/atlas_server/{talk,lifecycle,output_endpoint}.ex
 
 platform/atlas_runtime/host/
   go.mod
@@ -644,11 +644,11 @@ Dependencies and responsibilities:
 - `Agent.Native` spawns every native execution through the launching executable's internal `atlas-runtime native-host` (Go package `platform/atlas_runtime/host/host`). Python is no longer part of Runtime execution. The host receives positional arguments and speaks stdout records, stop/kill/answer control and `Native runner:` diagnostics. Stop sends one SIGINT and never escalates. Kill sends SIGKILL and wins over stop. `runtime.process_ended` follows only once the leader is reaped and its group is empty, and the lock is released after that. Only parent loss and natural-completion cleanup keep the bounded 3 s force. It owns the process group, control transport, JSONL framing, sandbox arguments and settings, Claude private temp, pre-exec workspace preparation, scope and saved-context checks, directory-lock lifetime, cleanup and launch metadata. In its single event loop, each native record goes through the Claude question transport first and provider session/model confirmation second, and is forwarded only after both. Refusals therefore never reach Elixir. Answers from Elixir are handled in the same loop and written to native stdin under the existing 1 MiB bound and 3 s stall deadline. The host calls the `workspace` package in process, including cwd/Git identity discovery. It removes Claude's private temp and only then releases the lock, after the group is reaped.
 - The Go CLI imports the dependency-free local `workspace` package. That package does not import the CLI or choose a provider.
 
-`Engine`, `Turn`, engine settings and test-environment fault injection belong to execution lifecycle, not a `connected/` mode bucket. `Guidance` owns exact-attempt queued-input reconciliation; `Output` owns bounded ephemeral public-output retention, not durable history. Server-reported standalone turns keep output in `Output` under their Server identity; other standalone turns use a separate `LocalOutput` buffer that no Bus endpoint reads. They live under `interactions/`. The existing provider and proof adapters live beside the `Agent` contract in `providers/`.
+`Output` owns bounded ephemeral public-output retention, not durable history. Server-reported standalone turns keep output in `Output` under their Server identity; other standalone turns use a separate `LocalOutput` buffer that no Bus endpoint reads. They live under `interactions/`. The existing provider and proof adapters live beside the `Agent` contract in `providers/`.
 
-Only actual Atlas communication remains under `integrations/atlas_server/`: Facts read/fact transport (`Talk`), the address-validated Bus/BFF output endpoint, the Atlas command broker, and Atlas-only command setup. `Commands` owns Atlas prompts, help discovery, bridge configuration and the confined command environment/wrapper/profile previously embedded in the Claude adapter. The adapter retains Claude argv, event interpretation and process lifecycle, consumes that setup, and has no forwarding copies of the extracted helpers. The command setup uses the broker and never calls the provider; the output endpoint reads the independent output buffer.
+Only actual Atlas communication remains under `integrations/atlas_server/`: Facts read/fact transport (`Talk`), the optional turn mirror (`Lifecycle`) and the address-validated Bus/BFF output endpoint, which reads the independent output buffer.
 
-These execution paths remain distinct. `Engine` reconciles ownership and leases through Atlas facts and starts `Turn`; standalone `Service` admits explicitly requested native executions and stores its own history. Grouping them by responsibility does not add a shared workflow engine, unify queued guidance with native questions, or enable either protocol on the other adapter. Existing module APIs for unchanged responsibilities remain stable. Standalone startup still requires neither Atlas Server nor Flow.
+`Service` admits explicitly requested native executions and stores its own history. Grouping by responsibility does not add a shared workflow engine or unify queued guidance with native questions. Existing module APIs for unchanged responsibilities remain stable. Standalone startup still requires neither Atlas Server nor Flow.
 
 ## Implemented workspace boundary
 
