@@ -1,0 +1,297 @@
+defmodule AtlasRuntimeBoundary.Generator.Targets.BoundaryTest do
+  use ExUnit.Case, async: true
+
+  alias AtlasRuntimeBoundary.Generator.{ContractError, InvalidInput, NotPermitted}
+  alias AtlasRuntimeBoundary.Generator.Example.Boundary, as: B
+
+  @member {"ann", [:lend, :browse]}
+  @until ~U[2026-03-01 10:00:00Z]
+
+  describe "the facade" do
+    test "calls the implementation and returns its declared outcome" do
+      input = %B.LendInput{title: "Dune", until: @until}
+
+      assert %B.Outcome.Lent{title: "Dune", place: %B.Shelf{row: 3}, due_at: @until} =
+               B.lend(@member, input)
+
+      assert %B.Outcome.Missing{} = B.lend(@member, %{input | title: "missing"})
+      assert %B.Outcome.Short{waiting: 2} = B.lend(@member, %{input | title: "short"})
+      assert %B.Outcome.Counted{books: [%B.Book{title: "ann"}]} = B.count(@member)
+    end
+
+    test "returns NotPermitted without the right, and never calls the implementation" do
+      # "undeclared" would raise if the implementation were called.
+      input = %B.LendInput{title: "undeclared", until: @until}
+
+      assert %NotPermitted{capability: :lend, right: :lend} = B.lend({"bo", [:browse]}, input)
+
+      assert %NotPermitted{capability: :count, right: :browse} =
+               B.count({"bo", MapSet.new([:lend])})
+
+      assert %B.Outcome.Counted{} = B.count({"bo", MapSet.new([:browse])})
+    end
+
+    test "raises on a client that is not {id, rights}" do
+      assert_raise ContractError, ~r/a client is \{id, rights\}/, fn -> B.count(:anyone) end
+    end
+
+    test "takes the input as a plain map too, built through new/1 with the JSON forms" do
+      assert %B.Outcome.Lent{title: "Dune", due_at: @until} =
+               B.lend(@member, %{"title" => "Dune", "until" => "2026-03-01T11:00:00+01:00"})
+
+      assert %B.Outcome.Missing{} = B.lend(@member, %{title: "missing", until: @until})
+      assert %B.Outcome.Missing{} = B.find(@member, %{"title" => "x"})
+    end
+
+    test "checks the right before the input, in either form" do
+      # "undeclared" would raise if the implementation were called; the inputs are invalid.
+      for input <- [
+            %B.LendInput{title: "undeclared", until: @until},
+            %{"title" => "undeclared", "until" => "2026-03-01T10:00:00Z"},
+            %B.LendInput{title: 1, until: nil},
+            %{"colour" => "red"},
+            :no_map
+          ] do
+        assert %NotPermitted{capability: :lend, right: :lend} = B.lend({"bo", [:browse]}, input)
+      end
+
+      assert %NotPermitted{capability: :find, right: :browse} = B.find({"bo", [:lend]}, %{})
+    end
+
+    test "answers the contract's invalid_input outcome on an invalid input, in either form" do
+      # A built struct is checked strictly: no JSON forms.
+      assert B.lend(@member, %B.LendInput{title: 1, until: "2026-03-01T10:00:00Z"}) ==
+               %B.Outcome.Declined{
+                 why: :unreadable,
+                 note:
+                   ~s(input.title must be a string, got 1; ) <>
+                     ~s(input.until must be a DateTime, got "2026-03-01T10:00:00Z")
+               }
+
+      assert B.lend(@member, %{"title" => "Dune", "colour" => "red"}) ==
+               %B.Outcome.Declined{
+                 why: :unreadable,
+                 note: ~s(input has no field "colour"; input.until is required)
+               }
+
+      # Through apply/3: the type checker would refuse the literal calls.
+      assert %B.Outcome.Declined{note: "input must be a " <> _} =
+               apply(B, :lend, [@member, %B.Shelf{row: 1}])
+
+      assert %B.Outcome.Declined{note: "input must be a map, got \"Dune\""} =
+               apply(B, :lend, [@member, "Dune"])
+    end
+
+    test "answers InvalidInput for a capability that declares no invalid_input outcome" do
+      assert B.find(@member, %{"title" => 1}) ==
+               %InvalidInput{capability: :find, reasons: ["input.title must be a string, got 1"]}
+
+      assert %InvalidInput{capability: :find, reasons: ["input.title is required"]} =
+               B.find(@member, %B.FindInput{title: nil})
+    end
+
+    test "raises when the implementation returns an undeclared or invalid outcome" do
+      input = %B.LendInput{title: "undeclared", until: @until}
+
+      assert_raise ContractError,
+                   ~r/returned .*Outcome.Counted.*none of the declared outcomes/,
+                   fn ->
+                     B.lend(@member, input)
+                   end
+
+      assert_raise ContractError, ~r/returned \{:ok, :lent\}/, fn ->
+        B.lend(@member, %{input | title: "plain"})
+      end
+
+      assert_raise ContractError, ~r/invalid outcome: outcome.waiting must be an integer/, fn ->
+        B.lend(@member, %{input | title: "invalid"})
+      end
+    end
+  end
+
+  describe "constructors" do
+    test "build from decoded JSON: string keys, enum names, ISO-8601, tagged one_of" do
+      assert {:ok, book} =
+               B.Book.new(%{
+                 "title" => "Dune",
+                 "condition" => "badly-worn",
+                 "place" => %{"kind" => "branch", "city" => "Delft"},
+                 "due_at" => "2026-03-01T11:00:00+01:00",
+                 "labels" => ["audio"],
+                 "notes" => %{"shelf" => "top"}
+               })
+
+      assert %B.Book{
+               condition: :"badly-worn",
+               place: %B.Branch{city: "Delft", open: nil},
+               due_at: @until,
+               labels: [:audio],
+               notes: %{"shelf" => "top"}
+             } = book
+    end
+
+    test "build from atom keys, keyword lists and built structs" do
+      assert {:ok, %B.Shelf{row: 1}} = B.Shelf.new(row: 1)
+
+      assert {:ok, %B.Book{place: %B.Shelf{row: 1}}} =
+               B.Book.new(%{title: "t", condition: :new, place: %B.Shelf{row: 1}})
+
+      assert {:ok, %B.Book{place: %B.Shelf{row: 2}}} =
+               B.Book.new(%{title: "t", condition: :new, place: %{kind: :shelf, row: 2}})
+    end
+
+    test "every error, with the path of the field" do
+      assert {:error, reasons} =
+               B.Book.new(%{
+                 "title" => 1,
+                 "colour" => "red",
+                 "place" => %{"kind" => "attic"},
+                 "due_at" => "tomorrow",
+                 "labels" => ["audio", "braille"],
+                 "notes" => %{"a" => 1}
+               })
+
+      assert reasons == [
+               ~s(book has no field "colour"),
+               "book.title must be a string, got 1",
+               "book.condition is required",
+               ~s(book.place.kind must be one of shelf, branch, got "attic"),
+               ~s(book.due_at must be an ISO-8601 datetime, got "tomorrow"),
+               ~s(book.labels[1] must be one of large_print, audio, got "braille"),
+               "book.notes.a must be a string, got 1"
+             ]
+
+      assert {:error, ["tally.books[0].place.row is required"]} =
+               B.Tally.new(%{
+                 "books" => [
+                   %{"title" => "t", "condition" => "new", "place" => %{"kind" => "shelf"}}
+                 ],
+                 "counted_at" => "2026-01-01T00:00:00Z"
+               })
+
+      assert {:error, [~s(book.place.kind must be one of shelf, branch, got nil)]} =
+               B.Book.new(%{"title" => "t", "condition" => "new", "place" => %{"row" => 1}})
+
+      assert_raise ArgumentError, ~r/shelf.row is required/, fn -> B.Shelf.new!(%{}) end
+    end
+
+    test "an outcome without a model has no fields" do
+      assert {:ok, %B.Outcome.Missing{}} = B.Outcome.Missing.new(%{})
+      assert {:error, [~s(missing has no field "x")]} = B.Outcome.Missing.new(%{"x" => 1})
+    end
+
+    test "validate checks built structs strictly" do
+      assert :ok = B.Shelf.validate(%B.Shelf{row: 1})
+
+      assert {:error, ["shelf.row must be an integer, got \"1\""]} =
+               B.Shelf.validate(%B.Shelf{row: "1"})
+
+      assert {:error, [~s(book.condition must be one of new, worn, badly-worn, got "new")]} =
+               B.Book.validate(%B.Book{title: "t", condition: "new", place: %B.Shelf{row: 1}})
+    end
+  end
+
+  test "dump gives JSON-ready data and new/1 reads it back" do
+    book = %B.Book{
+      title: "Dune",
+      condition: :"badly-worn",
+      place: %B.Branch{city: "Delft"},
+      due_at: @until,
+      labels: [:audio]
+    }
+
+    dumped = B.Book.dump(book)
+
+    assert dumped == %{
+             "title" => "Dune",
+             "condition" => "badly-worn",
+             "place" => %{"kind" => "branch", "city" => "Delft"},
+             "due_at" => "2026-03-01T10:00:00Z",
+             "labels" => ["audio"]
+           }
+
+    assert {:ok, ^book} = dumped |> JSON.encode!() |> JSON.decode!() |> B.Book.new()
+  end
+
+  describe "types and the behaviour" do
+    test "the behaviour has one callback per capability, with its arity" do
+      assert Enum.sort(B.Implementation.behaviour_info(:callbacks)) ==
+               [count: 1, find: 2, lend: 2]
+    end
+
+    test "callbacks and specs carry the input struct and the union of outcome structs" do
+      {:ok, callbacks} = Code.Typespec.fetch_callbacks(B.Implementation)
+      {_, [spec]} = List.keyfind(callbacks, {:lend, 2}, 0)
+      text = spec |> then(&Code.Typespec.spec_to_quoted(:lend, &1)) |> Macro.to_string()
+
+      assert text =~ "B.LendInput.t()" or text =~ "Boundary.LendInput.t()"
+
+      for outcome <- ~w(Lent Short Declined Missing),
+          do: assert(text =~ "Outcome.#{outcome}.t()", "#{outcome} missing in #{text}")
+
+      refute text =~ "Counted"
+
+      # The facade takes the input struct or a map, and answers NotPermitted too; InvalidInput
+      # only where the capability declares no invalid_input outcome.
+      {:ok, specs} = Code.Typespec.fetch_specs(B)
+      {_, [spec]} = List.keyfind(specs, {:lend, 2}, 0)
+      lend = Code.Typespec.spec_to_quoted(:lend, spec) |> Macro.to_string()
+      assert lend =~ "LendInput.t() | map()"
+      assert lend =~ "NotPermitted.t()"
+      refute lend =~ "InvalidInput"
+
+      {_, [spec]} = List.keyfind(specs, {:find, 2}, 0)
+      assert Code.Typespec.spec_to_quoted(:find, spec) |> Macro.to_string() =~ "InvalidInput.t()"
+    end
+
+    test "enums and one_ofs have named types; structs have t" do
+      {:ok, types} = Code.Typespec.fetch_types(B.Book)
+      names = for {:type, {name, _, _}} <- types, do: name
+      assert Enum.sort(names) == [:condition, :labels, :place, :t]
+
+      {:type, condition} = Enum.find(types, &match?({:type, {:condition, _, _}}, &1))
+
+      assert Code.Typespec.type_to_quoted(condition) |> Macro.to_string() ==
+               ~s{condition() :: :new | :worn | :"badly-worn"}
+    end
+
+    test "a struct literal with an unknown field, or without a required one, fails compilation" do
+      assert_raise KeyError, ~r/key :titel not found/, fn ->
+        compile_module("def f, do: %B.Book{titel: \"x\"}")
+      end
+
+      assert_raise ArgumentError, ~r/the following keys must also be given.*:row/, fn ->
+        compile_module("def f, do: %B.Shelf{}")
+      end
+    end
+  end
+
+  defp compile_module(body) do
+    Code.compile_string("""
+    defmodule Literal#{System.unique_integer([:positive])} do
+      alias AtlasRuntimeBoundary.Generator.Example.Boundary, as: B
+      #{body}
+    end
+    """)
+  end
+
+  test "a model named like a module of the target is refused" do
+    Code.compile_string("""
+    defmodule ReservedContract do
+      use AtlasRuntimeBoundary.Generator.Schema
+      version "0"
+      defmodel :outcome do field :x, :string end
+    end
+    """)
+
+    assert_raise CompileError, ~r/model :outcome is reserved by the target/, fn ->
+      Code.compile_string("""
+      defmodule ReservedFacade do
+        use AtlasRuntimeBoundary.Generator.Targets.Boundary,
+          contract: ReservedContract,
+          implementation: Nobody
+      end
+      """)
+    end
+  end
+end
