@@ -369,8 +369,8 @@ def native_check(root):
     if not binary.exists():
         raise ConfigError('install pinned rela with start-test.sh install before assembling')
     version = subprocess.check_output([str(binary), 'version'], text=True).strip()
-    if version != 'rela version 26.10.14':
-        raise ConfigError(f'expected rela 26.10.14, got {version}')
+    if version != 'rela version 26.11.2':
+        raise ConfigError(f'expected rela 26.11.2, got {version}')
     subprocess.run([str(binary), '--project', str(root), '--quiet', 'validate'], check=True)
 
 
