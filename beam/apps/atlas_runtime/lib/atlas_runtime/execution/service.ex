@@ -7,9 +7,10 @@ defmodule AtlasRuntime.Service do
   alias AtlasRuntime.HandoffRecords
   alias AtlasRuntime.PeerQuestionRecords
   alias AtlasRuntime.QuestionRecords
-  alias AtlasRuntime.Entrypoints.Socket
+  alias AtlasRuntime.Entrypoints.{ReadSocket, Socket}
   alias AtlasRuntime.Handoffs.Commands, as: Handoffs
   alias AtlasRuntime.Integrations.AtlasServer.Lifecycle
+  alias AtlasRuntime.Inspection.Reads
   alias AtlasRuntime.Interactions.Commands, as: Interactions
   alias AtlasRuntime.Output
   alias AtlasRuntime.Persistence.History
@@ -27,6 +28,7 @@ defmodule AtlasRuntime.Service do
     policy = BackendPolicy.load(dir)
     events = History.recover(dir)
     Socket.start(dir, __MODULE__)
+    ReadSocket.start(dir, self())
     state = %{dir: dir, policy: policy, events: events, workers: %{}, stopping: false}
 
     if server do
@@ -37,6 +39,10 @@ defmodule AtlasRuntime.Service do
     end
   end
 
+  # read.sock's admitted reads: answered from the state, which they never change, and never
+  # dispatched as commands.
+  def handle_call({:read, op, args}, _from, state),
+    do: {:reply, Reads.read(op, args, state), state}
 
   def handle_call(request, _from, state) do
     {reply, next, shutdown?} =
@@ -529,34 +535,30 @@ defmodule AtlasRuntime.Service do
 
   defp agent_message(_, _, _, state), do: state
 
-  # A reported turn's public output (the provider's projection, as a connected turn's) is
-  # retained in Output under its exact Server identity, owned by this service. It is local:
-  # it never waits for Server, and a missing ring never changes the native lifecycle.
+  # A turn's public output (the provider's projection, as a connected turn's) is retained,
+  # owned by this service: a reported turn's in Output under its exact Server identity, any
+  # other's in the local buffer that only read.sock reads (`Reads.output_stream/1`). It never
+  # waits for Server, and a missing ring never changes the native lifecycle.
   # Only a new event from the turn's own agent may reopen a lost ring, in a new epoch.
-  defp open_output(run), do: output(run, &Output.open(&1, self()))
-  defp finish_output(run), do: output(run, &Output.finish/1)
+  defp open_output(run), do: output(run, &Output.open(&1, self(), &2))
+  defp finish_output(run), do: output(run, &Output.finish/2)
 
   defp append_output(run, event) do
-    case output(run, &Output.append(&1, event)) do
+    case output(run, &Output.append(&1, event, &2)) do
       {:error, "output_unavailable"} ->
-        with :ok <- open_output(run), do: output(run, &Output.append(&1, event))
+        with :ok <- open_output(run), do: output(run, &Output.append(&1, event, &2))
 
       result ->
         result
     end
   end
 
-  defp output(%{server: server}, call) do
-    call.(%{
-      "worker" => Map.take(server, ~w(environment machine worker)),
-      "turn" => server["turn"],
-      "attempt" => server["attempt"]
-    })
+  defp output(run, call) do
+    {buffer, execution} = Reads.output_stream(run)
+    call.(execution, buffer)
   catch
     :exit, _ -> {:error, "output_unavailable"}
   end
-
-  defp output(_run, _call), do: :ok
 
   defp put_worker(state, id, worker),
     do: %{state | workers: Map.put(state.workers, id, worker)}

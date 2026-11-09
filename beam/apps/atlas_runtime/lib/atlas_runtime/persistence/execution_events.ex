@@ -166,7 +166,72 @@ defmodule AtlasRuntime.ExecutionEvents do
     }
   end
 
+  @doc "The cursor after the newest recorded event."
+  def head(store), do: cursor(store, store["sequence"])
+
+  @doc """
+  A runtime.read/1 page after `cursor`. Lost events are an explicit `reset` followed by the
+  earliest retained events, as in public output: `retention_gap` with inclusive
+  `from_sequence`/`to_sequence` (also for a first read once events were dropped), or
+  `epoch_changed` for a cursor of a replaced journal, whose lost interval is unknown.
+  A malformed or future cursor is `{:error, "invalid_cursor"}`.
+  """
+  def read(store, cursor, limit) do
+    earliest = store["sequence"] - length(store["events"])
+
+    case if(is_nil(cursor), do: {:ok, earliest}, else: locate(store, cursor, earliest)) do
+      {:ok, sequence} ->
+        reset = if is_nil(cursor) and earliest > 0, do: gap(1, earliest)
+        {:ok, page(store, sequence, limit, reset)}
+
+      {:error, :stale, sequence} ->
+        {:ok, page(store, earliest, limit, gap(sequence + 1, earliest))}
+
+      {:error, :other_stream} ->
+        {:ok, page(store, earliest, limit, %{"reason" => "epoch_changed"})}
+
+      {:error, _} ->
+        {:error, "invalid_cursor"}
+    end
+  end
+
+  defp gap(from, to), do: %{"reason" => "retention_gap", "from_sequence" => from, "to_sequence" => to}
+
+  defp page(store, sequence, limit, reset) do
+    remaining = Enum.drop_while(store["events"], &(&1["sequence"] <= sequence))
+    events = Enum.take(remaining, limit)
+    last = if events == [], do: sequence, else: List.last(events)["sequence"]
+
+    page = %{
+      "events" => events,
+      "cursor" => cursor(store, last),
+      "more" => length(remaining) > limit,
+      "recording_started_at" => store["recording_started_at"]
+    }
+
+    if reset, do: Map.put(page, "reset", reset), else: page
+  end
+
   defp parse_cursor!(store, value, earliest) do
+    case locate(store, value, earliest) do
+      {:ok, sequence} ->
+        sequence
+
+      {:error, :other_stream} ->
+        raise ArgumentError, "execution event cursor belongs to a different stream"
+
+      {:error, :future} ->
+        raise ArgumentError, "execution event cursor is in the future"
+
+      {:error, :stale, _sequence} ->
+        raise ArgumentError, "stale execution event cursor; earliest usable cursor: #{cursor(store, earliest)}"
+
+      {:error, :malformed} ->
+        raise ArgumentError, "malformed execution event cursor"
+    end
+  end
+
+  defp locate(store, value, earliest) do
     parsed =
       if is_binary(value) and byte_size(value) <= 52 do
         Regex.run(~r/\A([0-9a-f]{32}):(0|[1-9][0-9]{0,18})\z/, value, capture: :all_but_first)
@@ -177,21 +242,14 @@ defmodule AtlasRuntime.ExecutionEvents do
         sequence = String.to_integer(number)
 
         cond do
-          epoch != store["epoch"] ->
-            raise ArgumentError, "execution event cursor belongs to a different stream"
-
-          sequence > store["sequence"] ->
-            raise ArgumentError, "execution event cursor is in the future"
-
-          sequence < earliest ->
-            raise ArgumentError, "stale execution event cursor; earliest usable cursor: #{cursor(store, earliest)}"
-
-          true ->
-            sequence
+          epoch != store["epoch"] -> {:error, :other_stream}
+          sequence > store["sequence"] -> {:error, :future}
+          sequence < earliest -> {:error, :stale, sequence}
+          true -> {:ok, sequence}
         end
 
       _ ->
-        raise ArgumentError, "malformed execution event cursor"
+        {:error, :malformed}
     end
   end
 

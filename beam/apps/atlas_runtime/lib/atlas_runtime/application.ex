@@ -13,7 +13,7 @@ defmodule AtlasRuntime.Application do
     # One process per running turn, under its own supervisor: a turn whose process dies is
     # ended by the engine's next round (it reads the turn as running, with no process).
     children =
-      [{Registry, keys: :unique, name: AtlasRuntime.Turns}, AtlasRuntime.Output] ++
+      [{Registry, keys: :unique, name: AtlasRuntime.Turns}, AtlasRuntime.Output, local_output()] ++
         output_endpoint(
           Application.get_env(:atlas_runtime, :server_lifecycle, false),
           AtlasRuntime.Settings.get()
@@ -22,6 +22,11 @@ defmodule AtlasRuntime.Application do
 
     Supervisor.start_link(children, strategy: :one_for_one, name: AtlasRuntime.Root)
   end
+
+  # Standalone turns' public output, read only through read.sock; the Bus endpoint below
+  # serves Output alone, so it is never forwarded to Server.
+  defp local_output,
+    do: Supervisor.child_spec({AtlasRuntime.Output, name: AtlasRuntime.LocalOutput}, id: AtlasRuntime.LocalOutput)
 
   # Standalone lifecycle reporting (`:server_lifecycle`, its `server.json` machine) serves
   # output as that machine only, the one its Bus link authenticates; never this node's

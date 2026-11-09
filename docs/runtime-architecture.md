@@ -481,7 +481,8 @@ The current layout groups both execution paths by responsibility without treatin
 ```text
 beam/apps/atlas_runtime/lib/atlas_runtime/
   application.ex
-  entrypoints/socket.ex
+  entrypoints/{socket,read_socket}.ex
+  inspection/reads.ex
   execution/{service,command_admissions,backend_policy,identity,engine,turn,settings,faults}.ex
   interactions/{commands,native_question,question_records,peer_question_records,guidance,output}.ex
   handoffs/{commands,handoff_records}.ex
@@ -503,6 +504,7 @@ Existing public Elixir module names remain stable where their contracts remain v
 Dependencies and responsibilities:
 
 - The Go CLI sends commands through `Entrypoints.Socket` to `Service`. Socket framing, connection ownership and response-before-shutdown remain at the edge.
+- Viewers read through `Entrypoints.ReadSocket` (`read.sock`, `docs/contracts/runtime-read.md`). It admits only `Inspection.Reads` operations, which `Service` answers from its state without dispatching a command. Reads project explicit fields from the existing state, history, journal and output buffers; they add no store.
 - `Service` selects backends and admits, starts and stops executions. Interaction commands own question admission, native delivery and peer correlation; handoff commands own declaration submission and inspection. Neither operation module calls back into `Service`.
 - `Persistence.History` owns recovery, saved-turn ownership checks, historical projections, output reads and ordered terminal checkpoints. Record modules retain their bounded storage, outboxes and publication rules. Persistence does not dispatch commands.
 - `Workspaces` calls the launching executable's Go workspace command directly. Admission no longer depends on the native provider host for path, scope or repository-request validation.
@@ -510,7 +512,7 @@ Dependencies and responsibilities:
 - `Agent.Native` spawns every native execution through the launching executable's internal `atlas-runtime native-host` (Go package `tools/runtime/host`). Python is no longer part of Runtime execution. The host receives positional arguments and speaks stdout records, stop/answer control and `Native runner:` diagnostics. It owns the process group, control transport, JSONL framing, sandbox arguments and settings, Claude private temp, pre-exec workspace preparation, scope and saved-context checks, directory-lock lifetime, cleanup and launch metadata. In its single event loop, each native record goes through the Claude question transport first and provider session/model confirmation second, and is forwarded only after both. Refusals therefore never reach Elixir. Answers from Elixir are handled in the same loop and written to native stdin under the existing 1 MiB bound and 3 s stall deadline. The host calls the `workspace` package in process, including cwd/Git identity discovery. It removes Claude's private temp and only then releases the lock, after the group is reaped.
 - The Go CLI imports the dependency-free local `workspace` package. That package does not import the CLI or choose a provider.
 
-`Engine`, `Turn`, engine settings and test-environment fault injection belong to execution lifecycle, not a `connected/` mode bucket. `Guidance` owns exact-attempt queued-input reconciliation; `Output` owns bounded ephemeral public-output retention, not durable history. They live under `interactions/`. The existing provider and proof adapters live beside the `Agent` contract in `providers/`.
+`Engine`, `Turn`, engine settings and test-environment fault injection belong to execution lifecycle, not a `connected/` mode bucket. `Guidance` owns exact-attempt queued-input reconciliation; `Output` owns bounded ephemeral public-output retention, not durable history. Server-reported standalone turns keep output in `Output` under their Server identity; other standalone turns use a separate `LocalOutput` buffer that no Bus endpoint reads. They live under `interactions/`. The existing provider and proof adapters live beside the `Agent` contract in `providers/`.
 
 Only actual Atlas communication remains under `integrations/atlas_server/`: State read/fact transport (`Talk`), the address-validated Bus/BFF output endpoint, the Atlas command broker, and Atlas-only command setup. `Commands` owns Atlas prompts, help discovery, bridge configuration and the confined command environment/wrapper/profile previously embedded in the Claude adapter. The adapter retains Claude argv, event interpretation and process lifecycle, consumes that setup, and has no forwarding copies of the extracted helpers. The command setup uses the broker and never calls the provider; the output endpoint reads the independent output buffer.
 
