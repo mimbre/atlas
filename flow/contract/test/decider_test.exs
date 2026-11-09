@@ -7,7 +7,10 @@ for file <- ["definitions", "request", "rules", "verdict"] do
 end
 
 Code.require_file("../../../beam/apps/atlas_facts/lib/atlas_facts/guards.ex", __DIR__)
-Code.require_file("../../../beam/apps/atlas_flow/lib/atlas_flow/runs/run.ex", __DIR__)
+
+for file <- ~w(conditions inputs run) do
+  Code.require_file("../../../beam/apps/atlas_flow/lib/atlas_flow/runs/#{file}.ex", __DIR__)
+end
 
 defmodule AtlasFlowContract.DeciderTest do
   use ExUnit.Case, async: true
@@ -31,6 +34,8 @@ defmodule AtlasFlowContract.DeciderTest do
     end
 
     config = File.read!("../../rela/flow-runtime.json") |> JSON.decode!()
+    assert Map.keys(config["flow_runtime"]["selection"]) == ["decide"]
+    assert config["flow_runtime"]["inputs"]["roles"] == %{}
     selection = config["flow_runtime"]["selection"]["decide"]
     assert selection["subject"] == definition["subject"]
 

@@ -294,6 +294,47 @@ entities:
       blocked_reason:
         type: string
 
+  flow_input:
+    label: Flow input
+    plural: flow_inputs
+    id_type: manual
+    description: Typed trusted choice operation, prepared before its subject write.
+    properties:
+      request_id:
+        type: string
+      run:
+        type: string
+      flow:
+        type: string
+      subject_kind:
+        type: string
+      subject_key:
+        type: string
+      generation:
+        type: integer
+      entry:
+        type: integer
+      source_version:
+        type: string
+      subject_version:
+        type: string
+      actor:
+        type: string
+      roles:
+        type: string
+      changed_fields:
+        type: string
+      payload_digest:
+        type: string
+      status:
+        type: string
+      position:
+        type: integer
+      prepared_at:
+        type: string
+      applied_at:
+        type: string
+
 relations:
   in_scene:
     label: in scene

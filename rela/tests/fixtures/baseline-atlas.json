@@ -702,6 +702,10 @@
     "flow_run": {
       "top": false,
       "by_hand": false
+    },
+    "flow_input": {
+      "top": false,
+      "by_hand": false
     }
   }
 }

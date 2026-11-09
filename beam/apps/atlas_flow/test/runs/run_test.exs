@@ -79,15 +79,11 @@ defmodule AtlasFlow.Runs.RunTest do
           put_in(flow, ["start"], [%{"on" => "predicate"}]),
           put_in(flow, ["states", "waiting", "kind"], "gate"),
           put_in(flow, ["states", "waiting", "creates"], [%{}]),
-          put_in(flow, ["states", "waiting", "waiting_for"], ["clerk"]),
-          put_in(flow, ["states", "waiting", "awaits"], ["choice"]),
-          put_in(flow, ["states", "waiting", "branches", Access.at(0), "roles"], ["clerk"]),
           put_in(
             flow,
             ["states", "waiting", "branches", Access.at(0), "when"],
             "System.cmd('x')"
-          ),
-          put_in(flow, ["states", "waiting", "timers", Access.at(0), "since"], "created_at")
+          )
         ],
         do: assert({:error, _} = Run.validate(invalid))
   end

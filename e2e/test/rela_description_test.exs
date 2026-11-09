@@ -143,6 +143,7 @@ defmodule AtlasE2E.RelaDescriptionTest do
 
     refute "e2e_gone" in kinds(ctx.url)
     assert "flow_run" in kinds(ctx.url)
+    assert "flow_input" in kinds(ctx.url)
     {scene, 0} = System.cmd("curl", ["-fsS", ctx.url <> "/scenes/SC-Atlas-01"])
     assert scene =~ "Kept across the restart"
 

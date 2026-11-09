@@ -21,7 +21,8 @@ defmodule AtlasFacts.FlowRuntime do
     selection = config["selection"] || %{}
 
     valid =
-      Map.keys(config) |> Enum.sort() == ~w(fields kind selection version writer) and
+      Map.keys(Map.delete(config, "inputs")) |> Enum.sort() ==
+        ~w(fields kind selection version writer) and
         config["version"] == 1 and Map.keys(fields) |> Enum.sort() == Enum.sort(@fields)
 
     valid =
@@ -46,7 +47,8 @@ defmodule AtlasFacts.FlowRuntime do
               Map.keys(row) |> Enum.sort() == ~w(state when) and is_binary(row["state"]) and
                 condition?(entities[s["subject"]], row["when"])
             end)
-        end) and disjoint?(selection)
+        end) and disjoint?(selection) and
+        AtlasFacts.FlowInputs.validate(description, config["inputs"]) == :ok
 
     if valid, do: :ok, else: {:error, "invalid flow runtime mapping or overlapping admission"}
   rescue
