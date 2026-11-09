@@ -20,6 +20,8 @@ defmodule AtlasTui.View do
   alias AtlasTui.{Model, Text}
 
   @label_width 16
+  # Beside the label of a row Control marks pending (docs/design/page-freshness.md §2.3).
+  @pending_mark "  ⋯ being processed"
   # A multi-line input that does not have the focus shows at most this many rows.
   @resting_rows 8
   # A focused one never shows fewer than this, however small the screen.
@@ -94,8 +96,9 @@ defmodule AtlasTui.View do
 
   # Body
 
-  defp body(%Model{console: %{expected: target, restoring: false}}, _width, _room)
-       when target != nil,
+  # Waiting for a page that is not shown yet; a page kept for it (back, a tab) shows.
+  defp body(%Model{console: %{expected: target, restoring: false}, path: path}, _width, _room)
+       when target != nil and target != path,
        do: [[], [{:pending, " Loading…"}]]
 
   defp body(%Model{console: %{legend: legend}} = model, width, room) when legend != nil,
@@ -124,7 +127,8 @@ defmodule AtlasTui.View do
   defp laid_out(model, width, room) do
     if model.connected and model.blocks != [] and model.plan == nil and
          model.console.legend == nil and
-         (model.console.expected == nil or model.console.restoring) and Model.parts(model) != [],
+         (model.console.expected in [nil, model.path] or model.console.restoring) and
+         Model.parts(model) != [],
        do: parts(content(model), model, width, room),
        else: plain_layout(model, width, room)
   end
@@ -420,6 +424,8 @@ defmodule AtlasTui.View do
         {single_line(row.id), single_line(row.label), row_summary(row.detail)}
       end)
 
+    pending = Enum.map(rows, &(&1.pending == true))
+
     {ids, titles, summaries} =
       Enum.reduce(prepared, {0, 0, 0}, fn {id, title, summary}, {ids, titles, summaries} ->
         {max(ids, display_width(id)), max(titles, display_width(title)),
@@ -431,21 +437,40 @@ defmodule AtlasTui.View do
     id_room = min(ids, min(div(available, 3), max(available - 3, 0)))
     id_gap = if id_room > 0, do: 2, else: 0
     available = max(available - id_room - id_gap, 0)
+    # Control marks a row whose fact a write changed and Flow has not yet settled; the
+    # mark goes beside the label, and the row's values stay as Control sent them.
+    pending_room =
+      if Enum.any?(pending) and available >= display_width(@pending_mark) + 8,
+        do: display_width(@pending_mark),
+        else: 0
+
+    available = available - pending_room
     summary_room = if available >= 16, do: min(summaries, min(24, div(available, 3))), else: 0
     summary_gap = if summary_room > 0, do: 2, else: 0
     title_room = min(titles, max(available - summary_room - summary_gap, 0))
 
     content =
       prepared
+      |> Enum.zip(pending)
       |> Enum.with_index()
-      |> Enum.map(fn {{id, title, summary}, i} ->
+      |> Enum.map(fn {{{id, title, summary}, pending?}, i} ->
         style = if at + i == model.selected, do: :selected, else: :bold
         marker = if style == :selected, do: "›", else: " "
         marker = if marker_room == 3, do: " " <> marker <> " ", else: marker
         identity = if id_room > 0, do: cell_pad(id, id_room) <> "  ", else: ""
         label = marker <> identity <> cell_pad(title, title_room)
         metadata = cell_cut(summary, summary_room)
-        [{style, label}] ++ if(metadata == "", do: [], else: [{:dim, "  " <> metadata}])
+
+        mark =
+          cond do
+            pending_room == 0 -> []
+            pending? -> [{:pending, @pending_mark}]
+            metadata == "" -> []
+            true -> [{style, String.duplicate(" ", pending_room)}]
+          end
+
+        [{style, label}] ++
+          mark ++ if(metadata == "", do: [], else: [{:dim, "  " <> metadata}])
       end)
 
     indent = String.duplicate(" ", min(3, max(width - 1, 0)))
@@ -807,8 +832,8 @@ defmodule AtlasTui.View do
 
   # Footer
 
-  defp footer_help(%Model{console: %{expected: target, restoring: false}})
-       when target != nil,
+  defp footer_help(%Model{console: %{expected: target, restoring: false}, path: path})
+       when target != nil and target != path,
        do: []
 
   defp footer_help(%Model{console: %{legend: legend}}) when legend != nil, do: []
@@ -860,6 +885,8 @@ defmodule AtlasTui.View do
   defp reason("reconcile"), do: "reconciled"
   defp reason("stored"), do: "stored"
   defp reason("refused"), do: "refused"
+  defp reason("cache"), do: "from cache"
+  defp reason("pending"), do: "updated"
   defp reason(other), do: to_string(other)
 
   # Text

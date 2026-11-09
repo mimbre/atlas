@@ -700,6 +700,16 @@
       "wire": "hint"
     },
     {
+      "call": "page",
+      "name": "pending",
+      "params": [],
+      "path": "",
+      "replies": {
+        "page": "view model"
+      },
+      "wire": "pending"
+    },
+    {
       "call": "notice",
       "name": "notice",
       "params": [],
@@ -1804,6 +1814,16 @@
           "name": "links",
           "required": false,
           "type": "list of link"
+        },
+        {
+          "name": "key",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "pending",
+          "required": false,
+          "type": "boolean"
         }
       ],
       "name": "row"
@@ -4443,6 +4463,35 @@
     {
       "channel": "control",
       "direction": "push",
+      "name": "pending",
+      "replies": [
+        {
+          "effect": "progress",
+          "name": "page",
+          "optional": {
+            "actions_revision": "string",
+            "at": "string",
+            "back": "string",
+            "count": "string",
+            "position": "integer",
+            "refused": "list"
+          },
+          "required": {
+            "blocks": "list",
+            "markup": "list",
+            "path": "string",
+            "title": "string"
+          },
+          "select": {
+            "op": "page",
+            "reason": "pending"
+          }
+        }
+      ]
+    },
+    {
+      "channel": "control",
+      "direction": "push",
       "name": "reconcile",
       "replies": [
         {
@@ -4648,7 +4697,7 @@
       }
     }
   ],
-  "version": "0.14.0",
+  "version": "0.15.0",
   "wire": {
     "block": "{\"id\": \"<id>\", \"type\": \"<block>\", \"props\": {...}}",
     "markup": "{\"kind\": \"<kind>\", \"start\": \"<block id>\", \"end\": \"<block id>\", \"group\": \"<id, on a piece of split markup>\", \"props\": {...}}",

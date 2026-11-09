@@ -61,8 +61,10 @@ defmodule AtlasBFFContract.Endpoints do
       defendpoint :refresh, wire: :refresh, call: :refresh, replies: [page: :view_model]
 
       # What Control sends unasked: a page again when a change it shows was stored by anyone
-      # (reason "hint"), a notice, or bye before it closes.
+      # (reason "hint"), for the path on screen or one viewed recently; the same page with
+      # rows marked pending (reason "pending"); a notice; or bye before it closes.
       defendpoint :hint, wire: :hint, call: :page, replies: [page: :view_model]
+      defendpoint :pending, wire: :pending, call: :page, replies: [page: :view_model]
       defendpoint :notice, wire: :notice, call: :notice, replies: [notice: :notice]
       defendpoint :bye, wire: :bye, call: :bye, replies: [bye: :bye]
 

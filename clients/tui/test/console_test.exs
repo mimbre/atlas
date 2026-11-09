@@ -65,6 +65,13 @@ defmodule AtlasTui.ConsoleTest do
     model
   end
 
+  # A page that is not drawn is still kept for its path, and changes nothing else.
+  defp assert_only_kept(model, message) do
+    {kept, []} = Console.receive(model, message)
+    assert AtlasTui.PageCache.get(kept.console.cache, message["path"]) == message
+    assert put_in(kept.console.cache, model.console.cache) == model
+  end
+
   defp screen(model, width \\ 80), do: model |> View.render(width, 20, 5) |> View.plain()
 
   test "compatibility page is discarded; native boot opens content inside persistent tabs" do
@@ -234,7 +241,7 @@ defmodule AtlasTui.ConsoleTest do
     assert widgets.console.active == "widgets"
     {work, []} = Model.key(widgets, :shift_tab)
     assert work.console.active == "open"
-    assert Console.receive(work, page("/k/part", "hint")) == {work, []}
+    assert_only_kept(work, page("/k/part", "hint"))
 
     {pending, [{:send, %{"to" => "/k/work"}}]} =
       Console.receive(work, page("/k/part"))
@@ -242,13 +249,13 @@ defmodule AtlasTui.ConsoleTest do
     assert pending.console.active == "open"
     assert screen(pending) =~ "Loading"
     refute screen(pending) =~ "First"
-    assert Console.receive(pending, page("/k/part", "reconcile")) == {pending, []}
+    assert_only_kept(pending, page("/k/part", "reconcile"))
     {loaded, []} = Console.receive(pending, page("/k/work"))
     assert loaded.console.active == "open"
     assert loaded.path == "/k/work"
     assert loaded.console.expected == nil
     assert screen(loaded) =~ "First"
-    assert Console.receive(loaded, page("/k/part", "hint")) == {loaded, []}
+    assert_only_kept(loaded, page("/k/part", "hint"))
   end
 
   test "an unsuperseded open accepts a canonical redirect" do

@@ -249,9 +249,19 @@ defmodule AtlasControl.SessionTest do
   test "a client sees the top list at once", %{port: port} do
     FakeStore.put("W-1", %{"title" => "One"})
     c = client(port)
-    assert %{"env" => "test", "spec" => "0.14.0"} = next(c, "welcome")
+    assert %{"env" => "test", "spec" => "0.15.0"} = next(c, "welcome")
     assert %{"path" => "/", "title" => "Widgets", "reason" => "open"} = page = next(c, "page")
     assert rows(page) == ["One"]
+  end
+
+  test "a row names the fact it opens (contract 0.15.0), and is never pending yet",
+       %{port: port} do
+    FakeStore.put("W-1", %{"title" => "One"})
+    c = client(port)
+    page = next(c, "page")
+    assert [row] = page["blocks"] |> hd() |> get_in(["props", "rows"])
+    assert %{"key" => "W-1", "to" => "/k/widget/W-1"} = row
+    refute Map.has_key?(row, "pending")
   end
 
   test "a change shows once it is stored, and reaches a second client as a hint", %{port: port} do

@@ -1,10 +1,11 @@
 defmodule AtlasBFFContract.Wire.Control.Session do
   @moduledoc "Control page/session and agent wire operations."
   use AtlasBFF.Schema
-  version "0.14.0"
+  version "0.15.0"
   models_from(AtlasBFFContract.Models.Presentation)
 
-  # IS-101 describes existing 0.14.0 bytes; no server-version bump or rollout gate.
+  # IS-101 described the 0.14.0 bytes without a bump; 0.15.0 adds the row fields `key` and
+  # `pending` and the pushes below (docs/design/page-freshness.md §3).
   # A stored outcome acknowledges Facts only; Runtime/Flow still reconcile separately.
   @page_required %{"path" => :string, "title" => :string, "blocks" => :list, "markup" => :list}
   @page_optional %{
@@ -52,7 +53,7 @@ defmodule AtlasBFFContract.Wire.Control.Session do
   }
   @plan %{name: :plan, select: %{"op" => "plan"}, effect: :progress, required: %{"block" => :map}}
 
-  # Boot is additive: existing hello/welcome/page clients keep their 0.14.0 exchange.
+  # Boot is additive: existing hello/welcome/page clients keep their exchange.
   defoperation :boot, %{
     channel: :control,
     direction: :request,
@@ -198,6 +199,9 @@ defmodule AtlasBFFContract.Wire.Control.Session do
     ]
   }
 
+  # A page Control sends unasked after a change: for the path on screen, and for a path
+  # the client viewed recently (one of the last 8, at most 3 per flush). A client keeps
+  # the newest page per path (by `position`) and shows it if the path is on screen.
   defoperation :hint, %{
     channel: :control,
     direction: :push,
@@ -205,6 +209,22 @@ defmodule AtlasBFFContract.Wire.Control.Session do
       %{
         name: :page,
         select: %{"op" => "page", "reason" => "hint"},
+        effect: :progress,
+        required: @page_required,
+        optional: @page_optional
+      }
+    ]
+  }
+
+  # The page sent again, as it was, with `pending` on the rows of facts a write of this
+  # session changed and Flow has not yet settled; same `position` as the page it overlays.
+  defoperation :pending, %{
+    channel: :control,
+    direction: :push,
+    replies: [
+      %{
+        name: :page,
+        select: %{"op" => "page", "reason" => "pending"},
         effect: :progress,
         required: @page_required,
         optional: @page_optional

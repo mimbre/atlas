@@ -1,7 +1,7 @@
 defmodule AtlasBFFContract.Models.Presentation do
   @moduledoc "Shared block, Console and session payload models."
   use AtlasBFF.Schema
-  version "0.14.0"
+  version "0.15.0"
   models_from(AtlasBFFContract.Models.Workers)
 
   # Something the user can do from a block: open `to`. `key` is the key a keyboard
@@ -23,12 +23,18 @@ defmodule AtlasBFFContract.Models.Presentation do
   # One line of a list; opening it opens `to`. Its links are for the row while it is
   # selected.
   # `id` is the item's id, which a client shows first, in a column of its own.
+  # `key` is the key of the fact the row opens (Control takes it from `to`): an opaque
+  # identity a client keeps the selection on when a page replaces the list, and compares
+  # with nothing else. `pending` (set only by Control) says a write to that fact is stored
+  # but not yet settled; a client shows it next to the label and never sets or clears it.
   defmodel :row do
     field :id, :string
     field :label, :string, required: true
     field :detail, :string
     field :to, :string, required: true
     field :links, {:list, :link}
+    field :key, :string
+    field :pending, :boolean
   end
 
   # The fact that set a value: since when (ISO 8601, UTC), by whom (a key), and why.

@@ -219,7 +219,7 @@ defmodule AtlasAgent.TransportTest do
       peer(
         fn socket ->
           assert receive_line(socket)["op"] == "hello"
-          welcome = %{"op" => "welcome", "env" => "test", "spec" => "0.14.0"}
+          welcome = %{"op" => "welcome", "env" => "test", "spec" => "0.15.0"}
 
           case failure do
             :bye ->
@@ -258,7 +258,7 @@ defmodule AtlasAgent.TransportTest do
       fn socket ->
         assert receive_line(socket)["op"] == "hello"
         Process.sleep(80)
-        send_line(socket, %{"op" => "welcome", "env" => "test", "spec" => "0.14.0"})
+        send_line(socket, %{"op" => "welcome", "env" => "test", "spec" => "0.15.0"})
         Process.sleep(80)
         assert :gen_tcp.recv(socket, 0, 0) == {:error, :closed}
       end,

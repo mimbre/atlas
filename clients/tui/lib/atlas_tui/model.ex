@@ -12,7 +12,7 @@ defmodule AtlasTui.Model do
   `{:agent, message}` and replies arrive through `agent/2`.
   """
 
-  alias AtlasTui.{Blocks, Text}
+  alias AtlasTui.{Blocks, Selection, Text}
   alias AtlasTui.Blocks.{Confirm, Form, Input, Item, Part, Plan}
   alias AtlasTui.Blocks.List, as: ListBlock
 
@@ -77,6 +77,7 @@ defmodule AtlasTui.Model do
   def message(model, %{"op" => "page"} = msg) do
     {blocks, ids, markup} = Blocks.view_model(msg)
     same = msg["path"] == model.path
+    before = if same, do: Selection.of(rows(model), model.selected)
     updated = %{reason: msg["reason"], at: msg["at"], position: msg["position"]}
 
     model = %{
@@ -94,7 +95,7 @@ defmodule AtlasTui.Model do
 
     model = %{
       model
-      | selected: keep_selection(model, same),
+      | selected: Selection.after_replace(before, rows(model)) || 0,
         focus: if(same, do: model.focus, else: 0),
         cursor: if(same, do: model.cursor, else: nil),
         scroll: if(same, do: model.scroll, else: first_scroll(blocks)),
@@ -163,11 +164,6 @@ defmodule AtlasTui.Model do
   defp first_scroll(blocks), do: if(Enum.any?(blocks, &match?(%Item{}, &1)), do: 0, else: nil)
 
   def disconnected(model), do: AtlasTui.Console.disconnected(model)
-
-  # A list keeps the selected row when it is redrawn, even if rows moved.
-  defp keep_selection(_model, false), do: 0
-
-  defp keep_selection(model, true), do: min(model.selected, max(length(rows(model)) - 1, 0))
 
   # The block that takes the keys.
 
