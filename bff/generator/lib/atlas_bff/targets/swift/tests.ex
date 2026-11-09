@@ -428,18 +428,25 @@ defmodule AtlasBFF.Targets.Swift.Tests do
 
   # A message whose selector matches a case but whose fields do not decode: undecodable,
   # with the path of the field, and encoded back as it came. One per channel, on the first
-  # message with a required field a wrong value fails.
+  # message with a required field a wrong value fails and its selector does not name (left
+  # out, a field the selector needs present would no longer match the case).
   defp undecodable_tests(ch, ctx) do
     enum = type_name(ch.channel)
 
-    strict = fn f -> f.required and strict?(f.type) end
+    candidate = fn m, f ->
+      f.required and strict?(f.type) and f.name not in m.present and
+        not List.keymember?(m.literals, f.name, 0)
+    end
 
-    case Enum.find(ch.messages, &(&1.struct != nil and Enum.any?(&1.fields, strict))) do
+    case Enum.find(
+           ch.messages,
+           &(&1.struct != nil and Enum.any?(&1.fields, fn f -> candidate.(&1, f) end))
+         ) do
       nil ->
         []
 
       m ->
-        field = Enum.find(m.fields, strict)
+        field = Enum.find(m.fields, &candidate.(m, &1))
         good = message_json(m, ctx)
         missing = Map.delete(good, field.name)
         wrong = Map.put(good, field.name, wrong(field.type))

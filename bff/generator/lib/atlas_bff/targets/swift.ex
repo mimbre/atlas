@@ -37,7 +37,7 @@ defmodule AtlasBFF.Targets.Swift do
     hand, captured from a server). A channel's fixtures must be there: a missing file
     fails. With the option `version_field:` (the field a handshake carries the version
     in), the lines that carry it must carry `Contract.version`, so a new version needs
-    new fixtures..
+    new fixtures.
   """
 
   alias AtlasBFF.Names
