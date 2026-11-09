@@ -77,12 +77,13 @@ func environment(dir string) []string {
 
 // serviceCommands builds the Runtime service and runs platform/atlas_runtime/host/service.exs for the home
 // dir, with executable as the native host. Both run in the products/software_factory umbrella, the project whose
-// deps hold the model the service is wired to with server.json (products/software_factory/mix.exs, D-0083):
-// atlas_runtime's own project has the model neither compiled nor on its code path, and no
-// platform app depends on it.
+// deps hold the model the service is wired to with server.json (products/software_factory/mix.exs, D-0083): atlas_runtime's own project has the model neither compiled nor on its code
+// path, and no platform app depends on it. The build first fetches the umbrella's Hex dependencies
+// as products/software_factory/mix.lock pins them (Plug and Bandit, for the backend); when they are
+// all present it changes nothing.
 func serviceCommands(dir, executable string) (build, run *exec.Cmd) {
 	project := filepath.Join(repoRoot, "products/software_factory")
-	build = exec.Command("mix", "compile", "--warnings-as-errors")
+	build = exec.Command("mix", "do", "deps.get", "+", "compile", "--warnings-as-errors")
 	build.Dir = project
 	build.Env = environment(dir)
 	run = exec.Command("mix", "run", "--no-start", "--no-compile", "--no-deps-check",
@@ -446,7 +447,7 @@ func executeTo(args []string, out io.Writer) (map[string]any, error) {
 		permissions := flags.String("permissions", "", "explicit dedicated-repository Git/GitHub scope or materialized-folder scope or review-packet scope")
 		repository := flags.String("repo", "", "GitHub HTTPS repository to provision")
 		branch := flags.String("branch", "", "new task branch based on freshly fetched develop")
-		backend := flags.String("backend", "", "explicit codex or claude; omitted uses preferences")
+		backend := flags.String("backend", "", "explicit codex or claude, never falling back; omitted uses the imported preferred/fallback pair, else codex")
 		questions := flags.Bool("questions", false, "opt in to Claude's restricted host-question path")
 		if err = flags.Parse(args[1:]); err != nil {
 			return nil, err

@@ -1,7 +1,7 @@
 defmodule AtlasRuntime.FailedContinuationTest do
   use ExUnit.Case, async: false
 
-  alias AtlasRuntime.{BackendPolicy, ExecutionEvents, FakeNative, Service, Workspaces}
+  alias AtlasRuntime.{ExecutionEvents, FakeNative, Service, Workspaces}
 
   @moduletag :tmp_dir
 
@@ -15,7 +15,6 @@ defmodule AtlasRuntime.FailedContinuationTest do
 
     state = %{
       dir: dir,
-      policy: BackendPolicy.empty(),
       events: ExecutionEvents.open(dir),
       workers: %{},
       stopping: false

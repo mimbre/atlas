@@ -53,6 +53,8 @@
 # agent (ATLAS_AS=coordinator atlas get IS-Atlas-12): what is assigned to it shows its
 # What to do (IS-Atlas-54), and what it writes is by it.
 set -euo pipefail
+# The arguments as given, for a re-exec after update_build pulled a newer develop.
+given=("$@")
 
 # Keep the read capability out of config/build/lifecycle/proxy children. Only the
 # final explicit discovery transport receives it, without putting it in argv.
@@ -129,9 +131,15 @@ resolve_places
 update_build() {
   [ -z "${ATLAS_NO_UPDATE:-}" ] || return 0
   if [ "$(main_clone)" = "$root" ] && [ "$(git -C "$root" branch --show-current)" = develop ]; then
+    local before; before="$(git -C "$root" rev-parse HEAD)"
     git -C "$root" pull --ff-only -q || echo "atlas: could not update develop; trying the build as it is" >&2
     # What a rename or a move on develop left behind: folders with only build output.
     "$root/bin/clean-build" "$root" --moved >&2
+    # This run already sourced the old scripts; a renamed or moved path would break them
+    # against the new tree. Start again on the pulled scripts, without another update.
+    if [ "$(git -C "$root" rev-parse HEAD)" != "$before" ]; then
+      ATLAS_NO_UPDATE=1 exec "$root/bin/atlas" ${given[@]+"${given[@]}"}
+    fi
   fi
 }
 

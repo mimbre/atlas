@@ -121,7 +121,7 @@ There are two tokens, each in an owner-only (0600) regular file under the Code h
 
 Runtime never passes either token to native workers; `Agent.Native` already strips all but a fixed environment list.
 
-**Known limit:** a same-user token file is not hidden from a worker that can read the user's home directory, e.g. a Codex read-only sandbox. This contract does not claim worker isolation from Code; that belongs to the later isolation work.
+**Known limit:** every worker profile (Codex and Claude read-only, Codex workspace-write, dedicated-repository, materialized-folder, review-packet) denies the Runtime home and the runtime token file named by its `code.json`, with that file's directory (normally the Code home, so an orchestrator token beside it as well). A Codex managed repository below the Runtime home is the exception to a whole-home deny: Git needs its ancestors, so only the home entries beside that ancestor chain and the known sensitive entries are denied (host README, dedicated-repository). A same-user token file elsewhere is not hidden from a worker that can read the user's home directory, e.g. a Codex read-only sandbox. This contract does not claim further worker isolation from Code; that belongs to the later isolation work.
 
 Every error response is `{"error": {"code": "<code>", "message": "<text>", "details": {}}}` with the HTTP status shown:
 
