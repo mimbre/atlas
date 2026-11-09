@@ -178,7 +178,7 @@ def validate(extra, schema, actors=None):
     shortcuts = []
     for kind, spec in extra.get('entities', {}).items():
         entity(kind)
-        keys(spec, 'top primary start create properties completion progress connector agent order by_hand late actions counts requires authority frozen replaces layering', f'entities.{kind}')
+        keys(spec, 'top primary start create properties completion progress connector agent order by_hand late actions counts requires authority frozen replaces layering sealed', f'entities.{kind}')
         if 'start' in spec:
             navigation(spec['start'], kind + '.start')
             shortcuts.append(spec['start']['key'])
@@ -256,6 +256,13 @@ def validate(extra, schema, actors=None):
             keys(spec['frozen'], 'when only error', kind + '.frozen')
             values(kind, spec['frozen'].get('when', {}))
             values(kind, spec['frozen'].get('only', {}))
+        if 'sealed' in spec:
+            keys(spec['sealed'], 'once links error once_error', kind + '.sealed')
+            if spec['sealed'].get('links', 'once') != 'once':
+                raise ConfigError(f'{kind}.sealed.links: expected once')
+            for name in spec['sealed'].get('once', []):
+                if name not in entity(kind).get('properties', {}):
+                    relation(name, kind)
         if 'replaces' in spec:
             rule = spec['replaces']
             keys(rule, 'relation when of set error', kind + '.replaces')

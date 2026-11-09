@@ -14,13 +14,14 @@ spec.loader.exec_module(config)
 
 
 def without_ledger(schema):
-    """The schema without the decision ledger and use case design phase, added since #79."""
+    """The schema without the decision ledger, gate verdicts and use case design phase, added since #79."""
     schema = copy.deepcopy(schema)
     schema['entities'].pop('decision')
-    for name in ('decided_by', 'delegated_by', 'supersedes', 'follows_from', 'based_on'):
+    schema['entities'].pop('gate_verdict')
+    for name in ('decided_by', 'delegated_by', 'supersedes', 'follows_from', 'based_on', 'follows', 'overruled_by', 'about'):
         schema['relations'].pop(name)
     schema['relations']['assignment']['from'].remove('decision')
-    for name in ('decision_category', 'decision_scope', 'decision_reversibility', 'decision_force', 'decision_status', 'design_status'):
+    for name in ('decision_category', 'decision_scope', 'decision_reversibility', 'decision_force', 'decision_status', 'design_status', 'gate_flavor', 'gate_purpose', 'gate_unsettled'):
         schema.get('types', {}).pop(name, None)
     for name in ('design', 'design_status'):
         schema['entities']['use_case']['properties'].pop(name)

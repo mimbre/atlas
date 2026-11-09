@@ -213,4 +213,113 @@ defmodule AtlasState.GuardsTest do
     assert :ok = check("change", middle, %{"title" => "x"}, %{}, others, incoming)
     assert :ok = check("change", middle, %{"level" => "top"}, %{}, others, incoming)
   end
+
+  # A made-up record: a reading of a meter, immutable once taken, with what an inspector
+  # finds afterwards set once each.
+  @sealed %{
+    "sealed" => %{
+      "once" => ["finding", "checked_by"],
+      "error" => "{key} is a reading; {field} is never changed",
+      "once_error" => "{key}: {field} is set once"
+    }
+  }
+
+  defp seal(op, current, values, links \\ %{}),
+    do: Guards.check(@sealed, op, "M-1", current, values, links, %{})
+
+  defp reading(values \\ %{}, links \\ %{}),
+    do: %{
+      "values" => Map.merge(%{"meter" => "a", "level" => 3}, values),
+      "links" => Map.merge(%{"on" => ["X-1"]}, links)
+    }
+
+  test "a sealed rule is read from the description" do
+    assert Guards.of(%{"entities" => %{"reading" => @sealed}}, "reading") == @sealed
+  end
+
+  test "a sealed record is written freely, then never changed, deleted or relinked" do
+    assert :ok = seal("create", nil, %{"meter" => "a", "level" => 3}, %{"on" => ["X-1"]})
+
+    assert {:refused, ["M-1 is a reading; level is never changed"]} =
+             seal("change", reading(), %{"level" => 4})
+
+    assert {:refused, ["M-1 is a reading; level is never changed"]} =
+             seal("change", reading(), %{"level" => nil})
+
+    assert {:refused, ["M-1 is a reading; note is never changed"]} =
+             seal("change", reading(), %{"note" => "added later"})
+
+    assert {:refused, ["M-1 is a reading; on is never changed"]} =
+             seal("change", reading(), %{}, %{"on" => ["X-2"]})
+
+    assert {:refused, ["M-1 is a reading; on is never changed"]} =
+             seal("change", reading(), %{}, %{"on" => []})
+
+    assert {:refused, [_]} = seal("delete", reading(), %{})
+
+    # Sending what is there already is no change; a number compares with its text.
+    assert :ok = seal("change", reading(), %{"meter" => "a", "level" => "3"}, %{"on" => ["X-1"]})
+  end
+
+  test "a once field or link of a sealed record is set while empty, then kept" do
+    assert :ok = seal("change", reading(), %{"finding" => "leaks"})
+    assert :ok = seal("change", reading(), %{}, %{"checked_by" => ["P-1"]})
+    assert :ok = seal("change", reading(), %{"finding" => "leaks", "meter" => "a"})
+    # Leaving it empty sets nothing.
+    assert :ok = seal("change", reading(), %{"finding" => ""}, %{"checked_by" => []})
+
+    found = reading(%{"finding" => "leaks"}, %{"checked_by" => ["P-1"]})
+    assert :ok = seal("change", found, %{"finding" => "leaks"}, %{"checked_by" => ["P-1"]})
+
+    assert {:refused, ["M-1: finding is set once"]} =
+             seal("change", found, %{"finding" => "dry"})
+
+    assert {:refused, ["M-1: finding is set once"]} = seal("change", found, %{"finding" => nil})
+
+    assert {:refused, ["M-1: checked_by is set once"]} =
+             seal("change", found, %{}, %{"checked_by" => ["P-2"]})
+
+    # A once field does not open the rest.
+    assert {:refused, ["M-1 is a reading; level is never changed"]} =
+             seal("change", reading(), %{"finding" => "leaks", "level" => 9})
+  end
+
+  test "a sealed record's other rules still hold, and without its own error it still says why" do
+    rules =
+      Map.put(@sealed, "requires", [
+        %{"when" => %{"meter" => ["a"]}, "fields" => ["level"], "error" => "needs level"}
+      ])
+
+    assert {:refused, ["needs level"]} =
+             Guards.check(rules, "create", "M-1", nil, %{"meter" => "a"}, %{}, %{})
+
+    bare = %{"sealed" => %{"once" => ["finding"]}}
+
+    assert {:refused, [why]} =
+             Guards.check(bare, "change", "M-1", reading(), %{"level" => 1}, %{}, %{})
+
+    assert why =~ "level"
+    assert {:refused, [_]} = Guards.check(bare, "delete", "M-1", reading(), %{}, %{}, %{})
+  end
+
+  test "with links once, every relation of a sealed record is set while empty, then kept" do
+    rules = %{
+      "sealed" => %{"once" => ["finding"], "links" => "once", "once_error" => "{field} is set"}
+    }
+
+    check = fn current, links ->
+      Guards.check(rules, "change", "M-1", current, %{}, links, %{})
+    end
+
+    bare = %{"values" => %{"meter" => "a"}, "links" => %{}}
+
+    assert :ok = check.(bare, %{"on" => ["X-1"], "next_to" => ["M-0"]})
+    assert {:refused, ["on is set"]} = check.(reading(), %{"on" => ["X-2"]})
+    assert {:refused, ["on is set"]} = check.(reading(), %{"on" => []})
+    assert :ok = check.(reading(), %{"on" => ["X-1"], "next_to" => ["M-0"]})
+
+    # Its properties stay sealed.
+    assert {:refused, [_]} =
+             Guards.check(rules, "change", "M-1", bare, %{"meter" => "b"}, %{}, %{})
+  end
 end

@@ -123,7 +123,7 @@ defmodule AtlasE2E.CompositionTest do
     kinds = command(ctx, ["help"]) |> Enum.map(& &1["kind"])
 
     assert Enum.sort(kinds) ==
-             ~w(agent assignment decision interaction interaction_receipt person turn worker_execution)
+             ~w(agent assignment decision gate_verdict interaction interaction_receipt person turn worker_execution)
 
     tools = command(ctx, ["tools"]) |> JSON.encode!()
 

@@ -39,6 +39,8 @@ class AssemblyTest(unittest.TestCase):
         prior['_about'] = self.original['_about']
         self.assertEqual(set(prior['entities'].pop('decision')), {'primary', 'order', 'create', 'properties', 'requires', 'authority', 'frozen', 'replaces', 'layering'})
         self.assertIn('only_target', prior['relations'].pop('decided_by'))
+        self.assertEqual(set(prior['entities'].pop('gate_verdict')), {'top', 'primary', 'order', 'create', 'properties', 'requires', 'sealed'})
+        self.assertIn('only_target', prior['relations'].pop('overruled_by'))
         self.assertEqual(prior['flows'].pop('decide')['kinds'], ['decision'])
         self.assertEqual(prior['flows'].pop('design_and_accept')['kinds'], ['use_case'])
         self.assertEqual(prior['flows']['test_and_accept']['kinds'], ['scene'])
@@ -95,6 +97,29 @@ class AssemblyTest(unittest.TestCase):
             bad = copy.deepcopy(extra)
             mutate(bad['entities']['decision'])
             with self.assertRaises((config.ConfigError, KeyError)):
+                assemble.validate(bad, self.schema)
+
+    def test_gate_verdict_is_sealed_but_for_later_outcomes_and_links_set_once(self):
+        extra = assemble.build(self.root, self.manifest)
+        verdict = extra['entities']['gate_verdict']
+        props = self.schema['entities']['gate_verdict']['properties']
+        once = verdict['sealed']['once']
+        # Every field is either written with the verdict or set once afterwards; none both.
+        self.assertEqual(set(verdict['create']['ask']) | set(once), set(props))
+        self.assertFalse(set(verdict['create']['ask']) & set(once))
+        # Its links (about, follows, overruled_by) are set once each, after the create.
+        self.assertEqual(verdict['sealed']['links'], 'once')
+        self.assertEqual(self.schema['relations']['follows']['to'], ['gate_verdict'])
+        self.assertNotIn('gate_verdict', self.schema['relations']['assignment']['from'])
+        for mutate in [
+            lambda d: d['sealed']['once'].append('missing'),
+            lambda d: d['sealed'].update({'later': []}),
+            lambda d: d['sealed']['once'].append('decided_by'),
+            lambda d: d['sealed'].update({'links': 'always'}),
+        ]:
+            bad = copy.deepcopy(extra)
+            mutate(bad['entities']['gate_verdict'])
+            with self.assertRaises(config.ConfigError):
                 assemble.validate(bad, self.schema)
 
     def test_decision_flow_and_design_phase_are_sound(self):
