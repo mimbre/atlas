@@ -27,6 +27,6 @@ defmodule AtlasFlow.MixProject do
   defp deps,
     do: [
       {:atlas_bus, in_umbrella: true},
-      {:atlas_flow_generator, path: "../../../flow/generator"}
+      {:rela_dsl, path: "../../../model/dsl"}
     ]
 end

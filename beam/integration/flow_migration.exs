@@ -54,11 +54,11 @@ defmodule FlowMigrationBootTest do
   @old "8ca16b332a083209e6e44ffc3feeca0f152c632caa4d5206ab24fe540ab3770c"
 
   defmodule Target do
-    use AtlasFlowGenerator.Runtime, target: "../../flow/targets/test/atlas/flows.json"
+    use RelaDSL.Runtime, target: "../../model/targets/test/atlas/flows.json"
   end
 
   defmodule ProdTarget do
-    use AtlasFlowGenerator.Runtime, target: "../../flow/targets/atlas/flows.json"
+    use RelaDSL.Runtime, target: "../../model/targets/atlas/flows.json"
   end
 
   # The canonical decide digests deployed before owner answers (test, prod).
@@ -124,7 +124,7 @@ defmodule FlowMigrationBootTest do
         do: FakeFacts.put("decision", %{"key" => key, "values" => %{"status" => "proposed"}})
 
     yaml = Path.join(dir, "flows.yaml")
-    File.write!(yaml, File.read!(Path.join(@root, "flow/targets/test/rela/flows.yaml")))
+    File.write!(yaml, File.read!(Path.join(@root, "model/targets/test/rela/flows.yaml")))
     opts = [clock: {ManualClock, clock}, target: Target, deployed_yaml: yaml]
     # Stop after the new entry commits and its first write loses its answer.
     FakeFacts.lose_ack("decision")
@@ -190,8 +190,8 @@ defmodule FlowMigrationBootTest do
 
   test "live person waits from the deployed definitions keep state, entry and deadline across restart" do
     for {env, target, yaml} <- [
-          {"test", Target, "flow/targets/test/rela/flows.yaml"},
-          {"prod", ProdTarget, "flow/targets/rela/flows.yaml"}
+          {"test", Target, "model/targets/test/rela/flows.yaml"},
+          {"prod", ProdTarget, "model/targets/rela/flows.yaml"}
         ] do
       dir = Path.join(System.tmp_dir!(), "flow-answers-#{System.unique_integer([:positive])}")
       File.mkdir_p!(dir)

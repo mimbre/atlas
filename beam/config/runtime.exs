@@ -63,7 +63,7 @@ if config_env() != :test do
       deployed_yaml:
         Path.join(
           root,
-          if(env == "test", do: "flow/targets/test/rela/flows.yaml", else: "rela/flows.yaml")
+          if(env == "test", do: "model/targets/test/rela/flows.yaml", else: "rela/flows.yaml")
         ),
       tick_seconds: get_in(settings, ["flow", "tick_seconds"]) || 60
   end

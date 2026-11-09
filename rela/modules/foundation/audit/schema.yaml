@@ -38,13 +38,10 @@ entities:
     - rq
     id_type: manual
     id_prefix: RQ-
-    description: 'What Melle asked the agent on a page of the TUI (`:`), and what became of
-
-      it: the plan''s summary and its outcome. Its steps hang under it. The cause
-
+    description: |
+      What Melle asked the agent on a page of the TUI (`:`), and what became of
+      it: the plan's summary and its outcome. Its steps hang under it. The cause
       of every change the agent made (SC-Atlas-04, UC-Atlas-19).
-
-      '
     properties:
       title:
         type: string
@@ -75,11 +72,9 @@ entities:
     - st
     id_type: manual
     id_prefix: ST-
-    description: 'One step of a request''s plan: the form it filled, with what values, and
-
+    description: |
+      One step of a request's plan: the form it filled, with what values, and
       what became of it, with the key of the item it made, changed or deleted.
-
-      '
     properties:
       title:
         type: string

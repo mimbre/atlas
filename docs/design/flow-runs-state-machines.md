@@ -22,21 +22,21 @@ Flow runs the machines. Rela defines and checks them. There is no planned switch
 | Facts already embeds the generated target for owners and presentation. Flow currently depends only on Bus. | `beam/apps/atlas_facts/lib/atlas_facts/subflows.ex:3-21`; `beam/apps/atlas_flow/mix.exs:26-27` |
 | Cross-layer calls and domain names in platform sources and tests are guarded. | `beam/apps/atlas_bus/test/boundary_test.exs:17-33,45-59,109-155` |
 
-Two differences affect cutover. Generated `decide` has three states, verdict branches and status outputs, but no timer (`flow/contract/lib/decision.ex:16-61`). Old `decide` also keeps accepted decisions open until work is based on them, or `no_work` is true (`rela/atlas.json:1239-1332`). Preserve this follow-through during migration.
+Two differences affect cutover. Generated `decide` has three states, verdict branches and status outputs, but no timer (`model/contract/lib/decision.ex:16-61`). Old `decide` also keeps accepted decisions open until work is based on them, or `no_work` is true (`rela/atlas.json:1239-1332`). Preserve this follow-through during migration.
 
-The composition lists seven modules; UseCase supplies two subflows, making eight. It links outcomes and counts children (`flow/contract/lib/software.ex:20-51`; `flow/contract/lib/use_case.ex:19-29`).
+The composition lists seven modules; UseCase supplies two subflows, making eight. It links outcomes and counts children (`model/contract/lib/software.ex:20-51`; `model/contract/lib/use_case.ex:19-29`).
 
 ## 2. Make the generated target executable
 
-Today format 1 holds the YAML digest, gates, subject, owner, channel, initial state, labels, final markers, presentation, and mechanism kind/spec. Gate data includes `answer_within`. Evidence: `flow/generator/lib/atlas.ex:35-94`; the concrete decision entry is `flow/targets/atlas/flows.json:4-36`.
+Today format 1 holds the YAML digest, gates, subject, owner, channel, initial state, labels, final markers, presentation, and mechanism kind/spec. Gate data includes `answer_within`. Evidence: `model/dsl/lib/atlas.ex:35-94`; the concrete decision entry is `model/targets/atlas/flows.json:4-36`.
 
-It omits start triggers, `run_as`, `per_subject`, state status, waiting roles, awaited fields, ordered branches, entry sets, creates and timers. It also omits composition links and counts. The DSL already builds that data; the JSON writer discards it. Evidence: `flow/generator/lib/schema.ex:789-812,865-880,941-977`; `flow/generator/lib/rela.ex:43-122`; `flow/generator/lib/mix/tasks/atlas.flow.gen.ex:54-82`. Activities are described, not dispatched, by this writer (`flow/generator/lib/atlas.ex:83-94`).
+It omits start triggers, `run_as`, `per_subject`, state status, waiting roles, awaited fields, ordered branches, entry sets, creates and timers. It also omits composition links and counts. The DSL already builds that data; the JSON writer discards it. Evidence: `model/dsl/lib/schema.ex:789-812,865-880,941-977`; `model/dsl/lib/rela.ex:43-122`; `model/dsl/lib/mix/tasks/model.gen.ex:54-82`. Activities are described, not dispatched, by this writer (`model/dsl/lib/atlas.ex:83-94`).
 
 Extend the Atlas writer, not a runtime YAML reader. Emit format 2. Preserve branch and timer order. Emit the missing fields with explicit empty lists. Keep owner, presentation and mechanism data. Omit source line metadata. Add composition data in its own slice. Regenerate targets and goldens. Keep Rela YAML bytes stable unless the contract changes.
 
-Runtime embeds JSON at compile time. It accepts only format 1 and exposes flows, gates, `rela_flows_sha256/0` and a hash check. That check compares supplied YAML bytes; it does not find the deployed file (`flow/generator/lib/runtime.ex:23-84`). Update reader and writer together. Rebuild all target consumers together.
+Runtime embeds JSON at compile time. It accepts only format 1 and exposes flows, gates, `rela_flows_sha256/0` and a hash check. That check compares supplied YAML bytes; it does not find the deployed file (`model/dsl/lib/runtime.ex:23-84`). Update reader and writer together. Rebuild all target consumers together.
 
-Before starting generated runs, Flow reads the selected deployment's `rela/flows.yaml` and calls `check_rela_flows/1`. Missing, unreadable or mismatched YAML refuses the generated runner before any write or timer. Report expected and actual digests. Never fall back to legacy execution for a migrated subject. Explicitly unmigrated subjects may continue. A hash match is not validation. Require Rela validation in deployment checks; the current generation task can skip it when its binary is absent (`flow/generator/lib/mix/tasks/atlas.flow.gen.ex:28-35,93-110`).
+Before starting generated runs, Flow reads the selected deployment's `rela/flows.yaml` and calls `check_rela_flows/1`. Missing, unreadable or mismatched YAML refuses the generated runner before any write or timer. Report expected and actual digests. Never fall back to legacy execution for a migrated subject. Explicitly unmigrated subjects may continue. A hash match is not validation. Require Rela validation in deployment checks; the current generation task can skip it when its binary is absent (`model/dsl/lib/mix/tasks/model.gen.ex:28-35,93-110`).
 
 ## 3. Run and recovery model
 
@@ -49,7 +49,7 @@ Add the generic `flow_run` kind to the foundation description:
 | Fields | Meaning |
 | --- | --- |
 | `flow`, `subject_kind`, `subject_key`, `generation` | Stable identity. Use its digest as the fact key. |
-| `definition_sha256` | Lowercase SHA-256 of the subflow's canonical JSON data from the published `flow/targets/<env>/atlas/flows.json` pair (production uses `flow/targets/atlas/flows.json`). Recursively sort object keys, omit insignificant whitespace, preserve array order and exact scalar values. Hash only the selected subflow, excluding the pair's header, YAML hash and unrelated flows. No Erlang term serialization or runtime struct metadata. |
+| `definition_sha256` | Lowercase SHA-256 of the subflow's canonical JSON data from the published `model/targets/<env>/atlas/flows.json` pair (production uses `model/targets/atlas/flows.json`). Recursively sort object keys, omit insignificant whitespace, preserve array order and exact scalar values. Hash only the selected subflow, excluding the pair's header, YAML hash and unrelated flows. No Erlang term serialization or runtime struct metadata. |
 | `state`, `entry`, `entered_at`, `status` | Cursor, increasing entry number, UTC entry time, active/completed/blocked. Self-transition increments entry. |
 | `deadlines` | JSON text: timer name, resolved UTC due time, source entry. |
 | `pending` | JSON text: remaining entry writes or activity intents, stable ids and frozen payloads. |
@@ -88,8 +88,8 @@ Run only `decide`. This is a compatibility bridge, not the general runner.
 
 Scope:
 
-- `flow/generator/lib/{atlas,runtime}.ex`, `flow/generator/test/{atlas,runtime}_test.exs`, `flow/generator/test/golden/example.flows.json`: format 2 and reader rejection tests.
-- `flow/contract/lib/decision.ex`, `flow/contract/test/decider_test.exs`, `flow/contract/test/golden/decision.flows.yaml`; regenerate `flow/targets/atlas/flows.json`, `flow/targets/rela/flows.yaml`, `flow/targets/diagrams/decide.md`, `rela/flows.yaml`.
+- `model/dsl/lib/{atlas,runtime}.ex`, `model/dsl/test/{atlas,runtime}_test.exs`, `model/dsl/test/golden/example.flows.json`: format 2 and reader rejection tests.
+- `model/contract/lib/decision.ex`, `model/contract/test/decider_test.exs`, `model/contract/test/golden/decision.flows.yaml`; regenerate `model/targets/atlas/flows.json`, `model/targets/rela/flows.yaml`, `model/targets/diagrams/decide.md`, `rela/flows.yaml`.
 - In `beam/apps/atlas_flow/`: `mix.exs`, `lib/atlas_flow/{engine,definition,item,application,talk}.ex`; new `lib/atlas_flow/generated.ex` and `lib/atlas_flow/runs/{run,store,clock}.ex`; new `test/runs/run_test.exs`, `test/support/manual_clock.ex`; extend `test/support/fake_facts.ex` and `test/engine_test.exs`. `beam/config/runtime.exs` supplies the selected deployment YAML path.
 - Foundation schema, metadata, grants, bindings, generated assembly outputs and exact inventories listed in section 3. Facts `lib/atlas_facts/guards.ex` and `test/guards_test.exs` only for the generic machine-writer rule; the new mapping validator and its caller/tests named in section 3. New `e2e/test/flow_run_test.exs` for real persistence.
 
@@ -103,13 +103,13 @@ Add the generator as a path dependency, as Facts does; it is not another platfor
 
 Acceptance: pure ordered-equality, finality and import tests. Store tests cover restart in a waiting entry, lost entry-write acknowledgement, duplicate create, duplicate timeout and cancelled old-entry timeout. Advance to just before and exactly at a deadline. Restart Flow while preserving fake Facts; advance beyond the original due time. Hash refusal must cause zero writes. Mixed-engine tests prove one selected writer and continued legacy operation for another neutral subject. Guard tests reject client run writes. Run boundary and exact inventory checks.
 
-Real behaviour on test: create a proposed decision and read its run. Accept through today's authorized command. Restart Flow and read the same completed run. Show an unselected subject still advances. In a private test deployment only, generate a decision variant with a five-minute proposed-to-proposed timer. Advance the injected clock and restart on both sides of the deadline. Show exactly one new entry from the original due time. Restore the normal generated pair. No production deadline is invented: today's `decide` has none (`flow/contract/lib/decision.ex:16-61`).
+Real behaviour on test: create a proposed decision and read its run. Accept through today's authorized command. Restart Flow and read the same completed run. Show an unselected subject still advances. In a private test deployment only, generate a decision variant with a five-minute proposed-to-proposed timer. Advance the injected clock and restart on both sides of the deadline. Show exactly one new entry from the original due time. Restore the normal generated pair. No production deadline is invented: today's `decide` has none (`model/contract/lib/decision.ex:16-61`).
 
 Size boundary: three states, equality only, one run kind, one pending record and one timer seam. No Gates adapter or general expression interpreter. This delivers the durable timer kernel needed by decider-gate slice 3 without taking on its product behaviour.
 
 ### 2. Transition kernel and trusted inputs
 
-Scope: new Flow `lib/atlas_flow/runs/{conditions,inputs}.ex`, `test/runs/{conditions,inputs}_test.exs`; `runs/{run,store}.ex`, `talk.ex`. New Facts `lib/atlas_facts/flow_inputs.ex`, `test/flow_inputs_test.exs`; Facts `server.ex`. Extend `flow/generator/test/atlas_test.exs` and `flow/contract/test/decider_test.exs`. Keep production selection unchanged.
+Scope: new Flow `lib/atlas_flow/runs/{conditions,inputs}.ex`, `test/runs/{conditions,inputs}_test.exs`; `runs/{run,store}.ex`, `talk.ex`. New Facts `lib/atlas_facts/flow_inputs.ex`, `test/flow_inputs_test.exs`; Facts `server.ex`. Extend `model/dsl/test/atlas_test.exs` and `model/contract/test/decider_test.exs`. Keep production selection unchanged.
 
 Support only expressions used by the contracts: equality, inequality, numeric comparisons, conjunction, disjunction and parentheses. Pin precedence in tests. Add predicate edges, resets, `since`, and creates with stable keys per entry/output index. Facts exposes typed inputs with subject version, actor roles, changed fields and position, validated against selected ACL and role relations. Never accept client-supplied roles. Separate snapshot-driven auto branches from authenticated choices.
 
@@ -123,7 +123,7 @@ Real behaviour on test: submit authorized and unauthorized choices to a private 
 
 Needs decider-gate slice 2 evidence and enforcement. Do not assume that work is already merged. Slice 1 is useful independently.
 
-Scope: new Flow `lib/atlas_flow/activities/gate.ex`, `test/activities/gate_test.exs`; new Gates `lib/atlas_gates/endpoint.ex`, `test/endpoint_test.exs`; Gates `application.ex`; Flow `runs/{run,store}.ex`; new `beam/integration/flow_gate.exs`. Extend gate evidence/request/record modules from decider-gate slice 2. Change `flow/contract/lib/{decision,gates}.ex` and their tests. Regenerate targets, decision diagram and assembled YAML. Apply decider-gate slice 3's foundation schema/metadata, bindings, assembly and exact-expectation changes. Extend `flow/generator/lib/{schema,rela}.ex` and their tests for gate limits.
+Scope: new Flow `lib/atlas_flow/activities/gate.ex`, `test/activities/gate_test.exs`; new Gates `lib/atlas_gates/endpoint.ex`, `test/endpoint_test.exs`; Gates `application.ex`; Flow `runs/{run,store}.ex`; new `beam/integration/flow_gate.exs`. Extend gate evidence/request/record modules from decider-gate slice 2. Change `model/contract/lib/{decision,gates}.ex` and their tests. Regenerate targets, decision diagram and assembled YAML. Apply decider-gate slice 3's foundation schema/metadata, bindings, assembly and exact-expectation changes. Extend `model/dsl/lib/{schema,rela}.ex` and their tests for gate limits.
 
 Use a versioned Bus request/reply. Do not call Gates from Flow. Freeze evidence and record before applying `gate_result`. Replace the status bridge with deciding/for-person/for-agent states and trusted verdict choices. Resolve `{:gate_limit, gate}` from the environment's `answer_within` once per entry. Generate a concrete duration into each environment's pair; hash that pair. Test and production get separate pairs. Do not patch YAML at runtime.
 
@@ -153,7 +153,7 @@ Real behaviour on test: lose a test receiver response and restart Flow. Lookup r
 
 ### 6. Composition
 
-Scope: `flow/generator/lib/{atlas,runtime}.ex`, `lib/mix/tasks/atlas.flow.gen.ex`, `test/{atlas,runtime}_test.exs`, task tests and golden JSON; `flow/contract/test/golden_test.exs`; generated JSON. New Flow `lib/atlas_flow/composition/{links,counts}.ex`, `test/composition/{links,counts}_test.exs`; `runs/{run,store}.ex`; new `beam/integration/flow_composition.exs`.
+Scope: `model/dsl/lib/{atlas,runtime}.ex`, `lib/mix/tasks/model.gen.ex`, `test/{atlas,runtime}_test.exs`, task tests and golden JSON; `model/contract/test/golden_test.exs`; generated JSON. New Flow `lib/atlas_flow/composition/{links,counts}.ex`, `test/composition/{links,counts}_test.exs`; `runs/{run,store}.ex`; new `beam/integration/flow_composition.exs`.
 
 Emit and expose composition as versioned data. Implement links, stale-child rejection and counts. Use explicit current-child identity and revision/fingerprint, never wall-clock recency. Refuse ambiguous selection. Recompute counts after deletion, reparenting or missed hints. Parent writes use durable pending intents. Changed aggregates supply synthetic atlas-flow inputs. Two subflows on one subject keep separate cursors and starts.
 
@@ -163,7 +163,7 @@ Real behaviour on test: a private child completes and advances its parent once. 
 
 ### 7. Migrate review and test
 
-Scope: selection/import mappings in `rela/flow-runtime.json`; `flow/contract/lib/{pr_review,pr_test}.ex` only for parity fixes, their goldens and regenerated targets; new `e2e/test/flow_review_test.exs`; neutral import fixtures in Flow `test/runs/run_test.exs`.
+Scope: selection/import mappings in `rela/flow-runtime.json`; `model/contract/lib/{pr_review,pr_test}.ex` only for parity fixes, their goldens and regenerated targets; new `e2e/test/flow_review_test.exs`; neutral import fixtures in Flow `test/runs/run_test.exs`.
 
 Select `pr_review` and `pr_test`. Import open and historical subjects through an explicit old-facts-to-entry table. Preserve owners and completed outcomes. Do not rerun historical activities. Keep legacy definitions but exclude selected subjects. Needs slices 2–6 and real pass/gate prerequisites.
 
@@ -173,7 +173,7 @@ Real behaviour on test: complete review and test on one exact revision. Restart 
 
 ### 8. Migrate the pull-request subflow
 
-Scope: `rela/flow-runtime.json`; `flow/contract/lib/pull_request.ex`, its golden and regenerated targets only for parity fixes; new `e2e/test/flow_delivery_test.exs`; neutral import fixtures as in slice 7.
+Scope: `rela/flow-runtime.json`; `model/contract/lib/pull_request.ex`, its golden and regenerated targets only for parity fixes; new `e2e/test/flow_delivery_test.exs`; neutral import fixtures as in slice 7.
 
 Select `pull_request`. Import without triggering integration. Activate effects only after real receiver tests pass. Preserve approved fingerprint fencing and linked outcomes.
 
@@ -183,7 +183,7 @@ Real behaviour on test: an approved, tested revision integrates once. A changed 
 
 ### 9. Migrate the issue subflow
 
-Scope: `rela/flow-runtime.json`; `flow/contract/lib/issue.ex`, its golden and regenerated targets only for parity fixes; extend `e2e/test/flow_delivery_test.exs`; neutral import fixtures.
+Scope: `rela/flow-runtime.json`; `model/contract/lib/issue.ex`, its golden and regenerated targets only for parity fixes; extend `e2e/test/flow_delivery_test.exs`; neutral import fixtures.
 
 Select `issue`. Carry open private work, packet identity, review rounds and existing remote artifacts into explicit states. Rework updates the existing artifact. Needs the real update receiver contract.
 
@@ -193,7 +193,7 @@ Real behaviour on test: author, review, rework and create. A later requested cha
 
 ### 10. Migrate design and acceptance
 
-Scope: `rela/flow-runtime.json`; `flow/contract/lib/use_case.ex`, its golden and regenerated targets only for parity fixes; new `e2e/test/flow_acceptance_test.exs`; neutral import fixtures in Flow `test/runs/run_test.exs`.
+Scope: `rela/flow-runtime.json`; `model/contract/lib/use_case.ex`, its golden and regenerated targets only for parity fixes; new `e2e/test/flow_acceptance_test.exs`; neutral import fixtures in Flow `test/runs/run_test.exs`.
 
 Select only `design_and_accept`. Preserve current design work, ownership and prior acceptance. Do not manufacture passes for completed subjects. Use disjoint phase admission: the generated design phase owns presentation before design acceptance; the legacy building phase owns it afterwards. Test the handoff before enabling selection.
 
@@ -213,7 +213,7 @@ Real behaviour on test: accept a design, build children, then test and accept th
 
 ### 12. Migrate scenes
 
-Scope: `rela/flow-runtime.json`; `flow/contract/lib/scene.ex`, its golden and regenerated targets only for parity fixes; extend `e2e/test/flow_acceptance_test.exs`; neutral import fixtures in Flow `test/runs/run_test.exs`.
+Scope: `rela/flow-runtime.json`; `model/contract/lib/scene.ex`, its golden and regenerated targets only for parity fixes; extend `e2e/test/flow_acceptance_test.exs`; neutral import fixtures in Flow `test/runs/run_test.exs`.
 
 Select `test_and_accept_scene`. Preserve owners, child counts and completed history. Apply the declared reopening policy.
 
@@ -235,7 +235,7 @@ Real behaviour on test: pages, worker routing and guidance keep working with all
 
 ### 14. Remove the old flows
 
-Scope: remove legacy `flows` from `rela/compositions/atlas-eyra/atlas.json`, `rela/tests/fixtures/baseline-atlas.json` and reassembled `rela/atlas.json`/manifest. Remove Flow `lib/atlas_flow/{definition,item}.ex`; projection now lives in `runs/presentation.ex`. Simplify `engine.ex`; retire `test/{atlas_flow,engine}_test.exs` legacy cases. Remove Facts' runtime legacy-check call from `server.ex`. Retain Facts `flows.ex` as a pure build-time validator and adjust `test/flows_test.exs`'s exact expectations; the unchanged assembler invokes that file directly (`rela/scripts/assemble.py:416-424`). It does not execute flows. Update fixture expectations and `e2e/test/{composition,rela_description,flow_run}_test.exs`. If follow-through is retained, add `flow/contract/lib/decision_follow_through.ex`, register it in `software.ex`, add its contract test/golden, selection in `rela/flow-runtime.json`, and regenerate targets.
+Scope: remove legacy `flows` from `rela/compositions/atlas-eyra/atlas.json`, `rela/tests/fixtures/baseline-atlas.json` and reassembled `rela/atlas.json`/manifest. Remove Flow `lib/atlas_flow/{definition,item}.ex`; projection now lives in `runs/presentation.ex`. Simplify `engine.ex`; retire `test/{atlas_flow,engine}_test.exs` legacy cases. Remove Facts' runtime legacy-check call from `server.ex`. Retain Facts `flows.ex` as a pure build-time validator and adjust `test/flows_test.exs`'s exact expectations; the unchanged assembler invokes that file directly (`rela/scripts/assemble.py:416-424`). It does not execute flows. Update fixture expectations and `e2e/test/{composition,rela_description,flow_run}_test.exs`. If follow-through is retained, add `model/contract/lib/decision_follow_through.ex`, register it in `software.ex`, add its contract test/golden, selection in `rela/flow-runtime.json`, and regenerate targets.
 
 First enumerate every reader of `flows`, `flow_problems`, `state_field`, `todo`, `expected` and `handover`. Supply needed owner/presentation views from runs. If retained by the product owner, put accepted-decision follow-through in a separately named contract subflow, with its golden, targets, selection and exact expectations. Remove the temporary projection only after replacement or explicit retirement.
 

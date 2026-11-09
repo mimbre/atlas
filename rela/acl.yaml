@@ -1,4 +1,4 @@
-# The roles the flows (flows.yaml, generated from flow/contract) name, so rela can check
+# The roles the flows (flows.yaml, generated from model/contract) name, so rela can check
 # them: `rela --project rela validate` checks every role a flow names and the grants of
 # its run_as. Rela defines and checks the flows; Atlas Flow runs them (D-0068).
 #

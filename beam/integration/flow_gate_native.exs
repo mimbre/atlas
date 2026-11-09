@@ -69,7 +69,7 @@ try do
   {description, config} = await.(await)
 
   {:ok, target} =
-    AtlasFlowGenerator.Runtime.read(Path.join(root, "flow/targets/test/atlas/flows.json"))
+    RelaDSL.Runtime.read(Path.join(root, "model/targets/test/atlas/flows.json"))
 
   flows = target["flows"]
 
@@ -160,7 +160,7 @@ try do
   engine_opts = [
     clock: {ManualClock, clock},
     target: AtlasFlow.Generated.Test,
-    deployed_yaml: Path.join(root, "flow/targets/test/rela/flows.yaml")
+    deployed_yaml: Path.join(root, "model/targets/test/rela/flows.yaml")
   ]
 
   for _ <- 1..2 do

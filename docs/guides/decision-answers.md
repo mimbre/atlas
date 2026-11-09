@@ -54,7 +54,7 @@ decisions, Flow owns this field, so a deadline set by hand does not stay.
 
 ## How it works
 
-- **Flow contract** (`flow/contract/lib/decision.ex`): the person states declare
+- **Flow contract** (`model/contract/lib/decision.ex`): the person states declare
   `owner … default: {:person, :melle}, preserve_kind: :person`, and
   `present(answers: …)`. Each answer is `change: %{self: :decided_by, values: …}`
   (`"$now"` is filled when it is sent). Reject has `note: true`. `for_person`

@@ -68,7 +68,7 @@ defmodule FlowGateProof do
     :ok = AtlasBus.attach("flow")
 
     {:ok, target} =
-      AtlasFlowGenerator.Runtime.read(Path.join(root, "flow/targets/test/atlas/flows.json"))
+      RelaDSL.Runtime.read(Path.join(root, "model/targets/test/atlas/flows.json"))
 
     %{c: c, flows: target["flows"], clock: clock}
   end

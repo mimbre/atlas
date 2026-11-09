@@ -5,13 +5,13 @@ FROM hexpm/elixir:1.18.4-erlang-28.5.0.2-debian-bookworm-20260610-slim AS build
 
 ENV MIX_ENV=prod
 # What the umbrella reads outside beam/ to compile: Control and Runtime the contract (a
-# path dependency, which compiles with its generator); Gates the flow generator (a path
+# path dependency, which compiles with its generator); Gates the Rela DSL, model/dsl (a path
 # dependency) and the gate definitions it generated, read at compile time.
 COPY bff/generator /src/bff/generator
 COPY bff/contract /src/bff/contract
-COPY flow/generator /src/flow/generator
-COPY flow/targets/atlas/flows.json /src/flow/targets/atlas/flows.json
-COPY flow/targets/test/atlas/flows.json /src/flow/targets/test/atlas/flows.json
+COPY model/dsl /src/model/dsl
+COPY model/targets/atlas/flows.json /src/model/targets/atlas/flows.json
+COPY model/targets/test/atlas/flows.json /src/model/targets/test/atlas/flows.json
 COPY beam /src/beam
 WORKDIR /src/beam
 RUN mix compile --warnings-as-errors && mix release atlas
@@ -26,11 +26,11 @@ ENV LANG=C.UTF-8 ATLAS_ROOT=/app RELEASE_DISTRIBUTION=none
 COPY --from=build /src/beam/_build/prod/rel/atlas /app/release
 # What the core reads from the repository at run time: the description's extra, its
 # settings per environment, and the flows Flow runs (rela/flows.yaml, the assembler's copy
-# of flow/targets/rela/flows.yaml). The rela image does not get flows.yaml: the running
+# of model/targets/rela/flows.yaml). The rela image does not get flows.yaml: the running
 # rela must not load flows (D-0068).
 COPY rela/schema.yaml rela/data-entry.yaml rela/atlas.json rela/atlas.manifest.json rela/flows.yaml rela/flow-runtime.json /app/rela/
 COPY rela/modules /app/rela/modules
-COPY flow/targets/test/rela/flows.yaml /app/flow/targets/test/rela/flows.yaml
+COPY model/targets/test/rela/flows.yaml /app/model/targets/test/rela/flows.yaml
 COPY rela/compositions /app/rela/compositions
 COPY rela/scripts/verify.py /app/rela/scripts/verify.py
 RUN python3 /app/rela/scripts/verify.py /app/rela

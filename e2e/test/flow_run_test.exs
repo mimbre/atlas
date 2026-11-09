@@ -52,7 +52,7 @@ defmodule AtlasE2E.FlowRunTest do
   File.write!(Path.join(dir, "runtime.json"), JSON.encode!(%{"flow_runtime" => config}))
   Code.compile_string("""
   defmodule PrivateChoiceContract do
-    use AtlasFlowGenerator.Schema
+    use RelaDSL.Schema
     subflow :sort, subject: :box do
       run_as "system:flow"
       owner default: {:clerk, :ada}
@@ -66,11 +66,11 @@ defmodule AtlasE2E.FlowRunTest do
     end
   end
   """)
-  yaml = AtlasFlowGenerator.Rela.flows_yaml(PrivateChoiceContract.__flows__())
+  yaml = RelaDSL.Rela.flows_yaml(PrivateChoiceContract.__flows__())
   File.write!(Path.join(dir, "flows.yaml"), yaml)
-  json = AtlasFlowGenerator.Atlas.flows_json(PrivateChoiceContract.__flows__(), [], AtlasFlowGenerator.Atlas.sha256(yaml))
+  json = RelaDSL.Atlas.flows_json(PrivateChoiceContract.__flows__(), [], RelaDSL.Atlas.sha256(yaml))
   File.write!(Path.join(dir, "flows.json"), json)
-  Code.compile_string("defmodule PrivateChoiceTarget do\nuse AtlasFlowGenerator.Runtime, target: #{inspect(Path.join(dir, "flows.json"))}\nend")
+  Code.compile_string("defmodule PrivateChoiceTarget do\nuse RelaDSL.Runtime, target: #{inspect(Path.join(dir, "flows.json"))}\nend")
   {:ok, socket} = :gen_tcp.listen(0, [:binary, ip: {127, 0, 0, 1}])
   {:ok, port} = :inet.port(socket)
   :gen_tcp.close(socket)

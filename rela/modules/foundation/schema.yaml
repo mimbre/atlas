@@ -1,7 +1,22 @@
 # Complete definitions; included paths are relative to the selected root.
 types:
+  turn_state:
+    values:
+    - running
+    - ended
+    labels:
+      running: Running
+      ended: Ended
   decision_category:
-    values: [product, process, domain, architecture, interface, technology, security, operations]
+    values:
+    - product
+    - process
+    - domain
+    - architecture
+    - interface
+    - technology
+    - security
+    - operations
     descriptions:
       product: What is built, for whom, what is in or out
       process: 'How work moves: phases, passes, gates, roles, release'
@@ -12,7 +27,10 @@ types:
       security: Trust boundaries, permissions, credentials and data access
       operations: Environments, deployment, backups, machines
   decision_scope:
-    values: [platform, software, instance]
+    values:
+    - platform
+    - software
+    - instance
     labels:
       platform: Platform
       software: Software
@@ -22,7 +40,9 @@ types:
       software: 'How software gets built here: issues, pull requests and their flows'
       instance: 'One installation: its environments, machines, accounts'
   decision_reversibility:
-    values: [one_way, two_way]
+    values:
+    - one_way
+    - two_way
     labels:
       one_way: One-way
       two_way: Two-way
@@ -30,51 +50,56 @@ types:
       one_way: Costly or impossible to undo; always accepted by a person
       two_way: Cheap to undo; may be accepted with delegated authority
   decision_force:
-    values: [direction, guideline, guardrail, principle]
+    values:
+    - direction
+    - guideline
+    - guardrail
+    - principle
     descriptions:
       direction: Where we go; future work is based on it
       guideline: How work should be done; deviation is allowed with a reason
       guardrail: What work must or must not do; a violation blocks
       principle: What never happens, by anyone; enforced by the system
   decision_status:
-    values: [proposed, accepted, rejected, superseded]
+    values:
+    - proposed
+    - accepted
+    - rejected
+    - superseded
     labels:
       proposed: Proposed
       accepted: Accepted
       rejected: Rejected
       superseded: Superseded
   gate_flavor:
-    values: [rule, smart]
+    values:
+    - rule
+    - smart
     descriptions:
       rule: Deterministic rules alone decide
       smart: Jev advises; deterministic rules on top decide
   gate_purpose:
-    values: [flow, decider]
+    values:
+    - flow
+    - decider
     descriptions:
       flow: Decides the next step of a flow
       decider: Decides whether a person or an agent makes a decision
   gate_unsettled:
-    values: [uncertain, error]
+    values:
+    - uncertain
+    - error
     descriptions:
       uncertain: The gate could not tell; its policy took the safe outcome
       error: The evaluation failed or timed out; never a pass
-  turn_state:
-    values:
-    - running
-    - ended
-    labels:
-      running: Running
-      ended: Ended
 entities:
   person:
     label: Person
     plural: people
     id_type: manual
-    description: 'Someone who works with Atlas. The id is short and lower case, made from
-
+    description: |
+      Someone who works with Atlas. The id is short and lower case, made from
       the name, e.g. melle.
-
-      '
     properties:
       name:
         type: string
@@ -84,11 +109,9 @@ entities:
     label: Agent
     plural: agents
     id_type: manual
-    description: 'An agent that works with Atlas. The id is short and lower case, made from the
-
+    description: |
+      An agent that works with Atlas. The id is short and lower case, made from the
       name, e.g. coordinator.
-
-      '
     properties:
       name:
         type: string
@@ -96,20 +119,16 @@ entities:
         description: As it is shown
       cannot_run:
         type: string
-        description: Where and since when it cannot run, and why (3 crashes in 10 minutes); Runtime writes
-          and clears it (IS-Atlas-18)
+        description: Where and since when it cannot run, and why (3 crashes in 10 minutes); Runtime writes and clears it (IS-Atlas-18)
   assignment:
     label: Assignment
     plural: assignments
     id_type: manual
     id_prefix: AS-
-    description: 'What belongs to being assigned, for one fact: who it is assigned to and what
-
+    description: |
+      What belongs to being assigned, for one fact: who it is assigned to and what
       they are expected to do. Made and deleted with the fact; its id is AS- and the
-
-      fact''s, e.g. AS-UC-Atlas-01.
-
-      '
+      fact's, e.g. AS-UC-Atlas-01.
     properties:
       of:
         type: string
@@ -132,13 +151,10 @@ entities:
     plural: turns
     id_type: manual
     id_prefix: TU-
-    description: 'One stretch in which an agent acts on one item: started by Runtime for the item''s
-
+    description: |
+      One stretch in which an agent acts on one item: started by Runtime for the item's
       owner, kept while the agent shows activity (its lease), ended when the agent ends
-
       it, goes silent, crashes, runs too long, or no longer owns the item.
-
-      '
     properties:
       state:
         type: turn_state
@@ -150,8 +166,7 @@ entities:
         description: The machine whose Runtime runs it
       lease_until:
         type: datetime
-        description: 'Until when the turn holds its lease: the agent''s last activity plus the silence
-          limit'
+        description: 'Until when the turn holds its lease: the agent''s last activity plus the silence limit'
       activity:
         type: string
         description: The agent's last activity Runtime saw
@@ -171,8 +186,7 @@ entities:
     label: Worker execution
     plural: worker_executions
     id_type: manual
-    description: Immutable durable execution; only the Facts guidance operation writes
-      this record.
+    description: Immutable durable execution; only the Facts guidance operation writes this record.
     properties:
       environment:
         type: string
@@ -222,8 +236,7 @@ entities:
     label: Interaction
     plural: interactions
     id_type: manual
-    description: Immutable durable interaction; only the Facts guidance operation writes
-      this record.
+    description: Immutable durable interaction; only the Facts guidance operation writes this record.
     properties:
       environment:
         type: string
@@ -268,8 +281,7 @@ entities:
     label: Interaction receipt
     plural: interaction_receipts
     id_type: manual
-    description: Immutable durable receipt; only the Facts guidance operation writes
-      this record.
+    description: Immutable durable receipt; only the Facts guidance operation writes this record.
     properties:
       environment:
         type: string
@@ -320,13 +332,10 @@ entities:
     - dr
     id_type: manual
     id_prefix: D-
-    description: 'One decision record in the append-only ledger: the rule, why, and what follows
-
+    description: |
+      One decision record in the append-only ledger: the rule, why, and what follows
       from it. An accepted decision is never edited; a newer decision supersedes it. The id
-
       is D- and a number, e.g. D-0024.
-
-      '
     properties:
       title:
         type: string
@@ -380,13 +389,10 @@ entities:
     plural: gate_verdicts
     id_type: manual
     id_prefix: GV-
-    description: 'One gate decision, recorded in full: what the gate saw, what it chose, what
-
+    description: |
+      One gate decision, recorded in full: what the gate saw, what it chose, what
       it could have chosen and, later, how good that turned out. Immutable once written;
-
       each later outcome is set once. The id is GV- and a number, e.g. GV-0001.
-
-      '
     properties:
       gate:
         type: string
@@ -510,7 +516,6 @@ entities:
         type: string
       blocked_reason:
         type: string
-
   flow_input:
     label: Flow input
     plural: flow_inputs
@@ -553,7 +558,6 @@ entities:
         type: string
       applied_at:
         type: string
-
 relations:
   assigned_to:
     label: assigned to

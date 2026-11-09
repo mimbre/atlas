@@ -9,7 +9,7 @@ defmodule AtlasFlow.Runs.Run do
   # Definitions are published JSON data; stable internal request identities retain
   # their existing term encoding so pending writes keep their idempotency keys.
   def digest(definition) when is_map(definition),
-    do: AtlasFlowGenerator.DefinitionDigest.of(definition)
+    do: RelaDSL.DefinitionDigest.of(definition)
 
   def digest(term),
     do: :crypto.hash(:sha256, :erlang.term_to_binary(term)) |> Base.encode16(case: :lower)

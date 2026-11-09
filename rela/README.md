@@ -50,8 +50,17 @@ and shortcut collisions. It calls pinned rela validation and the actual generic
 checks an inventory obtained through Control, shaped `{kind: [keys]}`; actor facts
 are never shipped as configuration. Actor existence is also reconciled by Flow.
 
-`flows.yaml` is generated too: the assembler copies `flow/targets/rela/flows.yaml`
-(written by `mix atlas.flow.gen` in `flow/contract`) byte for byte, validates the
+The hand-written schema YAML has one style, so a later generator can write it byte for
+byte (Rela DSL design, slice 0): two-space block maps and block lists (`- ` at the key's
+indent), no anchors or aliases, a plain scalar where that is safe and a single-quoted one
+otherwise, never folded across lines, multi-line text as a `|` block, no blank lines. The
+order is the concept order: a type sits before the types of the concepts that follow it
+(`turn_state` before the decision types), and properties keep their form order. The
+assembler writes `atlas.json` with sorted keys, so its bytes depend only on what the
+fragments say.
+
+`flows.yaml` is generated too: the assembler copies `model/targets/rela/flows.yaml`
+(written by `mix model.gen` in `model/contract`) byte for byte, validates the
 description with it on a staging copy, records the source's hash under `flows` in
 `atlas.manifest.json`, and `--check` fails on a stale copy. `acl.yaml` holds the roles the
 flows name, so rela can check them. Rela defines and checks the flows; Atlas Flow runs
@@ -59,7 +68,7 @@ them (D-0068). Neither file is part of the selected closure, so startup never co
 into a running rela's data (which runs without an `acl.yaml`, and would refuse flows that
 name roles). **Follow-up for the image:** the core image must hold `rela/flows.yaml` for
 Flow: add it to the `COPY rela/schema.yaml rela/data-entry.yaml …  /app/rela/` line of
-`fly/core.Dockerfile`, after the build stage copies `flow/generator` and `flow/targets`.
+`fly/core.Dockerfile`, after the build stage copies `model/dsl` and `model/targets`.
 The rela image does not need it.
 
 `atlas.manifest.json` records every selected schema/JSON input and generated output

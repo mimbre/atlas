@@ -28,7 +28,7 @@ types:
       in_review: The Design part waits for its review pass.
       changes_requested: The review sent the Design part back.
       approved: The review approved the Design part; it can be broken down and built.
-      accepted: 'An acceptor accepted the design (flow design_and_accept); building starts.'
+      accepted: An acceptor accepted the design (flow design_and_accept); building starts.
 entities:
   scene:
     label: Scene
@@ -37,24 +37,22 @@ entities:
     - sc
     id_type: manual
     id_prefix: SC-
-    description: 'An actor-centred view of the system, with one angle and one zoom level
-
-      (Flux''s meaning). The id is its code, e.g. SC-Atlas-01.
-
-      '
+    description: |
+      An actor-centred view of the system, with one angle and one zoom level
+      (Flux's meaning). The id is its code, e.g. SC-Atlas-01.
     properties:
-      title: &id001
+      title:
         type: string
         required: true
         description: 'Without the code (Flux: name)'
-      description: &id002
+      description:
         type: string
         description: 'The text (Flux: description)'
-      flux_id: &id003
+      flux_id:
         type: string
         unique: true
         description: Flux (Basecamp) id, set by a later Flux sync
-      status: &id004
+      status:
         type: plan_status
         description: Flux group; empty = no group
       children:
@@ -76,16 +74,24 @@ entities:
     - uc
     id_type: manual
     id_prefix: UC-
-    description: 'The technical contract for part of a scene (Flux''s meaning). The id is
-
+    description: |
+      The technical contract for part of a scene (Flux's meaning). The id is
       its code, e.g. UC-Atlas-01.
-
-      '
     properties:
-      title: *id001
-      description: *id002
-      flux_id: *id003
-      status: *id004
+      title:
+        type: string
+        required: true
+        description: 'Without the code (Flux: name)'
+      description:
+        type: string
+        description: 'The text (Flux: description)'
+      flux_id:
+        type: string
+        unique: true
+        description: Flux (Basecamp) id, set by a later Flux sync
+      status:
+        type: plan_status
+        description: Flux group; empty = no group
       design:
         type: string
         description: 'The Design part: how it is built, written by the Architect'
