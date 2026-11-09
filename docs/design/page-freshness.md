@@ -130,7 +130,7 @@ The marker reaches the client through the 0.15.0 row fields (`key`, `pending`), 
 
 The TUI change sits on the history-stack fix (in progress). Each history entry remembers the path and its selection `{identity, index}`; `back` pops an entry and re-opens it as above. The per-tab `selections` map stores the same pair. The cache is bounded (16 paths, LRU) and survives a reconnect, because positions are global.
 
-Additive fields are tolerated by readers (`platform/atlas_control/bff/README.md`, compile-time payloads), and an old client ignores pages for other paths (`console.ex:147`). The version still goes to 0.15.0 in F6, because Control's payloads validate against the contract's row model. `platform/clients/agent` ignores both fields.
+Additive fields are tolerated by readers (`platform/atlas_control/backend/README.md`, compile-time payloads), and an old client ignores pages for other paths (`console.ex:147`). The version still goes to 0.15.0 in F6, because Control's payloads validate against the contract's row model. `platform/clients/agent` ignores both fields.
 
 ### 3.1 Selection rule (pure, `platform/clients/tui/lib/atlas_tui/selection.ex`)
 
@@ -199,7 +199,7 @@ Each slice can be merged alone and is green. Steps F1–F8 do not depend on the 
 | F3 | **Flow: settled position** (`AtlasFlow.Settled`, handled hints, `_settled` answered) | — | — | — |
 | F4 | **Control: read sets and precise invalidation.** `Freshness.*` (without marks), every page through `_page`, recent paths (N = 8, K = 3), batching, count read set | 0.14.0 | `Pages.shows?/3`, `progress_from/3`, `completion_from/2`, `count_stale` | F1, F2 |
 | F5 | **Control: read-your-writes** after a submit; the settled wait on a flush; the timeout log line, with no notice | 0.14.0 | — | F3, F4 |
-| F6 | **TUI and contract: page cache, re-open on back/tab, selection rule (§3.1), rendering of `pending`.** The row model gains `key` and `pending`; Control fills `key` from `to` | **0.15.0** (`platform/atlas_control/bff/contract`, `platform/atlas_control/bff/README.md`) | the drop of off-screen pages; `keep_selection/2` | the history-stack fix |
+| F6 | **TUI and contract: page cache, re-open on back/tab, selection rule (§3.1), rendering of `pending`.** The row model gains `key` and `pending`; Control fills `key` from `to` | **0.15.0** (`platform/atlas_control/backend/contract`, `platform/atlas_control/backend/README.md`) | the drop of off-screen pages; `keep_selection/2` | the history-stack fix |
 | F7 | **Control: pending marker** (§2.3): `marks.ex`, overlay on every page, re-send of marked recent views, clear on settled, re-ask while marks are held | 0.15.0 (no change) | — | F5, F6 |
 | F8 | **e2e latency, marker and precision proof** | — | — | F7 |
 | F9 | **Cheap reconcile**: a `_position` read; no `_description` read on refresh | — | `describe/1` on `refresh` | **Rela DSL slice 5**: until then, refresh is how Control picks up a changed description |

@@ -3,7 +3,7 @@ defmodule AtlasBFFContract.Contract do
   The contract, the single source of the spec, written in the generator's DSL
   (`AtlasBFF.Schema`). Control and the TUI read it at compile time
   (`AtlasControl.Blocks`, `AtlasTui.Blocks`); `mix atlas.gen` here writes
-  `platform/atlas_control/bff/targets/json/blocks.json` for clients in other languages and `platform/atlas_control/bff/targets/swift/`,
+  `platform/atlas_control/backend/targets/json/blocks.json` for clients in other languages and `platform/atlas_control/backend/targets/swift/`,
   the Swift package `AtlasControlKit`, for clients on Apple's platforms.
   """
   use AtlasBFF.Schema

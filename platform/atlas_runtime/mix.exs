@@ -29,7 +29,7 @@ defmodule AtlasRuntime.MixProject do
   defp deps,
     do: [
       {:atlas_bus, in_umbrella: true},
-      {:atlas_bff_contract, path: "../atlas_control/bff/contract"},
+      {:atlas_bff_contract, path: "../atlas_control/backend/contract"},
       {:rela_dsl, path: "../../products/software_factory/model/generator", only: :test}
     ]
 end

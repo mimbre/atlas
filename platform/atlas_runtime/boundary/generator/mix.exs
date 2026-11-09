@@ -3,7 +3,7 @@ defmodule AtlasRuntimeBoundary.Generator.MixProject do
 
   # The generator of the Runtime's boundary contracts: the DSL a contract is written in,
   # the targets and `mix runtime_boundary.gen`. A renamed copy of the needed parts of
-  # Control's generator (platform/atlas_control/bff/generator), not a dependency on it. It
+  # Control's generator (platform/atlas_control/backend/generator), not a dependency on it. It
   # holds none of the Runtime's values: those are in the contract, a project of its own
   # that depends on this one; this one compiles and is tested without it.
   def project do

@@ -3,7 +3,7 @@ defmodule AtlasControl.SpecTest do
 
   require AtlasControl.Blocks, as: Blocks
 
-  # The builders themselves are tested in the generator (platform/atlas_control/bff/generator), on a neutral
+  # The builders themselves are tested in the generator (platform/atlas_control/backend/generator), on a neutral
   # contract; here: that Control's are made from Control's contract.
   test "Control's builders are its contract's blocks, models and markup" do
     schema = AtlasBFFContract.Contract.__schema__()

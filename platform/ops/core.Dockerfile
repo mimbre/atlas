@@ -5,7 +5,7 @@ FROM hexpm/elixir:1.18.4-erlang-28.5.0.2-debian-bookworm-20260610-slim AS build
 
 ENV MIX_ENV=prod
 # What the umbrella (products/software_factory, its apps in platform/) reads to compile:
-# Control and Runtime the contract (platform/atlas_control/bff/contract, a path dependency
+# Control and Runtime the contract (platform/atlas_control/backend/contract, a path dependency
 # inside Control's folder, which compiles with its generator); the release the model
 # (products/software_factory/model/contract, which Facts, Flow, Gates, Runtime and Control are wired
 # to) and the Rela DSL it is written in (products/software_factory/model/generator). No generated JSON: the model is

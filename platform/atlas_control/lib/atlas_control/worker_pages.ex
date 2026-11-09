@@ -21,7 +21,7 @@ defmodule AtlasControl.WorkerPages do
     }
   end
 
-  # Calm by default, detail on demand (platform/atlas_control/bff/README.md): an Overview of the counts; running
+  # Calm by default, detail on demand (platform/atlas_control/backend/README.md): an Overview of the counts; running
   # first, in a list of its own, newest activity first; then the turns that finished most
   # recently (`Workers.board/3`). Each row is the turn: the worker, what it is doing in
   # plain words, and the worker page of its exact execution; its identity and the rest

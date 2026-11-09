@@ -118,7 +118,7 @@ defmodule AtlasBus.BoundaryTest do
         Path.wildcard(
           Path.join([
             @root,
-            "platform/atlas_control/bff/{contract,generator}",
+            "platform/atlas_control/backend/{contract,generator}",
             "{lib,test}",
             "**",
             "*.{ex,exs}"
@@ -253,7 +253,7 @@ defmodule AtlasBus.BoundaryTest do
         Enum.map(@layers, fn {app, ns} -> {"platform/#{app}", ns} end) ++ @clients ++ @readers
 
       files = Enum.flat_map(dirs, fn {dir, own} -> sources(dir, own) end)
-      assert Path.join(@root, "platform/atlas_control/bff/contract/lib/blocks.ex") in files
+      assert Path.join(@root, "platform/atlas_control/backend/contract/lib/blocks.ex") in files
       assert length(files) > 20
 
       for file <- files do
