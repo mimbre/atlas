@@ -3,9 +3,10 @@ defmodule AtlasCode do
   Local Code service: `GET /v1/health`, `POST /v1/references/resolve`, `POST /v1/snapshots`,
   `GET /v1/snapshots/{id}/manifest`, `GET /v1/snapshots/{id}/archive?path=…`,
   `POST /v1/changes`, `PUT /v1/changes/{id}/blobs/{sha256}`, `POST /v1/changes/{id}/seal`,
-  `POST /v1/reviews` and `POST /v1/integrations` on 127.0.0.1 over OTP `:inets` httpd. Every
-  request, health included, needs `Authorization: Bearer <token>`: the runtime token or the
-  orchestrator token. Only the orchestrator token may review or integrate.
+  `POST /v1/reviews`, `POST /v1/review-updates` and `POST /v1/integrations` on 127.0.0.1 over
+  OTP `:inets` httpd. Every request, health included, needs `Authorization: Bearer <token>`: the
+  runtime token or the orchestrator token. Only the orchestrator token may review, update a
+  review or integrate.
 
   Clients see repository names, reference names, `sha256:` snapshot IDs, opaque
   `rev_<64 hex>` revision handles and their own UUIDs. Commits, branches, refs, remote URLs and
@@ -37,7 +38,12 @@ defmodule AtlasCode do
   - `reviews/<review id>.json`: `{"request", "phase", "repository", "change_id", "revision",
     "location", "review_url"?}`, written before any remote effect. Phases: `pushing`, then
     `pushed`, then `open`; or `failed` when the review location already existed.
+    An update moves `revision` and `change_id` to its own and appends its ID to `"updates"`.
     Publications from before revision handles keep their `publications/<id>.json`.
+  - `review-updates/<update id>.json`: `{"request", "phase", "review_id", "change_id",
+    "previous_revision", "revision", …}`, written before the push. Phases: `pushing`, then
+    `updated`; or the terminal `refused` (with `"code"`) when the location moved or the remote
+    refused. The pushed commit keeps the private ref `refs/atlas/updates/<update id>`.
   - `integrations/<integration id>.json`: `{"request", "phase", "repository", "target", …}`.
     Phases: `integrating`, then `integrated`; or the terminal `target_moved`, `conflicted` or
     `refused`.
@@ -58,6 +64,7 @@ defmodule AtlasCode do
     "/v1/snapshots" => ~c"POST",
     "/v1/changes" => ~c"POST",
     "/v1/reviews" => ~c"POST",
+    "/v1/review-updates" => ~c"POST",
     "/v1/integrations" => ~c"POST"
   }
   @git_config [
@@ -663,7 +670,7 @@ defmodule AtlasCode do
   end
 
   defp route(~c"POST", path, _query, body, settings)
-       when path in ["/v1/reviews", "/v1/integrations"] do
+       when path in ["/v1/reviews", "/v1/review-updates", "/v1/integrations"] do
     cond do
       settings.orchestrator == nil ->
         error(403, "forbidden", "Reviews and integrations are not configured")
@@ -673,6 +680,9 @@ defmodule AtlasCode do
 
       path == "/v1/reviews" ->
         with {:ok, request} <- review_request(body), do: review(settings, request)
+
+      path == "/v1/review-updates" ->
+        with {:ok, request} <- update_request(body), do: update(settings, request)
 
       true ->
         with {:ok, request} <- integration_request(body), do: integrate(settings, request)
@@ -2032,6 +2042,391 @@ defmodule AtlasCode do
 
     {200, if(url = record["review_url"], do: Map.put(reply, "review_url", url), else: reply)}
   end
+
+  defp update_request(body) do
+    case JSON.decode(body) do
+      {:ok,
+       %{
+         "update_id" => id,
+         "review_id" => review,
+         "change_id" => change,
+         "revision" => revision,
+         "fingerprint" => _fingerprint
+       } = request}
+      when map_size(request) == 5 and is_binary(id) and is_binary(review) and is_binary(change) ->
+        cond do
+          not uuid?(id) ->
+            error(400, "invalid_request", "update_id must be a lowercase UUID")
+
+          not uuid?(review) ->
+            error(400, "invalid_request", "review_id must be a lowercase UUID")
+
+          not uuid?(change) ->
+            error(400, "invalid_request", "change_id must be a lowercase UUID")
+
+          not revision?(revision) ->
+            error(400, "invalid_request", "revision must be rev_<64 lowercase hex characters>")
+
+          not optional_fingerprint?(request) ->
+            error(400, "invalid_request", "fingerprint must be fpr_<64 lowercase hex characters>")
+
+          true ->
+            {:ok, request}
+        end
+
+      _ ->
+        error(
+          400,
+          "invalid_request",
+          ~s(Body must be {"update_id", "review_id", "change_id", "revision", "fingerprint"})
+        )
+    end
+  end
+
+  # An update moves an open review's location to another sealed change, after a decision on
+  # exactly that change's fingerprint. Code commits the change's tree as a child of the review's
+  # current head (fixed identity, the head's committer date, so the commit is deterministic) and
+  # fast-forwards the location with a lease on that head: a location someone else moved is never
+  # overwritten. The pull request follows its branch, so no provider call is needed. The record
+  # is written before the push; `pushing` is the only phase that is resumed. Updates share the
+  # reviews lock, so they never interleave with a review or with each other.
+  defp update(settings, %{"update_id" => id} = request) do
+    file = Path.join([settings.home, "review-updates", id <> ".json"])
+
+    locked(Path.join(settings.home, "reviews"), fn ->
+      case File.read(file) do
+        {:ok, json} ->
+          case JSON.decode!(json) do
+            %{"request" => ^request, "phase" => "pushing"} = record ->
+              with {:ok, target} <- update_target(settings, record),
+                   do: move(settings, file, record, target)
+
+            %{"request" => ^request} = record ->
+              update_outcome(record)
+
+            _ ->
+              error(409, "conflict", "update_id was already used with a different body", %{
+                "update_id" => id
+              })
+          end
+
+        {:error, :enoent} ->
+          with {:ok, record, target} <- update_record(settings, request) do
+            File.mkdir_p!(Path.dirname(file))
+            move(settings, file, save(file, record), target)
+          end
+      end
+    end)
+  end
+
+  # Every check runs before any record or remote effect, in the contract's order.
+  defp update_record(
+         settings,
+         %{"review_id" => review_id, "change_id" => change_id, "revision" => revision} = request
+       ) do
+    with {:ok, review} <- open_review(settings, review_id),
+         {:ok, stored, sealed} <- sealed_change(settings, change_id) do
+      cond do
+        stored["repository"] != review["repository"] ->
+          error(409, "repository_mismatch", "The change is for another repository", %{
+            "repository" => review["repository"],
+            "change_id" => change_id
+          })
+
+        review["revision"] != revision ->
+          error(409, "revision_mismatch", "revision is not the review's current revision", %{
+            "review_id" => review_id,
+            "revision" => review["revision"]
+          })
+
+        mismatch = fingerprint_mismatch(request, change_id, fn -> stored end) ->
+          mismatch
+
+        true ->
+          record = %{
+            "request" => request,
+            "phase" => "pushing",
+            "review_id" => review_id,
+            "repository" => review["repository"],
+            "location" => review["location"],
+            "change_id" => change_id,
+            "sealed" => sealed,
+            "previous_revision" => revision
+          }
+
+          record =
+            if url = review["review_url"], do: Map.put(record, "review_url", url), else: record
+
+          with {:ok, %{dir: dir, head: head, sealed: tree} = target} <-
+                 update_target(settings, record),
+               {:ok, child} <- locked(dir, fn -> child(dir, head, tree, request) end) do
+            handle = put_revision(settings.home, review["repository"], child)
+            {:ok, Map.put(record, "revision", handle), target}
+          end
+      end
+    end
+  end
+
+  defp open_review(settings, review_id) do
+    case File.read(Path.join([settings.home, "reviews", review_id <> ".json"])) do
+      {:ok, json} ->
+        case JSON.decode!(json) do
+          %{"phase" => "open"} = review ->
+            {:ok, review}
+
+          _ ->
+            error(409, "review_not_open", "Only an open review can be updated", %{
+              "review_id" => review_id
+            })
+        end
+
+      {:error, :enoent} ->
+        error(404, "not_found", "Review not found", %{"review_id" => review_id})
+    end
+  end
+
+  defp sealed_change(settings, change_id) do
+    dir = Path.join([settings.home, "changes", change_id])
+
+    case {File.read(Path.join(dir, "request.json")), File.read(Path.join(dir, "revision"))} do
+      {{:error, :enoent}, _} ->
+        error(404, "not_found", "Change not found", %{"change_id" => change_id})
+
+      {_, {:error, :enoent}} ->
+        error(409, "change_not_sealed", "Only a sealed change can update a review", %{
+          "change_id" => change_id
+        })
+
+      {{:ok, json}, {:ok, revision}} ->
+        {:ok, JSON.decode!(json), revision}
+    end
+  end
+
+  # Checked on every attempt with remote effects, like a review's provider: the repository must
+  # still be allowed and the review's head and the change's sealed commit in Code's cache.
+  defp update_target(settings, %{"repository" => repository} = record) do
+    url = settings.repositories[repository]
+
+    with true <-
+           url != nil ||
+             error(403, "forbidden", "Repository is not allowed", %{"repository" => repository}),
+         {:ok, head} <- revision(settings.home, repository, record["previous_revision"]),
+         {:ok, sealed} <- revision(settings.home, repository, record["sealed"]) do
+      dir = cache(settings.home, repository, url)
+
+      if commit?(dir, head) and commit?(dir, sealed),
+        do: {:ok, %{url: url, dir: dir, head: head, sealed: sealed}},
+        else:
+          error(
+            409,
+            "conflict",
+            "The review's or the change's revision is not in Code's cache for the configured remote",
+            %{"revision" => record["previous_revision"], "change_id" => record["change_id"]}
+          )
+    end
+  end
+
+  # The sealed change's tree on top of the review's head, kept on a private ref so Git never
+  # prunes it. The same update always gives the same commit, so a repeat after a crash reclaims it.
+  defp child(dir, head, sealed, %{"update_id" => id, "change_id" => change}) do
+    {output, 0} =
+      System.cmd(
+        "git",
+        [
+          "-c",
+          "core.hooksPath=/dev/null",
+          "--git-dir",
+          dir,
+          "commit-tree",
+          "--no-gpg-sign",
+          "-p",
+          head,
+          "-m",
+          "Atlas change #{change}",
+          "-m",
+          "Review update #{id}",
+          sealed <> "^{tree}"
+        ],
+        env: identity(dir, head)
+      )
+
+    commit = String.trim(output)
+
+    case claim(dir, "refs/atlas/updates/" <> id, commit) do
+      :ok ->
+        {:ok, commit}
+
+      :taken ->
+        error(409, "conflict", "The update is recorded differently in Code's cache", %{
+          "update_id" => id
+        })
+    end
+  end
+
+  # Fast-forwards the location from the review's head to the update's commit. Every attempt asks
+  # the remote first: a location already at the commit is an earlier push whose response was lost.
+  defp move(
+         settings,
+         file,
+         %{"location" => location, "repository" => repository} = record,
+         %{url: url, dir: dir, head: head} = target
+       ) do
+    ref = "refs/heads/" <> location
+    {:ok, child} = revision(settings.home, repository, record["revision"])
+
+    case ls_remote(["--git-dir", dir], url, ref) do
+      [^child] ->
+        advanced(settings, file, record)
+
+      [^head] ->
+        args =
+          @git_config ++
+            [
+              "--git-dir",
+              dir,
+              "push",
+              "--porcelain",
+              "--force-with-lease=#{ref}:#{head}",
+              url,
+              "#{child}:#{ref}"
+            ]
+
+        {output, status} =
+          System.cmd("git", args, env: [{"GIT_TERMINAL_PROMPT", "0"}], stderr_to_stdout: true)
+
+        flag = flag(output, "#{child}:#{ref}")
+
+        cond do
+          status == 0 and flag in [" ", "="] ->
+            advanced(settings, file, record)
+
+          # No status line: the outcome is unknown, so the phase stays pushing for a repeat.
+          flag == nil ->
+            error(503, "provider_unavailable", "git push failed with exit status #{status}")
+
+          true ->
+            case ls_remote(["--git-dir", dir], url, ref) do
+              [^child] ->
+                advanced(settings, file, record)
+
+              # Still at the head: the remote itself refused the update.
+              [^head] ->
+                update_outcome(
+                  save(
+                    file,
+                    %{record | "phase" => "refused"} |> Map.put("code", "update_refused")
+                  )
+                )
+
+              {:failed, _} ->
+                error(
+                  503,
+                  "provider_unavailable",
+                  "git push was refused with exit status #{status}"
+                )
+
+              current ->
+                diverged(settings, file, record, target, child, current)
+            end
+        end
+
+      {:failed, status} ->
+        error(503, "provider_unavailable", "git ls-remote failed with exit status #{status}")
+
+      current ->
+        diverged(settings, file, record, target, child, current)
+    end
+  end
+
+  # The location is at neither the head nor the update: someone else moved or removed it. It
+  # holds the update only when it contains the update's commit (pushed on top after a lost reply).
+  defp diverged(settings, file, record, %{url: url, dir: dir}, child, [commit]) do
+    case locked(dir, fn -> fetch(dir, url, commit) end) do
+      :ok ->
+        if ancestor?(dir, child, commit),
+          do: advanced(settings, file, record),
+          else: location_moved(settings, file, record, commit)
+
+      :missing ->
+        location_moved(settings, file, record, commit)
+
+      {:failed, status} ->
+        error(503, "provider_unavailable", "git fetch failed with exit status #{status}")
+    end
+  end
+
+  defp diverged(settings, file, record, _target, _child, []),
+    do: location_moved(settings, file, record, nil)
+
+  defp diverged(_settings, _file, _record, _target, _child, _current),
+    do: error(503, "provider_unavailable", "Git returned an ambiguous reference")
+
+  defp location_moved(settings, file, record, commit) do
+    current = commit && put_revision(settings.home, record["repository"], commit)
+
+    update_outcome(
+      save(
+        file,
+        Map.merge(record, %{
+          "phase" => "refused",
+          "code" => "location_moved",
+          "current" => current
+        })
+      )
+    )
+  end
+
+  # The review follows its location: revision and change become the update's, once per update.
+  defp advanced(settings, file, %{"request" => %{"update_id" => id}} = record) do
+    review_file = Path.join([settings.home, "reviews", record["review_id"] <> ".json"])
+    review = review_file |> File.read!() |> JSON.decode!()
+    updates = Map.get(review, "updates", [])
+
+    unless id in updates do
+      save(
+        review_file,
+        Map.merge(review, %{
+          "revision" => record["revision"],
+          "change_id" => record["change_id"],
+          "updates" => updates ++ [id]
+        })
+      )
+    end
+
+    update_outcome(save(file, %{record | "phase" => "updated"}))
+  end
+
+  defp update_outcome(%{"phase" => "updated", "request" => request} = record) do
+    reply = %{
+      "update_id" => request["update_id"],
+      "review_id" => record["review_id"],
+      "change_id" => record["change_id"],
+      "repository" => record["repository"],
+      "previous_revision" => record["previous_revision"],
+      "revision" => record["revision"],
+      "state" => "open"
+    }
+
+    {200, if(url = record["review_url"], do: Map.put(reply, "review_url", url), else: reply)}
+  end
+
+  defp update_outcome(%{"phase" => "refused", "code" => "location_moved"} = record),
+    do:
+      error(
+        409,
+        "location_moved",
+        "The review location is not at the review's revision; Code never overwrites it",
+        %{"review_id" => record["review_id"], "current" => record["current"]}
+      )
+
+  defp update_outcome(%{"phase" => "refused", "code" => "update_refused"} = record),
+    do:
+      error(
+        409,
+        "update_refused",
+        "The remote refused to move the review location, for example by branch policy; Code never bypasses it",
+        %{"review_id" => record["review_id"]}
+      )
 
   defp integration_request(body) do
     case JSON.decode(body) do
