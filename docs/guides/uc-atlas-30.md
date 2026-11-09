@@ -16,9 +16,9 @@ Run it again in a second terminal for TUI 2 (see `docs/guides/uc-atlas-01.md` fo
 
 | Where | Keys | What you should see |
 |---|---|---|
-| The scenes list | `?` | The key legend includes `c Create scene`. With no scenes: `No scenes yet. Press c to create one.` Close the legend with Esc before acting. |
+| The scenes list | `?` | The key legend includes `c Create scene`. With no scenes: `No scenes yet.` Close the legend with Esc before acting. |
 | Create | `c` | The form is called `Create scene`, its button `[ Create ]`. |
-| A scene | `enter` on a row, then `?` | The key legend offers `u Update scene`, `d Delete scene` and `c Create use case`. The empty list says `Press c to create one.` Close the legend with Esc before acting. |
+| A scene | `enter` on a row, then `?` | The key legend offers `u Update scene`, `d Delete scene` and `c Create use case`. The empty list says `No use cases yet.` Close the legend with Esc before acting. |
 | Update | `u` | The form is called `Update SC-Atlas-NN`, its button `[ Update ]`. |
 | A use case, an issue | `enter` | The same words: `u Update use case`, `d Delete use case`, `c Create issue`; on an issue `c Create pull request`. |
 

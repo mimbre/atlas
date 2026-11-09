@@ -75,7 +75,7 @@ defmodule Model.Assignment do
     assigned: [relation: :assigned_to, title: "Assigned to you", count: "{count} assigned to you"],
     open: [
       title: "Open work",
-      empty: "Nothing is open: no fact is assigned to anyone, and nothing is expected."
+      empty: "No open work right now."
     ]
   )
 end

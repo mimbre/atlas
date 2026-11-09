@@ -323,7 +323,7 @@ defmodule AtlasControl.PagesTest do
     %{blocks: [_, %{"props" => none}]} =
       render({:item, "widget", "W-1"}, @d, [answer, %{"facts" => []}])
 
-    assert none["empty"] == "No parts yet. Press c to create one."
+    assert none["empty"] == "No parts yet."
   end
 
   test "a fact that points at a parent names it, and goes back and away to it" do
@@ -425,7 +425,7 @@ defmodule AtlasControl.PagesTest do
 
     %{blocks: [%{"props" => list}]} = render({:list, "widget"}, @d, [%{"facts" => []}])
     assert labels.(list["actions"]) == [{"c", "Create widget"}]
-    assert list["empty"] == "No widgets yet. Press c to create one."
+    assert list["empty"] == "No widgets yet."
 
     %{blocks: [%{"props" => item}, %{"props" => tags} | _]} =
       render({:item, "part", "P-1"}, @d, [%{"fact" => part}, %{"facts" => []}])
@@ -471,7 +471,7 @@ defmodule AtlasControl.PagesTest do
     assert {labels.(first["actions"]), labels.(second["actions"])} ==
              {[{"c", "Create part"}], [{"s", "Create spare"}]}
 
-    assert second["empty"] == "No spares yet. Press s to create one."
+    assert second["empty"] == "No spares yet."
   end
 
   # Widgets roll up their parts, parts their tags; a widget's shade is shown as "Look".

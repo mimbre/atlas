@@ -1054,12 +1054,12 @@
   "start": {
     "assigned": {
       "count": "{count} assigned to you",
-      "empty": "Nothing is assigned to you now. Flow assigns you what is your move (to test it, say), and anyone can with assigned_to. s opens the scenes.",
+      "empty": "Nothing needs you right now.",
       "relation": "assigned_to",
       "title": "Assigned to you"
     },
     "open": {
-      "empty": "Nothing is open: no fact is assigned to anyone, and nothing is expected.",
+      "empty": "No open work right now.",
       "title": "Open work"
     }
   },
