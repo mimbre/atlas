@@ -23,6 +23,10 @@
       {
         "child": "pr_review",
         "child_subject": "pr_review",
+        "current": {
+          "child": "revision",
+          "parent": "revision"
+        },
         "field": "review_outcome",
         "parent_subject": "pull_request",
         "relation": "review_of",
@@ -35,6 +39,10 @@
       {
         "child": "pr_test",
         "child_subject": "pr_test",
+        "current": {
+          "child": "revision",
+          "parent": "revision"
+        },
         "field": "test_outcome",
         "parent_subject": "pull_request",
         "relation": "test_of",
@@ -1049,7 +1057,7 @@
           "awaits": [],
           "branches": [
             {
-              "roles": ["atlas-flow"],
+              "roles": [],
               "to": "superseded",
               "when": "entity.superseded == true"
             },
@@ -1087,7 +1095,7 @@
           "awaits": [],
           "branches": [
             {
-              "roles": ["atlas-flow"],
+              "roles": [],
               "to": "superseded",
               "when": "entity.superseded == true"
             },
@@ -1104,17 +1112,9 @@
           ],
           "creates": [],
           "final": false,
-          "kind": "pass",
           "label": "PR review in progress",
           "set": [],
-          "spec": {
-            "folder": ["materialize", "parent_revision"],
-            "mode": "review",
-            "permissions": "materialized_folder",
-            "profile": "developer",
-            "with_person": true,
-            "writes": "none"
-          },
+          "status": "input_required",
           "timers": [
             {
               "label": "No outcome in three days",
@@ -1145,7 +1145,7 @@
           "awaits": [],
           "branches": [
             {
-              "roles": ["atlas-flow"],
+              "roles": [],
               "to": "superseded",
               "when": "entity.superseded == true"
             },
@@ -1201,7 +1201,7 @@
           "awaits": [],
           "branches": [
             {
-              "roles": ["atlas-flow"],
+              "roles": [],
               "to": "superseded",
               "when": "entity.superseded == true"
             },
@@ -1218,17 +1218,9 @@
           ],
           "creates": [],
           "final": false,
-          "kind": "pass",
           "label": "PR test in progress",
           "set": [],
-          "spec": {
-            "folder": ["materialize", "parent_revision"],
-            "mode": "author",
-            "permissions": "materialized_folder",
-            "profile": "tester",
-            "with_person": true,
-            "writes": "none"
-          },
+          "status": "input_required",
           "timers": [
             {
               "label": "No outcome in three days",
@@ -2033,6 +2025,6 @@
       "version": 1
     }
   },
-  "rela_flows_sha256": "ad26c078ad920f85d8b254ffdebaedf007c82ea75697145f8b381c1e6031f34a",
+  "rela_flows_sha256": "35a268a5f4d662d65e999ae819a9aa56df4f97c61653c6dbbca41aec195d317d",
   "writer": "system:atlas-flow"
 }

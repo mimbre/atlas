@@ -462,14 +462,16 @@ defmodule Model.AtlasEyra do
       to: {:pull_request, :review_of},
       field: :review_outcome,
       states: [approved: :approved, changes_requested: :changes_requested],
-      stale: :drop
+      stale: :drop,
+      current: {:revision, :revision}
     )
 
     link(:pr_test,
       to: {:pull_request, :test_of},
       field: :test_outcome,
       states: [passed: :passed, failed: :failed],
-      stale: :drop
+      stale: :drop,
+      current: {:revision, :revision}
     )
 
     link(:pull_request,

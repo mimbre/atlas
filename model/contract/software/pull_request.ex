@@ -57,6 +57,11 @@ defmodule Model.PullRequest do
 
     field(:test_outcome, :string, description: "Flow: how its test ended (none, passed, failed)")
 
+    field(:revision, :string,
+      description:
+        "The revision its review and test are for (its head commit); one of another is not current"
+    )
+
     field(:update, :string,
       description:
         "Flow: updated when a new revision arrives after changes were requested (none, updated)"

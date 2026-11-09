@@ -28,11 +28,11 @@ def without_ledger(schema):
     # The fields the flows (flows.yaml) read and write, and the review and test of a pull request.
     for kind in ('pr_review', 'pr_test'):
         schema['entities'].pop(kind)
-    for name in ('review_of', 'test_of'):
+    for name in ('review_of', 'test_of', 'verdict_by'):
         schema['relations'].pop(name)
     flow_fields = {
         'issue': ('pass_result', 'gate_result', 'effect_result', 'pr_outcome'),
-        'pull_request': ('review_outcome', 'test_outcome', 'update', 'integration'),
+        'pull_request': ('review_outcome', 'test_outcome', 'update', 'integration', 'revision'),
         'scene': ('children', 'open_children', 'verdict', 'pass_result'),
         'use_case': ('children', 'open_children', 'verdict', 'pass_result', 'gate_result'),
     }

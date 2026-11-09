@@ -42,7 +42,8 @@ defmodule AtlasFlow.Runs.Store do
           |> Map.put("selection", selection)
           |> Map.put("composition", composition)
 
-        {config, validate_selection(config, flows) || refused}
+        {config,
+         validate_selection(config, flows) || two_writers(model, selection, flows) || refused}
 
       _ ->
         {nil, nil}
@@ -89,10 +90,50 @@ defmodule AtlasFlow.Runs.Store do
 
       valid_imports =
         flow != nil and flow.subject() == selection["subject"] and
-          Enum.all?(selection["imports"], &flow.final?(&1["state"]))
+          Enum.all?(selection["imports"], &Run.importable?(flow, &1["state"]))
 
       if not valid_imports or Run.validate(flow) != :ok,
         do: {:unsupported_definition, name}
+    end)
+  end
+
+  # One writer per subject's presentation: a selected subflow on a kind a legacy flow also
+  # runs takes that kind's facts from it only by naming it (`legacy`) and giving its own
+  # `projection`; and no two selected subflows that project may admit the same fact.
+  # Otherwise two writers would present one fact: refuse every run.
+  defp two_writers(model, selection, flows) do
+    legacy = model.legacy()
+
+    Enum.find_value(Enum.sort(selection), fn {name, s} ->
+      kind = flows[name] && flows[name].subject()
+      runs_kind = Enum.filter(legacy, &(kind in &1.kinds()))
+
+      cond do
+        runs_kind != [] and
+            (not is_map(s["projection"]) or Enum.map(runs_kind, & &1.name()) != [s["legacy"]]) ->
+          {:two_writers, name}
+
+        is_map(s["projection"]) and
+            Enum.any?(selection, fn {other, o} ->
+              other != name and is_map(o["projection"]) and o["subject"] == s["subject"] and
+                  overlap?(o["admission"], s["admission"])
+            end) ->
+          {:two_writers, name}
+
+        true ->
+          nil
+      end
+    end)
+  end
+
+  # Two field-equality admissions admit a fact in common unless a field they both name
+  # has no value in common.
+  defp overlap?(a, b) do
+    a = Map.new(a || [])
+    b = Map.new(b || [])
+
+    Enum.all?(Map.take(a, Map.keys(b)), fn {field, allowed} ->
+      Enum.any?(List.wrap(allowed), &(&1 in List.wrap(b[field])))
     end)
   end
 
