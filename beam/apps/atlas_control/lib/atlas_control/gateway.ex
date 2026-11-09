@@ -1,7 +1,9 @@
 defmodule AtlasControl.Gateway do
   @moduledoc """
   Where clients connect: a TCP listener on this environment's Control address. Each
-  connection gets its own `AtlasControl.Session`.
+  connection gets its own `AtlasControl.Session`, with the model it serves pages for:
+  `model:` (an `AtlasControl.Model`, checked when the Gateway starts) and the
+  environment's `settings:` for Control (`AtlasControl.Model.catalog/2`).
   """
   use GenServer
 
@@ -21,6 +23,9 @@ defmodule AtlasControl.Gateway do
 
   @impl true
   def init(opts) do
+    # The model first: without one Control can serve, it listens for nobody.
+    catalog = AtlasControl.Model.catalog(Keyword.fetch!(opts, :model), opts[:settings] || %{})
+
     {:ok, ip} =
       opts |> Keyword.get(:host, "127.0.0.1") |> String.to_charlist() |> :inet.parse_address()
 
@@ -41,7 +46,7 @@ defmodule AtlasControl.Gateway do
     )
 
     gateway = self()
-    acceptor = spawn_link(fn -> accept(listen, gateway) end)
+    acceptor = spawn_link(fn -> accept(listen, gateway, catalog) end)
     {:ok, %{listen: listen, port: port, acceptor: acceptor, offline_until: nil}}
   end
 
@@ -68,12 +73,15 @@ defmodule AtlasControl.Gateway do
     end
   end
 
-  defp accept(listen, gateway) do
+  defp accept(listen, gateway, catalog) do
     {:ok, socket} = :gen_tcp.accept(listen)
 
     if GenServer.call(gateway, :online?) do
       {:ok, pid} =
-        DynamicSupervisor.start_child(AtlasControl.Sessions, {AtlasControl.Session, socket})
+        DynamicSupervisor.start_child(
+          AtlasControl.Sessions,
+          {AtlasControl.Session, {socket, catalog}}
+        )
 
       :ok = :gen_tcp.controlling_process(socket, pid)
       send(pid, :go)
@@ -81,6 +89,6 @@ defmodule AtlasControl.Gateway do
       :gen_tcp.close(socket)
     end
 
-    accept(listen, gateway)
+    accept(listen, gateway, catalog)
   end
 end

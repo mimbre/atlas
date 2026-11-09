@@ -9,44 +9,29 @@ defmodule AtlasControl.WorkerPagesTest do
     execution = Map.merge(target["worker"], Map.take(target, ~w(turn attempt)))
     execution = Map.merge(execution, %{"key" => "execution", "harness" => "codex"})
 
-    names = %{
-      "kind" => "turns",
-      "machine" => "machine",
-      "attempt" => "attempt",
-      "by" => "by",
-      "on" => "on",
-      "state" => "state",
-      "running" => "running",
-      "lease" => "lease",
-      "outcome" => "outcome"
-    }
-
-    description = %{
-      "runtime" => %{"turn" => names},
-      "guidance" => %{
-        "control" => %{"read" => %{"actors" => ["viewer"]}},
-        "execution" => %{"kind" => "executions"},
-        "interaction" => %{"kind" => "interactions"}
-      }
-    }
+    # Runs are turns and traces the executions (`AtlasControl.Packing`); a reader may read.
+    description =
+      AtlasControl.Model.catalog(AtlasControl.Packing, %{
+        "workers" => %{"read" => %{"actors" => ["viewer"]}}
+      })
 
     read = fn
-      "readers", %{"key" => "viewer"} ->
+      "reader", %{"key" => "viewer"} ->
         %{"fact" => %{"key" => "viewer"}}
 
-      "executions", %{"turn" => "page-turn", "attempt" => "1"} ->
+      "trace", %{"turn" => "page-turn", "attempt" => "1"} ->
         %{"fact" => execution}
 
-      "turns", %{"key" => "page-turn"} ->
+      "run", %{"key" => "page-turn"} ->
         %{
           "fact" => %{
             "key" => "page-turn",
-            "values" => %{"machine" => "page-machine", "attempt" => "1", "state" => "done"},
-            "links" => %{"by" => ["page-worker"]}
+            "values" => %{"host" => "page-machine", "try" => "1", "status" => "over"},
+            "links" => %{"worker" => ["page-worker"]}
           }
         }
 
-      "interactions", %{"execution" => "execution", "after_position" => 0, "limit" => 50} ->
+      "memo_note", %{"execution" => "execution", "after_position" => 0, "limit" => 50} ->
         history
     end
 
@@ -54,7 +39,7 @@ defmodule AtlasControl.WorkerPagesTest do
       WorkerPages.render(
         {:worker_page, :worker, params},
         description,
-        %{key: "viewer", kind: "readers"},
+        %{key: "viewer", kind: "reader"},
         read,
         opts
       )

@@ -189,9 +189,16 @@ defmodule WorkAnchorsTest do
 
     assert state(d, "decision", "D-0025") == {"no_work", nil}
 
-    # 3. Read first: what it is based on, then what applies to all work of its scopes.
+    # 3. Read first: what it is based on, then what applies to all work of its scopes, as
+    # the model compiled it (what `atlas turn` and Runtime give a worker).
     read = fn kind, content -> ask(kind, content) end
-    text = AtlasControl.ReadFirst.text(d, "scene", "SC-Atlas-01", read)
+
+    read_first = fn ->
+      %{"fact" => scene} = read.("scene", %{"key" => "SC-Atlas-01", "plain" => true})
+      Model.AtlasEyra.read_first(scene, read)
+    end
+
+    text = read_first.()
     # Accepted principles, whatever their scope, before anything else; a proposed one not.
     assert [
              "Read these decisions first.",
@@ -226,7 +233,6 @@ defmodule WorkAnchorsTest do
 
     assert [%{"review" => %{"key" => "D-0024"}}] = ask("scene", %{})["facts"]
 
-    assert AtlasControl.ReadFirst.text(d, "scene", "SC-Atlas-01", read) =~
-             "(direction, Superseded)"
+    assert read_first.() =~ "(direction, Superseded)"
   end
 end

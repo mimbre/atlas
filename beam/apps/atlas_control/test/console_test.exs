@@ -10,19 +10,12 @@ defmodule AtlasControl.ConsoleTest do
   setup do
     Application.put_env(:atlas_bus, :store, "console-#{System.unique_integer([:positive])}")
     AtlasBus.drop_hints(0)
-    start_supervised!(FakeStore)
+    # The shop with its shell: widgets, then parts (`AtlasControl.Shop.Console`).
+    start_supervised!({FakeStore, model: AtlasControl.Shop.Console})
 
-    FakeStore.describe(
-      Map.put(FakeStore.description(), "shell", %{
-        "title" => "Private Console",
-        "tabs" => [
-          %{"id" => "widgets", "label" => "Widgets", "to" => "/k/widget"},
-          %{"id" => "parts", "label" => "Parts", "to" => "/k/part"}
-        ]
-      })
+    start_supervised!(
+      {AtlasControl.Gateway, port: 0, name: :console_gateway, model: AtlasControl.Shop.Console}
     )
-
-    start_supervised!({AtlasControl.Gateway, port: 0, name: :console_gateway})
 
     on_exit(fn ->
       for {_, pid, _, _} <- DynamicSupervisor.which_children(AtlasControl.Sessions),
@@ -214,10 +207,14 @@ defmodule AtlasControl.ConsoleTest do
     assert FakeStore.sent() == []
   end
 
-  test "failed projection declines Console before welcome without affecting legacy", %{port: port} do
-    FakeStore.describe(
-      Map.put(FakeStore.description(), "shell", %{"title" => "Invalid", "tabs" => []})
+  test "failed projection declines Console before welcome without affecting legacy" do
+    # A model without a shell: Console cannot be projected.
+    start_supervised!(
+      {AtlasControl.Gateway, port: 0, name: :shell_less_gateway, model: AtlasControl.Shop},
+      id: :shell_less_gateway
     )
+
+    port = AtlasControl.Gateway.port(:shell_less_gateway)
 
     s = connect(port, %{"surface" => "console"})
     assert %{"op" => "bye"} = read(s)

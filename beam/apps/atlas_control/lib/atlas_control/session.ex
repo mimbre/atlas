@@ -12,8 +12,10 @@ defmodule AtlasControl.Session do
   - The client asks for a refresh on an interval (it reconciles); a lost hint only delays.
   - Each fact says who sent it (`by`): the user at a TUI (`tui_user` in the environment's
     settings; one for now), `migration` for a migration (which may set what the
-    description marks `set_by: migration`), or `agent` for any other client, as its hello
+    model marks `set_by: migration`), or `agent` for any other client, as its hello
     says.
+  - Every page is worked out from the model Control is wired to (`AtlasControl.Model`,
+    as the Gateway hands it over); only facts are read from Facts.
     A submit may carry a `cause`; it goes with the fact, as does a links form's note.
   """
   use GenServer, restart: :temporary
@@ -23,17 +25,16 @@ defmodule AtlasControl.Session do
   alias AtlasBus.Envelope
   alias AtlasControl.{Faults, Pages}
 
-  @description "_description"
   @read_attempts 3
   @first_resend 5_000
   @last_resend 60_000
   # How often a create tries the next number when its key turns out to be taken.
   @key_tries 10
 
-  def start_link(socket), do: GenServer.start_link(__MODULE__, socket)
+  def start_link({socket, model}), do: GenServer.start_link(__MODULE__, {socket, model})
 
   @impl true
-  def init(socket) do
+  def init({socket, model}) do
     endpoint = "control/session-#{System.unique_integer([:positive])}"
     :ok = AtlasBus.attach(endpoint)
 
@@ -43,7 +44,8 @@ defmodule AtlasControl.Session do
        endpoint: endpoint,
        hello: false,
        surface: nil,
-       description: %{},
+       # The model as Control serves it (`AtlasControl.Model.catalog/2`).
+       model: model,
        listening: MapSet.new(),
        route: :home,
        form: %{},
@@ -159,7 +161,7 @@ defmodule AtlasControl.Session do
   def handle_info({:atlas_bus, %Envelope{class: "stored"} = envelope, content}, state) do
     state = %{state | count_stale: true}
 
-    if Pages.shows?(state.route, state.description, envelope.kind) do
+    if Pages.shows?(state.route, state.model, envelope.kind) do
       if Pages.form?(state.route) do
         {:noreply,
          notice(
@@ -271,7 +273,7 @@ defmodule AtlasControl.Session do
         {:ok, :facts_read, request} ->
           kind =
             if request["kind"] == "_" and is_binary(request["key"]) do
-              case Pages.resolve({:item, "_", request["key"]}, state.description) do
+              case Pages.resolve({:item, "_", request["key"]}, state.model) do
                 {:item, kind, _} ->
                   kind
 
@@ -285,7 +287,7 @@ defmodule AtlasControl.Session do
               request["kind"]
             end
 
-          if is_binary(kind) and Map.has_key?(state.description["entities"], kind) do
+          if is_binary(kind) and Pages.kind?(state.model, kind) do
             content =
               if request["key"],
                 do: %{"key" => request["key"], "plain" => true},
@@ -431,53 +433,28 @@ defmodule AtlasControl.Session do
 
   defp handle_op("boot", message, state) do
     # A boot refresh is a read, even while editing: never redraw or reset a draft.
-    # Unlike page refresh, stale cached description is not a successful shell reply.
-    case ask(@description, %{}) do
-      %{"description" => description} ->
-        result =
-          with :ok <- AtlasControl.Shell.validate_description(description) do
-            # Work against a candidate only. Invalid metadata/target resolution must
-            # leave the prior description, listeners, route and form intact.
-            candidate = %{state | description: description}
-            by_kind = known_kind(candidate, actor_kind(candidate))
-            candidate = %{candidate | by_kind: by_kind}
+    # Work against a candidate only: an invalid shell or target leaves the listeners,
+    # route and form intact.
+    candidate = %{state | by_kind: known_kind(state, actor_kind(state))}
 
-            case AtlasControl.Shell.boot(
-                   description,
-                   by_kind,
-                   message["to"],
-                   &route(&1, candidate)
-                 ) do
-              {:ok, shell} -> {:ok, shell, candidate}
-              {:error, _} = error -> error
-            end
-          end
+    case AtlasControl.Shell.boot(
+           state.model,
+           candidate.by_kind,
+           message["to"],
+           &route(&1, candidate)
+         ) do
+      {:ok, shell} ->
+        candidate = listen(candidate)
+        send_client(state, Map.put(shell, "op", "boot"))
+        {:noreply, candidate}
 
-        case result do
-          {:ok, shell, candidate} ->
-            kinds = Map.keys(description["entities"])
-            Enum.each(kinds, &AtlasBus.listen/1)
-            send_client(state, Map.put(shell, "op", "boot"))
-            {:noreply, %{candidate | listening: MapSet.new(kinds)}}
-
-          {:error, why} ->
-            send_client(state, %{"op" => "boot", "error" => why})
-            {:noreply, state}
-        end
-
-      _ ->
-        send_client(state, %{
-          "op" => "boot",
-          "error" => "Facts did not answer with the description"
-        })
-
+      {:error, why} ->
+        send_client(state, %{"op" => "boot", "error" => why})
         {:noreply, state}
     end
   end
 
   defp handle_op("open", %{"to" => to}, state) do
-    # Without the description (Facts did not answer at hello) no page can be worked out.
-    state = if state.description == %{}, do: describe(state), else: state
     {:noreply, show(%{state | form: %{}}, route(to, state), "open", nil)}
   end
 
@@ -498,7 +475,7 @@ defmodule AtlasControl.Session do
 
   defp handle_op("turn", _message, state) do
     result =
-      case AtlasControl.Turns.current(state.description, state.by, &ask/2) do
+      case AtlasControl.Turns.current(state.model, state.by, &ask/2) do
         {:ok, context} -> Map.take(context, ["key", "on", "read_first"])
         {:error, why} -> %{"error" => why}
       end
@@ -508,7 +485,7 @@ defmodule AtlasControl.Session do
   end
 
   defp handle_op("turn_end", message, state) do
-    case AtlasControl.Turns.outcome(state.description, state.by, message, &ask/2) do
+    case AtlasControl.Turns.outcome(state.model, state.by, message, &ask/2) do
       {:ok, kind, content} ->
         {:noreply, put_fact(state, kind, content, {:item, kind, content["key"]})}
 
@@ -527,7 +504,7 @@ defmodule AtlasControl.Session do
 
     case Pages.submit_call(message) do
       {:ok, endpoint, params} ->
-        route = endpoint |> Pages.submit_route(params) |> Pages.resolve(state.description)
+        route = endpoint |> Pages.submit_route(params) |> Pages.resolve(state.model)
         state = submit(route, raw, %{state | cause: cause})
         {:noreply, %{state | cause: nil}}
 
@@ -554,19 +531,15 @@ defmodule AtlasControl.Session do
   end
 
   # "No such page" only for a path the contract has no page for. A page of the contract
-  # that cannot be worked out because Facts did not answer (no description, or no answer
-  # on which kind holds a key) is `{:unavailable, path, failed}`: it says so, and a
-  # refresh works it out again.
+  # that cannot be worked out because Facts did not answer (on which kind holds a key) is
+  # `{:unavailable, path, failed}`: it says so, and a refresh works it out again.
   defp route(to, state) do
     case Pages.route(to) do
       :unknown ->
         :unknown
 
-      _ when state.description == %{} ->
-        {:unavailable, to, %{"error" => "Facts did not answer"}}
-
       route ->
-        case Pages.resolve(route, state.description) do
+        case Pages.resolve(route, state.model) do
           :unknown -> by_key(route, to, state)
           resolved -> resolved
         end
@@ -585,7 +558,7 @@ defmodule AtlasControl.Session do
 
   defp by_key({:links, "_", key, relation}, to, state) do
     case kind_holding(key, state) do
-      {:ok, kind} -> Pages.resolve({:links, kind, key, relation}, state.description)
+      {:ok, kind} -> Pages.resolve({:links, kind, key, relation}, state.model)
       %{"error" => _} = failed -> {:unavailable, to, failed}
       nil -> :unknown
     end
@@ -596,7 +569,7 @@ defmodule AtlasControl.Session do
   # `{:ok, kind}`; else the first failed read when one failed (it may have been that kind);
   # else nil.
   defp kind_holding(key, state) do
-    Enum.reduce_while(Pages.unprefixed_kinds(state.description), nil, fn kind, failed ->
+    Enum.reduce_while(Pages.unprefixed_kinds(state.model), nil, fn kind, failed ->
       case ask(kind, %{"key" => key}) do
         %{"fact" => %{}} -> {:halt, {:ok, kind}}
         %{"error" => _} = answer -> {:cont, failed || answer}
@@ -647,10 +620,10 @@ defmodule AtlasControl.Session do
     do: create(route, kind, raw, %{relation => [parent]}, state)
 
   defp submit({:edit, kind, key} = route, raw, state) do
-    # The property the id was made from is shown, never changed.
-    spec = spec(state, kind)
-    {parents, fields} = Map.split(raw, Pages.parent_relations(state.description, kind))
-    values = Pages.values_for(spec, Map.drop(fields, List.wrap(Pages.id_property(spec))))
+    # The field the id was made from is shown, never changed.
+    k = Pages.kind_view(state.model, kind)
+    {parents, fields} = Map.split(raw, Pages.parent_relations(state.model, kind))
+    values = Pages.values_for(k, Map.drop(fields, List.wrap(k && k.id.from)))
     state = %{state | route: route, form: Map.put(state.form, :values, raw)}
     was = state.form[:parents] || %{}
 
@@ -667,10 +640,10 @@ defmodule AtlasControl.Session do
             into: %{},
             do: {name, value}
 
-      # Setting a value that decides (the kind's `authority.writes`) decides as oneself: the
-      # one who decides (`authority.by`) is the client, in the same change, as an answer does.
+      # Setting a value that decides (the change form's `decides`) decides as oneself: the
+      # one who decides is the client, in the same change, as an answer does.
       linked = state.form[:links] || %{}
-      decider = Pages.decider_link(state.description, kind, values, linked, state.by)
+      decider = Pages.decider_link(state.model, kind, values, linked, state.by)
 
       seen =
         Map.merge(
@@ -720,8 +693,8 @@ defmodule AtlasControl.Session do
   # A kind that is never deleted: its page says why; nothing goes to Facts (which refuses
   # a delete of it too).
   defp submit({:delete, kind, key} = route, _raw, state) do
-    case get_in(state.description || %{}, ["entities", kind, "delete_error"]) do
-      why when is_binary(why) -> not_sent(%{state | route: route}, route, [why])
+    case Pages.kind_view(state.model, kind) do
+      %{delete_error: why} when is_binary(why) -> not_sent(%{state | route: route}, route, [why])
       _ -> delete(route, kind, key, state)
     end
   end
@@ -732,9 +705,9 @@ defmodule AtlasControl.Session do
 
     keys = Pages.link_keys(raw["to"])
 
-    if Pages.may_link_to?(state.description, relation, state.by, state.by_kind, keys) do
+    if Pages.may_link_to?(state.model, relation, state.by, state.by_kind, keys) do
       note = String.trim(raw["note"] || "")
-      change = Pages.change_action(state.description, relation)
+      change = Pages.change_action(state.model, relation)
 
       state =
         case Pages.change_cause(change || %{}, keys, state.by, note) do
@@ -743,8 +716,8 @@ defmodule AtlasControl.Session do
         end
 
       # What the change also asks (`with`) goes in the same change as the link.
-      with_fields = List.wrap(change && change["with"])
-      values = Pages.values_for(spec(state, kind), Map.take(raw, with_fields))
+      with_fields = if change, do: change.with, else: []
+      values = Pages.values_for(Pages.kind_view(state.model, kind), Map.take(raw, with_fields))
       content = %{link(key, relation, keys) | "values" => values}
       put_fact(state, kind, content, {:item, kind, key})
     else
@@ -753,34 +726,26 @@ defmodule AtlasControl.Session do
   end
 
   defp submit({:answer, kind, key, name} = route, raw, state) do
-    answers = Enum.map(Pages.reads(route, state.description), fn {k, c} -> ask(k, c) end)
-
-    answer =
-      Pages.declared_answer(state.description, kind, name, answers, %{
-        by: state.by,
-        by_kind: state.by_kind
-      })
-
+    answers = Enum.map(Pages.reads(route, state.model), fn {k, c} -> ask(k, c) end)
+    item = Pages.answer_item(state.model, kind, answers)
+    viewer = %{key: state.by, kind: state.by_kind}
     state = %{state | route: route, form: Map.put(state.form, :values, raw)}
 
-    if answer == nil do
-      not_sent(state, route, ["This answer is only available to the current owner in this state."])
+    with {:write, answer} <- state.model.module.answer(kind, name, item, viewer),
+         {:ok, content, cause} <-
+           AtlasControl.Answers.change(answer, key, state.by, raw["note"], DateTime.utc_now()) do
+      put_fact(%{state | cause: cause}, kind, content, {:item, kind, key})
     else
-      case AtlasControl.Answers.change(answer, key, state.by, raw["note"], DateTime.utc_now()) do
-        {:error, problem} ->
-          not_sent(state, route, [problem])
-
-        {:ok, content, cause} ->
-          put_fact(%{state | cause: cause}, kind, content, {:item, kind, key})
-      end
+      {:refuse, why} -> not_sent(state, route, [why])
+      {:error, problem} -> not_sent(state, route, [problem])
     end
   end
 
   # Link the fact to the client itself (Accept), when the page would let it.
   defp submit({:set, kind, key, relation} = route, _raw, state) do
-    answers = Enum.map(Pages.reads(route, state.description), fn {k, c} -> ask(k, c) end)
+    answers = Enum.map(Pages.reads(route, state.model), fn {k, c} -> ask(k, c) end)
 
-    case Pages.set_problem(state.description, route, answers, state.by, state.by_kind) do
+    case Pages.set_problem(state.model, route, answers, state.by, state.by_kind) do
       nil ->
         put_fact(
           %{state | route: route},
@@ -801,7 +766,7 @@ defmodule AtlasControl.Session do
     note = String.trim(raw["note"] || "")
 
     cond do
-      not Pages.may_link?(state.description, relation, state.by, state.by_kind) ->
+      not Pages.may_link?(state.model, relation, state.by, state.by_kind) ->
         show(state, route, "refused", nil)
 
       note == "" ->
@@ -855,21 +820,21 @@ defmodule AtlasControl.Session do
   # A new fact gets the next free key of its kind; nobody types one. When two clients make
   # the same key at once, Facts refuses the second ("exists"), and it tries the next number.
   defp create(route, kind, raw, links, state) do
-    spec = spec(state, kind)
+    k = Pages.kind_view(state.model, kind)
 
-    if Pages.id_property(spec),
-      do: create_made(route, kind, spec, raw, links, state),
-      else: create_numbered(route, kind, spec, raw, links, state)
+    if k && k.id.from,
+      do: create_made(route, kind, raw, links, state),
+      else: create_numbered(route, kind, k, raw, links, state)
   end
 
-  # An id made from a property: the same value is the same fact, so a taken key is never
+  # An id made from a field: the same value is the same fact, so a taken key is never
   # retried with another number. When the key cannot be made, nothing goes to Facts.
-  defp create_made(route, kind, spec, raw, links, state) do
+  defp create_made(route, kind, raw, links, state) do
     state = %{state | route: route, form: %{values: raw}}
 
-    with {:ok, key} <- Pages.key_for(spec, raw),
+    with {:ok, key} <- state.model.module.key(kind, raw),
          [] <- over_limits(state, kind, key, links) do
-      content = new_fact(spec, key, raw, links)
+      content = new_fact(state, kind, key, raw, links)
       put_fact(state, kind, content, {:item, kind, key})
     else
       {:error, reason} -> not_sent(state, route, [reason])
@@ -877,32 +842,32 @@ defmodule AtlasControl.Session do
     end
   end
 
-  defp create_numbered(route, kind, spec, raw, links, state) do
+  defp create_numbered(route, kind, k, raw, links, state) do
     case over_limits(state, kind, nil, links) do
-      [] -> create_numbered_free(route, kind, spec, raw, links, state)
+      [] -> create_numbered_free(route, kind, k, raw, links, state)
       reasons -> not_sent(%{state | route: route, form: %{values: raw}}, route, reasons)
     end
   end
 
-  defp create_numbered_free(route, kind, spec, raw, links, state) do
+  defp create_numbered_free(route, kind, k, raw, links, state) do
     keys =
       case ask(kind, %{}) do
         %{"facts" => facts} -> Enum.map(facts, & &1["key"])
         _ -> []
       end
 
-    {key, number} = Pages.next_key(spec, keys)
-    content = new_fact(spec, key, raw, links)
+    {key, number} = Pages.next_key(k, keys)
+    content = new_fact(state, kind, key, raw, links)
     state = %{state | route: route, form: %{values: raw}}
     put_fact(state, kind, content, {:item, kind, key}, %{number: number, tries: 1, skipped: []})
   end
 
-  # A link the description limits (`relations.<name>.limit`) is refused before Facts sees
+  # A link the model limits (a relation's `limit`) is refused before Facts sees
   # it while its parent already has as many counted facts as allowed. Links that are
   # there already stay; only a new one (a create, or a move) is checked.
   defp over_limits(state, kind, key, links) do
     closed(state, kind, links) ++
-      for {relation, parent} <- Pages.limited(state.description, links),
+      for {relation, parent} <- Pages.limited(state.model, links),
           problem = limit_problem(state, relation, kind, key, parent),
           problem != nil,
           do: problem
@@ -912,11 +877,11 @@ defmodule AtlasControl.Session do
   # or a move, is refused with why.
   defp closed(state, kind, links) do
     for {relation, parents} <- links,
-        relation in Pages.parent_relations(state.description, kind),
-        [parent_kind] <- [get_in(state.description, ["relations", relation, "to"])],
+        relation in Pages.parent_relations(state.model, kind),
+        [parent_kind] <- [state.model.relations[relation].to],
         parent <- parents,
         %{"fact" => %{} = fact} <- [ask(parent_kind, %{"key" => parent})],
-        problem = Pages.closed_problem(state.description, kind, parent_kind, fact),
+        problem = Pages.closed_problem(state.model, kind, parent_kind, fact),
         problem != nil,
         do: problem
   end
@@ -924,7 +889,7 @@ defmodule AtlasControl.Session do
   defp limit_problem(state, relation, kind, key, parent) do
     case ask(kind, %{"linked" => %{relation => parent}}) do
       %{"facts" => children} ->
-        Pages.over_limit(state.description, relation, kind, key, parent, children)
+        Pages.over_limit(state.model, relation, kind, key, parent, children)
 
       %{"error" => error} ->
         "#{error}; could not check how many #{parent} has"
@@ -935,7 +900,7 @@ defmodule AtlasControl.Session do
     answer = ask(kind, %{"key" => key})
 
     held =
-      Pages.children(state.description, kind, answer)
+      Pages.children(state.model, kind, answer)
       |> Enum.reject(fn {_, keys} -> keys == [] end)
 
     case answer do
@@ -946,7 +911,7 @@ defmodule AtlasControl.Session do
           %{state | route: route},
           kind,
           content,
-          Pages.after_delete(state.description, kind, answer)
+          Pages.after_delete(state.model, kind, answer)
         )
 
       _ ->
@@ -959,11 +924,11 @@ defmodule AtlasControl.Session do
     show(put_in(state.form[:errors], reasons), route, "refused", nil)
   end
 
-  defp new_fact(spec, key, raw, links) do
+  defp new_fact(state, kind, key, raw, links) do
     content = %{
       "op" => "create",
       "key" => key,
-      "values" => Pages.create_values(spec, raw),
+      "values" => Pages.create_values(state.model, kind, raw),
       "version" => nil
     }
 
@@ -972,7 +937,7 @@ defmodule AtlasControl.Session do
 
   defp retry_create(state, pending) do
     kind = pending.envelope.kind
-    {key, number} = Pages.next_key(spec(state, kind), [], pending.retry.number)
+    {key, number} = Pages.next_key(Pages.kind_view(state.model, kind), [], pending.retry.number)
     content = %{pending.content | "key" => key}
     skipped = pending.retry.skipped ++ [pending.content["key"]]
     retry = %{number: number, tries: pending.retry.tries + 1, skipped: skipped}
@@ -1002,25 +967,17 @@ defmodule AtlasControl.Session do
 
   # Reads
 
+  # Listen for hints of every kind of the model, and find out again which kind of fact the
+  # client is.
   defp describe(state) do
-    case ask(@description, %{}) do
-      %{"description" => description} ->
-        install_description(state, description)
-
-      _ ->
-        notice(
-          state,
-          "error",
-          "Facts did not answer with the description; showing what Control had."
-        )
-    end
+    state = listen(state)
+    %{state | by_kind: known_kind(state, actor_kind(state))}
   end
 
-  defp install_description(state, description) do
-    kinds = Map.keys(description["entities"] || %{})
+  defp listen(state) do
+    kinds = Map.keys(state.model.kinds)
     Enum.each(kinds, &AtlasBus.listen/1)
-    state = %{state | description: description, listening: MapSet.new(kinds)}
-    %{state | by_kind: known_kind(state, actor_kind(state))}
+    %{state | listening: MapSet.new(kinds)}
   end
 
   # What the client was known to be stays while Facts does not answer whether it still is
@@ -1043,7 +1000,7 @@ defmodule AtlasControl.Session do
     route = {:item, "_", state.by}
 
     resolved =
-      case Pages.resolve(route, state.description) do
+      case Pages.resolve(route, state.model) do
         :unknown -> by_key(route, nil, state)
         resolved -> resolved
       end
@@ -1061,23 +1018,8 @@ defmodule AtlasControl.Session do
   end
 
   defp worker_call(state, operation, request) do
-    case ask(@description, %{}) do
-      %{"description" => description} ->
-        candidate = %{state | description: description}
-        actor = %{key: state.by, kind: actor_kind(candidate)}
-
-        AtlasControl.Workers.handle(
-          operation,
-          request,
-          description,
-          actor,
-          &ask/2,
-          &worker_fact/2
-        )
-
-      _ ->
-        {:error, "facts_unavailable"}
-    end
+    actor = %{key: state.by, kind: actor_kind(state)}
+    AtlasControl.Workers.handle(operation, request, state.model, actor, &ask/2, &worker_fact/2)
   end
 
   defp worker_fact(kind, content) do
@@ -1133,8 +1075,8 @@ defmodule AtlasControl.Session do
   # How long a read waits for Facts' answer before it asks again (a setting for tests).
   defp read_timeout, do: Application.get_env(:atlas_control, :read_timeout_ms, 2_000)
 
-  defp page_answers(route, description) do
-    AtlasControl.PageReads.answers(route, description, fn kind, content, budget ->
+  defp page_answers(route, m) do
+    AtlasControl.PageReads.answers(route, m, fn kind, content, budget ->
       ask(kind, content, @read_attempts, read_timeout() * budget)
     end)
   end
@@ -1157,7 +1099,7 @@ defmodule AtlasControl.Session do
           state
       end
 
-    answers = page_answers(route, state.description)
+    answers = page_answers(route, state.model)
 
     state = count(state, route, answers)
 
@@ -1166,21 +1108,13 @@ defmodule AtlasControl.Session do
     page =
       case route do
         {:worker_page, _, _} = worker_route ->
-          case ask(@description, %{}) do
-            %{"description" => description} ->
-              actor = %{key: state.by, kind: actor_kind(%{state | description: description})}
-
-              AtlasControl.WorkerPages.render(
-                worker_route,
-                description,
-                actor,
-                &ask/2,
-                Map.put(state.form, :output_capability, &AtlasControl.Output.capability/1)
-              )
-
-            _ ->
-              AtlasControl.WorkerPages.error("facts_unavailable", "/workers")
-          end
+          AtlasControl.WorkerPages.render(
+            worker_route,
+            state.model,
+            %{key: state.by, kind: actor_kind(state)},
+            &ask/2,
+            Map.put(state.form, :output_capability, &AtlasControl.Output.capability/1)
+          )
 
         {:faults, on} ->
           Faults.page(route, Faults.offers(on))
@@ -1189,7 +1123,7 @@ defmodule AtlasControl.Session do
           Faults.page(route, Faults.offers(on))
 
         route ->
-          route |> Pages.render(state.description, answers, form) |> Faults.with_action(route)
+          route |> Pages.render(state.model, answers, form) |> Faults.with_action(route)
       end
 
     # Remember the version a change form was made from, so the change names it; the values
@@ -1198,7 +1132,7 @@ defmodule AtlasControl.Session do
     form =
       case {route, answers} do
         {{:edit, kind, _}, [%{"fact" => %{"version" => version} = fact} | _]} ->
-          parents = Pages.parent_values(state.description, kind, fact)
+          parents = Pages.parent_values(state.model, kind, fact)
 
           Map.merge(state.form, %{
             version: version,
@@ -1230,7 +1164,7 @@ defmodule AtlasControl.Session do
 
     projected =
       if state.surface == "console" do
-        with {:ok, shell} <- AtlasControl.Shell.boot(state.description, state.by_kind),
+        with {:ok, shell} <- AtlasControl.Shell.boot(state.model, state.by_kind),
              {:ok, page} <-
                AtlasControl.Console.project(
                  message,
@@ -1256,9 +1190,9 @@ defmodule AtlasControl.Session do
   end
 
   # `/` for a client that is a fact of a kind the start's relation points at:
-  # what is assigned to it, when the description has such a start page.
+  # what is assigned to it, when the model has such a start page.
   defp start(:home, state) do
-    if Pages.assigned_start?(state.description, state.by_kind),
+    if Pages.assigned_start?(state.model, state.by_kind),
       do: {:assigned, state.by},
       else: :home
   end
@@ -1268,13 +1202,13 @@ defmodule AtlasControl.Session do
   # The header's count: from the page when it is the start page of assignments, else read
   # again only after a hint (a fact may have moved to or away from the client).
   defp count(state, {:assigned, _} = _route, answers),
-    do: %{state | count: Pages.assigned_count(state.description, answers), count_stale: false}
+    do: %{state | count: Pages.assigned_count(state.model, answers), count_stale: false}
 
   defp count(%{count_stale: true} = state, _route, _answers) do
-    if Pages.assigned_start?(state.description, state.by_kind) do
+    if Pages.assigned_start?(state.model, state.by_kind) do
       route = {:assigned, state.by}
 
-      answers = page_answers(route, state.description)
+      answers = page_answers(route, state.model)
 
       count(state, route, answers)
     else
@@ -1289,8 +1223,6 @@ defmodule AtlasControl.Session do
   defp current_path(:unknown), do: "/"
   defp current_path({:unavailable, path, _failed}), do: path
   defp current_path(route), do: Pages.path(route)
-
-  defp spec(state, kind), do: get_in(state.description, ["entities", kind]) || %{}
 
   defp notice(state, tone, text) do
     send_client(state, %{"op" => "notice", "tone" => tone, "text" => text, "at" => now()})

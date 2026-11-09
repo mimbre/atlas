@@ -53,7 +53,9 @@ defmodule RelaDSL.Composition do
   and gets their callbacks (`RelaDSL.Flow.Model`). `use RelaDSL.Composition` takes
   `subflow_behaviour:` and `legacy_behaviour:`, the behaviours those modules declare.
   It gets the callbacks of the component that runs turns as well (`RelaDSL.Runtime.Model`:
-  the turn, the agent, the guidance records and what a worker reads first).
+  the turn, the agent, the guidance records and what a worker reads first), and those of
+  the component that serves pages (`RelaDSL.Control.Model`: the shell, the start page,
+  the kinds, forms, keys, actions, what an owner is to do and their answers).
 
   ## Introspection
 
@@ -323,9 +325,18 @@ defmodule RelaDSL.Composition do
 
     runtime = RelaDSL.Runtime.Model.body(schema, extension)
 
+    control =
+      RelaDSL.Control.Model.body(
+        schema,
+        extension,
+        flow_runtime && Plain.unorder(flow_runtime),
+        presentations!(flows, gates, environments, file)
+      )
+
     quote do
       unquote(compiled)
       unquote(runtime)
+      unquote(control)
 
       @doc "The model, as plain data (see `RelaDSL.Composition`)."
       def __rela__(:description), do: unquote(Macro.escape(description))
@@ -339,6 +350,35 @@ defmodule RelaDSL.Composition do
       def __rela__({:relation, name}),
         do: RelaDSL.Composition.part(__rela__(:description), "relations", to_string(name))
     end
+  end
+
+  # What each subflow's states show their owner, by subflow; the same in every
+  # environment (limits change timers, never what a state shows), so pages need no
+  # environment.
+  defp presentations!(flows, gates, environments, file) do
+    [first | rest] =
+      for env <- environments do
+        for {name, definition} <- RelaDSL.Flow.Subflow.definitions(flows, gates, env),
+            into: %{},
+            do:
+              {name,
+               %{
+                 "states" =>
+                   Map.new(definition["states"] || %{}, fn {state, s} ->
+                     {state, Map.take(s, ["present"])}
+                   end)
+               }}
+      end
+
+    if Enum.any?(rest, &(&1 != first)),
+      do:
+        raise(CompileError,
+          file: file,
+          line: 1,
+          description: "a subflow presents its states differently per environment"
+        )
+
+    first
   end
 
   defp origin_of(items, kind, name, file) do

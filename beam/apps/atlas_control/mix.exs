@@ -24,7 +24,13 @@ defmodule AtlasControl.MixProject do
   defp elixirc_paths(_), do: ["lib"]
 
   # Control reaches the other layers only over the Bus. Its blocks come from Control's
-  # contract (bff/contract), read at compile time.
+  # contract (bff/contract), read at compile time. It serves pages for the model it is
+  # wired to by configuration (AtlasControl.Model) and depends on none; its tests write
+  # neutral models in the Rela DSL.
   defp deps,
-    do: [{:atlas_bus, in_umbrella: true}, {:atlas_bff_contract, path: "../../../bff/contract"}]
+    do: [
+      {:atlas_bus, in_umbrella: true},
+      {:atlas_bff_contract, path: "../../../bff/contract"},
+      {:rela_dsl, path: "../../../model/dsl", only: :test}
+    ]
 end
