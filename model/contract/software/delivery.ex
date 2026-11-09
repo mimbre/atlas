@@ -1,5 +1,9 @@
 defmodule Model.Delivery do
-  @moduledoc "Work of one issue that a pull request of another also did."
+  @moduledoc """
+  Delivery of an issue through its pull request, and work a pull request of another
+  issue also did. The subflow keeps its durable name `issue`; Model.Issue holds its
+  kind, gates, selection and migration policy, with the slice 9 parity rationale.
+  """
   use RelaDSL
 
   relation(:done_in,
@@ -10,4 +14,27 @@ defmodule Model.Delivery do
     inverse: {:also_done, "also done"},
     set_by: [:migration, :connector]
   )
+
+  subflow :issue, label: "Issue", subject: :issue do
+    run_as "system:sf-flow"
+    owner via: :assignment, relation: :assigned_to, default: {:agent, :coordinator}
+    channel :work
+    start :create
+    initial :author
+
+    state :author, label: "Building" do
+      present(
+        expected: "Build it",
+        why: "its pull request is not merged",
+        instructions:
+          "Build it in one pull request and get that merged; link the pull request to it."
+      )
+
+      # Changes requested on its pull request, or a closed one: it is built again, as
+      # today (a new entry of the same state, nothing written); merged: done.
+      await :pr_outcome, changes_requested: :author, integrated: :done, closed: :author
+    end
+
+    final :done, label: "Integrated"
+  end
 end

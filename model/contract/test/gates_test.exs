@@ -46,7 +46,7 @@ defmodule Model.GatesTest do
 
   test "no subflow names integrate yet" do
     named =
-      for f <- Model.Issue.__flows__(),
+      for f <- Model.Delivery.__flows__(),
           %{mechanism: {:gate, %{gate: g}}} <- f.states,
           do: g
 

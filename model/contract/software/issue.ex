@@ -1,6 +1,7 @@
 defmodule Model.Issue do
   @moduledoc """
-  The Issue subflow. An issue is built in one pull request and done when that is merged.
+  The issue kind, its gates, selection and migration policy. Model.Delivery declares
+  its `issue` subflow: an issue is built in one pull request and done when that is merged.
 
   How it reads:
 
@@ -121,29 +122,6 @@ defmodule Model.Issue do
     verdicts: [:ready, :rework, :person],
     decide: [pass: :ready, changes_required: :rework, uncertain: :person, error: :person],
     policy: [max_rounds: 3, binds: :fingerprint]
-
-  subflow :issue, label: "Issue", subject: :issue do
-    run_as "system:sf-flow"
-    owner via: :assignment, relation: :assigned_to, default: {:agent, :coordinator}
-    channel :work
-    start :create
-    initial :author
-
-    state :author, label: "Building" do
-      present(
-        expected: "Build it",
-        why: "its pull request is not merged",
-        instructions:
-          "Build it in one pull request and get that merged; link the pull request to it."
-      )
-
-      # Changes requested on its pull request, or a closed one: it is built again, as
-      # today (a new entry of the same state, nothing written); merged: done.
-      await :pr_outcome, changes_requested: :author, integrated: :done, closed: :author
-    end
-
-    final :done, label: "Integrated"
-  end
 
   # How the runs of issue are selected, imported from the issue as it was before the
   # subflow ran, and presented: on its Assignment, as the legacy flow build_and_merge did,
