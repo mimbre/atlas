@@ -168,6 +168,7 @@ Snapshots as implemented:
      - an unreferenced digest is `404`.
    - **Seal:**
      - Builds the tree in Code's private cache with a temporary index (no checkout, no `.gitattributes` filters), then runs `commit-tree` on the base commit.
+     - Leaves out every written path that is new to the base and that Git ignores, as `git add -A` would: `git check-ignore --no-index` judges it against the resulting tree's `.gitignore` files (the base's and any the change writes, nested ones included). A path tracked in the base stays even when a pattern matches it. `core.excludesFile` does not apply. The response does not list what was left out, and Runtime still uploads those blobs. Runtime's `status`, `diff` and `submit` run without Git and still report and send ignored files.
      - Author and committer are `Atlas Code <atlas-code@localhost>`, with the base commit's committer date, so the same change always produces the same commit and revision. The message is `Atlas change <id>`.
      - Creates the private ref `refs/atlas/changes/<id>` without overwriting. A repeated seal returns the recorded revision.
      - Nothing is pushed and `refs/heads` is never touched; a moved source branch does not change the parent.

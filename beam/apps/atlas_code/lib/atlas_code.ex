@@ -1411,6 +1411,8 @@ defmodule AtlasCode do
   # no refs/heads, no push. GIT_WORK_TREE only gives update-index a root for --force-remove;
   # read-tree without -u, --cacheinfo and --force-remove never read or write it. Author,
   # committer and date (the base's committer date) are fixed, so a change always gives the same commit.
+  # Written paths that are new to the base and ignored by the resulting tree's .gitignore files
+  # are left out, as `git add -A` would; see ignored/4.
   defp commit(git_dir, dir, base, %{"change_id" => id, "entries" => entries}) do
     index = Path.join(dir, "index.#{System.unique_integer([:positive])}.tmp")
     env = [{"GIT_INDEX_FILE", index}, {"GIT_WORK_TREE", dir} | identity(git_dir, base)]
@@ -1429,6 +1431,7 @@ defmodule AtlasCode do
 
     try do
       run.(["read-tree", base])
+      tracked = MapSet.new(:binary.split(run.(["ls-files", "-z"]), <<0>>, [:global, :trim_all]))
       {deletes, writes} = Enum.split_with(entries, &(&1["op"] == "delete"))
       digests = writes |> Enum.map(& &1["sha256"]) |> Enum.uniq()
 
@@ -1463,6 +1466,11 @@ defmodule AtlasCode do
         ])
       end
 
+      untracked = for %{"path" => path} <- writes, path not in tracked, do: path
+
+      for chunk <- Enum.chunk_every(ignored(git_dir, dir, env, untracked), 500),
+          do: run.(["update-index", "--force-remove", "--" | chunk])
+
       tree = run.(["write-tree"])
 
       commit =
@@ -1479,6 +1487,67 @@ defmodule AtlasCode do
       end
     after
       File.rm(index)
+    end
+  end
+
+  # The paths Git would ignore, judged by `check-ignore --no-index` in a scratch work tree that holds
+  # only the index's .gitignore files (blob bytes, no filters; symlinks are never read as rules,
+  # as in Git). Exclude files outside the repository (core.excludesFile) do not apply.
+  defp ignored(_git_dir, _dir, _env, []), do: []
+
+  defp ignored(git_dir, dir, env, paths) do
+    work_tree = Path.join(dir, "ignore.#{System.unique_integer([:positive])}.tmp")
+
+    git = fn args, opts ->
+      System.cmd(
+        "git",
+        [
+          "-c",
+          "core.excludesFile=/dev/null",
+          "-c",
+          "core.quotePath=false",
+          "--git-dir",
+          git_dir | args
+        ],
+        opts
+      )
+    end
+
+    try do
+      File.mkdir_p!(work_tree)
+      {listing, 0} = git.(["ls-files", "-s", "-z"], cd: dir, env: env)
+
+      for record <- :binary.split(listing, <<0>>, [:global, :trim_all]),
+          [meta, path] = :binary.split(record, "\t"),
+          [mode, oid, _stage] = String.split(meta, " "),
+          mode != "120000",
+          Path.basename(path) == ".gitignore" do
+        {bytes, 0} = git.(["cat-file", "blob", oid], cd: dir, env: env)
+        File.mkdir_p!(Path.dirname(Path.join(work_tree, path)))
+        File.write!(Path.join(work_tree, path), bytes)
+      end
+
+      # Request paths have no control characters or backslashes, so with quotePath off Git quotes
+      # only a path containing `"`, as `"` <> the path with `\"` for each `"` <> `"`.
+      quoted =
+        Map.new(paths, fn path ->
+          if String.contains?(path, ~s(")),
+            do: {~s(") <> String.replace(path, ~s("), ~s(\\")) <> ~s("), path},
+            else: {path, path}
+        end)
+
+      for chunk <- Enum.chunk_every(paths, 500),
+          line <-
+            (case git.(["check-ignore", "--no-index", "--" | chunk],
+                    cd: work_tree,
+                    env: List.keystore(env, "GIT_WORK_TREE", 0, {"GIT_WORK_TREE", work_tree})
+                  ) do
+               {output, 0} -> String.split(output, "\n", trim: true)
+               {_none, 1} -> []
+             end),
+          do: Map.fetch!(quoted, line)
+    after
+      File.rm_rf!(work_tree)
     end
   end
 
