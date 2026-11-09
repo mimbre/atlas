@@ -71,7 +71,7 @@ jobs:
       - run: python3 -m pip install -r ../rela/scripts/requirements.txt
       - run: mix compile --warnings-as-errors
       - run: mix format --check-formatted
-      - run: mix test
+      - run: mix test --include integration
 
   tui:
     name: TUI
@@ -133,7 +133,7 @@ jobs:
         working-directory: beam
         env:
           MIX_ENV: test
-        run: mix test apps/atlas_state/test/guidance_native_test.exs
+        run: mix test --include integration apps/atlas_state/test/guidance_native_test.exs
       - run: sudo apt-get update && sudo apt-get install -y tmux lsof netcat-openbsd jq
       # rela-server, pinned in rela/scripts/start-test.sh; it downloads it when missing.
       - uses: actions/cache@v4
