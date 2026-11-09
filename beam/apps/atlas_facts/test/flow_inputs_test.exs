@@ -448,8 +448,7 @@ defmodule AtlasFacts.FlowInputsTest do
       envelope = Envelope.new(class, c.d["flow_runtime"]["inputs"]["kind"])
       id = envelope.id
       :ok = AtlasBus.send(envelope, content)
-      assert_receive {:atlas_bus, %Envelope{id: ^id, class: reply}, answer}
-      {reply, answer}
+      reply_to(id, facts)
     end
 
     assert {"answer", %{"facts" => []}} = request.("read", %{})
@@ -486,10 +485,11 @@ defmodule AtlasFacts.FlowInputsTest do
   test "transition reads bypass a primed collection and return the current version", c do
     Application.put_env(:atlas_bus, :store, "input-reads-#{System.unique_integer([:positive])}")
 
-    start_supervised!(
-      {AtlasFacts.Server,
-       rela: c.rela, data_dir: c.tmp_dir, model: Inputs, flow_input_clock: fn -> @now end}
-    )
+    facts =
+      start_supervised!(
+        {AtlasFacts.Server,
+         rela: c.rela, data_dir: c.tmp_dir, model: Inputs, flow_input_clock: fn -> @now end}
+      )
 
     :ok = AtlasBus.attach("flow")
 
@@ -497,7 +497,7 @@ defmodule AtlasFacts.FlowInputsTest do
       e = Envelope.new("read", kind)
       id = e.id
       :ok = AtlasBus.send(e, content)
-      assert_receive {:atlas_bus, %Envelope{id: ^id, class: "answer"}, answer}
+      assert {"answer", answer} = reply_to(id, facts)
       answer
     end
 
@@ -527,10 +527,11 @@ defmodule AtlasFacts.FlowInputsTest do
       "input-authority-#{System.unique_integer([:positive])}"
     )
 
-    start_supervised!(
-      {AtlasFacts.Server,
-       rela: c.rela, data_dir: c.tmp_dir, model: Inputs, flow_input_clock: fn -> @now end}
-    )
+    facts =
+      start_supervised!(
+        {AtlasFacts.Server,
+         rela: c.rela, data_dir: c.tmp_dir, model: Inputs, flow_input_clock: fn -> @now end}
+      )
 
     :ok = AtlasBus.attach("client")
 
@@ -542,7 +543,7 @@ defmodule AtlasFacts.FlowInputsTest do
       e = Envelope.new("fact", "choice")
       id = e.id
       :ok = AtlasBus.send(e, content)
-      assert_receive {:atlas_bus, %Envelope{id: ^id, class: "refused"}, _}
+      assert {"refused", _} = reply_to(id, facts)
     end
 
     Registry.unregister(AtlasBus.Endpoints, "client")
@@ -552,7 +553,22 @@ defmodule AtlasFacts.FlowInputsTest do
       e = Envelope.new("fact", "choice")
       id = e.id
       :ok = AtlasBus.send(e, %{"op" => "submit", "by" => actor, "values" => c.v})
-      assert_receive {:atlas_bus, %Envelope{id: ^id, class: ^class}, _}
+      assert {^class, _} = reply_to(id, facts)
+    end
+  end
+
+  # Facts answers every fact and read it handles, from its own process. Wait for that reply
+  # by id, with no time window to guess; if Facts stops instead, fail rather than hang.
+  defp reply_to(id, facts) do
+    ref = Process.monitor(facts)
+
+    receive do
+      {:atlas_bus, %Envelope{id: ^id, class: class}, content} ->
+        Process.demonitor(ref, [:flush])
+        {class, content}
+
+      {:DOWN, ^ref, :process, ^facts, reason} ->
+        flunk("Facts stopped before answering #{id}: #{inspect(reason)}")
     end
   end
 end
