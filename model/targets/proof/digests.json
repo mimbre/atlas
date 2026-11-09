@@ -145,7 +145,7 @@
     },
     "design_and_accept": {
       "prod": {
-        "digest": "25f57fda40fa0e12d9322c7eb41a9d1829bee934777abe157f5c6a93685e377e",
+        "digest": "57752d31e8065f37845ac886a1e93b6a24dc18d4a5aaeac20707c3c76e0ce571",
         "history": [
           {
             "digest": "25f57fda40fa0e12d9322c7eb41a9d1829bee934777abe157f5c6a93685e377e",
@@ -159,21 +159,26 @@
               "redesign",
               "to_accept"
             ]
+          },
+          {
+            "digest": "57752d31e8065f37845ac886a1e93b6a24dc18d4a5aaeac20707c3c76e0ce571",
+            "states": [
+              "accepted",
+              "design_review",
+              "designing",
+              "redesign"
+            ]
           }
         ],
         "states": [
           "accepted",
-          "design_gate",
           "design_review",
           "designing",
-          "dropped",
-          "needs_person",
-          "redesign",
-          "to_accept"
+          "redesign"
         ]
       },
       "test": {
-        "digest": "25f57fda40fa0e12d9322c7eb41a9d1829bee934777abe157f5c6a93685e377e",
+        "digest": "57752d31e8065f37845ac886a1e93b6a24dc18d4a5aaeac20707c3c76e0ce571",
         "history": [
           {
             "digest": "25f57fda40fa0e12d9322c7eb41a9d1829bee934777abe157f5c6a93685e377e",
@@ -187,17 +192,22 @@
               "redesign",
               "to_accept"
             ]
+          },
+          {
+            "digest": "57752d31e8065f37845ac886a1e93b6a24dc18d4a5aaeac20707c3c76e0ce571",
+            "states": [
+              "accepted",
+              "design_review",
+              "designing",
+              "redesign"
+            ]
           }
         ],
         "states": [
           "accepted",
-          "design_gate",
           "design_review",
           "designing",
-          "dropped",
-          "needs_person",
-          "redesign",
-          "to_accept"
+          "redesign"
         ]
       }
     },

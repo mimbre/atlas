@@ -380,6 +380,30 @@ defmodule AtlasFlow.Sorts.Written do
     end
   end
 
+  defmodule Handing do
+    @moduledoc """
+    Ends by moving the box out of the phase its runs are admitted in: its final state
+    sets the phase whose boxes the legacy flow presents (a two-phase hand-off).
+    """
+    use RelaDSL.Schema
+
+    subflow :sort, label: "Sort", subject: :box do
+      run_as("system:depot")
+      owner(default: {:clerk, :ada})
+      start(:create)
+      initial(:waiting)
+
+      state :waiting, label: "Sort it" do
+        branch(to: :done, when: "entity.result == 'ok'")
+        present(expected: "Sort it")
+      end
+
+      final :done, label: "Done" do
+        set(phase: "second")
+      end
+    end
+  end
+
   defmodule Unbound do
     @moduledoc "An effect as the flow format writes one without a contract: no runner runs it."
     use RelaDSL.Schema
@@ -478,4 +502,9 @@ end
 defmodule AtlasFlow.Sorts.InspectHeld do
   @moduledoc false
   use AtlasFlow.Sorts, from: AtlasFlow.Sorts.Written.InspectHeld
+end
+
+defmodule AtlasFlow.Sorts.Handing do
+  @moduledoc false
+  use AtlasFlow.Sorts, from: AtlasFlow.Sorts.Written.Handing
 end

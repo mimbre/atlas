@@ -255,8 +255,17 @@ defmodule Model.DeciderTest do
           do: f.name()
 
     # Slice 7 selects the review and the test of a pull request too (Model.ReviewRunsTest),
-    # slice 8 the pull request and slice 9 the issue (Model.DeliveryRunsTest).
-    assert selected == ["decide", "issue", "pr_review", "pr_test", "pull_request"]
+    # slice 8 the pull request and slice 9 the issue (Model.DeliveryRunsTest), slice 10 the
+    # design of a use case (Model.AcceptanceRunsTest).
+    assert selected == [
+             "decide",
+             "design_and_accept",
+             "issue",
+             "pr_review",
+             "pr_test",
+             "pull_request"
+           ]
+
     selection = Model.AtlasEyra.selection("decide")
     assert selection["subject"] == definition.subject()
     assert Enum.any?(selection["migrations"], &(&1["to"] == definition.digest()))
