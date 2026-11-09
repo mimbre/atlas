@@ -683,25 +683,28 @@ defmodule AtlasControl.Pages do
   end
 
   # A calm page of `items` (`content`: its Overview and list): when there are any, each
-  # one's technical details in a collapsible Details section, and the console action that
-  # folds it (`details_actions/1`).
+  # one's technical details in a collapsible Details section (`technical_details/1`), and
+  # the console action that folds it (`details_actions/1`).
   defp calm_page(m, title, back, relation, items, content) do
-    case items do
-      [] ->
-        page(title, back, content)
+    {details, markup} =
+      technical_details(for item <- items, do: technical_pair(m, relation, item))
 
-      _ ->
-        details =
-          Blocks.item(
-            title: "Technical details",
-            fields: for(item <- items, do: technical_pair(m, relation, item))
-          )
+    page = page(title, back, content ++ details, markup)
 
-        page(title, back, content ++ [{"details", details}], [
-          Blocks.section("details", "details", title: "Details", collapsible: true)
-        ])
-        |> Map.put(:console_actions, details_actions(m))
-    end
+    if details == [], do: page, else: Map.put(page, :console_actions, details_actions(m))
+  end
+
+  @doc """
+  A calm page's technical details (bff/README.md): `{content, markup}` to add to the page,
+  one pair per row in list order in an `item` `details` titled "Technical details" inside a
+  collapsible `section` titled "Details"; nothing when there are no pairs. A page with
+  them offers `details_action/0`.
+  """
+  def technical_details([]), do: {[], []}
+
+  def technical_details(pairs) do
+    {[{"details", Blocks.item(title: "Technical details", fields: pairs)}],
+     [Blocks.section("details", "details", title: "Details", collapsible: true)]}
   end
 
   @doc """
@@ -736,9 +739,16 @@ defmodule AtlasControl.Pages do
     blocked =
       Enum.count(items, fn {_, fact, link} -> shown(fact, link, "status") == "blocked" end)
 
+    summary([{main, length(items)}, {"Late", late}, {"Blocked", blocked} | more])
+  end
+
+  @doc """
+  A calm page's Overview (bff/README.md): an `item` titled "Overview" with one pair per
+  `{label, count}`; the first, the main count, always, the others only when some are.
+  """
+  def summary([main | more]) do
     fields =
-      for {label, n} <- [{main, length(items)}, {"Late", late}, {"Blocked", blocked} | more],
-          label == main or n > 0,
+      for {label, n} <- [main | Enum.filter(more, fn {_, n} -> n > 0 end)],
           do: Blocks.pair(label: label, value: Integer.to_string(n))
 
     Blocks.item(title: "Overview", fields: fields)
@@ -2403,6 +2413,26 @@ defmodule AtlasControl.Pages do
     case DateTime.from_iso8601(iso || "") do
       {:ok, at, _} -> Calendar.strftime(at, "%Y-%m-%d %H:%M UTC")
       _ -> to_text(iso)
+    end
+  end
+
+  @doc """
+  A moment in plain words, in this machine's local time: "3 Nov 17:14"; anything that is
+  no ISO 8601 time as it is.
+  """
+  def short_moment(iso) do
+    case DateTime.from_iso8601(iso || "") do
+      {:ok, at, _} ->
+        {{y, mo, d}, {h, mi, _}} =
+          at
+          |> DateTime.to_naive()
+          |> NaiveDateTime.to_erl()
+          |> :calendar.universal_time_to_local_time()
+
+        Calendar.strftime(NaiveDateTime.from_erl!({{y, mo, d}, {h, mi, 0}}), "%-d %b %H:%M")
+
+      _ ->
+        to_text(iso)
     end
   end
 

@@ -94,7 +94,8 @@ defmodule AtlasControl.WorkerPagesTest do
 
   # The Workers page over these runs (`AtlasControl.Packing`: a run is a turn, going is
   # running, over is ended, `until` its lease and `done_at` when it ended). Each run is
-  # `{key, status, at}`: `at` is the lease of a going run and the end of an over one.
+  # `{key, status, at}`: `at` is the lease of a going run and the end of an over one, which
+  # ended as `{key, status, at, reason}` says, else finished.
   defp workers_page(runs) do
     description =
       AtlasControl.Model.catalog(AtlasControl.Packing, %{
@@ -102,13 +103,19 @@ defmodule AtlasControl.WorkerPagesTest do
       })
 
     turns =
-      for {key, status, at} <- runs do
+      for run <- runs do
+        {key, status, at, reason} =
+          case run do
+            {key, status, at} -> {key, status, at, "finished"}
+            run -> run
+          end
+
         values = %{"host" => "m-#{key}", "try" => "1", "status" => status}
 
         values =
           if status == "going",
             do: Map.put(values, "until", at),
-            else: Map.merge(values, %{"done_at" => at, "reason" => "finished"})
+            else: Map.merge(values, %{"done_at" => at, "reason" => reason})
 
         %{"key" => key, "values" => values, "links" => %{"worker" => ["w-#{key}"]}}
       end
@@ -147,11 +154,20 @@ defmodule AtlasControl.WorkerPagesTest do
         %{}
       )
 
-    lists = for block <- page.blocks, do: {block["id"], block["type"], block["props"]}
+    lists =
+      for %{"type" => "list"} = block <- page.blocks,
+          do: {block["id"], block["type"], block["props"]}
+
     {page, lists}
   end
 
-  defp row_keys({_id, _type, props}), do: Enum.map(props["rows"], & &1["id"])
+  # The turn each row opens: a calm row has no id, only the worker page it opens.
+  defp row_keys({_id, _type, props}), do: Enum.map(props["rows"], &turn/1)
+
+  defp turn(row) do
+    {:worker_page, :worker, %{turn: turn}} = AtlasControl.Pages.route(row["to"])
+    turn
+  end
 
   defp opens(key),
     do:
@@ -183,12 +199,9 @@ defmodule AtlasControl.WorkerPagesTest do
 
     # Each row opens its own turn's worker page, from either list.
     for {_, _, props} <- lists, row <- props["rows"] do
-      assert row["to"] == opens(row["id"])
+      assert row["to"] == opens(turn(row))
 
-      assert {:worker_page, :worker, %{turn: turn, attempt: "1"}} =
-               AtlasControl.Pages.route(row["to"])
-
-      assert turn == row["id"]
+      assert {:worker_page, :worker, %{attempt: "1"}} = AtlasControl.Pages.route(row["to"])
     end
   end
 
@@ -223,7 +236,8 @@ defmodule AtlasControl.WorkerPagesTest do
                  "blocks" => page.blocks,
                  "markup" => page.markup
                },
-               1
+               1,
+               page.console_actions
              )
 
     assert {:ok, projection} = AtlasBFFContract.Console.compile(projected)
@@ -234,10 +248,103 @@ defmodule AtlasControl.WorkerPagesTest do
                context: "browse",
                generation: 0,
                on: "workers-finished",
-               row: "R-1"
+               row: opens("R-1")
              })
 
     assert bindings["Enter"]["props"]["operation"]["name"] == "open_selected"
+    # The Details section folds and unfolds on its own key, which nothing else binds.
+    assert bindings["d"]["props"]["operation"]["name"] == "sections_toggle"
+  end
+
+  test "the Workers page is calm: an Overview, plain rows and folded technical details" do
+    {page, _} =
+      workers_page([
+        {"R-1", "over", "2026-11-10T10:00:00Z"},
+        {"R-2", "going", "2026-11-13T09:00:00Z"},
+        {"R-3", "over", "2026-11-12T10:00:00Z", "failed: exit 1"},
+        {"R-4", "over", "2026-11-11T10:00:00Z", "stopped"}
+      ])
+
+    assert Enum.map(page.blocks, &{&1["id"], &1["type"]}) == [
+             {"summary", "item"},
+             {"workers-running", "list"},
+             {"workers-finished", "list"},
+             {"details", "item"}
+           ]
+
+    # Workers counts every row; only the failed turn needs attention.
+    summary = block(page, "summary")["props"]
+    assert summary["title"] == "Overview"
+
+    assert Enum.map(summary["fields"], &{&1["label"], &1["value"]}) == [
+             {"Workers", "4"},
+             {"Running", "1"},
+             {"Needs attention", "1"}
+           ]
+
+    # A row is the worker and what it did in plain words: no id, machine or turn.
+    rows =
+      for id <- ~w(workers-running workers-finished), r <- block(page, id)["props"]["rows"], do: r
+
+    assert Enum.map(rows, &turn/1) == ~w(R-2 R-3 R-4 R-1)
+
+    for row <- rows do
+      refute Map.has_key?(row, "id")
+      refute row["detail"] =~ turn(row)
+      refute row["detail"] =~ "m-"
+    end
+
+    assert Enum.map(rows, & &1["label"]) == ~w(w-R-2 w-R-3 w-R-4 w-R-1)
+
+    assert Enum.map(rows, & &1["detail"]) == [
+             "running",
+             "failed " <> AtlasControl.Pages.short_moment("2026-11-12T10:00:00Z"),
+             "stopped " <> AtlasControl.Pages.short_moment("2026-11-11T10:00:00Z"),
+             "finished " <> AtlasControl.Pages.short_moment("2026-11-10T10:00:00Z")
+           ]
+
+    # One technical pair per row, in list order, with what the row leaves out.
+    details = block(page, "details")["props"]
+    assert details["title"] == "Technical details"
+    assert Enum.map(details["fields"], & &1["label"]) == ~w(w-R-2 w-R-3 w-R-4 w-R-1)
+
+    for {pair, key} <- Enum.zip(details["fields"], ~w(R-2 R-3 R-4 R-1)) do
+      assert pair["value"] =~ "machine m-#{key}"
+      assert pair["value"] =~ "turn #{key}"
+      assert pair["value"] =~ "attempt 1"
+    end
+
+    assert Enum.at(details["fields"], 0)["value"] =~ "status running"
+    assert Enum.at(details["fields"], 1)["value"] =~ "status failed"
+    assert Enum.at(details["fields"], 1)["value"] =~ "reason failed: exit 1"
+
+    assert Enum.map(page.markup, &Map.take(&1, ~w(kind start end))) == [
+             %{"kind" => "section", "start" => "details", "end" => "details"}
+           ]
+
+    assert hd(page.markup)["props"] == %{"title" => "Details", "collapsible" => true}
+    assert page.console_actions == [AtlasControl.Pages.details_action()]
+  end
+
+  test "an empty Workers page counts no workers and has no Details" do
+    {page, lists} = workers_page([])
+
+    assert Enum.map(page.blocks, &{&1["id"], &1["type"]}) == [
+             {"summary", "item"},
+             {"workers-running", "list"},
+             {"workers-finished", "list"}
+           ]
+
+    assert Enum.map(block(page, "summary")["props"]["fields"], &{&1["label"], &1["value"]}) ==
+             [{"Workers", "0"}]
+
+    for {_, _, props} <- lists do
+      assert props["rows"] == []
+      assert is_binary(props["empty"]) and props["empty"] != ""
+    end
+
+    assert page.markup == []
+    refute Map.has_key?(page, :console_actions)
   end
 
   test "worker and conversation panes retain stable boundaries and unavailable output is explicit" do
