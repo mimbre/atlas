@@ -4,7 +4,7 @@ Test's core (Bus, Facts, Flow, Control) and its rela run on Fly, in organisation
 
 | | App | Machine | Data |
 |---|---|---|---|
-| Core | `eyra-atlas-test` | shared-cpu-1x, 256 MB, ams | volume `core_data` at `/data` (Facts' own: `/data/beam`) |
+| Core | `eyra-atlas-test` | shared-cpu-1x, 512 MB, ams | volume `core_data` at `/data` (Facts' own: `/data/beam`) |
 | rela | `eyra-atlas-test-rela` | shared-cpu-1x, 256 MB, ams | volume `rela_data` at `/data` (`/data/rela`) |
 
 ## Use it
