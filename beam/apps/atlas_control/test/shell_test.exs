@@ -184,6 +184,15 @@ defmodule AtlasControl.ShellTest do
     })
 
     assert %{"op" => "notice"} = receive_message(s)
+
+    # Stored: the start page, viewed before and listing it, is sent again with its row
+    # marked, as it was; then the stored page.
+    assert %{"op" => "page", "reason" => "pending", "path" => "/", "blocks" => blocks} =
+             receive_message(s)
+
+    assert [%{"key" => "W-01", "pending" => true}] =
+             for(%{"props" => %{"rows" => rows}} <- blocks, row <- rows, do: row)
+
     assert %{"op" => "notice"} = receive_message(s)
 
     assert %{"op" => "page", "reason" => "stored", "path" => "/k/widget/W-01"} =

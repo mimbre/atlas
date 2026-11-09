@@ -112,7 +112,7 @@ hints arriving meanwhile are batched and handled in the same read (and their rec
 | Against "replace unless older" | Overlay pages carry the `position` of the view they overlay, which is the newest sent for that path. So under `≥` they replace the cached page and never go backwards. A page that clears a mark is read at `as_of ≥ S ≥ P`, newer than or equal to any marked page for the path, so it replaces it. Every page leaves the session in send order, with the session's current marks applied. Therefore no page sent after the clear can carry the old mark. |
 | Client | Renders a row with `pending` as `⋯ being processed` next to its label. It does not hide, reorder or restyle the row's values, and it never sets or clears the flag itself. |
 
-The marker reaches the client through the 0.15.0 row fields (`key`, `pending`), which F6 adds. Until F7 a timeout shows the page without the marker, and only the log line records it.
+The marker reaches the client through the 0.15.0 row fields (`key`, `pending`), which F6 adds. F7 sets them (`freshness/marks.ex`).
 
 ## 3. Client protocol (minimal)
 

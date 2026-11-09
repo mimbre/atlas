@@ -18,6 +18,13 @@ defmodule AtlasControl.Session do
     recently viewed first. A form is never redrawn under the user's hands; they get a
     notice instead. Before handling hints of others' writes the session waits, briefly
     (`hint_settle_ms`), for Flow to have settled past them.
+  - Once a write of this client is stored, the facts it changed are marked
+    (`AtlasControl.Freshness.Marks`) until Flow says it has settled past it: every page
+    sent meanwhile flags their rows `pending`, and a recent page that shows one is sent
+    again as it was, flagged (`reason: "pending"`, no read). A mark never says how the
+    write turns out. Once Flow has settled past it, the mark goes, and a recent page that
+    still shows it flagged is sent again without. While marks are held, each flush and
+    each refresh asks Flow again how far it has settled.
   - The client asks for a refresh on an interval (it reconciles); a lost hint only delays.
   - Each fact says who sent it (`by`): the user at a TUI (`tui_user` in the environment's
     settings; one for now), `migration` for a migration (which may set what the
@@ -33,7 +40,7 @@ defmodule AtlasControl.Session do
 
   alias AtlasBus.Envelope
   alias AtlasControl.{Faults, PageReads, Pages}
-  alias AtlasControl.Freshness.{Affected, Batch, ReadSet, Recent, RowKey}
+  alias AtlasControl.Freshness.{Affected, Batch, Marks, ReadSet, Recent, RowKey}
 
   @read_attempts 3
   @first_resend 5_000
@@ -83,7 +90,10 @@ defmodule AtlasControl.Session do
        # a stored write of this client (`stored`: the page to show then), or before
        # handling hints of others' writes. The highest settled position Flow reported.
        settling: nil,
-       settled: nil
+       settled: nil,
+       # The facts this client's stored writes changed that Flow has not settled yet:
+       # `key => position` (`AtlasControl.Freshness.Marks`).
+       marks: Marks.new()
      }}
   end
 
@@ -164,6 +174,9 @@ defmodule AtlasControl.Session do
         # Its own write is a hint too: the recent pages it changed are pushed once settled.
         hint = %{position: envelope.position, changes: changes, by: state.by}
         state = %{state | batch: Batch.add(state.batch, hint, now_ms())}
+        # What it changed is being processed until Flow settles past it: the recent pages
+        # that show it say so now, as they were sent.
+        state = sync_marks(%{state | marks: Marks.mark(state.marks, envelope.position, changes)})
         keys = changes |> Enum.map(& &1["key"]) |> Enum.uniq() |> length()
         stored = %{after: pending.after, text: text, opened: false, keys: keys}
         {:noreply, settle(state, envelope.position, settle_ms(), stored)}
@@ -206,16 +219,25 @@ defmodule AtlasControl.Session do
 
     state =
       if is_integer(settled),
-        do: %{state | settled: max(state.settled || settled, settled)},
+        do: %{
+          state
+          | settled: max(state.settled || settled, settled),
+            marks: Marks.settled(state.marks, settled)
+        },
         else: state
 
-    case state.settling do
-      %{id: ^id, position: position} when is_integer(settled) and settled >= position ->
-        {:noreply, settled(state)}
+    # Any answer that covers a mark clears it, a late one too; the pages the stored page
+    # and the hints did not send again lose their flags as they were sent.
+    state =
+      case state.settling do
+        %{id: ^id, position: position} when is_integer(settled) and settled >= position ->
+          settled(state)
 
-      _ ->
-        {:noreply, state}
-    end
+        _ ->
+          state
+      end
+
+    {:noreply, sync_marks(state)}
   end
 
   def handle_info({:atlas_bus, _envelope, _content}, state), do: {:noreply, state}
@@ -231,7 +253,12 @@ defmodule AtlasControl.Session do
         {:noreply, state}
 
       Batch.others?(state.batch.hints, @flow) and is_integer(Batch.position(state.batch.hints)) ->
-        {:noreply, settle(state, Batch.position(state.batch.hints), hint_settle_ms(), nil)}
+        position = max(Batch.position(state.batch.hints), Marks.lowest(state.marks) || 0)
+        {:noreply, settle(state, position, hint_settle_ms(), nil)}
+
+      # While marks are held, Flow is asked again whether it settled past them.
+      Marks.held?(state.marks) ->
+        {:noreply, settle(state, Marks.lowest(state.marks), hint_settle_ms(), nil)}
 
       true ->
         {:noreply, flush(state)}
@@ -553,9 +580,8 @@ defmodule AtlasControl.Session do
         route -> route
       end
 
-    if Pages.form?(route),
-      do: {:noreply, state},
-      else: {:noreply, show(state, route, "reconcile", nil)}
+    state = if Pages.form?(route), do: state, else: show(state, route, "reconcile", nil)
+    {:noreply, ask_settled(state)}
   end
 
   defp handle_op("turn", _message, state) do
@@ -1164,8 +1190,8 @@ defmodule AtlasControl.Session do
 
     as_of = position || Enum.find_value(answers, & &1["position"])
     message = message(state, route, page, reason, as_of, refused)
-    deliver(state, message, welcome)
-    recent = Recent.viewed(state.recent, message["path"], entry(route, set, message))
+    flagged = deliver_marked(state, message, set.row_keys, welcome)
+    recent = Recent.viewed(state.recent, message["path"], entry(route, set, message, flagged))
     %{state | route: route, form: form, recent: recent}
   end
 
@@ -1175,8 +1201,40 @@ defmodule AtlasControl.Session do
     %{route: route} = Recent.get(state.recent, path)
     {page, _answers, set} = page(state, route, %{})
     message = message(state, route, page, "hint", position, nil)
-    deliver(state, message, nil)
-    %{state | recent: Recent.sent(state.recent, path, entry(route, set, message))}
+    flagged = deliver_marked(state, message, set.row_keys, nil)
+    %{state | recent: Recent.sent(state.recent, path, entry(route, set, message, flagged))}
+  end
+
+  # A page as it goes out: its rows flagged by the session's marks. Returns the marked
+  # keys the flags stand for; the page is kept without them.
+  defp deliver_marked(state, message, row_keys, welcome) do
+    {blocks, flagged} = Marks.overlay(message["blocks"], row_keys, state.marks)
+    deliver(state, %{message | "blocks" => blocks}, welcome)
+    flagged
+  end
+
+  # The recent pages whose flags, as the client has them, differ from the marks now: each
+  # sent again as it was last sent, with the same position, flagged anew (`reason:
+  # "pending"`), at most `@pushes`, the most recently viewed first. No read; a form is
+  # left as it is.
+  defp sync_marks(state) do
+    state.recent
+    |> Recent.paths()
+    |> Enum.map(&{&1, Recent.get(state.recent, &1)})
+    |> Enum.filter(fn {_path, entry} ->
+      not Pages.form?(entry.route) and
+        Marks.flagged(entry.view["blocks"], entry.row_keys, state.marks) !=
+          Map.get(entry, :marked, [])
+    end)
+    |> Enum.take(@pushes)
+    |> Enum.reduce(state, fn {path, entry}, state ->
+      message =
+        %{entry.view | "reason" => "pending", "at" => now()}
+        |> then(&if(text = count_text(state), do: Map.put(&1, "count", text), else: &1))
+
+      flagged = deliver_marked(state, message, entry.row_keys, nil)
+      %{state | recent: Recent.sent(state.recent, path, %{entry | marked: flagged})}
+    end)
   end
 
   # A page off screen that can be read again as it is: none that holds what is typed or
@@ -1242,12 +1300,15 @@ defmodule AtlasControl.Session do
     end
   end
 
-  defp entry(route, set, message),
+  # `view`: the page as it was sent, without its flags; `marked`: the marked keys its
+  # flags stood for.
+  defp entry(route, set, message, marked),
     do: %{
       route: route,
       deps: set.deps,
       row_keys: set.row_keys,
       view: message,
+      marked: marked,
       as_of: set.as_of,
       until: set.until,
       last_sent: now_ms()
@@ -1419,6 +1480,16 @@ defmodule AtlasControl.Session do
 
     flush(state)
   end
+
+  # While marks are held and nothing is waited for, Flow is asked again, briefly, whether
+  # it settled past them; its answer clears them.
+  defp ask_settled(%{settling: nil} = state) do
+    if Marks.held?(state.marks),
+      do: settle(state, Marks.lowest(state.marks), hint_settle_ms(), nil),
+      else: state
+  end
+
+  defp ask_settled(state), do: state
 
   defp settle_ms, do: Application.get_env(:atlas_control, :settle_ms, 1_000)
   defp hint_settle_ms, do: Application.get_env(:atlas_control, :hint_settle_ms, 250)

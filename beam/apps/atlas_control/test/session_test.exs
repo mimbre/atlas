@@ -52,7 +52,9 @@ defmodule AtlasControl.SessionTest do
 
   # The next message with this op, skipping others; nil when none comes. A page pushed
   # for a recent path off screen (a hint for another path than the last page) is skipped
-  # too, as a client does that keeps no pages of other paths (`pushed/3` takes them).
+  # too, as a client does that keeps no pages of other paths (`pushed/3` takes them), and
+  # so is a page sent again with its rows marked (`reason: "pending"`; the marker's tests
+  # read them with `sync/1`).
   defp next(socket, op, timeout \\ 1_000) do
     case :gen_tcp.recv(socket, 0, timeout) do
       {:ok, line} ->
@@ -77,6 +79,8 @@ defmodule AtlasControl.SessionTest do
 
   defp push?(socket, %{"reason" => "hint", "path" => path}),
     do: Process.get({:on_screen, socket}) not in [nil, path]
+
+  defp push?(_socket, %{"reason" => "pending"}), do: true
 
   defp push?(_socket, _page), do: false
 
@@ -254,7 +258,7 @@ defmodule AtlasControl.SessionTest do
     assert rows(page) == ["One"]
   end
 
-  test "a row names the fact it opens (contract 0.15.0), and is never pending yet",
+  test "a row names the fact it opens (contract 0.15.0), and is not pending without a write",
        %{port: port} do
     FakeStore.put("W-1", %{"title" => "One"})
     c = client(port)
@@ -1347,6 +1351,39 @@ defmodule AtlasControl.SessionTest do
     # The session's next wait for hints to be handled; the test runs it out.
     defp flush_wait, do: held_wait(:flush)
 
+    # Per row of a page: its key, and whether it is marked pending.
+    defp flags(page),
+      do:
+        for(
+          %{"props" => %{"rows" => rows}} <- page["blocks"],
+          row <- rows,
+          do: {row["key"], row["pending"] == true}
+        )
+
+    # The next page sent again with its rows marked anew (`reason: "pending"`).
+    defp marked(socket) do
+      {:ok, line} = :gen_tcp.recv(socket, 0, @arrives)
+
+      case JSON.decode!(line) do
+        %{"op" => "page", "reason" => "pending"} = page -> page
+        _ -> marked(socket)
+      end
+    end
+
+    # The change form of a widget, opened; the submit is the test's.
+    defp edit(socket, key) do
+      put(socket, %{"op" => "open", "to" => "/k/widget/#{key}/edit"})
+      assert %{"blocks" => [%{"type" => "form"}]} = next(socket, "page")
+    end
+
+    defp submit_title(socket, key, title),
+      do:
+        put(socket, %{
+          "op" => "submit",
+          "to" => "/k/widget/#{key}/edit",
+          "values" => %{"title" => title}
+        })
+
     defp create(socket, title) do
       put(socket, %{"op" => "open", "to" => "/k/widget/new"})
       assert %{"title" => "Create widget"} = next(socket, "page")
@@ -1398,17 +1435,24 @@ defmodule AtlasControl.SessionTest do
                    %{"op" => "page", "reason" => "stored", "path" => "/k/widget/W-01"} | rest
                  ] = sync(a)
 
-          # The rest: the list it was made from, pushed; no notice.
-          assert [%{"path" => "/", "reason" => "hint"}] = rest
+          # The rest: the list it was made from, pushed, its row still being processed;
+          # no notice.
+          assert [%{"path" => "/", "reason" => "hint"} = list] = rest
+          assert flags(list) == [{"W-01", true}]
         end)
 
       assert log =~
                "control: settle timeout position=1 budget_ms=1000 settled=none marked_keys=1"
 
       assert length(String.split(log, "settle timeout")) == 2
-      # The wait is over: a late answer from Flow changes nothing.
+      # The wait is over: a late answer from Flow shows no stored page again; it only
+      # clears the marker, on the page as it was sent, without a read.
+      before = FakeStore.reads()
       FakeFlow.settle(1)
+      assert %{"path" => "/", "position" => 1} = list = marked(a)
+      assert flags(list) == [{"W-01", false}]
       assert pages(sync(a)) == []
+      assert reads_since(before) == []
     end
 
     test "an open while the write settles: its notice comes, its page does not",
@@ -1630,6 +1674,215 @@ defmodule AtlasControl.SessionTest do
 
       assert rows(kept) == ["One", "Two"] or rows(kept) == ["Two", "One"]
       assert reads_since(before) == ["_page", "_page", "_page"]
+    end
+
+    test "a marked key's row carries pending on every page and push; an unrelated row is not marked",
+         %{port: port} do
+      FakeStore.put("W-1", %{"title" => "One"})
+      FakeStore.put("W-2", %{"title" => "Two"})
+      hold_clock()
+      FakeFlow.hold()
+      FakeFlow.tell(self())
+      a = client(port)
+      assert %{"path" => "/", "position" => 0} = start = next(a, "page")
+      assert flags(start) == [{"W-1", false}, {"W-2", false}]
+      edit(a, "W-1")
+      before = FakeStore.reads()
+      submit_title(a, "W-1", "Uno")
+
+      # Stored, not settled: the list viewed before is sent again as it was, with the same
+      # position, its row of W-1 marked; no read. The marker says nothing of the outcome:
+      # the row's label is still the one read.
+      assert_receive {:settled_asked, 1}, @arrives
+      wait = held_wait({:settle_timeout, _})
+      assert [%{"path" => "/", "reason" => "pending", "position" => 0} = overlay] = pages(sync(a))
+      assert flags(overlay) == [{"W-1", true}, {"W-2", false}]
+      assert rows(overlay) == rows(start)
+
+      assert Map.drop(overlay, ["blocks", "reason", "at"]) ==
+               Map.drop(start, ["blocks", "reason", "at"])
+
+      assert reads_since(before) == []
+
+      # The settle timeout: the stored page and the list's push, still marked.
+      log =
+        capture_log(fn ->
+          run_out(wait)
+
+          assert [
+                   %{"path" => "/k/widget/W-1", "reason" => "stored"},
+                   %{"path" => "/", "reason" => "hint", "position" => 1} = pushed
+                 ] = pages(sync(a))
+
+          assert rows(pushed) == ["Uno", "Two"]
+          assert flags(pushed) == [{"W-1", true}, {"W-2", false}]
+        end)
+
+      assert log =~ "control: settle timeout position=1 budget_ms=1000 settled=none marked_keys=1"
+
+      # Opened again: still marked.
+      put(a, %{"op" => "open", "to" => "/"})
+      assert %{"path" => "/", "reason" => "open"} = opened = next(a, "page")
+      assert flags(opened) == [{"W-1", true}, {"W-2", false}]
+
+      # A reconcile: still marked, and Flow is asked again, briefly.
+      put(a, %{"op" => "refresh"})
+      assert %{"reason" => "reconcile"} = reconciled = next(a, "page")
+      assert flags(reconciled) == [{"W-1", true}, {"W-2", false}]
+      assert_receive {:settled_asked, 1}, @arrives
+      assert {_, _, 250} = wait = held_wait({:settle_timeout, _})
+      run_out(wait)
+      assert pages(sync(a)) == []
+
+      # A hint of W-2 (Flow's): the flush asks Flow again first; the page it sends marks
+      # W-1 only.
+      FakeStore.hint("widget", "W-2", [changed("widget", "W-2", ["title"])], "flow")
+      {pid, _, _} = flush_wait()
+      send(pid, :flush)
+      assert_receive {:settled_asked, 1}, @arrives
+      assert {_, _, 250} = wait = held_wait({:settle_timeout, _})
+      run_out(wait)
+      assert [%{"path" => "/", "reason" => "hint", "position" => 2} = hinted] = pages(sync(a))
+      assert flags(hinted) == [{"W-1", true}, {"W-2", false}]
+
+      # Flow settles: the marker goes from the page on screen, as it was sent, no read.
+      before = FakeStore.reads()
+      FakeFlow.settle(1)
+      assert %{"path" => "/", "position" => 2} = cleared = marked(a)
+      assert flags(cleared) == [{"W-1", false}, {"W-2", false}]
+      assert pages(sync(a)) == []
+      assert reads_since(before) == []
+
+      # Nothing is held any more: a reconcile asks Flow nothing.
+      put(a, %{"op" => "refresh"})
+      assert flags(next(a, "page")) == [{"W-1", false}, {"W-2", false}]
+      assert pages(sync(a)) == []
+      refute_received {:settled_asked, _}
+    end
+
+    test "marks clear on settled: the stored page and the pushes read after it carry none",
+         %{port: port} do
+      FakeStore.put("W-1", %{"title" => "One"})
+      FakeFlow.hold()
+      FakeFlow.tell(self())
+      a = client(port)
+      next(a, "page")
+      put(a, %{"op" => "open", "to" => "/k/widget/W-1"})
+      assert %{"path" => "/k/widget/W-1"} = next(a, "page")
+      edit(a, "W-1")
+      submit_title(a, "W-1", "Uno")
+      assert_receive {:settled_asked, 1}, @arrives
+      assert [%{"path" => "/"} = overlay] = pages(sync(a))
+      assert flags(overlay) == [{"W-1", true}]
+
+      before = FakeStore.reads()
+      FakeFlow.settle(1)
+      assert %{"tone" => "ok"} = next(a, "notice")
+
+      assert [
+               %{"path" => "/k/widget/W-1", "reason" => "stored", "position" => 1},
+               %{"path" => "/", "reason" => "hint"} = pushed
+             ] = pages(sync(a))
+
+      assert rows(pushed) == ["Uno"]
+      assert flags(pushed) == [{"W-1", false}]
+      assert reads_since(before) == ["_page", "_page"]
+      refute_received {:settled_asked, _}
+    end
+
+    test "a second submit before the first settles: each keeps its own marks",
+         %{port: port} do
+      FakeStore.put("W-1", %{"title" => "One"})
+      FakeStore.put("W-2", %{"title" => "Two"})
+      hold_clock()
+      FakeFlow.hold()
+      FakeFlow.tell(self())
+      a = client(port)
+      next(a, "page")
+
+      edit(a, "W-1")
+      submit_title(a, "W-1", "Uno")
+      assert_receive {:settled_asked, 1}, @arrives
+      held_wait({:settle_timeout, _})
+      assert [overlay] = pages(sync(a))
+      assert flags(overlay) == [{"W-1", true}, {"W-2", false}]
+
+      edit(a, "W-2")
+      submit_title(a, "W-2", "Dos")
+      assert_receive {:settled_asked, 2}, @arrives
+      held_wait({:settle_timeout, _})
+      assert [%{"path" => "/", "reason" => "pending"} = overlay] = pages(sync(a))
+      assert flags(overlay) == [{"W-1", true}, {"W-2", true}]
+
+      # Flow settled past the first write only: its mark goes, the second's stays.
+      FakeFlow.settle(1)
+      assert flags(marked(a)) == [{"W-1", false}, {"W-2", true}]
+
+      FakeFlow.settle(2)
+      assert %{"tone" => "ok", "text" => "Stored by Facts (position 2)."} = next(a, "notice")
+
+      assert [%{"path" => "/k/widget/W-2", "reason" => "stored"}, %{"path" => "/"} = pushed] =
+               pages(sync(a))
+
+      assert rows(pushed) == ["Uno", "Dos"]
+      assert flags(pushed) == [{"W-1", false}, {"W-2", false}]
+    end
+
+    test "nothing is marked before Facts stored a write, nor when it refused it",
+         %{port: port} do
+      FakeStore.put("W-1", %{"title" => "One"})
+      FakeFlow.tell(self())
+      a = client(port)
+      next(a, "page")
+
+      # Facts has not answered: the client is told it waits, and no page changes.
+      FakeStore.silent(true)
+      edit(a, "W-1")
+      submit_title(a, "W-1", "Uno")
+      assert [%{"op" => "notice", "tone" => "pending"}] = sync(a)
+      FakeStore.silent(false)
+
+      FakeStore.refuse("W-1", "no")
+      edit(a, "W-1")
+      submit_title(a, "W-1", "Uno")
+      assert %{"reason" => "refused"} = next(a, "page")
+      put(a, %{"op" => "open", "to" => "/"})
+      assert flags(next(a, "page")) == [{"W-1", false}]
+      refute Enum.any?(pages(sync(a)), &(&1["reason"] == "pending"))
+      refute_received {:settled_asked, _}
+    end
+
+    test "a session that closes drops its marks: a new one shows Facts' state unmarked",
+         %{port: port} do
+      FakeStore.put("W-1", %{"title" => "One"})
+      FakeFlow.hold()
+      FakeFlow.tell(self())
+      a = client(port)
+      next(a, "page")
+      edit(a, "W-1")
+      submit_title(a, "W-1", "Uno")
+      assert_receive {:settled_asked, 1}, @arrives
+      assert [overlay] = pages(sync(a))
+      assert flags(overlay) == [{"W-1", true}]
+
+      assert [session] =
+               for(
+                 {_, pid, _, _} <- DynamicSupervisor.which_children(AtlasControl.Sessions),
+                 do: pid
+               )
+
+      ref = Process.monitor(session)
+      :gen_tcp.close(a)
+      assert_receive {:DOWN, ^ref, :process, ^session, _}, @arrives
+
+      b = client(port)
+      assert %{"path" => "/"} = start = next(b, "page")
+      assert rows(start) == ["Uno"]
+      assert flags(start) == [{"W-1", false}]
+      put(b, %{"op" => "refresh"})
+      assert flags(next(b, "page")) == [{"W-1", false}]
+      assert pages(sync(b)) == []
+      refute_received {:settled_asked, _}
     end
   end
 end
