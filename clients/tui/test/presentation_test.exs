@@ -101,7 +101,11 @@ defmodule AtlasTui.PresentationTest do
       assert white == {255, 255, 255}
       assert {r, g, b} = primary
       assert b > r and b > g
-      assert {white, {219, 30, 30}} == Palette.colors(:prod, theme)
+      # The prod badge inverts the bar, so it stands out by lightness, not by an alarm colour.
+      assert {primary, white} == Palette.colors(:prod, theme)
+      [low, high] = Enum.sort([luminance(primary), luminance(white)])
+      assert (high + 0.05) / (low + 0.05) >= 4.5
+      assert Palette.ansi(:prod, theme) |> IO.iodata_to_binary() =~ "\e[0;1;"
       assert Palette.ansi(:header, theme) |> IO.iodata_to_binary() =~ "\e[0;1;"
     end
   end

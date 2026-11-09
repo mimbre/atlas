@@ -11,7 +11,8 @@ defmodule AtlasTui.Palette do
   `:muted` is a modifier, not a colour: a muted segment keeps the colours of `:dim`, or
   of the role it wraps (`{:selected, :muted}`), and is drawn faint and never bold.
   `:header` is the title bar, the same in both themes; inside it `:prod` marks only the
-  environment name as a red badge, so production stays recognisable.
+  environment name as an inverted badge (the bar's colours swapped), so production stays
+  recognisable.
   `:pending_selected` is `:pending` inside the selection: yellow text cannot reach 4.5:1 on
   the selection background, so there the yellow is the background, under dark text.
   """
@@ -50,7 +51,7 @@ defmodule AtlasTui.Palette do
         :selected -> {:grey1, :primarylight}
         :cursor -> {:grey1, :tertiary}
         :header -> {:white, :primaryshade}
-        :prod -> {:white, :error}
+        :prod -> {:primaryshade, :white}
         :dim -> if dark, do: {:grey3, :grey1}, else: base
         :border -> if dark, do: {:grey2, :grey1}, else: {:grey2, :white}
         :ok -> if dark, do: {:success, :grey1}, else: {:grey1, :successlight}
