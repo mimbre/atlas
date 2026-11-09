@@ -5,10 +5,49 @@ for file <- ["digest", "definitions", "request", "rules", "verdict"] do
 end
 
 Code.require_file("../../../beam/apps/atlas_facts/lib/atlas_facts/guards.ex", __DIR__)
+Code.require_file("../../../beam/apps/atlas_flow/lib/atlas_flow/runs/run.ex", __DIR__)
 
 defmodule AtlasFlowContract.DeciderTest do
   use ExUnit.Case, async: true
   alias AtlasGates.{Definitions, Digest, Request, Rules, Verdict}
+
+  test "the status bridge observes authorized status without resetting or deciding it" do
+    [flow] = AtlasFlowContract.Decision.__flows__()
+    json = AtlasFlowGenerator.Atlas.flows_json([flow], [], "test") |> JSON.decode!()
+    definition = json["flows"]["decide"]
+    assert AtlasFlow.Runs.Run.validate(definition) == :ok
+
+    assert definition["states"]["proposed"]["branches"] == [
+             %{"to" => "accepted", "roles" => [], "when" => "entity.status == 'accepted'"},
+             %{"to" => "rejected", "roles" => [], "when" => "entity.status == 'rejected'"}
+           ]
+
+    for {_name, state} <- definition["states"] do
+      assert state["set"] == []
+      assert state["waiting_for"] == []
+    end
+
+    config = File.read!("../../rela/flow-runtime.json") |> JSON.decode!()
+    selection = config["flow_runtime"]["selection"]["decide"]
+    assert selection["subject"] == definition["subject"]
+
+    for status <- ~w(accepted rejected superseded) do
+      subject = %{"key" => "D-history", "values" => %{"status" => status}}
+
+      run =
+        AtlasFlow.Runs.Run.new(
+          "decide",
+          definition,
+          subject,
+          selection["imports"],
+          ~U[2026-11-12 00:00:00Z]
+        )
+
+      assert run["status"] == "completed"
+      assert run["pending"]["writes"] == []
+      assert run["state"] == if(status == "rejected", do: "rejected", else: "accepted")
+    end
+  end
 
   defp evidence(changes \\ %{}) do
     Map.merge(

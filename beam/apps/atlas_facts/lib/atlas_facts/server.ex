@@ -76,7 +76,9 @@ defmodule AtlasFacts.Server do
        ledger: Ledger.open(dir),
        links: Links.open(dir),
        description: nil,
-       extra: Keyword.get(opts, :description_extra)
+       extra: Keyword.get(opts, :description_extra),
+       flow_runtime:
+         Keyword.get(opts, :flow_runtime, Application.get_env(:atlas_facts, :flow_runtime))
      }}
   end
 
@@ -300,7 +302,8 @@ defmodule AtlasFacts.Server do
         {:noreply, state}
 
       nil ->
-        {result, state} = store(state, envelope.kind, content)
+        {result, state} = store(Map.put(state, :sender, envelope.sender), envelope.kind, content)
+        state = Map.delete(state, :sender)
         answer(state, envelope, content, result)
         {:noreply, state}
     end
@@ -379,6 +382,7 @@ defmodule AtlasFacts.Server do
   defp describe(state) do
     with {:ok, description} <- Rela.description(state.rela) do
       description = Description.merge(description, extra(state.extra))
+      description = runtime_description!(description, state.flow_runtime)
 
       # Flow definitions are checked before anyone runs them (rule 4).
       # The generated subflows, with their owners and what each state shows, checked too.
@@ -387,6 +391,18 @@ defmodule AtlasFacts.Server do
       if is_map(description["flows"]),
         do: {:ok, Map.put(description, "flow_problems", Flows.check(description))},
         else: {:ok, description}
+    end
+  end
+
+  defp runtime_description!(description, nil), do: description
+
+  defp runtime_description!(description, path) do
+    with {:ok, bytes} <- File.read(path),
+         {:ok, fragment} <- JSON.decode(bytes),
+         {:ok, description} <- AtlasFacts.FlowRuntime.describe(description, fragment) do
+      description
+    else
+      error -> raise "Flow runtime configuration refused: #{inspect(error)}"
     end
   end
 
@@ -697,6 +713,7 @@ defmodule AtlasFacts.Server do
 
       Guards.check(rules, op, key, current, values, links, %{
         "writer" => writer,
+        "sender" => state[:sender],
         "kind_of" => &linked_kind(state, &1, &2),
         "fetch" => fn old ->
           case Rela.get(state.rela, spec["plural"], old) do

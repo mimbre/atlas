@@ -24,5 +24,9 @@ defmodule AtlasFlow.MixProject do
   defp elixirc_paths(_), do: ["lib"]
 
   # Flow reaches the other layers only over the Bus.
-  defp deps, do: [{:atlas_bus, in_umbrella: true}]
+  defp deps,
+    do: [
+      {:atlas_bus, in_umbrella: true},
+      {:atlas_flow_generator, path: "../../../flow/generator"}
+    ]
 end

@@ -28,11 +28,14 @@ defmodule AtlasFlow.Talk do
   end
 
   @doc "Put a fact: `{:stored, position}`, `{:refused, reasons}` or `{:error, :no_answer}`."
-  def put(kind, content), do: put(Envelope.new("fact", kind), content, @tries)
+  def put(kind, content), do: transmit(Envelope.new("fact", kind), content, @tries)
 
-  defp put(_envelope, _content, 0), do: {:error, :no_answer}
+  def put(kind, content, id) when is_binary(kind) and is_binary(id),
+    do: transmit(Envelope.new("fact", kind, id: id), content, @tries)
 
-  defp put(envelope, content, tries) do
+  defp transmit(_envelope, _content, 0), do: {:error, :no_answer}
+
+  defp transmit(envelope, content, tries) do
     id = envelope.id
     :ok = AtlasBus.send(envelope, content)
 
@@ -43,7 +46,7 @@ defmodule AtlasFlow.Talk do
       {:atlas_bus, %Envelope{id: ^id, class: "refused"}, refusal} ->
         {:refused, refusal["reasons"]}
     after
-      @wait -> put(envelope, content, tries - 1)
+      @wait -> transmit(envelope, content, tries - 1)
     end
   end
 end

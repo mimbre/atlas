@@ -10,7 +10,8 @@ roles:
   # Atlas Flow (system:atlas-flow) writes each mechanism's result and moves the runs.
   atlas-flow:
     read: ["*"]
-    update: [issue, pull_request, pr_review, pr_test, use_case, scene, decision]
+    create: [flow_run]
+    update: [flow_run, issue, pull_request, pr_review, pr_test, use_case, scene, decision]
   # The principal flows run their outputs as: resets, created reviews and tests.
   sf-flow:
     read: ["*"]

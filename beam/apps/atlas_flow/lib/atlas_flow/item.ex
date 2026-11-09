@@ -15,6 +15,7 @@ defmodule AtlasFlow.Item do
   require Logger
 
   alias AtlasFlow.{Definition, Talk}
+  alias AtlasFlow.Runs.{Clock, Run, Store}
 
   # A burst of hints is looked at once.
   @settle 50
@@ -40,6 +41,9 @@ defmodule AtlasFlow.Item do
        kind: kind,
        key: key,
        every: Keyword.fetch!(opts, :every),
+       clock: Keyword.get(opts, :clock, {Clock, nil}),
+       target: Keyword.get(opts, :target, AtlasFlow.Generated),
+       yaml: Keyword.get(opts, :deployed_yaml),
        timer: nil,
        soon: false,
        description: nil
@@ -51,7 +55,7 @@ defmodule AtlasFlow.Item do
     do: {:noreply, %{state | description: description || state.description}}
 
   def handle_info({:poke, description}, state) do
-    Process.send_after(self(), {:look, :poked}, @settle)
+    Clock.schedule(state.clock, self(), {:look, :poked}, @settle)
     {:noreply, %{state | soon: true, description: description}}
   end
 
@@ -59,12 +63,15 @@ defmodule AtlasFlow.Item do
   def handle_info(:look, state), do: handle_info({:look, :timer}, %{state | description: nil})
 
   def handle_info({:look, _why}, state) do
-    if state.timer, do: Process.cancel_timer(state.timer)
+    if state.timer, do: Clock.cancel(state.clock, state.timer)
     state = %{state | soon: false, timer: nil}
 
     case look(state) do
-      {:wait, every} -> {:noreply, %{state | timer: Process.send_after(self(), :look, every)}}
-      :stop -> {:stop, :normal, state}
+      {:wait, every} ->
+        {:noreply, %{state | timer: Clock.schedule(state.clock, self(), :look, every)}}
+
+      :stop ->
+        {:stop, :normal, state}
     end
   end
 
@@ -82,8 +89,8 @@ defmodule AtlasFlow.Item do
       children =
         children(parents, description, state.key) ++ pointed(pointing, description, state.key)
 
-      {current, vars} = Definition.state_of(flow, fact, children, parents, pointing)
-      result = move(state, description, {name, flow}, fact, current, vars)
+      {current, vars} = projection(state, description, flow, fact, children, parents, pointing)
+      result = if current, do: move(state, description, {name, flow}, fact, current, vars)
 
       if current["done"] == true and result != :held,
         do: :stop,
@@ -94,6 +101,45 @@ defmodule AtlasFlow.Item do
       nil -> :stop
       # Facts did not answer: try again on the timer.
       _ -> {:wait, state.every}
+    end
+  end
+
+  defp projection(state, description, legacy, fact, children, parents, pointing) do
+    case Store.selected(description, state.kind, fact) do
+      nil ->
+        Definition.state_of(legacy, fact, children, parents, pointing)
+
+      {name, selection} ->
+        with {:ok, config} <- Store.activate(description, state.target, state.yaml),
+             key = Run.key(name, state.kind, state.key, 1),
+             %{"fact" => %{} = stored} <-
+               Talk.read(config["kind"], %{"key" => key, "plain" => true}),
+             {:ok, run} <- Store.decode(config, stored),
+             true <- run["definition_sha256"] == Run.digest(state.target.flows()[name]) do
+          follow = selection["follow_through"]
+
+          cond do
+            run["status"] == "completed" and follow != nil and run["state"] == follow["state"] and
+                Run.holds?(follow["when"], fact["values"] || %{}) ->
+              Definition.state_of(legacy, fact, children, parents, pointing)
+
+            run["status"] == "completed" ->
+              {%{"name" => run["state"], "done" => true}, %{}}
+
+            run["status"] == "active" ->
+              flow = state.target.flows()[name]
+              current = flow["states"][run["state"]]
+              owner = (current["owner"] || flow["owner"] || %{})["default"]
+
+              {Map.merge(current["present"] || %{}, %{"name" => run["state"], "owner" => owner}),
+               fact["values"] || %{}}
+
+            true ->
+              {nil, %{}}
+          end
+        else
+          _ -> {nil, %{}}
+        end
     end
   end
 

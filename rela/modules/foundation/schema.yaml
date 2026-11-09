@@ -464,6 +464,41 @@ entities:
       effort:
         type: string
         description: Later, the time and human effort spent after it
+  flow_run:
+    label: Flow run
+    plural: flow_runs
+    id_type: manual
+    description: Durable generated state machine cursor, written only by its runner.
+    properties:
+      flow:
+        type: string
+      subject_kind:
+        type: string
+      subject_key:
+        type: string
+      generation:
+        type: integer
+      definition_sha256:
+        type: string
+      state:
+        type: string
+      entry:
+        type: integer
+      entered_at:
+        type: string
+      status:
+        type: string
+      deadlines:
+        type: string
+      pending:
+        type: string
+      input_cursor:
+        type: integer
+      last_input:
+        type: string
+      blocked_reason:
+        type: string
+
 relations:
   assigned_to:
     label: assigned to

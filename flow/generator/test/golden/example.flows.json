@@ -3,6 +3,7 @@
     "letter": {
       "channel": "mail",
       "initial": "draft",
+      "label": "Letter",
       "owner": {
         "default": {
           "key": "post_room",
@@ -11,30 +12,116 @@
         "relation": "held_by",
         "via": "desk"
       },
+      "per_subject": "one",
+      "run_as": "system:post",
+      "start": [
+        {
+          "on": "create"
+        },
+        {
+          "on": "predicate",
+          "when": "entity.kind == 'reply'"
+        }
+      ],
       "states": {
         "answered": {
+          "awaits": [],
+          "branches": [],
+          "creates": [],
           "final": true,
-          "label": "Answered"
+          "label": "Answered",
+          "set": [
+            {
+              "field": "archived",
+              "value": true
+            }
+          ],
+          "timers": [],
+          "waiting_for": []
         },
         "draft": {
+          "awaits": [],
+          "branches": [
+            {
+              "roles": ["atlas-flow"],
+              "to": "proofread",
+              "when": "entity.pass_result == 'delivered'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "stuck",
+              "when": "entity.pass_result == 'failed'"
+            }
+          ],
+          "creates": [],
           "final": false,
           "kind": "pass",
           "label": "Write the draft",
           "present": {
             "expected": "Write it"
           },
+          "set": [
+            {
+              "field": "pass_result",
+              "value": "none"
+            }
+          ],
           "spec": {
             "mode": "draft",
             "profile": "writer"
-          }
+          },
+          "timers": [
+            {
+              "label": "The writer did not finish",
+              "name": "slow",
+              "period": "1d",
+              "to": "stuck"
+            }
+          ],
+          "waiting_for": []
         },
         "dropped": {
-          "final": true
+          "awaits": [],
+          "branches": [],
+          "creates": [],
+          "final": true,
+          "set": [],
+          "status": "cancelled",
+          "timers": [],
+          "waiting_for": []
         },
         "post": {
+          "awaits": [],
+          "branches": [
+            {
+              "roles": ["atlas-flow"],
+              "to": "sent",
+              "when": "entity.post_result == 'done'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "stuck",
+              "when": "entity.post_result == 'refused'"
+            }
+          ],
+          "creates": [
+            {
+              "properties": {
+                "title": "Receipt"
+              },
+              "relate": "receipt_of",
+              "type": "receipt"
+            }
+          ],
           "final": false,
           "kind": "effect",
           "label": "Post it",
+          "set": [
+            {
+              "field": "post_result",
+              "value": "none"
+            }
+          ],
           "spec": {
             "action": "post_letter",
             "also": {
@@ -42,21 +129,91 @@
             },
             "field": "post_result",
             "service": "mail"
-          }
+          },
+          "timers": [],
+          "waiting_for": []
         },
         "proofread": {
+          "awaits": [],
+          "branches": [
+            {
+              "roles": ["atlas-flow"],
+              "to": "post",
+              "when": "entity.gate_result == 'send'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "draft",
+              "when": "entity.gate_result == 'redo'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "stuck",
+              "when": "entity.gate_result == 'person'"
+            }
+          ],
+          "creates": [],
           "final": false,
           "kind": "gate",
+          "set": [
+            {
+              "field": "gate_result",
+              "value": "none"
+            }
+          ],
           "spec": {
             "gate": "proofread",
             "version": 2
-          }
+          },
+          "timers": [],
+          "waiting_for": []
         },
         "sent": {
+          "awaits": ["reply"],
+          "branches": [
+            {
+              "roles": ["atlas-flow"],
+              "to": "answered",
+              "when": "entity.urgent == true"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "answered",
+              "when": "entity.reply == 'received'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "stuck",
+              "when": "entity.reply == 'lost'"
+            }
+          ],
+          "creates": [],
           "final": false,
-          "label": "Sent"
+          "label": "Sent",
+          "set": [],
+          "timers": [],
+          "waiting_for": []
         },
         "stuck": {
+          "awaits": [],
+          "branches": [
+            {
+              "roles": ["editor"],
+              "to": "draft",
+              "when": "entity.choice == 'retry'"
+            },
+            {
+              "roles": ["editor"],
+              "to": "dropped",
+              "when": "entity.choice == 'drop'"
+            },
+            {
+              "roles": ["admin"],
+              "to": "dropped",
+              "when": "entity.choice == 'drop'"
+            }
+          ],
+          "creates": [],
           "final": false,
           "label": "Someone decides",
           "owner": {
@@ -87,13 +244,22 @@
               }
             },
             "why": "it could not go out"
-          }
+          },
+          "set": [
+            {
+              "field": "choice",
+              "value": "none"
+            }
+          ],
+          "status": "input_required",
+          "timers": [],
+          "waiting_for": ["editor"]
         }
       },
       "subject": "letter"
     }
   },
-  "format": 1,
+  "format": 2,
   "gates": {
     "proofread": {
       "advice": "checker",

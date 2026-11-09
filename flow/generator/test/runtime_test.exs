@@ -40,13 +40,13 @@ defmodule AtlasFlowGenerator.RuntimeTest do
   test "a target of another format, not JSON, or missing fails the compile", %{tmp_dir: dir} do
     other = Path.join(dir, "other.json")
     golden = File.read!("test/golden/example.flows.json")
-    File.write!(other, String.replace(golden, ~s("format": 1), ~s("format": 2)))
+    File.write!(other, String.replace(golden, ~s("format": 2), ~s("format": 1)))
     broken = Path.join(dir, "broken.json")
     File.write!(broken, "{")
 
     for {path, message} <- [
-          {other, "is not a flows.json of format 1 by system:atlas-flow"},
-          {broken, "is not a flows.json of format 1"},
+          {other, "is not a flows.json of format 2 by system:atlas-flow"},
+          {broken, "is not a flows.json of format 2"},
           {Path.join(dir, "none.json"), "cannot read it (no such file or directory)"}
         ] do
       src =

@@ -259,6 +259,41 @@ entities:
       ended_at: { type: datetime, description: "When it ended" }
       outcome: { type: string, description: "The agent's fact about what it did; Runtime reads it and ends the turn" }
 
+  flow_run:
+    label: Flow run
+    plural: flow_runs
+    id_type: manual
+    description: Durable generated state machine cursor, written only by its runner.
+    properties:
+      flow:
+        type: string
+      subject_kind:
+        type: string
+      subject_key:
+        type: string
+      generation:
+        type: integer
+      definition_sha256:
+        type: string
+      state:
+        type: string
+      entry:
+        type: integer
+      entered_at:
+        type: string
+      status:
+        type: string
+      deadlines:
+        type: string
+      pending:
+        type: string
+      input_cursor:
+        type: integer
+      last_input:
+        type: string
+      blocked_reason:
+        type: string
+
 relations:
   in_scene:
     label: in scene

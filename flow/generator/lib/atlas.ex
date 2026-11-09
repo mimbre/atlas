@@ -3,7 +3,7 @@ defmodule AtlasFlowGenerator.Atlas do
   Writes `flows.json`: what Atlas needs to run the subflows that Rela's `flows.yaml`
   cannot say. It holds
 
-    * `format` (this file's format, `1`) and `writer` (`system:atlas-flow`);
+    * `format` (this file's format, `2`) and `writer` (`system:atlas-flow`);
     * `rela_flows_sha256`: the SHA-256 of the `flows.yaml` generated in the same run,
       byte for byte, so a runner can refuse a `flows.yaml` from another run;
     * `gates`: every gate given, by name, as data (version, flavor, purpose,
@@ -14,7 +14,10 @@ defmodule AtlasFlowGenerator.Atlas do
       with its label, whether it is final, its own `owner` when it has one (as the
       subflow's is written), its mechanism as `kind` and `spec`, and
       `present`: what its owner sees, as `expected`, `why` and `todo` (`instructions`,
-      `section` as `{field, heading}`, `answers` as `[{key, label, set | remove}]`).
+      `section` as `{field, heading}`, `answers` as `[{key, label, set | remove}]`);
+    * executable start, run identity policy, state status, waiting roles, awaited
+      fields, ordered branches, entry sets, creates and timers. Empty execution lists
+      are explicit. Composition is deliberately not emitted yet.
 
   The writer reads only the data of `__flows__/0` and `__gates__/0`. Every object's
   keys are written sorted, two spaces deep, one key per line; a list of plain values
@@ -24,7 +27,7 @@ defmodule AtlasFlowGenerator.Atlas do
   out.
   """
 
-  @format 1
+  @format 2
   @writer "system:atlas-flow"
 
   @doc """
@@ -72,7 +75,11 @@ defmodule AtlasFlowGenerator.Atlas do
 
   defp flow(f) do
     %{
+      label: f.label,
       subject: f.subject,
+      run_as: f.run_as,
+      per_subject: f.per_subject,
+      start: f.start,
       owner: f.owner,
       channel: f.channel,
       initial: f.initial,
@@ -88,7 +95,19 @@ defmodule AtlasFlowGenerator.Atlas do
       end
 
     Map.merge(
-      %{label: s.label, final: s.final, present: present(s.present), owner: s.owner},
+      %{
+        label: s.label,
+        final: s.final,
+        status: s.status,
+        waiting_for: s.waiting_for,
+        awaits: s.awaits,
+        set: Enum.map(s.set, fn {field, value} -> %{field: field, value: value} end),
+        creates: s.creates,
+        branches: s.branches,
+        timers: s.timers,
+        present: present(s.present),
+        owner: s.owner
+      },
       mechanism
     )
   end

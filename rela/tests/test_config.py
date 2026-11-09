@@ -52,6 +52,7 @@ class SchemaTest(unittest.TestCase):
     def test_equivalence_and_property_order(self):
         baseline = yaml.load((ROOT / 'tests/fixtures/baseline-schema.yaml').read_text(), Loader=config.StrictLoader)
         _, resolved = config.closure(self.root)
+        self.assertEqual(list(resolved['entities']['flow_run']['properties']), 'flow subject_kind subject_key generation definition_sha256 state entry entered_at status deadlines pending input_cursor last_input blocked_reason'.split())
         prior = without_ledger(resolved)
         for kind in ('worker_execution', 'interaction', 'interaction_receipt'):
             self.assertIn(kind, prior['entities'])
