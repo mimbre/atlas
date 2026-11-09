@@ -7,18 +7,23 @@ defmodule AtlasRuntime.Providers.NativeEvents do
   The host's process end. A confirmed Codex session that was not stopped looks up its
   actual model before the runner exits, so identity precedes terminal completion.
   """
-  def ended(
-        %{"stopped" => false},
-        %{backend: "codex", session: session, launch: %{} = launch} = state
-      )
-      when is_binary(session),
-      do:
-        identify(
-          state,
-          Codex.model(session, launch.workspace, launch.codex_home, launch.started_at)
-        )
+  def ended(record, %{backend: "codex", folder: folder} = state) when is_binary(folder),
+    do: identity(record, %{state | router_error: router_error(Path.join(folder, "stderr.log"))})
 
-  def ended(_, state), do: state
+  def ended(record, state), do: identity(record, state)
+
+  defp identity(
+         %{"stopped" => false},
+         %{backend: "codex", session: session, launch: %{} = launch} = state
+       )
+       when is_binary(session),
+       do:
+         identify(
+           state,
+           Codex.model(session, launch.workspace, launch.codex_home, launch.started_at)
+         )
+
+  defp identity(_, state), do: state
 
   # The host reports the exact launch time, workspace and Codex home its child received.
   def consume(
@@ -151,6 +156,7 @@ defmodule AtlasRuntime.Providers.NativeEvents do
     AtlasRuntime.Agent.emit(state.owner, summary(type), output(type, item))
     state = if type == "turn.completed", do: %{state | completed: true}, else: state
     state = if type in ["turn.failed", "error"], do: %{state | failed: true}, else: state
+    state = track_tool(type, item, state)
 
     if type == "item.completed" and item["type"] == "agent_message" and is_binary(text),
       do: %{state | result: String.slice(text, 0, 2_000)},
@@ -158,6 +164,49 @@ defmodule AtlasRuntime.Providers.NativeEvents do
   end
 
   def consume(_, state), do: state
+
+  @doc """
+  The failure reason of a Codex turn whose tool calls all failed before execution, or nil.
+  Codex 0.167.1 exits 0 with `turn.completed` and a normal-looking answer when its code-mode
+  host is unreachable, and records no tool item for the failed calls. Each failed dispatch
+  logs `<RFC3339> ERROR codex_core::tools::router: error=<error>` on stderr. Such a line with
+  no tool item in the turn fails it, citing the first router error. Decided from that log
+  level and target and from item types only, never from answer text; exec JSON `error`
+  items are not dispatch evidence.
+  """
+  def dispatch_failure(%{tool_seen: false, router_error: error}) when is_binary(error),
+    do: "every tool call failed before execution: " <> error
+
+  def dispatch_failure(_), do: nil
+
+  @tools ["command_execution", "mcp_tool_call", "web_search", "file_change"]
+
+  # Any tool item means a call reached execution; its own status is the tool's outcome.
+  defp track_tool(type, %{"type" => tool}, %{tool_seen: false} = state)
+       when type in ["item.started", "item.updated", "item.completed"] and tool in @tools,
+       do: %{state | tool_seen: true}
+
+  defp track_tool(_, _, state), do: state
+
+  @router ~r/\A\d{4}-\d\d-\d\dT\S+ +ERROR codex_core::tools::router: error=(.*\S)/
+
+  @doc false
+  # The first router error in Codex's stderr, which the host wrote completely before the
+  # process end; an unreadable log reports none.
+  def router_error(path) do
+    path
+    |> File.stream!(:line)
+    |> Enum.find_value(fn line ->
+      case Regex.run(@router, line, capture: :all_but_first) do
+        [error] -> bounded(error)
+        nil -> nil
+      end
+    end)
+  rescue
+    File.Error -> nil
+  end
+
+  defp bounded(text), do: text |> String.trim() |> String.slice(0, 300)
 
   # Local Claude failures can carry a synthetic assistant instead of a model response.
   defp identify(state, "<synthetic>"), do: state

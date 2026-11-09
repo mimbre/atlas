@@ -1,0 +1,3 @@
+Reading additional input from stdin...
+2026-11-11T13:19:30.017295Z ERROR codex_core::tools::router: error=timed out negotiating with the code-mode host
+2026-11-11T13:20:02.365962Z ERROR codex_core::tools::router: error=timed out negotiating with the code-mode host

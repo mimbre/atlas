@@ -93,6 +93,39 @@ defmodule AtlasRuntime.CodexTest do
     end
   end
 
+  test "recorded clean exits whose tool calls all failed at dispatch are not completion", %{
+    tmp_dir: dir
+  } do
+    fixtures = Path.join(__DIR__, "fixtures/codex_0_167_1")
+
+    for {name, error} <- [
+          {"host-timeout", "timed out negotiating with the code-mode host"},
+          {"missing-host",
+           "failed to spawn code-mode host /tmp/cxfix/bin/codex-code-mode-host: " <>
+             "No such file or directory (os error 2)"}
+        ] do
+      path = Path.join(dir, name)
+      File.mkdir_p!(path)
+      recording = Path.join(fixtures, name)
+
+      {:ok, pid} =
+        launch(path, "cat '#{recording}.stderr.log' >&2\ncat '#{recording}.stdout.jsonl'\n")
+
+      ref = Process.monitor(pid)
+      reason = "every tool call failed before execution: " <> error
+      assert_receive {:DOWN, ^ref, :process, ^pid, {:codex_failed, ^reason}}, 5_000
+      refute_received {:agent, ^pid, {:ended, _}}
+    end
+  end
+
+  test "a recorded error item without a router error leaves the turn finished", %{tmp_dir: dir} do
+    recording = Path.join(__DIR__, "fixtures/codex_0_167_1/missing-host.stdout.jsonl")
+    {:ok, pid} = launch(dir, "cat '#{recording}'\n")
+    ref = Process.monitor(pid)
+    assert_receive {:agent, ^pid, {:ended, _}}, 5_000
+    assert_receive {:DOWN, ^ref, :process, ^pid, :normal}, 1_000
+  end
+
   test "stop waits for the child process group to terminate", %{tmp_dir: dir} do
     {:ok, pid} =
       launch(dir, ~S"""
