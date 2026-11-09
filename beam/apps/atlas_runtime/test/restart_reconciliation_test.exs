@@ -172,7 +172,7 @@ defmodule AtlasRuntime.RestartReconciliationTest do
         "started_at" => "2026-11-11T14:00:00Z"
       })
 
-    {interrupted, _} = turn(dir, 2, %{}, 1464)
+    {interrupted, _} = turn(dir, 2, %{"session_id" => nil}, 1464)
     {events, _} = reconcile(dir, {:gone, "gone"})
 
     state = %{
@@ -194,9 +194,9 @@ defmodule AtlasRuntime.RestartReconciliationTest do
     assert {:reply, {%{"id" => ^interrupted, answer: nil}, false}, _} =
              call.(%{"command" => "output", "worker_id" => "alpha"})
 
-    # An interrupted turn has no confirmed end of its native session: not continuable.
+    # An interrupted turn without a confirmed native session cannot continue.
     assert {:reply,
-            {%{command_error: "Continue requires a finished, stopped or killed turn"}, false},
+            {%{command_error: "The selected turn has no confirmed native session"}, false},
             _} =
              call.(%{"command" => "continue", "worker_id" => "alpha", "assignment" => "next"})
 

@@ -105,7 +105,7 @@ func TestFolderProfileArgumentsAreTheEnforcementContract(t *testing.T) {
 	network := `network={enabled=true,allow_local_binding=true,unix_sockets={` + q(scratch) + `="allow"}}`
 	want := []string{"-c", `default_permissions="atlas_folder"`, "-c",
 		`permissions={atlas_folder={extends=":read-only",filesystem={` + strings.Join(append(slices.Clone(filesystem), q(inspector)+`="read"`), ",") + `},` + network + `}}`,
-		"-c", "features.network_proxy=true"}
+		"-c", "features.network_proxy=true", "-c", `web_search="disabled"`}
 	if !slices.Equal(args, want) {
 		t.Fatalf("got  %q\nwant %q", args, want)
 	}
@@ -126,7 +126,7 @@ func TestFolderProfileArgumentsAreTheEnforcementContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	granted := `permissions={atlas_folder={extends=":read-only",filesystem={` + strings.Join(append(slices.Clone(filesystem), q(inside)+`="read"`), ",") + `},` + network + `}}`
-	if !slices.Equal(args, append(want[:3:3], granted, "-c", "features.network_proxy=true")) {
+	if !slices.Equal(args, append(want[:3:3], granted, "-c", "features.network_proxy=true", "-c", `web_search="disabled"`)) {
 		t.Fatalf("inspector grant: got %q\nwant %q", args, granted)
 	}
 	for _, writable := range []string{dest, scratch} {
@@ -200,7 +200,7 @@ wait
 	}
 	// The native CLI is the group leader itself: no pre-exec child, so no Git preparation.
 	if started["pid"] != float64(process.PID) || process.Command[0] != native || process.NativeTemporary != scratch ||
-		!slices.Contains(process.Command, `default_permissions="atlas_folder"`) {
+		!slices.Contains(process.Command, `default_permissions="atlas_folder"`) || !slices.Contains(process.Command, `web_search="disabled"`) {
 		t.Fatalf("unexpected launch evidence: %+v %v", process, started)
 	}
 	host.stdin.Close()
@@ -243,7 +243,7 @@ printf '%s\n' '{"type":"thread.started","thread_id":"native-session"}' '{"type":
 	if code != 0 || records[len(records)-1]["exit_code"] != 0.0 {
 		t.Fatalf("continuation failed: code=%d records=%v", code, records)
 	}
-	if argv, _ := os.ReadFile(native + ".args"); !strings.Contains(string(argv), "resume\n") || !strings.Contains(string(argv), `default_permissions="atlas_folder"`) {
+	if argv, _ := os.ReadFile(native + ".args"); !strings.Contains(string(argv), "resume\n") || !strings.Contains(string(argv), `default_permissions="atlas_folder"`) || !strings.Contains(string(argv), `web_search="disabled"`) {
 		t.Fatalf("continuation argv: %s", argv)
 	}
 	if log, err := os.ReadFile(gitLog); !errors.Is(err, os.ErrNotExist) {
@@ -873,7 +873,7 @@ func TestPacketProfileArgumentsAreTheEnforcementContract(t *testing.T) {
 	network := `network={enabled=true,allow_local_binding=true,unix_sockets={` + q(scratch) + `="allow"}}`
 	want := []string{"-c", `default_permissions="atlas_review_packet"`, "-c",
 		`permissions={atlas_review_packet={extends=":read-only",filesystem={` + strings.Join(filesystem, ",") + `},` + network + `}}`,
-		"-c", "features.network_proxy=true"}
+		"-c", "features.network_proxy=true", "-c", `web_search="disabled"`}
 	if !slices.Equal(args, want) {
 		t.Fatalf("got  %q\nwant %q", args, want)
 	}
@@ -984,6 +984,7 @@ printf '%s\n' '{"type":"thread.started","thread_id":"native-session"}' '{"type":
 			t.Fatalf("session %q: code=%d records=%v", session, code, records)
 		}
 		if argv, _ := os.ReadFile(native + ".args"); !strings.Contains(string(argv), `default_permissions="atlas_review_packet"`) ||
+			!strings.Contains(string(argv), `web_search="disabled"`) ||
 			!strings.Contains(string(argv), "--cd\n"+tree+"\n") {
 			t.Fatalf("session %q argv: %s", session, argv)
 		}

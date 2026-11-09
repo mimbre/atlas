@@ -180,21 +180,23 @@ After `status` reports `finished`, continue that Codex conversation:
 atlas-runtime continue "Now explain the tradeoff in more detail"
 ```
 
-`continue` starts a new Runtime turn for the selected worker using its previous explicit native `session_id`, working directory and sandbox. No setting overrides are accepted. Without a turn selector, that worker's current turn must be successfully finished. `start` always creates a fresh conversation. Native session confirmation is required; there is no `--last` selection or fallback to another session. Both native CLIs retain conversation history in their normal local storage; Runtime artifacts remain separate. Restart clears all current-turn views and never restores a conversation automatically.
+`continue` starts a new Runtime turn for the selected worker using its previous explicit native `session_id`, working directory and sandbox. No setting overrides are accepted. Without a turn selector, the worker's latest turn must be `finished`, `stopped`, `killed` or `failed`, with a confirmed native session ID. `start` always creates a fresh conversation. Native session confirmation is required; there is no `--last` selection or fallback to another session. Both native CLIs retain conversation history in their normal local storage; Runtime artifacts remain separate. Restart never restores a conversation automatically.
 
-To explicitly resume a saved successful conversation, including after daemon restart:
+To explicitly resume a saved conversation, including after daemon restart:
 
 ```sh
 atlas-runtime continue --turn turn-0123456789abcdef "Next assignment"
 ```
 
-The saved turn must be `finished`, `stopped` or `killed`, with a confirmed native session ID and valid saved cwd/sandbox; its working directory must still exist. Failed, stopping, killing, unknown and incomplete records are refused, and so is a worker whose stop latch has not been released. An active agent for that worker blocks continuation; other workers may continue independently unless their workspaces overlap. A new Runtime turn/artifact folder is created; the selected record is unchanged. Selecting an older turn resumes that conversation's current native history, not a rollback or fork at the selected turn. If the selected native backend cannot resume the exact session, the new turn fails without fallback.
+The saved turn must be `finished`, `stopped`, `killed` or `failed`, with a confirmed native session ID and valid saved cwd/sandbox; its working directory must still exist. A failed turn without a session ID is refused with `The selected turn has no confirmed native session`. Running, stopping, killing, unknown and incomplete records are refused, and so is a worker whose stop latch has not been released. An active agent for that worker blocks continuation; other workers may continue independently unless their workspaces overlap. A new Runtime turn/artifact folder is created; the selected record is unchanged. Selecting an older turn resumes that conversation's current native history, not a rollback or fork at the selected turn. If the selected native backend cannot resume the exact session, the new turn fails without fallback.
 
 Codex defaults to **read-only**, using the official CLI and the user's existing ChatGPT login (`codex login`). Explicitly opt into Codex's workspace-write sandbox for an editing assignment:
 
 ```sh
 atlas-runtime start --cwd /path/to/project --sandbox workspace-write "Make the requested file change"
 ```
+
+Codex web search is explicitly disabled for `read-only`, `workspace-write`, `materialized-folder` and `review-packet` workers, whose profiles block external network access. The network-enabled `dedicated-repository` profile enables live web search. Command networking keeps each profile's existing restrictions.
 
 The `--sandbox` option accepts only `read-only` and `workspace-write` for Codex. Status and output report the selected mode. A read-only denial never automatically escalates permissions. Both standalone backends reuse `AtlasRuntime.Agent.Native` and its owned process-group runner; no credentials are copied, no global native settings change, and no API fallback. Guidance, queues, multi-agent scheduling and Atlas hookup remain outside this step.
 
@@ -562,7 +564,7 @@ atlas-runtime output --turn turn-0123456789abcdef
 
 `turns` returns a `turns` array, newest start first, with worker IDs, assignments, states, settings, native session IDs and timestamps. Each new turn saves `turn.json` atomically beside its existing artifacts at start, native session confirmation, and terminal transition. `output --turn ID` returns the selected turn's answer and bounded native event tail without changing any worker's current turn. Unknown/malformed IDs fail; historical failed/stopped turns remain inspectable with exit zero. Explicit historical selection is a snapshot command, not combined with `--follow`.
 
-History survives daemon restart, but `status` still starts idle and plain `continue` does not select saved history. Only explicit `continue --turn ID` selects a saved successful conversation. Older artifact folders without metadata remain readable with state `unknown`; missing assignment/timestamp/session fields are not guessed. A saved `running` turn no longer owned by this daemon is shown as `unknown` with `recorded_state: running`, not claimed to be active or successful. No automatic restart, crash recovery, retention/deletion policy or server connection is introduced.
+History survives daemon restart, but `status` still starts idle and plain `continue` does not select saved history. Explicit `continue --turn ID` selects a saved conversation; failed turns are eligible when their native session ID is confirmed. Older artifact folders without metadata remain readable with state `unknown`; missing assignment/timestamp/session fields are not guessed. A saved `running` turn no longer owned by this daemon is shown as `unknown` with `recorded_state: running`, not claimed to be active or successful. No automatic restart, crash recovery, retention/deletion policy or server connection is introduced.
 
 Requires the normal Elixir/OTP/Mix toolchain and the selected official CLI (`codex` or `claude`) on PATH. First service start compiles Runtime and Bus into its own build directory. `ATLAS_RUNTIME_HOME=/absolute/path` selects an isolated instance; use it consistently across commands. Directory aliases are resolved before building, including macOS `/tmp` → `/private/tmp`, so Mix's relative `priv` links resolve correctly.
 

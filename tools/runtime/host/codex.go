@@ -14,7 +14,9 @@ import (
 
 // codexCommand builds the official Codex CLI argv; an empty model keeps Codex's own default.
 func codexCommand(executable, workspace, folder, goal string, permissions []string, session, model string) []string {
-	command := append([]string{executable, "exec"}, permissions...)
+	// Command sandboxes default to no external network. A network-enabled profile
+	// may override this default in permissions, after it in the CLI config order.
+	command := append([]string{executable, "exec", "-c", `web_search="disabled"`}, permissions...)
 	command = append(command, "--disable", "hooks", "-c", `forced_login_method="chatgpt"`,
 		"-c", `approval_policy="never"`, "--color", "never", "--cd", workspace)
 	if session != "" {
@@ -76,7 +78,7 @@ func repositoryArguments(fields map[string]any) ([]string, error) {
 	profile := `permissions={atlas_repository={extends=":read-only",filesystem={` + strings.Join(paths, ",") +
 		`},network={enabled=true,domains={"github.com"="allow","api.github.com"="allow"}}}}`
 	return []string{"-c", `default_permissions="atlas_repository"`, "-c", profile,
-		"-c", "features.network_proxy=true"}, nil
+		"-c", "features.network_proxy=true", "-c", `web_search="live"`}, nil
 }
 
 // credentialPaths are the user's known credential and control locations, relative to the user home.
@@ -218,7 +220,9 @@ func workerArguments(name string, scope map[string]any, project [][2]string, scr
 	if err != nil {
 		return nil, err
 	}
-	return append(arguments, "-c", "features.network_proxy=true"), nil
+	// Native web search is separate from command networking; loopback-only workers
+	// must not be offered it, including when resuming an existing conversation.
+	return append(arguments, "-c", "features.network_proxy=true", "-c", `web_search="disabled"`), nil
 }
 
 // setupProfile names the Codex permission profile of a folder preparation.

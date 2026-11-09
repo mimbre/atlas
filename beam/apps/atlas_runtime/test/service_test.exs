@@ -359,7 +359,7 @@ defmodule AtlasRuntime.ServiceTest do
     error(
       state,
       %{"command" => "continue", "turn_id" => id, "assignment" => "next"},
-      "finished, stopped or killed turn"
+      "finished, stopped, killed or failed turn"
     )
 
     assert state.workers == %{}
@@ -920,9 +920,10 @@ defmodule AtlasRuntime.ServiceTest do
 
     invalid = [
       {%{"backend" => "other"}, "Unknown saved backend"},
-      {%{"state" => "failed"}, "finished, stopped or killed turn"},
-      {%{"state" => "stopping"}, "finished, stopped or killed turn"},
+      {%{"state" => "running"}, "finished, stopped, killed or failed turn"},
+      {%{"state" => "stopping"}, "finished, stopped, killed or failed turn"},
       {%{"session_id" => nil}, "no confirmed native session"},
+      {%{"state" => "failed", "session_id" => nil}, "no confirmed native session"},
       {%{"cwd" => "relative"}, "no valid saved working directory"},
       {%{"sandbox" => "unrestricted"}, "no valid saved working directory"},
       {%{"backend" => "claude"}, "no confirmed model"},

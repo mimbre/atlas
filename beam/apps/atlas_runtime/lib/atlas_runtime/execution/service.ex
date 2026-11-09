@@ -534,9 +534,9 @@ defmodule AtlasRuntime.Service do
       do: raise("Unknown saved backend; sessions cannot switch vendors")
 
     questions_enabled = questions_enabled!(run, backend)
-    # A stopped or killed turn continues from its saved native session and the current files.
-    if run["state"] not in ["finished", "stopped", "killed"],
-      do: raise("Continue requires a finished, stopped or killed turn")
+    # Terminal turns continue from their confirmed native session and the current files.
+    if run["state"] not in ["finished", "stopped", "killed", "failed"],
+      do: raise("Continue requires a finished, stopped, killed or failed turn")
 
     session = run["session_id"]
     cwd = run["cwd"]
