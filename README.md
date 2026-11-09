@@ -42,7 +42,7 @@ cd clients/agent && mix test     # the agents' command line
 cd bff/generator && mix test     # the contract generator
 cd bff/contract && mix atlas.gen # after changing the contract: regenerate bff/targets/
 cd e2e && mix test               # the atlas launcher's own rules
-bin/atlas e2e --env test         # the end-to-end test, on a private instance
+bin/atlas-dev e2e --env test     # the end-to-end test, on a private instance
 ```
 
 `atlas` works on prod by default. Pass `--env test` to work on test. Scripts, tests and agents must always pass `--env test` or a private `ATLAS_ENV_FILE`.

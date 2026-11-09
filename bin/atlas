@@ -16,7 +16,6 @@
 #   atlas env          the environment a command works on, and its settings file
 #   atlas install      link `atlas` into ~/.local/bin (from the main clone only)
 #   atlas up           run the core in the foreground (what `atlas` starts in the background)
-#   atlas e2e [uc-atlas-01 ...]  the end-to-end test, on a private test instance of its own
 #   atlas runtime       start this machine's Runtime node (local runtime.json required)
 #   atlas runtime-stop, atlas runtime-status
 #   atlas runtime status|start|stop [--machine <name>] [--json]   local node operations
@@ -79,10 +78,7 @@ while [ -L "$src" ]; do
   case "$target" in /*) src="$target" ;; *) src="$(dirname "$src")/$target" ;; esac
 done
 root="$(cd "$(dirname "$src")/.." && pwd -P)"
-# Keep ordinary invocations on the isolated project dependency without shell setup.
-if [ -z "${ATLAS_CONFIG_PYTHON:-}" ] && [ -x "$root/.venv-config/bin/python" ]; then
-  export ATLAS_CONFIG_PYTHON="$root/.venv-config/bin/python"
-fi
+. "$root/bin/lib/env.sh"
 # The comment above, up to `set -euo pipefail`: the usage.
 header() { sed -n '2,/^set -euo/p' "$root/bin/atlas" | sed '$d' | sed 's/^# \{0,1\}//'; }
 usage() { header; exit 2; }
@@ -101,7 +97,7 @@ while [ $# -gt 0 ]; do
     --env=) no_env ;;
     *)
       case "$cmd" in
-        e2e|turn|put|set|get|list|delete|tools|plan|steer|migrate-done-owner|move-to-fly|fetch-from-fly|help|runtime|runtime-status|runtime-stop|runtime-discover) args+=("$1"); shift ;;
+        turn|put|set|get|list|delete|tools|plan|steer|migrate-done-owner|move-to-fly|fetch-from-fly|help|runtime|runtime-status|runtime-stop|runtime-discover) args+=("$1"); shift ;;
         tui)
           case "$1" in
             -h|--help) usage ;;
@@ -111,44 +107,6 @@ while [ $# -gt 0 ]; do
       esac ;;
   esac
 done
-
-# The end-to-end test makes its own private test instance; it never reads env/<env>.json
-# and never runs on prod. It needs no setup: unless ATLAS_E2E_RELA_BIN names rela's binaries,
-# it installs the pinned rela into a per-user cache (and reuses it later), and unless
-# ATLAS_CONFIG_PYTHON is set (or .venv-config found) or python3 already has
-# rela/scripts/requirements.txt, it makes a private Python for rela's scripts there too.
-if [ "$cmd" = e2e ]; then
-  if [ -n "$env" ] && [ "$env" != test ]; then
-    echo "atlas: e2e runs only on a private test instance, never on $env" >&2; exit 1
-  fi
-  cache="${XDG_CACHE_HOME:-$HOME/.cache}/atlas"
-  if [ -z "${ATLAS_E2E_RELA_BIN:-}" ]; then
-    version="$(sed -n 's/^version=//p' "$root/rela/scripts/start-test.sh")"
-    export ATLAS_E2E_RELA_BIN="$cache/rela-$version"
-    ATLAS_RELA_BIN="$ATLAS_E2E_RELA_BIN" "$root/rela/scripts/start-test.sh" install >&2
-  fi
-  requirements="$root/rela/scripts/requirements.txt"
-  if [ -z "${ATLAS_CONFIG_PYTHON:-}" ] && ! python3 - "$requirements" 2>/dev/null <<'PY'
-import sys
-from importlib.metadata import version
-for line in open(sys.argv[1]):
-    name, _, pinned = line.split('#')[0].strip().partition('==')
-    if name and version(name) != pinned:
-        sys.exit(1)
-PY
-  then
-    venv="$cache/python"
-    if ! cmp -s "$requirements" "$venv/requirements.txt"; then
-      echo "atlas e2e: installing rela's Python requirements into $venv" >&2
-      rm -rf "$venv"
-      python3 -m venv "$venv"
-      "$venv/bin/pip" install -q --disable-pip-version-check -r "$requirements" >&2
-      cp "$requirements" "$venv/requirements.txt"
-    fi
-    export ATLAS_CONFIG_PYTHON="$venv/bin/python"
-  fi
-  cd "$root/e2e" && exec mix atlas.e2e ${args[@]+"${args[@]}"}
-fi
 
 settings="${ATLAS_ENV_FILE:-}"
 if [ -z "$settings" ]; then

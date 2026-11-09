@@ -69,11 +69,33 @@ defmodule AtlasE2E.AtlasCommandTest do
     assert out =~ "is for test, not prod"
   end
 
+  defp atlas_dev(args) do
+    System.cmd(Path.join(@root, "bin/atlas-dev"), args,
+      env: [{"ATLAS_ENV_FILE", nil}],
+      cd: @root,
+      stderr_to_stdout: true
+    )
+  end
+
   test "the end-to-end test refuses prod" do
-    assert {out, 1} = atlas(["e2e", "--env", "prod"])
+    assert {out, 1} = atlas_dev(["e2e", "--env", "prod"])
     assert out =~ "never on prod"
-    assert {out, 1} = atlas(["e2e", "uc-atlas-01", "--env=prod"])
+    assert {out, 1} = atlas_dev(["e2e", "uc-atlas-01", "--env=prod"])
     assert out =~ "never on prod"
+    assert {out, 2} = atlas_dev(["e2e", "--env"])
+    assert out =~ "--env needs test or prod"
+  end
+
+  test "the end-to-end test is development tooling, not an atlas command" do
+    for args <- [["e2e"], ["e2e", "--env", "test"], ["e2e", "uc-atlas-01", "--env", "test"]] do
+      assert {out, 2} = atlas(args)
+      assert out =~ "atlas help [<kind>]", "atlas #{Enum.join(args, " ")}: #{out}"
+      refute out =~ "e2e"
+    end
+
+    assert {out, 2} = atlas_dev([])
+    assert out =~ "bin/atlas-dev e2e"
+    assert {_, 2} = atlas_dev(["tui"])
   end
 
   test "atlas works from any folder: from /, and from inside another repository" do
