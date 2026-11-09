@@ -17,7 +17,7 @@ defmodule AtlasFlowGenerator.SchemaTest do
   @rule [
     version: "1",
     flavor: ":rule",
-    purpose: ":decider",
+    purpose: ":flow",
     evidence: "[:a, :b]",
     rule: ~s([all: [{:equals, :a, "x"}, {:same, :a, :b}]]),
     verdicts: "[:ok, :no, :person]",
@@ -163,7 +163,7 @@ defmodule AtlasFlowGenerator.SchemaTest do
       assert %{
                name: :size_limit,
                flavor: :rule,
-               purpose: :decider,
+               purpose: :flow,
                advice: nil,
                evidence: [:pages, :envelope, :format],
                rule: [all: [{:equals, :pages, 1}, {:same, :envelope, :format}]],

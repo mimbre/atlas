@@ -3,7 +3,7 @@ defmodule AtlasFlowContract.GatesTest do
 
   test "the gates, in the order written" do
     assert Enum.map(AtlasFlowContract.Gates.__gates__(), & &1.name) ==
-             [:delivery_evidence, :review, :design, :integrate]
+             [:delivery_evidence, :review, :design, :integrate, :accept_decision]
   end
 
   # Named by the pull request's integrate effect, applied by hand until Code applies it:

@@ -15,7 +15,7 @@ defmodule AtlasFlowGenerator.Example.Gates do
   defgate :size_limit,
     version: 1,
     flavor: :rule,
-    purpose: :decider,
+    purpose: :flow,
     evidence: [:pages, :envelope, :format],
     rule: [all: [{:equals, :pages, 1}, {:same, :envelope, :format}]],
     verdicts: [:fits, :person],
