@@ -3,8 +3,40 @@ import AtlasControlKit
 import XCTest
 
 final class PagePresentationTests: XCTestCase {
-    private func page(_ blocks: [JSONValue]) throws -> PageMessage {
-        PageMessage(blocks: blocks.map(Block.init(raw:)), markup: [], path: "/k/widget", title: "Widgets")
+    private func page(_ blocks: [JSONValue], markup: [JSONValue] = [], path: String = "/k/widget") throws -> PageMessage {
+        PageMessage(blocks: blocks.map(Block.init(raw:)), markup: markup.map(MarkupEntry.init(raw:)),
+                    path: path, title: "Widgets")
+    }
+
+    private func section(_ start: String, _ end: String, _ title: String, collapsible: Bool? = nil) -> JSONValue {
+        var props: [String: JSONValue] = ["title": .string(title)]
+        if let collapsible { props["collapsible"] = .bool(collapsible) }
+        return .object(["kind": .string("section"), "start": .string(start), "end": .string(end),
+                        "props": .object(props)])
+    }
+
+    private func lists(_ ids: [String]) -> [JSONValue] {
+        ids.map { block("list", ["rows": .array([])], id: $0) }
+    }
+
+    /// Groups as ids: a block's id, or "title[ids]" (with "▸" when it folds) for a section.
+    private func shape(_ presentation: PagePresentation) -> [String] {
+        presentation.groups.map { group in
+            switch group {
+            case .entry(let entry): entry.id
+            case .section(let section):
+                (section.collapsible ? "▸" : "") + section.title + "[" + section.entries.map(\.id).joined(separator: ",") + "]"
+            }
+        }
+    }
+
+    private func flattened(_ presentation: PagePresentation) -> [String] {
+        presentation.groups.flatMap { group -> [String] in
+            switch group {
+            case .entry(let entry): [entry.id]
+            case .section(let section): section.entries.map(\.id)
+            }
+        }
     }
 
     private func block(_ type: String, _ props: [String: JSONValue], id: String? = nil) -> JSONValue {
@@ -80,6 +112,111 @@ final class PagePresentationTests: XCTestCase {
         }
         XCTAssertEqual(guidance.empty, "No durable guidance is recorded.")
         XCTAssertTrue(guidance.rows.isEmpty)
+        // Details nests in the Conversation part and folds output details through the record.
+        XCTAssertEqual(shape(presentation),
+                       ["worker", "worker-output", "▸Details[worker-output-details,guidance-history,worker-record]"])
+    }
+
+    func testSectionsGroupTheirBlocksAndOnlyCollapsibleOnesFold() throws {
+        let presentation = PagePresentation(try page(lists(["a", "b", "c", "d", "e"]), markup: [
+            section("b", "c", "Related"),
+            section("e", "e", "Details", collapsible: true),
+        ]))
+        XCTAssertEqual(shape(presentation), ["a", "Related[b,c]", "d", "▸Details[e]"])
+        XCTAssertEqual(presentation.entries.map(\.id), ["a", "b", "c", "d", "e"])
+    }
+
+    func testASectionWithoutCollapsibleOrWithFalseIsAHeading() throws {
+        let presentation = PagePresentation(try page(lists(["a", "b"]), markup: [
+            section("a", "a", "One"), section("b", "b", "Two", collapsible: false),
+        ]))
+        XCTAssertEqual(shape(presentation), ["One[a]", "Two[b]"])
+    }
+
+    func testANestedSectionShowsInsideTheOutermostOne() throws {
+        // The inner section is listed first: containment, not list order, decides.
+        let presentation = PagePresentation(try page(lists(["a", "b", "c", "d"]), markup: [
+            section("c", "c", "Inner", collapsible: true),
+            section("b", "d", "Outer", collapsible: true),
+        ]))
+        XCTAssertEqual(shape(presentation), ["a", "▸Outer[b,c,d]"])
+    }
+
+    func testOtherKindsOfMarkupLeaveTheBlocksFlat() throws {
+        let part: JSONValue = .object(["kind": .string("part"), "start": .string("a"), "end": .string("c"),
+                                       "props": .object(["title": .string("Main"), "role": .string("main")])])
+        let future: JSONValue = .object(["kind": .string("future"), "start": .string("x"), "end": .string("y")])
+        let presentation = PagePresentation(try page(lists(["a", "b", "c"]), markup: [part, future]))
+        XCTAssertEqual(shape(presentation), ["a", "b", "c"])
+    }
+
+    func testAPageWithoutMarkupIsUnchanged() throws {
+        let presentation = PagePresentation(try page(lists(["a", "b"])))
+        XCTAssertEqual(presentation.groups, presentation.entries.map(PagePresentation.Group.entry))
+    }
+
+    func testMarkupThatIsNotOneTreeShowsEveryBlockFlatAndOnce() throws {
+        let ids = ["a", "b", "c", "d"]
+        let crossingPart: JSONValue = .object([
+            "kind": .string("part"), "start": .string("c"), "end": .string("d"),
+            "props": .object(["title": .string("P"), "role": .string("main")]),
+        ])
+        let cases: [String: [JSONValue]] = [
+            "unknown id": [section("b", "zz", "Details", collapsible: true)],
+            "end before start": [section("c", "b", "Details", collapsible: true)],
+            "crossing sections": [section("a", "b", "One"), section("b", "c", "Two", collapsible: true)],
+            "section crossing a part": [section("b", "c", "Details", collapsible: true), crossingPart],
+            "valid and invalid": [section("a", "a", "One"), section("d", "a", "Two")],
+        ]
+        for (name, markup) in cases {
+            let presentation = PagePresentation(try page(lists(ids), markup: markup))
+            XCTAssertEqual(shape(presentation), ids, name)
+        }
+        var twice = lists(["a", "b", "b"])
+        twice.append(block("list", ["rows": .array([])], id: "c"))
+        let presentation = PagePresentation(try page(twice, markup: [section("b", "c", "Details", collapsible: true)]))
+        XCTAssertEqual(flattened(presentation), ["a", "b", "b", "c"], "an id used twice")
+        XCTAssertEqual(shape(presentation), ["a", "b", "b", "c"], "an id used twice")
+    }
+
+    func testABlockLeftOutOfTheViewDoesNotShiftASection() throws {
+        let action = ConsoleActionBlock(
+            label: "Show or hide details", keys: ["d"], operation: ConsoleOperationModel(name: "sections_toggle"),
+            scope: ConsoleScopeModel(page: "/k/widget", revision: "r", context: "page"), available: true)
+        var page = try self.page(lists(["a", "b", "c"]), markup: [section("b", "c", "Details", collapsible: true)])
+        page.blocks.insert(Block(id: "action", content: .consoleAction(action)), at: 1)
+        XCTAssertEqual(shape(PagePresentation(page)), ["a", "▸Details[b,c]"])
+    }
+
+    func testTheSectionKeyIsThePagePathAndItsStartBlock() throws {
+        let markup = [section("details", "details", "Details", collapsible: true)]
+        let one = PagePresentation(try page(lists(["details"]), markup: markup, path: "/"))
+        let other = PagePresentation(try page(lists(["details"]), markup: markup, path: "/workers"))
+        guard case .section(let section) = one.groups[0] else { return XCTFail("no section") }
+        XCTAssertEqual(section.id, "details")
+        XCTAssertNotEqual(one.path, other.path)
+    }
+
+    func testTheCalmStartPageIsASummaryACalmListAndFoldedDetails() throws {
+        let page = try JSONDecoder().decode(PageMessage.self, from: Data(calmStartPage.utf8))
+        let presentation = PagePresentation(page)
+        XCTAssertEqual(shape(presentation), ["summary", "list", "▸Details[details]"])
+        guard case .entry(let first) = presentation.groups[0], case .item(let summary) = first.item,
+              case .entry(let second) = presentation.groups[1], case .list(let list) = second.item,
+              case .section(let details) = presentation.groups[2], case .item(let technical) = details.entries[0].item
+        else { return XCTFail("\(presentation.groups)") }
+        XCTAssertEqual(summary.title, "Overview")
+        XCTAssertEqual(summary.fields, [PairModel(label: "To do", value: "2"), PairModel(label: "Late", value: "1")])
+        XCTAssertEqual(list.rows.map(\.id), [nil, nil])
+        XCTAssertEqual(list.rows.map(\.label), ["Write the summary", "Check the import"])
+        XCTAssertEqual(list.rows[0].detail, "review · Expected: a decision · late")
+        XCTAssertEqual(technical.title, "Technical details")
+        XCTAssertEqual(technical.fields.map(\.label), ["W-1", "W-2"])
+    }
+
+    func testAPageWithoutRowsHasNoDetailsToFold() throws {
+        let page = try JSONDecoder().decode(PageMessage.self, from: Data(calmEmptyPage.utf8))
+        XCTAssertEqual(shape(PagePresentation(page)), ["summary", "list"])
     }
 
     func testAnUnknownOrBrokenBlockIsAFallbackAndTheRestStillShows() throws {
@@ -128,6 +265,38 @@ final class PagePresentationTests: XCTestCase {
         XCTAssertEqual(PagePresentation(page).entries.map(\.item), [.notShown(type: "confirm")])
     }
 }
+
+// The calm start page as the shared contract brief composes it (synthetic values).
+private let calmStartPage = #"""
+{
+  "op": "page", "path": "/", "title": "Assigned to you", "reason": "open",
+  "blocks": [
+    {"id": "summary", "type": "item", "props": {"title": "Overview", "fields": [
+      {"label": "To do", "value": "2"}, {"label": "Late", "value": "1"}]}},
+    {"id": "list", "type": "list", "props": {"title": "Assigned to you", "empty": "Nothing to do.", "actions": [],
+      "rows": [
+        {"label": "Write the summary", "detail": "review · Expected: a decision · late", "to": "/k/work/W-1", "key": "W-1"},
+        {"label": "Check the import", "detail": "Expected: a check", "to": "/k/work/W-2", "key": "W-2"}]}},
+    {"id": "details", "type": "item", "props": {"title": "Technical details", "fields": [
+      {"label": "W-1", "value": "Work · flow review · state open · since 2026-11-16T09:00:00Z"},
+      {"label": "W-2", "value": "Work · flow import · owner A-1"}]}}
+  ],
+  "markup": [
+    {"kind": "section", "start": "details", "end": "details", "props": {"title": "Details", "collapsible": true}}
+  ]
+}
+"""#
+
+private let calmEmptyPage = #"""
+{
+  "op": "page", "path": "/", "title": "Assigned to you", "reason": "open",
+  "blocks": [
+    {"id": "summary", "type": "item", "props": {"title": "Overview", "fields": [{"label": "To do", "value": "0"}]}},
+    {"id": "list", "type": "list", "props": {"title": "Assigned to you", "empty": "Nothing to do.", "rows": []}}
+  ],
+  "markup": []
+}
+"""#
 
 // Synthetic identities; same received worker page/block/field/markup shape.
 private let workerPage = #"""
