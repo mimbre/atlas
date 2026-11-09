@@ -91,11 +91,10 @@ defmodule AtlasRuntime.ClaudeTest do
   end
 
   test "any other exit is a crash; stop kills the process", %{tmp_dir: dir} do
-    # Monitored as it starts (Claude.start/2's GenServer.start, with the monitor set in the
-    # same step): a fake that exits at once can be gone before a later Process.monitor/1,
-    # whose DOWN then says :noproc, not why it ended. Its exit always comes: no deadline.
-    {:ok, {pid, ref}} =
-      :gen_server.start_monitor(Claude, {self(), @turn, opts(dir, fake(dir, "exit 3\n"))}, [])
+    # Monitored as it starts: a fake that exits at once can be gone before a later
+    # Process.monitor/1, whose DOWN then says :noproc, not why it ended. Its exit always
+    # comes: no deadline.
+    {:ok, {pid, ref}} = Claude.start_monitor(@turn, opts(dir, fake(dir, "exit 3\n")))
 
     assert {:exit, 3} == receive(do: ({:DOWN, ^ref, :process, ^pid, reason} -> reason))
 

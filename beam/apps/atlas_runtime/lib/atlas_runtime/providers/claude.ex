@@ -43,6 +43,10 @@ defmodule AtlasRuntime.Agent.Claude do
   def start(turn, opts), do: GenServer.start(__MODULE__, {self(), turn, opts})
 
   @impl AtlasRuntime.Agent
+  def start_monitor(turn, opts),
+    do: :gen_server.start_monitor(__MODULE__, {self(), turn, opts}, [])
+
+  @impl AtlasRuntime.Agent
   def stop(pid) do
     if Process.alive?(pid), do: GenServer.stop(pid, :normal)
     :ok

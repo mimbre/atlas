@@ -28,6 +28,10 @@ defmodule AtlasRuntime.Agent.Native do
   @impl AtlasRuntime.Agent
   def start(turn, opts), do: GenServer.start(__MODULE__, {self(), turn, opts})
 
+  @impl AtlasRuntime.Agent
+  def start_monitor(turn, opts),
+    do: :gen_server.start_monitor(__MODULE__, {self(), turn, opts}, [])
+
   @doc """
   Internal cleanup for owners ending a turn, not the operator `stop`: interrupt, then kill
   if the group outlives a three-second grace period, and return after the confirmed end.
