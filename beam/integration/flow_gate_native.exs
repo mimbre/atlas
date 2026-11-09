@@ -50,6 +50,8 @@ try do
     flow_input_clock: fn -> ManualClock.now(clock) end
   ]
 
+  # Flow and Gates run the model, compiled for the test environment (its answer limits).
+  Application.put_env(:atlas, :model, Model.AtlasEyra)
   {:ok, facts} = AtlasFacts.Server.start_link(facts_opts)
   {:ok, gates} = AtlasGates.Endpoint.start_link(now: fn -> ManualClock.now(clock) end)
   :ok = AtlasBus.attach("control/session-gate-proof")
@@ -66,12 +68,12 @@ try do
     end
   end
 
-  {description, config} = await.(await)
-
-  {:ok, target} =
-    RelaDSL.Runtime.read(Path.join(root, "model/targets/test/atlas/flows.json"))
-
-  flows = target["flows"]
+  {description, served} = await.(await)
+  %{config: config, flows: flows} = AtlasFlow.Model.load(Model.AtlasEyra, :test)
+  # Facts serves the same run configuration it checks writes by (its own reader, until
+  # its cutover); Flow runs the compiled one.
+  assert Map.take(served, ~w(kind fields writer inputs)) ==
+           Map.take(config, ~w(kind fields writer inputs))
 
   reconcile = fn ->
     Task.async(fn ->
@@ -157,11 +159,7 @@ try do
   end)
   |> Task.await(30_000)
 
-  engine_opts = [
-    clock: {ManualClock, clock},
-    target: AtlasFlow.Generated.Test,
-    deployed_yaml: Path.join(root, "model/targets/test/rela/flows.yaml")
-  ]
+  engine_opts = [clock: {ManualClock, clock}, model: Model.AtlasEyra, environment: :test]
 
   for _ <- 1..2 do
     {:ok, engine} = AtlasFlow.Engine.start_link(engine_opts)

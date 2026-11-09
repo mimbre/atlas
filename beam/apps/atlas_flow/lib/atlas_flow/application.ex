@@ -8,11 +8,11 @@ defmodule AtlasFlow.Application do
       if Application.get_env(:atlas_flow, :start, true) do
         every = Application.get_env(:atlas_flow, :tick_seconds, 60) * 1000
 
+        # The model is wired by configuration (`config :atlas, model: …`); without one, or
+        # with a module that is no model, Flow does not start.
         [
           {AtlasFlow.Engine,
-           every: every,
-           name: AtlasFlow.Engine,
-           deployed_yaml: Application.get_env(:atlas_flow, :deployed_yaml)}
+           every: every, name: AtlasFlow.Engine, model: AtlasFlow.Model.configured!()}
         ]
       else
         []

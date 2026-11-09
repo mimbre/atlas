@@ -1,6 +1,6 @@
 # Run in the umbrella with MIX_ENV=test against the pinned rela-server, without Python:
 #   ATLAS_E2E_RELA_BIN=<dir with rela-server> mix run integration/work_anchors.exs
-# Proves, on the real description and a real rela store, the three ways work hangs from the
+# Proves, on the real description, the compiled model and a real rela store, the three ways work hangs from the
 # records it is based on: an accepted one with no work waits for it; work based on a
 # replaced one is to be reviewed; and a worker reads them first.
 ExUnit.start(seed: 0)
@@ -105,11 +105,11 @@ defmodule WorkAnchorsTest do
     })
   end
 
-  # The state the real flow definition puts a fact in, from what Facts answers.
+  # The state the model's compiled legacy flow puts a fact in, from what Facts answers.
   defp state(description, kind, key) do
-    {_name, flow} = AtlasFlow.Definition.for_kind(description, kind)
+    flow = AtlasFlow.Legacy.for_kind(Model.AtlasEyra.legacy(), kind)
     %{"fact" => fact} = ask(kind, %{"key" => key, "incoming" => false})
-    pointing = AtlasFlow.Definition.pointing(description, flow, kind)
+    pointing = AtlasFlow.Legacy.pointing(flow, description, kind)
 
     pointed =
       for relation <- pointing,
@@ -117,8 +117,8 @@ defmodule WorkAnchorsTest do
           fact <- ask(from, %{"linked" => %{relation => key}, "plain" => true})["facts"],
           do: fact
 
-    {state, vars} = AtlasFlow.Definition.state_of(flow, fact, pointed, [], pointing)
-    {state["name"], AtlasFlow.Definition.expected(state, vars)}
+    {state, vars} = flow.state(fact, pointed, [], pointing)
+    {state, flow.expected(state, vars)}
   end
 
   test "an accepted record waits for work, flags replaced work, and is read first" do

@@ -1,51 +1,38 @@
 defmodule AtlasFlow.Runs.RunTest do
   use ExUnit.Case, async: false
-  alias AtlasFlow.{FakeFacts, FixtureTarget, ManualClock, Talk}
+  alias AtlasFlow.{FakeFacts, ManualClock, Sorts, Talk, TestModel}
   alias AtlasFlow.Runs.{Run, Store}
 
   @now ~U[2026-11-12 00:00:00Z]
   defp subject(values \\ %{}),
     do: %{"key" => "B-1", "values" => Map.merge(%{"phase" => "first"}, values)}
 
-  defp config, do: FakeFacts.run_description()["flow_runtime"]
+  defp config, do: TestModel.config()
+  defp sort, do: TestModel.sort()
 
-  defmodule UnsupportedTarget do
-    def rela_flows_sha256, do: AtlasFlow.FixtureTarget.rela_flows_sha256()
-    def check_rela_flows(bytes), do: AtlasFlow.FixtureTarget.check_rela_flows(bytes)
-
-    def flows,
-      do: put_in(AtlasFlow.FixtureTarget.flows(), ["sort", "states", "waiting", "kind"], "gate")
+  defmodule Unselected do
+    use AtlasFlow.TestModel, selection: %{"sort" => nil}
   end
 
-  defmodule AbsentTarget do
-    def rela_flows_sha256, do: raise("no environment pair")
-    def flows, do: raise("no generated flows")
-    def gates, do: raise("no gates or answer limits")
-    def check_rela_flows(_), do: raise("no deployed YAML")
+  defmodule Unrunnable do
+    use AtlasFlow.TestModel, subflows: [AtlasFlow.Sorts.Unbound]
   end
 
-  test "an unselected composition needs no environment pair, gates or limits" do
-    description = put_in(FakeFacts.run_description(), ["flow_runtime", "selection"], %{})
-    assert {:ok, nil} = Store.activate(description, AbsentTarget, nil)
+  test "a model that selects no subflow keeps and reconciles no runs" do
+    assert AtlasFlow.Model.load(Unselected, :prod).config == nil
     assert {:ok, []} = Store.reconcile(nil, %{}, @now)
     assert FakeFacts.sent() == []
   end
 
-  @tag :tmp_dir
-  test "activation refuses unsupported selected data with zero writes", %{tmp_dir: dir} do
-    yaml = Path.join(dir, "flows.yaml")
-    File.write!(yaml, "fixture\n")
-
-    assert {:error, {:unsupported_definition, "sort"}} =
-             Store.activate(FakeFacts.run_description(), UnsupportedTarget, yaml)
-
+  test "activation refuses a selected subflow this runner cannot run, with zero writes" do
+    assert %{refusal: {:unsupported_definition, "sort"}} = AtlasFlow.Model.load(Unrunnable, :prod)
     assert FakeFacts.sent() == []
   end
 
   defp new(values \\ %{}) do
     Run.new(
       "sort",
-      FixtureTarget.flow(),
+      sort(),
       subject(values),
       config()["selection"]["sort"]["imports"],
       @now
@@ -53,7 +40,7 @@ defmodule AtlasFlow.Runs.RunTest do
   end
 
   test "ordered equalities, missing values, durable finality and imports" do
-    flow = FixtureTarget.flow()
+    flow = sort()
     run = new()
     assert Run.validate(flow) == :ok
     run = put_in(run, ["pending", "writes"], [])
@@ -61,18 +48,12 @@ defmodule AtlasFlow.Runs.RunTest do
     assert {:ok, final} = Run.step(run, flow, subject(%{"result" => "ok"}), @now)
     assert final["state"] == "done" and final["status"] == "completed"
     assert {:ok, ^final} = Run.step(final, flow, subject(%{"result" => "no"}), @now)
-    branches = flow["states"]["waiting"]["branches"]
 
-    flow =
-      put_in(flow, ["states", "waiting", "branches"], [
-        hd(branches),
-        %{hd(branches) | "to" => "discarded"}
-      ])
-
+    # Two branches hold: the first written is taken.
     assert {:ok, %{"state" => "done"}} =
              Run.step(
-               %{run | "definition_sha256" => Run.digest(flow)},
-               flow,
+               %{run | "definition_sha256" => Sorts.Twice.digest()},
+               Sorts.Twice,
                subject(%{"result" => "ok"}),
                @now
              )
@@ -87,13 +68,13 @@ defmodule AtlasFlow.Runs.RunTest do
   end
 
   test "only an exact reviewed mapping migrates a quiescent run, preserving historical finals" do
-    flow = FixtureTarget.flow()
+    flow = sort()
     run = new() |> put_in(["pending", "writes"], []) |> put_in(["deadlines", "timers"], [])
     old = Map.put(run, "definition_sha256", "old")
 
     mapping = %{
       "from" => "old",
-      "to" => Run.digest(flow),
+      "to" => flow.digest(),
       "states" => %{"waiting" => "waiting", "done" => "done"}
     }
 
@@ -105,7 +86,7 @@ defmodule AtlasFlow.Runs.RunTest do
     assert {:ok, migrated} = Run.migrate(old, flow, [mapping], @now)
     assert migrated["entry"] == old["entry"] + 1
     assert migrated["key"] == old["key"]
-    assert migrated["definition_sha256"] == Run.digest(flow)
+    assert migrated["definition_sha256"] == flow.digest()
 
     assert {:error, _} =
              Run.migrate(put_in(old, ["deadlines", "timers"], [%{}]), flow, [mapping], @now)
@@ -117,30 +98,12 @@ defmodule AtlasFlow.Runs.RunTest do
     assert historical["status"] == "completed"
   end
 
-  test "refuses every unsupported executable feature before activation" do
-    flow = FixtureTarget.flow()
-
-    for invalid <- [
-          put_in(flow, ["start"], [%{"on" => "predicate"}]),
-          put_in(flow, ["states", "waiting", "kind"], "gate"),
-          put_in(flow, ["states", "waiting", "creates"], [%{}]),
-          put_in(
-            flow,
-            ["states", "waiting", "branches", Access.at(0), "when"],
-            "System.cmd('x')"
-          )
-        ],
-        do: assert({:error, _} = Run.validate(invalid))
+  test "refuses a subflow whose mechanism this runner cannot run" do
+    assert {:error, :unsupported_definition} = Run.validate(Sorts.Unbound)
   end
 
   test "overdue timers use due time first and declaration order for ties" do
-    for {period, expected} <- [{"5m", "done"}, {"1m", "discarded"}] do
-      flow =
-        put_in(FixtureTarget.flow(), ["states", "waiting", "timers"], [
-          %{"name" => "first", "period" => "5m", "to" => "done"},
-          %{"name" => "second", "period" => period, "to" => "discarded"}
-        ])
-
+    for {flow, expected} <- [{Sorts.Ties, "done"}, {Sorts.Earlier, "discarded"}] do
       run = Run.new("sort", flow, subject(), [], @now) |> put_in(["pending", "writes"], [])
 
       assert {:ok, transitioned} =
@@ -152,7 +115,7 @@ defmodule AtlasFlow.Runs.RunTest do
 
   setup do
     Application.put_env(:atlas_bus, :store, "runs-#{System.unique_integer([:positive])}")
-    start_supervised!({FakeFacts, description: FakeFacts.run_description()})
+    start_supervised!(FakeFacts)
     :ok = AtlasBus.attach("flow")
     clock = start_supervised!({ManualClock, @now})
     FakeFacts.put("box", subject())
@@ -160,7 +123,7 @@ defmodule AtlasFlow.Runs.RunTest do
   end
 
   defp reconcile(clock),
-    do: Store.reconcile(config(), FixtureTarget.flows(), ManualClock.now(clock))
+    do: Store.reconcile(config(), %{"sort" => sort()}, ManualClock.now(clock))
 
   defp stored do
     fact = FakeFacts.get("cursor", Run.key("sort", "box", "B-1", 1))
@@ -228,7 +191,7 @@ defmodule AtlasFlow.Runs.RunTest do
     assert {:ok, [%{"state" => "done", "entry" => 2} = final]} = reconcile(clock)
     ManualClock.advance(clock, 300_001)
     assert {:ok, [^final]} = reconcile(clock)
-    changed = put_in(FixtureTarget.flows(), ["sort", "states", "waiting", "label"], "Changed")
+    changed = %{"sort" => Sorts.Relabelled}
     assert {:ok, [blocked]} = Store.reconcile(config(), changed, ManualClock.now(clock))
     assert blocked["status"] == "blocked"
     assert blocked["blocked_reason"] =~ "definition_changed"

@@ -5,7 +5,7 @@ defmodule AtlasGates do
   flavor, settles it into a verdict by the gate's decide map (`AtlasGates.Verdict`) and
   records it once through Facts (`AtlasGates.Record`). The caller enforces the verdict.
 
-  Gate definitions are data (`AtlasGates.Definitions`); Gates' code names no gate and no
+  Gate definitions are the model's data (`AtlasGates.Definitions`); Gates' code names no gate and no
   kind. The safe defaults: no verdict, an uncertain one or an error mean the gate's safe
   verdict, and a verdict that could not be recorded is an error, never a pass.
 

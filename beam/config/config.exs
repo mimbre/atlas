@@ -9,4 +9,9 @@ config :atlas_bus, store: "state", environment: "test"
 # code names no kind.
 config :atlas_gates, verdict_kind: "gate_verdict"
 
+# The model Flow and Gates run (D-0083): the domain, compiled into the release and wired
+# here, never named by a platform app. A private instance's settings may name another
+# (runtime.exs, "model"); unit tests wire neutral models of their own.
+if config_env() != :test, do: config(:atlas, model: Model.AtlasEyra)
+
 import_config "#{config_env()}.exs"

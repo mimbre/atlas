@@ -1,10 +1,11 @@
 defmodule AtlasFlow.Engine do
   @moduledoc """
   Flow's engine: keeps one process (`AtlasFlow.Item`) running for every open fact that a
-  flow definition runs on.
+  flow of the model runs on (`AtlasFlow.Model`, given as `model:` or configured).
 
-  - At boot, and on its own timer, it reads the description and every fact of each kind a
-    definition runs on, and starts a process for each fact that has none. A process stops
+  - At boot, and on its own timer, it reads the description (its kinds and relations)
+    and every fact of each kind a flow runs on, and starts a process for each fact that
+    has none. A process stops
     by itself once its fact is done; reading again starts it when the fact opens again.
   - It listens to every kind. A hint pokes the processes of the fact it is about and of
     every fact above it (through its parent links, read plainly from Facts), so those look
@@ -21,7 +22,7 @@ defmodule AtlasFlow.Engine do
   require Logger
 
   alias AtlasBus.Envelope
-  alias AtlasFlow.{Definition, Item, Talk}
+  alias AtlasFlow.{Item, Legacy, Talk}
   alias AtlasFlow.Runs.{Clock, Store}
 
   # How far up a hint looks for facts whose state it may change.
@@ -34,6 +35,9 @@ defmodule AtlasFlow.Engine do
 
   @impl true
   def init(opts) do
+    model = Keyword.get_lazy(opts, :model, &AtlasFlow.Model.configured!/0)
+    environment = Keyword.get_lazy(opts, :environment, &AtlasFlow.Model.environment/0)
+    runner = AtlasFlow.Model.load(model, environment)
     :ok = AtlasBus.attach("flow")
     send(self(), :round)
 
@@ -41,10 +45,10 @@ defmodule AtlasFlow.Engine do
      %{
        every: Keyword.get(opts, :every, 60_000),
        clock: Keyword.get(opts, :clock, {Clock, nil}),
-       target: Keyword.get(opts, :target, AtlasFlow.Generated),
-       yaml: Keyword.get(opts, :deployed_yaml),
+       runner: runner,
        runs: [],
        refusal: nil,
+       flows: [],
        kinds: [],
        owners: [],
        description: %{},
@@ -79,7 +83,7 @@ defmodule AtlasFlow.Engine do
             do: Item.poke(pid, state.description)
 
       %{"key" => key} when is_binary(key) ->
-        for {kind, key} <- up(state.description, kind, key, @depth),
+        for {kind, key} <- up(state.flows, state.description, kind, key, @depth),
             kind in state.kinds,
             pid = ensure(kind, key, state),
             is_pid(pid),
@@ -125,7 +129,8 @@ defmodule AtlasFlow.Engine do
           state = %{state | description: description} |> reconcile()
           description = state.description
           report(description)
-          kinds = Definition.kinds(description)
+          flows = Legacy.runnable(state.runner.legacy, description)
+          kinds = Legacy.kinds(flows)
 
           # Listen to every kind: what hangs under a fact can change its state.
           listening =
@@ -134,12 +139,12 @@ defmodule AtlasFlow.Engine do
               MapSet.put(acc, kind)
             end)
 
-          for kind <- kinds, {_name, flow} = Definition.for_kind(description, kind) do
+          for kind <- kinds, flow = Legacy.for_kind(flows, kind) do
             case Talk.read(kind, %{}) do
               %{"facts" => facts} ->
                 for fact <- facts,
                     runnable?(state, kind, fact) and
-                      (Store.selected(description, kind, fact) != nil or
+                      (Store.selected(state.runner.config, kind, fact) != nil or
                          open?(description, kind, flow, fact)),
                     do: ensure(kind, fact["key"], state)
 
@@ -151,7 +156,8 @@ defmodule AtlasFlow.Engine do
           %{
             state
             | kinds: kinds,
-              owners: Definition.owner_kinds(description),
+              owners: Legacy.owner_kinds(flows, description),
+              flows: flows,
               description: description,
               listening: listening
           }
@@ -183,20 +189,19 @@ defmodule AtlasFlow.Engine do
     %{state | timer: Clock.schedule(state.clock, self(), :round, delay)}
   end
 
+  # While the runs cannot be reconciled, the facts they run on wait; the others go on.
   defp runnable?(state, kind, fact),
-    do: state.refusal == nil or Store.selected(state.description, kind, fact) == nil
+    do: state.refusal == nil or Store.selected(state.runner.config, kind, fact) == nil
+
+  defp reconcile(%{runner: %{refusal: refusal}} = state) when refusal != nil do
+    Logger.error("generated runner refused: #{inspect(refusal)}")
+    %{state | runs: [], refusal: refusal}
+  end
 
   defp reconcile(state) do
-    case Store.activate(state.description, state.target, state.yaml) do
-      {:ok, config} ->
-        case Store.reconcile(config, state.target.flows(), Clock.now(state.clock)) do
-          {:ok, runs} ->
-            %{state | runs: runs, refusal: nil}
-
-          {:error, why} ->
-            Logger.error("generated runner refused: #{inspect(why)}")
-            %{state | runs: [], refusal: why}
-        end
+    case Store.reconcile(state.runner.config, state.runner.flows, Clock.now(state.clock)) do
+      {:ok, runs} ->
+        %{state | runs: runs, refusal: nil}
 
       {:error, why} ->
         Logger.error("generated runner refused: #{inspect(why)}")
@@ -205,9 +210,9 @@ defmodule AtlasFlow.Engine do
   end
 
   # The fact and every fact above it, through the parent relations the description marks.
-  defp up(_description, _kind, _key, 0), do: []
+  defp up(_flows, _description, _kind, _key, 0), do: []
 
-  defp up(description, kind, key, depth) do
+  defp up(flows, description, kind, key, depth) do
     parents =
       case Talk.read(kind, %{"key" => key, "plain" => true}) do
         %{"fact" => %{"links" => links} = fact} ->
@@ -240,14 +245,14 @@ defmodule AtlasFlow.Engine do
                   Talk.read(from_kind, %{"linked" => %{relation => key}})
                 ],
                 item <- facts,
-                component_open?(description, from_kind, item),
+                component_open?(flows, description, from_kind, item),
                 do: {from_kind, item["key"]}
 
           # An association a flow reads (`empty`): the fact it points at may wait for it.
           anchors =
-            for {_name, flow} <- Definition.flows(description),
-                to <- flow["kinds"] || [],
-                relation <- Definition.pointing(description, flow, to),
+            for flow <- flows,
+                to <- flow.kinds(),
+                relation <- Legacy.pointing(flow, description, to),
                 kind in (get_in(description, ["relations", relation, "from"]) || []),
                 anchor <- links[relation] || [],
                 uniq: true,
@@ -259,13 +264,16 @@ defmodule AtlasFlow.Engine do
           []
       end
 
-    [{kind, key} | Enum.flat_map(parents, fn {k, p} -> up(description, k, p, depth - 1) end)]
+    [
+      {kind, key}
+      | Enum.flat_map(parents, fn {k, p} -> up(flows, description, k, p, depth - 1) end)
+    ]
   end
 
-  defp component_open?(description, kind, fact) do
-    case Definition.for_kind(description, kind) do
-      {_name, flow} -> open?(description, kind, flow, fact)
+  defp component_open?(flows, description, kind, fact) do
+    case Legacy.for_kind(flows, kind) do
       nil -> true
+      flow -> open?(description, kind, flow, fact)
     end
   end
 
@@ -273,10 +281,8 @@ defmodule AtlasFlow.Engine do
   # facts already say is open) needs no process. Nothing is taken to point at it through the
   # associations its flow reads (`empty`): its process reads them and stops when done.
   defp open?(description, kind, flow, fact) do
-    {current, _} =
-      Definition.state_of(flow, fact, [], [], Definition.pointing(description, flow, kind))
-
-    current["done"] != true
+    {current, _} = flow.state(fact, [], [], Legacy.pointing(flow, description, kind))
+    not flow.done?(current)
   end
 
   # A fact's process, started when it has none. It finds out itself whether it is open.
@@ -293,9 +299,7 @@ defmodule AtlasFlow.Engine do
 
   defp start(kind, key, state) do
     spec =
-      {Item,
-       {kind, key,
-        every: state.every, clock: state.clock, target: state.target, deployed_yaml: state.yaml}}
+      {Item, {kind, key, every: state.every, clock: state.clock, runner: state.runner}}
 
     case DynamicSupervisor.start_child(AtlasFlow.Supervisor, spec) do
       {:ok, pid} -> pid

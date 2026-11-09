@@ -59,13 +59,10 @@ if config_env() != :test do
       runtime_read_token_env: settings["control"]["runtime_read_token_env"]
 
     # Flow looks at each open fact again this often, and at once on a hint.
-    config :atlas_flow,
-      deployed_yaml:
-        Path.join(
-          root,
-          if(env == "test", do: "model/targets/test/rela/flows.yaml", else: "rela/flows.yaml")
-        ),
-      tick_seconds: get_in(settings, ["flow", "tick_seconds"]) || 60
+    config :atlas_flow, tick_seconds: get_in(settings, ["flow", "tick_seconds"]) || 60
+
+    # A private instance may run another composition of the model (a profile, e2e).
+    if model = settings["model"], do: config(:atlas, model: Module.concat([model]))
   end
 
   if role == "runtime", do: System.delete_env("ATLAS_BUS_LINK_TOKEN")

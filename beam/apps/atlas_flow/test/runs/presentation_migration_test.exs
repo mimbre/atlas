@@ -1,46 +1,34 @@
-defmodule AtlasFlow.PresentationTarget do
-  defdelegate rela_flows_sha256(), to: AtlasFlow.FixtureTarget
-  defdelegate check_rela_flows(bytes), to: AtlasFlow.FixtureTarget
-
-  def flows do
-    flow =
-      AtlasFlow.FixtureTarget.flow()
-      |> put_in(["states", "waiting", "owner"], %{
-        "default" => %{"kind" => "clerk", "key" => "ada"},
-        "preserve_kind" => "clerk"
-      })
-      |> put_in(["states", "waiting", "present", "deadline"], "retry")
-
-    %{"sort" => flow}
-  end
-end
-
 defmodule AtlasFlow.Runs.PresentationMigrationTest do
   use ExUnit.Case, async: false
-  alias AtlasFlow.{Engine, FakeFacts, FixtureTarget, ManualClock, PresentationTarget}
+  alias AtlasFlow.{Engine, FakeFacts, ManualClock, Sorts, TestModel}
   alias AtlasFlow.Runs.{Run, Store}
   @now ~U[2026-11-12 00:00:00Z]
 
-  @tag :tmp_dir
-  test "restart migrates live waits without resetting entries or deadlines, then repairs ownership",
-       %{tmp_dir: dir} do
+  # The depot, its sort now presenting its timer's due time: runs of the sort it ran
+  # before move along an approved migration that keeps their entries.
+  defmodule Presenting do
+    use AtlasFlow.TestModel,
+      subflows: [AtlasFlow.Sorts.Presented],
+      selection: %{
+        "sort" =>
+          AtlasFlow.Depot.selection("sort")
+          |> put_in(["projection", "deadline_field"], "due")
+          |> Map.put("migrations", [
+            %{
+              "from" => AtlasFlow.TestModel.sort().digest(),
+              "to" => AtlasFlow.Sorts.Presented.digest(),
+              "states" => %{"waiting" => "waiting"},
+              "preserve_entry" => true
+            }
+          ])
+      }
+  end
+
+  test "restart migrates live waits without resetting entries or deadlines, then repairs ownership" do
     Application.put_env(:atlas_bus, :store, "presentation-#{System.unique_integer([:positive])}")
-    flow = PresentationTarget.flows()["sort"]
-
-    description =
-      FakeFacts.run_description()
-      |> put_in(["flow_runtime", "selection", "sort", "projection", "deadline_field"], "due")
-      |> put_in(["flow_runtime", "selection", "sort", "migrations"], [
-        %{
-          "from" => Run.digest(FixtureTarget.flow()),
-          "to" => Run.digest(flow),
-          "states" => %{"waiting" => "waiting"},
-          "preserve_entry" => true
-        }
-      ])
-
-    config = description["flow_runtime"]
-    start_supervised!({FakeFacts, description: description})
+    flow = Sorts.Presented
+    config = TestModel.config(Presenting)
+    start_supervised!(FakeFacts)
     for key <- ["ada", "bob"], do: FakeFacts.put("clerk", %{"key" => key})
     clock = start_supervised!({ManualClock, @now})
 
@@ -57,16 +45,14 @@ defmodule AtlasFlow.Runs.PresentationMigrationTest do
         FakeFacts.put("box", subject)
 
         old =
-          Run.new("sort", FixtureTarget.flow(), subject, [], @now)
+          Run.new("sort", TestModel.sort(), subject, [], @now)
           |> put_in(["pending", "writes"], [])
 
         FakeFacts.put("cursor", %{"key" => old["key"], "values" => Store.encode(config, old)})
         {key, old}
       end
 
-    yaml = Path.join(dir, "flows.yaml")
-    File.write!(yaml, "fixture\n")
-    opts = [clock: {ManualClock, clock}, target: PresentationTarget, deployed_yaml: yaml]
+    opts = [clock: {ManualClock, clock}, model: Presenting]
 
     on_exit(fn ->
       for {_, pid, _, _} <- DynamicSupervisor.which_children(AtlasFlow.Supervisor),
@@ -83,7 +69,7 @@ defmodule AtlasFlow.Runs.PresentationMigrationTest do
 
       for {key, old} <- originals do
         assert {:ok, migrated} = Store.decode(config, FakeFacts.get("cursor", old["key"]))
-        assert migrated["definition_sha256"] == Run.digest(flow)
+        assert migrated["definition_sha256"] == flow.digest()
 
         assert Map.take(migrated, ~w(state entry entered_at deadlines)) ==
                  Map.take(old, ~w(state entry entered_at deadlines))

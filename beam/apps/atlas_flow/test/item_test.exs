@@ -25,7 +25,9 @@ defmodule AtlasFlow.ItemTest do
     clock = start_supervised!({ManualClock, ~U[2026-11-12 00:00:00Z]})
 
     pid =
-      start_supervised!({Item, {"box", key, every: @every, clock: {ManualClock, clock}}})
+      start_supervised!(
+        {Item, {"box", key, every: @every, clock: {ManualClock, clock}, model: AtlasFlow.Depot}}
+      )
 
     # Its first look (sent in init) is handled before this.
     :sys.get_state(pid)

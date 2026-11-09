@@ -1,19 +1,42 @@
 defmodule AtlasFlow.Runs.MigrationTest do
   use ExUnit.Case, async: false
-  alias AtlasFlow.{FakeFacts, FixtureTarget, ManualClock}
+  alias AtlasFlow.{FakeFacts, ManualClock, Sorts, TestModel}
   alias AtlasFlow.Runs.{Run, Store}
   @now ~U[2026-11-12 00:00:00Z]
+  # A digest of the same definition in an older encoding (as a re-key migration names it).
+  @legacy_digest :crypto.hash(:sha256, "the sort, encoded as before")
+                 |> Base.encode16(case: :lower)
+
+  # The depot, whose sort's runs move from the older encoding by a re-key.
+  defmodule Rekeyed do
+    use AtlasFlow.TestModel,
+      selection: %{
+        "sort" =>
+          Map.put(AtlasFlow.Depot.selection("sort"), "migrations", [
+            %{
+              "from" =>
+                :crypto.hash(:sha256, "the sort, encoded as before")
+                |> Base.encode16(case: :lower),
+              "to" => AtlasFlow.TestModel.sort().digest(),
+              "rekey" => true,
+              "states" => Map.new(AtlasFlow.TestModel.sort().states(), &{&1, &1}),
+              "reason" => "Canonical JSON identity"
+            }
+          ])
+      }
+  end
 
   setup do
     Application.put_env(:atlas_bus, :store, "upgrade-#{System.unique_integer([:positive])}")
-    start_supervised!({FakeFacts, description: FakeFacts.run_description()})
+    start_supervised!(FakeFacts)
     :ok = AtlasBus.attach("flow")
     clock = start_supervised!({ManualClock, @now})
     %{clock: clock}
   end
 
   defp subject(key), do: %{"key" => key, "values" => %{"phase" => "first"}}
-  defp config, do: FakeFacts.run_description()["flow_runtime"]
+  defp config, do: TestModel.config()
+  defp sort, do: TestModel.sort()
 
   defp seed(key, flow) do
     FakeFacts.put("box", subject(key))
@@ -22,27 +45,21 @@ defmodule AtlasFlow.Runs.MigrationTest do
     run
   end
 
-  defp old_flow do
-    FixtureTarget.flow()
-    |> put_in(["states", "waiting", "set"], [])
-    |> put_in(["states", "waiting", "timers"], [])
-  end
-
-  defp legacy_digest(flow),
-    do: :crypto.hash(:sha256, :erlang.term_to_binary(flow)) |> Base.encode16(case: :lower)
+  # An older version of the sort: it neither sets nor times anything on entry.
+  defp old_flow, do: Sorts.Plain
 
   defp rekey(flow) do
     %{
-      "from" => legacy_digest(flow),
-      "to" => Run.digest(flow),
+      "from" => @legacy_digest,
+      "to" => flow.digest(),
       "rekey" => true,
-      "states" => Map.new(flow["states"], fn {state, _} -> {state, state} end),
+      "states" => Map.new(flow.states(), &{&1, &1}),
       "reason" => "Canonical JSON identity"
     }
   end
 
   test "an explicit encoding re-key preserves every entry field, including in-flight work and imports" do
-    flow = FixtureTarget.flow()
+    flow = sort()
     fresh = Run.new("sort", flow, subject("B-1"), [], @now)
 
     for run <- [
@@ -58,10 +75,10 @@ defmodule AtlasFlow.Runs.MigrationTest do
           %{fresh | "status" => "idle"},
           %{fresh | "status" => "blocked", "blocked_reason" => "other reason"}
         ] do
-      old = Map.put(run, "definition_sha256", legacy_digest(flow))
+      old = Map.put(run, "definition_sha256", @legacy_digest)
       assert {:error, :definition_changed} = Run.migrate(old, flow, [], @now)
       assert {:ok, migrated} = Run.migrate(old, flow, [rekey(flow)], @now)
-      assert migrated["definition_sha256"] == Run.digest(flow)
+      assert migrated["definition_sha256"] == flow.digest()
       assert [audit] = migrated["pending"]["migrations"]
 
       assert Map.drop(migrated, ["definition_sha256", "pending"]) ==
@@ -70,8 +87,8 @@ defmodule AtlasFlow.Runs.MigrationTest do
       assert Map.delete(migrated["pending"], "migrations") == old["pending"]
 
       assert audit == %{
-               "from" => legacy_digest(flow),
-               "to" => Run.digest(flow),
+               "from" => @legacy_digest,
+               "to" => flow.digest(),
                "state" => old["state"],
                "entry" => old["entry"],
                "at" => DateTime.to_iso8601(@now),
@@ -82,7 +99,7 @@ defmodule AtlasFlow.Runs.MigrationTest do
     end
 
     blocked =
-      fresh |> Map.put("definition_sha256", legacy_digest(flow)) |> Run.block_definition(flow)
+      fresh |> Map.put("definition_sha256", @legacy_digest) |> Run.block_definition(flow)
 
     assert {:ok, recovered} = Run.migrate(blocked, flow, [rekey(flow)], @now)
     assert recovered["status"] == fresh["status"]
@@ -91,30 +108,26 @@ defmodule AtlasFlow.Runs.MigrationTest do
     assert recovered["blocked_reason"] == ""
     bad = put_in(rekey(flow), ["states", "waiting"], "done")
     assert {:error, :definition_changed} = Run.migrate(blocked, flow, [bad], @now)
-    changed = put_in(flow, ["states", "waiting", "timers"], [])
-    assert {:error, :definition_changed} = Run.migrate(blocked, changed, [rekey(flow)], @now)
+    # The mapping re-keys to the sort, not to another version of it.
+    assert {:error, :definition_changed} = Run.migrate(blocked, old_flow(), [rekey(flow)], @now)
   end
 
-  @tag :tmp_dir
   test "engine restarts over legacy digests without re-entering or resetting deadlines", %{
-    clock: clock,
-    tmp_dir: dir
+    clock: clock
   } do
     alias AtlasFlow.Engine
-    flow = FixtureTarget.flow()
-    config = put_in(config(), ["selection", "sort", "migrations"], [rekey(flow)])
-    FakeFacts.set_description(Map.put(FakeFacts.run_description(), "flow_runtime", config))
+    # The engine runs the subflows of Atlas's environment (test).
+    flow = TestModel.sort(AtlasFlow.Model.environment())
+    config = TestModel.config(Rekeyed)
     old = seed("B-restart", flow)
 
     old =
       old
-      |> Map.put("definition_sha256", legacy_digest(flow))
+      |> Map.put("definition_sha256", @legacy_digest)
       |> put_in(["pending", "writes"], [])
 
     FakeFacts.put("cursor", %{"key" => old["key"], "values" => Store.encode(config, old)})
-    yaml = Path.join(dir, "flows.yaml")
-    File.write!(yaml, "fixture\n")
-    opts = [clock: {ManualClock, clock}, target: FixtureTarget, deployed_yaml: yaml]
+    opts = [clock: {ManualClock, clock}, model: Rekeyed]
 
     on_exit(fn ->
       for {_, pid, _, _} <- DynamicSupervisor.which_children(AtlasFlow.Supervisor),
@@ -126,7 +139,7 @@ defmodule AtlasFlow.Runs.MigrationTest do
     engine = start_supervised!({Engine, opts})
     :ok = Engine.round(engine)
     assert {:ok, migrated} = Store.decode(config, FakeFacts.get("cursor", old["key"]))
-    assert migrated["definition_sha256"] == Run.digest(flow)
+    assert migrated["definition_sha256"] == flow.digest()
     assert migrated["state"] == old["state"]
     assert migrated["entry"] == old["entry"]
     assert migrated["entered_at"] == old["entered_at"]
@@ -145,12 +158,12 @@ defmodule AtlasFlow.Runs.MigrationTest do
     old = seed("B-old", old_flow())
     FakeFacts.put("box", subject("B-new"))
     now = ManualClock.now(clock)
-    flows = FixtureTarget.flows()
+    flows = %{"sort" => sort()}
     assert {:ok, runs} = Store.reconcile(config(), flows, now)
     blocked = Enum.find(runs, &(&1["key"] == old["key"]))
     assert blocked["status"] == "blocked"
     assert blocked["blocked_reason"] =~ old["definition_sha256"]
-    assert blocked["blocked_reason"] =~ Run.digest(flows["sort"])
+    assert blocked["blocked_reason"] =~ flows["sort"].digest()
     assert blocked["state"] == old["state"] and blocked["entry"] == old["entry"]
     assert Enum.find(runs, &(&1["subject_key"] == "B-new"))["status"] == "active"
     before = FakeFacts.sent()
@@ -158,8 +171,8 @@ defmodule AtlasFlow.Runs.MigrationTest do
     assert FakeFacts.sent() == before
 
     mapping = %{
-      "from" => Run.digest(old_flow()),
-      "to" => Run.digest(flows["sort"]),
+      "from" => old_flow().digest(),
+      "to" => flows["sort"].digest(),
       "states" => %{"waiting" => "waiting"},
       "reason" => "Upgrade the waiting entry"
     }
@@ -189,11 +202,11 @@ defmodule AtlasFlow.Runs.MigrationTest do
 
   test "restart after a migration commits an entry but before its writes finish" do
     old = seed("B-old", old_flow())
-    flow = FixtureTarget.flow()
+    flow = sort()
 
     mapping = %{
-      "from" => Run.digest(old_flow()),
-      "to" => Run.digest(flow),
+      "from" => old_flow().digest(),
+      "to" => flow.digest(),
       "states" => %{"waiting" => "waiting"}
     }
 

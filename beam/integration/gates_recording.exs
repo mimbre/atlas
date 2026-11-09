@@ -19,6 +19,8 @@ data = Path.join(System.tmp_dir!(), "atlas-gates-facts-#{System.unique_integer([
     description_extra: Path.join(root, "rela/atlas.json")
   )
 
+# Gates evaluates the model's gates (config :atlas, model:), here wired by hand.
+Application.put_env(:atlas, :model, Model.AtlasEyra)
 {:ok, facts} = AtlasGates.Facts.Bus.attach("gates")
 bytes = File.read!(file)
 evidence = JSON.decode!(bytes)
@@ -57,18 +59,30 @@ first = ask.(evidence, AtlasBus.Digest.of_bytes(bytes), %{})
 check.(first.recorded_as == :new, "the first verdict is recorded now")
 
 again = ask.(evidence, AtlasBus.Digest.of_bytes(bytes), %{})
-check.(again.recorded == first.recorded and again.recorded_as == :again, "a repeat records nothing")
+
+check.(
+  again.recorded == first.recorded and again.recorded_as == :again,
+  "a repeat records nothing"
+)
 
 [field | _] = AtlasGates.Definitions.gates()[gate]["evidence"]
 less = Map.delete(evidence, field)
 uncertain = ask.(less, AtlasBus.Digest.of_term(less), %{"follows" => first.recorded})
-check.(uncertain.unsettled == "uncertain" and uncertain.recorded_as == :new, "missing evidence is uncertain")
+
+check.(
+  uncertain.unsettled == "uncertain" and uncertain.recorded_as == :new,
+  "missing evidence is uncertain"
+)
 
 for key <- [first.recorded, uncertain.recorded] do
   fact = recorded.(key)
   IO.puts("#{key} in rela: " <> JSON.encode!(Map.take(fact, ["values", "links"])))
 end
 
-check.(recorded.(uncertain.recorded)["links"]["follows"] == [first.recorded], "it follows the first")
+check.(
+  recorded.(uncertain.recorded)["links"]["follows"] == [first.recorded],
+  "it follows the first"
+)
+
 File.rm_rf!(data)
 IO.puts("proof: ok")

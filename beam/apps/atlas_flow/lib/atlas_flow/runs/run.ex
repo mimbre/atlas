@@ -1,23 +1,24 @@
 defmodule AtlasFlow.Runs.Run do
-  @moduledoc "The bounded transition machine. No IO; the cursor is always explicit."
+  @moduledoc """
+  The bounded transition machine. No IO; the cursor is always explicit. `flow` is a
+  compiled subflow (`AtlasFlow.Subflow`): the run asks it where a run starts, what
+  entering a state writes, and where a change, an input or a result leads.
+  """
 
-  alias AtlasFlow.Runs.{Conditions, Inputs}
+  alias AtlasFlow.Runs.Inputs
   alias AtlasFlow.Activities.Gate
   alias AtlasFlow.Activities.Pass
   alias AtlasFlow.Activities.Effect
 
-  # Definitions are published JSON data; stable internal request identities retain
-  # their existing term encoding so pending writes keep their idempotency keys.
-  def digest(definition) when is_map(definition),
-    do: RelaDSL.DefinitionDigest.of(definition)
-
+  # A subflow's identity is its compiled digest (`flow.digest()`); stable internal
+  # request identities keep their term encoding so pending writes keep their keys.
   def digest(term),
     do: :crypto.hash(:sha256, :erlang.term_to_binary(term)) |> Base.encode16(case: :lower)
 
   def key(flow, kind, key, generation), do: digest({flow, kind, key, generation})
 
   def migrate(run, flow, migrations, now) do
-    if run["definition_sha256"] == digest(flow) do
+    if run["definition_sha256"] == flow.digest() do
       {:ok, run}
     else
       migrate_changed(run, flow, migrations, now)
@@ -28,13 +29,13 @@ defmodule AtlasFlow.Runs.Run do
     mapping =
       Enum.find(
         migrations,
-        &(&1["from"] == run["definition_sha256"] and &1["to"] == digest(flow))
+        &(&1["from"] == run["definition_sha256"] and &1["to"] == flow.digest())
       )
 
     state = mapping && mapping["states"][run["state"]]
 
     safe =
-      state != nil and Map.has_key?(flow["states"], state) and run["pending"]["writes"] == [] and
+      state != nil and state in flow.states() and run["pending"]["writes"] == [] and
         run["pending"]["gate"] == nil and run["pending"]["pass"] == nil and
         run["pending"]["effect"] == nil and
         run["deadlines"]["timers"] == []
@@ -53,7 +54,7 @@ defmodule AtlasFlow.Runs.Run do
 
     migration = %{
       "from" => original["definition_sha256"],
-      "to" => digest(flow),
+      "to" => flow.digest(),
       "state" => original["state"],
       "entry" => original["entry"],
       "at" => DateTime.to_iso8601(now),
@@ -62,7 +63,7 @@ defmodule AtlasFlow.Runs.Run do
 
     migrated =
       run
-      |> Map.put("definition_sha256", digest(flow))
+      |> Map.put("definition_sha256", flow.digest())
       |> update_in(["pending"], fn pending ->
         Map.update(pending, "migrations", [migration], &(&1 ++ [migration]))
       end)
@@ -71,14 +72,14 @@ defmodule AtlasFlow.Runs.Run do
       mapping && (mapping["rekey"] == true or mapping["preserve_entry"] == true) ->
         # An explicitly reviewed encoding change carries the exact same definition.
         # Keep entry, deadlines, frozen requests and outbox IDs intact, even mid-entry.
-        if state != nil and state == run["state"] and Map.has_key?(flow["states"], state),
+        if state != nil and state == run["state"] and state in flow.states(),
           do: {:ok, migrated},
           else: {:error, :definition_changed}
 
       not safe ->
         {:error, :definition_changed}
 
-      run["status"] == "completed" and flow["states"][state]["final"] == true ->
+      run["status"] == "completed" and flow.final?(state) ->
         # Historical imports are evidence, not executable entries.
         if run["last_input"]["import"],
           do: {:ok, run},
@@ -97,50 +98,33 @@ defmodule AtlasFlow.Runs.Run do
     |> Map.put("status", "blocked")
     |> Map.put(
       "blocked_reason",
-      "definition_changed: #{run["definition_sha256"]} -> #{digest(flow)}; no safe state migration"
+      "definition_changed: #{run["definition_sha256"]} -> #{flow.digest()}; no safe state migration"
     )
     |> update_in(["pending"], fn pending ->
       Map.put_new(pending, "definition_block", %{"status" => run["status"]})
     end)
   end
 
+  @doc """
+  Whether a runner can run the subflow here: one run per subject, and every mechanism
+  one it knows, with a spec it accepts (an effect's service must be enabled). The rest
+  (conditions, timers, states) the model's compile checked.
+  """
   def validate(flow) do
-    states = flow["states"] || %{}
-
     supported =
-      valid_starts?(flow["start"]) and
-        flow["per_subject"] == "one" and Map.has_key?(states, flow["initial"]) and
-        Enum.all?(states, fn {_name, s} ->
-          valid_activity?(s) and valid_creates?(s["creates"] || []) and
-            is_list(s["set"]) and
-            Enum.all?(s["set"], fn
-              %{"field" => field, "value" => value} ->
-                is_binary(field) and (is_binary(value) or is_number(value) or is_boolean(value))
-
-              _ ->
-                false
-            end) and
-            Enum.all?(s["branches"] || [], fn b ->
-              is_list(b["roles"] || []) and match?({:ok, _}, Conditions.compile(b["when"])) and
-                Map.has_key?(states, b["to"])
-            end) and
-            Enum.all?(s["timers"] || [], fn t ->
-              (t["since"] == nil or is_binary(t["since"])) and duration(t["period"]) != :error and
-                is_binary(t["name"]) and Map.has_key?(states, t["to"])
-            end) and
-            (s["final"] != true or ((s["branches"] || []) == [] and (s["timers"] || []) == []))
-        end)
+      flow.per_subject() == "one" and
+        Enum.all?(flow.states(), &valid_activity?(flow.mechanism(&1)))
 
     if supported, do: :ok, else: {:error, :unsupported_definition}
   end
 
-  defp valid_activity?(%{"kind" => "gate", "spec" => %{"gate" => g, "version" => v}}),
+  defp valid_activity?({:gate, %{"gate" => g, "version" => v}}),
     do: is_binary(g) and is_integer(v)
 
-  defp valid_activity?(%{"kind" => "pass", "spec" => spec}), do: Pass.valid?(spec)
-  defp valid_activity?(%{"kind" => "effect", "spec" => spec}), do: Effect.valid?(spec)
-
-  defp valid_activity?(s), do: not Map.has_key?(s, "kind")
+  defp valid_activity?({:pass, spec}), do: Pass.valid?(spec)
+  defp valid_activity?({:effect, spec}), do: Effect.valid?(spec)
+  defp valid_activity?(nil), do: true
+  defp valid_activity?(_), do: false
 
   def pass_result(run, flow, subject, now, reply) do
     with {:ok, result} <- Pass.validate_reply(run["pending"]["pass"], reply),
@@ -150,13 +134,9 @@ defmodule AtlasFlow.Runs.Run do
              subject,
              run["pending"]["pass"]["request"]["fingerprint_definition"]
            ) == result["fingerprint"],
-         branch when not is_nil(branch) <-
-           Enum.find(
-             flow["states"][run["state"]]["branches"],
-             &Conditions.matches?(&1["when"], %{"pass_result" => result["outcome"]})
-           ) do
+         {:to, to} <- flow.next(run["state"], %{"pass_result" => result["outcome"]}, :result) do
       {:ok,
-       enter(run, flow, branch["to"], now, true, subject)
+       enter(run, flow, to, now, true, subject)
        |> put_in(["pending", "pass_result"], result)
        |> update_in(["pending"], fn pending ->
          record = %{"request" => run["pending"]["pass"]["request"], "result" => result}
@@ -177,21 +157,17 @@ defmodule AtlasFlow.Runs.Run do
   entry's pending writes with stable ids, so a partial replay completes them exactly once.
   """
   def effect_result(run, flow, subject, now, reply) do
-    spec = flow["states"][run["state"]]["spec"]
+    {:effect, spec} = flow.mechanism(run["state"])
     intent = run["pending"]["effect"]
 
     with {:ok, result} <- Effect.validate_reply(intent, reply),
          true <- result["status"] in ["done", "refused"],
-         branch when not is_nil(branch) <-
-           Enum.find(
-             flow["states"][run["state"]]["branches"],
-             &Conditions.matches?(&1["when"], %{spec["field"] => result["status"]})
-           ) do
+         {:to, to} <- flow.next(run["state"], %{spec["field"] => result["status"]}, :result) do
       writes = Effect.writes(intent, spec, run, result)
       record = %{"request" => intent["request"], "result" => result}
 
       {:ok,
-       enter(run, flow, branch["to"], now, true, subject)
+       enter(run, flow, to, now, true, subject)
        |> update_in(["pending", "writes"], &(writes ++ &1))
        |> update_in(["pending"], &Map.update(&1, "effects", [record], fn l -> l ++ [record] end))
        |> Map.put("last_input", %{
@@ -210,12 +186,8 @@ defmodule AtlasFlow.Runs.Run do
          true <-
            AtlasBus.SubjectFingerprint.of(subject, result["fingerprint_definition"]) ==
              result["fingerprint"],
-         branch when not is_nil(branch) <-
-           Enum.find(
-             flow["states"][run["state"]]["branches"],
-             &Conditions.matches?(&1["when"], %{"gate_result" => result["outcome"]})
-           ) do
-      updated = enter(run, flow, branch["to"], now, true, subject)
+         {:to, to} <- flow.next(run["state"], %{"gate_result" => result["outcome"]}, :result) do
+      updated = enter(run, flow, to, now, true, subject)
 
       output = %{
         "id" => digest({run["key"], run["entry"], "gate-result"}),
@@ -240,13 +212,11 @@ defmodule AtlasFlow.Runs.Run do
   def refresh_gate(run, flow, subject, now) do
     result = run["pending"]["verdict"]
 
-    state =
-      Enum.find(flow["states"], fn {_, s} ->
-        s["kind"] == "gate" and s["spec"]["gate"] == result["gate"]
-      end)
+    gate = result["gate"]
+    state = Enum.find(flow.states(), &match?({:gate, %{"gate" => ^gate}}, flow.mechanism(&1)))
 
     case state do
-      {name, _} ->
+      name when is_binary(name) ->
         {:ok,
          enter(Map.put(run, "last_input", %{"version" => 1}), flow, name, now, true, subject)}
 
@@ -266,29 +236,6 @@ defmodule AtlasFlow.Runs.Run do
          true,
          subject
        )}
-
-  defp valid_starts?(starts) when is_list(starts) and starts != [] do
-    Enum.all?(starts, fn
-      %{"on" => "create"} = s ->
-        map_size(s) == 1
-
-      %{"on" => "predicate", "when" => text} = s ->
-        map_size(s) == 2 and match?({:ok, _}, Conditions.compile(text))
-
-      _ ->
-        false
-    end)
-  end
-
-  defp valid_starts?(_), do: false
-
-  defp valid_creates?(creates) do
-    Enum.all?(creates, fn c ->
-      is_binary(c["type"]) and is_map(c["properties"]) and
-        Enum.all?(c["properties"], fn {_, v} -> is_binary(v) or is_number(v) or is_boolean(v) end) and
-        (c["relate"] == nil or is_binary(c["relate"]))
-    end)
-  end
 
   def duration(period) when is_binary(period) do
     case Regex.run(~r/\A([1-9][0-9]*)(ms|s|m|h|d)\z/, period) do
@@ -310,14 +257,14 @@ defmodule AtlasFlow.Runs.Run do
       end)
 
   def new(name, flow, subject, imports, now, generation \\ 1) do
-    kind = flow["subject"]
+    kind = flow.subject()
 
     run = %{
       "flow" => name,
       "subject_kind" => kind,
       "subject_key" => subject["key"],
       "generation" => generation,
-      "definition_sha256" => digest(flow),
+      "definition_sha256" => flow.digest(),
       "entry" => 0,
       "input_cursor" => 0,
       "last_input" => %{"version" => 1},
@@ -334,16 +281,13 @@ defmodule AtlasFlow.Runs.Run do
       |> Map.put("last_input", %{"version" => 1, "import" => true})
     else
       if starts?(flow, subject),
-        do: enter(run, flow, flow["initial"], now, true, subject),
+        do: enter(run, flow, flow.initial(), now, true, subject),
         else: idle(run, now)
     end
   end
 
   def starts?(flow, subject),
-    do:
-      Enum.any?(flow["start"], fn s ->
-        s["on"] == "create" or Conditions.matches?(s["when"], subject["values"])
-      end)
+    do: flow.start?(:create, subject) or flow.start?(:predicate, subject["values"] || %{})
 
   defp idle(run, now),
     do:
@@ -358,13 +302,13 @@ defmodule AtlasFlow.Runs.Run do
 
   def step(run, flow, subject, now, inputs \\ []) do
     cond do
-      run["definition_sha256"] != digest(flow) ->
+      run["definition_sha256"] != flow.digest() ->
         {:error, :definition_changed}
 
       run["status"] == "idle" and starts?(flow, subject) ->
-        {:ok, enter(run, flow, flow["initial"], now, true, subject)}
+        {:ok, enter(run, flow, flow.initial(), now, true, subject)}
 
-      run["status"] == "completed" and not Enum.any?(flow["start"], &(&1["on"] == "create")) ->
+      run["status"] == "completed" and not flow.start?(:create, subject) ->
         edge = starts?(flow, subject)
         previous = Map.get(run["last_input"], "start_edge", true)
 
@@ -377,31 +321,32 @@ defmodule AtlasFlow.Runs.Run do
       run["status"] != "active" ->
         {:ok, run}
 
-      run["pending"]["writes"] != [] or
-          flow["states"][run["state"]]["kind"] in ["gate", "pass", "effect"] ->
+      run["pending"]["writes"] != [] or flow.mechanism(run["state"]) != nil ->
         {:ok, run}
 
       true ->
-        state = flow["states"][run["state"]]
+        state = run["state"]
 
         timer =
           run["deadlines"]["timers"]
           |> Enum.filter(&(DateTime.compare(now, parse!(&1["due"])) != :lt))
           |> Enum.min_by(&DateTime.to_unix(parse!(&1["due"]), :microsecond), fn -> nil end)
 
+        # The first input in order that a role's branch takes, before the timer is due.
         choice =
-          for input <- Enum.sort_by(inputs, & &1["position"]),
-              b <- state["branches"],
-              (b["roles"] || []) != [],
-              Inputs.eligible?(input, run, subject, b),
-              timer == nil or
-                DateTime.compare(parse!(input["prepared_at"]), parse!(timer["due"])) != :gt,
-              do: {b, input}
+          Enum.find_value(Enum.sort_by(inputs, & &1["position"]), fn input ->
+            if timer == nil or
+                 DateTime.compare(parse!(input["prepared_at"]), parse!(timer["due"])) != :gt do
+              with to when is_binary(to) <- Inputs.choice(input, run, subject, flow),
+                   do: {to, input}
+            end
+          end)
 
         branch =
-          Enum.find(state["branches"], fn b ->
-            (b["roles"] || []) == [] and Conditions.matches?(b["when"], subject["values"] || %{})
-          end)
+          case flow.next(state, subject["values"] || %{}, nil) do
+            {:to, to} -> to
+            :stay -> nil
+          end
 
         unconsumed =
           Enum.find(Enum.sort_by(inputs, & &1["position"]), fn i ->
@@ -412,11 +357,11 @@ defmodule AtlasFlow.Runs.Run do
           end)
 
         cond do
-          choice != [] ->
-            {b, accepted} = hd(choice)
+          choice != nil ->
+            {to, accepted} = choice
 
             {:ok,
-             enter(run, flow, b["to"], now, true, subject)
+             enter(run, flow, to, now, true, subject)
              |> Map.put("input_cursor", accepted["position"])
              |> Map.put("last_input", %{
                "version" => 1,
@@ -426,9 +371,9 @@ defmodule AtlasFlow.Runs.Run do
 
           branch ->
             {:ok,
-             enter(run, flow, branch["to"], now, true, subject)
+             enter(run, flow, branch, now, true, subject)
              |> input(subject, %{
-               "branch" => branch["to"],
+               "branch" => branch,
                "subject_version" => subject["version"]
              })}
 
@@ -467,29 +412,29 @@ defmodule AtlasFlow.Runs.Run do
       |> Map.put("last_input", Map.put(input, "version", 1))
 
   defp enter(run, flow, state_name, now, effects?, subject \\ %{"values" => %{}}) do
-    state = flow["states"][state_name]
+    outputs = flow.enter(state_name, subject["values"] || %{})
     entry = run["entry"] + 1
 
-    writes =
-      if effects? and state["set"] != [],
-        do: [
-          %{
-            "id" => digest({run["key"], entry, "set"}),
-            "kind" => run["subject_kind"],
-            "content" => %{
-              "op" => "change",
-              "key" => run["subject_key"],
-              "values" => Map.new(state["set"], &{&1["field"], &1["value"]}),
-              "by" => "flow"
-            }
+    sets =
+      for {:set, values} <- outputs do
+        %{
+          "id" => digest({run["key"], entry, "set"}),
+          "kind" => run["subject_kind"],
+          "content" => %{
+            "op" => "change",
+            "key" => run["subject_key"],
+            "values" => values,
+            "by" => "flow"
           }
-        ],
-        else: []
+        }
+      end
+
+    writes = if effects?, do: sets, else: []
 
     creates =
       if effects?,
         do:
-          Enum.with_index(state["creates"] || [])
+          Enum.with_index(for {:create, c} <- outputs, do: c)
           |> Enum.map(fn {c, index} ->
             id = digest({run["key"], entry, "create", index})
 
@@ -510,7 +455,7 @@ defmodule AtlasFlow.Runs.Run do
     timers =
       if effects?,
         do:
-          Enum.map(state["timers"], fn t ->
+          Enum.map(flow.timers(state_name), fn t ->
             %{
               "name" => t["name"],
               "entry" => entry,
@@ -526,7 +471,7 @@ defmodule AtlasFlow.Runs.Run do
       "state" => state_name,
       "entry" => entry,
       "entered_at" => DateTime.to_iso8601(now),
-      "status" => if(state["final"], do: "completed", else: "active"),
+      "status" => if(flow.final?(state_name), do: "completed", else: "active"),
       "pending" =>
         Map.merge(
           Map.take(run["pending"] || %{}, ["verdict", "migrations", "passes", "effects"]),
