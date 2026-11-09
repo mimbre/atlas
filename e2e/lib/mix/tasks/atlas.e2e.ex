@@ -107,16 +107,9 @@ defmodule Mix.Tasks.Atlas.E2e do
 
   # Compile first, so starting the core or a TUI never waits for a compile.
   defp compile do
-    for dir <- ["beam", "clients/tui", "clients/agent"] do
-      {out, status} =
-        System.cmd("mix", ["compile"],
-          cd: Path.join(Instance.root(), dir),
-          env: [{"MIX_ENV", "dev"}],
-          stderr_to_stdout: true
-        )
-
-      if status != 0, do: Mix.raise("atlas e2e: #{dir} does not compile:\n#{out}")
-    end
+    Instance.compile()
+  rescue
+    error in RuntimeError -> Mix.raise("atlas e2e: " <> Exception.message(error))
   end
 
   # Write out what the machine still holds for the disk (on a CI runner: hundreds of MB from
