@@ -1,16 +1,20 @@
 import AtlasControlKit
 import SwiftUI
 
-/// A page: its title and its blocks. `open` is called with a row's `to`.
+/// A page: its title and its blocks. `open` is called with a row's `to`; `submit` with a
+/// call a block declares (a choice's answer) and its values.
 public struct PageView: View {
     let presentation: PagePresentation
     let selectedPath: String?
     let open: (String) -> Void
+    let submit: (CallModel, [String: String]) -> Void
 
-    public init(page: PageMessage, selectedPath: String? = nil, open: @escaping (String) -> Void) {
+    public init(page: PageMessage, selectedPath: String? = nil, open: @escaping (String) -> Void,
+                submit: @escaping (CallModel, [String: String]) -> Void = { _, _ in }) {
         presentation = PagePresentation(page)
         self.selectedPath = selectedPath
         self.open = open
+        self.submit = submit
     }
 
     public var body: some View {
@@ -33,6 +37,11 @@ public struct PageView: View {
         switch entry.item {
         case .list(let list): ListBlockView(list: list, selectedPath: selectedPath, open: open)
         case .item(let item): ItemBlockView(item: item)
+        case .singleChoice(let choice):
+            // A view of its own per page and revision: nothing typed for one
+            // decision stays for another.
+            SingleChoiceView(block: choice, submit: submit)
+                .id(SingleChoiceView.identity(path: presentation.path, block: choice))
         case .notShown(let type): FallbackView(type: type, reason: nil)
         case .fallback(let fallback): FallbackView(type: fallback.type, reason: fallback.reason)
         }

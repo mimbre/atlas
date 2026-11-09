@@ -1118,17 +1118,57 @@ public struct ActionModel: Codable, Sendable, Equatable {
     public var label: String
     public var key: String
     public var to: String
+    public var submitTo: CallModel?
 
-    public init(label: String, key: String, to: String) {
+    public init(label: String, key: String, to: String, submitTo: CallModel? = nil) {
         self.label = label
         self.key = key
         self.to = to
+        self.submitTo = submitTo
     }
 
     enum CodingKeys: String, CodingKey {
         case label
         case key
         case to
+        case submitTo = "submit_to"
+    }
+}
+
+/// The model `choice_option`.
+public struct ChoiceOptionModel: Codable, Sendable, Equatable {
+    public var id: String
+    public var text: String
+    public var details: String
+    public var effect: String
+    public var rule: String
+    public var consequences: String
+    public var answer: CallModel
+    public var note: Bool?
+    public var shortcut: String?
+
+    public init(id: String, text: String, details: String, effect: String, rule: String, consequences: String, answer: CallModel, note: Bool? = nil, shortcut: String? = nil) {
+        self.id = id
+        self.text = text
+        self.details = details
+        self.effect = effect
+        self.rule = rule
+        self.consequences = consequences
+        self.answer = answer
+        self.note = note
+        self.shortcut = shortcut
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case text
+        case details
+        case effect
+        case rule
+        case consequences
+        case answer
+        case note
+        case shortcut
     }
 }
 
@@ -1320,8 +1360,9 @@ public struct ConsoleOperationModel: Codable, Sendable, Equatable {
     public var execution: RuntimeExecutionModel?
     public var cursor: String?
     public var interactionSource: String?
+    public var call: CallModel?
 
-    public init(name: String, to: String? = nil, url: String? = nil, intent: String? = nil, execution: RuntimeExecutionModel? = nil, cursor: String? = nil, interactionSource: String? = nil) {
+    public init(name: String, to: String? = nil, url: String? = nil, intent: String? = nil, execution: RuntimeExecutionModel? = nil, cursor: String? = nil, interactionSource: String? = nil, call: CallModel? = nil) {
         self.name = name
         self.to = to
         self.url = url
@@ -1329,6 +1370,7 @@ public struct ConsoleOperationModel: Codable, Sendable, Equatable {
         self.execution = execution
         self.cursor = cursor
         self.interactionSource = interactionSource
+        self.call = call
     }
 
     enum CodingKeys: String, CodingKey {
@@ -1339,6 +1381,7 @@ public struct ConsoleOperationModel: Codable, Sendable, Equatable {
         case execution
         case cursor
         case interactionSource = "interaction_source"
+        case call
     }
 }
 

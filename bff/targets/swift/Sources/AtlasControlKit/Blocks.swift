@@ -45,6 +45,34 @@ public struct ItemBlock: Codable, Sendable, Equatable {
     }
 }
 
+/// The props of the block `single_choice`.
+public struct SingleChoiceBlock: Codable, Sendable, Equatable {
+    public var question: String
+    public var options: [ChoiceOptionModel]
+    public var recommended: String
+    public var rationale: String
+    public var revision: String
+    public var instructions: String?
+
+    public init(question: String, options: [ChoiceOptionModel], recommended: String, rationale: String, revision: String, instructions: String? = nil) {
+        self.question = question
+        self.options = options
+        self.recommended = recommended
+        self.rationale = rationale
+        self.revision = revision
+        self.instructions = instructions
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case question
+        case options
+        case recommended
+        case rationale
+        case revision
+        case instructions
+    }
+}
+
 /// The props of the block `form`.
 public struct FormBlock: Codable, Sendable, Equatable {
     public var title: String
@@ -170,6 +198,7 @@ public struct Block: Codable, Sendable, Equatable {
     public enum Content: Sendable, Equatable {
         case list(ListBlock)
         case item(ItemBlock)
+        case singleChoice(SingleChoiceBlock)
         case form(FormBlock)
         case confirm(ConfirmBlock)
         case plan(PlanBlock)
@@ -187,6 +216,7 @@ public struct Block: Codable, Sendable, Equatable {
         switch content {
         case .list: "list"
         case .item: "item"
+        case .singleChoice: "single_choice"
         case .form: "form"
         case .confirm: "confirm"
         case .plan: "plan"
@@ -207,6 +237,7 @@ public struct Block: Codable, Sendable, Equatable {
             switch type {
             case "list": content = .list(try props.decode(ListBlock.self))
             case "item": content = .item(try props.decode(ItemBlock.self))
+            case "single_choice": content = .singleChoice(try props.decode(SingleChoiceBlock.self))
             case "form": content = .form(try props.decode(FormBlock.self))
             case "confirm": content = .confirm(try props.decode(ConfirmBlock.self))
             case "plan": content = .plan(try props.decode(PlanBlock.self))
@@ -226,6 +257,7 @@ public struct Block: Codable, Sendable, Equatable {
         switch content {
         case .list(let props): try BlockWire(id: id, type: "list", props: props).encode(to: encoder)
         case .item(let props): try BlockWire(id: id, type: "item", props: props).encode(to: encoder)
+        case .singleChoice(let props): try BlockWire(id: id, type: "single_choice", props: props).encode(to: encoder)
         case .form(let props): try BlockWire(id: id, type: "form", props: props).encode(to: encoder)
         case .confirm(let props): try BlockWire(id: id, type: "confirm", props: props).encode(to: encoder)
         case .plan(let props): try BlockWire(id: id, type: "plan", props: props).encode(to: encoder)

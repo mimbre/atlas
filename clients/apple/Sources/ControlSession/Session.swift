@@ -43,6 +43,11 @@ public final class Session {
     /// Open a page Control named: a row's or an action's `to`.
     public func open(_ to: String) { handle(.open(to: to)) }
 
+    /// Submit a call a block of the page declares, with the values it asks for.
+    public func submit(_ call: CallModel, values: [String: String] = [:]) {
+        handle(.submit(call: call, values: values))
+    }
+
     public func edit(_ name: String, _ value: String) { handle(.edit(name: name, value: value)) }
 
     func handle(_ input: SessionState.Input) {

@@ -170,6 +170,9 @@ public struct SessionState: Sendable, Equatable {
     public private(set) var lastHint: Update?
     /// What waits for the user, in the model's words (`count` of the last page shown).
     public private(set) var count: String?
+    /// A submit is sent and Control has not replied to it (a page stored or refused, or
+    /// one opened since); another waits until it has.
+    public private(set) var submitting = false
 
     public init(settings: SessionSettings) {
         self.settings = settings
@@ -217,6 +220,9 @@ public struct SessionState: Sendable, Equatable {
         case open(to: String)
         /// The user typed into the page on screen.
         case edit(name: String, value: String)
+        /// The user gave a call a block of the page declares (a choice's `answer`), with
+        /// the values it asks for: sent as it is, as `submit`.
+        case submit(call: CallModel, values: [String: String])
     }
 
     public mutating func handle(_ input: Input) -> [Effect] {
@@ -265,6 +271,14 @@ public struct SessionState: Sendable, Equatable {
             guard isEditing else { return [] }
             draft[name] = value
             return []
+        case .submit(let call, let values):
+            guard connection == .connected, phase == .ready || phase == .content else { return [] }
+            // Not while a page is on its way (its reply would drop the submit's), and once
+            // only until Control replies.
+            guard expected == nil, inFlight == nil, !submitting else { return [] }
+            submitting = true
+            let request = SubmitRequest(endpoint: call.endpoint, params: call.params ?? [:], values: values)
+            return [.send(.submit(request))]
         }
     }
 
@@ -395,6 +409,8 @@ public struct SessionState: Sendable, Equatable {
 
     private mutating func page(_ page: PageMessage, _ reason: Reason) -> [Effect] {
         if let effects = pageForPhase() { return effects }
+        // Control's reply to a submit: the page it was stored or refused on.
+        if reason == .stored || reason == .refused { submitting = false }
 
         if expected != nil {
             // Only `open` answers an `open` (the TUI's rule); pushes and other replies wait.
@@ -404,6 +420,8 @@ public struct SessionState: Sendable, Equatable {
             show(page, reason, in: expectedColumn)
             expected = nil
             inFlight = nil
+            // An open after a submit: Control shows the page opened, not the submit's.
+            submitting = false
             phase = .ready
             return []
         }
@@ -522,6 +540,7 @@ public struct SessionState: Sendable, Equatable {
         bootPending = false
         expected = nil
         inFlight = nil
+        submitting = false
         shellStale = true
         return (closing ? [.close] : []) + [.scheduleRetry]
     }
