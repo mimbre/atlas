@@ -1,0 +1,12 @@
+{
+  "name": "atlas-viewer-assets",
+  "private": true,
+  "description": "Builds the Atlas Runtime viewer's CSS from Nova Prism into ../priv/static",
+  "scripts": {
+    "build": "node build.js"
+  },
+  "devDependencies": {
+    "@novasoftwarefoundation/prism": "0.1.7",
+    "tailwindcss": "3.4.17"
+  }
+}

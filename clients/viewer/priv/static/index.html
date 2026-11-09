@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Atlas Runtime viewer</title>
+  <link rel="stylesheet" href="/assets/app.css">
+  <script type="module" src="/assets/app.js"></script>
+</head>
+<body class="min-h-screen">
+  <header class="p-4 flex flex-wrap items-center gap-4">
+    <h1 class="text-xl font-semibold">Atlas Runtime viewer</h1>
+    <p class="text-sm">Read-only. This page cannot start, stop, continue or answer workers.</p>
+  </header>
+  <div id="status" class="px-4" role="status" aria-live="polite"></div>
+  <main class="p-4 grid gap-6 lg:grid-cols-3">
+    <section aria-labelledby="workers-heading" class="space-y-2">
+      <h2 id="workers-heading" class="text-lg font-semibold">Workers</h2>
+      <div id="workers"></div>
+      <h2 id="turns-heading" class="text-lg font-semibold pt-4">Turns</h2>
+      <div id="turns"></div>
+    </section>
+    <section aria-labelledby="turn-heading" class="space-y-2 lg:col-span-2">
+      <h2 id="turn-heading" class="text-lg font-semibold">Turn</h2>
+      <div id="turn"></div>
+    </section>
+    <section aria-labelledby="events-heading" class="space-y-2 lg:col-span-3">
+      <h2 id="events-heading" class="text-lg font-semibold">Execution events</h2>
+      <div id="events"></div>
+    </section>
+  </main>
+</body>
+</html>
