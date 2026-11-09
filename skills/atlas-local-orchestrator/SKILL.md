@@ -65,6 +65,7 @@ Each assignment includes:
 - Acceptance criteria, focused tests and real behavior to exercise.
 - Required result: changed paths, behavior, verification evidence, blockers and remaining processes.
 - Stop after delivery; no self-selected follow-on work.
+- For profiled work, the Profile/Phase/Mode line and profile skill described under [Role profiles](#role-profiles).
 
 Describe architecture and progress through responsibilities, folders and behavior. Keep Git/PR bookkeeping outside worker execution.
 
@@ -75,6 +76,34 @@ Describe architecture and progress through responsibilities, folders and behavio
 A new assignment is pending until the worker explicitly ACKs its assignment ID, scope, supplied folders and exact bases. Use an ACK-only turn before authorizing implementation. Runtime command admission, inbox delivery, notification/watcher acknowledgment and silence are not this worker ACK.
 
 Record the matching ACK before marking the assignment active. At a task boundary, name the previous assignment superseded, preserve its delivery and remaining work, and obtain a fresh scope/folder/base ACK. Receipt-only ACK is insufficient; do not send competing pending assignments.
+
+## Role profiles
+
+A profile names the expertise an assignment needs; a phase names the kind of work (architecture, implementation, verification); a mode is `author` (produces the work) or `review` (independently evaluates it). A Runtime worker is an execution identity, not a role. Available profiles: Architect (`skills/atlas-architect`), Developer (`skills/atlas-developer`) and Tester/verifier (`skills/atlas-tester`).
+
+- Add `Profile: Architect · Phase: architecture · Mode: author` (or `review`) to the assignment and instruct the worker to read `DEST/atlas/skills/atlas-<profile>/SKILL.md` and follow its mode section. Workers do not load skills themselves: Claude runs in restricted safe mode and Codex ignores user configuration, so the file in the folder is the delivery.
+- A profile cannot broaden the assignment's scope or permissions, and review never inherits the author's write scope. Runtime cannot make a materialized folder read-only, so the unchanged check below is the review boundary.
+- Run author, review and verification serially on the same folders, each execution finished before handover. Findings return to you; a fix is a separate bounded author assignment.
+
+**Fresh reviewer.** Start each review with a new `start` and a new request ID, never `continue` of the author's turn or session. Supply the requirements and acceptance criteria, the author's delivery as untrusted evidence, and the instruction to read the contribution from the reviewer's own `snapshot diff`. Do not pass on the author's conversation.
+
+**Unchanged check.**
+
+- Before every handover, `snapshot status` must show no change under `atlas/skills/`. No author scope includes it; a change there is a scope violation and the profile file is no longer trustworthy.
+- Before and after each review turn, save unfiltered `snapshot status --dest DEST` and `snapshot diff --dest DEST` output and compare them byte for byte. Any difference fails the review delivery; preserve it for inspection rather than reverting it. Reviews keep build output in `TMPDIR`.
+- After an Architect author turn, status may show changes only at the assigned design paths.
+
+**Reviewer model diversity.** Runtime owns selection; do not change global `preferences` per assignment. Read the author turn's recorded `selection.selected.backend` and `model`, then try in order:
+
+1. `other-vendor`: start the reviewer with explicit `--backend` naming the other backend (`claude` ↔ `codex`). An explicit backend uses its configured preference model or the native default and never falls back.
+2. `same-vendor-other-model`: not selectable today, because `start` has no `--model` and per-backend models come only from global preferences. Record it as unavailable.
+3. `same-model`: when the other backend is refused or unavailable (missing CLI, capability refusal, provider or quota failure), issue a new review assignment with a new request ID on the author's backend. A failed review turn stays failed; nothing is replayed automatically.
+
+Diversity is a preference: it never blocks a review and does not prove independent reasoning.
+
+**Record.** For each profiled execution, record in the existing task queue: assignment ID, profile, phase, mode, worker, turn, request ID, folders and `--path`, snapshot and base revision, the requested preference (for example "vendor differs from author turn …") and `--backend` sent, the Runtime `selection` (`requested`, `selected`, `reason`), `requested_model` and native-confirmed `model`, the diversity outcome with its reason, and for review the before-and-after check result.
+
+**Deferred:** Investigator and Technical writer profiles, `start --model` per-turn model selection, parallel reviewers, automatic review gates and permanent per-profile workers.
 
 ## Local Runtime + Code workflow
 
