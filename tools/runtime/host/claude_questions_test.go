@@ -904,8 +904,9 @@ func TestTransportLossCancelAndEarlyResultNeverClaimProcessing(t *testing.T) {
 func TestStalledNativeInputFailsWithinBoundAndCleansUp(t *testing.T) {
 	for _, profile := range []string{"", "dedicated-repository", "materialized-folder"} {
 		t.Run(profile, func(t *testing.T) {
-			// The assignment is larger than any pipe buffer, and the fixture never reads it.
-			run := launchQuestions(t, "stall", profile, strings.Repeat("x", 512*1024))
+			// The assignment exceeds the 64 KiB pipe buffer of Linux and macOS, and the fixture never
+			// reads it. It stays below Linux's 128 KiB limit on one argument (MAX_ARG_STRLEN).
+			run := launchQuestions(t, "stall", profile, strings.Repeat("x", 96*1024))
 			started := time.Now()
 			records := run.ended(t, false)
 			if elapsed := time.Since(started); elapsed < 3*time.Second || elapsed > 8*time.Second {
