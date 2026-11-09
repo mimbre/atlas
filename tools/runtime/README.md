@@ -146,8 +146,11 @@ Focused checks cover stale attempts, wrong ownership/source/session/scope, missi
 ```sh
 atlas-runtime events --limit 50
 atlas-runtime events --cursor "$NEXT_CURSOR" --limit 50
+atlas-runtime events --follow --cursor "$CURSOR"
 atlas-runtime output --turn turn-0123456789abcdef
 ```
+
+`events --follow [--cursor C]` streams the same execution events from `read.sock` (`follow` in `docs/contracts/runtime-read.md`) until SIGINT or SIGTERM, which exit with status 0. It prints one JSON line per event as it arrives, `{"reset":{...}}` before the events when the Runtime reports a retention gap or epoch change, and `{"cursor":C}` after each page whose cursor changed. It is the `epoch:sequence` cursor of `events`; save it only after handling the lines before it. It reconnects on its own from the last printed cursor: at once after a connection closes without an `end` frame (or ends `too_slow`), otherwise with back-off from 1 s to 15 s. It prints its own `{"reachable":false,"reason":R}` once when the Runtime is lost (`R` is `connect_failed`, `connection_closed`, `silence` for 45 s without a page or heartbeat, the `end` reason such as `service_stopping`, or a retryable read error code), and `{"reachable":true}` with the next page. Delivery is at least once; duplicates can follow a reconnect. `invalid_cursor` and other refusals exit nonzero; `--limit` is refused with `--follow`. It never starts the service or any worker.
 
 `events` is a finite query, not a watcher. It returns immutable ordered execution, question-evidence, peer-correlation and handoff-reference snapshots with stable turn IDs, worker attribution for new events, native identity when known, and references usable by `output --turn`, `question`, `peer-question` or `handoff` for inspection. `execution_accepted` means Runtime accepted a start or continuation; `execution_finished` means the native turn ended normally, **not that its assigned task was verified successful**. Failure, confirmed stop and confirmed kill use `execution_failed`, `execution_stopped` and `execution_killed`; requesting a stop or kill appends no event. Assignments, questions, answers, handoff declarations and full logs are not copied into the event stream.
 
