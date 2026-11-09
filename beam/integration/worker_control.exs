@@ -130,9 +130,7 @@ defmodule WorkerControlTest do
 
   setup %{tmp_dir: dir} = context do
     previous_store = Application.get_env(:atlas_bus, :store)
-    previous_timeout = Application.get_env(:atlas_control, :read_timeout_ms)
     Application.put_env(:atlas_bus, :store, "worker-proof-#{System.unique_integer([:positive])}")
-    Application.put_env(:atlas_control, :read_timeout_ms, 100)
     {:ok, backend} = GuidanceStore.start(Path.join(dir, "facts.json"), description())
     rela = {GuidanceStore, backend}
 
@@ -190,10 +188,6 @@ defmodule WorkerControlTest do
           do: DynamicSupervisor.terminate_child(AtlasControl.Sessions, pid)
 
       Application.put_env(:atlas_bus, :store, previous_store)
-
-      if previous_timeout,
-        do: Application.put_env(:atlas_control, :read_timeout_ms, previous_timeout),
-        else: Application.delete_env(:atlas_control, :read_timeout_ms)
     end)
 
     %{rela: rela, backend: backend, execution: execution, port: port}
