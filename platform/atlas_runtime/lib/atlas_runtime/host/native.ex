@@ -128,6 +128,17 @@ defmodule AtlasRuntime.Agent.Native do
       unset =
         for {key, _} <- System.get_env(), key not in kept, do: {String.to_charlist(key), false}
 
+      # The host denies this Runtime home to every permission profile; it never reaches the native CLI.
+      env =
+        case Keyword.get(opts, :runtime_home) do
+          nil ->
+            unset
+
+          home ->
+            List.keydelete(unset, ~c"ATLAS_RUNTIME_HOME", 0) ++
+              [{~c"ATLAS_RUNTIME_HOME", String.to_charlist(Path.expand(home))}]
+        end
+
       port =
         Port.open({:spawn_executable, host}, [
           :binary,
@@ -149,7 +160,7 @@ defmodule AtlasRuntime.Agent.Native do
              JSON.encode!(resume_context),
              JSON.encode!(questions_enabled)
            ]},
-          {:env, unset}
+          {:env, env}
         ])
 
       monitor = Process.monitor(owner)

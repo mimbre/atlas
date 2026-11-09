@@ -807,7 +807,7 @@ defmodule AtlasRuntime.Service do
 
     result =
       try do
-        Native.start_monitor(%{key: key}, agent: settings, turns_dir: turns)
+        Native.start_monitor(%{key: key}, agent: settings, turns_dir: turns, runtime_home: state.dir)
       rescue
         error ->
           if record, do: {:error, error}, else: reraise(error, __STACKTRACE__)
