@@ -50,6 +50,18 @@ and shortcut collisions. It calls pinned rela validation and the actual generic
 checks an inventory obtained through Control, shaped `{kind: [keys]}`; actor facts
 are never shipped as configuration. Actor existence is also reconciled by Flow.
 
+`flows.yaml` is generated too: the assembler copies `flow/targets/rela/flows.yaml`
+(written by `mix atlas.flow.gen` in `flow/contract`) byte for byte, validates the
+description with it on a staging copy, records the source's hash under `flows` in
+`atlas.manifest.json`, and `--check` fails on a stale copy. `acl.yaml` holds the roles the
+flows name, so rela can check them. Rela defines and checks the flows; Atlas Flow runs
+them (D-0068). Neither file is part of the selected closure, so startup never copies them
+into a running rela's data (which runs without an `acl.yaml`, and would refuse flows that
+name roles). **Follow-up for the image:** the core image must hold `rela/flows.yaml` for
+Flow: add it to the `COPY rela/schema.yaml rela/data-entry.yaml …  /app/rela/` line of
+`fly/core.Dockerfile`, after the build stage copies `flow/generator` and `flow/targets`.
+The rela image does not need it.
+
 `atlas.manifest.json` records every selected schema/JSON input and generated output
 hash. CI checks freshness; startup/images check the packaged hashes without needing
 Elixir or PyYAML in the core image. Packaging copies the same closure and generated

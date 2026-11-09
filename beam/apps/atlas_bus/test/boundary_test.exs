@@ -30,7 +30,7 @@ defmodule AtlasBus.BoundaryTest do
   @clients [{"clients/tui", "AtlasTui"}, {"clients/agent", "AtlasAgent"}]
 
   # Names of the entities rela describes today. Extend it when rela describes more.
-  @entities ~r/\b(scenes?|use[ _-]?cases?|issues?|pull[ _-]?requests?|persons?|people)\b/i
+  @entities ~r/\b(scenes?|use[ _-]?cases?|issues?|pull[ _-]?requests?|pr[ _-]?(reviews?|tests?)|persons?|people)\b/i
 
   # GitHub's own words in Runtime's coordinator handoff protocol, not rela's entities: the
   # fixed handoff kind `pull_request` declares a GitHub pull request URL for a worker's branch,

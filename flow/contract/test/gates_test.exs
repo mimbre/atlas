@@ -3,10 +3,11 @@ defmodule AtlasFlowContract.GatesTest do
 
   test "the gates, in the order written" do
     assert Enum.map(AtlasFlowContract.Gates.__gates__(), & &1.name) ==
-             [:delivery_evidence, :review, :integrate]
+             [:delivery_evidence, :review, :design, :integrate]
   end
 
-  # Applied by hand today: integrate only when CI is green on the exact head being
+  # Named by the pull request's integrate effect, applied by hand until Code applies it:
+  # integrate only when CI is green on the exact head being
   # integrated and the fingerprint approved at review is the one sent at integration.
   test "integrate is a rule gate over named evidence; what it cannot settle goes to a person" do
     gate = Enum.find(AtlasFlowContract.Gates.__gates__(), &(&1.name == :integrate))

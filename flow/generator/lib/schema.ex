@@ -56,9 +56,16 @@ defmodule AtlasFlowGenerator.Schema do
   | `gate` | `gate_result` | the gate's `verdicts` |
   | `effect` | `effect_result`, or `field:` | `done`, `refused` |
 
+  A result may lead to `{state, label}` instead of a state: the branch then carries
+  that label, as `failed: {:decide, "The pass failed; a person decides"}`.
+
   `wait_for` is the same for people: the state waits in their inbox, the field is
-  reset, and each value they may choose is a branch only they can take. `await`
-  waits for a field that something outside this subflow writes.
+  reset, and each value they may choose is a branch only they can take. With
+  `reset: false` the field is not reset; a subflow without `run_as` cannot set it.
+  A state that waits for people and has no mechanism is `input_required`; one with
+  a pass that people work in (`with_person: true`) stays working, as a state with a
+  mechanism does. `await` waits for a field that something outside this subflow
+  writes; a composition (`AtlasFlowGenerator.Schema.Composition`) says what writes it.
 
   Branches are tried in the order written; a mechanism's branches sit where the
   mechanism is written.
@@ -597,7 +604,11 @@ defmodule AtlasFlowGenerator.Schema do
         {s, ps ++ Enum.map(more, &{l, "state #{name}: " <> &1})}
       end)
 
-    {Map.update!(state, :waiting_for, &Enum.uniq/1), problems}
+    # Waiting for people with nothing at work in the state is waiting for input.
+    status =
+      state.status || if(state.waiting_for != [] and state.mechanism == nil, do: :input_required)
+
+    {%{state | status: status, waiting_for: Enum.uniq(state.waiting_for)}, problems}
   end
 
   # Each returns the state with the entry added, and the problems found.
@@ -638,8 +649,9 @@ defmodule AtlasFlowGenerator.Schema do
         {s, ["wait_for needs on: the field the people set"]}
 
       {field, choices} ->
-        s = %{s | waiting_for: s.waiting_for ++ roles, status: s.status || :input_required}
-        {s, ps} = put_set(s, [{field, :none}])
+        {reset, choices} = Keyword.pop(choices, :reset, true)
+        s = %{s | waiting_for: s.waiting_for ++ roles}
+        {s, ps} = if reset, do: put_set(s, [{field, :none}]), else: {s, []}
         {add_branches(s, field, choices, roles), ps}
     end
   end
@@ -717,7 +729,10 @@ defmodule AtlasFlowGenerator.Schema do
 
   defp add_branches(s, field, choices, roles) do
     new =
-      for {value, to} <- choices, do: %{to: to, roles: roles, when: eq(field, value), label: nil}
+      for {value, target} <- choices do
+        {to, label} = with to when is_atom(to) <- target, do: {to, nil}
+        %{to: to, roles: roles, when: eq(field, value), label: label}
+      end
 
     %{s | branches: s.branches ++ new}
   end

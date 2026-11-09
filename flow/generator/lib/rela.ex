@@ -19,10 +19,11 @@ defmodule AtlasFlowGenerator.Rela do
   ## The project Rela checks against
 
   Rela checks a `flows.yaml` only inside a project, against its `schema.yaml` and
-  `acl.yaml`. Until the Rela description (`rela/`) has the fields the subflows read
-  and write (slice 4 of the Flow DSL design adds them, and switches the check to the
-  real `rela/` description), `check_project/1` derives a small scratch project from
-  the subflows themselves: each subject type with the properties the subflows read in
+  `acl.yaml`. Given `project:` (a Rela description, such as the repository's
+  `rela/`), `check/4` checks the file in a copy of that description, with the
+  generated `flows.yaml` in place of its own, and runs the whole `rela validate`
+  there: the properties and roles are the real ones. Without it, `check_project/1`
+  derives a small scratch project from the subflows themselves: each subject type with the properties the subflows read in
   `when` or set, every role a branch names, and `run_as` mapped to a role that may
   update the subjects. Rela then checks what the description cannot yet: that each
   `when` compiles, that outputs name properties, that roles exist and `run_as` has
@@ -122,31 +123,35 @@ defmodule AtlasFlowGenerator.Rela do
   end
 
   defp opt(_key, nil), do: ""
-  defp opt(key, value), do: "#{key}: #{scalar({:q, value})}\n"
+  defp opt(key, value), do: "#{key}: #{scalar({:block, value})}\n"
 
   defp inline(kv),
     do: "{ " <> Enum.map_join(kv, ", ", fn {k, v} -> "#{k}: #{scalar(v)}" end) <> " }"
 
-  # Plain only where that is certainly safe in a YAML flow mapping; double-quoted
-  # (JSON escaping is valid YAML) otherwise.
+  # Plain only where that is certainly safe; double-quoted (JSON escaping is valid
+  # YAML) otherwise. Inside a flow mapping (`{ … }`) a comma ends the value; as the
+  # value of a block mapping key (a flow's or a state's label) it does not.
   @plain ~r/^[A-Za-z][A-Za-z0-9 '.;:-]*[A-Za-z0-9.]$/
+  @plain_block ~r/^[A-Za-z][A-Za-z0-9 '.,;:-]*[A-Za-z0-9.]$/
   @reserved ~w(true false yes no on off null y n)
 
-  defp scalar({:q, v}) do
-    v = to_string(v)
+  defp scalar({:q, v}), do: plain_or_quoted(to_string(v), @plain)
+  defp scalar({:block, v}), do: plain_or_quoted(to_string(v), @plain_block)
 
-    if Regex.match?(@plain, v) and String.downcase(v) not in @reserved and
+  defp scalar({:qq, v}), do: JSON.encode!(to_string(v))
+
+  defp scalar({:list, vs}), do: "[" <> Enum.join(vs, ", ") <> "]"
+  defp scalar(kv) when is_list(kv), do: inline(kv)
+  defp scalar(v), do: to_string(v)
+
+  defp plain_or_quoted(v, plain) do
+    if Regex.match?(plain, v) and String.downcase(v) not in @reserved and
          not String.contains?(v, [": ", " #"]),
        do: v,
        else: JSON.encode!(v)
   end
 
-  defp scalar({:qq, v}), do: JSON.encode!(to_string(v))
-  defp scalar({:list, vs}), do: "[" <> Enum.join(vs, ", ") <> "]"
-  defp scalar(kv) when is_list(kv), do: inline(kv)
-  defp scalar(v), do: to_string(v)
-
-  # -- The scratch project Rela checks against (until slice 4) ---------------------
+  # -- The scratch project Rela checks against, when no description is given --------
 
   @runner "flow-runner"
   @read ~r/entity\.([a-z][a-z0-9_]*)(?:\s*[!=]=\s*(true|false)\b)?/
@@ -268,14 +273,23 @@ defmodule AtlasFlowGenerator.Rela do
   @doc """
   Runs the pinned Rela `binary` on `flows_yaml` (the file's exact bytes) in a scratch
   project built by `check_project(flows)`, in a temporary folder removed afterwards.
+  With `project:`, the scratch project is a copy of that Rela description instead.
   Returns `{:ok, shown}`, `shown` being what `rela flow show <name> -o json` gives
   for each subflow, in order; or `{:error, message}` with Rela's own words when the
   binary is not 26.11.2 or `rela flow validate` refuses the file.
   """
-  def check(binary, flows_yaml, flows) do
-    case version(binary) do
-      @version -> in_project(flows_yaml, flows, &validate_and_show(binary, &1, flows))
-      other -> {:error, "expected #{@version} at #{binary}, got #{other}"}
+  def check(binary, flows_yaml, flows, opts \\ []) do
+    project = opts[:project]
+
+    cond do
+      (v = version(binary)) != @version ->
+        {:error, "expected #{@version} at #{binary}, got #{v}"}
+
+      project && not File.regular?(Path.join(project, "schema.yaml")) ->
+        {:error, "no Rela description at #{project} (no schema.yaml)"}
+
+      true ->
+        in_project(flows_yaml, flows, project, &validate_and_show(binary, &1, flows, project))
     end
   end
 
@@ -286,13 +300,20 @@ defmodule AtlasFlowGenerator.Rela do
     e in ErlangError -> "an error: #{inspect(e.original)}"
   end
 
-  defp in_project(flows_yaml, flows, fun) do
+  defp in_project(flows_yaml, flows, project, fun) do
     dir = Path.join(System.tmp_dir!(), "atlas-flow-check-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
 
     try do
-      for {file, body} <- [{"flows.yaml", flows_yaml} | check_project(flows)],
-          do: File.write!(Path.join(dir, file), body)
+      files =
+        if project do
+          File.cp_r!(project, dir)
+          [{"flows.yaml", flows_yaml}]
+        else
+          [{"flows.yaml", flows_yaml} | check_project(flows)]
+        end
+
+      for {file, body} <- files, do: File.write!(Path.join(dir, file), body)
 
       fun.(dir)
     after
@@ -300,10 +321,12 @@ defmodule AtlasFlowGenerator.Rela do
     end
   end
 
-  defp validate_and_show(binary, dir, flows) do
-    case System.cmd(binary, ["--project", dir, "--quiet", "flow", "validate"],
-           stderr_to_stdout: true
-         ) do
+  # A real description is validated whole (schema, acl and flows); a scratch project
+  # only exists for its flows.
+  defp validate_and_show(binary, dir, flows, project) do
+    command = if project, do: ["validate"], else: ["flow", "validate"]
+
+    case System.cmd(binary, ["--project", dir, "--quiet" | command], stderr_to_stdout: true) do
       {_, 0} ->
         Enum.reduce_while(flows, {:ok, []}, fn f, {:ok, shown} ->
           case show(binary, dir, f.name) do
@@ -313,7 +336,7 @@ defmodule AtlasFlowGenerator.Rela do
         end)
 
       {out, _} ->
-        {:error, "rela flow validate refused flows.yaml:\n" <> without_logs(out)}
+        {:error, "rela #{Enum.join(command, " ")} refused flows.yaml:\n" <> without_logs(out)}
     end
   end
 
