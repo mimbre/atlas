@@ -19,7 +19,8 @@ defmodule AtlasBus.BoundaryTest do
     atlas_facts: "AtlasFacts",
     atlas_flow: "AtlasFlow",
     atlas_runtime: "AtlasRuntime",
-    atlas_control: "AtlasControl"
+    atlas_control: "AtlasControl",
+    atlas_gates: "AtlasGates"
   }
   # Learn reads the layers through their own read surfaces (a socket, records, the `atlas`
   # client), never over the Bus or by calling them: it depends on no app, names no layer
