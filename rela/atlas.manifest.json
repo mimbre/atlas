@@ -2,17 +2,17 @@
   "inputs": {
     "compositions/atlas-eyra/atlas.json": "e78e37b8053ff184d7caf2190162dd5e98840281174e5f12adc321ec4e420f5e",
     "compositions/atlas-eyra/bindings.yaml": "3be85ecaaac4e42594048e4e767284661e0116fb37654bbfd26ee34fbcb71d4d",
-    "compositions/atlas-eyra/sources.json": "f2943e33b78d4f347ef6e87921df31867ea1748522f078b5d7713bf955a54407",
+    "compositions/atlas-eyra/sources.json": "7f7e4a79381dca7c78f1a25f98c0262392ff5737cb4de25b38b579970b783d2a",
     "data-entry.yaml": "afe3e95d13e4cd9f52b43b3dc518d2922ba01283e8bfb5c31964ee43d1829cdc",
     "modules/eyra/atlas.json": "1dd88fec422b9b4a9bc4b6c519c4f1e0aadf236e93acc231324aa21ae04019c0",
     "modules/eyra/schema.yaml": "85940b0a6e9ecc75016d310d7f61c47642d7b1dd12af7562b74a49168eff37b4",
-    "modules/foundation/atlas.json": "7fee865702cec244ddd10084d1942d8f5f3e7799c1d68463ee36f2730dfae03e",
+    "modules/foundation/atlas.json": "fc95a67624b1a74c5836fc3295390688e21760465876d5402455571d38a0cfa4",
     "modules/foundation/audit/atlas.json": "18c2651218628dd09e350ce3305f05d62ad1cb82b9294dd608acb973b0a70bac",
     "modules/foundation/audit/schema.yaml": "64a7f9538b11ac3fb8cd2b9a2597d29211803e7accfe43f04495a0c934e18dc6",
-    "modules/foundation/schema.yaml": "ecd26530df1a88564ecae6e37b97cdd5db335f85606c38b79f764c1350c65a8d",
-    "modules/software-factory/atlas.json": "1f1a1ff4ed50cccb4bfc6d9449817f983abfaf6872edfc4e13c47578b2de77a7",
-    "modules/software-factory/schema.yaml": "f5e47096cedc7ab4649b98f0123da1855bce2c0aae3fd941d330e323726c251b",
-    "schema.yaml": "867320ac3ec6f822290adb4e19139987b204dc4695afd4dabeaba85b3dbbbc3b"
+    "modules/foundation/schema.yaml": "3c4074a0f4a39a6df5f6dfba13192ae6758b3b9187eb06791ebb34e53b14d67c",
+    "modules/software/atlas.json": "1f1a1ff4ed50cccb4bfc6d9449817f983abfaf6872edfc4e13c47578b2de77a7",
+    "modules/software/schema.yaml": "f5e47096cedc7ab4649b98f0123da1855bce2c0aae3fd941d330e323726c251b",
+    "schema.yaml": "b260c86c9729cde43c8de97db05f377ae427ee76f502a4e374f32a2da0bce350"
   },
-  "output_sha256": "7ba83c1fd9f4162eafefe2c8360f9d74c80ff1799f9685bd2886aca089379c1e"
+  "output_sha256": "fb4ebeae54feb66d96101dcf085c97f4c5fc027d04253e5a35ef7341d8a1a15f"
 }

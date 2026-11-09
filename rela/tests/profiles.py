@@ -21,7 +21,7 @@ def make(profile, dest):
     dest.mkdir(parents=True, exist_ok=True)
     groups = ['foundation']
     if profile == 'incident':
-        groups += ['foundation/audit', 'software-factory']
+        groups += ['foundation/audit', 'software']
     elif profile != 'foundation':
         raise ValueError(profile)
     sources = []

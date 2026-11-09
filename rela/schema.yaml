@@ -10,6 +10,6 @@ description: 'The product plan of Atlas: scenes, their use cases, their issues a
 includes:
 - modules/foundation/schema.yaml
 - modules/foundation/audit/schema.yaml
-- modules/software-factory/schema.yaml
+- modules/software/schema.yaml
 - modules/eyra/schema.yaml
 - compositions/atlas-eyra/bindings.yaml

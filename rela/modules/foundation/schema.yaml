@@ -12,14 +12,14 @@ types:
       security: Trust boundaries, permissions, credentials and data access
       operations: Environments, deployment, backups, machines
   decision_scope:
-    values: [platform, software_factory, instance]
+    values: [platform, software, instance]
     labels:
       platform: Platform
-      software_factory: Software factory
+      software: Software
       instance: Instance
     descriptions:
       platform: The generic mechanisms, whatever workflow runs on them
-      software_factory: The development workflow definitions
+      software: 'How software gets built here: issues, pull requests and their flows'
       instance: 'One installation: its environments, machines, accounts'
   decision_reversibility:
     values: [one_way, two_way]

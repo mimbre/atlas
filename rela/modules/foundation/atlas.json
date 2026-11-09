@@ -337,11 +337,11 @@
         "field": "scope",
         "not": {
           "platform": [
-            "software_factory",
+            "software",
             "instance"
           ]
         },
-        "error": "{key} ({value}) may not follow from {other} ({other_value}): a platform decision never depends on a software_factory or instance one"
+        "error": "{key} ({value}) may not follow from {other} ({other_value}): a platform decision never depends on a software or instance one"
       }
     },
     "gate_verdict": {
