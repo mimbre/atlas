@@ -1210,6 +1210,47 @@ defmodule AtlasControl.PagesTest do
     refute refused["props"]["confirm_to"]
   end
 
+  test "a component has its own page: its fields and links; back goes to its fact" do
+    card =
+      fact("C-W-1", %{"of" => "W-1", "todo" => "Paint it"})
+      |> Map.put("links", %{"held_by" => ["ada"]})
+
+    reads = Pages.reads({:item, "card", "C-W-1"}, @carded)
+
+    answers =
+      for read <- reads do
+        case read do
+          {"card", %{"key" => _}} -> %{"fact" => card, "incoming" => %{"card" => ["W-1"]}}
+          _ -> %{"facts" => []}
+        end
+      end
+
+    page = Pages.render({:item, "card", "C-W-1"}, @carded, answers)
+    assert %{title: "Card C-W-1", back: "/k/_/W-1", blocks: [item | references]} = page
+    assert item["props"]["title"] == "Card C-W-1: W-1"
+    fields = Map.new(item["props"]["fields"], &{&1["label"], &1["value"]})
+    assert %{"Of" => "W-1", "Todo" => "Paint it", "Held by" => "ada"} = fields
+
+    assert [%{"props" => %{"rows" => [%{"id" => "ada", "to" => "/k/member/ada"}]}}] =
+             Enum.filter(references, &(&1["id"] == "parent:held_by"))
+  end
+
+  test "each page offers the actions its kind allows" do
+    widget = %{"fact" => fact("W-1", %{"title" => "One"}), "incoming" => %{}}
+
+    %{blocks: [%{"props" => item}, %{"props" => parts} | _]} =
+      Pages.render({:item, "widget", "W-1"}, @d, [widget, %{"facts" => []}])
+
+    assert Enum.map(item["actions"], &{&1["key"], &1["label"]}) ==
+             [{"u", "Update widget"}, {"d", "Delete widget"}]
+
+    assert Enum.map(parts["actions"], &{&1["key"], &1["label"]}) == [{"c", "Create part"}]
+
+    %{title: create} = Pages.render({:new, "widget"}, @d, [])
+    %{title: update} = Pages.render({:edit, "widget", "W-1"}, @d, [widget])
+    assert {create, update} == {"Create widget", "Update W-1"}
+  end
+
   test "an association a component holds is set on the component, from the fact's key" do
     assert Pages.resolve({:links, "widget", "W-1", "held_by"}, @carded) ==
              {:links, "card", "C-W-1", "held_by"}

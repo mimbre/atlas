@@ -245,4 +245,120 @@ defmodule AtlasState.ProgressTest do
                {:error, :unavailable}
              end)
   end
+
+  # A review in an item shows what the item is doing while it is open, a merged one
+  # completes it, and the box rolls up its items; the rule shapes are those of
+  # `rela/atlas.json`, with neutral kinds.
+  @reviewed %{
+    "progress" => %{
+      "order" => [
+        "refine",
+        "ready_to_pick_up",
+        "specification",
+        "design",
+        "development",
+        "to_test"
+      ],
+      "done_label" => "Done",
+      "to_test" => %{"value" => "to_test", "label" => "To test"}
+    },
+    "entities" => %{
+      "box" => %{
+        "plural" => "boxes",
+        "progress" => %{"over" => "in_box", "field" => "stage", "own" => "status"},
+        "completion" => %{"by" => "approved_by"}
+      },
+      "item" => %{
+        "plural" => "items",
+        "progress" => %{
+          "own" => "stage",
+          "while" => [
+            %{
+              "over" => "in_item",
+              "field" => "state",
+              "value" => "open",
+              "shows" => "development"
+            }
+          ]
+        },
+        "completion" => [
+          %{"over" => "in_item", "field" => "state", "value" => "merged"},
+          %{"through" => "done_in", "field" => "state", "value" => "merged"}
+        ],
+        "properties" => %{
+          "stage" => %{
+            "labels" => %{
+              "specification" => "Specification",
+              "design" => "Design",
+              "development" => "Development"
+            }
+          }
+        }
+      },
+      "review" => %{"plural" => "reviews"}
+    },
+    "relations" => %{
+      "in_box" => %{"from" => ["item"], "to" => ["box"]},
+      "in_item" => %{"from" => ["review"], "to" => ["item"]},
+      "done_in" => %{"from" => ["item"], "to" => ["review"]},
+      "approved_by" => %{"from" => ["box"], "to" => ["member"]}
+    }
+  }
+
+  # `fact` of `kind`, with I-1 (specification, in B-1) and one review in it, in
+  # `review_state`.
+  defp reviewed(kind, fact, review_state) do
+    review = fact("R-12", %{"state" => review_state}, %{"in_item" => ["I-1"]})
+
+    {:ok, [annotated]} =
+      Progress.annotate(@reviewed, kind, [fact], fn
+        "item" -> {:ok, [item()]}
+        "review" -> {:ok, [review]}
+        _ -> {:ok, []}
+      end)
+
+    annotated
+  end
+
+  defp item, do: fact("I-1", %{"stage" => "specification"}, %{"in_box" => ["B-1"]})
+  defp box, do: fact("B-1", %{"status" => "refine"})
+
+  test "an open review shows its item in development, naming the review; stage kept" do
+    open = reviewed("item", item(), "open")
+
+    assert %{
+             "value" => "development",
+             "label" => "Development",
+             "while" => %{"over" => "in_item", "key" => "R-12", "value" => "open"}
+           } = open.progress
+
+    assert open.completion == nil
+    assert open.properties["stage"] == "specification"
+
+    assert %{"value" => "development", "count" => 1, "of" => 1} =
+             reviewed("box", box(), "open").progress
+  end
+
+  test "a review closed unmerged gives the item back its own stage" do
+    closed = reviewed("item", item(), "closed")
+
+    assert closed.progress == %{"value" => "specification", "label" => "Specification"}
+    assert closed.completion == nil
+  end
+
+  test "a merged review makes the item done, naming it; the box to test 1/1" do
+    merged = reviewed("item", item(), "merged")
+
+    assert %{"done" => true, "label" => "Done"} = merged.progress
+
+    assert %{"over" => "in_item", "key" => "R-12", "value" => "merged"} = merged.completion
+
+    box = reviewed("box", box(), "merged")
+
+    assert %{"value" => "to_test", "label" => "To test", "count" => 1, "of" => 1} =
+             box.progress
+
+    refute Map.has_key?(box.progress, "done")
+    assert box.completion == nil
+  end
 end
