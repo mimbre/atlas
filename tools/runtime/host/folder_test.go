@@ -74,7 +74,8 @@ func TestFolderProfileArgumentsAreTheEnforcementContract(t *testing.T) {
 		filesystem = append(filesystem, q(filepath.Join(user, name))+`="none"`)
 	}
 	want := []string{"-c", `default_permissions="atlas_folder"`, "-c",
-		`permissions={atlas_folder={extends=":read-only",filesystem={` + strings.Join(filesystem, ",") + `},network={enabled=false}}}`}
+		`permissions={atlas_folder={extends=":read-only",filesystem={` + strings.Join(filesystem, ",") + `},network={enabled=true,allow_local_binding=true}}}`,
+		"-c", "features.network_proxy=true"}
 	if !slices.Equal(args, want) {
 		t.Fatalf("got  %q\nwant %q", args, want)
 	}
@@ -91,8 +92,8 @@ func TestFolderProfileArgumentsAreTheEnforcementContract(t *testing.T) {
 	if args, err = folderArguments(scope, scratch, user, inside); err != nil {
 		t.Fatal(err)
 	}
-	granted := `permissions={atlas_folder={extends=":read-only",filesystem={` + strings.Join(append(filesystem, q(inside)+`="read"`), ",") + `},network={enabled=false}}}`
-	if !slices.Equal(args, append(want[:3:3], granted)) {
+	granted := `permissions={atlas_folder={extends=":read-only",filesystem={` + strings.Join(append(filesystem, q(inside)+`="read"`), ",") + `},network={enabled=true,allow_local_binding=true}}}`
+	if !slices.Equal(args, append(want[:3:3], granted, "-c", "features.network_proxy=true")) {
 		t.Fatalf("inspector grant: got %q\nwant %q", args, granted)
 	}
 	for _, writable := range []string{dest, scratch} {
@@ -351,7 +352,7 @@ func TestClaudeFolderSettingsAreTheEnforcementContract(t *testing.T) {
 		return `{"sandbox":{"enabled":true,"failIfUnavailable":true,"allowUnsandboxedCommands":false,"excludedCommands":[],` +
 			`"filesystem":{"allowWrite":` + q(dest, temporary) + `,"denyWrite":` + q(append(append(roots, protected...), record, baseline)...) +
 			`,"denyRead":` + q(protected...) + `,"allowRead":` + q(append([]string{record, baseline, user + "/.claude/shell-snapshots", user + "/.claude/session-env"}, granted...)...) +
-			`},"network":{"allowedDomains":[],"strictAllowlist":true,"allowAllUnixSockets":false,"allowLocalBinding":false}},` +
+			`},"network":{"allowedDomains":[],"strictAllowlist":true,"allowAllUnixSockets":false,"allowLocalBinding":true}},` +
 			`"permissions":{"deny":` + q(rules...) + `}}`
 	}
 	if encoded != want() {
@@ -630,7 +631,11 @@ func TestFolderProfileIsEnforcedByInstalledCodexSandbox(t *testing.T) {
 		{fmt.Sprintf("touch %q", filepath.Join(home, "planted")), false},
 		{"mkdir repo/.git", false},
 		{"mkdir .git", false},
-		{"curl -sS -m 5 " + server.URL, false},
+		// Loopback is open (listen and connect); everything external stays blocked, directly or via the proxy.
+		{"curl -sS -m 5 " + server.URL, true},
+		{`python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); s.listen(1)'`, true},
+		{"curl -sS -f -m 8 https://example.com", false},
+		{"curl -sS -m 5 --noproxy '*' https://1.1.1.1", false},
 	} {
 		out, err := shell(true, probe.script)
 		t.Logf("sandboxed %q: err=%v output=%q", probe.script, err, out)

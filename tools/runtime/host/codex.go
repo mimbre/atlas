@@ -75,12 +75,13 @@ func repositoryArguments(fields map[string]any) ([]string, error) {
 
 // credentialPaths are the user's known credential and control locations, relative to the user home.
 var credentialPaths = []string{".codex", ".config/gh", ".ssh", ".aws", ".docker", "Library/Keychains", ".git-credentials",
-	".config/git", ".netrc", ".claude", ".claude.json", ".local/state/atlas-runtime", ".gitconfig"}
+	".config/git", ".netrc", ".claude", ".claude.json", ".local/state/atlas-runtime", ".gitconfig", ".erlang.cookie"}
 
 // folderArguments translates a materialized-folder scope into the Codex permission profile:
 // write only the folder and scratch, read only the snapshot record and baseline, deny Git
-// metadata, the Runtime home, the Code token and user credentials under user, no network.
-// Workers may read (and so execute) the inspector even inside a denied path.
+// metadata, the Runtime home, the Code token and user credentials under user, loopback networking
+// only: the network proxy allows no domain, so external connections fail. Workers may read
+// (and so execute) the inspector even inside a denied path.
 func folderArguments(scope map[string]any, scratch, user, inspector string) ([]string, error) {
 	root, _ := scope["root"].(string)
 	home, _ := scope["home"].(string)
@@ -122,7 +123,11 @@ func folderArguments(scope map[string]any, scratch, user, inspector string) ([]s
 			break
 		}
 	}
-	return profileArguments("atlas_folder", entries, "network={enabled=false}")
+	arguments, err := profileArguments("atlas_folder", entries, "network={enabled=true,allow_local_binding=true}")
+	if err != nil {
+		return nil, err
+	}
+	return append(arguments, "-c", "features.network_proxy=true"), nil
 }
 
 // setupProfile names the Codex permission profile of a folder preparation.
