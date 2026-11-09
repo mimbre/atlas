@@ -91,6 +91,53 @@ jobs:
       - run: mix format --check-formatted
       - run: mix test --warnings-as-errors
 
+  runtime-boundary-generator:
+    name: Runtime boundary generator on its own
+    needs: tested-tree
+    if: ${{ !cancelled() && needs.tested-tree.outputs.tested != 'true' }}
+    runs-on: ubuntu-latest
+    env:
+      MIX_ENV: test
+    defaults:
+      run:
+        working-directory: platform/atlas_runtime/boundary/generator
+    steps:
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28"
+          elixir-version: "1.18"
+      - name: The generator holds none of the Runtime's values
+        run: |
+          if grep -rniE 'AtlasRuntime\.|AtlasRuntimeBoundary\.(Work|Operations)\b|AtlasControl|AtlasBFF|boundary/contract|\.\./contract|work\.json|operations\.json|client_key|work_id|turn_id|at_capacity|read_all|choose_slot|deep_coding|light_work|independent_review|quiescent|provenance|policy_version|cost_class|retry_after|harness|bff\.sock|ATLAS_RUNTIME_HOME' lib test mix.exs; then
+            echo "::error::platform/atlas_runtime/boundary/generator mentions the Runtime's contract or Control. Keep the Runtime's values in platform/atlas_runtime/boundary/contract."
+            exit 1
+          fi
+      # Compiled and tested without platform/atlas_runtime/boundary/contract, on a neutral example contract.
+      - run: mix compile --warnings-as-errors
+      - run: mix format --check-formatted
+      - run: mix test --warnings-as-errors
+
+  runtime-boundary-contract:
+    name: Runtime boundary contract and its file targets
+    needs: tested-tree
+    if: ${{ !cancelled() && needs.tested-tree.outputs.tested != 'true' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: platform/atlas_runtime/boundary/contract
+    steps:
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28"
+          elixir-version: "1.18"
+      - run: mix compile --warnings-as-errors
+      - run: mix format --check-formatted
+      # Fails when a file in platform/atlas_runtime/boundary/targets differs from what the contract generates, or is left over.
+      - run: mix runtime_boundary.gen --check
+      - run: mix test --warnings-as-errors
+
   contract:
     name: Contract and its file targets
     needs: tested-tree
@@ -390,7 +437,7 @@ jobs:
   # run tested it itself, and never from a fork.
   record-tested-tree:
     name: Record the tested tree
-    needs: [tested-tree, generator, contract, model-dsl, model-contract, beam, tui, agent, e2e, swift, apple]
+    needs: [tested-tree, generator, runtime-boundary-generator, runtime-boundary-contract, contract, model-dsl, model-contract, beam, tui, agent, e2e, swift, apple]
     if: >-
       needs.tested-tree.outputs.tested != 'true' && needs.tested-tree.outputs.tree != ''
       && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
