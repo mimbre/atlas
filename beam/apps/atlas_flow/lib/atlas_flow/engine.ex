@@ -58,6 +58,10 @@ defmodule AtlasFlow.Engine do
   @doc "Read Facts, reconcile every run and project every subject, now (for tests)."
   def round(server), do: GenServer.call(server, :round, 30_000)
 
+  @doc "Apply one reviewed maintenance plan in the existing sole writer. No automatic retry."
+  def recover_refused_tally(server, plan),
+    do: GenServer.call(server, {:recover_refused_tally, plan}, 30_000)
+
   @impl true
   def init(opts) do
     model = Keyword.get_lazy(opts, :model, &AtlasFlow.Model.configured!/0)
@@ -91,6 +95,21 @@ defmodule AtlasFlow.Engine do
 
   @impl true
   def handle_call(:round, _from, state), do: {:reply, :ok, look_all(state)}
+
+  def handle_call({:recover_refused_tally, plan}, _from, state) do
+    result =
+      Store.recover_refused_tally(
+        state.runner.config,
+        state.runner.flows,
+        plan,
+        Clock.now(state.clock)
+      )
+
+    case result do
+      {:ok, _} -> {:reply, result, look_all(state)}
+      _ -> {:reply, result, state}
+    end
+  end
 
   @impl true
   def terminate(_reason, state), do: Clock.cancel(state.clock, state.timer)

@@ -56,6 +56,31 @@ defmodule AtlasFlow.Talk do
   def transition_read(kind, content),
     do: read(kind, Map.put(content, "consistency", "transition"))
 
+  @doc "Trusted, read-only evidence for an explicitly reviewed tally retirement."
+  def recovery_evidence(write, writer, candidate \\ nil) do
+    envelope = Envelope.new("read", "_flow_recovery")
+    id = envelope.id
+    store = AtlasBus.store()
+
+    with :ok <-
+           AtlasBus.send(envelope, %{
+             "write" => write,
+             "by" => writer["by"],
+             "candidate" => candidate
+           }) do
+      receive do
+        {:atlas_bus, %Envelope{id: ^id, class: "answer", sender: ^store},
+         %{"receipt" => %{"class" => "refused"} = receipt}} ->
+          {:ok, receipt}
+
+        {:atlas_bus, %Envelope{id: ^id, class: "answer", sender: ^store}, _} ->
+          {:error, :recovery_ineligible}
+      after
+        @wait -> {:error, :recovery_evidence_unavailable}
+      end
+    end
+  end
+
   def read(kind, content), do: read(kind, content, @tries)
 
   defp read(_kind, _content, 0), do: %{"error" => "Facts did not answer"}

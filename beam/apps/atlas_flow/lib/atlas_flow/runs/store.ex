@@ -28,6 +28,160 @@ defmodule AtlasFlow.Runs.Store do
   # What a child's run moving means to its parents.
   @moved ~w(state entry status)
 
+  @doc "Apply one reviewed plan (%{id, reason, run}) without changing ordinary replay."
+  def recover_refused_tally(config, flows, plan, now) when is_map(config) and is_map(plan) do
+    with true <- Enum.sort(Map.keys(plan)) == ~w(id reason run),
+         true <-
+           is_binary(plan["id"]) and plan["id"] != "" and
+             is_binary(plan["reason"]) and plan["reason"] != "",
+         %{"key" => key} = expected <- plan["run"],
+         {:ok, %{} = fact} <- fetch(config, key),
+         {:ok, run} <- decode(config, fact),
+         flow when not is_nil(flow) <- flows[run["flow"]] do
+      fingerprint = Run.digest(plan)
+      audit = Enum.find(run["pending"]["migrations"] || [], &(&1["plan_id"] == plan["id"]))
+
+      cond do
+        audit && audit["plan_digest"] == fingerprint ->
+          cond do
+            run["definition_sha256"] != expected["definition_sha256"] or
+                flow.digest() != expected["definition_sha256"] ->
+              {:error, :recovery_definition_changed}
+
+            run["entry"] == audit["to_entry"] and
+                (run["pending"]["writes"] != [] or run["pending"]["synthetic"] != nil) ->
+              drain(with_flows(config, flows), key, flow, now, 64)
+
+            true ->
+              {:ok, run}
+          end
+
+        audit != nil ->
+          {:error, :recovery_plan_conflict}
+
+        run != expected ->
+          {:error, :recovery_snapshot_changed}
+
+        true ->
+          recover_tally(config, flows, fact, run, flow, plan, fingerprint, now)
+      end
+    else
+      _ -> {:error, :invalid_recovery_plan}
+    end
+  rescue
+    _ in [ArgumentError, BadMapError, KeyError, FunctionClauseError] ->
+      {:error, :invalid_recovery_plan}
+  end
+
+  def recover_refused_tally(_config, _flows, _plan, _now), do: {:error, :invalid_recovery_plan}
+
+  defp recover_tally(config, flows, fact, run, flow, plan, fingerprint, now) do
+    config = with_flows(config, flows)
+
+    with true <- get_in(config, ["selection", run["flow"], "choices"]) == [],
+         [write] <- run["pending"]["writes"],
+         true <- recovery_tally?(config, run, write),
+         :ok <- recovery_inputs(config["inputs"], run),
+         %{"fact" => %{} = subject} <-
+           Talk.transition_read(run["subject_kind"], %{
+             "key" => run["subject_key"],
+             "plain" => true
+           }),
+         {:ok, receipt} <- Talk.recovery_evidence(write, config["writer"]),
+         retirement = %{
+           "plan_id" => plan["id"],
+           "plan_digest" => fingerprint,
+           "reason" => plan["reason"],
+           "snapshot_digest" => Run.digest(run),
+           "receipt" => receipt
+         },
+         {:ok, entered} <- Run.reenter_refused_tally_wait(run, flow, subject, retirement, now),
+         {:ok, proposed} <- compose(config, entered, subject),
+         :ok <- recovery_successor(proposed, write, config["writer"], receipt),
+         # No effect can escape this versioned cursor claim. A lost acknowledgement
+         # is resolved by the same reread as ordinary writes, never by assuming success.
+         {:ok, committed} <- write(config, %{fact: fact, stored: run, consumed: nil}, proposed),
+         true <- committed.stored == proposed do
+      drain(config, run["key"], flow, now, 64)
+    else
+      {:error, _} = error -> error
+      _ -> {:error, :recovery_ineligible_or_conflicted}
+    end
+  end
+
+  defp recovery_successor(%{"pending" => %{"writes" => []}}, _old, _writer, _receipt), do: :ok
+
+  defp recovery_successor(%{"pending" => %{"writes" => [candidate]}}, old, writer, receipt) do
+    case Talk.recovery_evidence(old, writer, candidate) do
+      {:ok, ^receipt} -> :ok
+      _ -> {:error, :recovery_successor_ineligible}
+    end
+  end
+
+  defp recovery_successor(_run, _old, _writer, _receipt),
+    do: {:error, :recovery_successor_ineligible}
+
+  defp recovery_tally?(config, run, %{"id" => id, "kind" => kind, "content" => content})
+       when is_map(content) do
+    tallies =
+      for t <- config["composition"]["tallies"],
+          t["parent_subject"] == run["subject_kind"] and run["flow"] in t["readers"],
+          do: t
+
+    other = config["composition"]["links"] ++ config["composition"]["counts"]
+
+    with true <- is_binary(id) and id != "" and kind == run["subject_kind"],
+         true <- Enum.all?(other, &(&1["parent_subject"] != kind)),
+         [%{"all" => field}] <- tallies,
+         true <- Map.keys(content) -- ~w(op key values by links) == [],
+         true <- is_map(content["values"]),
+         true <-
+           content["op"] == "change" and content["key"] == run["subject_key"] and
+             content["by"] == config["writer"]["by"] and (content["links"] || %{}) == %{},
+         [{^field, n}] when is_integer(n) and n >= 0 <- Map.to_list(content["values"]) do
+      true
+    else
+      _ -> false
+    end
+  end
+
+  defp recovery_tally?(_config, _run, _write), do: false
+
+  # Unlike the typed inputs read, this plain list never applies prepared choices.
+  defp recovery_inputs(nil, _run), do: :ok
+
+  defp recovery_inputs(c, run) do
+    case Talk.transition_read(c["kind"], %{"plain" => true}) do
+      %{"facts" => facts} when is_list(facts) ->
+        readable =
+          Enum.all?(
+            [c["kind"], c["fields"]["run"], c["fields"]["status"]],
+            &(is_binary(&1) and &1 != "")
+          ) and
+            Enum.all?(facts, fn f ->
+              is_binary(f["values"][c["fields"]["run"]]) and
+                f["values"][c["fields"]["status"]] in ~w(prepared applied consumed)
+            end)
+
+        cond do
+          not readable ->
+            {:error, :recovery_inputs_unavailable}
+
+          Enum.any?(facts, fn f ->
+            f["values"][c["fields"]["run"]] == run["key"] and
+                f["values"][c["fields"]["status"]] in ~w(prepared applied)
+          end) ->
+            {:error, :recovery_pending_input}
+
+          true ->
+            :ok
+        end
+
+      _ ->
+        {:error, :recovery_inputs_unavailable}
+    end
+  end
+
   @doc """
   What the runs of `model` are kept and selected by, for its compiled subflows `flows`
   (by name): `{config, refusal}`. `config` is nil when no subflow is selected; a

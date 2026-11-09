@@ -17,6 +17,48 @@ defmodule AtlasFlow.Runs.Run do
 
   def key(flow, kind, key, generation), do: digest({flow, kind, key, generation})
 
+  @doc "Pure one-time retirement/reentry. Receipt and composition checks belong to Store."
+  def reenter_refused_tally_wait(run, flow, subject, retirement, now) do
+    safe =
+      run["status"] == "active" and run["definition_sha256"] == flow.digest() and
+        run["subject_kind"] == flow.subject() and run["subject_key"] == subject["key"] and
+        is_integer(run["entry"]) and run["entry"] > 0 and is_integer(run["generation"]) and
+        run["generation"] > 0 and
+        run["key"] == key(run["flow"], run["subject_kind"], run["subject_key"], run["generation"]) and
+        run["state"] in flow.states() and not flow.final?(run["state"]) and
+        flow.mechanism(run["state"]) == nil and
+        flow.enter(run["state"], subject["values"] || %{}) == [] and
+        run["deadlines"] == %{"version" => 1, "timers" => []} and
+        Enum.all?(~w(gate pass effect definition_block), &(run["pending"][&1] == nil)) and
+        match?([%{}], run["pending"]["writes"])
+
+    if safe do
+      audit =
+        Map.merge(retirement, %{
+          "type" => "retire_refused_tally_wait",
+          "at" => DateTime.to_iso8601(now),
+          "from_entry" => run["entry"],
+          "to_entry" => run["entry"] + 1,
+          "from_entered_at" => run["entered_at"],
+          "state" => run["state"],
+          "run_key" => run["key"],
+          "generation" => run["generation"],
+          "definition_sha256" => run["definition_sha256"],
+          "retired" => Map.take(run["pending"], ~w(writes synthetic composition))
+        })
+
+      {:ok,
+       run
+       |> update_in(
+         ["pending"],
+         &Map.update(&1, "migrations", [audit], fn old -> old ++ [audit] end)
+       )
+       |> enter(flow, run["state"], now, true, subject)}
+    else
+      {:error, :unsafe_tally_wait}
+    end
+  end
+
   def migrate(run, flow, migrations, now) do
     if run["definition_sha256"] == flow.digest() do
       {:ok, run}

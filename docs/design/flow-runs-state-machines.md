@@ -78,6 +78,79 @@ Pin definitions. Changed subflow data blocks its old runs until an explicit, tes
 
 An encoding-only migration is explicit in `rela/flow-runtime.json`: an exact old/new digest pair, `rekey: true`, and identity state mappings. It changes the stored definition digest and appends a `pending.migrations` audit record. It preserves state, entry, entry time, deadlines, pending writes and frozen activity requests, including their IDs; it never re-enters the state. This also applies to completed imports. A prior definition block is cleared by restoring its saved status. Ordinary state migrations retain their quiescence checks and entry semantics; every unmatched definition change still blocks that run.
 
+### One-time retirement of a terminal-refused tally
+
+Fixing admission does not change an immutable Facts answer. A pending write with a
+durable refused receipt continues to receive that refusal under its original ID.
+Ordinary rounds never replace its ID or automatically retry it as another operation.
+Definition migration, encoding rekey and completed-run restart keep their contracts.
+
+Privileged release maintenance may explicitly call
+`AtlasFlow.Engine.recover_refused_tally(server, plan)` in the existing sole writer.
+This is a local maintenance call, not a Bus command, user action or scheduled retry.
+The reviewed plan is a string-keyed map containing exactly `id`, `reason`, and `run`;
+`run` is the entire decoded durable cursor, including key, generation, entry,
+definition, pending writes and composition. Read and review that snapshot before
+constructing the plan. No production plan is shipped or automatically selected.
+
+The implementation admits only a current-definition active non-final wait with one
+pending own-subject derived tally assignment. Its selection must declare no choices;
+its state must have no mechanism or entry outputs; it must have no deadlines, frozen
+activities or unconsumed prepared/applied inputs. This first maintenance operation
+supports exactly one applicable tally and no composition links or child counts on
+the subject. Mixed writes, negative/noninteger tallies, creates/deletes, other kinds,
+multi-write outboxes and arbitrary effects are ineligible. Even a successful prefix
+plus a refused suffix requires separate reviewed design; it is not retired here.
+
+Facts' `_flow_recovery` read accepts only the existing configured machine sender and
+writer. It reads the exact receipt from its own ledger and runs current normal
+validation without storage. It also requires the installed field-writer metadata and
+an unchanged sole own change, with no expanded component/replacement writes. The
+response is authentic Facts evidence, not a permit: the eventual new write still
+passes full normal admission. A missing receipt, stored receipt, unavailable read,
+still-refused candidate or untrusted sender stops maintenance. The response explicitly
+labels ordinary legacy receipts `legacy_unbound`; their about/position tuple does
+not attest the complete historical payload. The reviewed frozen run snapshot binds
+the obligation being retired without inventing a stronger historical receipt.
+
+After these checks, Store reenters the same safe wait once, preserving run key,
+generation, definition, input cursor and last input. Entry increments and entry time
+is the migration time; there are no timers to reset. A `pending.migrations` audit
+retains plan ID/digest/reason, old snapshot digest, old entry/time, new entry, exact
+receipt and retired writes/synthetic/composition data. Pass/effect and earlier
+migration history remain. Retirement is not recorded as successful execution.
+
+Composition is recomputed from current related facts and raw subject storage; absent
+work is not treated as stored zero. The new entry yields a new count identity through
+the existing composition identity function. Before claiming the cursor, a second
+Facts read validates the separately named successor candidate against current normal
+admission and excludes expanded writes at its newly computed value too. This is a
+read of the old receipt and a preflight of the new candidate, never another payload
+submitted under the old ID. The versioned cursor, audit and fresh
+outbox are committed together through Facts and reread for exact equality **before**
+any successor is sent. A conflict does not send. A crash before commit leaves the
+original debt; a crash after commit resumes the committed successor ID. Successful
+successor receipts retain their original positions across acknowledgement loss and
+restart. No ledger row or historical request is deleted, edited or relabelled.
+
+The same plan recognizes its audit and never increments entry again; altered content
+under its ID conflicts. It resumes outstanding work only in its committed migration
+entry. Later entries and completed migrations are returned without another drain;
+definition changes require separate review. The Engine then uses normal reconciliation
+and projection to update its state; target recovery does not waive settlement of
+other subjects. A successor refusal remains a terminal refusal under that successor
+ID, with no automatic fresh plan or entry. Refusal in general does not prove zero
+effects (Rela can store with warnings), which is why this operation is limited to
+recomputed derived assignments and never retries external activities.
+
+The private native acceptance fixture is
+`beam/integration/flow_refused_tally_recovery_native.exs`. It accepts the preserved
+raw evidence and pinned historical evaluator as arguments. Only its disposable VM
+loads the old evaluator, obtains the actual refusal for the exact frozen request,
+then restores current admission on the same disposable ledger. No receipt is seeded
+and no different payload is used under that ID. Deployment acceptance and execution
+of a reviewed live plan remain separate maintenance work.
+
 ## 4. Ordered Developer assignments
 
 Each slice is one assignment. Complete its checks and test-environment proof first. Lists name the allowed files. New files are marked new. Platform tests use neutral nouns. Domain mappings and demonstrations belong in contract tests or `e2e/`. Use manual clocks, acknowledgements and monitors. Do not wait on real timers.
