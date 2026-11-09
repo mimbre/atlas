@@ -405,6 +405,46 @@ defmodule AtlasFlow.Runs.Run do
     end
   end
 
+  # Flow's own writer role: the branches a subflow takes `by: :atlas` and its `await`s.
+  @writer "atlas-flow"
+
+  @doc """
+  Take the run's synthetic input, if it holds one: the values its subject's links and
+  counts changed (`AtlasFlow.Runs.Store`), given as an input of Flow's own role on those
+  fields, so the state's `await` and `by: :atlas` branches see them. `{:ok, run}`: entered
+  where the first such branch leads, with the input and its sources as `last_input`, or
+  unmoved without the input (it is taken once, at this entry). `:none` when it holds none.
+  """
+  def synthetic(run, flow, subject, now) do
+    case run["pending"]["synthetic"] do
+      nil ->
+        :none
+
+      %{"values" => changed} = synthetic ->
+        values = Map.merge(subject["values"] || %{}, changed)
+
+        to =
+          if run["status"] == "active" and run["pending"]["writes"] == [] and
+               flow.mechanism(run["state"]) == nil,
+             do: flow.next(run["state"], values, %{roles: [@writer], changed: changed}),
+             else: :stay
+
+        case to do
+          {:to, state} ->
+            {:ok,
+             enter(run, flow, state, now, true, subject)
+             |> input(subject, %{
+               "synthetic" => synthetic["id"],
+               "sources" => synthetic["sources"],
+               "subject_version" => subject["version"]
+             })}
+
+          :stay ->
+            {:ok, update_in(run, ["pending"], &Map.delete(&1, "synthetic"))}
+        end
+    end
+  end
+
   defp input(run, subject, input),
     do:
       run
@@ -474,7 +514,13 @@ defmodule AtlasFlow.Runs.Run do
       "status" => if(flow.final?(state_name), do: "completed", else: "active"),
       "pending" =>
         Map.merge(
-          Map.take(run["pending"] || %{}, ["verdict", "migrations", "passes", "effects"]),
+          Map.take(run["pending"] || %{}, [
+            "verdict",
+            "migrations",
+            "passes",
+            "effects",
+            "composition"
+          ]),
           %{
             "version" => 1,
             "writes" => writes ++ creates

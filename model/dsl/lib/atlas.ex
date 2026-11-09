@@ -17,7 +17,10 @@ defmodule RelaDSL.Atlas do
       `section` as `{field, heading}`, `answers` as `[{key, label, set | remove}]`);
     * executable start, run identity policy, state status, waiting roles, awaited
       fields, ordered branches, entry sets, creates and timers. Empty execution lists
-      are explicit. Composition is deliberately not emitted yet.
+      are explicit;
+    * `composition` (when given): how the subflows' results reach one another, as
+      versioned data (`composition/2`). It sits beside `flows`, never in a subflow, so
+      it changes no subflow's digest.
 
   The writer reads only the data of `__flows__/0` and `__gates__/0`. Every object's
   keys are written sorted, two spaces deep, one key per line; a list of plain values
@@ -35,7 +38,7 @@ defmodule RelaDSL.Atlas do
   case hex) is `rela_flows_sha256`. Raises when a state names a gate, or a gate
   version, that `gates` does not hold.
   """
-  def flows_json(flows, gates, rela_flows_sha256) do
+  def flows_json(flows, gates, rela_flows_sha256, composition \\ nil) do
     check_gates!(flows, gates)
 
     %{
@@ -43,10 +46,62 @@ defmodule RelaDSL.Atlas do
       writer: @writer,
       rela_flows_sha256: rela_flows_sha256,
       gates: Map.new(gates, &{&1.name, gate(&1)}),
-      flows: Map.new(flows, &{&1.name, flow(&1)})
+      flows: Map.new(flows, &{&1.name, flow(&1)}),
+      composition: composition && composition(composition, flows)
     }
     |> encode()
   end
+
+  @composition 1
+
+  @doc """
+  A composition's links and counts (`RelaDSL.Schema.Composition`, as `__composition__/0`
+  or its raw form gives them) as versioned data, string keys, in the order written:
+
+      %{"version" => 1,
+        "links" => [%{"child", "child_subject", "parent_subject", "relation", "field",
+                      "states" => %{child_state => value}, "stale" => "drop" | "keep",
+                      "current" => nil | %{"child" => field, "parent" => field}}],
+        "counts" => [%{"child", "child_subject", "parent_subject", "relation", "all", "open"}]}
+
+  `flows` (the subflows) give each child's subject.
+  """
+  def composition(composition, flows) do
+    subjects = Map.new(flows, &{to_string(&1.name), to_string(&1.subject)})
+
+    common = fn x ->
+      %{
+        "child" => to_string(x.child),
+        "child_subject" => subjects[to_string(x.child)],
+        "parent_subject" => to_string(x.subject),
+        "relation" => to_string(x.relation)
+      }
+    end
+
+    %{
+      "version" => @composition,
+      "links" =>
+        for l <- composition.links do
+          Map.merge(common.(l), %{
+            "field" => to_string(l.field),
+            "states" => Map.new(l.states, fn {s, v} -> {to_string(s), scalar_text(v)} end),
+            "stale" => if(l[:stale] == :drop, do: "drop", else: "keep"),
+            "current" =>
+              case l[:current] do
+                {c, p} -> %{"child" => to_string(c), "parent" => to_string(p)}
+                _ -> nil
+              end
+          })
+        end,
+      "counts" =>
+        for n <- composition.counts do
+          Map.merge(common.(n), %{"all" => to_string(n.all), "open" => to_string(n.open)})
+        end
+    }
+  end
+
+  defp scalar_text(v) when is_atom(v) and not is_boolean(v) and v != nil, do: Atom.to_string(v)
+  defp scalar_text(v), do: v
 
   @doc """
   Each subflow as `flows.json` holds it and Flow reads it back: string keys, by name.

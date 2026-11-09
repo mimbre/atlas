@@ -166,15 +166,43 @@ defmodule RelaDSL.Description.Subflows do
       {child, relation} ->
         from = to_string(child.subject)
         to = to_string(l.subject)
+        at = &{file, l[:line] || 1, &1}
 
-        if from?(schema, relation, from) and
-             to in ((relation(schema, relation) || %{})["to"] || []),
-           do: [],
-           else: [
-             {file, l[:line] || 1,
-              "#{relation} does not lead from #{from} to #{to}, as the link or count of #{l.child} says"}
-           ]
+        if(
+          from?(schema, relation, from) and
+            to in ((relation(schema, relation) || %{})["to"] || []),
+          do: [],
+          else: [
+            at.(
+              "#{relation} does not lead from #{from} to #{to}, as the link or count of #{l.child} says"
+            )
+          ]
+        ) ++ link_fields(l, from, to, schema, at)
     end
+  end
+
+  # The fields a link or count writes on the parent, and those that say which child is
+  # current, exist on their kinds.
+  defp link_fields(l, child, parent, schema, at) do
+    written = for k <- [:field, :all, :open], is_atom(l[k]) and l[k] != nil, do: l[k]
+
+    {by_child, by_parent} =
+      case l[:current] do
+        {c, p} when is_atom(c) and is_atom(p) -> {[c], [p]}
+        _ -> {[], []}
+      end
+
+    for(
+      name <- written ++ by_parent,
+      not field?(schema, parent, name),
+      do:
+        at.(
+          "the link or count of #{l.child} names #{parent}.#{name}, which #{parent} does not have"
+        )
+    ) ++
+      for name <- by_child,
+          not field?(schema, child, name),
+          do: at.("the link of #{l.child} names #{child}.#{name}, which #{child} does not have")
   end
 
   @doc "Problems of the `select`s of the subflows the composition runs."

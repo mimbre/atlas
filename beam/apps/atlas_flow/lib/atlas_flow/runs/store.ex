@@ -1,12 +1,28 @@
 defmodule AtlasFlow.Runs.Store do
-  @moduledoc "One writer reconciles durable cursors through Facts before sending entry writes."
+  @moduledoc """
+  One writer reconciles durable cursors through Facts before sending entry writes.
+
+  A run on a parent of the model's composition (`AtlasFlow.Model.composition/0`) also
+  owes its subject the values of its links and counts. Each drain works them out again
+  from the parent's children and their latest runs (`AtlasFlow.Composition.Links`,
+  `AtlasFlow.Composition.Counts`), so a deleted or moved child and a lost hint are
+  counted right. Owed writes join the run's pending writes, with stable ids, before any
+  is sent; the run keeps the sources it applied, so a duplicate or replayed completion
+  writes nothing again. A changed aggregate becomes a synthetic input of Flow's own
+  writer role to the run, so the parent's `await` and `by: :atlas` branches take it.
+  """
+
+  require Logger
   alias AtlasFlow.Runs.Run
   alias AtlasFlow.Talk
   alias AtlasFlow.Activities.Gate
   alias AtlasFlow.Activities.Pass
   alias AtlasFlow.Activities.Effect
+  alias AtlasFlow.Composition.{Counts, Links}
 
   @structured ~w(deadlines pending last_input)
+  # What a child's run moving means to its parents.
+  @moved ~w(state entry status)
 
   @doc """
   What the runs of `model` are kept and selected by, for its compiled subflows `flows`
@@ -19,13 +35,53 @@ defmodule AtlasFlow.Runs.Store do
 
     case model.runs() do
       runs when is_map(runs) and selection != %{} ->
-        config = Map.put(runs, "selection", selection)
-        {config, validate_selection(config, flows)}
+        {composition, refused} = composition(model.composition(), selection, flows)
+
+        config =
+          runs
+          |> Map.put("selection", selection)
+          |> Map.put("composition", composition)
+
+        {config, validate_selection(config, flows) || refused}
 
       _ ->
         {nil, nil}
     end
   end
+
+  # The links and counts Flow applies: those whose child subflow is selected and some
+  # selected subflow runs on the parent. Production selects none of them unless the model
+  # selects both ends. A version this runner does not know, or an active link or count it
+  # cannot apply, refuses every run.
+  defp composition(%{"version" => version} = c, selection, flows) do
+    active = fn x ->
+      Map.has_key?(selection, x["child"]) and
+        Enum.any?(selection, fn {name, _} ->
+          flows[name] != nil and flows[name].subject() == x["parent_subject"]
+        end)
+    end
+
+    links = Enum.filter(c["links"] || [], active)
+    counts = Enum.filter(c["counts"] || [], active)
+
+    refused =
+      cond do
+        version != Links.version() ->
+          {:unsupported_composition, version}
+
+        true ->
+          Enum.find_value(links, &(Links.valid?(&1) != :ok and {:unsupported_link, &1["child"]})) ||
+            Enum.find_value(
+              counts,
+              &(Counts.valid?(&1) != :ok and {:unsupported_count, &1["child"]})
+            )
+      end
+
+    {%{"links" => links, "counts" => counts}, refused}
+  end
+
+  defp composition(other, _selection, _flows),
+    do: {%{"links" => [], "counts" => []}, {:unsupported_composition, other}}
 
   defp validate_selection(config, flows) do
     Enum.find_value(Enum.sort(config["selection"]), fn {name, selection} ->
@@ -52,6 +108,8 @@ defmodule AtlasFlow.Runs.Store do
   def reconcile(nil, _flows, _now), do: {:ok, []}
 
   def reconcile(config, flows, now) do
+    config = with_flows(config, flows)
+
     with {:ok, restored} <- restore(config, flows, now),
          {:ok, runs} <- scan(config, flows, now, restored) do
       {:ok,
@@ -70,6 +128,8 @@ defmodule AtlasFlow.Runs.Store do
   def reconcile_subjects(nil, _flows, _now, _known, _subjects), do: {:ok, []}
 
   def reconcile_subjects(config, flows, now, known, subjects) do
+    config = with_flows(config, flows)
+
     pairs =
       for {name, selection} <- Enum.sort(config["selection"]),
           {kind, key} <- subjects,
@@ -84,18 +144,26 @@ defmodule AtlasFlow.Runs.Store do
 
       result =
         if existing do
-          drain(config, existing["key"], flows[name], now, 32)
+          settle(config, existing["key"], flows[name], now)
         else
           admitted(config, name, flows[name], selection, kind, key, now)
         end
 
       case result do
         {:ok, nil} -> {:cont, {:ok, acc}}
-        {:ok, run} -> {:cont, {:ok, [run | acc]}}
+        {:ok, run, parents} -> {:cont, {:ok, parents ++ [run | acc]}}
         error -> {:halt, error}
       end
     end)
   end
+
+  # The compiled subflows this reconcile runs, which a parent's children are run by; a
+  # configuration that names no composition has no links or counts.
+  defp with_flows(config, flows),
+    do:
+      config
+      |> Map.put("flows", flows)
+      |> Map.put_new("composition", %{"links" => [], "counts" => []})
 
   # A subject with no run known: one is made when the selection admits it, as a scan does.
   defp admitted(config, name, flow, selection, kind, key, now) do
@@ -128,8 +196,8 @@ defmodule AtlasFlow.Runs.Store do
         |> Enum.map(fn {_, group} -> Enum.max_by(group, & &1["generation"]) end)
 
       Enum.reduce_while(runs, {:ok, []}, fn run, {:ok, acc} ->
-        case drain(config, run["key"], flows[run["flow"]], now, 32) do
-          {:ok, restored} -> {:cont, {:ok, [restored | acc]}}
+        case settle(config, run["key"], flows[run["flow"]], now) do
+          {:ok, restored, parents} -> {:cont, {:ok, parents ++ [restored | acc]}}
           error -> {:halt, error}
         end
       end)
@@ -152,7 +220,7 @@ defmodule AtlasFlow.Runs.Store do
             Enum.reduce_while(subjects, {:ok, runs}, fn subject, {:ok, acc} ->
               if Run.holds?(selection["admission"], subject["values"] || %{}) do
                 case reconcile_subject(config, name, flows[name], selection, subject, now, acc) do
-                  {:ok, run} -> {:cont, {:ok, [run | acc]}}
+                  {:ok, run, parents} -> {:cont, {:ok, parents ++ [run | acc]}}
                   error -> {:halt, error}
                 end
               else
@@ -192,7 +260,29 @@ defmodule AtlasFlow.Runs.Store do
         Talk.put(config["kind"], content, Run.digest({key, "create"}))
       end
 
-      drain(config, key, flow, now, 32)
+      settle(config, key, flow, now)
+    end
+  end
+
+  # Drain one run; when it is a child of an applied link or count and it moved (another
+  # state, entry or status), drain the runs on its parents too, so a child's completion
+  # reaches its parent in the same reconcile and not only after a hint Flow never gets
+  # (its own writes are not hinted). `{:ok, run, parents}`: the runs it drained.
+  defp settle(config, key, flow, now) do
+    before =
+      case fetch(config, key) do
+        {:ok, %{} = fact} -> with {:ok, run} <- decode(config, fact), do: run
+        _ -> nil
+      end
+
+    with {:ok, run} <- drain(config, key, flow, now, 32) do
+      moved = fn -> Map.take(before || %{}, @moved) != Map.take(run, @moved) end
+
+      if child?(config, run["flow"]) and moved.() do
+        with {:ok, parents} <- parents(config, run, now), do: {:ok, run, parents}
+      else
+        {:ok, run, []}
+      end
     end
   end
 
@@ -242,11 +332,24 @@ defmodule AtlasFlow.Runs.Store do
                   subject =
                     Map.put(subject, "position", answer["position"] || subject["position"] || 0)
 
-                  with {:ok, updated} <- next(config, run, flow, subject, now, inputs) do
+                  # The parent's writes of its links and counts are stored before they are
+                  # sent; a changed aggregate is then the run's input.
+                  with {:ok, composed} <- compose(config, run, subject),
+                       {:ok, updated} <-
+                         if(composed != run,
+                           do: {:ok, composed},
+                           else: synthetic_or_next(config, run, flow, subject, now, inputs)
+                         ) do
                     if updated == run,
                       do: {:ok, run},
                       else: advance(config, fact, run, updated, flow, now, remaining)
                   end
+
+                # A deleted subject leaves its run as it is: nothing moves it or is
+                # written for it, and the other runs go on (a parent counts its children
+                # as Facts holds them, so a deleted child is no longer among them).
+                %{"fact" => nil} ->
+                  {:ok, run}
 
                 other ->
                   {:error, {:subject_unavailable, other}}
@@ -258,6 +361,260 @@ defmodule AtlasFlow.Runs.Store do
       false -> {:error, {:definition_changed, key}}
       other -> {:error, {:invalid_run, key, other}}
     end
+  end
+
+  defp synthetic_or_next(config, run, flow, subject, now, inputs) do
+    case Run.synthetic(run, flow, subject, now) do
+      :none -> next(config, run, flow, subject, now, inputs)
+      {:ok, updated} -> {:ok, updated}
+    end
+  end
+
+  # -- Composition: links and counts on the run's subject, as a parent ---------------------
+
+  defp child?(config, name),
+    do:
+      Enum.any?(
+        config["composition"]["links"] ++ config["composition"]["counts"],
+        &(&1["child"] == name)
+      )
+
+  # The runs on the parents a child run relates to now, drained. A parent the child left
+  # (a delete or a move) is counted again by its own hint or the next round.
+  defp parents(config, child, now) do
+    entries =
+      for x <- config["composition"]["links"] ++ config["composition"]["counts"],
+          x["child"] == child["flow"],
+          uniq: true,
+          do: {x["relation"], x["parent_subject"]}
+
+    case Talk.transition_read(child["subject_kind"], %{
+           "key" => child["subject_key"],
+           "plain" => true
+         }) do
+      %{"fact" => fact} ->
+        targets =
+          for {relation, kind} <- entries,
+              parent <- List.wrap(get_in(fact || %{}, ["links", relation])),
+              is_binary(parent),
+              {name, selection} <- Enum.sort(config["selection"]),
+              selection["subject"] == kind,
+              uniq: true,
+              do: {name, kind, parent}
+
+        Enum.reduce_while(targets, {:ok, []}, fn {name, kind, parent}, {:ok, acc} ->
+          with {:ok, %{} = run} <- latest(config, name, kind, parent),
+               {:ok, drained} <- drain(config, run["key"], config["flows"][name], now, 32) do
+            {:cont, {:ok, [drained | acc]}}
+          else
+            {:ok, nil} -> {:cont, {:ok, acc}}
+            error -> {:halt, error}
+          end
+        end)
+
+      other ->
+        {:error, {:child_unavailable, other}}
+    end
+  end
+
+  # The latest generation of the run of subflow `name` on `{kind, key}`, or nil. Runs are
+  # numbered from 1 without gaps, so the first missing key ends the search.
+  defp latest(config, name, kind, key, generation \\ 1, found \\ nil)
+
+  defp latest(_config, _name, _kind, _key, 65, found), do: {:ok, found}
+
+  defp latest(config, name, kind, key, generation, found) do
+    case fetch(config, Run.key(name, kind, key, generation)) do
+      {:ok, nil} ->
+        {:ok, found}
+
+      {:ok, fact} ->
+        case decode(config, fact) do
+          {:ok, run} -> latest(config, name, kind, key, generation + 1, run)
+          error -> error
+        end
+
+      error ->
+        error
+    end
+  end
+
+  # What the run's subject owes its links and counts now: the writes, stored in the run
+  # before they are sent (stable ids), the sources it applied, the ambiguity it refuses,
+  # and the synthetic input its changed aggregate gives it. Unchanged when it owes none.
+  defp compose(config, run, subject) do
+    kind = run["subject_kind"]
+    links = for l <- config["composition"]["links"], l["parent_subject"] == kind, do: l
+    counts = for c <- config["composition"]["counts"], c["parent_subject"] == kind, do: c
+
+    if links == [] and counts == [] do
+      {:ok, run}
+    else
+      with {:ok, children} <- children(config, links ++ counts, subject) do
+        {:ok, composed(run, subject, links, counts, children)}
+      end
+    end
+  end
+
+  defp composed(run, subject, links, counts, children) do
+    active = run["status"] == "active"
+    record = run["pending"]["composition"] || %{"version" => 1, "links" => %{}}
+    held = subject["values"] || %{}
+    acc = %{writes: [], values: %{}, sources: [], record: record}
+
+    acc =
+      Enum.reduce(if(active, do: links, else: []), acc, fn l, acc ->
+        {facts, runs} = children[{l["child_subject"], l["relation"], l["child"]}]
+        field = l["field"]
+
+        case Links.select(l, subject, facts, runs, acc.record["links"][field]) do
+          {:write, value, source} ->
+            write =
+              if held[field] == value,
+                do: [],
+                else: [subject_write(run, {"link", field, source}, %{field => value})]
+
+            %{
+              acc
+              | writes: acc.writes ++ write,
+                values: Map.put(acc.values, field, value),
+                sources: acc.sources ++ [Map.put(source, "field", field)],
+                record:
+                  acc.record
+                  |> put_in(["links", field], source)
+                  |> refused(field, nil)
+            }
+
+          {:refused, :ambiguous, keys} ->
+            if acc.record["refused"][field] != keys,
+              do:
+                Logger.warning(
+                  "flow #{run["flow"]}: #{kind_key(run)} has more than one current " <>
+                    "#{l["child_subject"]} for #{field} (#{Enum.join(keys, ", ")}); nothing written"
+                )
+
+            %{acc | record: refused(acc.record, field, keys)}
+
+          _ ->
+            %{acc | record: refused(acc.record, field, nil)}
+        end
+      end)
+
+    {acc, aggregate} =
+      Enum.reduce(counts, {acc, %{}}, fn c, {acc, aggregate} ->
+        {facts, runs} = children[{c["child_subject"], c["relation"], c["child"]}]
+        values = Counts.values(c, facts, runs)
+        changes = Counts.changes(values, subject)
+
+        write =
+          if changes == %{},
+            do: [],
+            else: [
+              subject_write(
+                run,
+                {"count", c["child"], changes, subject["version"], run["key"], run["entry"]},
+                changes
+              )
+            ]
+
+        {%{acc | writes: acc.writes ++ write}, Map.merge(aggregate, values)}
+      end)
+
+    # A count is offered on each entry and on each change; a link once per completion.
+    offered = %{"entry" => run["entry"], "values" => aggregate}
+
+    acc =
+      if active and counts != [] and acc.record["offered"] != offered,
+        do: %{
+          acc
+          | values: Map.merge(acc.values, aggregate),
+            record: Map.put(acc.record, "offered", offered)
+        },
+        else: acc
+
+    pending =
+      run["pending"]
+      |> Map.put("composition", acc.record)
+      |> Map.update!("writes", &(&1 ++ acc.writes))
+
+    pending =
+      if acc.values == %{},
+        do: pending,
+        else:
+          Map.put(pending, "synthetic", %{
+            "id" => Run.digest({run["key"], run["entry"], acc.values, acc.sources}),
+            "values" => acc.values,
+            "sources" => acc.sources
+          })
+
+    # A run that owes and applied nothing yet keeps no record.
+    untouched =
+      acc.writes == [] and acc.values == %{} and acc.record == record and
+        run["pending"]["composition"] == nil
+
+    if pending == run["pending"] or untouched, do: run, else: Map.put(run, "pending", pending)
+  end
+
+  defp refused(record, field, nil) do
+    case record["refused"] do
+      %{^field => _} = r ->
+        r = Map.delete(r, field)
+        if r == %{}, do: Map.delete(record, "refused"), else: Map.put(record, "refused", r)
+
+      _ ->
+        record
+    end
+  end
+
+  defp refused(record, field, keys),
+    do: Map.update(record, "refused", %{field => keys}, &Map.put(&1, field, keys))
+
+  defp kind_key(run), do: "#{run["subject_kind"]} #{run["subject_key"]}"
+
+  defp subject_write(run, identity, values),
+    do: %{
+      "id" => Run.digest({run["subject_kind"], run["subject_key"], identity}),
+      "kind" => run["subject_kind"],
+      "content" => %{
+        "op" => "change",
+        "key" => run["subject_key"],
+        "values" => values,
+        "by" => "flow"
+      }
+    }
+
+  # Each link's or count's children of the subject as they relate to it now, with the
+  # latest run of the child subflow on each: `%{{kind, relation, child} => {facts, runs}}`.
+  defp children(config, entries, subject) do
+    Enum.reduce_while(
+      Enum.uniq_by(entries, &{&1["child_subject"], &1["relation"], &1["child"]}),
+      {:ok, %{}},
+      fn x, {:ok, acc} ->
+        kind = x["child_subject"]
+
+        with %{"facts" => facts} <-
+               Talk.transition_read(kind, %{
+                 "linked" => %{x["relation"] => subject["key"]},
+                 "plain" => true
+               }),
+             {:ok, runs} <- child_runs(config, x["child"], kind, facts) do
+          {:cont, {:ok, Map.put(acc, {kind, x["relation"], x["child"]}, {facts, runs})}}
+        else
+          {:error, _} = error -> {:halt, error}
+          other -> {:halt, {:error, {:children_unavailable, other}}}
+        end
+      end
+    )
+  end
+
+  defp child_runs(config, name, kind, facts) do
+    Enum.reduce_while(facts, {:ok, %{}}, fn fact, {:ok, acc} ->
+      case latest(config, name, kind, fact["key"]) do
+        {:ok, nil} -> {:cont, {:ok, acc}}
+        {:ok, run} -> {:cont, {:ok, Map.put(acc, fact["key"], run)}}
+        error -> {:halt, error}
+      end
+    end)
   end
 
   defp next(config, run, flow, subject, now, inputs) do

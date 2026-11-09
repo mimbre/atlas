@@ -55,6 +55,7 @@ The kernel passes `lookup`, its reader of related facts and links, so generated 
 @callback migrations() :: [%{subflow: atom, from: digest, to: digest, states: map, rekey: boolean}]
 @callback selection(subflow :: atom) :: %{admission: ..., imports: ..., projection: ...}
 @callback actors() :: [{role :: atom, kind}]          # configured actors the model needs ([decider: "person"])
+@callback composition() :: %{"version" => 1, "links" => [...], "counts" => [...]}  # flow-runs slice 6; also in flows.<env>.json
 
 # AtlasFlow.Subflow, one compiled module per subflow and environment
 @callback name() :: atom;  subject() :: String.t();  digest() :: String.t();  initial() :: atom

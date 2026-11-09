@@ -20,6 +20,9 @@ defmodule RelaDSL.Flow.Model do
     * `relations/0`: every relation, by name, as the store describes it with the model's
       additions (`parent`, `component`, ...): what a runner walks from a fact to the
       facts above and under it;
+    * `composition/0`: how the results of its subflows reach one another: its links and
+      counts as versioned data (`RelaDSL.Atlas.composition/2`), the same `flows.json`
+      holds; a runner refuses a version it does not know;
     * `gates/0`: every gate, by name, as data;
     * `ids/0`: how the key of a fact of each kind is made, by kind: `prefix` and
       `digits` (the next number), and every `prefixes` its keys start with.
@@ -32,7 +35,7 @@ defmodule RelaDSL.Flow.Model do
   alias RelaDSL.Flow.{Legacy, Subflow}
 
   @doc false
-  def body(root, opts, flows, gates, environments, schema, extension, flow_runtime) do
+  def body(root, opts, flows, gates, environments, schema, extension, flow_runtime, composition) do
     subflow_behaviour = opts[:subflow_behaviour]
     legacy_behaviour = opts[:legacy_behaviour]
     file = to_string(root)
@@ -133,6 +136,15 @@ defmodule RelaDSL.Flow.Model do
 
       @doc "Every relation, by name, with the model's additions."
       def relations, do: unquote(Macro.escape(described["relations"] || %{}))
+
+      @doc "The links and counts between its subflows, as versioned data."
+      def composition,
+        do:
+          unquote(
+            Macro.escape(
+              RelaDSL.Atlas.composition(composition || %{links: [], counts: []}, flows)
+            )
+          )
 
       @doc "Every gate, by name, as data."
       def gates, do: unquote(Macro.escape(RelaDSL.Atlas.gate_data(gates)))
