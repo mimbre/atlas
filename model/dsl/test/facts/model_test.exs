@@ -8,14 +8,18 @@ defmodule RelaDSL.Facts.ModelTest do
 
   alias RelaDSL.Office
 
+  # The store's reader: for a write (`current`, `fact`, `list`, `incoming`) and for what
+  # a read works out (`linked`, `facts`: `RelaDSL.Facts.Reads`), over the same facts.
   defp lookup(current \\ nil, facts \\ %{}) do
-    %{
+    list = fn kind -> {:ok, for({{^kind, _}, f} <- facts, do: f)} end
+
+    Map.merge(RelaDSL.Facts.Reads.of(list), %{
       "current" => fn -> current end,
       "fact" => fn kind, key -> facts[{kind, key}] end,
-      "list" => fn kind -> {:ok, for({{^kind, _}, f} <- facts, do: f)} end,
+      "list" => list,
       "incoming" => fn _kind, _key, _relation -> [] end,
       "fingerprint" => fn _fact, _spec -> "f" end
-    }
+    })
   end
 
   defp change(op, key, values \\ %{}, links \\ %{}),

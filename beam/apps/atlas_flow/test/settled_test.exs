@@ -47,6 +47,27 @@ defmodule AtlasFlow.SettledTest do
       assert Settled.value(s) == 6
     end
 
+    test "waiters are bounded: one too many answers the oldest now, with the value as it is" do
+      assert Settled.new().most == 256
+      {[], s} = Settled.hint(Settled.new(most: 2), 5, [:a])
+      {[], s} = Settled.wait(s, 5, :w1)
+      {[], s} = Settled.wait(s, 6, :w2)
+
+      # A third: the oldest is told how far Flow is, below what it waits for; the others wait.
+      assert {[{:w1, 4}], s} = Settled.wait(s, 7, :w3)
+      assert s.waiters == [{6, :w2}, {7, :w3}]
+
+      # One answered at once does not count against the bound.
+      assert {[{:w4, 4}], s} = Settled.wait(s, 3, :w4)
+      assert length(s.waiters) == 2
+
+      # A Flow that never settles keeps at most the bound, however many ask.
+      s = Enum.reduce(1..100, s, fn n, s -> elem(Settled.wait(s, 10 + n, n), 1) end)
+      assert length(s.waiters) == 2
+      # Once it settles, those left are answered as before.
+      assert {[{99, 200}, {100, 200}], _} = Settled.looked(s, :a, 5, 200)
+    end
+
     test "a report before its hint, or of a process that is gone, holds nothing back" do
       # The report raced ahead of the hint it answers: the write still counts.
       {[], s} = Settled.looked(Settled.new(), :a, 4, 5)

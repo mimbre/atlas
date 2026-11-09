@@ -1,7 +1,7 @@
 defmodule RelaDSL.Facts.ReviewTest do
   use ExUnit.Case, async: true
 
-  alias RelaDSL.Facts.Derived
+  alias RelaDSL.Facts.{Derived, Reads}
 
   # Made-up kinds: a label is printed from a template, which may be replaced.
   @d %{
@@ -57,14 +57,24 @@ defmodule RelaDSL.Facts.ReviewTest do
       })
 
     assert {:ok, [%{review: %{"label" => "Red flag"}}]} =
-             Derived.review(d, "template", [fact("T-1", %{"unverified" => true})], fn _ ->
-               flunk("no reads")
-             end)
+             Derived.review(
+               d,
+               "template",
+               [fact("T-1", %{"unverified" => true})],
+               Reads.of(fn _ ->
+                 flunk("no reads")
+               end)
+             )
 
     assert {:ok, [%{review: nil}]} =
-             Derived.review(d, "template", [fact("T-1", %{"unverified" => false})], fn _ ->
-               flunk("no reads")
-             end)
+             Derived.review(
+               d,
+               "template",
+               [fact("T-1", %{"unverified" => false})],
+               Reads.of(fn _ ->
+                 flunk("no reads")
+               end)
+             )
   end
 
   test "to be reviewed while a fact it points at has the value; why is said" do
@@ -96,15 +106,21 @@ defmodule RelaDSL.Facts.ReviewTest do
     assert Derived.review_needs(@d, "label") == ["template"]
     assert Derived.review_needs(@d, "note") == []
     facts = [fact("N-1", %{})]
-    assert Derived.review(@d, "note", facts, fn _ -> flunk("read") end) == {:ok, facts}
+    assert Derived.review(@d, "note", facts, Reads.of(fn _ -> flunk("read") end)) == {:ok, facts}
   end
 
-  test "annotate reads what the rule needs once; a failed read is returned as it is" do
-    list = fn "template" -> {:ok, [fact("T-1", %{"status" => "replaced"})]} end
+  test "review reads only the facts the rule points at; a failed read is returned as it is" do
+    list = fn "template" -> {:ok, [fact("T-1", %{"status" => "replaced"}), fact("T-2", %{})]} end
     linked = fact("L-1", %{}, %{"printed_from" => ["T-1"]})
-    assert {:ok, [%{review: %{"key" => "T-1"}}]} = Derived.review(@d, "label", [linked], list)
 
-    assert Derived.review(@d, "label", [linked], fn _ -> {:error, :unavailable} end) ==
+    assert {:ok, [%{review: %{"key" => "T-1"}}]} =
+             Derived.review(@d, "label", [linked], Reads.asking(list, self()))
+
+    # The template the label points at, by its key; never every template.
+    assert_received {:read, {:facts, "template", ["T-1"]}}
+    refute_received {:read, _}
+
+    assert Derived.review(@d, "label", [linked], Reads.of(fn _ -> {:error, :unavailable} end)) ==
              {:error, :unavailable}
   end
 end

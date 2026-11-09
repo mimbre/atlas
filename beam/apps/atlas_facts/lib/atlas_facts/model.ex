@@ -26,6 +26,11 @@ defmodule AtlasFacts.Model do
     * `"list"`: `fn kind -> {:ok, [fact]} | {:error, reason} end`;
     * `"incoming"`: `fn kind, key, relation -> [key] end`, the facts that point at one;
     * `"fingerprint"`: `fn fact, spec -> digest end` (`AtlasBus.SubjectFingerprint`);
+    * for `derived/3` only, what it reads, asked as precisely as its rules read it, so
+      a read says what it depended on: `"linked"`, `fn kind, relation, keys -> {:ok,
+      [fact]} | {:error, reason} end` (the facts of `kind` that point at one of `keys`
+      through `relation`), and `"facts"`, `fn kind, keys -> {:ok, [fact]} | {:error,
+      reason} end` (those of `kind` with one of `keys`);
     * `"now"`: the time lateness is worked out at (optional).
 
   A `fact` there is as rela gives it: `%{key, properties, links}`.
@@ -52,8 +57,8 @@ defmodule AtlasFacts.Model do
   @doc """
   What is worked out for each of `facts` on a read, in order: `%{"progress", "completion",
   "review", "late", "until"}` with only what applies (`until`: the first instant a value
-  of it changes by time alone, ISO 8601); or the error `lookup["list"]` gave. Without
-  `"list"` in `lookup`, only what needs no other fact.
+  of it changes by time alone, ISO 8601); or the error a read of `lookup` gave. Without
+  `"linked"` in `lookup`, only what needs no other fact.
   """
   @callback derived(kind :: String.t(), facts :: [map], lookup) ::
               {:ok, [map]} | {:error, term}

@@ -22,7 +22,8 @@ defmodule AtlasFacts.Server do
     [[kind, content]]`) and answers them in order from one snapshot, at one position.
     A read of facts (each answer of a `_page` too) says what it depended on
     (`deps`) and, when a value in it changes by time alone, when (`until`;
-    `AtlasFacts.Freshness.Deps`).
+    `AtlasFacts.Freshness.Deps`). A `_position` read answers how far Facts is, its
+    position alone, without reading rela (Control's reconcile).
 
   Fact content: `%{"op" => "create" | "change" | "delete", "key" => id,
   "values" => %{property => value}, "version" => version read before, or nil,
@@ -50,6 +51,7 @@ defmodule AtlasFacts.Server do
 
   @description "_description"
   @page "_page"
+  @position "_position"
   # How many reads one page may ask for, and what each may say (no other query context).
   @page_reads 64
   @page_read_keys ~w(key linked plain incoming)
@@ -422,8 +424,9 @@ defmodule AtlasFacts.Server do
 
   # Metadata reads fetch their own fresh snapshot in read/3. They are not entity
   # kinds to pre-validate: doing so would fetch the same backend schema twice.
-  defp ensure_description(state, %Envelope{class: "read", kind: @description}),
-    do: {:ok, state}
+  defp ensure_description(state, %Envelope{class: "read", kind: kind})
+       when kind in [@description, @position],
+       do: {:ok, state}
 
   defp ensure_description(state, %Envelope{class: "read", kind: @page}) do
     if state.description do
@@ -534,8 +537,8 @@ defmodule AtlasFacts.Server do
   end
 
   # A read of facts says what it depended on (`AtlasFacts.Freshness.Deps`); a page says
-  # it per answer, and the description depends on no fact.
-  defp answered_read(state, kind, content) when kind in [@description, @page],
+  # it per answer, and the description and the position depend on no fact.
+  defp answered_read(state, kind, content) when kind in [@description, @page, @position],
     do: read(state, kind, content)
 
   defp answered_read(state, kind, content) do
@@ -633,6 +636,9 @@ defmodule AtlasFacts.Server do
       {:error, reason} -> {read_error(reason), state}
     end
   end
+
+  # How far Facts is: the position every answer carries, and nothing else.
+  defp read(state, @position, _content), do: {%{}, state}
 
   defp read(%{description: nil} = state, @page, _content),
     do: {read_error(:unavailable), state}
@@ -857,19 +863,51 @@ defmodule AtlasFacts.Server do
   end
 
   # What the model works out for each fact, from the facts it reads: how far it is,
-  # whether it is completed, to be reviewed, late.
-  # What the model reads for them is a dependency of the answer: a whole kind, for now
-  # (docs/design/page-freshness.md F10 makes it the linked sets the rule reads).
+  # whether it is completed, to be reviewed, late. What the model reads for them is a
+  # dependency of the answer, as precisely as it asks for it (docs/design/page-freshness.md
+  # F10): the facts that point at some keys (`linked`), the facts with some keys (`key`).
+  # Each kind is listed from rela once per read, however often the model asks.
   defp with_progress(state, kind, facts) do
-    list = fn of ->
-      Deps.kind(of)
-      collection(state, plural(state, of))
+    memo = make_ref()
+    Process.put(memo, %{})
+
+    listed = fn of ->
+      case Map.fetch(Process.get(memo), of) do
+        {:ok, facts} ->
+          {:ok, facts}
+
+        :error ->
+          with {:ok, facts} <- collection(state, plural(state, of)) do
+            Process.put(memo, Map.put(Process.get(memo), of, facts))
+            {:ok, facts}
+          end
+      end
     end
 
-    with {:ok, derived} <- state.model.derived(kind, facts, %{"list" => list}) do
-      {:ok, Enum.zip_with(facts, derived, &derive/2)}
+    lookup = %{
+      "linked" => fn of, relation, keys ->
+        for key <- keys, do: Deps.linked(relation, key)
+
+        with {:ok, all} <- listed.(of),
+             do:
+               {:ok, Enum.filter(all, &Enum.any?(links_of(&1, relation), fn k -> k in keys end))}
+      end,
+      "facts" => fn of, keys ->
+        for key <- keys, do: Deps.key(of, key)
+        with {:ok, all} <- listed.(of), do: {:ok, Enum.filter(all, &(&1.key in keys))}
+      end
+    }
+
+    try do
+      with {:ok, derived} <- state.model.derived(kind, facts, lookup) do
+        {:ok, Enum.zip_with(facts, derived, &derive/2)}
+      end
+    after
+      Process.delete(memo)
     end
   end
+
+  defp links_of(fact, relation), do: (fact[:links] || %{})[relation] || []
 
   # When a derived value changes by time alone (`until`), the answer says when.
   defp derive(fact, derived) do

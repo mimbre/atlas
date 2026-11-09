@@ -24,8 +24,9 @@ defmodule AtlasFlow.Engine do
 
   It keeps Flow's settled position (`AtlasFlow.Settled`): each hint it pokes processes for
   is a ticket they answer after their next look, and a request `_settled` (`{"position":
-  P}`) is answered `{"settled": S}` once `S ≥ P`, at once when it is. A waiter left when
-  the engine restarts is lost; whoever asked waits no longer than it chose to.
+  P}`) is answered `{"settled": S}` once `S ≥ P`, at once when it is. At most 256 wait: one
+  more answers the oldest at once, with `S` as it is. A waiter left when the engine
+  restarts is lost; whoever asked waits no longer than it chose to.
 
   The actors the model's owners name must be filled by the environment's settings, or
   Flow does not start (`AtlasFlow.Model.load/3`). One whose fact does not exist yet is

@@ -5,6 +5,15 @@ defmodule RelaDSL.Facts.Derived do
   late. Evaluated on the model's compiled description `d` (`RelaDSL.Facts.Model`). Pure;
   knows no kind by name.
 
+  What the rules read, they ask the store for as precisely as the rule reads it, so the
+  store can say exactly what an answer depended on (docs/design/page-freshness.md §1.1,
+  F10): never every fact of a kind, but the facts that point at the facts worked out
+  (`lookup["linked"]`: `fn kind, relation, keys -> {:ok, [fact]} | {:error, reason}`,
+  the facts of `kind` that point at one of `keys` through `relation`) and the facts they
+  point at (`lookup["facts"]`: `fn kind, keys -> {:ok, [fact]} | {:error, reason}`, those
+  of `kind` with one of `keys`). Children are asked for level by level, all facts of a
+  level at once.
+
   **Completion** (`completion` per kind): one way, or a list of ways; the fact is
   completed when one holds:
 
@@ -46,8 +55,8 @@ defmodule RelaDSL.Facts.Derived do
   @doc """
   What is worked out for each of `facts` (as rela gives them) of `kind`, in order:
   `{:ok, [%{"progress", "completion", "review", "late", "until"}]}` with only what
-  applies, or the error `lookup["list"]` gave. Without `lookup["list"]`, only what needs
-  no other fact (`late`, `until`).
+  applies, or the error a read of `lookup` gave. Without `lookup["linked"]`, only what
+  needs no other fact (`late`, `until`).
   """
   def of(d, kind, facts, lookup) do
     now = lookup["now"] || DateTime.utc_now()
@@ -58,13 +67,13 @@ defmodule RelaDSL.Facts.Derived do
       |> put("until", until(d, kind, fact.properties, now))
     end
 
-    case lookup["list"] do
+    case lookup["linked"] do
       nil ->
         {:ok, Enum.map(facts, &late.(%{}, &1))}
 
-      list ->
-        with {:ok, facts} <- annotate(d, kind, facts, list),
-             {:ok, facts} <- review(d, kind, facts, list) do
+      _ ->
+        with {:ok, facts} <- annotate(d, kind, facts, lookup),
+             {:ok, facts} <- review(d, kind, facts, lookup) do
           {:ok,
            Enum.map(facts, fn fact ->
              %{}
@@ -198,14 +207,15 @@ defmodule RelaDSL.Facts.Derived do
   @doc """
   `facts` of `kind` (as rela gives them), each with `:progress` when the kind has a
   progress rule and `:completion` (why it is completed, or nil) when it has a completion
-  rule; `list.(kind)` reads every fact of a kind, and an error it gives is returned.
+  rule. What the rules read is asked of `lookup` (`"linked"`, `"facts"`), and an error
+  it gives is returned.
   """
-  def annotate(d, kind, facts, list) do
+  def annotate(d, kind, facts, lookup) do
     progress? = rule(d, kind) != nil
     completion? = rules(d, kind) != []
 
     if progress? or completion? do
-      with {:ok, lists} <- fetch(d, progress_needs(d, kind, @depth), list) do
+      with {:ok, lists} <- progress_reads(d, kind, facts, lookup, @depth) do
         {:ok,
          Enum.map(facts, fn fact ->
            fact
@@ -228,18 +238,73 @@ defmodule RelaDSL.Facts.Derived do
     end
   end
 
-  # The kinds to read: the children, at any depth, and what each one's completion and
-  # `while` rules read.
-  defp progress_needs(_d, _kind, 0), do: MapSet.new()
+  # What the progress and completion of `facts` of `kind` read: what their completion and
+  # `while` rules read, their children, and what those read in turn, `depth` levels
+  # down. `{:ok, %{kind => [fact]}}`, each fact once.
+  defp progress_reads(_d, _kind, _facts, _lookup, 0), do: {:ok, %{}}
+  defp progress_reads(_d, _kind, [], _lookup, _depth), do: {:ok, %{}}
 
-  defp progress_needs(d, kind, depth) do
-    own = MapSet.new(needs(d, kind) ++ needs_of(d, while_rules(d, kind)))
+  defp progress_reads(d, kind, facts, lookup, depth) do
+    with {:ok, own} <- rule_reads(d, rules(d, kind) ++ while_rules(d, kind), facts, lookup) do
+      case child_kind(d, kind) do
+        nil ->
+          {:ok, own}
 
-    case child_kind(d, kind) do
-      nil -> own
-      child -> own |> MapSet.union(progress_needs(d, child, depth - 1)) |> MapSet.put(child)
+        child ->
+          over = rule(d, kind)["over"]
+
+          with {:ok, %{^child => children}} <- linked(d, [child], over, facts, lookup),
+               {:ok, below} <- progress_reads(d, child, children, lookup, depth - 1) do
+            {:ok, own |> merge(%{child => children}) |> merge(below)}
+          end
+      end
     end
   end
+
+  # What `rules` read for `facts`: through `over`, the facts that point at one of them;
+  # through `through`, the facts they point at.
+  defp rule_reads(d, rules, facts, lookup) do
+    Enum.reduce_while(rules, {:ok, %{}}, fn rule, {:ok, lists} ->
+      read =
+        case rule do
+          %{"over" => relation} -> linked(d, other_kinds(d, rule), relation, facts, lookup)
+          %{"through" => relation} -> pointed(d, other_kinds(d, rule), relation, facts, lookup)
+          _ -> {:ok, %{}}
+        end
+
+      case read do
+        {:ok, found} -> {:cont, {:ok, merge(lists, found)}}
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  # The facts of `kinds` that point at one of `facts` through `relation`.
+  defp linked(d, kinds, relation, facts, lookup) do
+    keys = Enum.map(facts, & &1.key)
+    each_kind(d, kinds, keys, &lookup["linked"].(&1, relation, keys))
+  end
+
+  # The facts of `kinds` that `facts` point at through `relation`.
+  defp pointed(d, kinds, relation, facts, lookup) do
+    keys = facts |> Enum.flat_map(&links(&1, relation)) |> Enum.uniq()
+    each_kind(d, kinds, keys, &lookup["facts"].(&1, keys))
+  end
+
+  # `read.(kind)` for each of `kinds` the store keeps (a kind without a plural holds no
+  # facts), none when there is no key to ask for: `{:ok, %{kind => [fact]}}`.
+  defp each_kind(d, kinds, keys, read) do
+    kept = if keys == [], do: [], else: Enum.filter(kinds, &get_in(d, ["entities", &1, "plural"]))
+
+    Enum.reduce_while(kept, {:ok, Map.new(kinds, &{&1, []})}, fn kind, {:ok, lists} ->
+      case read.(kind) do
+        {:ok, facts} -> {:cont, {:ok, Map.put(lists, kind, facts)}}
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp merge(a, b), do: Map.merge(a, b, fn _kind, x, y -> Enum.uniq_by(x ++ y, & &1.key) end)
 
   defp child_kind(d, kind) do
     with %{"over" => over} <- rule(d, kind),
@@ -416,15 +481,16 @@ defmodule RelaDSL.Facts.Derived do
 
   @doc """
   `facts` of `kind`, each with `:review` when its kind has a rule (nil when nothing is to
-  be reviewed); an error `list.(kind)` gives is returned.
+  be reviewed). The facts the rules point at are asked of `lookup` (`"facts"`), and an
+  error it gives is returned.
   """
-  def review(d, kind, facts, list) do
+  def review(d, kind, facts, lookup) do
     case {review_rules(d, kind), get_in(d, ["flow_runtime", "flags", kind])} do
       {[], nil} ->
         {:ok, facts}
 
       {rules, _flag} ->
-        with {:ok, lists} <- fetch(d, needs_of(d, rules), list) do
+        with {:ok, lists} <- rule_reads(d, rules, facts, lookup) do
           {:ok, Enum.map(facts, &Map.put(&1, :review, review_of(d, lists, kind, &1)))}
         end
     end

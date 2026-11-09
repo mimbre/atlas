@@ -49,6 +49,12 @@ defmodule AtlasControl.FakeStore do
   @doc "The content of the last fact it was sent."
   def last_fact, do: GenServer.call(__MODULE__, :last_fact)
 
+  @doc """
+  Say on every read answer from now on that a value in it changes by time alone at `at`
+  (an ISO 8601 instant, as Facts says it in `until`); nil: none.
+  """
+  def until(at), do: GenServer.call(__MODULE__, {:until, at})
+
   @doc "Make a key taken without listing it, as rela does for a key deleted a moment ago."
   def reserve(key), do: GenServer.call(__MODULE__, {:reserve, key})
 
@@ -72,7 +78,8 @@ defmodule AtlasControl.FakeStore do
        refusing: %{},
        origins: %{},
        sent: [],
-       reads: []
+       reads: [],
+       until: nil
      }}
   end
 
@@ -114,6 +121,8 @@ defmodule AtlasControl.FakeStore do
   def handle_call({:refuse, key, reason}, _from, s),
     do: {:reply, :ok, put_in(s.refusing[key], reason)}
 
+  def handle_call({:until, at}, _from, s), do: {:reply, :ok, %{s | until: at}}
+
   def handle_call({:reserve, key}, _from, s),
     do: {:reply, :ok, %{s | reserved: MapSet.put(s.reserved, key)}}
 
@@ -127,17 +136,21 @@ defmodule AtlasControl.FakeStore do
     else
       answer =
         case {e.kind, content} do
+          # How far Facts is: its position alone, which every answer carries.
+          {"_position", _} ->
+            %{}
+
           {"_page", %{"reads" => reads}} ->
             %{
               "answers" =>
                 for(
                   [kind, read] <- reads,
-                  do: Map.put(answer(s, kind, read), "position", s.position)
+                  do: Map.put(timed(s, answer(s, kind, read)), "position", s.position)
                 )
             }
 
           {kind, content} ->
-            answer(s, kind, content)
+            timed(s, answer(s, kind, content))
         end
 
       :ok = AtlasBus.send(Envelope.reply(e, "answer"), Map.put(answer, "position", s.position))
@@ -201,6 +214,9 @@ defmodule AtlasControl.FakeStore do
         {:noreply, s}
     end
   end
+
+  defp timed(%{until: nil}, answer), do: answer
+  defp timed(%{until: at}, answer), do: Map.put(answer, "until", at)
 
   defp silent?(%{silent_reads: :all}, _kind, _content), do: true
 

@@ -102,12 +102,15 @@ defmodule AtlasFacts.ReadDepsTest do
   test "a whole-kind read depends on the kind, each fact in it, and what its progress reads" do
     answer = read("widget")
 
+    # Its progress reads the parts of each widget: what points at each, not every part.
     assert answer["deps"] == [
              ["key", "widget", "W-1", "*"],
              ["key", "widget", "W-2", "*"],
              ["key", "widget", "W-3", "*"],
-             ["kind", "part"],
-             ["kind", "widget"]
+             ["kind", "widget"],
+             ["linked", "of_widget", "W-1", "*"],
+             ["linked", "of_widget", "W-2", "*"],
+             ["linked", "of_widget", "W-3", "*"]
            ]
 
     # W-1 turns late just after its due time; W-2 has nothing to do, W-3 is late already.
@@ -138,7 +141,6 @@ defmodule AtlasFacts.ReadDepsTest do
 
     assert answer["deps"] == [
              ["key", "widget", "W-1", "*"],
-             ["kind", "part"],
              ["linked", "of_widget", "W-1", "*"]
            ]
 
@@ -153,6 +155,67 @@ defmodule AtlasFacts.ReadDepsTest do
 
     assert %{"fact" => nil, "deps" => [["key", "widget", "W-9", "*"]]} =
              read("widget", %{"key" => "W-9", "plain" => true})
+  end
+
+  describe "what the model's derived values read (F10)" do
+    defmodule Reviewed do
+      @moduledoc """
+      The workshop where a widget rolls up its parts, a part is completed when a maker
+      it was made by says so, and a widget is to be reviewed while its maker is retired.
+      rela serves the same schema as for `Reading`.
+      """
+      use AtlasFacts.TestModel,
+        description:
+          AtlasFacts.Workshop.Description.with(%{
+            "progress" => %{"order" => ["rough", "fine"]},
+            "entities" => %{
+              "part" => %{
+                "properties" => %{"phase" => %{"type" => "string"}},
+                "completion" => %{"through" => "made_by", "field" => "title", "value" => "Ok"}
+              },
+              "widget" => %{
+                "progress" => %{"over" => "of_widget", "field" => "phase"},
+                "properties" => %{"due" => %{"type" => "string"}, "todo" => %{"type" => "string"}}
+              }
+            },
+            "relations" => %{
+              "made_by" => %{
+                "review" => %{"field" => "title", "value" => "Retired", "label" => "Retired"}
+              }
+            }
+          })
+    end
+
+    setup %{tmp_dir: dir} do
+      stop_supervised!(AtlasFacts.Server)
+      Application.put_env(:atlas_bus, :store, "read-deps-#{System.unique_integer([:positive])}")
+      up = start_supervised!({Agent, fn -> true end}, id: :up_reviewed)
+
+      start_supervised!(
+        {AtlasFacts.Server,
+         rela: {Store, up},
+         model: Reviewed,
+         data_dir: Path.join(dir, "reviewed"),
+         collection_freshness_ms: 0}
+      )
+
+      :ok
+    end
+
+    test "a roll-up depends on what points at the facts it works out, and on what they point at; never on a whole kind" do
+      # W-2: its parts (P-2), the maker its part was made by (none) and its own maker, M-1.
+      assert read("widget", %{"key" => "W-2", "incoming" => false})["deps"] == [
+               ["key", "maker", "M-1", "*"],
+               ["key", "widget", "W-2", "*"],
+               ["linked", "of_widget", "W-2", "*"]
+             ]
+
+      # The widgets M-1 made, rolled up: no whole kind but the widgets', which is the rows.
+      deps = read("widget", %{"linked" => %{"made_by" => "M-1"}})["deps"]
+      refute Enum.any?(deps, &match?(["kind", _], &1))
+      assert ["linked", "of_widget", "W-2", "*"] in deps
+      refute ["linked", "of_widget", "W-1", "*"] in deps
+    end
   end
 
   test "a page has one position, and each of its answers says what it depended on" do
@@ -191,6 +254,11 @@ defmodule AtlasFacts.ReadDepsTest do
              ["key", "part", "P-1", "*"],
              ["linked", "of_widget", "W-1", "*"]
            ]
+  end
+
+  test "the position is Facts' position alone, read without rela", %{up: up} do
+    Agent.update(up, fn _ -> false end)
+    assert read("_position") == %{"position" => 0}
   end
 
   test "the description and an answer that is an error depend on nothing", %{up: up} do
