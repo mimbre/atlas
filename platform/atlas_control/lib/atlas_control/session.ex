@@ -1,6 +1,6 @@
 defmodule AtlasControl.Session do
   @moduledoc """
-  One connected client. Speaks Control's protocol (`platform/atlas_control/bff/README.md`) as JSON
+  One connected client. Speaks Control's protocol (`platform/atlas_control/backend/README.md`) as JSON
   lines over TCP, and reaches Facts only over the Bus, as its own endpoint.
 
   - Opening a path reads what the page needs from Facts and sends the page.

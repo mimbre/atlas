@@ -170,7 +170,7 @@ class StatusProjectionTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             fake = Path(temporary); (fake/'platform/ops').mkdir(parents=True)
             model = dict(target=dict(environment='test', machine='foreign'), state='absent', basis='fixture', message='fixture', capabilities=dict(local_status=True, local_start=False, local_stop=False, remote_status=False))
-            paths = [arg for p in (ROOT/'platform/atlas_control/bff/contract/_build/test/lib').glob('*/ebin') for arg in ('-pa', str(p))]
+            paths = [arg for p in (ROOT/'platform/atlas_control/backend/contract/_build/test/lib').glob('*/ebin') for arg in ('-pa', str(p))]
             for target in [dict(environment='test', machine='foreign'), ['not-an-object']]:
                 model['target'] = target
                 (fake/'platform/ops/runtime.py').write_text('print('+repr(json.dumps(model))+')')

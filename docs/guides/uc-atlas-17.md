@@ -42,7 +42,7 @@ Following each step closely, stopping a run with `esc` and what happens on a ref
 
 ## What changed for this
 
-- **Control's contract:** the `plan` block and the `step` model; `platform/atlas_control/bff/targets/json/blocks.json` regenerated.
+- **Control's contract:** the `plan` block and the `step` model; `platform/atlas_control/backend/targets/json/blocks.json` regenerated.
 - **The TUI:** `:` (not in a form), the plan over the page (the page underneath still follows hints), the step form, and the agent as a child process. It knows no kind: steps are form titles and inputs.
 - **The agents' command line:** `atlas steer`.
 - **The end-to-end test:** `products/software_factory/e2e/scenarios/uc-atlas-17.exs` follows this guide with the scripted stand-in planner.

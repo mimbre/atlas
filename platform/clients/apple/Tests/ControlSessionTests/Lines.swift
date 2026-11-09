@@ -3,7 +3,7 @@ import ControlSession
 import Foundation
 
 /// Lines Control sends, as JSON, built for a test. Their shapes are those of the captured
-/// lines in platform/atlas_control/bff/targets/swift/Tests/Fixtures/control/received.jsonl.
+/// lines in platform/atlas_control/backend/targets/swift/Tests/Fixtures/control/received.jsonl.
 enum Lines {
     static func json(_ object: [String: Any]) -> Data {
         try! JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])

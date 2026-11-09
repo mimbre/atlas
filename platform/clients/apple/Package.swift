@@ -1,6 +1,6 @@
 // swift-tools-version: 6.0
 // The Apple clients' hand-written code (docs/design/apple-clients.md §2). The contract is
-// the generated package AtlasControlKit (platform/atlas_control/bff/targets/swift); nothing here is generated.
+// the generated package AtlasControlKit (platform/atlas_control/backend/targets/swift); nothing here is generated.
 import PackageDescription
 
 let kit: Target.Dependency = .product(name: "AtlasControlKit", package: "swift")
@@ -17,7 +17,7 @@ let package = Package(
         .executable(name: "AtlasMac", targets: ["AtlasMac"]),
     ],
     dependencies: [
-        .package(path: "../../atlas_control/bff/targets/swift")
+        .package(path: "../../atlas_control/backend/targets/swift")
     ],
     targets: [
         .target(name: "ControlSession", dependencies: [kit]),

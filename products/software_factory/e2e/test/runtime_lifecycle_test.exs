@@ -3,7 +3,7 @@ defmodule AtlasE2E.RuntimeLifecycleTest do
   @root Path.expand("../../../..", __DIR__)
   @tag timeout: 120_000
   test "generated local lifecycle requires exact ownership and preserves private instance evidence" do
-    for component <- ["platform/atlas_control/bff/contract", "products/software_factory"] do
+    for component <- ["platform/atlas_control/backend/contract", "products/software_factory"] do
       {output, code} =
         System.cmd("mix", ["compile", "--warnings-as-errors"],
           cd: Path.join(@root, component),

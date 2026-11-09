@@ -86,7 +86,7 @@ codecs and validators; exact worker identity remains separate.
 
 Status creates no Runtime directories or bytecode cache, starts no service, opens
 no Control/Bus/Fly connection and reads no keychain token. Shared contract codecs
-must already be built; run `mix compile` in platform/atlas_control/bff/contract as explicit setup. Missing
+must already be built; run `mix compile` in platform/atlas_control/backend/contract as explicit setup. Missing
 codecs fail visibly. JSON reports absent, stale, unverified or unsupported with
 exact target, evidence basis and optional PID/log. A live legacy PID is unverified,
 because PID existence cannot establish Runtime role/instance/start ownership or

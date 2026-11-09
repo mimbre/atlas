@@ -28,7 +28,7 @@ The BEAM side runs the system. rela describes it. Entities, schemas, flows and t
 | Path | What |
 |---|---|
 | `platform/atlas_*/` | The platform's parts, one application per layer (`atlas_bus`, `atlas_facts`, `atlas_flow`, `atlas_control`, `atlas_gates`, `atlas_runtime`, `atlas_code`, `atlas_learn`), apps of the umbrella in `products/software_factory/`. |
-| `platform/atlas_control/bff/` | Control's contract: the generator, the contract itself, and the generated targets. See [platform/atlas_control/bff/README.md](platform/atlas_control/bff/README.md). |
+| `platform/atlas_control/backend/` | Control's contract: the generator, the contract itself, and the generated targets. See [platform/atlas_control/backend/README.md](platform/atlas_control/backend/README.md). |
 | `platform/atlas_facts/rela/` | How Facts runs rela: its scripts and their tests. See [platform/atlas_facts/rela/README.md](platform/atlas_facts/rela/README.md). |
 | `platform/atlas_runtime/host/` | The Runtime CLI in Go ([platform/atlas_runtime/host/README.md](platform/atlas_runtime/host/README.md)). |
 | `platform/atlas_runtime/viewer/` | The Runtime viewer ([its README](platform/atlas_runtime/viewer/README.md)). |
@@ -51,8 +51,8 @@ cd products/software_factory && mix test                   # the BEAM layers
 go -C platform/atlas_runtime/host test ./...               # the Runtime CLI
 cd platform/clients/tui && mix test                        # the Console
 cd platform/clients/agent && mix test                      # the agents' command line
-cd platform/atlas_control/bff/generator && mix test        # the contract generator
-cd platform/atlas_control/bff/contract && mix atlas.gen    # after changing the contract: regenerate platform/atlas_control/bff/targets/
+cd platform/atlas_control/backend/generator && mix test        # the contract generator
+cd platform/atlas_control/backend/contract && mix atlas.gen    # after changing the contract: regenerate platform/atlas_control/backend/targets/
 cd products/software_factory/model/generator && mix test   # the Rela DSL
 cd products/software_factory/model/contract && mix model.gen # after changing the model: regenerate products/software_factory/model/targets/
 cd products/software_factory/e2e && mix test               # the atlas launcher's own rules

@@ -32,7 +32,7 @@ defmodule AtlasBFFContract.Endpoints do
       defendpoint :fault, "/fault/:fault", @submit
       defendpoint :fact_fault, "/k/:kind/:key/fault/:fault", @submit
 
-      # The session's other messages, in JSON lines over the socket (platform/atlas_control/bff/README.md, Protocol).
+      # The session's other messages, in JSON lines over the socket (platform/atlas_control/backend/README.md, Protocol).
       # Each endpoint's call is the message's "op".
       defendpoint :boot,
         wire: :boot,

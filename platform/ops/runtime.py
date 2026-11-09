@@ -99,10 +99,10 @@ def observe_status(root, environment, request, inspect_process=None, client_file
 def status_cli(root, environment, options, operation="status", client_file="unused"):
     # Use already-built shared codecs. A status invocation never compiles, installs,
     # creates a Runtime directory, resolves credentials or opens a proxy.
-    candidates = [Path(root)/part/'_build'/mode/'lib' for part in ('platform/atlas_control/bff/contract', 'products/software_factory') for mode in ('dev', 'test', 'prod')]
+    candidates = [Path(root)/part/'_build'/mode/'lib' for part in ('platform/atlas_control/backend/contract', 'products/software_factory') for mode in ('dev', 'test', 'prod')]
     build = next((path for path in candidates if (path/'atlas_bff_contract/ebin/Elixir.AtlasBFFContract.Wire.Runtime.MachineProtocol.beam').is_file()), None)
     if build is None:
-        print('Runtime status: unsupported (machine status codec not built; build platform/atlas_control/bff/contract first)', file=sys.stderr)
+        print('Runtime status: unsupported (machine status codec not built; build platform/atlas_control/backend/contract first)', file=sys.stderr)
         return 2
     executable = shutil.which('elixir')
     if executable is None:

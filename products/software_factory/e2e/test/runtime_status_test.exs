@@ -10,7 +10,7 @@ defmodule AtlasE2E.RuntimeStatusTest do
     # Explicit build setup; the status command itself must never build or install.
     {output, code} =
       System.cmd("mix", ["compile", "--warnings-as-errors"],
-        cd: Path.join(@root, "platform/atlas_control/bff/contract"),
+        cd: Path.join(@root, "platform/atlas_control/backend/contract"),
         env: [{"MIX_ENV", "test"}, {"ELIXIR_ERL_OPTIONS", "+S 1:1"}],
         stderr_to_stdout: true
       )
