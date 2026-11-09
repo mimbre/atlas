@@ -28,7 +28,7 @@ defmodule AtlasE2E.DeployOrderTest do
     git!(work, ["remote", "add", "origin", origin])
 
     # The real workflow command runs, but its only remote/mutation boundary is a
-    # local recorder. No Fly invocation, credentials, client, State or model.
+    # local recorder. No Fly invocation, credentials, client, Facts or model.
     File.write!(Path.join(work, "fly/deploy.sh"), """
     #!/bin/sh
     set -eu

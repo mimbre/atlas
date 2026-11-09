@@ -2,7 +2,7 @@ defmodule AtlasFlow.Faults do
   @moduledoc """
   The failure Flow can be made to have, in the test environment (IS-Atlas-23), so that its
   recovery can be seen: `kill-process`, kill the process of an open fact (`AtlasFlow.Item`).
-  Its supervisor starts it again at once, and the new one reads State: it keeps nothing of
+  Its supervisor starts it again at once, and the new one reads Facts: it keeps nothing of
   its own. Control asks over the Bus (class `fault`, which a prod Bus refuses).
 
   The fact is named by its key only; its kind is the one Flow runs a process for it under.
@@ -23,7 +23,7 @@ defmodule AtlasFlow.Faults do
             "label" => "Kill its process",
             "text" =>
               "Flow kills the process that keeps #{key} moving. Its supervisor starts a new " <>
-                "one at once, which reads #{key} from State again."
+                "one at once, which reads #{key} from Facts again."
           }
         ]
     end
@@ -45,7 +45,7 @@ defmodule AtlasFlow.Faults do
           new ->
             {:ok,
              "Killed Flow's process for #{key}; back as a new one (#{inspect(pid)} → " <>
-               "#{inspect(new)}), which read State again."}
+               "#{inspect(new)}), which read Facts again."}
         end
     end
   end

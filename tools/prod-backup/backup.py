@@ -330,9 +330,9 @@ def preflight():
 def validate_dets(folder):
     files = sorted(str(p) for p in folder.rglob('*.dets'))
     if not files:
-        raise Refused('no persisted State files')
+        raise Refused('no persisted Facts files')
     code = "for path <- System.argv() do {:ok, t} = :dets.open_file(make_ref(), file: String.to_charlist(path), access: :read, repair: false); true = is_integer(:dets.info(t, :size)); :ok = :dets.close(t) end"
-    invoke(['elixir', '-e', code, *files], label='read-only State DETS validation on private copy')
+    invoke(['elixir', '-e', code, *files], label='read-only Facts DETS validation on private copy')
 
 
 def retain(output, operation, pair):
@@ -349,7 +349,7 @@ def retain(output, operation, pair):
         if local != expected:
             raise Refused('held remote files differ from extracted backup')
         if name == 'beam' and not all((output / 'data' / name / f).is_file() for f in ['ledger.dets', 'links.dets']):
-            raise Refused('State/Bus durable files missing')
+            raise Refused('Facts/Bus durable files missing')
         if name == 'rela' and not all((output / 'data' / name / f).exists() for f in ['entities', 'relations', 'schema.yaml', 'data-entry.yaml', 'atlas.json', 'atlas.manifest.json']):
             raise Refused('rela data/schema/description closure missing')
         wire = json.loads((private / f'{name}.wire.json').read_text())
@@ -414,7 +414,7 @@ def main(output):
     before_dets = manifest(output / 'data' / 'beam')
     validate_dets(output / 'data' / 'beam')
     if before_dets != manifest(output / 'data' / 'beam'):
-        raise Refused('State validation changed backup bytes')
+        raise Refused('Facts validation changed backup bytes')
     proof = retain(output, operation, pair)
     holds_absent()
     proof['after_pair'] = {app: status(app) for app in APPS}

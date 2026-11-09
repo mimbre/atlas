@@ -153,7 +153,7 @@ defmodule AtlasControl.Shell do
   end
 
   defp canonical_target({:unavailable, _, _}, _description),
-    do: {:error, "State did not resolve the boot target"}
+    do: {:error, "Facts did not resolve the boot target"}
 
   defp canonical_target(:home, _description), do: {:ok, "/"}
   defp canonical_target(:kinds, _description), do: {:ok, "/_kinds"}

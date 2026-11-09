@@ -7,8 +7,8 @@ defmodule AtlasBus do
 
   | Class      | From      | Goes to                                                     |
   |------------|-----------|-------------------------------------------------------------|
-  | `fact`     | any layer | the store (State), to be stored                             |
-  | `read`     | any layer | the store (State), to be answered                           |
+  | `fact`     | any layer | the store (Facts), to be stored                             |
+  | `read`     | any layer | the store (Facts), to be answered                           |
   | `request`  | any layer | its address only, without storage or hints                 |
   | `stored`   | the store | its address, the sender of the fact (acknowledgement), and  |
   |            |           | every listener of its kind (hint): one message, both jobs   |

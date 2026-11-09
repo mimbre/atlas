@@ -5,7 +5,7 @@ defmodule AtlasE2E.RuntimeFlowHandoverTest do
   @tag timeout: 120_000
   test "deferred handover wins over replacement across end, crash, silence and restart" do
     # Integration belongs outside either layer; production modules still meet only
-    # through the Bus. Each run has synthetic in-memory State and stub agents only.
+    # through the Bus. Each run has synthetic in-memory Facts and stub agents only.
     {out, status} =
       System.cmd("mix", ["run", "integration/runtime_flow_handover.exs"],
         cd: Path.join(@root, "beam"),

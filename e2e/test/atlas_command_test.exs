@@ -153,7 +153,7 @@ defmodule AtlasE2E.AtlasCommandTest do
 
     for settings <- [test, prod] do
       refute Map.has_key?(settings, "rela")
-      refute Map.has_key?(settings, "state")
+      refute Map.has_key?(settings, "facts")
     end
 
     ports = [test["control"]["port"], prod["control"]["port"]]
@@ -191,7 +191,7 @@ defmodule AtlasE2E.AtlasCommandTest do
         "data" => Path.join(dir, "rela"),
         "bin" => Path.join(dir, "bin")
       },
-      "state" => %{"data" => Path.join(dir, "beam")}
+      "facts" => %{"data" => Path.join(dir, "beam")}
     }
 
     File.write!(file, JSON.encode!(settings))

@@ -75,7 +75,7 @@ defmodule AtlasBFFContract.Models.Runtime do
     field :attempt, :string
   end
 
-  # Ephemeral output is exact-attempt scoped; it never uses a State position.
+  # Ephemeral output is exact-attempt scoped; it never uses a Facts position.
   defmodel :runtime_output_stream do
     field :execution, :runtime_execution, required: true
     field :epoch, :string, required: true

@@ -28,7 +28,7 @@ atlas tui --env test
   - On the fact's page, the owner's answers are actions, before the others; an action on the same key gives way to one (Accept is both).
   - Anyone else gets the page's actions as before.
   - The remove page reads what the fact's page reads, so it knows the state. An answer that removes may do so also when nothing is set: rejecting before anything was accepted.
-- **State** keeps that removal as the newest fact about `accepted_by`, with the note as its cause. Flow's `reopened` condition reads it, so the use case goes to the rework state: the coordinator's, with `Rework: <note>`.
+- **Facts** keeps that removal as the newest fact about `accepted_by`, with the note as its cause. Flow's `reopened` condition reads it, so the use case goes to the rework state: the coordinator's, with `Rework: <note>`.
 - **No kind is named** in BEAM, the TUI or the agent; no new page or endpoint.
 
 ## What changed for this

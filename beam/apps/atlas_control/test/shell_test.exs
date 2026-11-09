@@ -239,7 +239,7 @@ defmodule AtlasControl.ShellTest do
     assert own["initial_to"] == "/k/widget/W-01/links/checked_by"
   end
 
-  test "State-resolved unprefixed detail and form links survive boot", %{port: port} do
+  test "Facts-resolved unprefixed detail and form links survive boot", %{port: port} do
     d =
       put_in(description(), ["entities", "another"], %{"label" => "Another", "properties" => %{}})
 

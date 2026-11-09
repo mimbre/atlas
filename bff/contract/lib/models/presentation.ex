@@ -151,7 +151,7 @@ defmodule AtlasBFFContract.Models.Presentation do
     field :text, :string, required: true
   end
 
-  # A line for the status bar: pending (until State answers), ok, error or info.
+  # A line for the status bar: pending (until Facts answers), ok, error or info.
   defmodel :notice do
     field :tone, :string, required: true
     field :text, :string, required: true

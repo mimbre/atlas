@@ -1,10 +1,10 @@
 # Atlas test on Fly
 
-Test's core (Bus, State, Flow, Control) and its rela run on Fly, in organisation eyra, on test's own private network; nothing of it has a public address. Runtime and the agents stay on the MacBook. Why two apps and how they connect: `docs/adr/0003-test-on-fly.md` (IS-Atlas-26).
+Test's core (Bus, Facts, Flow, Control) and its rela run on Fly, in organisation eyra, on test's own private network; nothing of it has a public address. Runtime and the agents stay on the MacBook. Why two apps and how they connect: `docs/adr/0003-test-on-fly.md` (IS-Atlas-26).
 
 | | App | Machine | Data |
 |---|---|---|---|
-| Core | `eyra-atlas-test` | shared-cpu-1x, 256 MB, ams | volume `core_data` at `/data` (State's own: `/data/beam`) |
+| Core | `eyra-atlas-test` | shared-cpu-1x, 256 MB, ams | volume `core_data` at `/data` (Facts' own: `/data/beam`) |
 | rela | `eyra-atlas-test-rela` | shared-cpu-1x, 256 MB, ams | volume `rela_data` at `/data` (`/data/rela`) |
 
 ## Use it
@@ -24,7 +24,7 @@ handshake, not only the local port. It reopens an unresponsive existing proxy an
 waits up to a minute for a new proxy to reach Control. `status` reports a broken
 upstream as unavailable even if flyctl still listens locally. This restarts no Fly
 machine and replays no client writes. A hello refusal is left to the client to
-report; a handshake alone does not prove State/rela health.
+report; a handshake alone does not prove Facts/rela health.
 
 `atlas-ops up`, `stop` and `restart` refuse for test: a merge to develop deploys test (CI job `deploy-test`, which runs `fly/deploy.sh test`):
 
@@ -52,19 +52,19 @@ image labels, manifest checks and positive smoke result in the deployment log.
 The deployment verifies the packaged description manifest on both apps before smoke.
 Smoke checks the image label and reads Control's advertised kinds. Ordinary kinds
 must return successful lists. Kinds mapped by the packaged description's guidance
-roles must instead return CLI exit 2 with the exact typed State code
+roles must instead return CLI exit 2 with the exact typed Facts code
 `exact_identity_required`. A timeout, missing code, malformed JSON, unavailable
 backend, unknown kind, or unexpected list success fails smoke with the kind and cause.
 It never infers a code from the human error text or skips a kind without probing it.
 
 This verifies the deployed scoped-read guard and the Control/CLI path, without
 enumerating restricted collections or creating live guidance facts. It does not prove
-positive scoped reads of stored guidance on the deployed environment. Actual State
+positive scoped reads of stored guidance on the deployed environment. Actual Facts
 tests use private synthetic execution, interaction and receipt records to prove valid
 exact/execution/parent scopes, invalid scopes and writer authority separately. Private
-composition tests run smoke's client against the real CLI, Control, State and rela.
+composition tests run smoke's client against the real CLI, Control, Facts and rela.
 
-State failure codes pass through the existing failure confirm's optional `code` field
+Facts failure codes pass through the existing failure confirm's optional `code` field
 and CLI JSON errors. Human text and exit statuses stay the same. Clients that ignore
 the optional field keep working; smoke fails closed if an older server drops the code.
 
@@ -77,11 +77,11 @@ The image derives `rela/atlas-test.json` from the canonical description and
 `rela/atlas.json`, with no worker grants added. Test also exposes the generic Workers
 tab. Named actors `melle` and `releasewriter` may read and submit; `releaseviewer`
 may only read. All other actors remain denied. A listed actor must still exist in
-State; the grant does not create a person or authenticate a new identity.
+Facts; the grant does not create a person or authenticate a new identity.
 
 Test enables release RPC only on loopback (`atlas@localhost`, loopback EPMD and
 distribution sockets), reachable administratively through Fly SSH. This permits
-synthetic execution fixtures to use the real Bus/State admission path without
+synthetic execution fixtures to use the real Bus/Facts admission path without
 exposing a remote Runtime writer endpoint or changing production distribution.
 Fixture scripts must first require `AtlasBus.environment() == "test"`, use distinct
 fixture keys and stop/end only their own synthetic turns. Immutable guidance and
@@ -128,7 +128,7 @@ A migration command (today `atlas migrate-done-owner`) reads rela on the Mac, so
 
 1. **Hold and copy.** `atlas-ops fetch-from-fly --env test --to <folder> --hold`. Test on Fly now serves nothing, so nothing writes to it during the migration. The TUI says Control does not answer.
 2. **Migrate the copy on a private instance.**
-   - Write a settings file like `env/test.json` without `"fly"`, with `rela.data`, `rela.bin` and `state.data` pointing into `<folder>`, and with free ports.
+   - Write a settings file like `env/test.json` without `"fly"`, with `rela.data`, `rela.bin` and `facts.data` pointing into `<folder>`, and with free ports.
    - Run the migration with `ATLAS_ENV_FILE=<that file>`, exactly as its guide says, for example `atlas migrate-done-owner --env test --dry-run`, then the real run.
    - It runs on the build the migration expects; a private instance never meets the Mac's or Fly's.
    - Start that instance first with `atlas-ops restart --env test`, and stop it after with `atlas-ops stop --rela --env test`, with the same `ATLAS_ENV_FILE`.

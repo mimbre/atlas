@@ -79,7 +79,7 @@ Nobody else sees the part. `atlas get` shows it to a client that is the owner: a
   - each open state has `todo`: `instructions`, `section` (`{field, heading}`: the fact's field and the heading the text starts at, to the next `#` heading) and `answers` (`[{key, label}]`);
   - the part's own words are the top-level `todo` (`title`, `why`, `instructions`, `answers`).
 - **Flow** writes the state's name on the Assignment with what is expected, `by: flow`. Writing only the name never counts as a move, so an owner a person set stays.
-- **State** checks that a definition's `state_field` exists on the kind it writes on.
+- **Facts** checks that a definition's `state_field` exists on the kind it writes on.
 - **Control:**
   - It shows the part when the client is the owner (the flow's `owner_relation` on the Assignment points at it) and the state has a `todo`.
   - The part is an `item` block in a `part` of role `todo`, first in the page's markup.
@@ -91,7 +91,7 @@ Nobody else sees the part. `atlas get` shows it to a client that is the owner: a
 
 - **rela:** `flow_state` on the Assignment.
 - **rela/atlas.json:** `state_field` and `todo` in the three flow definitions; the top-level `todo` words.
-- **Flow:** writes the state's name. **State:** checks `state_field`.
+- **Flow:** writes the state's name. **Facts:** checks `state_field`.
 - **Control:** the What to do part; `as` in hello.
 - **Contract:** 0.12.0. **TUI:** room for the todo part first. **Agent:** `ATLAS_AS`; `atlas get` prints the part first and has `todo` in `--json`.
 - **The end-to-end test:** `e2e/scenarios/uc-atlas-28-todo.exs`.

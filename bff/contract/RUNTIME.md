@@ -70,7 +70,7 @@ remain separate and are not converted to durable conversation.
 Snapshot atomically captures the watermark and a replay cursor preceding the
 requested retained events. Later reads include post-snapshot appends without
 requiring a viewer registration in the producer. A cursor is opaque and scoped
-to the complete execution, epoch and sequence; it is never a State position.
+to the complete execution, epoch and sequence; it is never a Facts position.
 Each viewer keeps its own last accepted cursor, discards duplicates and requests
 replay on a sequence gap. Reconnect refreshes exact-target facts first, then
 resumes ephemeral output independently of durable history.
@@ -106,7 +106,7 @@ leases, or stop a worker.
 `runtime@<machine>/output`, Bus class `request`, kind `runtime.output`; answers
 preserve the request ID. It checks the Bus-stamped `control/*` sender,
 environment, destination, execution machine and payload/envelope ID binding.
-Only Control performs actor authorization and supplies authoritative State facts.
+Only Control performs actor authorization and supplies authoritative Facts facts.
 
 The Runtime producer/shared-contract slice does **not** implement the separately
 owned addressed Bus request route, Control subscription lifecycle, or Console

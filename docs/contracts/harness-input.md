@@ -4,7 +4,7 @@
 callbacks, accessed through the corresponding Agent wrappers. Missing, partial or
 unknown-version capabilities mean unsupported. Stub and Claude are unchanged and
 remain unsupported for guidance. The private fake is absent from the configured
-port catalogue. This contract adds no Bus listener, State receipt writer, model call,
+port catalogue. This contract adds no Bus listener, Facts receipt writer, model call,
 Runtime reconciliation or Control/TUI input path. IS108 owns those admission checks.
 
 Capabilities version `1` requires queued_input, durable_accept_query,
@@ -34,7 +34,7 @@ Query supplies only the five identity fields. Admission/query returns one of:
 Descriptor and evidence responses are capped at 8 KiB encoded JSON, matching IS105
 execution/receipt limits. Errors are bounded atoms. An uncertain accept may have
 committed: retain the exact request and query its original identity, never silently
-retarget or invent a fresh interaction. These are adapter proofs, not State receipts
+retarget or invent a fresh interaction. These are adapter proofs, not Facts receipts
 or proof that a model understood, obeyed or completed anything.
 
 ## Private fake inbox
@@ -87,7 +87,7 @@ Deterministic private barriers exist before/after admission and consumption to t
 process-crash windows. Synced DETS plus an identity marker proves these process/reply
 boundaries, not arbitrary power loss, rollback/deletion of all storage, distributed
 allocation or external-harness deduplication. Real harness compatibility is IS107;
-durable Runtime execution registration, fences, authority and State receipts are
+durable Runtime execution registration, fences, authority and Facts receipts are
 IS108. No live adapter is enabled by this issue.
 
 <sub>Written by an AI agent (Codex · GPT-6 · herdr-projects atlas · t-0024).</sub>

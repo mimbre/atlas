@@ -122,15 +122,15 @@ Client to Control:
 | `{"op":"submit","endpoint":"update","params":{"kind":"issue","key":"IS-Atlas-01"},"values":{...}}` | Submit a form or a confirm: the endpoint and params its `submit_to` or `confirm_to` (a `call`) names, one of the contract's submit endpoints (create, create_under, update, delete, link, accept, reopen); values travel as text. A client that knows only paths may send `"to"` with the endpoint's path instead. Anything else is refused, unsent. |
 | `{"op":"turn"}` | Read the agent's single running turn and its original item, using `runtime.turn`. |
 | `{"op":"turn_end","key":"<turn>","outcome":"<text>"}` | Record the current owner's nonempty outcome; Runtime reads the fact and ends the turn. |
-| `{"op":"refresh"}` | Reconcile: read the page again from State. Clients send it on an interval. |
+| `{"op":"refresh"}` | Reconcile: read the page again from Facts. Clients send it on an interval. |
 
 Control to client:
 
 | Message | Meaning |
 |---|---|
 | `{"op":"welcome","env":"test","spec":"0.14.0"}` | Answer to hello, with Control's contract version. |
-| `{"op":"page","path","title","back","blocks","markup","reason","position","at"}` | A page: a view model (`blocks` and `markup`) with its path, title and way back. `reason` is `open`, `hint` (a change stored by anyone), `reconcile`, `stored` (your change) or `refused`. `position` is State's position the page is as of. On a page without a form, a `refused` page also has `refused`: State's reasons. When the client's user has a start page of assignments, every page has `count`: what waits for them, in the description's words, for the header. |
-| `{"op":"notice","tone":"pending\|ok\|error\|info","text","at"}` | A line for the status bar. `pending` until State answers. |
+| `{"op":"page","path","title","back","blocks","markup","reason","position","at"}` | A page: a view model (`blocks` and `markup`) with its path, title and way back. `reason` is `open`, `hint` (a change stored by anyone), `reconcile`, `stored` (your change) or `refused`. `position` is Facts' position the page is as of. On a page without a form, a `refused` page also has `refused`: Facts' reasons. When the client's user has a start page of assignments, every page has `count`: what waits for them, in the description's words, for the header. |
+| `{"op":"notice","tone":"pending\|ok\|error\|info","text","at"}` | A line for the status bar. `pending` until Facts answers. |
 | `{"op":"bye","text"}` | Control closes the connection. |
 | `{"op":"turn","key":"<turn>","on":"<item>"}` | Current turn context; errors have `error` instead of the keys. An outcome is acknowledged with a stored page. |
 
@@ -189,7 +189,7 @@ Semantic turn errors preserve the existing error adapter. No write is replayed.
 Sockets and caller-owned successful connections remain handwritten.
 
 Turn_end has three actual replies: `page+stored`, `turn+error`, and `page+refused`.
-A stored outcome acknowledges State; Runtime ending the turn and Flow handing it
+A stored outcome acknowledges Facts; Runtime ending the turn and Flow handing it
 over still happen independently. Owner, stale-turn and outcome validation remain
 on the server. Refresh is explicitly a stream requiring an adapter: it sends no
 page while editing a form. Local steer operations are also streams on their own

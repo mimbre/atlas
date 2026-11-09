@@ -10,7 +10,7 @@ defmodule AtlasRuntime.ServerLifecycleTest do
   @moduletag capture_log: true
   @talk [talk: [tries: 1, wait: 300]]
 
-  # State as the isolated proof showed it, for these kinds only: the sender must be the
+  # Facts as the isolated proof showed it, for these kinds only: the sender must be the
   # turn's machine's Runtime; an execution must match its running turn's exact attempt.
   defmodule Store do
     use GenServer
@@ -427,7 +427,7 @@ defmodule AtlasRuntime.ServerLifecycleTest do
     assert saved(run)["server"]["report"] == run.server["report"]
     facts = Store.facts(store)
     assert facts.turns == %{} and facts.executions == %{}
-    # Nothing more is written for a turn State never created.
+    # Nothing more is written for a turn Facts never created.
     Process.sleep(100)
     assert [{"turn", "runtime@box", %{"op" => "create"}}] = Store.facts(store).sent
   end
@@ -443,7 +443,7 @@ defmodule AtlasRuntime.ServerLifecycleTest do
         (r = status(pid, "alpha")) && r.state == "finished" && r.server["report"]["error"] && r
       end)
 
-    assert run.server["report"]["error"] == "turn not created: State did not answer"
+    assert run.server["report"]["error"] == "turn not created: Facts did not answer"
     assert ok(pid, %{"command" => "output", "worker_id" => "alpha"}).state == "finished"
     # Output never waits for Server: it is retained, and closed, without one.
     assert {:ok, %{"stream" => %{"ended" => true}} = read} =

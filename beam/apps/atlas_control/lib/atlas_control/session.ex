@@ -1,11 +1,11 @@
 defmodule AtlasControl.Session do
   @moduledoc """
   One connected client. Speaks Control's protocol (`bff/README.md`) as JSON
-  lines over TCP, and reaches State only over the Bus, as its own endpoint.
+  lines over TCP, and reaches Facts only over the Bus, as its own endpoint.
 
-  - Opening a path reads what the page needs from State and sends the page.
+  - Opening a path reads what the page needs from Facts and sends the page.
   - A submit becomes a fact. The client is told it waits; the change shows only once
-    State has stored it. A fact without an answer is sent again with the same id, after
+    Facts has stored it. A fact without an answer is sent again with the same id, after
     5 seconds, then twice as long each time, up to a minute.
   - A hint (a `stored` of a kind on screen) re-reads and sends the page again. A form is
     never redrawn under the user's hands; they get a notice instead.
@@ -131,7 +131,7 @@ defmodule AtlasControl.Session do
               "Stored as #{key} (position #{envelope.position})."
 
             _ ->
-              "Stored by State (position #{envelope.position})."
+              "Stored by Facts (position #{envelope.position})."
           end
 
         state = notice(state, "ok", text)
@@ -145,11 +145,11 @@ defmodule AtlasControl.Session do
 
         if Pages.form?(state.route) do
           form = Map.put(state.form, :errors, reasons)
-          state = notice(state, "error", "State refused it; the form says why.")
+          state = notice(state, "error", "Facts refused it; the form says why.")
           {:noreply, show(%{state | form: form}, state.route, "refused", nil)}
         else
           # No form to say why: the page says it (`refused`), for a client without a screen.
-          state = notice(state, "error", "State refused: " <> Enum.join(reasons, "; "))
+          state = notice(state, "error", "Facts refused: " <> Enum.join(reasons, "; "))
           {:noreply, show(state, state.route, "refused", nil, reasons)}
         end
     end
@@ -187,7 +187,7 @@ defmodule AtlasControl.Session do
         wait = min(pending.wait * 2, @last_resend)
         timer = Process.send_after(self(), {:resend, id}, wait)
         state = put_in(state.pending[id], %{pending | wait: wait, timer: timer})
-        {:noreply, notice(state, "pending", "No answer from State yet; sent again.")}
+        {:noreply, notice(state, "pending", "No answer from Facts yet; sent again.")}
     end
   end
 
@@ -269,7 +269,7 @@ defmodule AtlasControl.Session do
 
     case Wire.decode_request(message) do
       {:ok, name, request} ->
-        # Output reconciliation reads authority explicitly; State hints must not queue behind a slow viewer.
+        # Output reconciliation reads authority explicitly; Facts hints must not queue behind a slow viewer.
         Enum.each(state.listening, &Registry.unregister(AtlasBus.Listeners, &1))
 
         :ok =
@@ -296,7 +296,7 @@ defmodule AtlasControl.Session do
                   "error" => %{
                     "code" => reason,
                     "message" => reason,
-                    "retryable" => reason in ~w(output_unavailable state_unavailable viewer_limit)
+                    "retryable" => reason in ~w(output_unavailable facts_unavailable viewer_limit)
                   }
                 })
 
@@ -360,7 +360,7 @@ defmodule AtlasControl.Session do
               try do
                 Wire.reply(name, :result, props)
               rescue
-                ArgumentError -> worker_error(name, request["id"], "invalid_state_reply")
+                ArgumentError -> worker_error(name, request["id"], "invalid_facts_reply")
               end
 
             {:error, reason} ->
@@ -424,7 +424,7 @@ defmodule AtlasControl.Session do
       _ ->
         send_client(state, %{
           "op" => "boot",
-          "error" => "State did not answer with the description"
+          "error" => "Facts did not answer with the description"
         })
 
         {:noreply, state}
@@ -432,7 +432,7 @@ defmodule AtlasControl.Session do
   end
 
   defp handle_op("open", %{"to" => to}, state) do
-    # Without the description (State did not answer at hello) no page can be worked out.
+    # Without the description (Facts did not answer at hello) no page can be worked out.
     state = if state.description == %{}, do: describe(state), else: state
     {:noreply, show(%{state | form: %{}}, route(to, state), "open", nil)}
   end
@@ -440,7 +440,7 @@ defmodule AtlasControl.Session do
   defp handle_op("refresh", _message, state) do
     state = describe(state)
 
-    # A page State did not answer for is worked out again.
+    # A page Facts did not answer for is worked out again.
     route =
       case state.route do
         {:unavailable, path, _failed} -> route(path, state)
@@ -510,7 +510,7 @@ defmodule AtlasControl.Session do
   end
 
   # "No such page" only for a path the contract has no page for. A page of the contract
-  # that cannot be worked out because State did not answer (no description, or no answer
+  # that cannot be worked out because Facts did not answer (no description, or no answer
   # on which kind holds a key) is `{:unavailable, path, failed}`: it says so, and a
   # refresh works it out again.
   defp route(to, state) do
@@ -519,7 +519,7 @@ defmodule AtlasControl.Session do
         :unknown
 
       _ when state.description == %{} ->
-        {:unavailable, to, %{"error" => "State did not answer"}}
+        {:unavailable, to, %{"error" => "Facts did not answer"}}
 
       route ->
         case Pages.resolve(route, state.description) do
@@ -530,7 +530,7 @@ defmodule AtlasControl.Session do
   end
 
   # `_` in place of a kind, for a key no id prefix claims: the kind without a prefix that
-  # has it, asked of State (ids made from a name have no prefix).
+  # has it, asked of Facts (ids made from a name have no prefix).
   defp by_key({page, "_", key}, to, state) when page in [:item, :edit, :delete] do
     case kind_holding(key, state) do
       {:ok, kind} -> {page, kind, key}
@@ -612,7 +612,7 @@ defmodule AtlasControl.Session do
 
     with {:ok, links} <- moves(parents, was),
          [] <- over_limits(state, kind, key, links) do
-      # Only what was edited is sent, with what the form was read with for it: State then
+      # Only what was edited is sent, with what the form was read with for it: Facts then
       # refuses an old version only when one of these changed meanwhile, never because
       # other fields did, and a save never puts back an old value of a field left alone.
       read = state.form[:was] || %{}
@@ -786,7 +786,7 @@ defmodule AtlasControl.Session do
   end
 
   # A new fact gets the next free key of its kind; nobody types one. When two clients make
-  # the same key at once, State refuses the second ("exists"), and it tries the next number.
+  # the same key at once, Facts refuses the second ("exists"), and it tries the next number.
   defp create(route, kind, raw, links, state) do
     spec = spec(state, kind)
 
@@ -796,7 +796,7 @@ defmodule AtlasControl.Session do
   end
 
   # An id made from a property: the same value is the same fact, so a taken key is never
-  # retried with another number. When the key cannot be made, nothing goes to State.
+  # retried with another number. When the key cannot be made, nothing goes to Facts.
   defp create_made(route, kind, spec, raw, links, state) do
     state = %{state | route: route, form: %{values: raw}}
 
@@ -830,7 +830,7 @@ defmodule AtlasControl.Session do
     put_fact(state, kind, content, {:item, kind, key}, %{number: number, tries: 1, skipped: []})
   end
 
-  # A link the description limits (`relations.<name>.limit`) is refused before State sees
+  # A link the description limits (`relations.<name>.limit`) is refused before Facts sees
   # it while its parent already has as many counted facts as allowed. Links that are
   # there already stay; only a new one (a create, or a move) is checked.
   defp over_limits(state, kind, key, links) do
@@ -907,7 +907,7 @@ defmodule AtlasControl.Session do
     }
 
     state = put_in(state.pending[envelope.id], pending)
-    notice(state, "pending", note || "Sent to State; waiting until it is stored…")
+    notice(state, "pending", note || "Sent to Facts; waiting until it is stored…")
   end
 
   # Reads
@@ -921,7 +921,7 @@ defmodule AtlasControl.Session do
         notice(
           state,
           "error",
-          "State did not answer with the description; showing what Control had."
+          "Facts did not answer with the description; showing what Control had."
         )
     end
   end
@@ -933,8 +933,8 @@ defmodule AtlasControl.Session do
     %{state | by_kind: known_kind(state, actor_kind(state))}
   end
 
-  # What the client was known to be stays while State does not answer whether it still is
-  # (a busy State): only a clear "no such fact" makes it nobody, so the start page does not
+  # What the client was known to be stays while Facts does not answer whether it still is
+  # (Facts is busy): only a clear "no such fact" makes it nobody, so the start page does not
   # flip to the plan and back.
   defp known_kind(%{by_kind: nil}, found), do: found
 
@@ -986,7 +986,7 @@ defmodule AtlasControl.Session do
         )
 
       _ ->
-        {:error, "state_unavailable"}
+        {:error, "facts_unavailable"}
     end
   end
 
@@ -1009,7 +1009,7 @@ defmodule AtlasControl.Session do
       "error" => %{
         "code" => reason,
         "message" => reason,
-        "retryable" => reason == "state_unavailable"
+        "retryable" => reason == "facts_unavailable"
       }
     })
   end
@@ -1027,7 +1027,7 @@ defmodule AtlasControl.Session do
   defp ask(kind, content, attempts, timeout),
     do: await_read(Envelope.new("read", kind), content, attempts, timeout)
 
-  defp await_read(_envelope, _content, 0, _timeout), do: %{"error" => "State did not answer"}
+  defp await_read(_envelope, _content, 0, _timeout), do: %{"error" => "Facts did not answer"}
 
   defp await_read(envelope, content, attempts, timeout) do
     :ok = AtlasBus.send(envelope, content)
@@ -1040,7 +1040,7 @@ defmodule AtlasControl.Session do
     end
   end
 
-  # How long a read waits for State's answer before it asks again (a setting for tests).
+  # How long a read waits for Facts' answer before it asks again (a setting for tests).
   defp read_timeout, do: Application.get_env(:atlas_control, :read_timeout_ms, 2_000)
 
   defp page_answers(route, description) do
@@ -1064,7 +1064,7 @@ defmodule AtlasControl.Session do
           List.duplicate(error, length(reads))
 
         _ ->
-          List.duplicate(%{"error" => "State returned invalid page reads"}, length(reads))
+          List.duplicate(%{"error" => "Facts returned invalid page reads"}, length(reads))
       end
     else
       Enum.map(reads, fn {kind, content} -> ask(kind, content) end)
@@ -1111,7 +1111,7 @@ defmodule AtlasControl.Session do
               )
 
             _ ->
-              AtlasControl.WorkerPages.error("state_unavailable", "/workers")
+              AtlasControl.WorkerPages.error("facts_unavailable", "/workers")
           end
 
         {:faults, on} ->

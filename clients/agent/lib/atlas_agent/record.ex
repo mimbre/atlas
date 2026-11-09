@@ -1,6 +1,6 @@
 defmodule AtlasAgent.Record do
   @moduledoc """
-  What the agent did, kept as facts in State (UC-Atlas-19): each request, each step of
+  What the agent did, kept as facts in Facts (UC-Atlas-19): each request, each step of
   its plan with what became of it, and the request's outcome. Every change the agent
   makes is so a fact with its cause, which Melle can see and overrule.
 

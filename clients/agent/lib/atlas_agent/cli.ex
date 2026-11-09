@@ -17,7 +17,7 @@ defmodule AtlasAgent.CLI do
 
   Every command takes --json: it then prints one JSON value on stdout, the item, the
   list, or `{"refused": [reasons]}` / `{"error": text}`. Without it, short text.
-  A failed list also retains `code` when Control supplies a typed State failure.
+  A failed list also retains `code` when Control supplies a typed Facts failure.
   A value of `-` is read from stdin; `--<field>-file <path>` (put) and `<field>=@<path>`
   (set) read it from a file, for text of several lines. Which kinds exist and which
   fields a form asks for come from Control; a wrong one is answered with what it asks.

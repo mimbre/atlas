@@ -43,7 +43,7 @@ defmodule AtlasBFFContract.OutputTest do
     end
   end
 
-  test "output requests reject durable numeric State positions as cursors" do
+  test "output requests reject durable numeric Facts positions as cursors" do
     for {wire, operation, fields} <- [
           {RuntimeWire, :runtime_output_read, %{execution: @execution}},
           {WorkerWire, :worker_output_next, %{subscription: "viewer"}}

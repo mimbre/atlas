@@ -49,7 +49,7 @@ defmodule AtlasE2E.Instance do
         "bin" => bin,
         "extra" => "rela/atlas.json"
       },
-      "state" => %{"data" => Path.join(dir, "beam")},
+      "facts" => %{"data" => Path.join(dir, "beam")},
       "reconcile_seconds" => 5,
       # GitHub is a stand-in (UC-Atlas-26), read every 2 seconds rather than 5 minutes.
       "connectors" => %{

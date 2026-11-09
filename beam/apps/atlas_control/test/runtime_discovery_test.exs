@@ -244,7 +244,7 @@ defmodule AtlasControl.RuntimeDiscoveryTest do
             "runtime_read_token_env" => token_env
           },
           "rela" => %{"url" => "http://127.0.0.1:1"},
-          "state" => %{"data" => Path.join(dir, "unused")}
+          "facts" => %{"data" => Path.join(dir, "unused")}
         }
 
         File.write!(file, JSON.encode!(settings))

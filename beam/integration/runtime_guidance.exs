@@ -6,7 +6,7 @@ defmodule AtlasRuntime.RuntimeGuidanceTest do
   use ExUnit.Case, async: false
   alias AtlasRuntime.{Engine, GuidancePort, Talk}
   alias AtlasRuntime.Agent.FakeInbox
-  alias AtlasState.{GuidanceStore, Rela}
+  alias AtlasFacts.{GuidanceStore, Rela}
   @moduletag :tmp_dir
   defp description do
     roles = %{
@@ -41,7 +41,7 @@ defmodule AtlasRuntime.RuntimeGuidanceTest do
         {spec["kind"], %{"plural" => role <> "s", "properties" => props}}
       end)
 
-    d = AtlasRuntime.FakeState.description()
+    d = AtlasRuntime.FakeFacts.description()
     props = fn fields -> Map.new(fields, &{&1, %{"type" => "string"}}) end
     entities = Map.merge(d["entities"], entities)
 
@@ -79,7 +79,7 @@ defmodule AtlasRuntime.RuntimeGuidanceTest do
         "owned_by" => {"clerk", ["ada"]}
       })
 
-    server = start_supervised!({AtlasState.Server, rela: rela, data_dir: Path.join(dir, "state")})
+    server = start_supervised!({AtlasFacts.Server, rela: rela, data_dir: Path.join(dir, "facts")})
     :ok = AtlasBus.attach("control/session-runtime-test")
 
     opts = [
@@ -159,14 +159,14 @@ defmodule AtlasRuntime.RuntimeGuidanceTest do
 
   test "execution commit precedes startup even when its acknowledgement is lost", c do
     GuidanceStore.barrier(c.store, self(), "executions")
-    # State/DETS restart must fit the request deadline. A 30 ms timeout measured
+    # Facts/DETS restart must fit the request deadline. A 30 ms timeout measured
     # incidental scheduler speed rather than the recovery guarantee.
     opts = Keyword.put(c.opts, :talk_opts, tries: 1, wait: 1_000)
     engine = start_supervised!({Engine, opts})
-    # Fixture plural is executions; wait for State's durable commit before any start.
+    # Fixture plural is executions; wait for Facts' durable commit before any start.
     assert_receive {:committed, store, _key}, 2_000
     refute_receive {:starting, _, _}, 20
-    # Kill the reply owner after backend commit, then reopen State's retained ledger.
+    # Kill the reply owner after backend commit, then reopen Facts' retained ledger.
     Process.exit(c.server, :kill)
     send(store, :release_commit)
     assert_receive {:started, _inbox, turn}, 5_000
@@ -319,7 +319,7 @@ defmodule AtlasRuntime.RuntimeGuidanceTest do
     i = submit(t)
     reconcile(pid)
     assert {:ok, _} = FakeInbox.consume(inbox, identity(t, i))
-    # Lose a State receipt acknowledgement by preventing the next local reconciliation.
+    # Lose a Facts receipt acknowledgement by preventing the next local reconciliation.
     Process.exit(pid, :kill)
     monitor = Process.monitor(inbox)
     assert_receive {:DOWN, ^monitor, :process, ^inbox, _}, 2_000
@@ -334,7 +334,7 @@ defmodule AtlasRuntime.RuntimeGuidanceTest do
     refute_receive {:started, _, %{key: ^key}}, 20
   end
 
-  test "unavailable State eligibility never becomes an absent target", c do
+  test "unavailable Facts eligibility never becomes an absent target", c do
     {_engine, pid, inbox, t} = boot(c)
     i = submit(t)
     GuidanceStore.fail_next_get(c.store, "runs", t.key, :unavailable)
@@ -344,7 +344,7 @@ defmodule AtlasRuntime.RuntimeGuidanceTest do
     refute_receive {:accepting, ^inbox, _}, 20
   end
 
-  test "expired State lease and local budget prohibit admission without renewing either", c do
+  test "expired Facts lease and local budget prohibit admission without renewing either", c do
     {_engine, pid, inbox, t} = boot(c)
     i = submit(t)
     {:ok, []} = Rela.change(c.rela, "runs", t.key, %{"until" => "2000-01-01T00:00:00Z"}, nil, %{})
@@ -440,7 +440,7 @@ defmodule AtlasRuntime.RuntimeGuidanceTest do
     i = submit(t)
     send(pid, :guidance)
     assert_receive {:inbox_barrier, ^inbox, :before_accept, _}, 2_000
-    # Eligibility was read before dispatch. This external State closure has no native
+    # Eligibility was read before dispatch. This external Facts closure has no native
     # transaction with the harness. Its historical admission must not be hidden.
     {:stored, _, _} =
       Talk.fact("run", %{

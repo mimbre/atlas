@@ -1,7 +1,7 @@
 defmodule AtlasTui.ModeGenerationTest do
   # Synthetic widget page captured from actual AtlasControl.Console.project at
   # IS120 1f95321. Shared Contract.compile/capture/resolve run unchanged here.
-  # No server, State, Runtime or agent process is started.
+  # No server, Facts, Runtime or agent process is started.
   use ExUnit.Case, async: true
   alias AtlasTui.{Console, Model, Interactions}
 

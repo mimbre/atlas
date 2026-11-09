@@ -29,7 +29,7 @@ Operations are typed data from the finite vocabulary in
 requires canonical to; open_url requires HTTP(S) url; agent_ask optionally carries
 intent. Submit/cancel operate on the current native form/confirm block and use its
 existing typed call/cancel destination. No arbitrary functions, atoms or authority
-are encoded. Ordinary submit and State authorization remain the enforcement path.
+are encoded. Ordinary submit and Facts authorization remain the enforcement path.
 
 Contexts are browse, form, confirm, ask, plan_planning, plan_proposed, plan_running,
 plan_done, step_form and legend. Named key tokens come from named_keys/0; a single

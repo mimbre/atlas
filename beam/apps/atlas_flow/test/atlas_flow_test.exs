@@ -1,7 +1,7 @@
 defmodule AtlasFlowTest do
   use ExUnit.Case, async: false
 
-  alias AtlasFlow.{Definition, Engine, FakeState}
+  alias AtlasFlow.{Definition, Engine, FakeFacts}
 
   setup do
     Application.put_env(:atlas_bus, :store, "state-#{System.unique_integer([:positive])}")
@@ -13,9 +13,9 @@ defmodule AtlasFlowTest do
     # Registry drops a stopped process's name a moment later; till then the engine finds it.
     eventually(fn -> Registry.count(AtlasFlow.Items) == 0 end)
 
-    start_supervised!(FakeState)
+    start_supervised!(FakeFacts)
     # Who can own, as facts: the owners the definition names must exist.
-    for key <- ["ada", "bob"], do: FakeState.put("clerk", %{"key" => key})
+    for key <- ["ada", "bob"], do: FakeFacts.put("clerk", %{"key" => key})
     :ok
   end
 
@@ -32,8 +32,8 @@ defmodule AtlasFlowTest do
   end
 
   defp deferred_setup do
-    flow = Map.put(FakeState.flow(), "handover_field", "later")
-    description = FakeState.description(flow)
+    flow = Map.put(FakeFacts.flow(), "handover_field", "later")
+    description = FakeFacts.description(flow)
     description = put_in(description, ["entities", "run"], %{})
 
     description =
@@ -50,9 +50,9 @@ defmodule AtlasFlowTest do
         }
       })
 
-    FakeState.set_description(description)
+    FakeFacts.set_description(description)
 
-    FakeState.put("box", %{
+    FakeFacts.put("box", %{
       "key" => "B-1",
       "values" => %{"todo" => "Pack it"},
       "links" => %{"owned_by" => ["bob"]},
@@ -60,7 +60,7 @@ defmodule AtlasFlowTest do
       "progress" => %{"value" => "check"}
     })
 
-    FakeState.put("run", %{
+    FakeFacts.put("run", %{
       "key" => "R-1",
       "values" => %{"status" => "going"},
       "links" => %{"work" => ["B-1"], "worker" => ["bob"]}
@@ -68,75 +68,75 @@ defmodule AtlasFlowTest do
 
     pid = engine()
     AtlasBus.attach("observer-#{System.unique_integer([:positive])}")
-    eventually(fn -> FakeState.get("box", "B-1")["values"]["later"] != nil end)
+    eventually(fn -> FakeFacts.get("box", "B-1")["values"]["later"] != nil end)
     pid
   end
 
   test "deferred ownership survives process restart, then moves after the running turn ends" do
     engine_pid = deferred_setup()
-    fact = FakeState.get("box", "B-1")
+    fact = FakeFacts.get("box", "B-1")
     assert fact["values"]["todo"] == "Check it"
     assert fact["links"]["owned_by"] == ["bob"]
     [{pid, _}] = Registry.lookup(AtlasFlow.Items, {"box", "B-1"})
     DynamicSupervisor.terminate_child(AtlasFlow.Supervisor, pid)
     Engine.round(engine_pid)
     eventually(fn -> alive("B-1") end)
-    assert FakeState.get("box", "B-1")["links"]["owned_by"] == ["bob"]
-    run = FakeState.get("run", "R-1") |> put_in(["values", "status"], "over")
-    FakeState.put("run", run)
+    assert FakeFacts.get("box", "B-1")["links"]["owned_by"] == ["bob"]
+    run = FakeFacts.get("run", "R-1") |> put_in(["values", "status"], "over")
+    FakeFacts.put("run", run)
     AtlasFlow.Talk.put("run", %{"op" => "change", "key" => "R-1", "values" => %{}})
-    eventually(fn -> FakeState.get("box", "B-1")["links"]["owned_by"] == ["ada"] end)
-    assert FakeState.get("box", "B-1")["values"]["later"] == nil
+    eventually(fn -> FakeFacts.get("box", "B-1")["links"]["owned_by"] == ["ada"] end)
+    assert FakeFacts.get("box", "B-1")["values"]["later"] == nil
   end
 
   test "a deferred handover also waits for the next owner to exist" do
-    GenServer.call(FakeState, {:drop, "clerk", "ada"})
+    GenServer.call(FakeFacts, {:drop, "clerk", "ada"})
     deferred_setup()
-    assert FakeState.get("box", "B-1")["links"]["owned_by"] == ["bob"]
-    run = FakeState.get("run", "R-1") |> put_in(["values", "status"], "over")
-    FakeState.put("run", run)
+    assert FakeFacts.get("box", "B-1")["links"]["owned_by"] == ["bob"]
+    run = FakeFacts.get("run", "R-1") |> put_in(["values", "status"], "over")
+    FakeFacts.put("run", run)
     AtlasFlow.Talk.put("run", %{"op" => "change", "key" => "R-1", "values" => %{}})
     [{pid, _}] = Registry.lookup(AtlasFlow.Items, {"box", "B-1"})
     send(pid, :look)
     :sys.get_state(pid)
-    assert FakeState.get("box", "B-1")["values"]["later"] != nil
-    FakeState.put("clerk", %{"key" => "ada"})
+    assert FakeFacts.get("box", "B-1")["values"]["later"] != nil
+    FakeFacts.put("clerk", %{"key" => "ada"})
     AtlasFlow.Talk.put("clerk", %{"op" => "create", "key" => "ada", "values" => %{}})
-    eventually(fn -> FakeState.get("box", "B-1")["links"]["owned_by"] == ["ada"] end)
+    eventually(fn -> FakeFacts.get("box", "B-1")["links"]["owned_by"] == ["ada"] end)
   end
 
   test "a turn end wakes its own fact without reconciling unrelated open facts" do
-    FakeState.put("box", %{"key" => "B-2"})
+    FakeFacts.put("box", %{"key" => "B-2"})
     deferred_setup()
-    eventually(fn -> FakeState.get("box", "B-2")["values"]["todo"] == "Pack it" end)
-    other = FakeState.get("box", "B-2") |> put_in(["values", "todo"], "not poked")
-    FakeState.put("box", other)
-    run = FakeState.get("run", "R-1") |> put_in(["values", "status"], "over")
-    FakeState.put("run", run)
+    eventually(fn -> FakeFacts.get("box", "B-2")["values"]["todo"] == "Pack it" end)
+    other = FakeFacts.get("box", "B-2") |> put_in(["values", "todo"], "not poked")
+    FakeFacts.put("box", other)
+    run = FakeFacts.get("run", "R-1") |> put_in(["values", "status"], "over")
+    FakeFacts.put("run", run)
     AtlasFlow.Talk.put("run", %{"op" => "change", "key" => "R-1", "values" => %{}})
-    eventually(fn -> FakeState.get("box", "B-1")["links"]["owned_by"] == ["ada"] end)
+    eventually(fn -> FakeFacts.get("box", "B-1")["links"]["owned_by"] == ["ada"] end)
     Process.sleep(100)
-    assert FakeState.get("box", "B-2")["values"]["todo"] == "not poked"
+    assert FakeFacts.get("box", "B-2")["values"]["todo"] == "not poked"
   end
 
   test "a human handover cancels the deferred automatic move" do
     deferred_setup()
-    for key <- ["carol"], do: FakeState.put("clerk", %{"key" => key})
+    for key <- ["carol"], do: FakeFacts.put("clerk", %{"key" => key})
 
     fact =
-      FakeState.get("box", "B-1")
+      FakeFacts.get("box", "B-1")
       |> put_in(["links", "owned_by"], ["carol"])
       |> put_in(["origins", "owned_by"], %{"by" => "human", "position" => 2})
 
-    FakeState.put("box", fact)
+    FakeFacts.put("box", fact)
     AtlasFlow.Talk.put("box", %{"op" => "change", "key" => "B-1", "values" => %{}})
-    eventually(fn -> FakeState.get("box", "B-1")["values"]["later"] == nil end)
-    assert FakeState.get("box", "B-1")["links"]["owned_by"] == ["carol"]
+    eventually(fn -> FakeFacts.get("box", "B-1")["values"]["later"] == nil end)
+    assert FakeFacts.get("box", "B-1")["links"]["owned_by"] == ["carol"]
   end
 
   test "a component hint does not restart completed work to remove a historical owner" do
-    flow = Map.put(FakeState.flow(), "on", "card")
-    description = FakeState.description(flow)
+    flow = Map.put(FakeFacts.flow(), "on", "card")
+    description = FakeFacts.description(flow)
 
     description =
       put_in(description, ["relations", "card"], %{
@@ -145,15 +145,15 @@ defmodule AtlasFlowTest do
         "component" => %{}
       })
 
-    FakeState.set_description(put_in(description, ["entities", "card"], %{}))
+    FakeFacts.set_description(put_in(description, ["entities", "card"], %{}))
 
-    FakeState.put("box", %{
+    FakeFacts.put("box", %{
       "key" => "B-done",
       "completion" => %{"done" => true},
       "links" => %{"card" => ["C-done"]}
     })
 
-    FakeState.put("card", %{
+    FakeFacts.put("card", %{
       "key" => "C-done",
       "links" => %{"owned_by" => ["ada"]},
       "origins" => %{"owned_by" => %{"by" => "migration"}}
@@ -162,18 +162,18 @@ defmodule AtlasFlowTest do
     server = engine()
     Engine.round(server)
     AtlasBus.attach("observer-#{System.unique_integer([:positive])}")
-    {reads, _} = FakeState.reads()
+    {reads, _} = FakeFacts.reads()
     AtlasFlow.Talk.put("card", %{"op" => "change", "key" => "C-done", "values" => %{}})
-    eventually(fn -> elem(FakeState.reads(), 0) > reads end)
+    eventually(fn -> elem(FakeFacts.reads(), 0) > reads end)
     :sys.get_state(server)
     Process.sleep(150)
     refute alive("B-done")
-    assert FakeState.get("card", "C-done")["links"]["owned_by"] == ["ada"]
-    refute Enum.any?(FakeState.sent(), &(&1["by"] == "flow"))
+    assert FakeFacts.get("card", "C-done")["links"]["owned_by"] == ["ada"]
+    refute Enum.any?(FakeFacts.sent(), &(&1["by"] == "flow"))
   end
 
   describe "the state a fact is in" do
-    @flow FakeState.flow()
+    @flow FakeFacts.flow()
 
     test "the first state that holds; the last when none other does" do
       name = fn fact, children ->
@@ -236,9 +236,9 @@ defmodule AtlasFlowTest do
       assert Definition.expected(%{"expected" => "Again: {note}"}, %{"note" => ""}) == "Again"
     end
 
-    test "a definition State found problems in is not run" do
-      assert Definition.kinds(FakeState.description()) == ["box"]
-      assert Definition.kinds(FakeState.description(FakeState.flow(), ["x has no owner"])) == []
+    test "a definition Facts found problems in is not run" do
+      assert Definition.kinds(FakeFacts.description()) == ["box"]
+      assert Definition.kinds(FakeFacts.description(FakeFacts.flow(), ["x has no owner"])) == []
     end
 
     test "briefed by the empty state until something is under it, then by the next" do
@@ -270,11 +270,11 @@ defmodule AtlasFlowTest do
 
   describe "one process per open fact" do
     test "at boot, a process for every open fact; it writes owner and expected, with the cause" do
-      FakeState.put("box", %{"key" => "B-1", "progress" => %{"value" => "check"}})
-      FakeState.put("box", %{"key" => "B-2", "completion" => %{"done" => true}})
+      FakeFacts.put("box", %{"key" => "B-1", "progress" => %{"value" => "check"}})
+      FakeFacts.put("box", %{"key" => "B-2", "completion" => %{"done" => true}})
       engine()
 
-      eventually(fn -> FakeState.get("box", "B-1")["values"]["todo"] == "Check it" end)
+      eventually(fn -> FakeFacts.get("box", "B-1")["values"]["todo"] == "Check it" end)
       assert alive("B-1")
       refute alive("B-2")
 
@@ -287,7 +287,7 @@ defmodule AtlasFlowTest do
                  "by" => "flow",
                  "cause" => "Flow pack: all in it is packed → ada"
                }
-             ] = FakeState.sent()
+             ] = FakeFacts.sent()
 
       # Starting a second process for the same fact fails.
       assert {:error, {:already_started, _}} =
@@ -298,31 +298,31 @@ defmodule AtlasFlowTest do
     end
 
     test "on a hint it looks again at once; once done it clears what was expected and stops" do
-      FakeState.put("box", %{"key" => "B-1", "progress" => %{"value" => "check"}})
+      FakeFacts.put("box", %{"key" => "B-1", "progress" => %{"value" => "check"}})
       engine()
-      eventually(fn -> FakeState.get("box", "B-1")["values"]["todo"] == "Check it" end)
+      eventually(fn -> FakeFacts.get("box", "B-1")["values"]["todo"] == "Check it" end)
 
       # Signed off: the fact is completed. A hint of any kind pokes it.
-      FakeState.put(
+      FakeFacts.put(
         "box",
-        Map.merge(FakeState.get("box", "B-1"), %{"completion" => %{"done" => true}})
+        Map.merge(FakeFacts.get("box", "B-1"), %{"completion" => %{"done" => true}})
       )
 
-      FakeState.put("crate", %{"key" => "C-1", "links" => %{"in_box" => ["B-1"]}})
+      FakeFacts.put("crate", %{"key" => "C-1", "links" => %{"in_box" => ["B-1"]}})
       :ok = AtlasBus.attach("tester-#{System.unique_integer([:positive])}")
 
       {:stored, _} =
         AtlasFlow.Talk.put("crate", %{"op" => "change", "key" => "C-1", "values" => %{}})
 
       eventually(fn -> not alive("B-1") end)
-      fact = FakeState.get("box", "B-1")
+      fact = FakeFacts.get("box", "B-1")
       refute Map.has_key?(fact["values"], "todo")
       assert fact["links"]["owned_by"] == []
-      assert List.last(FakeState.sent())["cause"] == "Flow pack: done"
+      assert List.last(FakeFacts.sent())["cause"] == "Flow pack: done"
     end
 
     test "nothing is written when the stored owner and expected already fit (safe to repeat)" do
-      FakeState.put("box", %{
+      FakeFacts.put("box", %{
         "key" => "B-1",
         "values" => %{"todo" => "Pack it"},
         "links" => %{"owned_by" => ["bob"]}
@@ -331,23 +331,23 @@ defmodule AtlasFlowTest do
       server = engine()
       :ok = Engine.round(server)
       Process.sleep(100)
-      assert FakeState.sent() == []
+      assert FakeFacts.sent() == []
       assert alive("B-1")
     end
 
     test "the hint of Flow's own write is passed over; a walk up reads plainly" do
-      FakeState.put("box", %{"key" => "B-1", "progress" => %{"value" => "check"}})
-      FakeState.put("crate", %{"key" => "C-1", "links" => %{"in_box" => ["B-1"]}})
+      FakeFacts.put("box", %{"key" => "B-1", "progress" => %{"value" => "check"}})
+      FakeFacts.put("crate", %{"key" => "C-1", "links" => %{"in_box" => ["B-1"]}})
       server = engine()
-      eventually(fn -> FakeState.get("box", "B-1")["values"]["todo"] == "Check it" end)
+      eventually(fn -> FakeFacts.get("box", "B-1")["values"]["todo"] == "Check it" end)
       # The write was Flow's last read or write; the engine has its hint by now.
       _ = :sys.get_state(server)
-      {settled, _} = FakeState.reads()
+      {settled, _} = FakeFacts.reads()
 
       # Flow's own write came back as a hint: nothing read again for it, not even after a
       # poke's settle time (50 ms).
       Process.sleep(150)
-      assert {^settled, _} = FakeState.reads()
+      assert {^settled, _} = FakeFacts.reads()
 
       # Someone else's change to the crate walks up to the box, reading the crate plainly.
       :ok = AtlasBus.attach("tester-#{System.unique_integer([:positive])}")
@@ -355,13 +355,13 @@ defmodule AtlasFlowTest do
       {:stored, _} =
         AtlasFlow.Talk.put("crate", %{"op" => "change", "key" => "C-1", "values" => %{}})
 
-      eventually(fn -> elem(FakeState.reads(), 1) >= 2 end)
+      eventually(fn -> elem(FakeFacts.reads(), 1) >= 2 end)
     end
 
     test "an owner set by hand stays while the state stays; a new state moves it" do
-      FakeState.put("clerk", %{"key" => "cy"})
+      FakeFacts.put("clerk", %{"key" => "cy"})
 
-      FakeState.put("box", %{
+      FakeFacts.put("box", %{
         "key" => "B-1",
         "values" => %{"todo" => "Pack it"},
         "links" => %{"owned_by" => ["cy"]},
@@ -371,12 +371,12 @@ defmodule AtlasFlowTest do
       engine()
       Process.sleep(200)
       # Packing still: cy, whom ada chose, stays.
-      assert FakeState.sent() == []
+      assert FakeFacts.sent() == []
 
       # All in it is packed: a new state, and its owner.
-      FakeState.put(
+      FakeFacts.put(
         "box",
-        Map.put(FakeState.get("box", "B-1"), "progress", %{"value" => "check"})
+        Map.put(FakeFacts.get("box", "B-1"), "progress", %{"value" => "check"})
       )
 
       :ok = AtlasBus.attach("tester-#{System.unique_integer([:positive])}")
@@ -384,17 +384,17 @@ defmodule AtlasFlowTest do
       {:stored, _} =
         AtlasFlow.Talk.put("box", %{"op" => "change", "key" => "B-1", "values" => %{}})
 
-      eventually(fn -> FakeState.get("box", "B-1")["links"]["owned_by"] == ["ada"] end)
+      eventually(fn -> FakeFacts.get("box", "B-1")["links"]["owned_by"] == ["ada"] end)
     end
 
     test "with a state field, the state's name is written; alone it moves no owner" do
-      FakeState.set_description(
-        FakeState.description(Map.put(FakeState.flow(), "state_field", "step"))
+      FakeFacts.set_description(
+        FakeFacts.description(Map.put(FakeFacts.flow(), "state_field", "step"))
       )
 
-      FakeState.put("clerk", %{"key" => "cy"})
+      FakeFacts.put("clerk", %{"key" => "cy"})
 
-      FakeState.put("box", %{
+      FakeFacts.put("box", %{
         "key" => "B-1",
         "values" => %{"todo" => "Pack it"},
         "links" => %{"owned_by" => ["cy"]},
@@ -402,32 +402,32 @@ defmodule AtlasFlowTest do
       })
 
       engine()
-      eventually(fn -> FakeState.get("box", "B-1")["values"]["step"] == "packing" end)
+      eventually(fn -> FakeFacts.get("box", "B-1")["values"]["step"] == "packing" end)
       # Only the name: what is expected was right, and cy, whom ada chose, stays.
-      assert [%{"values" => %{"step" => "packing"}} = sent] = FakeState.sent()
+      assert [%{"values" => %{"step" => "packing"}} = sent] = FakeFacts.sent()
       refute Map.has_key?(sent, "links")
-      assert FakeState.get("box", "B-1")["links"]["owned_by"] == ["cy"]
+      assert FakeFacts.get("box", "B-1")["links"]["owned_by"] == ["cy"]
     end
 
     test "handed over before Flow's first look: the first look writes what is expected only" do
-      FakeState.put("clerk", %{"key" => "cy"})
+      FakeFacts.put("clerk", %{"key" => "cy"})
 
       # Made a moment ago, nothing expected yet, and already handed to cy by ada.
-      FakeState.put("box", %{
+      FakeFacts.put("box", %{
         "key" => "B-1",
         "links" => %{"owned_by" => ["cy"]},
         "origins" => %{"owned_by" => %{"keys" => ["cy"], "by" => "ada", "cause" => "handed"}}
       })
 
       engine()
-      eventually(fn -> FakeState.get("box", "B-1")["values"]["todo"] == "Pack it" end)
-      assert [%{"values" => %{"todo" => "Pack it"}} = sent] = FakeState.sent()
+      eventually(fn -> FakeFacts.get("box", "B-1")["values"]["todo"] == "Pack it" end)
+      assert [%{"values" => %{"todo" => "Pack it"}} = sent] = FakeFacts.sent()
       refute Map.has_key?(sent, "links")
-      assert FakeState.get("box", "B-1")["links"]["owned_by"] == ["cy"]
+      assert FakeFacts.get("box", "B-1")["links"]["owned_by"] == ["cy"]
     end
 
     test "an owner Flow, a migration or nobody set follows the state" do
-      FakeState.put("box", %{
+      FakeFacts.put("box", %{
         "key" => "B-1",
         "values" => %{"todo" => "Pack it"},
         "links" => %{"owned_by" => ["ada"]},
@@ -435,64 +435,64 @@ defmodule AtlasFlowTest do
       })
 
       engine()
-      eventually(fn -> FakeState.get("box", "B-1")["links"]["owned_by"] == ["bob"] end)
-      assert [%{"values" => values, "links" => %{"owned_by" => ["bob"]}}] = FakeState.sent()
+      eventually(fn -> FakeFacts.get("box", "B-1")["links"]["owned_by"] == ["bob"] end)
+      assert [%{"values" => values, "links" => %{"owned_by" => ["bob"]}}] = FakeFacts.sent()
       assert values == %{}
     end
 
     test "an owner that does not exist yet: what is expected is written, the owner waits" do
-      FakeState.put("box", %{"key" => "B-1", "progress" => %{"value" => "check"}})
-      GenServer.call(FakeState, {:drop, "clerk", "ada"})
+      FakeFacts.put("box", %{"key" => "B-1", "progress" => %{"value" => "check"}})
+      GenServer.call(FakeFacts, {:drop, "clerk", "ada"})
       engine()
-      eventually(fn -> FakeState.get("box", "B-1")["values"]["todo"] == "Check it" end)
-      assert [%{"values" => %{"todo" => "Check it"}} = sent] = FakeState.sent()
+      eventually(fn -> FakeFacts.get("box", "B-1")["values"]["todo"] == "Check it" end)
+      assert [%{"values" => %{"todo" => "Check it"}} = sent] = FakeFacts.sent()
       refute Map.has_key?(sent, "links")
 
       # Once the owner is made, the fact gets it at once.
-      FakeState.put("clerk", %{"key" => "ada"})
+      FakeFacts.put("clerk", %{"key" => "ada"})
       :ok = AtlasBus.attach("tester-#{System.unique_integer([:positive])}")
 
       {:stored, _} =
         AtlasFlow.Talk.put("clerk", %{"op" => "create", "key" => "ada", "values" => %{}})
 
-      eventually(fn -> FakeState.get("box", "B-1")["links"]["owned_by"] == ["ada"] end)
+      eventually(fn -> FakeFacts.get("box", "B-1")["links"]["owned_by"] == ["ada"] end)
     end
 
-    test "State does not answer whether the owner exists: nothing is written, not half" do
-      FakeState.put("box", %{"key" => "B-1", "progress" => %{"value" => "check"}})
-      GenServer.call(FakeState, {:busy, "clerk", "ada"})
+    test "Facts does not answer whether the owner exists: nothing is written, not half" do
+      FakeFacts.put("box", %{"key" => "B-1", "progress" => %{"value" => "check"}})
+      GenServer.call(FakeFacts, {:busy, "clerk", "ada"})
       engine()
-      eventually(fn -> elem(FakeState.reads(), 1) >= 1 and alive("B-1") end)
+      eventually(fn -> elem(FakeFacts.reads(), 1) >= 1 and alive("B-1") end)
       Process.sleep(200)
-      assert FakeState.sent() == []
+      assert FakeFacts.sent() == []
 
-      # State answers again: the next look writes both, in one change.
-      GenServer.call(FakeState, {:free, "clerk", "ada"})
+      # Facts answers again: the next look writes both, in one change.
+      GenServer.call(FakeFacts, {:free, "clerk", "ada"})
       :ok = AtlasBus.attach("tester-#{System.unique_integer([:positive])}")
 
       {:stored, _} =
         AtlasFlow.Talk.put("box", %{"op" => "change", "key" => "B-1", "values" => %{}})
 
-      eventually(fn -> FakeState.get("box", "B-1")["links"]["owned_by"] == ["ada"] end)
+      eventually(fn -> FakeFacts.get("box", "B-1")["links"]["owned_by"] == ["ada"] end)
 
       assert [%{"values" => %{"todo" => "Check it"}, "links" => %{"owned_by" => ["ada"]}}] =
-               Enum.filter(FakeState.sent(), &(&1["by"] == "flow"))
+               Enum.filter(FakeFacts.sent(), &(&1["by"] == "flow"))
     end
 
     test "a fact made later gets its process from its hint" do
       engine()
-      FakeState.put("box", %{"key" => "B-7"})
+      FakeFacts.put("box", %{"key" => "B-7"})
       :ok = AtlasBus.attach("tester-#{System.unique_integer([:positive])}")
 
       {:stored, _} =
         AtlasFlow.Talk.put("box", %{"op" => "change", "key" => "B-7", "values" => %{}})
 
-      eventually(fn -> FakeState.get("box", "B-7")["values"]["todo"] == "Pack it" end)
+      eventually(fn -> FakeFacts.get("box", "B-7")["values"]["todo"] == "Pack it" end)
       assert alive("B-7")
     end
 
-    test "a crashed process is started again and goes on from State" do
-      FakeState.put("box", %{"key" => "B-1"})
+    test "a crashed process is started again and goes on from Facts" do
+      FakeFacts.put("box", %{"key" => "B-1"})
       engine()
       eventually(fn -> alive("B-1") end)
       [{pid, _}] = Registry.lookup(AtlasFlow.Items, {"box", "B-1"})

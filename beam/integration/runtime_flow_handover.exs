@@ -4,7 +4,7 @@ ExUnit.start(seed: 0)
 defmodule RuntimeFlowHandoverTest do
   use ExUnit.Case, async: false
 
-  alias AtlasRuntime.{Engine, FakeState}
+  alias AtlasRuntime.{Engine, FakeFacts}
 
   @moduletag :tmp_dir
 
@@ -24,7 +24,7 @@ defmodule RuntimeFlowHandoverTest do
     end)
 
     # Umbrella Flow tests may leave item processes under their application supervisor.
-    # None may reconcile against this test's replacement State endpoint.
+    # None may reconcile against this test's replacement Facts endpoint.
     if Process.whereis(AtlasFlow.Supervisor) do
       for {_, pid, _, _} <- DynamicSupervisor.which_children(AtlasFlow.Supervisor),
           do: DynamicSupervisor.terminate_child(AtlasFlow.Supervisor, pid)
@@ -32,17 +32,17 @@ defmodule RuntimeFlowHandoverTest do
       eventually(fn -> Registry.count(AtlasFlow.Items) == 0 end)
     end
 
-    start_supervised!(FakeState)
-    FakeState.put("clerk", %{"key" => "ada"})
-    FakeState.put("clerk", %{"key" => "bob"})
+    start_supervised!(FakeFacts)
+    FakeFacts.put("clerk", %{"key" => "ada"})
+    FakeFacts.put("clerk", %{"key" => "bob"})
     %{dir: dir}
   end
 
   # Ada's box: its card is hers, and its flow has a state for it.
   defp box(owner \\ "ada", step \\ "packing") do
-    FakeState.put("box", %{"key" => "B-1", "links" => %{"card" => ["C-B-1"]}})
+    FakeFacts.put("box", %{"key" => "B-1", "links" => %{"card" => ["C-B-1"]}})
 
-    FakeState.put("card", %{
+    FakeFacts.put("card", %{
       "key" => "C-B-1",
       "values" => %{"step" => step},
       "links" => %{"owned_by" => List.wrap(owner)}
@@ -68,7 +68,7 @@ defmodule RuntimeFlowHandoverTest do
     start_supervised!({Engine, opts})
   end
 
-  defp run(key), do: FakeState.get("run", key)
+  defp run(key), do: FakeFacts.get("run", key)
 
   defp eventually(fun, tries \\ 200) do
     cond do
@@ -83,9 +83,9 @@ defmodule RuntimeFlowHandoverTest do
   for ending <- [:outcome, :crash, :silence, :restart] do
     test "a pending handover cannot be starved after #{ending}", %{dir: dir} do
       box()
-      card = FakeState.get("card", "C-B-1")
+      card = FakeFacts.get("card", "C-B-1")
 
-      FakeState.put(
+      FakeFacts.put(
         "card",
         Map.put(card, "origins", %{
           "owned_by" => %{"by" => "human", "position" => 1}
@@ -107,11 +107,11 @@ defmodule RuntimeFlowHandoverTest do
       {:ok, _} = Application.ensure_all_started(:atlas_flow)
       flow = start_supervised!({AtlasFlow.Item, {"box", "B-1", [every: 3_600_000]}})
       :sys.get_state(flow)
-      item = FakeState.get("box", "B-1") |> put_in(["values", "phase"], "check")
-      FakeState.put("box", item)
+      item = FakeFacts.get("box", "B-1") |> put_in(["values", "phase"], "check")
+      FakeFacts.put("box", item)
       send(flow, :look)
       :sys.get_state(flow)
-      card = FakeState.get("card", "C-B-1")
+      card = FakeFacts.get("card", "C-B-1")
       assert card["values"]["later"] != nil
       assert card["links"]["owned_by"] == ["ada"]
       :sys.suspend(flow)
@@ -124,7 +124,7 @@ defmodule RuntimeFlowHandoverTest do
 
       case unquote(ending) do
         :outcome ->
-          FakeState.put("run", put_in(run("R-C-B-1-1"), ["values", "result"], "packed it"))
+          FakeFacts.put("run", put_in(run("R-C-B-1-1"), ["values", "result"], "packed it"))
           Engine.round(runtime)
 
         :crash ->
@@ -151,14 +151,14 @@ defmodule RuntimeFlowHandoverTest do
       Engine.round(runtime)
       settle_turns()
       assert run("R-C-B-1-2") == nil
-      assert FakeState.get("card", "C-B-1")["links"]["owned_by"] == ["ada"]
+      assert FakeFacts.get("card", "C-B-1")["links"]["owned_by"] == ["ada"]
 
       :sys.resume(flow)
-      # A fresh Flow process must also recover the pending transfer from State.
+      # A fresh Flow process must also recover the pending transfer from Facts.
       stop_supervised!(AtlasFlow.Item)
       flow = start_supervised!({AtlasFlow.Item, {"box", "B-1", [every: 3_600_000]}})
       :sys.get_state(flow)
-      card = FakeState.get("card", "C-B-1")
+      card = FakeFacts.get("card", "C-B-1")
       assert card["links"]["owned_by"] == ["bob"]
       assert card["values"]["later"] == nil
       Engine.round(runtime)
@@ -175,7 +175,7 @@ defmodule RuntimeFlowHandoverTest do
   test "Flow can cancel a stale handover and allow the retained owner to continue", %{dir: dir} do
     box()
 
-    FakeState.put("card", %{
+    FakeFacts.put("card", %{
       "key" => "C-B-1",
       "values" => %{
         "step" => "packing",
@@ -189,13 +189,13 @@ defmodule RuntimeFlowHandoverTest do
     runtime = engine(dir, every: 3_600_000)
     Engine.round(runtime)
     settle_turns()
-    assert FakeState.all("run") == []
+    assert FakeFacts.all("run") == []
 
     {:ok, _} = Application.ensure_all_started(:atlas_flow)
     flow = start_supervised!({AtlasFlow.Item, {"box", "B-1", [every: 3_600_000]}})
     :sys.get_state(flow)
-    assert FakeState.get("card", "C-B-1")["values"]["later"] == nil
-    assert FakeState.get("card", "C-B-1")["links"]["owned_by"] == ["ada"]
+    assert FakeFacts.get("card", "C-B-1")["values"]["later"] == nil
+    assert FakeFacts.get("card", "C-B-1")["links"]["owned_by"] == ["ada"]
     Engine.round(runtime)
     settle_turns()
     assert run("R-C-B-1-1")["links"]["run_by"] == ["ada"]

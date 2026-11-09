@@ -1,7 +1,7 @@
 defmodule AtlasRuntime.ClaudeProtocolProbe do
   @moduledoc """
   Offline source-derived protocol probe, compiled only in test.
-  No executable selection, live adapter, State writes or native capability claims.
+  No executable selection, live adapter, Facts writes or native capability claims.
   One pending immutable input; observations are bounded booleans, never receipts.
   """
   alias AtlasRuntime.Agent.Input

@@ -8,16 +8,16 @@ The selected description maps execution, interaction and receipt roles to kinds 
 properties. Foundation supplies the three immutable entities. No organisation-specific work kinds
 appear in the BEAM protocol; existing turn/Assignment links resolve the work item.
 
-All writes travel over Bus to State, using an operation and semantic values.
+All writes travel over Bus to Facts, using an operation and semantic values.
 Execution registration requires the durable running turn, worker, machine and
 attempt. Only the owning Runtime machine or exact turn endpoint may register it
 or publish receipts. The Bus link binds remote machine identity. Fenced turn
-machine/attempt fields cannot be replaced through generic State writes. A failed
+machine/attempt fields cannot be replaced through generic Facts writes. A failed
 turn read refuses before ordinary storage. Only confirmed absence permits new turn
 creation; successfully read unfenced turns retain compatibility. IS-108 introduces
 their Runtime fences.
 
-Confirmed absence alone does not authorize deleting a turn. State retains deletion
+Confirmed absence alone does not authorize deleting a turn. Facts retains deletion
 provenance in its private ledger: the full effective request (environment, Bus
 sender, kind, payload) and the authorized machine/attempt/version. After ordinary
 validation, this intent is synced immediately before the backend delete. Stored
@@ -30,28 +30,28 @@ Changed sender/target/payload cannot borrow an old request id or deletion proof;
 a reappearing target or replacement attempt cannot receive an old deletion. Old
 unbound ledger entries are not guessed into authority. An already answered but
 unbound id conflicts before either a present-target cache lookup or an absent-target
-proof can bind it, including ordinary acknowledgements created by the current State.
+proof can bind it, including ordinary acknowledgements created by Facts as it is now.
 The original answer stays unchanged and no deletion binding is added. Only an unused
 id or an exact bound deletion request can enter those recovery paths.
 This adds private ledger
 keys, not schema entities or a data conversion.
 
 Interaction submission also carries by, asserted by an admitted Control session.
-State refuses injected actor/environment/timestamp/position values. This retains
+Facts refuses injected actor/environment/timestamp/position values. This retains
 the existing admitted-client identity model. Local BEAM applications are trusted.
 Control derives the client actor and checks current eligibility as described below.
 
-State refuses ordinary CRUD on these roles. Identity scopes are:
+Facts refuses ordinary CRUD on these roles. Identity scopes are:
 - execution: environment, turn, attempt;
 - interaction: environment, actor, client key;
 - receipt: environment, interaction, evidence ID.
 
-Atomic backend create claims the identity. On an existing key State compares the
+Atomic backend create claims the identity. On an existing key Facts compares the
 complete immutable payload, including body bytes, target, mode and cause. Identical
 replay returns the original record and current receipts; changed payload conflicts.
 A new client key deliberately makes another interaction. No expiry or purge exists.
 
-State reserves durable ordering before storage and persists the position with each
+Facts reserves durable ordering before storage and persists the position with each
 record. Gaps are allowed. A lost storage response cannot change its creation position.
 Writer and payload checks precede every reply, bypassing the envelope answer cache.
 
@@ -72,7 +72,7 @@ Interaction create/replay/exact reads return immutable identity, a bounded proje
 and receipt_count, never an embedded evidence history. Read the receipt role with
 interaction=<key> and optional after_position/limit to traverse retained evidence.
 Interaction pages select execution=<key>. Both collections are ordered by durable
-State position, at most 100 records and 64 KiB of encoded JSON payload per page;
+Facts position, at most 100 records and 64 KiB of encoded JSON payload per page;
 after_position/more continue after the last included record. Byte limits can make a
 page shorter than its requested record count. The whole retained history stays
 immutable; no evidence is purged or truncated to satisfy response limits.
@@ -85,11 +85,11 @@ newly reserved position cannot invalidate an already admitted boundary record.
 Exact record reads enforce those bounds too. An out-of-contract
 oversized retained record fails visibly rather than returning a non-advancing empty
 page or silently discarding its contents. Summary projections retain only bounded
-proof/uncertainty/closure state, regardless of evidence count. Control wraps State
+proof/uncertainty/closure state, regardless of evidence count. Control wraps Facts
 positions in execution- and viewer-scoped opaque cursors.
 
 The current backend still scans collections internally; indexed storage can replace
-that through State/Rela. Response bounds are not an indexed-query guarantee. All
+that through Facts/Rela. Response bounds are not an indexed-query guarantee. All
 receipts remain durable history, separate from future bounded token output.
 
 The schema adds three kinds and optional turn attempt. Tests preserve every previous
@@ -129,7 +129,7 @@ admitted actor keys, not actor kinds:
 This fragment accompanies the existing execution/interaction/receipt mappings;
 it does not replace them. Read permits worker inspection and retained history.
 Submit is independent. Missing, malformed or unlisted grants deny; Control also
-confirms the admitted actor still exists in State. Request payloads cannot choose
+confirms the admitted actor still exists in Facts. Request payloads cannot choose
 the actor. This retains the admitted-Control-session trust model, not a new
 authentication mechanism. No production grants are enabled by this change.
 
@@ -148,14 +148,14 @@ eligibility (for example `stale_execution`); it never grants guidance capability
 Forbidden or mismatched targets do not disclose the state or its reason.
 
 Guidance contains only `client_key`, literal `body` and `cause`. Slash-prefixed
-text is not a Runtime command. A stored State interaction means queued, never
+text is not a Runtime command. A stored Facts interaction means queued, never
 delivered. Exact same-key retries return the original immutable interaction even
 after the turn closes; different body, cause or target conflicts. Control never
 automatically resends a guidance write. An acknowledgement timeout reports
 `outcome_unknown`; `worker_query` with the original actor/client key and target
 recovers the durable outcome without replay.
 
-History and receipt responses request at most 50 State records and retain State's
+History and receipt responses request at most 50 Facts records and retain Facts'
 64-KiB page bounds. Cursors bind environment, viewer, execution and, for receipts,
 interaction. They are pagination state, not authorization credentials. Queries
 never turn another actor's submission into the caller's. Historical evidence
@@ -172,7 +172,7 @@ conversation rendering and live token output are separate client work.
 Shell configuration may include a `/workers` tab without introducing a new block.
 
 `beam/integration/worker_control.exs` exercises actual TCP Control sessions,
-Bus and State with a private durable synthetic backend. Its e2e entry point is
+Bus and Facts with a private durable synthetic backend. Its e2e entry point is
 `e2e/test/worker_control_test.exs`. It proves named grants, exact fencing, literal
 form submission, two-client history, duplicate conflicts, scoped paging, reconnect,
 unsupported adapters and recovery after a real post-commit lost acknowledgement.
@@ -186,14 +186,14 @@ output ring does not establish queued-input support or prove guidance consumptio
 use a separate admitted Control connection with the same typed request correlation.
 The first valid output operation reserves that connection for output; ordinary
 commands and guidance stay on the main connection. Each subscribe and next request
-reauthorizes the exact execution through State before reading Runtime. Missing
+reauthorizes the exact execution through Facts before reading Runtime. Missing
 permission never returns a worker view.
 
 Control addresses `request` envelopes of kind `runtime.output` to
 `runtime@<machine>/output`. The authenticated Bus link permits only the designated
 machine endpoint and `control/*` request senders; Runtime answers preserve the
 request ID. Control checks sender, address, environment, ID and typed execution.
-Output creates no State facts, positions or hints.
+Output creates no Facts facts, positions or hints.
 
 Each connection owns one active subscription. Aggregate admission is limited to
 128 viewers; process death and unsubscribe release admission. Output connections
@@ -232,7 +232,7 @@ it must still bind receipts only to a selected loaded record for the exact execu
 Focused Control output tests cover ownership, revoked access, reset facts, missing
 rings, invalid cursors, correlation and admission cleanup. The private
 `beam/integration/worker_control.exs` path also exercises real TCP Control, Bus,
-State and Runtime output store/endpoint delivery with two viewers, retention gaps,
+Facts and Runtime output store/endpoint delivery with two viewers, retention gaps,
 forbidden-view suppression, invalid-cursor refusal, continued production after
 unsubscribe, and explicit epoch reset after replacing only the private output
 store/endpoint. This is not a claim that the full Console conversation acceptance

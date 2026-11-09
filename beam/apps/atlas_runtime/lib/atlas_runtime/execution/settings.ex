@@ -6,7 +6,7 @@ defmodule AtlasRuntime.Settings do
   v4, section 10.4): `silence_seconds` (a turn without activity this long ends, 600),
   `max_seconds` (the longest a turn runs, 7200), `lease_seconds` (how often a turn's lease
   is renewed while there is activity, 60) and `round_seconds` (how often it reconciles the
-  turns with State, 60, and at once on a hint). An agent's own `silence_seconds` and
+  turns with Facts, 60, and at once on a hint). An agent's own `silence_seconds` and
   `max_seconds` win over the machine's, and so does its `leave_grace_seconds` (10): how long
   a turn whose item left its agent may still end by itself, so its result is kept, before
   it is stopped (IS-Atlas-93). `crash_pause_seconds` (10) is the first pause after

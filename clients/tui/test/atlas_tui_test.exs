@@ -832,10 +832,10 @@ defmodule AtlasTuiTest do
       Model.message(model(@list), %{
         "op" => "notice",
         "tone" => "pending",
-        "text" => "Sent to State; waiting until it is stored…"
+        "text" => "Sent to Facts; waiting until it is stored…"
       })
 
-    assert screen(m) =~ "… Sent to State"
+    assert screen(m) =~ "… Sent to Facts"
 
     gone = Model.disconnected(m)
     assert screen(gone) =~ "Not connected to Control. Retrying…"

@@ -453,7 +453,7 @@ defmodule AtlasControl.PagesTest do
           |> put_in(["entities", "part", "progress"], %{"over" => "on_part"})
           |> put_in(["entities", "widget", "properties", "shade", "label"], "Look")
 
-  test "a list shows how far each fact is, as State works it out, in place of its own field" do
+  test "a list shows how far each fact is, as Facts works it out, in place of its own field" do
     answer = %{
       "facts" => [
         Map.put(fact("W-1", %{"title" => "One", "shade" => "dark"}), "progress", %{
@@ -994,7 +994,7 @@ defmodule AtlasControl.PagesTest do
   end
 
   # Tasks are made and deleted with something else, changed by hand only; each has an
-  # optional time it is due, and is late (State says) once that has passed.
+  # optional time it is due, and is late (Facts says) once that has passed.
   @due @d
        |> put_in(["entities", "task"], %{
          "label" => "Task",
@@ -1028,7 +1028,7 @@ defmodule AtlasControl.PagesTest do
     assert Enum.map(item["actions"], & &1["key"]) == ["u"]
     assert %{"label" => "Due", "value" => "2026-11-04 11:00 UTC · overdue"} in item["fields"]
 
-    # Not late (State left it out): the time alone.
+    # Not late (Facts left it out): the time alone.
     answers = [%{"fact" => Map.delete(task, "late")} | tl(answers)]
     %{blocks: [%{"props" => item} | _]} = Pages.render({:item, "task", "T-1"}, @due, answers)
     assert %{"label" => "Due", "value" => "2026-11-04 11:00 UTC"} in item["fields"]
@@ -1389,7 +1389,7 @@ defmodule AtlasControl.PagesTest do
              )
   end
 
-  test "a relation to several kinds: the row opens the kind State says the key is" do
+  test "a relation to several kinds: the row opens the kind Facts says the key is" do
     answer = %{
       "fact" =>
         fact("W-1", %{"title" => "One"})
@@ -1891,9 +1891,9 @@ defmodule AtlasControl.PagesTest do
       {title, confirm["text"]}
     end
 
-    assert page.(%{"error" => "State did not answer"}) ==
-             {"State did not answer",
-              "State did not answer. Showing nothing rather than something old."}
+    assert page.(%{"error" => "Facts did not answer"}) ==
+             {"Facts did not answer",
+              "Facts did not answer. Showing nothing rather than something old."}
 
     assert {"rela is not reachable", "rela is not reachable. " <> _} =
              page.(%{"error" => "rela is not reachable", "error_kind" => "unreachable"})

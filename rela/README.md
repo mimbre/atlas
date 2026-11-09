@@ -33,7 +33,7 @@ image starts rela with native includes. No data migration is needed.
 Run `python3 -m unittest discover -s rela/tests -v`, pinned `rela --project rela
 validate`, and private e2e before delivery. `tests/fixtures/baseline-schema.yaml`
 is the delivered #79 schema: tests lock definitions and property/form order.
-`atlas.json` remains the single extension consumed by State. It is generated from
+`atlas.json` remains the single extension consumed by Facts. It is generated from
 `compositions/atlas-eyra/sources.json`; edit a listed module/composition fragment,
 then run the assembler with the pinned rela CLI installed:
 
@@ -46,7 +46,7 @@ Each map leaf has one author (even identical duplicates fail). Whole arrays have
 one owner. The bounded assembler rejects unknown annotation keys, schema structural
 overrides, dangling fields/relations/types, ambiguous parents, overlapping flows
 and shortcut collisions. It calls pinned rela validation and the actual generic
-`AtlasState.Flows.check`, without starting an application. Optional `--actors file`
+`AtlasFacts.Flows.check`, without starting an application. Optional `--actors file`
 checks an inventory obtained through Control, shaped `{kind: [keys]}`; actor facts
 are never shipped as configuration. Actor existence is also reconciled by Flow.
 

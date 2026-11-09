@@ -15,7 +15,7 @@ defmodule AtlasBus.Link do
   - Addressed requests cross only from Control (`control/<name>`) to the authenticated
     machine's exact `runtime@<machine>/output` endpoint, with kind `runtime.output`.
     That endpoint may answer Control with the same kind. Neither direction carries a
-    State position. Remote machines cannot send requests. Other read/fact/answer
+    Facts position. Remote machines cannot send requests. Other read/fact/answer
     permissions stay unchanged. The Bus preserves IDs and content; callers correlate
     replies against the requested ID and exact Runtime sender.
 

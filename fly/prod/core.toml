@@ -1,4 +1,4 @@
-# The core of Atlas prod on Fly (Bus, State, Flow, Control; IS-Atlas-79). Deployed from the
+# The core of Atlas prod on Fly (Bus, Facts, Flow, Control; IS-Atlas-79). Deployed from the
 # repository root by CI on a merge to master:
 #   fly deploy . --config fly/prod/core.toml --dockerfile fly/core.Dockerfile
 # No [[services]] and no public address: clients reach Control on prod's own private

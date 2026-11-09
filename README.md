@@ -9,7 +9,7 @@ The BEAM side runs the system. rela describes it. Entities, schemas, flows and t
 ## Main parts
 
 - **Bus**: the only way the layers talk to each other. A layer depends on the Bus and on nothing else.
-- **State**: stores facts in rela. Connectors to outside systems sit at its edge.
+- **Facts**: stores facts in rela. Connectors to outside systems sit at its edge.
 - **Flow**: moves each open fact on, following a flow definition, and says what its owner should do.
 - **Control**: the one interface for clients. It serves pages and forms, described by the BFF contract.
 - **Runtime**: runs agent workers and their executions on a machine.
@@ -20,7 +20,7 @@ The BEAM side runs the system. rela describes it. Entities, schemas, flows and t
 
 | Path | What |
 |---|---|
-| `beam/` | The BEAM umbrella: one application per layer (`atlas_bus`, `atlas_state`, `atlas_flow`, `atlas_control`, `atlas_runtime`, `atlas_code`). |
+| `beam/` | The BEAM umbrella: one application per layer (`atlas_bus`, `atlas_facts`, `atlas_flow`, `atlas_control`, `atlas_runtime`, `atlas_code`). |
 | `bff/` | Control's contract: the generator, the contract itself, and the generated targets. See [bff/README.md](bff/README.md). |
 | `rela/` | rela's description of every entity Atlas knows. See [rela/README.md](rela/README.md). |
 | `clients/` | The Console (`tui/`), the agents' command line (`agent/`) and the Runtime viewer (`viewer/`, see [its README](clients/viewer/README.md)). |

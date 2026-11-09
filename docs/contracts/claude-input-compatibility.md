@@ -10,7 +10,7 @@ uses --no-session-persistence, and defaults unsupported through Agent's optional
 interface. Start/stop, broker, sandbox, actor/environment, tool allowlist and
 budget/model settings are unchanged. No OMP adoption, SDK dependency, model call,
 session resurrection or Runtime receipt integration is introduced. IS108 owns
-admission and State receipt writes.
+admission and Facts receipt writes.
 
 ## Pinned evidence
 

@@ -1,7 +1,7 @@
 # Breakdown in one turn (UC-Atlas-08, IS-Atlas-19)
 
 An agent keeps its scene while its running turn breaks it down. Creating the first
-child updates Expected immediately. Flow saves the deferred handover in State and
+child updates Expected immediately. Flow saves the deferred handover in Facts and
 applies it after Runtime records the turn's end. Restarting Flow loses no handover.
 Runtime treats a nonempty description-defined handover field as a barrier to a new
 turn, while retaining the existing turn's ownership and authority. Only Flow clears

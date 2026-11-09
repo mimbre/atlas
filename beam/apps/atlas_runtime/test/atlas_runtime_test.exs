@@ -1,7 +1,7 @@
 defmodule AtlasRuntimeTest do
   use ExUnit.Case, async: false
 
-  alias AtlasRuntime.{Engine, FakeState}
+  alias AtlasRuntime.{Engine, FakeFacts}
 
   @moduletag :tmp_dir
 
@@ -20,17 +20,17 @@ defmodule AtlasRuntimeTest do
           do: DynamicSupervisor.terminate_child(AtlasRuntime.Supervisor, pid)
     end)
 
-    start_supervised!(FakeState)
-    FakeState.put("clerk", %{"key" => "ada"})
-    FakeState.put("clerk", %{"key" => "bob"})
+    start_supervised!(FakeFacts)
+    FakeFacts.put("clerk", %{"key" => "ada"})
+    FakeFacts.put("clerk", %{"key" => "bob"})
     %{dir: dir}
   end
 
   # Ada's box: its card is hers, and its flow has a state for it.
   defp box(owner \\ "ada", step \\ "packing") do
-    FakeState.put("box", %{"key" => "B-1", "links" => %{"card" => ["C-B-1"]}})
+    FakeFacts.put("box", %{"key" => "B-1", "links" => %{"card" => ["C-B-1"]}})
 
-    FakeState.put("card", %{
+    FakeFacts.put("card", %{
       "key" => "C-B-1",
       "values" => %{"step" => step},
       "links" => %{"owned_by" => List.wrap(owner)}
@@ -58,7 +58,7 @@ defmodule AtlasRuntimeTest do
 
   defp mode(dir, agent, mode), do: File.write!(Path.join(dir, agent), mode)
 
-  defp run(key), do: FakeState.get("run", key)
+  defp run(key), do: FakeFacts.get("run", key)
 
   defp eventually(fun, tries \\ 200) do
     cond do
@@ -78,19 +78,19 @@ defmodule AtlasRuntimeTest do
     runtime = engine(dir, every: 3_600_000)
     eventually(fn -> run("R-C-B-1-1") != nil end)
     [{turn, _}] = Registry.lookup(AtlasRuntime.Turns, "R-C-B-1-1")
-    held = FakeState.hold_read("card", %{"linked" => %{"owned_by" => "ada"}, "plain" => true})
+    held = FakeFacts.hold_read("card", %{"linked" => %{"owned_by" => "ada"}, "plain" => true})
     round = Task.async(fn -> Engine.round(runtime) end)
     assert_receive {:held_read, ^held}, 3_000
 
     # Runtime's ownership answer is already captured. Flow commits its handover,
     # then the live turn ends before Runtime receives that old answer.
-    card = FakeState.get("card", "C-B-1") |> put_in(["values", "later"], "pending")
-    FakeState.put("card", card)
+    card = FakeFacts.get("card", "C-B-1") |> put_in(["values", "later"], "pending")
+    FakeFacts.put("card", card)
     ref = Process.monitor(turn)
     AtlasRuntime.Turn.finish(turn, "the agent ended its turn: packed it")
     assert_receive {:DOWN, ^ref, :process, ^turn, :normal}, 3_000
     eventually(fn -> Registry.lookup(AtlasRuntime.Turns, "R-C-B-1-1") == [] end)
-    FakeState.release_read()
+    FakeFacts.release_read()
     Task.await(round)
     settle_turns()
     assert run("R-C-B-1-1")["values"]["reason"] == "the agent ended its turn: packed it"
@@ -105,7 +105,7 @@ defmodule AtlasRuntimeTest do
     eventually(fn -> run("R-C-B-1-1") != nil end)
     [{turn, _}] = Registry.lookup(AtlasRuntime.Turns, "R-C-B-1-1")
     ref = Process.monitor(turn)
-    FakeState.put("run", put_in(run("R-C-B-1-1"), ["values", "result"], "packed one part"))
+    FakeFacts.put("run", put_in(run("R-C-B-1-1"), ["values", "result"], "packed one part"))
     Engine.round(runtime)
     assert_receive {:DOWN, ^ref, :process, ^turn, :normal}, 3_000
     eventually(fn -> Registry.lookup(AtlasRuntime.Turns, "R-C-B-1-1") == [] end)
@@ -124,7 +124,7 @@ defmodule AtlasRuntimeTest do
     DynamicSupervisor.terminate_child(AtlasRuntime.Supervisor, pid)
     eventually(fn -> Registry.lookup(AtlasRuntime.Turns, "R-C-B-1-1") == [] end)
     turn = run("R-C-B-1-1") |> put_in(["values", "result"], "packed it before the restart")
-    FakeState.put("run", turn)
+    FakeFacts.put("run", turn)
     Engine.round(Engine)
 
     assert run("R-C-B-1-1")["values"]["reason"] ==
@@ -138,7 +138,7 @@ defmodule AtlasRuntimeTest do
     engine(dir)
     eventually(fn -> run("R-C-B-1-1") != nil end)
     turn = run("R-C-B-1-1") |> put_in(["values", "result"], "packed it")
-    FakeState.put("run", turn)
+    FakeFacts.put("run", turn)
     Engine.round(Engine)
     eventually(fn -> run("R-C-B-1-1")["values"]["status"] == "over" end)
     assert run("R-C-B-1-1")["values"]["reason"] == "the agent ended its turn: packed it"
@@ -154,16 +154,16 @@ defmodule AtlasRuntimeTest do
     assert turn["values"]["host"] == "here"
     assert turn["links"] == %{"run_on" => ["C-B-1"], "run_by" => ["ada"]}
 
-    [{"run", created} | _] = FakeState.sent()
+    [{"run", created} | _] = FakeFacts.sent()
     assert created["op"] == "create" and created["by"] == "runtime"
     assert created["cause"] == "ada owns C-B-1, and no turn of it runs: a turn (1)"
 
     # The stub is active: the lease is renewed, each time with what the agent did.
     eventually(fn ->
-      Enum.count(FakeState.sent(), &match?({"run", %{"op" => "change"}}, &1)) >= 2
+      Enum.count(FakeFacts.sent(), &match?({"run", %{"op" => "change"}}, &1)) >= 2
     end)
 
-    {"run", renewed} = Enum.find(FakeState.sent(), &match?({"run", %{"op" => "change"}}, &1))
+    {"run", renewed} = Enum.find(FakeFacts.sent(), &match?({"run", %{"op" => "change"}}, &1))
     assert renewed["cause"] =~ ~r/^activity: stub step \d+$/
     assert renewed["values"]["until"] =~ ~r/^\d{4}-\d\d-\d\dT/
     assert run("R-C-B-1-1")["values"]["status"] == "going"
@@ -212,7 +212,7 @@ defmodule AtlasRuntimeTest do
     eventually(fn -> run("R-C-B-1-1")["values"]["status"] == "over" end)
     assert run("R-C-B-1-1")["values"]["reason"] == "C-B-1 is no longer ada's to work on"
     Process.sleep(500)
-    assert FakeState.all("run") |> length() == 1
+    assert FakeFacts.all("run") |> length() == 1
   end
 
   test "a turn whose item left its agent may still end by itself, for the grace", %{dir: dir} do
@@ -247,11 +247,11 @@ defmodule AtlasRuntimeTest do
     # The agent adds children: Flow moves the item to its next state and defers the
     # handover until this turn ends. The item is still ada's.
     card =
-      FakeState.get("card", "C-B-1")
+      FakeFacts.get("card", "C-B-1")
       |> put_in(["values", "step"], "checking")
       |> put_in(["values", "later"], "pending")
 
-    FakeState.put("card", card)
+    FakeFacts.put("card", card)
     Engine.round(Engine)
     settle_turns()
 
@@ -273,7 +273,7 @@ defmodule AtlasRuntimeTest do
     eventually(fn -> run("R-C-B-1-1")["values"]["status"] == "over" end)
     assert run("R-C-B-1-1")["values"]["reason"] == "C-B-1 is no longer ada's to work on"
     Engine.round(Engine)
-    assert FakeState.all("run") |> length() == 1
+    assert FakeFacts.all("run") |> length() == 1
 
     box()
     Engine.round(Engine)
@@ -291,13 +291,13 @@ defmodule AtlasRuntimeTest do
     Engine.round(Engine)
     eventually(fn -> run("R-C-B-1-1")["values"]["status"] == "over" end)
 
-    FakeState.put("run", put_in(run("R-C-B-1-1"), ["values", "result"], "too late"))
+    FakeFacts.put("run", put_in(run("R-C-B-1-1"), ["values", "result"], "too late"))
     Engine.round(Engine)
     settle_turns()
 
     assert run("R-C-B-1-1")["values"]["status"] == "over"
     assert run("R-C-B-1-1")["values"]["reason"] == "C-B-1 is no longer ada's to work on"
-    assert FakeState.all("run") |> length() == 1
+    assert FakeFacts.all("run") |> length() == 1
   end
 
   test "an idle agent's turn ends at its maximum; an empty one at once; each time the next",
@@ -315,7 +315,7 @@ defmodule AtlasRuntimeTest do
     empty = "the agent ended its turn: the stub ended its turn"
 
     eventually(fn ->
-      ended = for r <- FakeState.all("run"), r["values"]["reason"] == empty, do: r["key"]
+      ended = for r <- FakeFacts.all("run"), r["values"]["reason"] == empty, do: r["key"]
       length(ended) >= 2
     end)
   end
@@ -355,20 +355,20 @@ defmodule AtlasRuntimeTest do
     engine(dir)
     Engine.round(Engine)
     Process.sleep(300)
-    assert FakeState.all("run") == []
+    assert FakeFacts.all("run") == []
   end
 
-  test "a turn running in State with no process here is ended (Runtime restarted)", %{dir: dir} do
+  test "a turn running in Facts with no process here is ended (Runtime restarted)", %{dir: dir} do
     box("bob")
 
-    FakeState.put("run", %{
+    FakeFacts.put("run", %{
       "key" => "R-C-B-1-1",
       "values" => %{"status" => "going", "host" => "here"},
       "links" => %{"run_on" => ["C-B-1"], "run_by" => ["ada"]}
     })
 
     # Another machine's turn is not this one's to end.
-    FakeState.put("run", %{
+    FakeFacts.put("run", %{
       "key" => "R-X-1",
       "values" => %{"status" => "going", "host" => "there"}
     })
@@ -382,12 +382,12 @@ defmodule AtlasRuntimeTest do
     assert run("R-X-1")["values"]["status"] == "going"
   end
 
-  test "after a restart, the turn State had running ends and its agent gets the next", %{
+  test "after a restart, the turn Facts had running ends and its agent gets the next", %{
     dir: dir
   } do
     box()
 
-    FakeState.put("run", %{
+    FakeFacts.put("run", %{
       "key" => "R-C-B-1-1",
       "values" => %{"status" => "going", "host" => "here"},
       "links" => %{"run_on" => ["C-B-1"], "run_by" => ["ada"]}
@@ -410,7 +410,7 @@ defmodule AtlasRuntimeTest do
     eventually(fn -> run("R-C-B-1-1")["values"]["status"] == "over" end)
     assert run("R-C-B-1-1")["values"]["done_at"] =~ ~r/^\d{4}-/
     Process.sleep(800)
-    assert length(FakeState.all("run")) == 1
+    assert length(FakeFacts.all("run")) == 1
   end
 
   test "3 crashes in 10 minutes: no more turns here, and the agent says it cannot run", %{
@@ -421,15 +421,15 @@ defmodule AtlasRuntimeTest do
     engine(dir)
 
     eventually(fn -> run("R-C-B-1-3")["values"]["status"] == "over" end)
-    eventually(fn -> FakeState.get("clerk", "ada")["values"]["stuck"] != nil end)
+    eventually(fn -> FakeFacts.get("clerk", "ada")["values"]["stuck"] != nil end)
 
-    assert FakeState.get("clerk", "ada")["values"]["stuck"] =~
+    assert FakeFacts.get("clerk", "ada")["values"]["stuck"] =~
              ~r/^on here since .*: 3 crashes in 10 minutes$/
 
     Process.sleep(800)
     assert run("R-C-B-1-4") == nil
 
-    {"clerk", marked} = Enum.find(FakeState.sent(), &match?({"clerk", _}, &1))
+    {"clerk", marked} = Enum.find(FakeFacts.sent(), &match?({"clerk", _}, &1))
 
     assert marked["by"] == "runtime" and
              marked["cause"] == "ada crashed 3 times in 10 minutes on here"
@@ -439,6 +439,6 @@ defmodule AtlasRuntimeTest do
     box()
     engine(dir, agents: %{})
     Engine.round(Engine)
-    assert FakeState.all("run") == []
+    assert FakeFacts.all("run") == []
   end
 end

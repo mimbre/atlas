@@ -111,7 +111,7 @@ kernel identity-and-signal primitive or protection against a malicious same-user
 process modifying records concurrently.
 
 A startup receipt confirms that the existing IS91 node started Runtime and Bus
-without State/Flow/Control. Owned process status does not assert Bus connectivity,
+without Facts/Flow/Control. Owned process status does not assert Bus connectivity,
 worker health or model readiness. A partial startup, unknown OS identity or
 unconfirmed exit fails visibly and preserves records; there is no blind cleanup
 or PID-only recovery. The lock is never cleared by guessing whether its PID is
@@ -168,7 +168,7 @@ explicit discovery transport. Direct lifecycle helpers independently sanitize al
 their child environments.
 
 Delivery remains the Bus's best effort contract: reads/facts retry and reconcile from
-State. Machine leases and Flow failover across machines remain follow-up work; this
+Facts. Machine leases and Flow failover across machines remain follow-up work; this
 link does not end a sleeping machine's turns on another machine's behalf.
 
 Control keeps one read envelope/ID across its three attempts, so a late answer from
@@ -176,7 +176,7 @@ an earlier attempt still satisfies the current logical read. Ordinary reads reta
 three two-second waits; Open work scales each wait by its collection count.
 Unrelated answers do not reset those waits. A later logical read gets a new ID and
 reads current data. Retries remain necessary because delivery is not guaranteed;
-State may still execute queued duplicate reads. This does not add read deduplication
+Facts may still execute queued duplicate reads. This does not add read deduplication
 or concurrency, and durable fact replay is unchanged.
 
 <sub>Written by an AI agent (Codex · GPT-6, herdr-projects atlas · t-0015).</sub>

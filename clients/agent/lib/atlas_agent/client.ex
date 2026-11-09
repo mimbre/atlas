@@ -11,8 +11,8 @@ defmodule AtlasAgent.Client do
   defstruct [:socket, :env]
 
   @connect_timeout 2_000
-  # A page answers an open at once; a submit waits until State stored or refused it, and
-  # Control sends a fact again on its own while State does not answer.
+  # A page answers an open at once; a submit waits until Facts stored or refused it, and
+  # Control sends a fact again on its own while Facts does not answer.
   @page_wait 10_000
   @stored_wait 60_000
 
@@ -43,7 +43,7 @@ defmodule AtlasAgent.Client do
     end
   end
 
-  @doc "The current turn, or State's acknowledgement of its outcome (not Runtime/Flow completion)."
+  @doc "The current turn, or Facts' acknowledgement of its outcome (not Runtime/Flow completion)."
   def turn(client, message \\ AtlasAgent.Protocol.message(:turn, :turn)) do
     operation =
       case message["op"] do
@@ -53,7 +53,7 @@ defmodule AtlasAgent.Client do
       end
 
     case exchange(client, operation, message, @stored_wait) do
-      {:ok, %{"reason" => "refused"}} -> {:error, "State refused the outcome"}
+      {:ok, %{"reason" => "refused"}} -> {:error, "Facts refused the outcome"}
       result -> result
     end
   end
