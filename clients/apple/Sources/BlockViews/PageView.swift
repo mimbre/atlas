@@ -15,13 +15,11 @@ public struct PageView: View {
 
     public var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                ForEach(presentation.entries) { entry in
-                    switch entry.item {
-                    case .list(let list): ListBlockView(list: list, selectedPath: selectedPath, open: open)
-                    case .item(let item): ItemBlockView(item: item)
-                    case .notShown(let type): FallbackView(type: type, reason: nil)
-                    case .fallback(let fallback): FallbackView(type: fallback.type, reason: fallback.reason)
+            VStack(alignment: .leading, spacing: Prism.Spacing.s15) {
+                ForEach(presentation.groups) { group in
+                    switch group {
+                    case .entry(let entry): entryView(entry)
+                    case .section(let section): sectionView(section)
                     }
                 }
             }
@@ -29,6 +27,49 @@ public struct PageView: View {
             .padding()
         }
         .navigationTitle(presentation.title)
+    }
+
+    @ViewBuilder private func entryView(_ entry: PagePresentation.Entry) -> some View {
+        switch entry.item {
+        case .list(let list): ListBlockView(list: list, selectedPath: selectedPath, open: open)
+        case .item(let item): ItemBlockView(item: item)
+        case .notShown(let type): FallbackView(type: type, reason: nil)
+        case .fallback(let fallback): FallbackView(type: fallback.type, reason: fallback.reason)
+        }
+    }
+
+    private func blocks(_ section: PagePresentation.Section) -> some View {
+        VStack(alignment: .leading, spacing: Prism.Spacing.s15) {
+            ForEach(section.entries) { entryView($0) }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder private func sectionView(_ section: PagePresentation.Section) -> some View {
+        if section.collapsible {
+            DisclosureGroup(isExpanded: expansion(section)) {
+                blocks(section).padding(.top, Prism.Spacing.s10)
+            } label: {
+                Text(section.title).prism(Prism.Typography.label)
+            }
+        } else {
+            VStack(alignment: .leading, spacing: Prism.Spacing.s10) {
+                Text(section.title).prism(Prism.Typography.label)
+                    .accessibilityAddTraits(.isHeader)
+                Divider()
+                blocks(section)
+            }
+        }
+    }
+
+    /// Unfolded sections, keyed by page path and start block: another page's section,
+    /// or this one after the app restarts, starts folded.
+    @State private var expanded: Set<String> = []
+
+    private func expansion(_ section: PagePresentation.Section) -> Binding<Bool> {
+        let key = presentation.path + "\u{0}" + section.id
+        return Binding(get: { expanded.contains(key) },
+                       set: { if $0 { expanded.insert(key) } else { expanded.remove(key) } })
     }
 }
 
@@ -39,12 +80,13 @@ struct ListBlockView: View {
     let open: (String) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: Prism.Spacing.s3) {
             if let title = list.title {
-                Text(title).font(.headline)
+                Text(title).prism(Prism.Typography.title7)
+                    .padding(.bottom, Prism.Spacing.s5)
             }
             if list.rows.isEmpty, let empty = list.empty {
-                Text(empty).foregroundStyle(.secondary)
+                Text(empty).prism(Prism.Typography.caption).foregroundStyle(.secondary)
             }
             ForEach(Array(list.rows.enumerated()), id: \.offset) { _, row in
                 ListRowView(row: row, selected: row.to == selectedPath, open: open)
@@ -60,55 +102,72 @@ struct ListRowView: View {
     let selected: Bool
     let open: (String) -> Void
     @State private var hovering = false
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         // The button owns its padded rectangle. Future nested controls must be
         // siblings of this button, with no overlay or parent tap gesture.
         Button { open(row.to) } label: {
-            HStack(alignment: .top, spacing: 12) {
+            // A calm row has no id: then there is no id column at all.
+            HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.s13) {
                 if let id = row.id {
-                    Text(id).monospaced().foregroundStyle(.secondary)
+                    Text(id).monospaced().prism(Prism.Typography.tableRow).foregroundStyle(.secondary)
                         .lineLimit(1).frame(maxWidth: 120, alignment: .leading)
                 }
-                Text(row.label).lineLimit(2)
+                Text(row.label).prism(Prism.Typography.tableRow).foregroundStyle(.primary).lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if let detail = row.detail {
-                    Text(detail).foregroundStyle(.secondary).lineLimit(2)
+                    Text(detail).prism(Prism.Typography.caption).foregroundStyle(.secondary).lineLimit(2)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 if row.pending == true {
-                    Text("⋯ being processed").foregroundStyle(.secondary).lineLimit(1)
+                    Text("⋯ being processed").prism(Prism.Typography.captionSmall)
+                        .foregroundStyle(.secondary).lineLimit(1)
                 }
             }
             .truncationMode(.tail)
             .multilineTextAlignment(.leading)
-            .padding(8)
+            .padding(.horizontal, Prism.Spacing.s10)
+            .padding(.vertical, Prism.Spacing.s9)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(selected ? Color.accentColor.opacity(0.18) :
-                        (hovering ? Color.primary.opacity(0.06) : Color.clear),
-                    in: RoundedRectangle(cornerRadius: 6))
+        .background(background, in: RoundedRectangle(cornerRadius: Prism.radius))
+        .overlay(alignment: .leading) {
+            if selected {
+                RoundedRectangle(cornerRadius: Prism.radius / 2).fill(Prism.Colors.primary)
+                    .frame(width: Prism.Spacing.s3)
+            }
+        }
         .onHover { hovering = $0 }
         .accessibilityAddTraits(selected ? [.isSelected] : [])
     }
+
+    /// Prism's selection tint: primarylight under dark text in light appearance; in dark
+    /// appearance primary, faint, so light text stays legible.
+    private var background: Color {
+        let dark = scheme == .dark
+        if selected { return dark ? Prism.Colors.primary.opacity(0.35) : Prism.Colors.primaryLight }
+        if hovering { return dark ? Color.primary.opacity(0.06) : Prism.Colors.grey5 }
+        return .clear
+    }
 }
 
-/// Blank labels are prose. Nil values use the TUI's absent-value marker.
+/// A calm card (Prism). Blank labels are prose. Nil values use the TUI's absent-value marker.
 /// Text stays literal, selectable and unbounded, including embedded blank lines.
 struct ItemBlockView: View {
     let item: ItemBlock
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(item.title).font(.headline)
+        VStack(alignment: .leading, spacing: Prism.Spacing.s10) {
+            Text(item.title).prism(Prism.Typography.title7)
             ForEach(Array(item.fields.enumerated()), id: \.offset) { _, field in
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: Prism.Spacing.s3) {
                     if !field.label.isEmpty {
-                        Text(field.label).font(.subheadline).foregroundStyle(.secondary)
+                        Text(field.label).prism(Prism.Typography.labelSmall).foregroundStyle(.secondary)
                     }
-                    Text(field.value ?? "—")
+                    Text(field.value ?? "—").prism(Prism.Typography.tableRow)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -123,7 +182,7 @@ struct ItemBlockView: View {
         .lineLimit(nil)
         .fixedSize(horizontal: false, vertical: true)
         .textSelection(.enabled)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .modifier(PrismCard())
     }
 }
 

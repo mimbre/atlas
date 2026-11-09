@@ -9,7 +9,7 @@ Control's `boot` and pages send.
 | Target | What |
 |---|---|
 | `ControlSession` | The session with Control, no UI: `LineConnection` on Network.framework (`NetworkLineConnection`, lines up to 4 MB), `SessionState` (the rules, plain state and effects), `Session` (an `@Observable` façade that runs them on an injected `LineConnector` and `SessionClock`), and the view models `ShellViewModel` and `StatusViewModel`. macOS and iOS. |
-| `BlockViews` | SwiftUI for a page's blocks. S1 shows `list` rows (a row opens its `to`); other blocks appear as fallbacks with their type. macOS and iOS. |
+| `BlockViews` | SwiftUI for a page's blocks, in Prism's styling (`Prism.swift`, tokens copied from Prism @370696e7). S1 shows `list` rows (a row opens its `to`) and `item` cards; other blocks appear as fallbacks with their type. A page's top-level `section` markup groups its blocks: a collapsible one is a disclosure, folded by default per page path; other markup, or markup that is not one tree, leaves the blocks flat. macOS and iOS. |
 | `AtlasMac` (`Mac/`) | The macOS app: three columns (tabs from `boot`, the tab's index page, the opened page), the title and environment in the title bar (production as the inverted badge), `⌘1`–`⌘9`, and the status bar. |
 
 Slice S1 of the design. Later slices add pages, history and the cache (S2), markup (S3),
