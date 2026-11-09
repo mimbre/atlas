@@ -58,7 +58,6 @@ defmodule AtlasFacts.FlowInputsTest do
       })
       |> put_in(["entities", "clerk"], %{"plural" => "clerks", "properties" => %{}})
       |> Map.put("relations", %{"chosen_by" => %{"from" => ["box"], "to" => ["clerk"]}})
-      |> Map.put("flows", %{})
       |> Map.put("flow_runtime", config)
     end
   end

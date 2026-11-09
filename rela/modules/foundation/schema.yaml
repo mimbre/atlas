@@ -381,6 +381,9 @@ entities:
       no_work:
         type: boolean
         description: True when carrying it out needs no work; it then waits for none
+      work:
+        type: integer
+        description: 'Flow: how many facts carry it out (based on it)'
       unverified:
         type: boolean
         description: An agent decided after the person answer limit; cleared by review

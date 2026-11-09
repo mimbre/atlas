@@ -52,8 +52,7 @@ defmodule FlowMigrationBootTest do
   # Slice 1's deployed definition digest, retained in the sidecar migration table.
   @old "8ca16b332a083209e6e44ffc3feeca0f152c632caa4d5206ab24fe540ab3770c"
 
-  # The model Flow runs (its compiled decide and its runs), without its legacy flows: only
-  # the runs boot here.
+  # The model Flow runs (its compiled decide and its runs).
   defmodule Runs do
     @behaviour AtlasFlow.Model
     defdelegate subflows(env), to: Model.AtlasEyra
@@ -64,7 +63,6 @@ defmodule FlowMigrationBootTest do
     defdelegate actors(), to: Model.AtlasEyra
     defdelegate relations(), to: Model.AtlasEyra
     defdelegate turn(), to: Model.AtlasEyra
-    def legacy, do: []
   end
 
   defp decide(env), do: AtlasFlow.Model.load(Runs, env).flows["decide"]

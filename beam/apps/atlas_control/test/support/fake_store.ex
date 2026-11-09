@@ -17,6 +17,10 @@ defmodule AtlasControl.FakeStore do
   def put(key, values, kind \\ "widget", links \\ %{}),
     do: GenServer.call(__MODULE__, {:put, kind, key, values, links})
 
+  @doc "What Facts presents of the work on `key` (as it derives it from the runs)."
+  def present(kind, key, presentation),
+    do: GenServer.call(__MODULE__, {:present, kind, key, presentation})
+
   @doc "The fact that set a link, as Facts answers it in `origins`."
   def origin(kind, key, relation, origin),
     do: GenServer.call(__MODULE__, {:origin, kind, key, relation, origin})
@@ -77,6 +81,7 @@ defmodule AtlasControl.FakeStore do
        last: nil,
        refusing: %{},
        origins: %{},
+       presentations: %{},
        sent: [],
        reads: [],
        until: nil
@@ -86,6 +91,9 @@ defmodule AtlasControl.FakeStore do
   @impl true
   def handle_call({:put, kind, key, values, links}, _from, s),
     do: {:reply, :ok, put_in(s.facts[{kind, key}], {values, 0, links})}
+
+  def handle_call({:present, kind, key, presentation}, _from, s),
+    do: {:reply, :ok, put_in(s.presentations[{kind, key}], presentation)}
 
   def handle_call({:silent, on?}, _from, s), do: {:reply, :ok, %{s | silent: on?}}
 
@@ -271,10 +279,24 @@ defmodule AtlasControl.FakeStore do
     end
   end
 
-  # One read's answer, with what it depended on, as Facts says it, and the presentation of
-  # each fact when the read asks for it (`AtlasControl.Presented`).
-  defp answer(s, kind, content),
-    do: AtlasControl.Presented.answer(s.model, kind, content, plain_answer(s, kind, content))
+  # One read's answer, with what it depended on, as Facts says it. A fact's presentation
+  # is the one the test stored with it (as Facts derives it from the runs), or none.
+  defp answer(s, kind, %{"presentation" => true} = content) do
+    present = fn fact ->
+      case s.presentations[{kind, fact["key"]}] do
+        nil -> fact
+        presentation -> Map.put(fact, "presentation", presentation)
+      end
+    end
+
+    case plain_answer(s, kind, content) do
+      %{"fact" => %{} = fact} = answer -> %{answer | "fact" => present.(fact)}
+      %{"facts" => facts} = answer -> %{answer | "facts" => Enum.map(facts, present)}
+      answer -> answer
+    end
+  end
+
+  defp answer(s, kind, content), do: plain_answer(s, kind, content)
 
   defp plain_answer(s, kind, content) do
     case {kind, content} do

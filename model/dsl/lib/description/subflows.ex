@@ -16,7 +16,8 @@ defmodule RelaDSL.Description.Subflows do
       Enum.flat_map(
         composition.links ++ composition.counts,
         &link(&1, flows, schema, composition.file)
-      )
+      ) ++
+      Enum.flat_map(composition.tallies, &tally(&1, schema, composition.file))
   end
 
   defp flow(f, schema, acl) do
@@ -181,6 +182,37 @@ defmodule RelaDSL.Description.Subflows do
     end
   end
 
+  defp tally(t, schema, file) do
+    for problem <- tally_problems(t, schema), do: {file, t[:line] || 1, tally_message(problem)}
+  end
+
+  @doc """
+  The problems of tally `t` (`%{relation, subject, all}`) against `schema`: its relation
+  ends at its parent (`{:not_to_parent, relation, parent}`), and the field it writes is
+  the parent's (`{:no_field, relation, parent, field}`).
+  """
+  def tally_problems(%{relation: relation, subject: subject} = t, schema)
+      when relation != nil and subject != nil do
+    parent = to_string(subject)
+
+    if(parent in ((relation(schema, relation) || %{})["to"] || []),
+      do: [],
+      else: [{:not_to_parent, relation, parent}]
+    ) ++
+      if(t.all == nil or field?(schema, parent, t.all),
+        do: [],
+        else: [{:no_field, relation, parent, t.all}]
+      )
+  end
+
+  def tally_problems(_t, _schema), do: []
+
+  defp tally_message({:not_to_parent, relation, parent}),
+    do: "tally #{relation}: #{relation} does not lead to #{parent}"
+
+  defp tally_message({:no_field, relation, parent, field}),
+    do: "tally #{relation} names #{parent}.#{field}, which #{parent} does not have"
+
   # The fields a link or count writes on the parent, and those that say which child is
   # current, exist on their kinds.
   defp link_fields(l, child, parent, schema, at) do
@@ -206,7 +238,7 @@ defmodule RelaDSL.Description.Subflows do
   end
 
   @doc "Problems of the `select`s of the subflows the composition runs."
-  def selects(selects, flows, schema, extension) do
+  def selects(selects, flows, schema) do
     Enum.flat_map(selects, fn %{value: {name, o}} = i ->
       at = &{i.file, i.line, "select #{name}: " <> &1}
 
@@ -234,10 +266,6 @@ defmodule RelaDSL.Description.Subflows do
                   "no state of #{name} waits for people to choose #{Enum.join(o[:choices] || [], ", ")}"
                 )
               ],
-              else: []
-            ) ++
-            if(o[:legacy] && not Map.has_key?(extension["flows"] || %{}, to_string(o[:legacy])),
-              do: [at.("legacy: #{o[:legacy]} is no legacy flow of the composition")],
               else: []
             ) ++
             for(
@@ -273,7 +301,7 @@ defmodule RelaDSL.Description.Subflows do
             ) ++
             values(schema, kind, o[:admission], at) ++
             Enum.flat_map(
-              List.wrap(o[:imports]) ++ List.wrap(o[:follow_through] && [o[:follow_through]]),
+              List.wrap(o[:imports]),
               fn imp ->
                 values(schema, kind, imp[:when], at) ++
                   if(to_string(imp[:state]) in states,

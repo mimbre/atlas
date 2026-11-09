@@ -45,7 +45,6 @@
           {"from":"77f00aa4ea2f8ec4ff3620b590794b6aabeedd8ce435a9e4a635e909d7d40b93","reason":"Canonical JSON identity; unchanged test subflow data","rekey":true,"states":{"accepted":"accepted","deciding":"deciding","for_agent":"for_agent","for_agent_unverified":"for_agent_unverified","for_person":"for_person","for_person_always":"for_person_always","rejected":"rejected"},"to":"e2d4c41b758cb858aa40b2835c703f2c42f60039471f855fa7e2df0dbf171b4b"}
         ],
         "subject": "decision",
-        "legacy": "decide",
         "projection": {
           "on": "assignment",
           "state_field": "flow_state",
@@ -57,20 +56,11 @@
         "admission": {
           "status": [
             "proposed",
-            "accepted",
             "rejected",
             "superseded"
           ]
         },
         "imports": [
-          {
-            "when": {
-              "status": [
-                "accepted"
-              ]
-            },
-            "state": "accepted"
-          },
           {
             "when": {
               "status": [
@@ -88,14 +78,6 @@
             "state": "accepted"
           }
         ],
-        "follow_through": {
-          "state": "accepted",
-          "when": {
-            "status": [
-              "accepted"
-            ]
-          }
-        },
         "verification": {
           "kind": "gate_verdict",
           "field": "unverified",
@@ -112,7 +94,6 @@
           {"from":"99b406f1da0c908d703acd82c37c2bd07ec5c103e352809afed37b676693ed5e","to":"6dcb5eefa0dd0aec97748b7280249678cb64d759808b81e2104b3992c7b38052","states":{"author":"author","closed":"author","delivery_gate":"author","done":"done","in_pr":"author","needs_person":"author","publish":"author","review":"author","review_gate":"author","rework":"author"},"reason":"Slice 9: selected without its passes, gates and publish effect; built by hand"}
         ],
         "subject": "issue",
-        "legacy": "build_and_merge",
         "projection": {
           "on": "assignment",
           "state_field": "flow_state",
@@ -139,7 +120,6 @@
           {"from":"0d65d9a4aa1cdf916e022547e3f4a1974505cd94c349e9809f1a441f13cd8335","to":"e183d55ea7eb411d29dd812053dff89078b4ef131068a3223d40c22617bffbd0","states":{"blocked":"integrating","changes_requested":"changes_requested","checking":"checking","closed":"closed","integrated":"integrated","integrating":"integrating"},"reason":"Slice 8: selected without its integrate effect and creates; merged by hand"}
         ],
         "subject": "pull_request",
-        "legacy": "review_and_merge",
         "projection": {
           "on": "assignment",
           "state_field": "flow_state",
@@ -272,6 +252,43 @@
           }
         ]
       },
+      "follow_through": {
+        "choices": [],
+        "choice_states": [],
+        "migrations": [],
+        "subject": "decision",
+        "projection": {
+          "on": "assignment",
+          "state_field": "flow_state",
+          "deadline_field": "deadline",
+          "handover_field": "handover",
+          "owner_relation": "assigned_to",
+          "field": "expected"
+        },
+        "admission": {
+          "status": [
+            "accepted"
+          ]
+        },
+        "imports": [
+          {
+            "when": {
+              "no_work": [
+                true
+              ]
+            },
+            "state": "no_work"
+          },
+          {
+            "when": {
+              "status": [
+                "accepted"
+              ]
+            },
+            "state": "waiting"
+          }
+        ]
+      },
       "test_and_accept_scene": {
         "choices": [],
         "choice_states": [],
@@ -279,7 +296,6 @@
           {"from":"79141c9da4b0fe990b2add3265ce542b546a0a68f9922e0128c502aa5ae1b444","to":"c29dfcb9a206681c88eaf60343ac2f05841fccb39e86b8b8530373584afa8a8f","states":{"accepted":"accepted","break_down":"break_down","building":"building","rework":"rework","to_test":"to_test"},"reason":"Slice 12: selected without its passes; the decider's verdict ends to_test"}
         ],
         "subject": "scene",
-        "legacy": "test_and_accept",
         "projection": {
           "on": "assignment",
           "state_field": "flow_state",
@@ -307,7 +323,6 @@
           {"from":"25f57fda40fa0e12d9322c7eb41a9d1829bee934777abe157f5c6a93685e377e","to":"57752d31e8065f37845ac886a1e93b6a24dc18d4a5aaeac20707c3c76e0ce571","states":{"accepted":"accepted","design_gate":"design_review","design_review":"design_review","designing":"designing","dropped":"designing","needs_person":"design_review","redesign":"redesign","to_accept":"design_review"},"reason":"Slice 10: selected without its passes, design gate and acceptor; designed by hand"}
         ],
         "subject": "use_case",
-        "legacy": "design_and_accept",
         "projection": {
           "on": "assignment",
           "state_field": "flow_state",
@@ -349,7 +364,6 @@
           {"from":"439466529c0f51d0f91d8ace07c9f5fa6ca2cfb04bfcc4557b6ba57342b2e0f1","to":"d4222657ad88e5d0310136893bd47f89e9a447874ede4d0c21067622728d1b04","states":{"accepted":"accepted","break_down":"break_down","building":"building","rework":"rework","to_test":"to_test"},"reason":"Slice 11: selected without its passes; the decider's verdict ends to_test"}
         ],
         "subject": "use_case",
-        "legacy": "design_and_accept",
         "projection": {
           "on": "assignment",
           "state_field": "flow_state",

@@ -121,33 +121,114 @@ defmodule RelaDSL.Description.ChecksTest do
     )
   end
 
-  test "a legacy flow is sound: a done state, an owner and a way out, every state reaches done" do
-    flow = fn states ->
-      "legacy_flow :f, kinds: [:thing], on: nil, field: :expected, states: #{states}"
+  test "a frozen rule's tallied fields are fields only Flow writes" do
+    schema = %{
+      "types" => %{"thing_state" => %{"values" => ["open", "done"]}},
+      "entities" => %{
+        "thing" => %{
+          "properties" => %{
+            "title" => %{"type" => "string"},
+            "state" => %{"type" => "thing_state"},
+            "cited" => %{"type" => "integer"}
+          }
+        }
+      }
+    }
+
+    problems = fn tallied, writers ->
+      extension = %{
+        "entities" => %{
+          "thing" => %{
+            "properties" => %{"cited" => %{"set_by" => writers}},
+            "frozen" => %{
+              "when" => %{"state" => ["done"]},
+              "only" => %{"state" => ["done"]},
+              "tallied" => [tallied],
+              "error" => "x"
+            }
+          }
+        }
+      }
+
+      for {path, _} <- RelaDSL.Description.Check.check(schema, extension), do: path
     end
 
-    refused(
-      [composition: flow.("[[name: :a, owner: [kind: :keeper, key: \"k\"], next: [:a]]]")],
-      "has no done state"
-    )
+    at = ["entities", "thing", "frozen"]
+    assert at in problems.("title", ["flow"])
+    refute at in problems.("cited", ["flow"])
 
-    refused(
-      [
-        composition:
-          flow.(
-            "[[name: :d, when: [completed: true], done: true], [name: :a, owner: [kind: :keeper, key: \"k\"], next: [:a]]]"
-          )
-      ],
-      "a never reaches done"
-    )
+    for writers <- [["flow", "human"], ["human", "flow"], ["flow", "flow"], ["human"], [], nil] do
+      assert at in problems.("cited", writers)
+    end
+  end
 
-    refused(
-      [
-        composition:
-          flow.("[[name: :d, when: [completed: true], done: true], [name: :a, next: [:d]]]")
-      ],
-      "its owner names no kind"
-    )
+  test "a frozen tally with additional writers is refused when its DSL composition compiles" do
+    entity = fn writers ->
+      """
+      field :cited, :integer, set_by: #{inspect(writers)}
+      frozen when: [state: [:done]], only: [state: [:done]], tallied: [:cited], error: "frozen"
+      """
+    end
+
+    assert [_ | _] =
+             compiles(
+               entity: entity.([:flow]),
+               composition: "flow_runtime runs: :keeper, writer: [by: :flow, sender: :flow]"
+             )
+
+    for writers <- [[:flow, :human], [:human, :flow], [:flow, :flow]] do
+      error = assert_raise CompileError, fn -> compiles(entity: entity.(writers)) end
+      assert error.file == "model.exs"
+    end
+  end
+
+  test "frozen tallies require their field guard in the final assembled runtime" do
+    entity = """
+    field :cited, :integer, set_by: [:flow]
+    frozen when: [state: [:done]], only: [state: [:done]], tallied: [:cited], error: "frozen"
+    """
+
+    for config <- [
+          "",
+          "flow_runtime runs: :keeper",
+          "flow_runtime runs: :keeper, writer: [by: :other, sender: :other]",
+          "flow_runtime runs: :keeper, writer: [by: :flow]"
+        ] do
+      assert_raise CompileError, fn -> compiles(entity: entity, composition: config) end
+    end
+
+    # The concept and module compile before the composition supplies their runtime.
+    compiled =
+      compiles(
+        entity: entity,
+        composition: "flow_runtime runs: :keeper, writer: [by: :flow, sender: :flow]"
+      )
+
+    {model, _} = List.last(compiled)
+    current = %{"values" => %{"state" => "done", "cited" => 2, "title" => "Kept"}, "links" => %{}}
+
+    check = fn actor, values ->
+      model.check("thing", %{"op" => "change", "key" => "T-1", "values" => values}, actor, %{
+        "current" => fn -> current end
+      })
+    end
+
+    for count <- [0, 3] do
+      assert :ok = check.(%{"by" => "flow", "sender" => "flow"}, %{"cited" => count})
+
+      for actor <- [
+            %{"by" => "human", "sender" => "control/session"},
+            %{"by" => "flow", "sender" => "control/session"}
+          ] do
+        assert {:refuse, [_ | _]} = check.(actor, %{"cited" => count})
+      end
+
+      assert {:refuse, [_ | _]} =
+               check.(%{"by" => "flow", "sender" => "flow"}, %{
+                 "cited" => count,
+                 "title" => "Changed"
+               })
+    end
   end
 
   test "every name a subflow gives resolves in the composition" do
@@ -188,11 +269,6 @@ defmodule RelaDSL.Description.ChecksTest do
         flows: true
       ],
       "imports state gone"
-    )
-
-    refused(
-      [concept: select.(", legacy: :old"), composition: @acl, flows: true],
-      "no legacy flow"
     )
 
     # A choice no state waits for is refused; a subflow with no choice of people (its

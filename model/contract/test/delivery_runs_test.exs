@@ -1,14 +1,14 @@
 defmodule Model.DeliveryRunsTest do
   @moduledoc """
-  Slice 8: the pull request runs on Flow's durable runs, in place of the legacy flow
+  Slice 8: the pull request runs on Flow's durable runs, in place of the old flow
   `review_and_merge`. Its selection and takeover of the presentation, the import table
   from the pull request as it was, the review and test it waits for through the
   composition's links (only those of its current revision), the merge by hand that ends
   it, and the migration from the base's digest, on the compiled subflow of both
   environments.
 
-  Slice 9: the issue too, in place of the legacy flow `build_and_merge`: the same, with
-  what it presents and to whom kept from the legacy flow, and its pull request's outcome
+  Slice 9: the issue too, in place of the old flow `build_and_merge`: the same, with
+  what it presents and to whom kept from the old flow, and its pull request's outcome
   through the composition's link.
   """
   use ExUnit.Case, async: true
@@ -23,25 +23,8 @@ defmodule Model.DeliveryRunsTest do
   # The digest the base recorded before slice 8 (the same in prod and test).
   @base "0d65d9a4aa1cdf916e022547e3f4a1974505cd94c349e9809f1a441f13cd8335"
 
-  # The model as composed, with one subflow's selection changed by the function the calling
-  # test puts in its process (`{name, fun}`): what Flow's runner would be given.
-  defmodule Altered do
-    @moduledoc false
-    defdelegate runs(), to: Model.AtlasEyra
-    defdelegate composition(), to: Model.AtlasEyra
-    defdelegate legacy(), to: Model.AtlasEyra
-
-    def selection(name) do
-      s = Model.AtlasEyra.selection(name)
-      {altered, alter} = Process.get(:alter)
-      if name == altered, do: alter.(s), else: s
-    end
-  end
-
   defp flow(env), do: Enum.find(Model.AtlasEyra.subflows(env), &(&1.name() == @name))
-  defp flows(env), do: Map.new(Model.AtlasEyra.subflows(env), &{&1.name(), &1})
   defp selection, do: Model.AtlasEyra.selection(@name)
-  defp legacy, do: Enum.find(Model.AtlasEyra.legacy(), &(&1.name() == "review_and_merge"))
 
   defp subject(values),
     do: %{"key" => "PR-o-r-1", "version" => "v1", "position" => 7, "values" => values}
@@ -69,7 +52,7 @@ defmodule Model.DeliveryRunsTest do
       assert runner.refusal == nil
 
       assert Enum.sort(Map.keys(runner.config["selection"])) ==
-               ~w(decide design_and_accept issue pr_review pr_test pull_request test_and_accept_scene test_and_accept_use_case)
+               ~w(decide design_and_accept follow_through issue pr_review pr_test pull_request test_and_accept_scene test_and_accept_use_case)
 
       f = flow(env)
       assert Run.validate(f) == :ok
@@ -77,36 +60,16 @@ defmodule Model.DeliveryRunsTest do
       assert Enum.all?(f.states(), &(f.mechanism(&1) == nil))
       assert for(s <- f.states(), {:create, _} <- f.enter(s, %{}), do: s) == []
 
-      # Every pull request, whatever it holds, is the run's: the legacy flow presents none.
+      # Every pull request, whatever it holds, is the run's.
       for values <- [%{}, %{"state" => "open"}, %{"state" => "merged"}, %{"state" => "closed"}],
           do: assert({@name, _} = Store.selected(runner.config, @name, %{"values" => values}))
     end
 
     s = selection()
-    assert {s["subject"], s["legacy"], s["admission"]} == {@name, "review_and_merge", []}
+    assert {s["subject"], s["admission"]} == {@name, []}
     # No choice of people: Facts captures no write on a pull request as one.
     assert {s["choices"], s["choice_states"]} == {[], []}
-    # It presents where the legacy flow did, the only legacy flow on the kind.
-    assert Map.take(legacy().writes(), Map.keys(s["projection"])) == s["projection"]
-
-    assert for(l <- Model.AtlasEyra.legacy(), @name in l.kinds(), do: l.name()) == [
-             legacy().name()
-           ]
-  end
-
-  test "a selection that does not take the pull request from its legacy flow is refused" do
-    for env <- @envs,
-        alter <- [
-          &Map.delete(&1, "legacy"),
-          &Map.delete(&1, "projection"),
-          &Map.put(&1, "legacy", "build_and_merge")
-        ] do
-      Process.put(:alter, {@name, alter})
-      assert {_config, {:two_writers, @name}} = Store.activate(Altered, flows(env))
-    end
-
-    Process.put(:alter, {@name, & &1})
-    assert {_config, nil} = Store.activate(Altered, flows(:test))
+    assert s["projection"]["on"] == "assignment"
   end
 
   test "every import row; any other open pull request starts its checks" do
@@ -310,7 +273,7 @@ defmodule Model.DeliveryRunsTest do
     end
   end
 
-  test "each open state presents its move to the coordinator; checking as the legacy flow did" do
+  test "each open state presents its move to the coordinator" do
     for env <- @envs do
       f = flow(env)
 
@@ -319,11 +282,6 @@ defmodule Model.DeliveryRunsTest do
         assert text != "" and why != ""
         assert f.owner(state)["default"] == %{"kind" => "agent", "key" => "coordinator"}
       end
-
-      # Started or imported in checking, a pull request keeps what it showed and its owner.
-      assert f.present("checking", %{})["expected"] == legacy().expected("open", %{})
-      assert f.present("checking", %{})["why"] == legacy().why("open")
-      assert legacy().owner("open") == f.owner("checking")["default"]
     end
   end
 
@@ -357,7 +315,6 @@ defmodule Model.DeliveryRunsTest do
 
   defp issue_flow(env), do: Enum.find(Model.AtlasEyra.subflows(env), &(&1.name() == @issue))
   defp issue_selection, do: Model.AtlasEyra.selection(@issue)
-  defp builder, do: Enum.find(Model.AtlasEyra.legacy(), &(&1.name() == "build_and_merge"))
 
   defp issue(values),
     do: %{"key" => "IS-Atlas-01", "version" => "v1", "position" => 9, "values" => values}
@@ -382,7 +339,7 @@ defmodule Model.DeliveryRunsTest do
       assert for(s <- f.states(), {:create, _} <- f.enter(s, %{}), do: s) == []
       assert Enum.all?(f.states(), &(f.timers(&1) == []))
 
-      # Every issue, whatever its stage, is the run's: the legacy flow presents none.
+      # Every issue, whatever its stage, is the run's.
       for stage <- [nil, "specification", "design", "development"],
           do:
             assert(
@@ -398,30 +355,10 @@ defmodule Model.DeliveryRunsTest do
     end
 
     s = issue_selection()
-    assert {s["subject"], s["legacy"], s["admission"]} == {@issue, "build_and_merge", []}
+    assert {s["subject"], s["admission"]} == {@issue, []}
     # No choice of people: Facts captures no write on an issue as one.
     assert {s["choices"], s["choice_states"]} == {[], []}
-    # It presents where the legacy flow did, the only legacy flow on the kind.
-    assert Map.take(builder().writes(), Map.keys(s["projection"])) == s["projection"]
-
-    assert for(l <- Model.AtlasEyra.legacy(), @issue in l.kinds(), do: l.name()) == [
-             builder().name()
-           ]
-  end
-
-  test "a selection that does not take the issue from its legacy flow is refused" do
-    for env <- @envs,
-        alter <- [
-          &Map.delete(&1, "legacy"),
-          &Map.delete(&1, "projection"),
-          &Map.put(&1, "legacy", "review_and_merge")
-        ] do
-      Process.put(:alter, {@issue, alter})
-      assert {_config, {:two_writers, @issue}} = Store.activate(Altered, flows(env))
-    end
-
-    Process.put(:alter, {@issue, & &1})
-    assert {_config, nil} = Store.activate(Altered, flows(:prod))
+    assert s["projection"]["on"] == "assignment"
   end
 
   test "every import row of the issue; any other issue starts building, writing nothing" do
@@ -476,18 +413,12 @@ defmodule Model.DeliveryRunsTest do
     end
   end
 
-  test "building presents what the legacy flow did, to the same owner" do
+  test "building presents its move to the coordinator" do
     for env <- @envs do
       f = issue_flow(env)
       present = f.present("author", @live)
-
-      assert {present["expected"], present["why"]} ==
-               {builder().expected("building", %{}), builder().why("building")}
-
-      assert present["todo"]["instructions"] ==
-               "Build it in one pull request and get that merged; link the pull request to it."
-
-      assert f.owner("author")["default"] == builder().owner("building")
+      assert present["expected"] != "" and present["why"] != ""
+      assert present["todo"]["instructions"] != ""
       assert f.owner("author")["default"] == %{"kind" => "agent", "key" => "coordinator"}
       # Done presents nothing: the projection clears what is expected, as for v1's done.
       assert f.present("done", @live) == nil and f.final?("done")

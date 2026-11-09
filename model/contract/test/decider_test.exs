@@ -78,12 +78,19 @@ defmodule Model.DeciderTest do
         subject = %{"key" => "D-old", "values" => %{"status" => state}}
         old = Run.new("decide", definition, subject, selection["imports"], now)
 
+        # Slice 1 imported its accepted and rejected decisions as completed history.
+        history =
+          if state == "proposed",
+            do: %{},
+            else: %{"status" => "completed", "last_input" => %{"version" => 1, "import" => true}}
+
         old =
           Map.merge(old, %{
             "definition_sha256" => old_digest,
             "state" => state,
             "pending" => %{"version" => 1, "writes" => []}
           })
+          |> Map.merge(history)
 
         assert {:ok, migrated} = Run.migrate(old, definition, selection["migrations"], now)
 
@@ -210,13 +217,6 @@ defmodule Model.DeciderTest do
       assert AtlasFlow.Model.owner(decide(env).owner(state)["default"], actors) == decider
     end
 
-    legacy = Map.new(Model.AtlasEyra.legacy(), &{&1.name(), &1})
-
-    for name <- ~w(design_and_accept test_and_accept), flow = legacy[name] do
-      assert flow.owner("to_test") == %{"kind" => "person", "config" => "decider"}
-      assert AtlasFlow.Model.owner(flow.owner("to_test"), actors) == decider
-    end
-
     # The use case's build run tests it with the same person (slice 11), and the scene's
     # run (slice 12).
     for env <- [:prod, :test], name <- ~w(test_and_accept_use_case test_and_accept_scene) do
@@ -264,10 +264,12 @@ defmodule Model.DeciderTest do
     # Slice 7 selects the review and the test of a pull request too (Model.ReviewRunsTest),
     # slice 8 the pull request and slice 9 the issue (Model.DeliveryRunsTest), slice 10 the
     # design of a use case and slice 11 its building and testing (Model.AcceptanceRunsTest),
-    # slice 12 the scene (Model.SceneRunsTest): all eight.
+    # slice 12 the scene (Model.SceneRunsTest), slice 14 the follow-through of an accepted
+    # decision (Model.FollowThroughTest): all nine.
     assert selected == [
              "decide",
              "design_and_accept",
+             "follow_through",
              "issue",
              "pr_review",
              "pr_test",
@@ -282,36 +284,20 @@ defmodule Model.DeciderTest do
     assert selection["subject"] == definition.subject()
     assert Enum.any?(selection["migrations"], &(&1["to"] == definition.digest()))
 
-    for status <- ~w(accepted rejected superseded) do
+    # An accepted decision is follow_through's, not decide's: their admissions are disjoint.
+    assert selection["admission"] == %{"status" => ["proposed", "rejected", "superseded"]}
+
+    assert Model.AtlasEyra.selection("follow_through")["admission"] == %{
+             "status" => ["accepted"]
+           }
+
+    for status <- ~w(rejected superseded) do
       subject = %{"key" => "D-history", "values" => %{"status" => status}}
       run = Run.new("decide", definition, subject, selection["imports"], ~U[2026-11-12 00:00:00Z])
       assert run["status"] == "completed"
       assert run["pending"]["writes"] == []
       assert run["state"] == if(status == "rejected", do: "rejected", else: "accepted")
     end
-  end
-
-  test "the legacy decide fills what is expected; a field the decision lacks leaves no braces" do
-    waiting = Model.AtlasEyra.Legacy.Decide
-
-    {state, vars} =
-      waiting.state(
-        %{"values" => %{"status" => "accepted", "consequences" => "the ledger changes"}},
-        [],
-        [],
-        ["based_on"]
-      )
-
-    assert waiting.expected(state, vars) =~ "the ledger changes"
-
-    # Accepted on the timeout path, without consequences (an agent decided it, unverified).
-    {state, vars} =
-      waiting.state(%{"values" => %{"status" => "accepted", "unverified" => true}}, [], [], [
-        "based_on"
-      ])
-
-    assert state == "waiting"
-    refute waiting.expected(state, vars) =~ "{"
   end
 
   test "the frozen rule only permits clearing the unverified flag, and only Flow writes it" do
@@ -345,6 +331,39 @@ defmodule Model.DeciderTest do
              )
 
     assert {:refused, _} = check("change", current, %{"title" => "edited"}, %{}, flow, "person")
+  end
+
+  test "an accepted decision still takes the tally of its work, from Flow alone, and nothing more" do
+    current = %{"values" => %{"status" => "accepted"}, "links" => %{"decided_by" => ["a"]}}
+    flow = %{"by" => "flow", "sender" => "flow"}
+
+    assert :ok = check("change", current, %{"work" => 2}, %{}, flow, "person")
+
+    assert :ok =
+             check(
+               "change",
+               put_in(current, ["values", "work"], 2),
+               %{"work" => 0},
+               %{},
+               flow,
+               "person"
+             )
+
+    session = %{flow | "sender" => "control/session-1", "by" => "a"}
+    assert {:refused, _} = check("change", current, %{"work" => 1}, %{}, session, "person")
+
+    assert {:refused, _} =
+             check(
+               "change",
+               current,
+               %{"work" => 1},
+               %{},
+               %{flow | "sender" => "control/session-1"},
+               "person"
+             )
+
+    assert {:refused, _} =
+             check("change", current, %{"work" => 1, "title" => "edited"}, %{}, flow, "person")
   end
 
   defp evidence(changes \\ %{}) do

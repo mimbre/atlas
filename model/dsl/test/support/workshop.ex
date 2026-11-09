@@ -48,6 +48,67 @@ defmodule RelaDSL.Workshop.Box do
     max_outgoing: 1,
     inverse: {:owns, "owns"}
   )
+
+  entity :job, label: "Job", plural: "jobs", id_type: :manual do
+    field(:flow, :string)
+    field(:state, :string)
+    top(false)
+    by_hand(false)
+  end
+
+  flow_runtime(runs: :job, writer: [sender: :flow, by: :flow])
+
+  # A box is packed through its card; a crate is stacked on itself.
+  subflow :pack, label: "Pack", subject: :box do
+    owner via: :card, relation: :owned_by, default: {:clerk, :ada}
+    start :create
+    initial :packing
+
+    state :packing, label: "Pack it" do
+      present(expected: "Pack it")
+      branch to: :packed, when: "entity.phase == 'packed'"
+    end
+
+    final :packed, label: "Packed"
+  end
+
+  subflow :stack, label: "Stack", subject: :crate do
+    owner relation: :owned_by, default: {:clerk, :bob}
+    start :create
+    initial :stacking
+
+    state :stacking, label: "Stack it" do
+      present(expected: "Stack it")
+      branch to: :stacked, when: "entity.full == 'yes'"
+    end
+
+    final :stacked, label: "Stacked"
+  end
+
+  select(:pack,
+    choices: [],
+    projection: [
+      on: :card,
+      field: :todo,
+      state_field: :step,
+      handover_field: :later,
+      owner_relation: :owned_by
+    ],
+    admission: [],
+    imports: []
+  )
+
+  select(:stack,
+    choices: [],
+    projection: [
+      field: :todo,
+      state_field: :step,
+      handover_field: :later,
+      owner_relation: :owned_by
+    ],
+    admission: [],
+    imports: []
+  )
 end
 
 defmodule RelaDSL.Workshop.Run do
@@ -184,7 +245,7 @@ end
 defmodule RelaDSL.Workshop do
   @moduledoc """
   A neutral composition for what Runtime is given: a clerk packs a box through its card
-  (a legacy flow), and crates directly; a run is a turn; a box rests on memos.
+  (a selected subflow), and crates directly; a run is a turn; a box rests on memos.
   """
   use RelaDSL.Composition, name: "workshop"
 
@@ -196,31 +257,6 @@ defmodule RelaDSL.Workshop do
   )
 
   modules([RelaDSL.Workshop.Shop])
-
-  legacy_flow(:pack,
-    on: :card,
-    kinds: [:box],
-    field: :todo,
-    state_field: :step,
-    handover_field: :later,
-    owner_relation: :owned_by,
-    states: [
-      [name: :packed, when: [values: [phase: ["packed"]]], done: true],
-      [name: :packing, owner: [kind: :clerk, key: "ada"], expected: "Pack it", next: [:packed]]
-    ]
-  )
-
-  legacy_flow(:stack,
-    kinds: [:crate],
-    field: :todo,
-    state_field: :step,
-    handover_field: :later,
-    owner_relation: :owned_by,
-    states: [
-      [name: :stacked, when: [values: [full: ["yes"]]], done: true],
-      [name: :stacking, owner: [kind: :clerk, key: "bob"], expected: "Stack it", next: [:stacked]]
-    ]
-  )
 
   read_first(
     title: "Read these memos first.",
@@ -235,7 +271,7 @@ defmodule RelaDSL.Workshop do
   )
 
   defcomposition :workshop do
-    subflows([])
+    subflows([RelaDSL.Workshop.Box])
   end
 end
 

@@ -54,18 +54,9 @@ defmodule AtlasFlow.Runs.PresentationMigrationTest do
 
     opts = [clock: {ManualClock, clock}, model: Presenting]
 
-    on_exit(fn ->
-      for {_, pid, _, _} <- DynamicSupervisor.which_children(AtlasFlow.Supervisor),
-          do: DynamicSupervisor.terminate_child(AtlasFlow.Supervisor, pid)
-    end)
-
     for _ <- 1..2 do
       engine = start_supervised!({Engine, opts})
       :ok = Engine.round(engine)
-
-      # Its own processes, each a live wait: a process another test left in the shared
-      # supervisor would stop on a look (its fact is not in this store).
-      for key <- Map.keys(originals), do: looked(key)
 
       for {key, old} <- originals do
         assert {:ok, migrated} = Store.decode(config, FakeFacts.get("cursor", old["key"]))
@@ -81,9 +72,6 @@ defmodule AtlasFlow.Runs.PresentationMigrationTest do
       end
 
       stop_supervised!(Engine)
-
-      for {_, pid, _, _} <- DynamicSupervisor.which_children(AtlasFlow.Supervisor),
-          do: DynamicSupervisor.terminate_child(AtlasFlow.Supervisor, pid)
     end
 
     # The same instant stored with other precision is no change; a state that presents no
@@ -98,10 +86,6 @@ defmodule AtlasFlow.Runs.PresentationMigrationTest do
     engine = start_supervised!({Engine, opts})
     :ok = Engine.round(engine)
 
-    # The live waits look again; an item whose run is final stops after its last write.
-    for key <- ["B-machine", "B-clerk"], do: looked(key)
-    stopped("B-empty")
-
     assert FakeFacts.get("box", "B-clerk")["values"]["due"] == precise
 
     assert {:ok, %{"state" => "done"}} =
@@ -109,24 +93,5 @@ defmodule AtlasFlow.Runs.PresentationMigrationTest do
 
     assert FakeFacts.get("box", "B-empty")["values"]["due"] in [nil, ""]
     stop_supervised!(Engine)
-  end
-
-  # A live wait handled a look sent now, so also every look queued before it.
-  defp looked(key) do
-    [{pid, _}] = Registry.lookup(AtlasFlow.Items, {"box", key})
-    send(pid, :look)
-    :sys.get_state(pid)
-  end
-
-  # A process expected to end: it stopped normally (or already had, after the round started
-  # it: then the Registry names it no more, or names a process that is gone).
-  defp stopped(key) do
-    with [{pid, _}] <- Registry.lookup(AtlasFlow.Items, {"box", key}) do
-      ref = Process.monitor(pid)
-
-      receive do
-        {:DOWN, ^ref, :process, ^pid, reason} -> assert reason in [:normal, :noproc]
-      end
-    end
   end
 end

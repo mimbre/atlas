@@ -42,6 +42,42 @@ defmodule AtlasControl.Packing.Box do
   )
 
   relation(:holder, label: "held by", from: [:card], to: [:clerk], max_outgoing: 1)
+
+  entity :job, label: "Job", plural: "jobs", id_type: :manual do
+    field(:flow, :string)
+    field(:state, :string)
+    top(false)
+    by_hand(false)
+  end
+
+  flow_runtime(runs: :job, writer: [sender: :flow, by: :flow])
+
+  # Ada packs a box, through its card, whose holder owns it.
+  subflow :pack, label: "Pack", subject: :box do
+    owner(via: :card, relation: :holder, default: {:clerk, :ada})
+    start(:create)
+    initial(:packing)
+
+    state :packing, label: "Pack it" do
+      present(expected: "Pack it")
+      branch(to: :packed, when: "entity.phase == 'packed'")
+    end
+
+    final(:packed, label: "Packed")
+  end
+
+  select(:pack,
+    choices: [],
+    projection: [
+      on: :card,
+      field: :todo,
+      state_field: :step,
+      handover_field: :later,
+      owner_relation: :holder
+    ],
+    admission: [],
+    imports: []
+  )
 end
 
 defmodule AtlasControl.Packing.Run do
@@ -143,7 +179,7 @@ end
 defmodule AtlasControl.Packing do
   @moduledoc """
   A neutral model for Control's turn and worker tests: a clerk packs a box through its
-  card (a flow on the card, whose holder owns it), a run is the clerk's turn on the card,
+  card (a selected subflow presented on the card, whose holder owns it), a run is the clerk's turn on the card,
   and a box rests on memos a worker reads first. Its kinds are made up on purpose.
   """
   use RelaDSL.Composition, name: "packing"
@@ -152,24 +188,11 @@ defmodule AtlasControl.Packing do
   schema(version: "1.0", namespace: "https://example.invalid/packing#", comment: "Packing.")
   modules([AtlasControl.Packing.Room])
 
-  legacy_flow(:pack,
-    on: :card,
-    kinds: [:box],
-    field: :todo,
-    state_field: :step,
-    handover_field: :later,
-    owner_relation: :holder,
-    states: [
-      [name: :packed, when: [values: [phase: ["packed"]]], done: true],
-      [name: :packing, owner: [kind: :clerk, key: "ada"], expected: "Pack it", next: [:packed]]
-    ]
-  )
-
   read_first(title: "First:", through: :rests_on, then: :elaborates, text: :rule)
 
   shell(title: "Private workers", tabs: [[id: "boxes", label: "Boxes", to: "/k/box"]])
 
   defcomposition :packing do
-    subflows([])
+    subflows([AtlasControl.Packing.Box])
   end
 end

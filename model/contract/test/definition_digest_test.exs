@@ -98,24 +98,6 @@ defmodule Model.DefinitionDigestTest do
     end
   end
 
-  test "the compiled legacy flows are the committed description's flows" do
-    committed = JSON.decode!(File.read!("../../rela/atlas.json"))["flows"]
-    assert Enum.map(Model.AtlasEyra.legacy(), & &1.name()) == Enum.sort(Map.keys(committed))
-
-    for flow <- Model.AtlasEyra.legacy() do
-      definition = committed[flow.name()]
-      assert flow.kinds() == definition["kinds"]
-
-      assert flow.writes() ==
-               Map.take(definition, ~w(on field state_field handover_field owner_relation))
-
-      for state <- definition["states"] do
-        assert flow.done?(state["name"]) == (state["done"] == true)
-        assert flow.why(state["name"]) == state["why"]
-      end
-    end
-  end
-
   test "the compiled run selection and migrations are the committed flow-runtime.json's" do
     committed = JSON.decode!(File.read!("../../rela/flow-runtime.json"))["flow_runtime"]
 

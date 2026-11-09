@@ -166,7 +166,6 @@ defmodule Model.Scene do
   # generation (`reopen: :explicit`, the design's default, 5.2). Until one, nothing
   # presents a reopened scene; its count is still written.
   select(:test_and_accept_scene,
-    legacy: :test_and_accept,
     choices: [],
     projection: [
       on: :assignment,

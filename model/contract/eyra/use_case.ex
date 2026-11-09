@@ -342,7 +342,6 @@ defmodule Model.UseCase do
   # work starts a new generation only by an explicit restart (`reopen`, the design's
   # default, 5.2). No legacy flow takes it back: slice 11 ends its follow-through.
   select(:design_and_accept,
-    legacy: :design_and_accept,
     choices: [],
     projection: [
       on: :assignment,
@@ -412,7 +411,6 @@ defmodule Model.UseCase do
   # generation (`reopen: :explicit`, the design's default, 5.2). Until one, nothing
   # presents a reopened use case.
   select(:test_and_accept_use_case,
-    legacy: :design_and_accept,
     choices: [],
     projection: [
       on: :assignment,

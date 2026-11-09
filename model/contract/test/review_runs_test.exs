@@ -59,15 +59,13 @@ defmodule Model.ReviewRunsTest do
       assert runner.refusal == nil
 
       assert Enum.sort(Map.keys(runner.config["selection"])) ==
-               ~w(decide design_and_accept issue pr_review pr_test pull_request test_and_accept_scene test_and_accept_use_case)
+               ~w(decide design_and_accept follow_through issue pr_review pr_test pull_request test_and_accept_scene test_and_accept_use_case)
 
       for {name, _, _, _, _} <- @kinds do
         f = flow(env, name)
         assert Run.validate(f) == :ok
         # No activity: nothing is dispatched, so an import reruns nothing.
         assert Enum.all?(f.states(), &(f.mechanism(&1) == nil))
-        # No legacy flow drives these subjects: the run is their one writer.
-        assert Enum.all?(Model.AtlasEyra.legacy(), &(name not in &1.kinds()))
       end
     end
 

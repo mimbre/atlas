@@ -1,8 +1,8 @@
 defmodule AtlasFlow.Runs.PresentationTest do
   @moduledoc """
   What a run presents (`AtlasFlow.Runs.Presentation`), on the depot's subflow `sort`
-  (`AtlasFlow.Depot`): its active state, its final state, the follow-through of a
-  completed run, and how an owner set by hand and a deferred handover read back.
+  (`AtlasFlow.Depot`): its active state, its final state, and how an owner set by hand
+  and a deferred handover read back.
   """
   use ExUnit.Case, async: true
 
@@ -27,7 +27,7 @@ defmodule AtlasFlow.Runs.PresentationTest do
 
     assert %{"name" => "waiting", "expected" => "Sort it", "owner" => owner} =
              shown =
-             Presentation.of_run(run("active", "waiting", timers), sort(), %{}, @box, @owner)
+             Presentation.of_run(run("active", "waiting", timers), sort(), @box, @owner)
 
     assert owner["resolved"]
     assert Map.has_key?(shown, "preserve_kind")
@@ -35,27 +35,13 @@ defmodule AtlasFlow.Runs.PresentationTest do
   end
 
   test "a final run presents nothing to do" do
-    assert Presentation.of_run(run("completed", "done"), sort(), %{}, @box, @owner) ==
+    assert Presentation.of_run(run("completed", "done"), sort(), @box, @owner) ==
              %{"name" => "done", "done" => true}
-  end
-
-  test "a completed run follows through while its subject holds the condition" do
-    selection = %{"follow_through" => %{"state" => "done", "when" => %{"result" => ["ok"]}}}
-    ok = put_in(@box, ["values", "result"], "ok")
-
-    assert Presentation.of_run(run("completed", "done"), sort(), selection, ok, @owner) ==
-             :follow_through
-
-    assert %{"done" => true} =
-             Presentation.of_run(run("completed", "done"), sort(), selection, @box, @owner)
-
-    assert %{"done" => true} =
-             Presentation.of_run(run("completed", "discarded"), sort(), selection, ok, @owner)
   end
 
   test "a blocked or idle run presents nothing" do
     for status <- ["blocked", "idle"],
-        do: assert(Presentation.of_run(run(status, "waiting"), sort(), %{}, @box, @owner) == nil)
+        do: assert(Presentation.of_run(run(status, "waiting"), sort(), @box, @owner) == nil)
   end
 
   test "an owner set by a user or an agent is set by hand; by Flow, a migration or nobody not" do

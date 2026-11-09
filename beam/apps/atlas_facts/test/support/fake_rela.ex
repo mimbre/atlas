@@ -61,11 +61,13 @@ defmodule AtlasFacts.FakeRela do
   @impl true
   def description(pid), do: call(pid, &{{:ok, &1.schema}, &1})
 
+  # As rela: a kind lists the facts made in it (and those put without one).
   @impl true
-  def list(pid, _plural) do
+  def list(pid, plural) do
     call(pid, fn s ->
       facts =
         for {k, {p, _}} <- Enum.sort(s.facts),
+            s.plurals[k] in [nil, plural],
             do: %{key: k, properties: p, links: links_of(s, k), version: nil}
 
       {{:ok, facts}, s}
@@ -94,8 +96,8 @@ defmodule AtlasFacts.FakeRela do
   end
 
   @impl true
-  def check_create(pid, _plural, _key, props, _targets),
-    do: call(pid, &{{:ok, warnings(props)}, &1})
+  def check_create(pid, plural, _key, props, _targets),
+    do: call(pid, &{{:ok, warnings(&1, plural, props)}, &1})
 
   @impl true
   def create(pid, plural, key, props, targets) do
@@ -115,7 +117,7 @@ defmodule AtlasFacts.FakeRela do
               put_links(acc, key, relation, keys)
             end)
 
-          {{:ok, warnings(props)},
+          {{:ok, warnings(s, plural, props)},
            %{
              s
              | facts: Map.put(s.facts, key, {props, s.n}),
@@ -162,7 +164,7 @@ defmodule AtlasFacts.FakeRela do
         put_links(acc, key, relation, keys)
       end)
 
-    {{:ok, warnings(new)},
+    {{:ok, warnings(s, s.plurals[key], new)},
      %{s | facts: Map.put(s.facts, key, {new, s.n}), n: s.n + 1, links: links}}
   end
 
@@ -185,7 +187,16 @@ defmodule AtlasFacts.FakeRela do
   defp stale?(nil, _n), do: false
   defp stale?(version, n), do: version != "v#{n}"
 
-  defp warnings(props) do
-    if Map.has_key?(props, "title"), do: [], else: ["/properties/title is required"]
+  # A fact of a kind with a title, or of a kind the schema does not serve, is stored
+  # with a warning when it has none; a kind without a title field (Flow's runs) is not.
+  defp warnings(s, plural, props) do
+    kind =
+      Enum.find_value(s.schema["entities"] || %{}, fn {_, e} -> e["plural"] == plural && e end)
+
+    titled = kind == nil or Map.has_key?(kind["properties"] || %{}, "title")
+
+    if titled and not Map.has_key?(props, "title"),
+      do: ["/properties/title is required"],
+      else: []
   end
 end

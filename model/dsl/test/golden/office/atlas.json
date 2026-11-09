@@ -141,42 +141,6 @@
       "top": false
     }
   },
-  "flows": {
-    "post": {
-      "field": "expected",
-      "handover_field": "handover",
-      "kinds": [
-        "letter"
-      ],
-      "on": "desk",
-      "owner_relation": "held_by",
-      "state_field": "flow_state",
-      "states": [
-        {
-          "done": true,
-          "name": "done",
-          "when": {
-            "values": {
-              "state": [
-                "sent"
-              ]
-            }
-          }
-        },
-        {
-          "expected": "Post it",
-          "name": "open",
-          "next": [
-            "done"
-          ],
-          "owner": {
-            "key": "post_room",
-            "kind": "clerk"
-          }
-        }
-      ]
-    }
-  },
   "progress": {
     "done_label": "Done",
     "order": [

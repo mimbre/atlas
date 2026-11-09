@@ -4,9 +4,11 @@ Author design. No product code changes. Paths are relative to `atlas/`.
 
 Flow runs the machines. Rela defines and checks them. There is no planned switch to a Rela runner.
 
-## 1. Current behaviour
+## 1. Behaviour before the migration
 
-| Behaviour today | File:line evidence |
+The legacy Flow this design started from. Slice 14 removed it: `item.ex` and `definition.ex` no longer exist, and the line references below are to the code before that. Flow now keeps no process per fact (`AtlasFlow.Engine`).
+
+| Behaviour then | File:line evidence |
 | --- | --- |
 | Facts merges Rela's schema with the extra description on each read. It adds generated subflows and checks the old flows. | `beam/apps/atlas_facts/lib/atlas_facts/server.ex:353-365` |
 | Flow reads `_description` through Facts. Executable definitions come from `description.flows`, excluding `flow_problems`. This is the old extra-description format. | `beam/apps/atlas_flow/lib/atlas_flow/engine.ex:109-143`; `beam/apps/atlas_flow/lib/atlas_flow/definition.ex:43-56`; `rela/atlas.json:898` |

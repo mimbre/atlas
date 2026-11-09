@@ -2,8 +2,8 @@ defmodule Model.AcceptanceRunsTest do
   @moduledoc """
   Slices 10 and 11: a use case runs on Flow's durable runs, its design on
   `design_and_accept` and its building, testing and acceptance on
-  `test_and_accept_use_case`, both taking the use case from the legacy flow
-  `design_and_accept`, which then drives none. Their selections; the disjoint admission
+  `test_and_accept_use_case`, both taking the use case from the old flow
+  `design_and_accept` (gone since slice 14). Their selections; the disjoint admission
   that gives each use case one writer at any moment, and never none; the import tables
   mapped onto the use cases on test and prod; the design's acceptance and rejection, and
   its restart before the accepted output is acknowledged; the build run's start from the
@@ -32,7 +32,7 @@ defmodule Model.AcceptanceRunsTest do
     @moduledoc false
     defdelegate runs(), to: Model.AtlasEyra
     defdelegate composition(), to: Model.AtlasEyra
-    defdelegate legacy(), to: Model.AtlasEyra
+    defdelegate relations(), to: Model.AtlasEyra
 
     def selection(name) do
       s = Model.AtlasEyra.selection(name)
@@ -46,7 +46,6 @@ defmodule Model.AcceptanceRunsTest do
 
   defp flows(env), do: Map.new(Model.AtlasEyra.subflows(env), &{&1.name(), &1})
   defp selection(name \\ @name), do: Model.AtlasEyra.selection(name)
-  defp legacy, do: Enum.find(Model.AtlasEyra.legacy(), &(&1.name() == @name))
 
   defp config(env),
     do: AtlasFlow.Model.load(Model.AtlasEyra, env, %{"decider" => "someone"}).config
@@ -112,16 +111,6 @@ defmodule Model.AcceptanceRunsTest do
 
   defp issue(n), do: %{"key" => "IS-Atlas-#{n}", "links" => %{"in_use_case" => ["UC-Atlas-01"]}}
 
-  # What the legacy flow presents for a use case: {state, expected, owner}; `extra` is what
-  # Facts derives for it (`progress`, `completion`).
-  defp legacy_presents({values, children}, extra \\ %{}) do
-    fact = Map.merge(%{"key" => "UC-Atlas-01", "values" => values, "links" => %{}}, extra)
-    {state, vars} = legacy().state(fact, children, ["in_use_case"], [])
-    owner = legacy().owner(state)
-    owner = owner && AtlasFlow.Model.owner(owner, actors())
-    {state, legacy().expected(state, vars), owner}
-  end
-
   # What the run presents in its state: {expected, owner}, as Flow's projection reads it.
   defp run_presents(env, name \\ @name, state, values) do
     f = flow(env, name)
@@ -132,29 +121,20 @@ defmodule Model.AcceptanceRunsTest do
 
   # Which writer presents the use case, as Flow's projection chooses it: the run of the
   # selected subflow that admits it (`{:run, name}`), `:done` when that run is completed
-  # (it presents nothing, and no legacy flow takes it back), `:none` while it has no run
-  # yet; `:legacy` only when no selection admits it.
+  # (it presents nothing), `:none` while it has no run yet; `:nobody` when no selection
+  # admits it.
   defp writer(env, values, runs) do
     case Store.selected(config(env), @kind, %{"values" => values}) do
       nil ->
-        :legacy
+        :nobody
 
-      {name, s} ->
+      {name, _s} ->
         run = runs[name]
-        follow = s["follow_through"]
 
         cond do
-          run == nil ->
-            :none
-
-          run["status"] == "active" ->
-            {:run, name}
-
-          follow != nil and run["state"] == follow["state"] and Run.holds?(follow["when"], values) ->
-            :legacy
-
-          true ->
-            :done
+          run == nil -> :none
+          run["status"] == "active" -> {:run, name}
+          true -> :done
         end
     end
   end
@@ -192,8 +172,7 @@ defmodule Model.AcceptanceRunsTest do
         assert Enum.all?(f.states(), &(f.waiting_for(&1) == []))
       end
 
-      # Its test is the configured decider's, as the legacy flow's is; every other state the
-      # coordinator's, as there.
+      # Its test is the configured decider's; every other state the coordinator's.
       assert AtlasFlow.Model.owner(b.owner("to_test")["default"], actors()) == tester()
 
       for s <- ~w(break_down building rework),
@@ -202,22 +181,18 @@ defmodule Model.AcceptanceRunsTest do
 
     for name <- [@name, @build] do
       s = selection(name)
-      assert {s["subject"], s["legacy"], s["reopen"]} == {@kind, @name, "explicit"}
+      assert {s["subject"], s["reopen"]} == {@kind, "explicit"}
       assert {s["choices"], s["choice_states"]} == {[], []}
-      # It presents where the legacy flow did, the only legacy flow on the kind.
-      assert Map.take(legacy().writes(), Map.keys(s["projection"])) == s["projection"]
     end
+
+    # One projection: one presenter presents a use case, through both.
+    assert selection()["projection"] == selection(@build)["projection"]
 
     assert selection()["admission"] == %{"design_status" => @admitted}
     assert selection(@build)["admission"] == %{"design_status" => ["approved", "accepted", nil]}
-    # The design's follow-through to the legacy flow is gone: no legacy flow takes a use
-    # case back.
-    refute Map.has_key?(selection(), "follow_through")
-    refute Map.has_key?(selection(@build), "follow_through")
-    assert for(l <- Model.AtlasEyra.legacy(), @kind in l.kinds(), do: l.name()) == [@name]
   end
 
-  test "disjoint phase admission: every use case is one run's, the design's or the build's, never the legacy flow's" do
+  test "disjoint phase admission: every use case is one run's, the design's or the build's, never none" do
     for env <- @envs do
       c = config(env)
 
@@ -253,17 +228,6 @@ defmodule Model.AcceptanceRunsTest do
   end
 
   test "a selection that would give a use case two writers is refused" do
-    for env <- @envs,
-        name <- [@name, @build],
-        alter <- [
-          &Map.delete(&1, "legacy"),
-          &Map.delete(&1, "projection"),
-          &Map.put(&1, "legacy", "test_and_accept")
-        ] do
-      Process.put(:alter, %{name => alter})
-      assert {_config, {:two_writers, _}} = Store.activate(Altered, flows(env))
-    end
-
     # The build run may admit none the design admits: overlapping, every run is refused;
     # disjoint (as selected), none is.
     for env <- @envs do
@@ -301,13 +265,11 @@ defmodule Model.AcceptanceRunsTest do
       refute Map.has_key?(run["last_input"], "import")
       assert run["pending"] == %{"version" => 1, "writes" => []}
       assert run["deadlines"]["timers"] == []
-      {_, expected, owner} = legacy_presents(live("writing"))
-      assert {expected, owner} == {"Write its Design part", @architect}
-      assert run_presents(env, "designing", values) == {expected, owner}
+      assert run_presents(env, "designing", values) == {"Write its Design part", @architect}
       assert writer(env, values, %{@name => run}) == {:run, @name}
 
       # In review, or sent back by its review (none on test or prod today): the row joins
-      # that wait, writing nothing, presenting what the legacy flow did, to the same owner.
+      # that wait, writing nothing, presenting it to the same owner as before.
       for {status, state, owner} <- [
             {"in_review", "design_review", @coordinator},
             {"changes_requested", "redesign", @architect}
@@ -318,8 +280,8 @@ defmodule Model.AcceptanceRunsTest do
         assert run["last_input"] == %{"version" => 1, "import" => true}
         assert run["pending"] == %{"version" => 1, "writes" => []}
         assert run["deadlines"]["timers"] == []
-        {_, expected, ^owner} = legacy_presents(live(status))
-        assert run_presents(env, state, values) == {expected, owner}
+        assert {expected, ^owner} = run_presents(env, state, values)
+        assert expected != ""
         assert writer(env, values, %{@name => run}) == {:run, @name}
         # Imported where it is, it stays there: nothing moves it until its design does.
         assert {:ok, ^run} = Run.step(run, flow(env), use_case(values), @now)
@@ -337,9 +299,10 @@ defmodule Model.AcceptanceRunsTest do
     for env <- @envs do
       # prod 5, approved, issues under it not all completed: "Build it", the coordinator's.
       # prod 3, approved, nothing under it: "Break it down into issues". test 2, no design
-      # phase: "Build it", with or without issues (legacy breaks down only an accepted
-      # design). Each imports into building, writing nothing, and its count of issues, on
-      # its first entry, gives it the state the legacy flow presents, to the same owner.
+      # phase: "Build it", with or without issues (only an accepted design is broken down
+      # when nothing is under it). Each imports into building, writing nothing, and its
+      # count of issues, on its first entry, gives it the state it was presented in, to
+      # the same owner.
       for {status, issues, open, state} <- [
             {"approved", 2, 2, "building"},
             {"approved", 3, 1, "building"},
@@ -358,33 +321,27 @@ defmodule Model.AcceptanceRunsTest do
         settled = counted(run, env, values, length(children), open)
         assert settled["state"] == state, inspect(row)
         assert settled["pending"]["writes"] == []
-        {^state, expected, owner} = legacy_presents(row)
-        assert owner == @coordinator
-        assert run_presents(env, @build, state, values) == {expected, owner}
+        assert {expected, @coordinator} = run_presents(env, @build, state, values)
+        assert expected != ""
       end
 
       # One whose issues are all completed is the decider's to test, in both.
-      {values, children} = row = live("approved", 2)
+      {values, children} = live("approved", 2)
       tested = counted(build(env, values), env, values, length(children), 0)
       assert tested["state"] == "to_test"
-
-      {"to_test", expected, owner} =
-        legacy_presents(row, %{"progress" => %{"value" => "to_test"}})
-
+      {_expected, owner} = run_presents(env, @build, "to_test", values)
       assert owner == tester() and owner["kind"] == "person"
-      assert run_presents(env, @build, "to_test", values) == {expected, owner}
 
       # An accepted use case (Facts derives its completion from accepted_by) is completed
       # history, whatever its design status: nothing written, nothing rerun, nothing
-      # presented, as the legacy flow's done.
+      # presented.
       for status <- ["approved", "accepted", nil] do
-        {values, _} = row = live(status, 1)
+        {values, _} = live(status, 1)
         done = build(env, values, %{"completion" => %{"by" => "accepted_by"}})
         assert at(done) == {"accepted", "completed", 1}
         assert done["last_input"] == %{"version" => 1, "import" => true}
         assert done["pending"]["writes"] == []
         assert writer(env, values, %{@build => done}) == :done
-        {"done", _, nil} = legacy_presents(row, %{"completed" => true, "completion" => %{}})
       end
 
       # One whose design run accepted it matches no row: it starts on its predicate.
@@ -580,7 +537,7 @@ defmodule Model.AcceptanceRunsTest do
       end)
 
       # Its issues removed while it is built: back to break down, when its design was
-      # accepted; without a design phase it stays built, as in the legacy flow.
+      # accepted; without a design phase it stays built, as before.
       building = counted(build(env, values), env, values, 2, 1)
       assert counted(building, env, values, 0, 0)["state"] == "break_down"
       phaseless = counted(build(env, %{}), env, %{}, 2, 1)

@@ -206,7 +206,6 @@ defmodule Model.PullRequest do
   # one) matches no row and starts in `checking`, as a new one does: it enters its
   # checks, writing only their reset outcomes; nothing it had is rerun.
   select(:pull_request,
-    legacy: :review_and_merge,
     choices: [],
     projection: [
       on: :assignment,

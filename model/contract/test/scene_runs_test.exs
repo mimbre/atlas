@@ -1,8 +1,8 @@
 defmodule Model.SceneRunsTest do
   @moduledoc """
   Slice 12: a scene runs on Flow's durable runs, its building, testing and acceptance on
-  `test_and_accept_scene`, which takes every scene from the legacy flow
-  `test_and_accept`, which then drives none: all eight generated subflows are selected.
+  `test_and_accept_scene`, which takes every scene (the old flow `test_and_accept` went
+  in slice 14).
   Its selection; the import table mapped onto the scenes on test and prod, each keeping
   what it presents and its owner; the count of its use cases (empty and not, as use cases
   open and complete); the decider's verdict; restart while it is tested; reopening (of
@@ -25,25 +25,10 @@ defmodule Model.SceneRunsTest do
 
   # The model as composed, with the selections the calling test puts in its process
   # (`%{name => fun}`) changed: what Flow's runner would be given.
-  defmodule Altered do
-    @moduledoc false
-    defdelegate runs(), to: Model.AtlasEyra
-    defdelegate composition(), to: Model.AtlasEyra
-    defdelegate legacy(), to: Model.AtlasEyra
-
-    def selection(name) do
-      s = Model.AtlasEyra.selection(name)
-      alter = Map.get(Process.get(:alter, %{}), name, & &1)
-      alter.(s)
-    end
-  end
-
   defp flow(env, name \\ @name),
     do: Enum.find(Model.AtlasEyra.subflows(env), &(&1.name() == name))
 
-  defp flows(env), do: Map.new(Model.AtlasEyra.subflows(env), &{&1.name(), &1})
   defp selection, do: Model.AtlasEyra.selection(@name)
-  defp legacy, do: Enum.find(Model.AtlasEyra.legacy(), &(&1.name() == "test_and_accept"))
   defp decider, do: %{"decider" => "someone"}
   defp runner(env), do: AtlasFlow.Model.load(Model.AtlasEyra, env, decider())
   defp actors, do: elem(AtlasBus.Actors.resolve(Model.AtlasEyra.actors(), decider()), 1)
@@ -86,20 +71,6 @@ defmodule Model.SceneRunsTest do
   # As the scenes on test and prod are today (status refine).
   @live %{"title" => "A scene", "description" => "What it is", "status" => "refine"}
 
-  defp use_case(n), do: %{"key" => "UC-Atlas-#{n}", "links" => %{"in_scene" => ["SC-Atlas-01"]}}
-
-  # What the legacy flow presents for a scene with `children` use cases under it:
-  # {state, expected, owner}; `extra` is what Facts derives for it (`progress`,
-  # `completion`).
-  defp legacy_presents(values, children, extra \\ %{}) do
-    fact = Map.merge(%{"key" => "SC-Atlas-01", "values" => values, "links" => %{}}, extra)
-    under = for n <- 1..children//1, do: use_case(n)
-    {state, vars} = legacy().state(fact, under, ["in_scene"], [])
-    owner = legacy().owner(state)
-    owner = owner && AtlasFlow.Model.owner(owner, actors())
-    {state, legacy().expected(state, vars), owner}
-  end
-
   # What the run presents in its state: {expected, owner}, as Flow's projection reads it.
   defp run_presents(env, state, values) do
     f = flow(env)
@@ -108,7 +79,7 @@ defmodule Model.SceneRunsTest do
      AtlasFlow.Model.owner(f.owner(state)["default"], actors())}
   end
 
-  test "selected in both environments, runnable, the one writer of every scene; all eight selected" do
+  test "selected in both environments, runnable, the one writer of every scene" do
     for env <- @envs do
       r = runner(env)
       assert r.refusal == nil
@@ -116,7 +87,7 @@ defmodule Model.SceneRunsTest do
       assert Enum.sort(Map.keys(r.config["selection"])) ==
                Enum.sort(Enum.map(Model.AtlasEyra.subflows(env), & &1.name()))
 
-      assert map_size(r.config["selection"]) == 8
+      assert map_size(r.config["selection"]) == 9
 
       f = flow(env)
       assert Run.validate(f) == :ok
@@ -131,12 +102,11 @@ defmodule Model.SceneRunsTest do
       assert Enum.all?(f.states(), &(f.timers(&1) == []))
       assert Enum.all?(f.states(), &(f.waiting_for(&1) == []))
 
-      # Its test is the configured decider's, as the legacy flow's is; every other state
-      # the coordinator's, as there.
+      # Its test is the configured decider's; every other state the coordinator's.
       assert AtlasFlow.Model.owner(f.owner("to_test")["default"], actors()) == tester()
       for s <- ~w(break_down building rework), do: assert(f.owner(s)["default"] == @coordinator)
 
-      # Every scene is admitted, whatever it holds: none is left to the legacy flow.
+      # Every scene is admitted, whatever it holds.
       for values <- [%{}, @live, %{"status" => "ready_to_pick_up"}, %{"verdict" => "accept"}],
           do: assert({@name, _} = Store.selected(r.config, @kind, %{"values" => values}))
 
@@ -153,36 +123,13 @@ defmodule Model.SceneRunsTest do
     end
 
     s = selection()
-    assert {s["subject"], s["legacy"], s["reopen"]} == {@kind, "test_and_accept", "explicit"}
+    assert {s["subject"], s["reopen"]} == {@kind, "explicit"}
     assert {s["choices"], s["choice_states"], s["admission"]} == {[], [], []}
-    # It presents where the legacy flow did, the only legacy flow on the kind.
-    assert Map.take(legacy().writes(), Map.keys(s["projection"])) == s["projection"]
-    refute Map.has_key?(s, "follow_through")
-
-    assert for(l <- Model.AtlasEyra.legacy(), @kind in l.kinds(), do: l.name()) == [
-             "test_and_accept"
-           ]
+    assert s["projection"]["on"] == "assignment"
   end
 
-  test "a selection that would give a scene two writers is refused" do
-    for env <- @envs,
-        alter <- [
-          &Map.delete(&1, "legacy"),
-          &Map.delete(&1, "projection"),
-          &Map.put(&1, "legacy", "design_and_accept")
-        ] do
-      Process.put(:alter, %{@name => alter})
-      assert {_config, {:two_writers, @name}} = Store.activate(Altered, flows(env))
-    end
-
-    for env <- @envs do
-      Process.put(:alter, %{})
-      assert {_config, nil} = Store.activate(Altered, flows(env))
-    end
-  end
-
-  # The scenes as the coordinator read them on test and prod (the legacy flow drives every
-  # one, no scene has a run): {env, scene, expected, use cases under it, how many of them
+  # The scenes as the coordinator read them on test and prod before slice 12 (no scene
+  # had a run): {env, scene, expected, use cases under it, how many of them
   # are open at least}. Progress shows the least far open use cases' stage, and how many
   # of all are there (Refine · 2/3: two of three at Refine), so at least that many are open,
   # and at most all of them; the import is the same for every number in between.
@@ -221,16 +168,14 @@ defmodule Model.SceneRunsTest do
       refute Map.has_key?(@live, "children")
 
       # The count of its use cases, given to the run on its first entry, gives it the
-      # state the legacy flow presents, to the same owner: building while one is open,
+      # state it was presented in, to the same owner: building while one is open,
       # break_down with none under it (test SC-Atlas-02).
       settled = counted(run, env, @live, children, open)
-      {state, legacy_expected, owner} = legacy_presents(@live, children)
-      assert legacy_expected == expected, inspect(row)
+      state = if children == 0, do: "break_down", else: "building"
       assert settled["state"] == state, inspect(row)
       assert settled["status"] == "active"
       assert settled["pending"]["writes"] == []
-      assert owner == @coordinator
-      assert run_presents(env, state, @live) == {expected, owner}, inspect({key, row})
+      assert run_presents(env, state, @live) == {expected, @coordinator}, inspect({key, row})
 
       # Once there, the same count moves it no further.
       assert counted(sent(settled), env, @live, children, open)["state"] == state
@@ -238,24 +183,19 @@ defmodule Model.SceneRunsTest do
 
     for env <- @envs do
       # One whose use cases are all completed (none on test or prod today) is the
-      # decider's to test, as the legacy flow's progress to_test gives it.
+      # decider's to test.
       tested = counted(new(env, @live), env, @live, 2, 0)
       assert tested["state"] == "to_test"
-
-      {"to_test", expected, owner} =
-        legacy_presents(@live, 2, %{"progress" => %{"value" => "to_test"}})
-
+      assert {_expected, owner} = run_presents(env, "to_test", @live)
       assert owner == tester() and owner["kind"] == "person"
-      assert run_presents(env, "to_test", @live) == {expected, owner}
 
       # An accepted scene (Facts derives its completion from accepted_by; none on test or
       # prod today) is completed history: nothing written, nothing rerun, nothing
-      # presented, as the legacy flow's done.
+      # presented.
       done = new(env, @live, %{"completion" => %{"by" => "accepted_by"}})
       assert at(done) == {"accepted", "completed", 1}
       assert done["last_input"] == %{"version" => 1, "import" => true}
       assert done["pending"]["writes"] == []
-      {"done", _, nil} = legacy_presents(@live, 1, %{"completed" => true, "completion" => %{}})
       # Its count is still given to it, and moves nothing.
       assert at(counted(done, env, @live, 1, 0)) == at(done)
 

@@ -26,8 +26,10 @@ defmodule RelaDSL.Facts.Writes do
     `not` may not link through `relation` to a fact whose `field` is one of that key's
     values, nor may a fact take a value in `not` while such a fact links to it
     ({key}, {value}, {other}, {other_value}).
-  - `frozen`: `%{"when", "only", "error"}`: a fact that holds `when` is never deleted, and a
-    change may only set the properties of `only` to one of their values; no links.
+  - `frozen`: `%{"when", "only", "tallied", "error"}`: a fact that holds `when` is never
+    deleted, and a change may only set the properties of `only` to one of their values,
+    and those of `tallied` (the counts Flow keeps on it, which only Flow writes) to any;
+    no links.
   - `replaces`: `%{"relation", "when", "of", "set", "error"}`: a fact stored holding `when`
     sets `set` on every fact it links to through `relation` (in the same write,
     `with_change/4`), and each of those must hold `of`.
@@ -554,11 +556,12 @@ defmodule RelaDSL.Facts.Writes do
   defp frozen(%{"when" => condition} = rule, op, key, %{} = current, values, links) do
     if holds?(condition, current["values"]) do
       only = rule["only"] || %{}
+      tallied = List.wrap(rule["tallied"])
 
       allowed? =
         op != "delete" and
           Enum.all?(values, fn {name, value} ->
-            loose(value) == loose(current["values"][name]) or
+            loose(value) == loose(current["values"][name]) or name in tallied or
               (Map.has_key?(only, name) and loose(value) in loose_all(only[name]))
           end) and
           Enum.all?(links, fn {relation, keys} ->

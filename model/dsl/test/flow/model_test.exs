@@ -3,7 +3,7 @@ defmodule RelaDSL.Flow.ModelTest do
 
   alias RelaDSL.Flow.Model
 
-  # What `owner` gives a subflow and its states, and a legacy flow's states (as data).
+  # What `owner` gives a subflow and its states (as data).
   defp subflow(owner, states), do: %{owner: owner, states: Enum.map(states, &%{owner: &1})}
   defp configured(kind, role), do: %{default: %{kind: kind, config: role}}
 
@@ -13,25 +13,15 @@ defmodule RelaDSL.Flow.ModelTest do
       subflow(configured(:clerk, :approver), [configured(:team, :dispatcher)])
     ]
 
-    legacy = %{
-      "post" => %{
-        "states" => [
-          %{"name" => "open", "owner" => %{"kind" => "clerk", "config" => "approver"}},
-          %{"name" => "sent", "owner" => %{"kind" => "clerk", "key" => "post_room"}},
-          %{"name" => "done", "done" => true}
-        ]
-      }
-    }
-
-    assert Model.actors(flows, legacy) == [approver: "clerk", dispatcher: "team"]
-    assert Model.actors([subflow(%{default: %{kind: :team, key: :desk}}, [])], %{}) == []
+    assert Model.actors(flows) == [approver: "clerk", dispatcher: "team"]
+    assert Model.actors([subflow(%{default: %{kind: :team, key: :desk}}, [])]) == []
   end
 
   test "a role names one kind of fact" do
     flows = [subflow(configured(:clerk, :approver), [configured(:team, :approver)])]
 
     assert_raise ArgumentError, ~r/approver is named as a clerk and as a team/, fn ->
-      Model.actors(flows, %{})
+      Model.actors(flows)
     end
   end
 end

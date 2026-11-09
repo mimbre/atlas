@@ -1,7 +1,7 @@
 defmodule AtlasFlow.Model do
   @moduledoc """
-  The model Flow runs: a module the domain compiles (its subflows, legacy flows, where
-  runs are kept and how they are selected), wired by configuration at boot:
+  The model Flow runs: a module the domain compiles (its subflows, where runs are kept
+  and how they are selected), wired by configuration at boot:
 
       config :atlas, model: SomeModel
 
@@ -9,21 +9,23 @@ defmodule AtlasFlow.Model do
   refuses the start. Flow names no model, no kind and no subflow.
   """
 
+  defmodule MissingActor do
+    @moduledoc "The environment's settings fill no actor for `role`: Flow does not start."
+    defexception [:role, :message]
+  end
+
   @type digest :: String.t()
 
   @doc "The compiled subflow of each subflow the model runs (`AtlasFlow.Subflow`), in `environment`."
   @callback subflows(environment :: atom) :: [module]
-
-  @doc "The compiled legacy flows (`AtlasFlow.Legacy`): flows whose runs are not stored yet."
-  @callback legacy() :: [module]
 
   @doc "Where runs are kept: `%{\"kind\", \"fields\", \"writer\", \"inputs\"}`, or nil."
   @callback runs() :: nil | map
 
   @doc """
   How the runs of `subflow` are selected: `subject`, `admission`, `imports`,
-  `projection`, `follow_through`, `verification`, `reopen`, `legacy` and its approved
-  `migrations`; nil when it is not selected. `reopen: "new_generation"` lets reopened
+  `projection`, `verification`, `reopen` and its approved `migrations`; nil when it is
+  not selected. `reopen: "new_generation"` lets reopened
   work start a new generation of a completed run; without it only an explicit restart
   does (`AtlasFlow.Runs.Run.restart/4`).
   """
@@ -34,11 +36,13 @@ defmodule AtlasFlow.Model do
 
   @doc """
   How the results of its subflows reach one another, as versioned data:
-  `%{"version" => 1, "links" => [...], "counts" => [...]}`. A link writes a child run's
-  outcome to a field of its parent (`AtlasFlow.Composition.Links`), a count the parent's
-  number of children and of open ones (`AtlasFlow.Composition.Counts`). Flow applies
-  those whose child subflow and a subflow on the parent are both selected; it refuses a
-  version it does not know.
+  `%{"version" => 1, "links" => [...], "counts" => [...], "tallies" => [...]}`. A link
+  writes a child run's outcome to a field of its parent (`AtlasFlow.Composition.Links`),
+  a count the parent's number of children and of open ones
+  (`AtlasFlow.Composition.Counts`), a tally the number of facts of any kind that relate
+  to the parent (`AtlasFlow.Composition.Tallies`). Flow applies a link or count whose
+  child subflow and a subflow on the parent are both selected, and a tally when a
+  subflow on the parent is; it refuses a version it does not know.
   """
   @callback composition() :: map
 
@@ -84,11 +88,11 @@ defmodule AtlasFlow.Model do
   def environment, do: if(AtlasBus.environment() == "test", do: :test, else: :prod)
 
   @doc """
-  What Flow runs of `model` in `environment`: its legacy flows, its compiled subflows by
-  name, the run configuration (`AtlasFlow.Runs.Store.activate/2`) and why it refuses to
+  What Flow runs of `model` in `environment`: its compiled subflows by name, the run configuration (`AtlasFlow.Runs.Store.activate/2`) and why it refuses to
   run the selected ones, if it does, with the relations and the turn it walks, and the
   actors its owners name, as `actors` (`%{role => key}`, the environment's settings)
-  fills them. Raises when it does not fill one: Flow does not start without it.
+  fills them. Raises `AtlasFlow.Model.MissingActor` (its `role`) when it does not fill
+  one: Flow does not start without it.
   """
   def load(model, environment, actors \\ AtlasBus.Actors.configured()) do
     model = check!(model)
@@ -97,12 +101,18 @@ defmodule AtlasFlow.Model do
 
     actors =
       case AtlasBus.Actors.resolve(model.actors(), actors) do
-        {:ok, actors} -> actors
-        {:error, why} -> raise ArgumentError, "Flow does not start: " <> why
+        {:ok, actors} ->
+          actors
+
+        {:error, why} ->
+          # The first role not filled, as `resolve/2` meets it.
+          {role, _} =
+            Enum.find(model.actors(), &match?({:error, _}, AtlasBus.Actors.resolve([&1], actors)))
+
+          raise MissingActor, role: to_string(role), message: "Flow does not start: " <> why
       end
 
     %{
-      legacy: model.legacy(),
       flows: flows,
       config: config,
       refusal: refusal,
