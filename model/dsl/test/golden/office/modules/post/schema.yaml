@@ -1,0 +1,132 @@
+# Complete definitions; included paths are relative to the selected root.
+types:
+  letter_state:
+    values:
+    - draft
+    - sent
+    - lost
+    labels:
+      draft: Draft
+      sent: Sent
+      lost: Lost
+    descriptions:
+      draft: Being written
+      sent: 'Out: it says so'
+      lost: Gone
+  post_code:
+    description: A post code
+    validations:
+    - pattern: ^[0-9]{4}$
+      error: four digits
+entities:
+  clerk:
+    label: Clerk
+    plural: clerks
+    id_type: manual
+    properties:
+      name:
+        type: string
+        required: true
+        description: As it is shown
+      away:
+        type: string
+        description: Why it cannot work now
+  desk:
+    label: Desk
+    plural: desks
+    id_type: manual
+    id_prefix: DK-
+    properties:
+      of:
+        type: string
+        required: true
+      expected:
+        type: string
+      due:
+        type: datetime
+      handover:
+        type: string
+      flow_state:
+        type: string
+  letter:
+    label: Letter
+    plural: letters
+    aliases:
+    - le
+    id_type: manual
+    id_prefix: LE-
+    description: |
+      One letter, written and posted.
+      Its id is LE- and a number.
+    properties:
+      title:
+        type: string
+        required: true
+        description: 'What it is about: in short'
+      body:
+        type: string
+        description: The text
+      state:
+        type: letter_state
+        description: 'on'
+      code:
+        type: post_code
+        unique: true
+      urgent:
+        type: boolean
+        default: false
+      gate_result:
+        type: string
+      choice:
+        type: string
+  run:
+    label: Run
+    plural: runs
+    id_type: manual
+    properties:
+      flow:
+        type: string
+      state:
+        type: string
+  input:
+    label: Input
+    plural: inputs
+    id_type: manual
+    properties:
+      run:
+        type: string
+      actor:
+        type: string
+relations:
+  held_by:
+    label: held by
+    description: 'Who is next: one clerk.'
+    from:
+    - desk
+    to:
+    - clerk
+    max_outgoing: 1
+    inverse:
+      id: desks
+      label: desks
+  written_by:
+    label: written by
+    description: Who wrote it.
+    from:
+    - letter
+    to:
+    - clerk
+    max_outgoing: 1
+    inverse:
+      id: written
+      label: written
+  replies_to:
+    label: replies to
+    description: The letters it answers.
+    from:
+    - letter
+    to:
+    - letter
+    inverse:
+      id: replies
+      label: replies

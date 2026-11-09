@@ -1,0 +1,8 @@
+# The office.
+version: '1.0'
+namespace: https://example.invalid/office#
+description: |
+  The post room.
+includes:
+- modules/post/schema.yaml
+- compositions/office/bindings.yaml

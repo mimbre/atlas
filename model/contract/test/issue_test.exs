@@ -25,7 +25,7 @@ defmodule Model.IssueTest do
     assert [flow] = Issue.__flows__()
     assert Map.take(flow, Map.keys(@flow)) == @flow
     assert flow.initial == :author
-    assert String.ends_with?(flow.file, "lib/issue.ex")
+    assert String.ends_with?(flow.file, "software/issue.ex")
   end
 
   test "10 states and 27 transitions" do
@@ -40,7 +40,7 @@ defmodule Model.IssueTest do
   end
 
   test "the two gates it names are defined with their versions" do
-    gates = Map.new(Model.Gates.__gates__(), &{&1.name, &1})
+    gates = Map.new(Model.AtlasEyra.__rela__(:gates), &{&1.name, &1})
 
     assert %{version: 1, purpose: :flow, verdicts: [:review, :rework, :person]} =
              gates.delivery_evidence

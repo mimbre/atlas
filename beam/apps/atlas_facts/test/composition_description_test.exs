@@ -40,7 +40,20 @@ defmodule AtlasFacts.CompositionDescriptionTest do
     assert status == 0, json
     description = JSON.decode!(json)
 
-    # Match the private profiles: copy the shared sidecar and select no generated runs.
+    # The foundation-only extension: the committed atlas.json scoped to what this
+    # description holds (its kinds and relations, and the root rules foundation owns).
+    full = JSON.decode!(File.read!(Path.join(root, "rela/atlas.json")))
+
+    extra =
+      full
+      |> Map.take(~w(todo runtime start guidance))
+      |> Map.put("entities", Map.take(full["entities"], Map.keys(description["entities"])))
+      |> Map.put("relations", Map.take(full["relations"], Map.keys(description["relations"])))
+
+    extra_path = Path.join(dir, "extra.json")
+    File.write!(extra_path, JSON.encode!(extra))
+
+    # The committed sidecar, selecting no generated runs (as for a composition without subflows).
     fragment =
       JSON.decode!(File.read!(Path.join(root, "rela/flow-runtime.json")))
       |> put_in(["flow_runtime", "selection"], %{})
@@ -54,7 +67,7 @@ defmodule AtlasFacts.CompositionDescriptionTest do
         {AtlasFacts.Server,
          rela: {Backend, description},
          data_dir: Path.join(dir, "facts"),
-         description_extra: Path.join(schema_root, "modules/foundation/atlas.json"),
+         description_extra: extra_path,
          flow_runtime: sidecar}
       )
 

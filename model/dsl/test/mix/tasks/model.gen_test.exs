@@ -232,9 +232,13 @@ defmodule Mix.Tasks.Model.GenTest do
   end
 
   test "the writers and the task read only a contract's data, not the format's internals" do
-    # The format is lib/schema.ex and lib/schema/ (the composition); the rest only reads data.
-    for path <-
-          Path.wildcard("lib/**/*.ex") -- ["lib/schema.ex" | Path.wildcard("lib/schema/**/*.ex")] do
+    # The format is lib/schema.ex and lib/schema/ (the composition of subflows), and the
+    # macros that build on it (a concept, a composition); the rest only reads data.
+    format =
+      ["lib/schema.ex", "lib/rela_dsl.ex", "lib/description.ex", "lib/composition.ex"] ++
+        Path.wildcard("lib/schema/**/*.ex")
+
+    for path <- Path.wildcard("lib/**/*.ex") -- format do
       code = path |> File.read!() |> String.replace(~r/@(module)?doc\s+"""(?s:.*?)"""/, "")
       refute code =~ "RelaDSL.Schema", "#{path} calls into RelaDSL.Schema"
     end

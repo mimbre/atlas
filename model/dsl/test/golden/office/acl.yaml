@@ -1,0 +1,13 @@
+# The roles the flows name.
+#
+# Rela checks them.
+roles:
+  # Post's writer.
+  post-flow:
+    read: ["*"]
+    update: [letter, run]
+  editor:
+    read: ["*"]
+    update: [letter]
+assignments:
+  system:post: post-flow

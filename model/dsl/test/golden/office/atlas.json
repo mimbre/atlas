@@ -1,0 +1,248 @@
+{
+  "_about": "What the office adds.",
+  "entities": {
+    "clerk": {
+      "create": {
+        "ask": [
+          "name"
+        ],
+        "id": {
+          "error": "a name",
+          "from": "name",
+          "pattern": "^([a-z]+)$",
+          "template": "{1}"
+        }
+      },
+      "primary": "name",
+      "properties": {
+        "away": {
+          "set_by": [
+            "runtime"
+          ]
+        }
+      },
+      "top": false
+    },
+    "desk": {
+      "late": {
+        "after": "due",
+        "label": "late",
+        "while": "expected"
+      },
+      "properties": {
+        "expected": {
+          "set_by": [
+            "flow"
+          ]
+        }
+      },
+      "start": {
+        "key": "d",
+        "label": "Desks"
+      },
+      "top": false
+    },
+    "input": {
+      "by_hand": false,
+      "top": false
+    },
+    "letter": {
+      "actions": [
+        {
+          "key": "x",
+          "label": "Lose",
+          "to": "agent:lose",
+          "when": {
+            "state": [
+              "sent"
+            ]
+          }
+        }
+      ],
+      "create": {
+        "ask": [
+          "title",
+          "body"
+        ],
+        "defaults": {
+          "state": "draft"
+        },
+        "id": {
+          "digits": 2,
+          "prefix": "LE-"
+        }
+      },
+      "delete_error": "a letter is kept",
+      "frozen": {
+        "error": "{key} is sent",
+        "only": {
+          "urgent": [
+            false
+          ]
+        },
+        "when": {
+          "state": [
+            "sent"
+          ]
+        }
+      },
+      "order": "newest",
+      "primary": "title",
+      "properties": {
+        "body": {
+          "multiline": true
+        },
+        "gate_result": {
+          "set_by": [
+            "flow"
+          ]
+        },
+        "urgent": {
+          "label": "Urgent"
+        }
+      },
+      "replaces": {
+        "error": "no",
+        "of": {
+          "state": [
+            "sent"
+          ]
+        },
+        "relation": "replies_to",
+        "set": {
+          "state": "lost"
+        },
+        "when": {
+          "state": [
+            "sent"
+          ]
+        }
+      },
+      "requires": [
+        {
+          "error": "a sent letter has a code",
+          "fields": [
+            "code"
+          ],
+          "when": {
+            "state": [
+              "sent"
+            ]
+          }
+        }
+      ],
+      "start": {
+        "key": "l",
+        "label": "Letters"
+      }
+    },
+    "run": {
+      "by_hand": false,
+      "top": false
+    }
+  },
+  "flows": {
+    "post": {
+      "field": "expected",
+      "handover_field": "handover",
+      "kinds": [
+        "letter"
+      ],
+      "on": "desk",
+      "owner_relation": "held_by",
+      "state_field": "flow_state",
+      "states": [
+        {
+          "done": true,
+          "name": "done",
+          "when": {
+            "values": {
+              "state": [
+                "sent"
+              ]
+            }
+          }
+        },
+        {
+          "expected": "Post it",
+          "name": "open",
+          "next": [
+            "done"
+          ],
+          "owner": {
+            "key": "post_room",
+            "kind": "clerk"
+          }
+        }
+      ]
+    }
+  },
+  "progress": {
+    "done_label": "Done",
+    "order": [
+      "draft",
+      "sent"
+    ]
+  },
+  "relations": {
+    "desk": {
+      "component": {
+        "key": "DK-{key}",
+        "values": {
+          "of": "{key}"
+        }
+      }
+    },
+    "held_by": {
+      "actions": {
+        "change": {
+          "key": "h",
+          "label": "Hand to…",
+          "with": [
+            "due"
+          ]
+        }
+      }
+    },
+    "replies_to": {
+      "review": {
+        "field": "state",
+        "label": "Answers a lost letter",
+        "value": "lost"
+      }
+    },
+    "written_by": {
+      "only_target": {
+        "error": "only the writer sets it"
+      }
+    }
+  },
+  "shell": {
+    "tabs": [
+      {
+        "id": "letters",
+        "label": "Letters",
+        "to": "/k/letter"
+      }
+    ],
+    "title": "Office"
+  },
+  "start": {
+    "assigned": {
+      "count": "{count} yours",
+      "relation": "held_by",
+      "title": "Yours"
+    }
+  },
+  "todo": {
+    "answers": "Answers",
+    "instructions": "How",
+    "title": "What to do",
+    "why": "Why"
+  },
+  "types": {
+    "post_code": {
+      "format": "url"
+    }
+  }
+}

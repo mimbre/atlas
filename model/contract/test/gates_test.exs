@@ -1,16 +1,16 @@
 defmodule Model.GatesTest do
   use ExUnit.Case, async: true
 
-  test "the gates, in the order written" do
-    assert Enum.map(Model.Gates.__gates__(), & &1.name) ==
-             [:delivery_evidence, :review, :design, :integrate, :accept_decision]
+  test "the gates of the composition, in the order of its concepts" do
+    assert Enum.map(Model.AtlasEyra.__rela__(:gates), & &1.name) ==
+             [:accept_decision, :delivery_evidence, :review, :integrate, :design]
   end
 
   # Named by the pull request's integrate effect, applied by hand until Code applies it:
   # integrate only when CI is green on the exact head being
   # integrated and the fingerprint approved at review is the one sent at integration.
   test "integrate is a rule gate over named evidence; what it cannot settle goes to a person" do
-    gate = Enum.find(Model.Gates.__gates__(), &(&1.name == :integrate))
+    gate = Enum.find(Model.AtlasEyra.__rela__(:gates), &(&1.name == :integrate))
 
     assert Map.drop(gate, [:file]) == %{
              name: :integrate,
