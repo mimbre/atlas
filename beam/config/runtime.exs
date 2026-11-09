@@ -53,6 +53,7 @@ if config_env() != :test do
     config :atlas_control,
       host: settings["control"]["host"],
       port: settings["control"]["port"],
+      tls: settings["control"]["tls"],
       # Who uses a TUI of this environment (a key), until Control has sign-in.
       tui_user: settings["tui_user"],
       # Separate read capability; absent by default, never reuse Bus writer tokens.

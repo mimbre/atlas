@@ -105,13 +105,6 @@ class LocalRuntime:
             raise OwnershipError('unknown Runtime lifecycle phase')
         if not isinstance(record.get('processes'), dict):
             raise OwnershipError('Runtime process records must be an object')
-        if 'tunnel' in record['processes'] and (not isinstance(record.get('tunnel_command'), list) or len(record['tunnel_command']) != 6 or any(not isinstance(word, str) for word in record['tunnel_command'])):
-            raise OwnershipError('malformed Runtime proxy command record')
-        if 'tunnel' in record['processes']:
-            command = record['tunnel_command']
-            ports = command[2].split(':')
-            if Path(command[0]).name not in ('fly', 'flyctl') or command[1] != 'proxy' or command[3] != '-a' or not command[4] or command[5] != '-q' or len(ports) != 2 or any(not re.fullmatch('[0-9]{1,5}', port) or not 0 < int(port) < 65536 for port in ports):
-                raise OwnershipError('retained process is not the Runtime proxy role')
 
     def _boot_args(self, instance):
         return [str(self.root/'beam/runtime-node.exs'), '--environment', self.target['environment'], '--machine', self.target['machine'], '--configuration', str(self.configuration), '--directory', str(self.base), '--instance', instance]
@@ -122,9 +115,6 @@ class LocalRuntime:
         if role == 'runtime':
             expected = self._boot_args(record['instance'])
             valid = Path(identity['exe']).name == 'beam.smp' and identity['argv'][-len(expected):] == expected
-        elif role == 'tunnel':
-            command = record['tunnel_command']
-            valid = identity['exe'] == str(Path(command[0]).resolve()) and identity['argv'] == command
         else:
             valid = False
         if not valid:
@@ -135,14 +125,12 @@ class LocalRuntime:
         record = json.loads(self._read(self.file)) if record is None else record
         self._scope(record)
         if record.get('phase') == 'stopped':
-            if record.get('processes') != {} or any((self.base/f'{role}.pid').exists() for role in ('runtime', 'tunnel')):
+            if record.get('processes') != {} or (self.base/'runtime.pid').exists():
                 raise OwnershipError('unexpected PID record after stop')
             return record
         processes = record.get('processes', {})
-        if not isinstance(processes, dict) or not processes or set(processes) - {'runtime', 'tunnel'}:
+        if not isinstance(processes, dict) or set(processes) != {'runtime'}:
             raise OwnershipError('Runtime has no proven process records')
-        if any((self.base/f'{role}.pid').exists() for role in {'runtime', 'tunnel'} - set(processes)):
-            raise OwnershipError('unexpected unproven Runtime PID record')
         # All PID domains and file bindings precede any OS lookup.
         for role, birth in processes.items():
             if not isinstance(birth, dict) or set(birth) != {'pid', 'uid', 'start'} or type(birth['uid']) is not int or birth['uid'] != os.getuid() or not isinstance(birth['start'], list) or len(birth['start']) != 2 or any(type(part) not in (int, str) for part in birth['start']):
@@ -172,9 +160,6 @@ class LocalRuntime:
         client = json.loads(self.client_file.read_text())
         if not isinstance(client, dict) or client.get('env') != self.target['environment']:
             raise OwnershipError('client configuration environment mismatch')
-        fly = client.get('fly', {})
-        if not isinstance(fly, dict):
-            raise OwnershipError('client proxy configuration must be an object')
         with self.locked(create=True):
             if self.file.exists():
                 record = self.verify()
@@ -184,7 +169,7 @@ class LocalRuntime:
                     return record  # Proven same node: do not spawn, read credentials or replay start.
                 history = self.base/('stopped-'+record['instance']+'.json')
                 self._write(history, json.dumps(record))
-            elif any((self.base/f'{role}.pid').exists() for role in ('runtime', 'tunnel')):
+            elif (self.base/'runtime.pid').exists():
                 raise OwnershipError('legacy PID-only Runtime records refuse start')
             instance = uuid.uuid4().hex
             record = dict(version='1', target=self.target, directory=str(self.base), configuration=str(self.configuration), root=str(self.root), client=str(self.client_file), instance=instance, phase='starting', processes={})
@@ -194,16 +179,7 @@ class LocalRuntime:
             if not token:
                 raise OwnershipError('Bus link authority unavailable; no Runtime started')
             self._save(record)
-            link = settings['bus_link']
-            if fly and fly.get('in_use', True):
-                if link.get('host', '127.0.0.1') != '127.0.0.1':
-                    raise OwnershipError('private proxy requires loopback Bus host')
-                executable = shutil_which_fly()
-                command = [executable, 'proxy', str(link['port'])+':'+str(link.get('remote_port', 7694 if self.target['environment']=='test' else 7594)), '-a', fly['app'], '-q']
-                record['tunnel_command'] = command
-                with (self.base/'tunnel.log').open('ab') as log:
-                    child = subprocess.Popen(command, env=startup_env, stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True)
-                self._capture(record, 'tunnel', child)
+            # The Bus link dials bus_link.host:port itself: on Fly, the core's tailnet name (D-0089).
             child_env = dict(startup_env, ATLAS_ROOT=str(self.root), ATLAS_ENV=self.target['environment'], ATLAS_ROLE='runtime', ATLAS_ENV_FILE=str(self.configuration), ATLAS_RUNTIME_HOME=str(self.base), ATLAS_RUNTIME_INSTANCE=instance, ATLAS_CLIENT_ENV_FILE=str(self.client_file), ATLAS_BUS_LINK_TOKEN=token, MIX_ENV='dev', PYTHONDONTWRITEBYTECODE='1', ELIXIR_ERL_OPTIONS='+S 1:1')
             child_env.pop('ATLAS_RUNTIME_DISCOVERY_TOKEN', None)
             child_env.pop('ATLAS_RUNTIME_READ_TOKEN', None)
@@ -230,13 +206,13 @@ class LocalRuntime:
             return None
         with self.locked():
             if not self.file.exists():
-                if any((self.base/f'{role}.pid').exists() for role in ('runtime', 'tunnel')):
+                if (self.base/'runtime.pid').exists():
                     raise OwnershipError('legacy PID-only Runtime records refuse stop')
                 return None
             record = self.verify()
             if record['phase'] == 'stopped': return record
             # Recheck every role before its signal; never signal groups or replacements.
-            for role in [name for name in ('runtime', 'tunnel') if name in record['processes']]:
+            for role in [name for name in ('runtime',) if name in record['processes']]:
                 birth = record['processes'][role]
                 self.verify(record)
                 os.kill(birth['pid'], signal.SIGTERM)
@@ -263,10 +239,3 @@ class LocalRuntime:
             if current['start'] != birth['start'] or current['terminal']: return True
             time.sleep(.05)
         return False
-
-
-def shutil_which_fly():
-    import shutil
-    executable = shutil.which('fly') or shutil.which('flyctl')
-    if not executable: raise OwnershipError('private proxy executable unavailable')
-    return str(Path(executable).resolve())

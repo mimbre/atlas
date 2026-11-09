@@ -14,10 +14,10 @@ must install each environment's machine-token secret before deploying its
 configuration: missing or malformed `ATLAS_BUS_LINK_TOKEN` prevents core startup.
 Connecting a node does not start a worker or authorize model turns.
 
-| Environment | Core `bus_link` | Tunnel (local:remote) | Keychain service | Node machine |
+| Environment | Core `bus_link` | Node's `bus_link` host:port (tailnet) | Keychain service | Node machine |
 | --- | --- | --- | --- | --- |
-| test | `{"host": "::", "port": 7694}` | `7695:7694` | `atlas-bus-link-test` | `macbook` |
-| prod | `{"host": "::", "port": 7594}` | `7595:7594` | `atlas-bus-link-prod` | `melle-mac-mini` |
+| test | `{"host": "::", "port": 7694}` | `eyra-atlas-test.<tailnet>.ts.net:7694` | `atlas-bus-link-test` | `macbook` |
+| prod | `{"host": "::", "port": 7594}` | `eyra-atlas.<tailnet>.ts.net:7594` | `atlas-bus-link-prod` | `melle-mac-mini` |
 
 The core secret `ATLAS_BUS_LINK_TOKEN` is a JSON object mapping machine names to distinct
 random tokens. Binding the token to a machine prevents one admitted machine from
@@ -25,28 +25,37 @@ attaching another machine's endpoints. The local keychain item has service
 `atlas-bus-link-<env>` (table above), account `<machine>`, and that machine's token as
 its password.
 Never put tokens in tracked settings. Test and prod use separate secrets and keychain
-services. The wire is JSON lines over the encrypted `fly proxy` tunnel, not public TCP.
+services. The wire is JSON lines over the tailnet (D-0089): the core's Fly machine joins
+it as the Fly app's name, and the node dials that name and the Bus link's port directly,
+encrypted by Tailscale, never over public TCP. The node's machine must be on the tailnet,
+and the tailnet's ACL must allow it that port.
+
+The node dials the core's **full** tailnet name, `<app>.<tailnet>.ts.net` (the suffix: `tailscale status --json | jq -r .MagicDNSSuffix`), with TLS verification before its machine token is sent. A DNS name, including a full `.ts.net` suffix, does not authenticate the destination. Supply `"tls": {}` for system CA trust, or a separately provisioned `tls.cacertfile`. See [private transport](private-transport.md); live prerequisites remain unverified.
 
 Create `~/.local/share/atlas/test-runtime/runtime.json` locally:
 
 ```json
 {
   "env": "test",
-  "bus_link": {"mode": "client", "host": "127.0.0.1", "port": 7695,
-               "remote_port": 7694, "machine": "macbook"},
+  "bus_link": {"mode": "client", "host": "eyra-atlas-test.<tailnet>.ts.net", "port": 7694, "tls": {},
+               "machine": "macbook"},
   "runtime": {"machine": "macbook", "agents": {}}
 }
 ```
 
-This connection-only example uses local tunnel port `7695` to test's private Bus
-port `7694`, with a token bound to `macbook`. With `agents: {}`, it connects without
+This connection-only example dials test's Bus link at `eyra-atlas-test.<tailnet>.ts.net:7694`
+over the tailnet, with a token bound to `macbook`. Prod's is
+`"host": "eyra-atlas.<tailnet>.ts.net", "port": 7594`.
+A `runtime.json` from before D-0089 (`"host": "127.0.0.1"`, port `7595` or `7695`,
+`"remote_port"`) dials a tunnel that no longer exists: change it to the tailnet host and
+port, and `"tls": {}`, and drop `"remote_port"`. Do not substitute this illustrative hostname: supply the verified real certificate name. With `agents: {}`, it connects without
 creating workers: after Bus authentication it registers `runtime@macbook/output`,
 but no engine registers `runtime@macbook`. Configuring agents or assigning work
 requires separate authorization; an authenticated connection is not a running worker.
 
-`atlas-runtime node start --env test` starts the tunnel and node in the background;
+`atlas-runtime node start --env test` starts the node in the background;
 `atlas-runtime node status --env test` reports its process and log;
-`atlas-runtime node stop --env test` stops that node and its tunnel. A started process can be
+`atlas-runtime node stop --env test` stops that node. A started process can be
 waiting to reconnect; process status proves neither authenticated remote registration
 nor a running worker. Consult its log for link progress and, when work is running,
 the turn's lease in Control.
@@ -164,7 +173,7 @@ remains independent under one fixed request deadline. The CLI may compile its
 ordinary client as usual, but never builds/starts Runtime. Local status does not
 probe credentials or infer remote access from the existence of this command.
 The read token is stripped before configuration/build/lifecycle helper children,
-including keychain, Fly proxy and Runtime startup, and restored only to the final
+including keychain and Runtime startup, and restored only to the final
 explicit discovery transport. Direct lifecycle helpers independently sanitize all
 their child environments.
 

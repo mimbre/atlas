@@ -28,6 +28,7 @@ defmodule AtlasControl.Gateway do
 
   @impl true
   def init(opts) do
+    Process.flag(:trap_exit, true)
     # The model first: without one Control can serve, it listens for nobody.
     model = Keyword.fetch!(opts, :model)
     catalog = AtlasControl.Model.catalog(model, opts[:settings] || %{})
@@ -39,28 +40,40 @@ defmodule AtlasControl.Gateway do
         Keyword.get_lazy(opts, :actors, &AtlasBus.Actors.configured/0)
       )
 
-    {:ok, ip} =
-      opts |> Keyword.get(:host, "127.0.0.1") |> String.to_charlist() |> :inet.parse_address()
+    destination = %{
+      "host" => Keyword.get(opts, :host, "127.0.0.1"),
+      "port" => Keyword.fetch!(opts, :port),
+      "tls" => Keyword.get(opts, :tls)
+    }
 
     {:ok, listen} =
-      :gen_tcp.listen(Keyword.fetch!(opts, :port), [
+      AtlasTransport.listen(destination, [
         :binary,
-        ip: ip,
         packet: :line,
         buffer: 4_194_304,
         active: false,
         reuseaddr: true
       ])
 
-    {:ok, port} = :inet.port(listen)
+    {:ok, port} = AtlasTransport.port(listen)
 
     Logger.info(
       "Control #{AtlasBus.environment()} listens on #{Keyword.get(opts, :host, "127.0.0.1")}:#{port}"
     )
 
-    gateway = self()
-    acceptor = spawn_link(fn -> accept(listen, gateway, catalog) end)
-    {:ok, %{listen: listen, port: port, acceptor: acceptor, offline: nil}}
+    {:ok, peers} = Task.Supervisor.start_link(max_children: 64)
+    {acceptor, ref} = start_acceptor(listen, peers, catalog)
+
+    {:ok,
+     %{
+       listen: listen,
+       port: port,
+       acceptor: acceptor,
+       ref: ref,
+       peers: peers,
+       catalog: catalog,
+       offline: nil
+     }}
   end
 
   @impl true
@@ -91,22 +104,65 @@ defmodule AtlasControl.Gateway do
 
   def handle_info({:online, _}, state), do: {:noreply, state}
 
-  defp accept(listen, gateway, catalog) do
-    {:ok, socket} = :gen_tcp.accept(listen)
+  def handle_info({:DOWN, ref, :process, _, reason}, %{ref: ref} = state) do
+    case AtlasTransport.port(state.listen) do
+      {:ok, _} ->
+        Logger.warning("Control acceptor exited: #{inspect(reason)}; restarting")
+        {acceptor, ref} = start_acceptor(state.listen, state.peers, state.catalog)
+        {:noreply, %{state | acceptor: acceptor, ref: ref}}
 
-    if GenServer.call(gateway, :online?) do
-      {:ok, pid} =
-        DynamicSupervisor.start_child(
-          AtlasControl.Sessions,
-          {AtlasControl.Session, {socket, catalog}}
-        )
+      _ ->
+        {:stop, :listener_closed, state}
+    end
+  end
 
-      :ok = :gen_tcp.controlling_process(socket, pid)
-      send(pid, :go)
-    else
-      :gen_tcp.close(socket)
+  def handle_info({:EXIT, pid, reason}, %{peers: pid} = state),
+    do: {:stop, {:peers, reason}, state}
+
+  def handle_info({:EXIT, _, _}, state), do: {:noreply, state}
+
+  @impl true
+  def terminate(_, state) do
+    AtlasTransport.close(state.listen)
+    Process.exit(state.acceptor, :shutdown)
+    if Process.alive?(state.peers), do: Supervisor.stop(state.peers)
+  end
+
+  defp start_acceptor(listen, peers, catalog) do
+    gateway = self()
+    :erlang.spawn_opt(fn -> accept(listen, gateway, peers, catalog) end, [:link, :monitor])
+  end
+
+  defp accept(listen, gateway, peers, catalog) do
+    case AtlasTransport.accept_peer(listen) do
+      {:ok, socket} ->
+        AtlasTransport.start_peer(peers, socket, fn socket ->
+          if GenServer.call(gateway, :online?) do
+            {:ok, pid} =
+              DynamicSupervisor.start_child(
+                AtlasControl.Sessions,
+                {AtlasControl.Session, {socket, catalog, self()}}
+              )
+
+            ref = Process.monitor(pid)
+            :ok = AtlasTransport.controlling_process(socket, pid)
+            send(pid, :go)
+
+            receive do
+              {:DOWN, ^ref, :process, ^pid, _} -> :ok
+            end
+          else
+            AtlasTransport.close(socket)
+          end
+        end)
+
+      {:error, :closed} ->
+        exit(:normal)
+
+      {:error, _} ->
+        :ok
     end
 
-    accept(listen, gateway, catalog)
+    accept(listen, gateway, peers, catalog)
   end
 end

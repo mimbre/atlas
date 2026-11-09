@@ -21,7 +21,7 @@ class OpsCredentialRoutingTest(unittest.TestCase):
                 'env': 'test',
                 'control': {'host': '127.0.0.1', 'port': 1},
                 'fly': {'app': 'private-core', 'rela_app': 'private-rela', 'local': str(local),
-                        'control_port': 2, 'move_from': str(private / 'nothing')},
+                        'move_from': str(private / 'nothing')},
             }))
             capture = private / 'calls.jsonl'
             stub = '''#!/usr/bin/env python3
@@ -37,7 +37,7 @@ with open(os.environ['PRIVATE_ENV_CAPTURE'],'a') as f:
                        ATLAS_ENV_FILE=str(settings), ATLAS_NO_UPDATE='1',
                        ATLAS_RUNTIME_READ_TOKEN='private-read-synthetic',
                        PRIVATE_ENV_CAPTURE=str(capture))
-            for words in [['status'], ['logs'], ['tunnel', 'status'], ['tunnel', 'close'], ['env']]:
+            for words in [['status'], ['logs'], ['env']]:
                 result = subprocess.run([str(ROOT / 'bin/atlas-ops'), *words, '--env', 'test'],
                                         env=env, text=True, capture_output=True, timeout=30)
                 self.assertEqual(result.returncode, 0, (words, result.stdout, result.stderr))

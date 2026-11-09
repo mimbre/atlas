@@ -404,7 +404,10 @@ defmodule AtlasBus.LinkTest do
 
     # Reconnect with the same token after the core drops the connection.
     socket = :sys.get_state(Link.Client).socket
-    for pid <- :sys.get_state(Link.Server).connections, do: Process.exit(pid, :shutdown)
+
+    for pid <- Task.Supervisor.children(:sys.get_state(Link.Server).peers),
+        do: Process.exit(pid, :shutdown)
+
     eventually(fn -> :sys.get_state(Link.Client).socket not in [nil, socket] end, 500)
     assert authenticated?.()
 

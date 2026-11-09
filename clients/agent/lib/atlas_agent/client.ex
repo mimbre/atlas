@@ -21,11 +21,10 @@ defmodule AtlasAgent.Client do
   `agent`, or a `migration` (which may set what the description marks as set by one).
   """
   def connect(env, settings, as \\ "agent") do
-    host = settings["control"]["host"] |> String.to_charlist()
-    port = settings["control"]["port"]
+    destination = settings["control"]
     options = [:binary, packet: :line, active: false, buffer: 4_194_304]
 
-    case tcp_connect(host, port, options, env) do
+    case tcp_connect(destination, options, env) do
       {:ok, socket} ->
         client = %__MODULE__{socket: socket, env: env}
 
@@ -58,7 +57,7 @@ defmodule AtlasAgent.Client do
     end
   end
 
-  def close(%__MODULE__{socket: socket}), do: :gen_tcp.close(socket)
+  def close(%__MODULE__{socket: socket}), do: AtlasTransport.close(socket)
 
   # The contract version this client implements; Control sends a too old one away.
   @version AtlasAgent.Protocol.version()
@@ -125,15 +124,22 @@ defmodule AtlasAgent.Client do
   @doc "The last part of a path, which is the key of the fact it shows."
   def key_of(path), do: path |> String.split("/") |> List.last() |> URI.decode()
 
-  defp tcp_connect(host, port, options, env) do
-    case :gen_tcp.connect(host, port, options, @connect_timeout) do
+  defp tcp_connect(destination, options, env) do
+    host = AtlasTransport.host(destination)
+    port = destination["port"]
+
+    case AtlasTransport.connect(destination, options, @connect_timeout) do
       {:ok, socket} ->
         {:ok, socket}
 
+      {:error, :missing_destination} ->
+        {:error,
+         "Control #{env} has no configured full hostname; see docs/guides/private-transport.md."}
+
       {:error, _} ->
         {:error,
-         "Control #{env} does not answer at #{host}:#{port}. " <>
-           "Is it running? See `atlas-ops status --env #{env}`."}
+         "Control #{env} could not be authenticated or reached at #{host}:#{port}. " <>
+           "Check the full hostname and TLS trust configuration; see `atlas-ops status --env #{env}`."}
     end
   end
 
@@ -166,7 +172,7 @@ defmodule AtlasAgent.Client do
       if left <= 0 do
         {:error, :timeout}
       else
-        :gen_tcp.recv(client.socket, 0, left)
+        AtlasTransport.recv(client.socket, 0, left)
       end
 
     case result do
@@ -260,7 +266,7 @@ defmodule AtlasAgent.Client do
   end
 
   defp send_line(client, message) do
-    case :gen_tcp.send(client.socket, [JSON.encode!(message), "\n"]) do
+    case AtlasTransport.send(client.socket, [JSON.encode!(message), "\n"]) do
       :ok -> :ok
       {:error, _} -> {:error, "Control #{client.env} closed the connection"}
     end

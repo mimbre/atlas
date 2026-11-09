@@ -12,7 +12,7 @@ In any terminal, from any folder:
 atlas tui --env test
 ```
 
-That is all. Test runs on Fly, so it opens the tunnel to test's Control and then the TUI (`docs/guides/test-on-fly.md`). It also updates `~/projects/eyra/atlas` to the newest develop first. `atlas` starts no rela and no core: for a private instance on this Mac (`ATLAS_ENV_FILE`), start them first with `atlas-ops restart --env test`, which also restarts a core from an older build; otherwise the TUI exits with that hint. A first start compiles for about half a minute.
+That is all. Test runs on Fly, and the TUI connects to test's Control over the tailnet; this Mac must be on it (`docs/guides/test-on-fly.md`). It also updates `~/projects/eyra/atlas` to the newest develop first. `atlas` starts no rela and no core: for a private instance on this Mac (`ATLAS_ENV_FILE`), start them first with `atlas-ops restart --env test`, which also restarts a core from an older build; otherwise the TUI exits with that hint. A first start compiles for about half a minute.
 
 For TUI 2, run `atlas tui --env test` again in a second terminal, beside the first.
 
@@ -41,7 +41,7 @@ Also try:
 - **Two at once.** Press `c` in both TUIs, give each a title, and save both. They get different codes. If both take the same number, Facts refuses the second, and its TUI tries the next number by itself (`… is taken; trying …`).
 - **A deleted code.** Delete the newest scene and create another right away. rela keeps a deleted code reserved for a few minutes, so the TUI says the code is taken and moves on to the next number.
 - **A scene with use cases.** Deleting a scene that still has use cases is refused, with the number of use cases (see UC-Atlas-02).
-- **Losing Control.** Run `atlas-ops tunnel close --env test` in a third terminal (on a private instance: `atlas-ops stop --env test`). Both TUIs say `Not connected to Control. Retrying…` and show nothing old as current. Run any `atlas` command, for example `atlas list scene --env test`, which opens the tunnel again (on a private instance: `atlas-ops restart --env test`); they come back on the page they were on.
+- **Losing Control.** Turn Tailscale off on this Mac (`tailscale down`, or the menu bar app; on a private instance: `atlas-ops stop --env test`). Both TUIs say `Not connected to Control. Retrying…` and show nothing old as current. Turn Tailscale on again (`tailscale up`; on a private instance: `atlas-ops restart --env test`); they come back on the page they were on.
 
 ## What is underneath
 

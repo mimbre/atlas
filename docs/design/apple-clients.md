@@ -1,5 +1,7 @@
 # Apple clients: macOS first, iOS next
 
+
+Remote transport now requires verified full hostnames and TLS certificates; the live configuration is not supplied and cutover is blocked. See [private transport](../guides/private-transport.md). Short node names below identify apps, not authenticated connection destinations.
 Native Swift/SwiftUI apps with the same functions as the TUI (`clients/tui`), talking to
 Control the way the TUI does: JSON lines over TCP, `hello`/`welcome`, `boot`, `open`,
 `submit`, `refresh`, and the pushed `page`, `notice` and `bye` ([bff/README.md](../../bff/README.md)).
@@ -184,7 +186,7 @@ What differs by platform beyond the layout stays in the platform targets:
 |---|---|---|
 | Layout | the three columns above | iPhone: tab bar and navigation stack; iPad: the three columns |
 | Actions | buttons under the page; their `console_action` keys as shortcuts | buttons under the page; swipe and context menus on rows |
-| Reaching Control | the local tunnel `bin/atlas` opens (§5) | the Mac mini's tunnel, over the tailnet (§6) |
+| Reaching Control | directly over the tailnet, host and port from the launcher (§5) | directly over the tailnet, host and port from configuration (§6) |
 | Agent behind `:` | runs `atlas steer` as a child process | hidden until Control serves plans (§6) |
 | Distribution | a local build; no App Store Connect | TestFlight (D-0088, §6) |
 
@@ -194,7 +196,7 @@ What differs by platform beyond the layout stays in the platform targets:
 |---|---|---|
 | Connection, retry every 2 s, reopen the page on return | `AtlasTui.App`, `AtlasTui.Console` | `ControlSession.Reconnector` |
 | Environment: prod by default, test when asked; `env/<env>.json` or `ATLAS_ENV_FILE` | `AtlasTui.CLI` | macOS: the launcher passes env, host, port (§5); iOS: configuration (§6) |
-| Tunnel to Fly, readiness probe | `bin/atlas`, `bin/lib/tunnel.sh` | macOS: the launcher reuses it; iOS: the Mac mini's tunnel over the tailnet (§6) |
+| Reaching Control on Fly, "not on the tailnet" | `bin/atlas`, `bin/lib/env.sh` (`reach_control`) | macOS: the launcher reuses it; iOS: the app's own connection error (§6) |
 | Handshake: hello with the spec, refused when too old, wrong env → bye | `AtlasTui.Console` | `Session` |
 | Boot, tabs, initial page, active tab, stale shell | `AtlasTui.Console`, `AtlasTui.ConsoleView` | `Session`; sidebar (macOS, iPad), tab bar with More (iPhone) |
 | Pages: open, the page on screen, the title, "No such page" | `AtlasTui.Console`, `AtlasTui.View` | `Session`, `BlockViews`; index page in the middle column, opened page on the right |
@@ -305,22 +307,21 @@ serves plans.
 
 ## 5. Running the macOS app against test or prod
 
-The TUI reaches an environment on Fly through `bin/atlas`: `ensure_tunnel` runs
-`fly proxy` from this Mac's `control.port` to Control on the environment's private network
-(WireGuard), checks Control answers (`fly/control-ready.py`), then starts the TUI on
-`127.0.0.1:<port>`. The app does the same through a launcher instead of opening Fly
-itself (a sandboxed app cannot run `fly`):
+The TUI reaches an environment on Fly through `bin/atlas`: the core is on the tailnet
+(D-0089), so `reach_control` only checks that `control.host:control.port` of the settings
+answers (`eyra-atlas:7591` for prod), says `not on the tailnet: tailscale status` when it
+does not, and then starts the TUI on that host and port. The separate macOS S1 client is unmerged and outside this source. Its integration must use verified TLS for every session, output connection and reconnect; the launcher contract must carry the confirmed full hostname and trust requirements. The commands below are the planned integration:
 
 ```
-bin/atlas mac              # prod: opens the tunnel, then the app on 127.0.0.1:<prod port>
-bin/atlas mac --env test   # test
+bin/atlas mac              # prod: checks Control answers, then the app on eyra-atlas:7591
+bin/atlas mac --env test   # test: eyra-atlas-test:7691
 ```
 
 The launcher passes `--env`, host and port (from `env/<env>.json` or `ATLAS_ENV_FILE`) as
 launch arguments; the app connects only there and shows the environment in its title
 bar, prod as the inverted badge. Without the launcher the app asks for nothing and says
-how to start it. For a local Control (`atlas-ops restart --env test`) the launcher skips
-the tunnel, as `bin/atlas tui` does. The macOS app runs as a local build; it needs no App
+how to start it. For a local Control (`atlas-ops restart --env test`) the host is
+`127.0.0.1`, as for `bin/atlas tui`. The macOS app runs as a local build; it needs no App
 Store Connect.
 
 ## 6. iOS: what maps differently, and how it reaches Control
@@ -339,15 +340,14 @@ Store Connect.
 - **The agent behind `:`.** iOS cannot start `atlas steer`. Until Control (through
   Runtime, SC-Atlas-02) sends the plan block itself, `agent:` actions are hidden on iOS.
   The plan view is shared, so nothing else changes when Control serves it.
-- **Reaching Control (decided, 2026-11-13): over the existing Tailscale network.** The
-  iPhone and the Mac mini are on the same tailnet already. The Mac mini keeps a tunnel to
-  Control: a local proxy (`fly proxy`) of the same kind it already runs for the Runtime's
-  prod bus link, bound to its tailnet address. The iOS app connects to `mac-mini:<port>`.
-  Only tailnet devices can reach it; Control stays closed to the internet, and the
-  protocol does not change. Tailscale must be on on the iPhone when the app is used.
-  The Mac mini's tailnet address and the port are configuration, not part of this
-  document.
-  *Alternative, noted only:* Tailscale on the Fly app itself.
+- **Reaching Control (decided, 2026-11-13; D-0089): directly over the tailnet.** The
+  core's Fly machine joins the tailnet itself, as the Fly app's name, so the iOS app
+  connects straight to Control: `eyra-atlas:7591` (prod), `eyra-atlas-test:7691` (test),
+  the same host and port as every other client. No other machine relays it. Only devices
+  the tailnet's ACL allows can reach it; Control stays closed to the internet, and the
+  protocol does not change. Tailscale must be on on the iPhone when the app is used;
+  it also must authenticate the configured full certificate hostname before sending any protocol traffic.
+  Host and port are configuration, not part of this document.
 - **Distribution: TestFlight (D-0088).** Prerequisites, handled by the person behind
   Atlas through a To-Do: an Apple Developer account, a bundle ID that names no company
   (the repository is public), an App Store Connect app record, and an App Store Connect
@@ -385,6 +385,6 @@ macOS integration job installs Erlang and Elixir with Homebrew and rela with
 `rela/scripts/start-test.sh install`. Until then the integration test runs on a Mac with
 `bin/atlas-dev`.
 
-**A person against test or prod.** On macOS, §5: `bin/atlas mac --env test` opens the
-tunnel and the app; prod is the default and wears the badge. On iOS, a TestFlight build
-on a device with Tailscale on, connecting to the Mac mini's tunnel (§6).
+**A person against test or prod.** On macOS, §5: `bin/atlas mac --env test` checks
+Control answers over the tailnet, then opens the app; prod is the default and wears the badge. On iOS, a TestFlight build
+on a device with Tailscale on, connecting to Control on the tailnet (§6).

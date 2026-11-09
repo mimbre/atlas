@@ -1,6 +1,8 @@
 # Atlas test on Fly
 
-Test's core (Bus, Facts, Flow, Control) and its rela run on Fly, in organisation eyra, on test's own private network; nothing of it has a public address. Runtime and the agents stay on the MacBook. Why two apps and how they connect: `docs/adr/0003-test-on-fly.md` (IS-Atlas-26).
+
+Remote transport now requires verified full hostnames and TLS certificates; the live configuration is not supplied and cutover is blocked. See [private transport](private-transport.md). Short node names below identify apps, not authenticated connection destinations.
+Test's core (Bus, Facts, Flow, Control) and its rela run on Fly, in organisation eyra, on test's own private network; nothing of it has a public address. The core also joins the tailnet as `eyra-atlas-test` (D-0089), and that is where every client reaches it. Runtime and the agents stay on the MacBook. Why two apps and how they connect: `docs/adr/0003-test-on-fly.md` (IS-Atlas-26).
 
 | | App | Machine | Data |
 |---|---|---|---|
@@ -10,21 +12,15 @@ Test's core (Bus, Facts, Flow, Control) and its rela run on Fly, in organisation
 ## Use it
 
 ```sh
-atlas tui --env test        # opens the tunnel to test's Control on Fly, then the TUI
-atlas list scene --env test # the agents' commands too; each opens the tunnel when it is closed
-atlas-ops status --env test        # the tunnel, and both apps' machines, checks and deployed build
-atlas-ops logs --env test          # the core's log on Fly (rela's: fly logs -a eyra-atlas-test-rela)
-atlas-ops tunnel close --env test  # closes this Mac's tunnel; test keeps running on Fly
+atlas tui --env test        # the TUI, on test's Control over the tailnet
+atlas list scene --env test # the agents' commands too
+atlas-ops status --env test # whether Control answers over the tailnet, and both apps' machines, checks and deployed build
+atlas-ops logs --env test   # the core's log on Fly (rela's: fly logs -a eyra-atlas-test-rela)
 ```
 
-The tunnel is `fly proxy 7693:7691 -a eyra-atlas-test`, flyctl's WireGuard into test's network, running in the background like the core used to. It needs flyctl logged in to organisation eyra (`fly auth whoami`); nothing else on the Mac (no VPN, no root). Its files are in `~/.local/share/atlas/test-on-fly/`.
+Control is at `eyra-atlas-test:7691` on the tailnet (`control.host` and `control.port` of `env/test.json`), the Bus link at `eyra-atlas-test:7694`. The Mac must be on the tailnet (the Tailscale app on, MagicDNS on), and the tailnet's ACL must let it reach those ports; nothing is opened or started for it. When Control does not answer, a command says `not on the tailnet: tailscale status` and stops. flyctl, logged in (`fly auth whoami`), is still needed for `status`, `logs` and the data moves below. The TUI's agent log is in `~/.local/share/atlas/test-on-fly/`.
 
-Before passing the tunnel to a client, the launcher checks a read-only Control
-handshake, not only the local port. It reopens an unresponsive existing proxy and
-waits up to a minute for a new proxy to reach Control. `status` reports a broken
-upstream as unavailable even if flyctl still listens locally. This restarts no Fly
-machine and replays no client writes. A hello refusal is left to the client to
-report; a handshake alone does not prove Facts/rela health.
+The check before a command is only whether Control's port accepts a connection; the client then authenticates TLS before its protocol hello, and a refusal is the client's to report. It does not prove Facts/rela health: that is the smoke check's.
 
 `atlas-ops up`, `stop` and `restart` refuse for test: a merge to develop deploys test (CI job `deploy-test`, which runs `fly/deploy.sh test`):
 
@@ -100,6 +96,19 @@ fly tokens create deploy -a eyra-atlas-test-rela -n "eyra/atlas CI"   # secret F
 ```
 
 Until both are there, the deploy job fails on its first step and names the missing one.
+
+The deploy job also joins the tailnet for the smoke check, with the repository secret `TS_AUTHKEY_CI` (an ephemeral, reusable, pre-approved key tagged `tag:atlas-ci`, shared with prod's job; the ACL lets it reach `eyra-atlas-test:7691` only); without it the job fails before deploying anything.
+
+## The tailnet key
+
+The core joins the tailnet before it starts (`fly/core-run.sh`). Its node is persistent, with its state on the volume (`/data/tailscale`): the app's secret `TS_AUTHKEY` (a reusable, pre-approved key tagged `tag:atlas-test`, not ephemeral), from Infisical `test:/tailscale`, logs it in on the first boot or after the volume was wiped, and a restart is the same node, `eyra-atlas-test`, without the key:
+
+```sh
+printf 'TS_AUTHKEY=%s\n' "$(infisical secrets get TS_AUTHKEY --plain --env test --path /tailscale)" \
+  | fly secrets import -a eyra-atlas-test
+```
+
+Without it the core does not start (`core-run: TS_AUTHKEY is not set`), and `fly/deploy.sh` refuses to deploy. What the tailnet needs (tags, keys, ACL, CI's key) and when the key is used: the owner's steps in `docs/guides/prod.md`, "Secrets".
 
 ## Move data from the MacBook
 

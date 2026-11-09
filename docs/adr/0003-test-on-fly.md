@@ -24,6 +24,7 @@ Test ran on the MacBook: rela on 7690 and the core (Bus, Facts, Flow, Control) o
 - *Amended 2026-11-10 (design-cli-structure-1, S3):* the operating commands named in this record (`up`, `stop`, `restart`, `status`, `logs`, `move-to-fly`, `fetch-from-fly`, and `rela-stop`, now `stop --rela`) moved from `atlas` to `atlas-ops`. On Fly, `atlas-ops stop` and `restart` refuse; `atlas-ops tunnel close` closes the tunnel, and `atlas` still opens it when a command needs Control.
 - The migrations (`atlas migrate-*`) read rela on the Mac and are refused for an environment on Fly. A migration runs on a copy on the Mac (IS-Atlas-79, below).
 - Every client on a machine needs flyctl logged in to organisation eyra (the Mac mini too, when it runs test's agents).
+- *Amended 2026-11-13 (D-0089):* decision 3 is replaced. The core's Fly machine joins the tailnet itself (`fly/core-run.sh`), as the Fly app's name, and every client (the TUI, `atlas`, the Apple apps, a Runtime node's Bus link) connects to Control or the Bus link there directly; `fly proxy`, `bin/lib/tunnel.sh`, `fly/control-ready.py` and `atlas-ops tunnel` are gone. Clients need the tailnet, not flyctl; the tailnet's ACL is the boundary, and Control still has no public address. flyctl stays for status, logs, deploys and data moves.
 
 ## Prod, and what came with it (IS-Atlas-79)
 

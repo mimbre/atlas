@@ -2,15 +2,14 @@
 # atlas-ops: operate an Atlas environment and its processes, from any folder.
 #
 #   atlas-ops status       what runs, which build, and whether rela runs this build's
-#                          description; on Fly: the tunnel, and both apps' machines
+#                          description; on Fly: whether Control answers over the tailnet,
+#                          and both apps' machines
 #   atlas-ops logs         follow the core's log
 #   atlas-ops restart      stop the core and start this build in the background; rela too:
 #                          started when it does not answer, restarted when it runs an older
 #                          description than this build (its data stays)
 #   atlas-ops up           run the core in the foreground (what restart starts in the background)
 #   atlas-ops stop [--rela]   stop the core; with --rela, rela too
-#   atlas-ops tunnel status|close   this machine's tunnel to Control on Fly; `atlas` opens it
-#                          when a command needs Control
 #   atlas-ops env          the environment a command works on, and its settings file
 #   atlas-ops where        the folder the build comes from
 #   atlas-ops main-clone   the main clone, which `atlas tui` updates to the newest develop
@@ -19,7 +18,9 @@
 # On Fly (IS-Atlas-26, IS-Atlas-79): an environment whose settings have a "fly" section runs
 # its core and rela on Fly, each environment on its own private network; a merge deploys
 # them (develop: test, master: prod), so restart, up and stop refuse, and status and logs
-# show Fly's machines and logs. With "in_use": false in that section (an environment whose
+# show Fly's machines and logs. Its Control is on the tailnet (D-0089), at control.host and
+# control.port of the settings; this machine reaches it there, or not at all (tailscale
+# status). With "in_use": false in that section (an environment whose
 # data has not moved and been checked yet) the core and rela still run on this machine, and
 # only the two commands below go to Fly.
 #   atlas-ops move-to-fly [--from <folder>] [--dry-run] [--replace-live]   copy this
@@ -48,14 +49,13 @@ done
 root="$(cd "$(dirname "$src")/.." && pwd -P)"
 prog=atlas-ops
 . "$root/bin/lib/env.sh"
-. "$root/bin/lib/tunnel.sh"
 # The comment above, up to `set -euo pipefail`: the usage.
 header() { sed -n '2,/^set -euo/p' "$root/bin/atlas-ops" | sed '$d' | sed 's/^# \{0,1\}//'; }
 usage() { header; exit 2; }
 unknown() { echo "atlas-ops: unknown option $1" >&2; usage; }
 
 case "${1:-}" in
-  status|logs|restart|up|stop|tunnel|env|where|main-clone|install|move-to-fly|fetch-from-fly) cmd="$1"; shift ;;
+  status|logs|restart|up|stop|env|where|main-clone|install|move-to-fly|fetch-from-fly) cmd="$1"; shift ;;
   -h|--help|"") usage ;;
   *) echo "atlas-ops: unknown command $1" >&2; usage ;;
 esac
@@ -69,17 +69,9 @@ for arg in ${rest[@]+"${rest[@]}"}; do
   case "$arg" in -h|--help) usage ;; esac
   case "$cmd" in
     stop) [ "$arg" = --rela ] && rela=1 || unknown "$arg" ;;
-    tunnel)
-      case "$arg" in
-        status|close) [ ${#args[@]} -eq 0 ] || unknown "$arg"; args+=("$arg") ;;
-        *) unknown "$arg" ;;
-      esac ;;
     *) unknown "$arg" ;;
   esac
 done
-if [ "$cmd" = tunnel ] && [ ${#args[@]} -eq 0 ]; then
-  echo "atlas-ops: tunnel needs status or close" >&2; usage
-fi
 
 resolve_env
 resolve_places
@@ -155,29 +147,15 @@ ensure_rela() {
   echo "atlas-ops: rela $env ran an older description; restarted it on this build's (its data stays)"
 }
 
-tunnel_line() {
-  local pid
-  if pid="$(tunnel_pid)" && listening; then
-    if control_ready; then
-      echo "tunnel: open (pid $pid), Control reachable, 127.0.0.1:$port -> $fly_app:$fly_port, log $(tunnel_log)"
-    else
-      echo "tunnel: unavailable (pid $pid still listens, but $probe_error); the next atlas command reopens it"
-    fi
+control_line() {
+  if control_answers; then
+    echo "control: answers at $host:$port over the tailnet"
   else
-    echo "tunnel: closed; atlas opens it when a command needs Control"
+    echo "control: does not answer at $host:$port; not on the tailnet: tailscale status"
   fi
 }
 
 case "$cmd" in
-  tunnel)
-    if [ -z "$fly_app" ]; then
-      echo "atlas-ops: $env does not run on Fly, so this machine has no tunnel to its Control" >&2; exit 1
-    fi
-    case "${args[0]}" in
-      status) tunnel_line ;;
-      close) stop_tunnel; echo "atlas-ops: closed this machine's tunnel to $fly_app" ;;
-    esac
-    exit 0 ;;
   # Between this machine and the Fly apps; also while the clients still use this machine's core.
   move-to-fly|fetch-from-fly)
     if [ -z "$fly_rela_app" ]; then
@@ -212,12 +190,12 @@ if [ -n "$fly_app" ]; then
   case "$cmd" in
     up) echo "atlas-ops: $on_fly, so there is no core to run here" >&2; exit 1 ;;
     restart|stop)
-      echo "atlas-ops: $on_fly, so there is nothing to $cmd here (this machine's tunnel: atlas-ops tunnel close --env $env)" >&2
+      echo "atlas-ops: $on_fly, so there is nothing to $cmd here" >&2
       exit 1 ;;
     status)
       echo "env:    $env ($settings), on Fly"
       echo "build:  $root at $(head_now) (this machine's clients; the core is what CI deployed, below)"
-      tunnel_line
+      control_line
       fly="$(fly_cli)"
       for app in "$fly_app" "$fly_rela_app"; do
         "$fly" status -a "$app" 2>&1 | sed '/^$/d; s/^/  /' || true

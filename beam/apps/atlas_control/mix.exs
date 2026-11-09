@@ -30,6 +30,7 @@ defmodule AtlasControl.MixProject do
   defp deps,
     do: [
       {:atlas_bus, in_umbrella: true},
+      {:atlas_transport, path: "../../../transport"},
       {:atlas_bff_contract, path: "../../../bff/contract"},
       {:rela_dsl, path: "../../../model/dsl", only: :test}
     ]

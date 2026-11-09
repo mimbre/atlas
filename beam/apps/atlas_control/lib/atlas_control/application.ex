@@ -11,6 +11,7 @@ defmodule AtlasControl.Application do
         [
           {AtlasControl.Gateway,
            host: Application.fetch_env!(:atlas_control, :host),
+           tls: Application.get_env(:atlas_control, :tls),
            port: Application.fetch_env!(:atlas_control, :port),
            model: AtlasControl.Model.configured!(),
            settings: Application.get_env(:atlas_control, :settings, %{})}

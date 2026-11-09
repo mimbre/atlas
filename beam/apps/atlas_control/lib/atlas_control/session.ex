@@ -61,7 +61,16 @@ defmodule AtlasControl.Session do
 
   def start_link({socket, model}), do: GenServer.start_link(__MODULE__, {socket, model})
 
+  def start_link({socket, model, owner}),
+    do: GenServer.start_link(__MODULE__, {socket, model, owner})
+
   @impl true
+  def init({socket, model, owner}) do
+    ref = Process.monitor(owner)
+    {:ok, state} = init({socket, model})
+    {:ok, Map.put(state, :connection_owner, ref)}
+  end
+
   def init({socket, model}) do
     endpoint = "control/session-#{System.unique_integer([:positive])}"
     :ok = AtlasBus.attach(endpoint)
@@ -107,12 +116,16 @@ defmodule AtlasControl.Session do
   end
 
   @impl true
+  def handle_info({:DOWN, ref, :process, _, _}, %{connection_owner: ref} = state),
+    do: {:stop, :normal, state}
+
   def handle_info(:go, state) do
-    :ok = :inet.setopts(state.socket, active: :once)
+    :ok = AtlasTransport.setopts(state.socket, active: :once)
     {:noreply, state}
   end
 
-  def handle_info({:tcp, _socket, line}, state) do
+  def handle_info({transport, socket, line}, %{socket: socket} = state)
+      when transport in [:tcp, :ssl] do
     result =
       case JSON.decode(line) do
         {:ok, %{"op" => op} = message} ->
@@ -125,7 +138,7 @@ defmodule AtlasControl.Session do
 
     case result do
       {:noreply, next} ->
-        case :inet.setopts(next.socket, active: :once) do
+        case AtlasTransport.setopts(next.socket, active: :once) do
           :ok -> {:noreply, next}
           {:error, _} -> {:stop, :normal, next}
         end
@@ -137,8 +150,11 @@ defmodule AtlasControl.Session do
 
   def handle_info(:presentation_failed, state), do: {:stop, :normal, state}
 
-  def handle_info({:tcp_closed, _}, state), do: {:stop, :normal, state}
-  def handle_info({:tcp_error, _, _}, state), do: {:stop, :normal, state}
+  def handle_info({closed, _}, state) when closed in [:tcp_closed, :ssl_closed],
+    do: {:stop, :normal, state}
+
+  def handle_info({error, _, _}, state) when error in [:tcp_error, :ssl_error],
+    do: {:stop, :normal, state}
 
   def handle_info({:output_idle, marker}, %{output_idle: {_, marker}} = state),
     do: {:stop, :normal, state}
@@ -422,7 +438,7 @@ defmodule AtlasControl.Session do
         Enum.each(state.listening, &Registry.unregister(AtlasBus.Listeners, &1))
 
         :ok =
-          :inet.setopts(state.socket,
+          AtlasTransport.setopts(state.socket,
             send_timeout: 1_000,
             send_timeout_close: true,
             packet_size: 262_144
@@ -1637,7 +1653,7 @@ defmodule AtlasControl.Session do
   end
 
   defp send_client(state, message) do
-    case :gen_tcp.send(state.socket, [JSON.encode!(message), "\n"]) do
+    case AtlasTransport.send(state.socket, [JSON.encode!(message), "\n"]) do
       :ok -> :ok
       {:error, reason} -> Logger.debug("Control could not reach its client: #{inspect(reason)}")
     end

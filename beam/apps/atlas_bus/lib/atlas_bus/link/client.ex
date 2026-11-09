@@ -60,9 +60,8 @@ defmodule AtlasBus.Link.Client do
 
     result =
       with {:ok, socket} <-
-             :gen_tcp.connect(
-               String.to_charlist(s["host"] || "127.0.0.1"),
-               s["port"],
+             AtlasTransport.connect(
+               s,
                [:binary, packet: :line, packet_size: 4_194_304, buffer: 4_194_304, active: false],
                2_000
              ) do
@@ -72,19 +71,19 @@ defmodule AtlasBus.Link.Client do
           "token" => state.secret.()
         })
 
-        case :gen_tcp.recv(socket, 0, 2_000) do
+        case AtlasTransport.recv(socket, 0, 2_000) do
           {:ok, line} ->
             case JSON.decode(line) do
               {:ok, %{"op" => "welcome"}} ->
                 {:ok, socket}
 
               _ ->
-                :gen_tcp.close(socket)
+                AtlasTransport.close(socket)
                 :error
             end
 
           _ ->
-            :gen_tcp.close(socket)
+            AtlasTransport.close(socket)
             :error
         end
       end
@@ -92,7 +91,7 @@ defmodule AtlasBus.Link.Client do
     case result do
       {:ok, socket} ->
         Enum.each(Map.keys(state.refs), &replay(socket, &1))
-        :inet.setopts(socket, active: :once)
+        AtlasTransport.setopts(socket, active: :once)
         {:noreply, %{state | socket: socket, delay: 2_000}}
 
       _ ->
@@ -100,7 +99,8 @@ defmodule AtlasBus.Link.Client do
     end
   end
 
-  def handle_info({:tcp, socket, line}, %{socket: socket} = state) do
+  def handle_info({transport, socket, line}, %{socket: socket} = state)
+      when transport in [:tcp, :ssl] do
     case JSON.decode(line) do
       {:ok,
        %{"op" => "deliver", "endpoint" => name, "envelope" => %{} = map, "content" => content}} ->
@@ -113,20 +113,22 @@ defmodule AtlasBus.Link.Client do
               do: send(pid, {:atlas_bus, envelope, content})
         end
 
-        :inet.setopts(socket, active: :once)
+        AtlasTransport.setopts(socket, active: :once)
         {:noreply, state}
 
       _ ->
-        :gen_tcp.close(socket)
+        AtlasTransport.close(socket)
         {:noreply, reconnect(state)}
     end
   end
 
-  def handle_info({event, socket}, %{socket: socket} = state) when event == :tcp_closed,
-    do: {:noreply, reconnect(state)}
+  def handle_info({event, socket}, %{socket: socket} = state)
+      when event in [:tcp_closed, :ssl_closed],
+      do: {:noreply, reconnect(state)}
 
-  def handle_info({:tcp_error, socket, _}, %{socket: socket} = state),
-    do: {:noreply, reconnect(state)}
+  def handle_info({error, socket, _}, %{socket: socket} = state)
+      when error in [:tcp_error, :ssl_error],
+      do: {:noreply, reconnect(state)}
 
   def handle_info({:DOWN, ref, :process, pid, _}, state) do
     if state.refs[pid] == ref do
@@ -139,10 +141,10 @@ defmodule AtlasBus.Link.Client do
   end
 
   def handle_info(_, state), do: {:noreply, state}
-  def terminate(_, state), do: if(state.socket, do: :gen_tcp.close(state.socket))
+  def terminate(_, state), do: if(state.socket, do: AtlasTransport.close(state.socket))
 
   defp reconnect(state) do
-    if state.socket, do: :gen_tcp.close(state.socket)
+    if state.socket, do: AtlasTransport.close(state.socket)
     Process.send_after(self(), :connect, state.delay)
     %{state | socket: nil, delay: min(state.delay * 2, 30_000)}
   end
@@ -159,5 +161,5 @@ defmodule AtlasBus.Link.Client do
   end
 
   defp emit(nil, _, _), do: :ok
-  defp emit(socket, op, fields), do: :gen_tcp.send(socket, Link.encode(op, fields))
+  defp emit(socket, op, fields), do: AtlasTransport.send(socket, Link.encode(op, fields))
 end

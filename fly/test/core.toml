@@ -1,8 +1,11 @@
 # The core of Atlas test on Fly (Bus, Facts, Flow, Control; IS-Atlas-26). Deployed from the
 # repository root by CI on a merge to develop:
 #   fly deploy . --config fly/test/core.toml --dockerfile fly/core.Dockerfile
-# No [[services]] and no public address: clients reach Control on test's own private
-# network (eyra-atlas-test), over WireGuard; `atlas tui --env test` opens the tunnel.
+# No [[services]] and no public address: the machine joins the tailnet as eyra-atlas-test
+# (tag:atlas-test, fly/core-run.sh, D-0089), and clients reach Control at
+# eyra-atlas-test:7691 and the Bus link at eyra-atlas-test:7694 there; the tailnet's ACL
+# decides who may. Its tailnet state is on the volume (/data/tailscale), so a restart is
+# the same node; the secret TS_AUTHKEY logs in a node without one (docs/guides/test-on-fly.md).
 app = "eyra-atlas-test"
 primary_region = "ams"
 kill_signal = "SIGTERM"

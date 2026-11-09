@@ -1,9 +1,11 @@
 # The core of Atlas prod on Fly (Bus, Facts, Flow, Control; IS-Atlas-79). Deployed from the
 # repository root by CI on a merge to master:
 #   fly deploy . --config fly/prod/core.toml --dockerfile fly/core.Dockerfile
-# No [[services]] and no public address: clients reach Control on prod's own private
-# network (eyra-atlas-prod), over WireGuard; `atlas` opens the tunnel once env/prod.json
-# says prod's clients use Fly ("in_use" in its "fly" section).
+# No [[services]] and no public address: the machine joins the tailnet as eyra-atlas
+# (tag:atlas-prod, fly/core-run.sh, D-0089), and clients reach Control at eyra-atlas:7591
+# and the Bus link at eyra-atlas:7594 there; the tailnet's ACL decides who may. It needs
+# the secret TS_AUTHKEY for its first login; its tailnet state is on the volume
+# (/data/tailscale), so a restart is the same node (docs/guides/prod.md, "Secrets").
 app = "eyra-atlas"
 primary_region = "ams"
 kill_signal = "SIGTERM"

@@ -67,9 +67,17 @@ fly_in_use() {
 }
 
 # Where the environment's processes are. On Fly (IS-Atlas-26) $fly_app is set, and
-# control.port is this machine's end of the tunnel to Control; this machine keeps only the
-# tunnel's files and the TUI's agent log. Otherwise the core and rela run here.
+# control.host and control.port are Control's on the tailnet (D-0089): the Fly app's
+# MagicDNS name and its port; this machine keeps only the TUI's agent log (fly.local).
+# Otherwise the core and rela run here.
 resolve_places() {
+  if has_setting control.host_env; then
+    local host_env
+    host_env="$(setting control.host_env)"
+    host="${!host_env:-}"
+  else
+    host="$(setting control.host)"
+  fi
   port="$(setting control.port)"
   fly_app=""
   fly_rela_app=""
@@ -81,7 +89,6 @@ resolve_places() {
     if fly_in_use; then fly_app="$ATLAS_FLY_APP"; export ATLAS_FLY_IN_USE=true; else export ATLAS_FLY_IN_USE=false; fi
   fi
   if [ -n "$fly_app" ]; then
-    fly_port="$(setting fly.control_port)"
     export ATLAS_TEST_ROOT="$fly_local"
   else
     rela_url="$(setting rela.url)"
@@ -94,6 +101,25 @@ resolve_places() {
   pidfile="$state/core.pid"
   headfile="$state/core.head"
   log="$state/core.log"
+}
+
+# Control of an environment on Fly answers over the tailnet, or this machine is told why it
+# cannot reach it. Nothing is opened or started: the tailnet is this machine's own.
+# A name that does not resolve fails at once; the wait is for an address that does not answer.
+control_answers() { [ -n "$host" ] && nc -z -w 3 "$host" "$port" >/dev/null 2>&1; }
+reach_control() {
+  [ -n "$host" ] || { echo "$prog: missing full authenticated Control hostname (control.host_env in $settings); cutover is not configured" >&2; exit 1; }
+  control_answers && return 0
+  echo "$prog: $env's Control does not answer at $host:$port over the tailnet" >&2
+  echo "$prog: not on the tailnet: tailscale status; on it: is $fly_app running? atlas-ops status --env $env" >&2
+  exit 1
+}
+
+fly_cli() {
+  command -v fly || command -v flyctl || {
+    echo "$prog: $env runs on Fly; install flyctl (brew install flyctl), then: fly auth login" >&2
+    exit 1
+  }
 }
 
 head_now() { git -C "$root" rev-parse --short HEAD 2>/dev/null || echo unknown; }

@@ -120,6 +120,7 @@ defmodule AtlasE2E.AtlasCommandTest do
     assert {_, 2} = atlas_dev(["tui"])
   end
 
+  @tag :requires_git
   test "atlas-ops works from any folder: from /, and from inside another repository" do
     {common, 0} =
       System.cmd("git", ["-C", @root, "rev-parse", "--path-format=absolute", "--git-common-dir"])
@@ -155,7 +156,7 @@ defmodule AtlasE2E.AtlasCommandTest do
     assert {test["env"], prod["env"]} == {"test", "prod"}
 
     # Both run on Fly (IS-Atlas-26, IS-Atlas-79), each its own pair of apps: this Mac has
-    # only the tunnels' ends and their files.
+    # only the clients' files.
     assert test["fly"]["app"] == "eyra-atlas-test"
     assert prod["fly"]["app"] == "eyra-atlas"
     refute test["fly"]["rela_app"] == prod["fly"]["rela_app"]
@@ -165,22 +166,30 @@ defmodule AtlasE2E.AtlasCommandTest do
       refute Map.has_key?(settings, "facts")
     end
 
+    hosts = [test["control"]["host_env"], prod["control"]["host_env"]]
+    assert Enum.uniq(hosts) == hosts
     ports = [test["control"]["port"], prod["control"]["port"]]
     assert Enum.uniq(ports) == ports
-    refute 7612 in ports
-    # Not the ports the Mac's own cores used, which may still be listening.
-    refute Enum.any?(ports, &(&1 in [7590, 7591, 7690, 7691]))
     refute test["fly"]["local"] == prod["fly"]["local"]
     refute test["fly"]["local"] =~ "/atlas/prod"
   end
 
-  # A copy of env/test.json whose tunnel files go to a folder of its own.
+  # A copy of env/test.json whose clients' files go to a folder of its own.
   defp fly_file do
     dir = Path.join(System.tmp_dir!(), "atlas-fly-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
     settings = @root |> Path.join("env/test.json") |> File.read!() |> JSON.decode!()
     file = Path.join(dir, "test.json")
-    File.write!(file, JSON.encode!(put_in(settings, ["fly", "local"], dir)))
+    settings = put_in(settings, ["fly", "local"], dir)
+
+    settings =
+      Map.put(settings, "control", %{
+        "host" => "test.security-fixture.ts.net",
+        "port" => 7691,
+        "tls" => %{}
+      })
+
+    File.write!(file, JSON.encode!(settings))
     on_exit(fn -> File.rm_rf!(dir) end)
     file
   end
@@ -220,25 +229,84 @@ defmodule AtlasE2E.AtlasCommandTest do
     for args <- [["stop"], ["stop", "--rela"], ["restart"]] do
       assert {out, 1} = ops(args ++ ["--env", "test"], on_fly)
       assert out =~ "a merge to develop deploys it", "atlas-ops #{Enum.join(args, " ")}: #{out}"
-      assert out =~ "atlas-ops tunnel close --env test"
     end
 
     assert {out, 1} = atlas(["migrate-done-owner", "--dry-run", "--env", "test"], on_fly)
     assert out =~ "the migration reads rela on this Mac"
   end
 
-  test "the tunnel on Fly is shown and closed by atlas-ops; a local environment has none" do
-    on_fly = [{"ATLAS_ENV_FILE", fly_file()}]
-    assert {out, 0} = ops(["tunnel", "status", "--env", "test"], on_fly)
-    assert out =~ "tunnel: closed"
-    assert {out, 0} = ops(["tunnel", "close", "--env", "test"], on_fly)
-    assert out =~ "closed this machine's tunnel to eyra-atlas-test"
-    assert {_, 2} = ops(["tunnel", "--env", "test"], on_fly)
-    assert {_, 2} = ops(["tunnel", "open", "--env", "test"], on_fly)
+  # On Fly, Control is on the tailnet (D-0089): the Fly app's MagicDNS name, and the port its
+  # core listens on (fly/<env>/core.json). What bin/lib/env.sh resolves, as atlas uses it.
+  test "on Fly, the clients' Control is the core app's tailnet name and its own port" do
+    for env <- ["test", "prod"] do
+      settings = @root |> Path.join("env/#{env}.json") |> File.read!() |> JSON.decode!()
+      core = @root |> Path.join("fly/#{env}/core.json") |> File.read!() |> JSON.decode!()
+      refute Map.has_key?(settings["fly"], "control_port")
 
-    local = [{"ATLAS_ENV_FILE", local_file()}]
-    assert {out, 1} = ops(["tunnel", "status", "--env", "test"], local)
-    assert out =~ "does not run on Fly"
+      script =
+        ~s(prog=test root="$1" env="$2"; . "$root/bin/lib/env.sh"; resolve_env; resolve_places; echo "$fly_app $host $port")
+
+      assert {out, 0} =
+               System.cmd("bash", ["-c", script, "resolve", @root, env],
+                 env: [
+                   {"ATLAS_ENV_FILE", nil},
+                   {"ATLAS_CONTROL_TEST_HOST", "test.security-fixture.ts.net"},
+                   {"ATLAS_CONTROL_PROD_HOST", "prod.security-fixture.ts.net"}
+                 ],
+                 stderr_to_stdout: true
+               )
+
+      app = settings["fly"]["app"]
+
+      assert out == "#{app} #{env}.security-fixture.ts.net #{core["control"]["port"]}\n",
+             "#{env}: #{out}"
+    end
+  end
+
+  # Stand-ins on PATH: nc answers with status nc_status; fly, flyctl and mix answer nothing.
+  # Every call is noted, so a test sees what was reached, and that nothing else ran.
+  defp fake_tools(nc_status) do
+    dir = Path.join(System.tmp_dir!(), "atlas-fake-tools-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    calls = Path.join(dir, "calls")
+
+    for {name, status} <- [{"nc", nc_status}, {"fly", 0}, {"flyctl", 0}, {"mix", 99}] do
+      file = Path.join(dir, name)
+      File.write!(file, "#!/bin/sh\necho \"#{name} $*\" >> '#{calls}'\nexit #{status}\n")
+      File.chmod!(file, 0o755)
+    end
+
+    on_exit(fn -> File.rm_rf!(dir) end)
+    {[{"ATLAS_ENV_FILE", fly_file()}, {"PATH", dir <> ":" <> System.get_env("PATH")}], calls}
+  end
+
+  test "off the tailnet, a command that needs Control says so, and opens or builds nothing" do
+    for args <- [["list", "scene"], ["get", "X"], ["help"], ["tui"], []] do
+      {env, calls} = fake_tools(1)
+      assert {out, 1} = atlas(args ++ ["--env", "test"], env), "atlas #{Enum.join(args, " ")}"
+      assert out =~ "test.security-fixture.ts.net:7691"
+      assert File.read!(calls) == "nc -z -w 3 test.security-fixture.ts.net 7691\n"
+    end
+  end
+
+  test "atlas-ops status says whether Control answers over the tailnet" do
+    control = fn out ->
+      out |> String.split("\n") |> Enum.filter(&String.starts_with?(&1, "control:"))
+    end
+
+    {env, calls} = fake_tools(0)
+    assert {out, 0} = ops(["status", "--env", "test"], env)
+    assert [answers] = control.(out)
+    assert answers =~ "test.security-fixture.ts.net:7691"
+    assert File.read!(calls) =~ "nc -z -w 3 test.security-fixture.ts.net 7691\n"
+    assert File.read!(calls) =~ "fly status -a eyra-atlas-test\n"
+
+    {env, calls} = fake_tools(1)
+    assert {out, 0} = ops(["status", "--env", "test"], env)
+    assert [silent] = control.(out)
+    assert silent =~ "test.security-fixture.ts.net:7691"
+    assert silent != answers
+    assert File.read!(calls) =~ "nc -z -w 3 test.security-fixture.ts.net 7691\n"
   end
 
   test "on an environment on this Mac, atlas starts nothing: without Control, the TUI says how" do
@@ -278,12 +346,12 @@ defmodule AtlasE2E.AtlasCommandTest do
       assert out =~ "atlas: try Atlas from any folder."
       assert out =~ "atlas-ops --help"
       refute out =~ "migrations read rela"
-      refute out =~ "opening the tunnel"
+      refute out =~ "does not answer at"
       refute out =~ "closed this"
     end
 
     # atlas-ops takes no Control client word, and has no aliases for the old ones.
-    for word <- ["tui", "get", "rela-stop", "rela-status", "e2e"] do
+    for word <- ["tui", "get", "rela-stop", "rela-status", "e2e", "tunnel"] do
       assert {out, 2} = ops([word, "--env", "test"], on_fly), "atlas-ops #{word}"
       assert out =~ "atlas-ops: operate an Atlas environment"
     end
@@ -347,10 +415,9 @@ defmodule AtlasE2E.AtlasCommandTest do
     on_fly = [{"ATLAS_ENV_FILE", prod_file(true)}]
     assert {out, 1} = ops(["stop", "--env", "prod"], on_fly)
     assert out =~ "a merge to master deploys it"
-    assert {out, 0} = ops(["tunnel", "close", "--env", "prod"], on_fly)
-    assert out =~ "closed this machine's tunnel to eyra-atlas"
   end
 
+  @tag :requires_git
   test "install links atlas and atlas-ops, never atlas-dev, and only from the main clone" do
     home = Path.join(System.tmp_dir!(), "atlas-home-#{System.unique_integer([:positive])}")
     File.mkdir_p!(home)

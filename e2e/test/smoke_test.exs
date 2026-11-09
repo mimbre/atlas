@@ -50,7 +50,7 @@ defmodule AtlasE2E.SmokeTest do
     else: raise SystemExit('unexpected command (no writes allowed): ' + repr(args))
     """)
 
-    # The smoke check's own tunnel is closed when it ends.
+    # Smoke operates nothing: any atlas-ops call is noted, and fails the test below.
     executable(dir, "bin/atlas-ops", """
     #!/usr/bin/env python3
     import json, os, sys
@@ -92,7 +92,7 @@ defmodule AtlasE2E.SmokeTest do
       assert File.read!(Path.join(dir, "calls.jsonl")) =~ ~s(["list", "#{kind}")
     end
 
-    assert File.read!(Path.join(dir, "calls.jsonl")) =~ ~s(["atlas-ops", "tunnel", "close")
+    refute File.read!(Path.join(dir, "calls.jsonl")) =~ "atlas-ops"
   end
 
   test "ordinary-only compositions retain ordinary smoke", %{dir: dir} do

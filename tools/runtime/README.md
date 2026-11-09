@@ -23,6 +23,17 @@ atlas-runtime node start|stop|status [--env test|prod] [--machine NAME] [--check
 
 It only launches the node lifecycle of an Atlas checkout (`python3 CHECKOUT/tools/runtime.py runtime-OP CHECKOUT ENV …`), replacing itself, so the output and exit status are the lifecycle's. The checkout is `--checkout`, else `ATLAS_ROOT`, else the `"checkout"` field of the node's `runtime.json` (`ATLAS_RUNTIME_FILE`, else `ATLAS_RUNTIME_HOME/runtime.json`, else `~/.local/share/atlas/ENV-runtime/runtime.json`, prod by default); with none it exits 2. The checkout resolves the environment as `atlas` does (`ATLAS_ENV_FILE`, else `env/ENV.json`; `--env` and the file's `"env"` must agree) and an omitted `--machine` from `runtime.json`. The node uses neither this CLI's Runtime home nor its service; there `ATLAS_RUNTIME_HOME` is the node's instance folder. `ATLAS_RUNTIME_READ_TOKEN` is removed before the launch. Discovery is a Control read: `atlas discover --machine NAME`.
 
+The node dials its environment's Bus link directly over the tailnet (D-0089): `bus_link.host` and `bus_link.port` of `runtime.json` are the core's full tailnet name and port, `eyra-atlas.<tailnet>.ts.net` and `7594` for prod, `eyra-atlas-test.<tailnet>.ts.net` and `7694` for test. The machine must be on the tailnet. The node dials the core's **full** tailnet name, `<app>.<tailnet>.ts.net` (the suffix: `tailscale status --json | jq -r .MagicDNSSuffix`), with TLS verification before its machine token is sent. A DNS name, including a full `.ts.net` suffix, does not authenticate the destination. Supply `"tls": {}` for system CA trust, or a separately provisioned `tls.cacertfile`. See [private transport](../../docs/guides/private-transport.md); live prerequisites remain unverified. `node start` opens no proxy and needs no flyctl.
+
+### Once per machine: from the `fly proxy` link to the tailnet
+
+A machine whose node reached the Bus link through `fly proxy` (a LaunchAgent forwarding `127.0.0.1:7595` to prod's `7594`, or the node's own proxy on `7695`) changes once, in this order, and for prod only after `deploy-prod` has put prod's core on the tailnet (`docs/guides/prod.md`, "Cutover to the tailnet"); until then its checkout stays where it is:
+
+1. Stop the node with the checkout that started it, before updating that checkout: `atlas-runtime node stop --env <env>`. A checkout after D-0089 refuses to stop a node whose record still names a proxy process; it does not signal what it cannot prove.
+2. Preserve the old checkout, configuration and working proxy for recovery. After TLS application checks pass and cleanup is separately approved, remove the `fly proxy` LaunchAgent. Find it with `grep -l "fly" ~/Library/LaunchAgents/*.plist`, read it to be sure it is the Bus link's proxy, then `launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/<that file>` and delete the file. Check nothing listens any more: `lsof -nP -iTCP:7595 -sTCP:LISTEN`.
+3. In the node's `runtime.json`, set `"bus_link"` to `"host": "eyra-atlas.<tailnet>.ts.net", "port": 7594` (test: `"eyra-atlas-test.<tailnet>.ts.net"`, `7694`), and `"tls": {}`, and drop `"remote_port"`. Do not substitute this illustrative hostname: supply the verified real certificate name.
+4. Make sure the machine is on the tailnet (`tailscale status`) and resolves the name (`nc -z -w 3 eyra-atlas.<tailnet>.ts.net 7594`), update the checkout, then `atlas-runtime node start --env <env>`; verify an authenticated application exchange before releasing holds; a listening port is insufficient.
+
 ## Explicit concurrent workers
 
 ```sh

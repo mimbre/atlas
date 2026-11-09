@@ -4,6 +4,7 @@
   "actors": { "decider": "melle" },
   "control": {
     "host": "::",
+    "tls": {"certfile_env": "ATLAS_TLS_CERTFILE", "keyfile_env": "ATLAS_TLS_KEYFILE"},
     "port": 7591,
     "tabs": [{ "id": "workers", "label": "Workers", "to": "/workers" }],
     "workers": {
@@ -11,7 +12,7 @@
       "submit": { "actors": ["melle"] }
     }
   },
-  "bus_link": { "host": "::", "port": 7594 },
+  "bus_link": { "tls": {"certfile_env": "ATLAS_TLS_CERTFILE", "keyfile_env": "ATLAS_TLS_KEYFILE"}, "host": "::", "port": 7594 },
   "rela": {
     "url": "http://eyra-atlas-rela.internal:7590/api/v1",
     "ipv6": true

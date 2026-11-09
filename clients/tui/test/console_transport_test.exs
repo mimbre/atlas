@@ -2,6 +2,7 @@ defmodule AtlasTui.ConsoleTransportTest do
   use ExUnit.Case, async: false
   alias AtlasTui.Protocol
 
+  @moduletag :requires_terminal
   @moduletag timeout: 30_000
   @moduletag skip: is_nil(System.find_executable("tmux"))
 

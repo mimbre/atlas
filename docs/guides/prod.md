@@ -1,5 +1,7 @@
 # Atlas prod
 
+
+Remote transport now requires verified full hostnames and TLS certificates; the live configuration is not supplied and cutover is blocked. See [private transport](private-transport.md). Short node names below identify apps, not authenticated connection destinations.
 Prod holds the plan: real scenes, use cases and issues. Its data is real from the first write: never wipe it, and never run the end-to-end test or an experiment against it. Try things in test (`atlas tui --env test`) or on a private instance (`ATLAS_ENV_FILE`).
 
 Prod runs on Fly (IS-Atlas-79, below), like test since IS-Atlas-26 (`docs/guides/test-on-fly.md`). This Mac runs only its clients: the TUI, the agents' command line and the agent behind `:`.
@@ -10,30 +12,19 @@ Prod runs on Fly (IS-Atlas-79, below), like test since IS-Atlas-26 (`docs/guides
 atlas
 ```
 
-The same as `atlas tui --env prod`. It opens the tunnel to prod's Control on Fly in the background (`fly proxy 7593:7591 -a eyra-atlas`, flyctl's WireGuard; flyctl must be logged in to organisation eyra), then Console. The header identifies the environment: `Atlas Console · prod` or `Atlas Console · test`.
+The same as `atlas tui --env prod`. Prod's core is on the tailnet (D-0089): its machine joins it as `eyra-atlas`, and Console connects straight to Control at `eyra-atlas:7591` (`control.host` and `control.port` of `env/prod.json`). This Mac must be on the tailnet, and the tailnet's ACL must let it reach that port; nothing is opened or started here. The header identifies the environment: `Atlas Console · prod` or `Atlas Console · test`.
+
+When Control does not answer there, `atlas` says so and stops: `not on the tailnet: tailscale status`. A name resolving or a TCP port answering proves no identity; the client must authenticate TLS for the configured full hostname. On it, check that the core runs (`atlas-ops status`): the core's node stays on the tailnet while its machine is stopped, but shows as offline (`tailscale status`), and nothing answers there.
 
 More:
-- `atlas-ops status`: the tunnel, and both apps' machines, checks and deployed build (the image label `master-<commit>`).
-- `atlas-ops logs`: the core's log on Fly; rela's is `fly logs -a eyra-atlas-rela`.
-- `atlas-ops tunnel status`, `atlas-ops tunnel close`: show or close this Mac's tunnel; the next `atlas` command opens it again. Prod keeps running on Fly: `atlas-ops stop` and `atlas-ops restart` refuse there.
+- `atlas-ops status`: whether Control answers over the tailnet, and both apps' machines, checks and deployed build (the image label `master-<commit>`).
+- `atlas-ops logs`: the core's log on Fly; rela's is `fly logs -a eyra-atlas-rela`. Prod keeps running on Fly: `atlas-ops stop` and `atlas-ops restart` refuse there.
 - `atlas-ops env`: which environment a command works on.
 - `atlas-ops install`: link `atlas` and `atlas-ops` into `~/.local/bin`, from the main clone.
 
-Before reusing or opening a tunnel, `atlas` sends a read-only Control hello through
-it. A local listening port alone is not enough: flyctl can keep that port open
-while its WireGuard tunnel or private DNS is unavailable. An unresponsive existing
-proxy is reopened; a new proxy must reach Control within a minute before a client
-starts. This changes only the local proxy, never the Fly machines or stored data,
-and never retries a client's write. `atlas-ops status` reports an unavailable upstream
-separately from a closed tunnel.
+`atlas-ops status` and `atlas` check that Control's port accepts a connection, nothing more; the client then authenticates TLS before its protocol hello. Use `fly/smoke.sh prod` (from a machine on the tailnet) for read-only application checks. flyctl is still needed for `status`, `logs`, the data moves and backups, not for reaching Control.
 
-The probe proves transport, not Facts/rela health. An explicit hello refusal (for
-example an outdated client) also proves transport works; the client reports that
-refusal without a pointless proxy restart. Use `fly/smoke.sh prod` for read-only
-application checks. Persistent private-DNS or WireGuard failures still require
-Fly connectivity to recover; no public address is needed.
-
-**Prod runs master's build.** A merge to master deploys it (d-0014). A merge to develop changes this Mac's clients (the main clone follows develop) but not prod's core, so a new feature reaches prod only with the next merge to master. Control lets a client newer than itself in, and sends an older one away.
+**Prod runs master's build.** A merge to master deploys it (d-0014). A merge to develop changes this Mac's clients (the main clone follows develop) but not prod's core, so a new feature reaches prod only with the next merge to master. Control lets a client newer than itself in, and sends an older one away. A change that the old core cannot serve at all, like the move to the tailnet, needs an order: "Cutover to the tailnet" below.
 
 A deploy first checks that the build's description describes all of prod's data on Fly, as `atlas-ops restart` does for a core on this Mac (IS-Atlas-73). When it does not, nothing is deployed, prod keeps its build, and the job names the data: migrate it first (`docs/guides/test-on-fly.md`, "A migration").
 
@@ -59,14 +50,15 @@ A new test job joins with `needs: tested-tree` and `if: ${{ !cancelled() && need
 | | Test | Prod |
 |---|---|---|
 | rela | `eyra-atlas-test-rela` on Fly, private network only | `eyra-atlas-rela` on Fly, private network only |
-| Control | `eyra-atlas-test` on Fly; this Mac's tunnel end 127.0.0.1:7693 | `eyra-atlas` on Fly; this Mac's tunnel end 127.0.0.1:7593 |
+| Control | `eyra-atlas-test` on Fly; `eyra-atlas-test:7691` on the tailnet | `eyra-atlas` on Fly; `eyra-atlas:7591` on the tailnet |
+| Bus link | `eyra-atlas-test.<tailnet>.ts.net:7694` on the tailnet | `eyra-atlas.<tailnet>.ts.net:7594` on the tailnet |
 | Data | the apps' volumes on Fly | the apps' volumes on Fly (the Mac's copy from before the move: `~/.local/share/atlas/prod/`) |
 
 Both run the same pinned rela (26.11.2); test runs develop's newest build, prod master's. Test and prod never connect: each has its own Bus, and a prod Bus or Control refuses a test message or client (and the other way round). Facts never move from test to prod.
 
 ## Prod on Fly (IS-Atlas-79)
 
-Prod gets the same two apps as test, on a private network of its own (`eyra-atlas-prod`), which test's apps and the rest of organisation eyra cannot reach. No public address.
+Prod gets the same two apps as test, on a private network of its own (`eyra-atlas-prod`), which test's apps and the rest of organisation eyra cannot reach. No public address. The core alone also joins the tailnet (D-0089), which is how clients reach it; rela stays on the private network only.
 
 | | App | Machine | Data |
 |---|---|---|---|
@@ -87,10 +79,95 @@ A merge to master deploys prod (CI job `deploy-prod`, `fly/deploy.sh prod`). It 
 | eyra/atlas, repository secret | `FLY_API_TOKEN_PROD` | `fly tokens create deploy -a eyra-atlas` | CI's per-app deploy token |
 | eyra/atlas, repository secret | `FLY_API_TOKEN_PROD_RELA` | `fly tokens create deploy -a eyra-atlas-rela` | CI's per-app deploy token |
 | Fly app `eyra-atlas`, `fly secrets set -a eyra-atlas GITHUB_TOKEN=…` | `GITHUB_TOKEN` | the GitHub connector's token: reads the pull requests of eyra/atlas (private), GET only | `gh auth token`: `connectors.github.token_command` in `env/prod.json`, the local gh keyring |
+| Fly app `eyra-atlas`, from Infisical `prod:/tailscale` (below) | `TS_AUTHKEY` | the tailnet key the core logs in with on its first boot (`fly/core-run.sh`): reusable, pre-approved, tagged `tag:atlas-prod`, not ephemeral | none: before D-0089 clients used `fly proxy` |
+| eyra/atlas, repository secret | `TS_AUTHKEY_CI` | the tailnet key CI's deploy jobs join with for the smoke check: reusable, ephemeral, pre-approved, tagged `tag:atlas-ci`; shared by test's and prod's jobs | none |
+
+**The tailnet key.** The core does not start without `TS_AUTHKEY`: it stops with `core-run: TS_AUTHKEY is not set`, and `fly/deploy.sh` refuses to deploy (nothing changes) while the core app has no such secret. It comes from Infisical, like the Runtime's credentials, and goes onto the app as every other core secret does, with `fly secrets`; through stdin, so the key is in no command line or shell history:
+
+```sh
+printf 'TS_AUTHKEY=%s\n' "$(infisical secrets get TS_AUTHKEY --plain --env prod --path /tailscale)" \
+  | fly secrets import -a eyra-atlas
+```
+
+`fly secrets import` restarts the machine with the key. Test's is the same from `test:/tailscale` onto `eyra-atlas-test`.
+
+**One node per app, kept on the volume.** The machine joins as `<the Fly app's name>`, tagged `tag:atlas-<env>`, and is a persistent node: tailscaled keeps its state, the node's key among it, in `/data/tailscale` on the app's volume (`core_data`, at `/data`). The key logs in only a node without a login: the first boot, a new or wiped volume, or a node removed from the tailnet (its state is still on the volume, so it comes up as logged in, the tailnet refuses it, and it logs in again with the key, once per boot). `tailscale up` reads the key from a file only root can read, removed right after; it is on no command line and in no process's environment. Every other boot, a restart, a deploy or a crash, comes back as the same node with the same name, and the key is not used; a stop does not log out. Stopped, the node stays in the tailnet as offline. `fetch-from-fly` and `move-to-fly` copy only `/data/beam` and `/data/rela`, so the node's state never leaves its volume. Two things would make a second node: a new volume while the old node still exists, which then joins as `eyra-atlas-1` (remove the old node in the admin console first, and the new one gets the name), and a copy of the volume (`fly volumes fork`) started as a second machine, which would share the node; keep one core machine.
+
+Tailscale's auth keys expire (90 days at most); a persistent node does not, since tagged nodes have key expiry off. An expired `TS_AUTHKEY` therefore matters only on the next login: a boot that needs one stops with `not on the tailnet after 60 s (state NeedsLogin, …)`. Replace the key in Infisical and on the app, as above, before a volume is replaced.
+
+**The owner's steps, once per tailnet** (in the Tailscale admin console):
+
+1. Tags `tag:atlas-prod`, `tag:atlas-test` and `tag:atlas-ci`, each owned (`tagOwners`) by whoever creates the keys.
+2. The cores' keys: one per environment, **reusable and pre-approved, not ephemeral**, tagged `tag:atlas-prod` (into Infisical `prod:/tailscale` as `TS_AUTHKEY`) and `tag:atlas-test` (into `test:/tailscale`); then onto each core app with `fly secrets import`, as above.
+3. CI's key: **ephemeral, reusable, pre-approved**, tagged `tag:atlas-ci`, as the repository secret `TS_AUTHKEY_CI` of eyra/atlas (Settings, Secrets and variables, Actions), shared by `deploy-test` and `deploy-prod`. Ephemeral, so each job's node is removed when the job ends; without the secret both deploy jobs fail before deploying anything.
+4. An ACL that lets the owner's devices reach `tag:atlas-prod:7591,7594` and `tag:atlas-test:7691,7694`, lets `tag:atlas-ci` reach `tag:atlas-test:7691` and `tag:atlas-prod:7591` only (Control, for the smoke check), and allows nothing else.
+5. MagicDNS on, so `eyra-atlas` and `eyra-atlas-test` resolve on every device that may reach them.
+6. A core that ran as an ephemeral node before this change: after its first boot with the state on the volume, remove any leftover offline `eyra-atlas` or `eyra-atlas-test` node and check the running one has the plain name (`tailscale status`).
 
 On Fly the connector reads its token from that secret (`connectors.github.token_env` in `fly/prod/core.json`). A token that can only read pull requests of eyra/atlas is enough, for example a fine-grained token with "Pull requests: read" on that one repository. The installed token is verified through an actual private PR refresh; presence or activation metadata alone does not prove authentication. If a token is missing, each round logs `no token: GITHUB_TOKEN is not set` and keeps the stored values.
 
 There is no Flux connector yet: `flux_id` and `flux_ref` are described as set by a connector, but no code reads Flux, so nothing needs a Flux secret. When one is built, its secret goes on `eyra-atlas` the same way.
+
+### Cutover to the tailnet (once, D-0089)
+
+This change moves prod's clients and prod's core to the tailnet together, but they arrive by different routes: the clients with develop (this Mac's main clone follows develop, and `atlas tui` pulls it), the core with master. Develop's clients have no `fly proxy` tunnel any more and reach prod only at `eyra-atlas:7591`, which exists only once master's deploy has put prod's core on the tailnet. So this Mac's prod clients take develop's change only after that deploy, in this order:
+
+The branch is **not ready for live cutover**. Full names, issued certificates,
+protected certificate/key paths and renewal ownership have not been supplied or
+verified. See [private transport](private-transport.md). A `.ts.net` suffix, an open
+port or a protocol welcome proves no destination identity.
+
+1. **Before any merge or deployment:** verify those TLS prerequisites, environment
+   separation, exact Tailscale CLI support, staged secrets and existing ACLs. This
+   guide grants no permission to change them. Set the environment-specific
+   `ATLAS_CONTROL_TEST_HOST` / `ATLAS_CONTROL_PROD_HOST` to the confirmed certificate
+   names; CI reads the corresponding repository variables. Never guess the suffix.
+2. **Hold compatible clients and proxies.** Preserve the exact previous client
+   checkout and configuration on every machine, including the Runtime node, and
+   its working Control/Bus proxy configuration. Do not update checkouts, remove
+   LaunchAgents/proxies, or release holds until application checks pass. Record a
+   held-client/proxy read-only smoke command usable during recovery.
+3. **Capture before replacing either app.** `deploy.sh` requires
+   `ATLAS_DEPLOY_RECOVERY` naming a new protected directory on durable storage.
+   `image-pair.sh capture` saves each actual running immutable image digest,
+   machine ID and machine configuration, refusing missing/multiple machines or
+   mutable-only image records. CI retains the protected recovery record as an
+   access-controlled repository artifact for seven days; copy it to approved
+   durable operations storage before that expires. It is operational configuration,
+   not public evidence. Capture is complete before preflight uploads or deployment.
+4. **Deploy test, verify, then separately authorize prod.** Each pair replaces rela
+   first, then core; post-deploy validation and smoke happen **after** replacement.
+   A failed command can therefore leave either or both candidate images active.
+   `phase` records the last attempted boundary, not a claim of remote success.
+5. **Recover according to the boundary.** A pre-deploy refusal leaves the old pair
+   untouched. After any attempted deployment, inspect the actual pair and retain
+   holds; never assume failure kept the old server. Review the saved images and
+   configuration for compatibility with the **current authoritative data**, client
+   protocol, credentials and proxy. If incompatible, keep holds and fix forward.
+   If compatible, explicitly run:
+
+   ```sh
+   ATLAS_RECOVERY_COMPATIBLE=1 ATLAS_RECOVERY_SMOKE=/protected/held-client-check \
+     fly/image-pair.sh recover /protected/captured-pair
+   ```
+
+   Recovery refuses changed machine ownership, stops the candidate core to quiesce
+   writes, restores rela then core using the saved immutable images and machine
+   configurations, verifies their running digests, and runs the supplied held-client
+   reachability check. A failure at any recovery step keeps client/proxy holds and
+   requires diagnosis or rerunning the same reviewed recovery. It never restores
+   datasets, volumes, backups, or tailnet node state. Secret versions are not captured
+   by the machine configuration: review compatibility without reverting live secrets.
+   Changed volume bindings are refused before recovery; reattaching an older volume
+   would risk reverting data authority. Retain both registry image digests for the
+   entire recovery window; capture alone does not guarantee registry availability.
+6. **Release holds only after authenticated application checks** from the intended
+   ordinary CLI, discovery, TUI/output and Runtime Bus clients. A TCP `nc` probe is
+   insufficient. Remove obsolete proxies only after separate authorization.
+
+Rehearse pre-deploy refusal, failure during each pair replacement, post-deploy
+validation/smoke failure, failed recovery and successful held-client recovery using
+private fake Fly transport and synthetic immutable images before live approval.
 
 ### Back up prod's data
 
@@ -198,14 +275,15 @@ Preserve both `rela/` and `beam/`, including Facts' provenance and answered-fact
    token-backed GitHub refresh and environment separation. Clients use Control;
    layers use Bus.
 7. **Switch ordinary clients only after data checks and delivery approval.** Under
-   the agreed policy, #61 sets `fly.in_use=true` and `control.port=7593`, removing
-   local core settings. Validate the prod TUI and CLI against Fly Control. Keep all
+   the agreed policy, #61 set `fly.in_use=true` and removed the local core settings
+   (then with a `fly proxy` port; since D-0089 `control.host` is `eyra-atlas` and
+   `control.port` 7591, on the tailnet). Validate the prod TUI and CLI against Fly Control. Keep all
    backups and the source dataset. Changing client settings starts no Runtime.
 
 ### Runtime after the client switch (IS-Atlas-91)
 
 Coordinate with #78 and `docs/guides/runtime-node.md` when available. Runtime is an
-independent process with its own PID, log and optional Bus proxy. Core stop/restart
+independent process with its own PID and log. Core stop/restart
 does not stop it. A disconnected node retries its configured endpoint; it does not
 retarget automatically from the Mac to Fly. Settings are read when the node starts.
 
@@ -213,14 +291,15 @@ Activated on 2026-11-13 (IS-91 approval). `fly/prod/core.json` enables the priva
 listener on `::`, port `7594`; `fly/prod/core.toml` declares no public service for it.
 The core secret `ATLAS_BUS_LINK_TOKEN` (a JSON object from machine name to a distinct
 random token) must be set on `eyra-atlas` before this configuration deploys: the core
-refuses to boot when it is missing or malformed. The first node is machine
-`melle-mac-mini` on the Mac mini; it reaches the listener through prod's Bus tunnel
-`7595:7594`, independent of Control's `7593:7591`. That machine's Bus token and Fly
-WireGuard token come from Infisical (project Atlas, environment `prod`, path
-`/runtimes/melle-mac-mini`), read at Runtime start through the machine identity
-`melle-mac-mini` and passed to the node as environment variables; neither is stored in
-the repository. Each machine's local `runtime.json`
-names its machine and the tunnel; Runtime is then started explicitly. Agents' CLI calls
+refuses to boot when it is missing or malformed. The first node is the Mac mini's machine
+(the name `ATLAS_BUS_LINK_TOKEN` holds for it). Since D-0089 it reaches the listener
+directly over the tailnet, at `eyra-atlas.<tailnet>.ts.net:7594`; before, it went through a `fly proxy`
+LaunchAgent on `127.0.0.1:7595`, which is removed once (`tools/runtime/README.md`). That
+machine's Bus token comes from Infisical (project Atlas, environment `prod`, path
+`/runtimes/<machine>`), read at Runtime start through the machine's identity and passed
+to the node as an environment variable; it is not stored in the repository, and the
+node needs no Fly token any more. Each machine's local `runtime.json` names its machine
+and the Bus link's host and port; Runtime is then started explicitly. Agents' CLI calls
 use the ordinary client environment file and therefore Fly Control. Keep test/prod
 settings and credentials separate.
 
@@ -228,9 +307,9 @@ Prod's settings also add the Workers tab and its grants (`control.tabs`,
 `control.workers`): `melle` may read and submit.
 
 Verify Bus registration and stub-turn leases/logs before real agent work. A Runtime
-PID alone does not prove a connected Bus. IS-91 retries dropped Bus connections; it
-does not promise indefinite recovery of a dead flyctl proxy, cross-machine failover or
-a durable outbox.
+PID alone does not prove a connected Bus. IS-91 retries dropped Bus connections (also
+while the Mac mini or the core is off the tailnet); it does not promise cross-machine
+failover or a durable outbox.
 
 ### Rollback preserves the latest authority
 

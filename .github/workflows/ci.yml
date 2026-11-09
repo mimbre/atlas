@@ -287,6 +287,8 @@ jobs:
           elixir-version: "1.18"
       - run: mix compile --warnings-as-errors && mix format --check-formatted && mix test
         working-directory: clients/agent
+      - run: mix compile --warnings-as-errors && mix format --check-formatted && mix test
+        working-directory: transport
       # The one-off migration (atlas migrate-done-owner) compiles the client too.
       - run: mix compile --warnings-as-errors && mix format --check-formatted && mix test
         working-directory: tools/plan
@@ -427,7 +429,11 @@ jobs:
   # this tree passed them before (tested-tree). fly/deploy.sh first checks that this build's
   # description describes the data rela holds there (else it deploys nothing), then deploys
   # rela and the core, then runs the smoke check, which reads only. Each app has its own
-  # deploy token (fly tokens create deploy -a <app>).
+  # deploy token (fly tokens create deploy -a <app>). The smoke check reaches Control over
+  # the tailnet, as every client does (D-0089): the job joins it first, as an ephemeral node
+  # tagged tag:atlas-ci, with the secret TS_AUTHKEY_CI; without it nothing is deployed. The
+  # action's tailscale is the core's (TAILSCALE_VERSION, fly/core.Dockerfile). Actions here
+  # are pinned by tag, not by commit, and so is this one.
   deploy-test:
     name: Deploy test on Fly, and a smoke check
     needs: [tested-tree, generator, contract, model-dsl, model-contract, model-base, beam, tui, agent]
@@ -439,6 +445,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       ATLAS_RELA_BIN: ${{ github.workspace }}/.rela-bin
+      ATLAS_DEPLOY_RECOVERY: ${{ runner.temp }}/atlas-image-pair
+      ATLAS_CONTROL_TEST_HOST: ${{ vars.ATLAS_CONTROL_TEST_HOST }}
+      ATLAS_CONTROL_PROD_HOST: ${{ vars.ATLAS_CONTROL_PROD_HOST }}
     # Readiness order is not commit order. Keep queued jobs, then admit only the
     # current develop head inside the slot. Never cancel midway through a pair.
     concurrency:
@@ -456,6 +465,16 @@ jobs:
       - name: Install the pinned schema validator in this deployment job
         run: rela/scripts/start-test.sh install
       - run: sudo apt-get update && sudo apt-get install -y lsof netcat-openbsd jq
+      - name: The tailnet key, for the smoke check
+        env:
+          TS_AUTHKEY_CI: ${{ secrets.TS_AUTHKEY_CI }}
+        run: |
+          [ -n "$TS_AUTHKEY_CI" ] || { echo "::error::Add the secret TS_AUTHKEY_CI (an ephemeral, reusable, pre-approved tailnet key tagged tag:atlas-ci; docs/guides/prod.md, \"Secrets\")"; exit 1; }
+      - name: Join the tailnet
+        uses: tailscale/github-action@v3
+        with:
+          authkey: ${{ secrets.TS_AUTHKEY_CI }}
+          version: 1.104.7
       - name: Deploy test (rela, then the core), then the smoke check
         env:
           ATLAS_FLY_TOKEN_RELA: ${{ secrets.FLY_API_TOKEN_TEST_RELA }}
@@ -464,6 +483,13 @@ jobs:
           [ -n "$ATLAS_FLY_TOKEN_RELA" ] || { echo "::error::Add the secret FLY_API_TOKEN_TEST_RELA (fly tokens create deploy -a eyra-atlas-test-rela)"; exit 1; }
           [ -n "$ATLAS_FLY_TOKEN_CORE" ] || { echo "::error::Add the secret FLY_API_TOKEN_TEST (fly tokens create deploy -a eyra-atlas-test)"; exit 1; }
           fly/deploy-test-current.sh "develop-$GITHUB_SHA"
+      - name: Preserve recovery record
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-image-pair-${{ github.run_id }}
+          path: ${{ env.ATLAS_DEPLOY_RECOVERY }}
+          retention-days: 7
 
   deploy-prod:
     name: Deploy prod on Fly, and a smoke check
@@ -476,6 +502,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       ATLAS_RELA_BIN: ${{ github.workspace }}/.rela-bin
+      ATLAS_DEPLOY_RECOVERY: ${{ runner.temp }}/atlas-image-pair
+      ATLAS_CONTROL_TEST_HOST: ${{ vars.ATLAS_CONTROL_TEST_HOST }}
+      ATLAS_CONTROL_PROD_HOST: ${{ vars.ATLAS_CONTROL_PROD_HOST }}
     # One deploy at a time; a newer merge waits for the running one.
     concurrency:
       group: fly-deploy-prod
@@ -491,6 +520,16 @@ jobs:
       - name: Install the pinned schema validator in this deployment job
         run: rela/scripts/start-test.sh install
       - run: sudo apt-get update && sudo apt-get install -y lsof netcat-openbsd jq
+      - name: The tailnet key, for the smoke check
+        env:
+          TS_AUTHKEY_CI: ${{ secrets.TS_AUTHKEY_CI }}
+        run: |
+          [ -n "$TS_AUTHKEY_CI" ] || { echo "::error::Add the secret TS_AUTHKEY_CI (an ephemeral, reusable, pre-approved tailnet key tagged tag:atlas-ci; docs/guides/prod.md, \"Secrets\")"; exit 1; }
+      - name: Join the tailnet
+        uses: tailscale/github-action@v3
+        with:
+          authkey: ${{ secrets.TS_AUTHKEY_CI }}
+          version: 1.104.7
       - name: Deploy prod (rela, then the core), then the smoke check
         env:
           ATLAS_FLY_TOKEN_RELA: ${{ secrets.FLY_API_TOKEN_PROD_RELA }}
@@ -499,3 +538,10 @@ jobs:
           [ -n "$ATLAS_FLY_TOKEN_RELA" ] || { echo "::error::Add the secret FLY_API_TOKEN_PROD_RELA (fly tokens create deploy -a eyra-atlas-rela)"; exit 1; }
           [ -n "$ATLAS_FLY_TOKEN_CORE" ] || { echo "::error::Add the secret FLY_API_TOKEN_PROD (fly tokens create deploy -a eyra-atlas)"; exit 1; }
           fly/deploy.sh prod "master-$GITHUB_SHA"
+      - name: Preserve recovery record
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prod-image-pair-${{ github.run_id }}
+          path: ${{ env.ATLAS_DEPLOY_RECOVERY }}
+          retention-days: 7

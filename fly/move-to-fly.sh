@@ -67,7 +67,7 @@ if [ -n "$serving" ]; then
   echo "Note:  a rela still serves $from/rela (pid $pid); a real run refuses until it is stopped, or use --from <backup>"
 fi
 
-# The pinned rela, for the description check; installed beside the tunnel's files.
+# The pinned rela, for the description check; installed in the clients' folder (fly.local).
 bin="${ATLAS_FLY_LOCAL:?}/bin"
 ATLAS_RELA_BIN="$bin" "$root/rela/scripts/start-test.sh" install >&2
 if ! orphans="$(ATLAS_RELA_DATA="$from/rela" ATLAS_RELA_BIN="$bin" "$root/rela/scripts/description.sh" fits)"; then
@@ -151,5 +151,5 @@ fi
 echo "Moved. The earlier data on Fly is in /data/before-move."
 if [ "${ATLAS_FLY_IN_USE:-true}" = false ]; then
   echo "$env's clients still use this Mac's core. Switch them once you have checked the move:"
-  echo "  in env/$env.json set \"fly\": {\"in_use\": true} and \"control\": {\"port\": <the tunnel's port on this Mac>} (docs/guides/prod.md)"
+  echo "  configure the verified full Control hostname and required TLS, then set fly.in_use=true; docs/guides/private-transport.md (no live cutover without approval)"
 fi

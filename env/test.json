@@ -4,13 +4,14 @@
   "fly": {
     "app": "eyra-atlas-test",
     "rela_app": "eyra-atlas-test-rela",
-    "control_port": 7691,
     "local": "~/.local/share/atlas/test-on-fly",
     "move_from": "~/.local/share/atlas/test"
   },
   "control": {
-    "host": "127.0.0.1",
-    "port": 7693,
+    "host": null,
+    "host_env": "ATLAS_CONTROL_TEST_HOST",
+    "tls": {},
+    "port": 7691,
     "tabs": [{ "id": "workers", "label": "Workers", "to": "/workers" }],
     "workers": {
       "read": { "actors": ["melle", "releaseviewer", "releasewriter"] },

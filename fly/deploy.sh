@@ -6,6 +6,7 @@
 # Each app with its own token, when given: ATLAS_FLY_TOKEN_RELA for the rela app,
 # ATLAS_FLY_TOKEN_CORE for the core's (else flyctl's own login).
 #
+#  0. Before anything changes: the core app has its tailnet key (TS_AUTHKEY).
 #  1. Before anything changes: does this build's description describe all the data rela
 #     holds on Fly? It is checked on the rela machine itself, on a copy (what `atlas-ops
 #     restart` checks on a Mac, IS-Atlas-73). When it does not, nothing is deployed, and
@@ -36,9 +37,34 @@ as() { # rela|core, then a flyctl command
 }
 machines() { as "$1" status -a "$2" --json | jq '.Machines | length'; }
 
+# A missing operational destination is a pre-deploy refusal, never a candidate smoke surprise.
+host_env="$(jq -er '.control.host_env' "$settings")"
+control_host="${!host_env:-}"
+[[ "$control_host" =~ ^[a-z0-9-]+(\.[a-z0-9-]+)+\.ts\.net$ ]] || fail "supply $host_env with the verified full certificate hostname before deployment"
+
 # The description is generated from the model: refuse a stale one before anything is uploaded.
 (cd "$root/model/contract" && mix model.gen --check)
 
+# The core joins the tailnet before it starts, and does not start without its key
+# (fly/core-run.sh): refuse before anything changes when the core app lacks it.
+as core secrets list -a "$app" --json | jq -e 'any(.[]; (.Name // .name) == "TS_AUTHKEY")' >/dev/null ||
+  fail "$app has no secret TS_AUTHKEY; set it from Infisical $env:/tailscale first (docs/guides/prod.md, \"Secrets\"); nothing deployed"
+
+# Capture the actual immutable running pair and machine configurations before changes.
+# A cutover requires an existing pair; initial provisioning is a separate procedure.
+record="${ATLAS_DEPLOY_RECOVERY:?set ATLAS_DEPLOY_RECOVERY to a new protected durable recovery directory}"
+"$root/fly/image-pair.sh" capture "$record" "$env" "$app" "$rela_app"
+next=""
+finish() {
+  local status=$?
+  [ -z "$next" ] || rm -rf "$next"
+  if [ "$status" -ne 0 ]; then
+    echo "deploy: failed in $(cat "$record/phase"); candidate or partial pair may be active." >&2
+    echo "deploy: keep compatible client checkouts/proxies held. Recovery record: $record" >&2
+    echo "deploy: review compatibility with CURRENT data, then use fly/image-pair.sh recover; never restore data for an image rollback." >&2
+  fi
+}
+trap finish EXIT
 held=""
 if [ "$(machines rela "$rela_app")" -gt 0 ]; then
   if as rela ssh console -q -a "$rela_app" -C "test -e /data/hold" 2>/dev/null; then
@@ -49,7 +75,6 @@ if [ "$(machines rela "$rela_app")" -gt 0 ]; then
     # old image may predate Python/includes, so preflight receives an equivalent flat
     # schema; the new image and local startup still use native includes.
     next="$(mktemp -d)"
-    trap 'rm -rf "$next"' EXIT
     "${ATLAS_CONFIG_PYTHON:-python3}" "$root/rela/scripts/config.py" flat > "$next/schema.yaml"
     cp "$root/rela/data-entry.yaml" "$next/data-entry.yaml"
     as rela ssh console -q -a "$rela_app" -C "sh -c 'rm -rf /tmp/next && mkdir -p /tmp/next/scripts'" >/dev/null
@@ -70,10 +95,14 @@ fi
 # 2. rela, then the core.
 strategy=()
 [ -z "$held" ] || strategy=(--strategy immediate)
+printf 'rela-deploy-started\n' > "$record/phase"
 as rela deploy "$root" --config "$root/fly/$env/rela.toml" --dockerfile "$root/fly/rela.Dockerfile" \
   --remote-only --ha=false --image-label "$label" ${strategy[@]+"${strategy[@]}"}
+printf 'core-deploy-started\n' > "$record/phase"
 as core deploy "$root" --config "$root/fly/$env/core.toml" --dockerfile "$root/fly/core.Dockerfile" \
   --remote-only --ha=false --image-label "$label" ${strategy[@]+"${strategy[@]}"}
+
+printf 'post-deploy-validation\n' > "$record/phase"
 
 # Check the actually deployed pair using each app's own token before the client smoke.
 if [ -z "$held" ]; then
@@ -98,3 +127,5 @@ else
     "$root/fly/smoke.sh" "$env" "$label"
   fi
 fi
+
+printf 'validated\n' > "$record/phase"

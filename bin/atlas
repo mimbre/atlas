@@ -4,8 +4,8 @@
 # nothing; Control must run (`atlas-ops status`). Each command is one word after `atlas`.
 #
 # The person (operator): the Console
-#   atlas              open a TUI on prod; prod runs on Fly, so it opens the tunnel to its
-#                      Control first (see "On Fly" below). For an environment on this Mac,
+#   atlas              open a TUI on prod; prod runs on Fly, and its Control answers over
+#                      the tailnet (see "On Fly" below). For an environment on this Mac,
 #                      start rela and the core with `atlas-ops restart`
 #   atlas tui          the same; open as many as you like, each in its own terminal
 #
@@ -33,7 +33,7 @@
 #                      migration gave a fact Flow expects nothing of; never one set by hand or Flow
 #
 # Everything else is another command:
-#   atlas-ops          operating an environment: its processes, logs, tunnel, data moves, and
+#   atlas-ops          operating an environment: its processes, logs, data moves, and
 #                      installing these commands (`atlas-ops --help`)
 #   bin/atlas-dev      development and test tooling, from the checkout (`bin/atlas-dev --help`)
 #   atlas-runtime      the Runtime CLI, and this machine's Runtime node
@@ -41,10 +41,13 @@
 #
 # On Fly (IS-Atlas-26, IS-Atlas-79): an environment whose settings have a "fly" section runs
 # its core and rela on Fly, each environment on its own private network; a merge deploys
-# them (develop: test, master: prod). The commands above reach its Control through a
-# WireGuard tunnel (`fly proxy`) that they open in the background. With "in_use": false in
-# that section (an environment whose data has not moved and been checked yet) the clients
-# still use this Mac's core.
+# them (develop: test, master: prod). Its core joins the tailnet as the Fly app, and the
+# commands above reach its Control there directly: control.host and control.port of its
+# settings (full certificate name supplied by control.host_env). This machine must be on the
+# tailnet; every remote client verifies TLS before its hello. Missing configuration fails closed.
+# Nothing is opened or started; when Control does not answer, a command says so (tailscale status) and opens
+# nothing. With "in_use": false in that section (an environment whose data has not moved
+# and been checked yet) the clients still use this Mac's core.
 #
 # Every command works on prod unless it gets --env test: `atlas tui --env test`. Scripts,
 # tests and agents always pass --env test, or ATLAS_ENV_FILE: a private instance (other
@@ -55,7 +58,7 @@
 # What to do (IS-Atlas-54), and what it writes is by it.
 set -euo pipefail
 
-# Keep the read capability out of config/build/lifecycle/proxy children. Only the
+# Keep the read capability out of config/build/lifecycle children. Only the
 # final explicit discovery transport receives it, without putting it in argv.
 atlas_discovery_read_grant="${ATLAS_RUNTIME_READ_TOKEN-}"
 export -n atlas_discovery_read_grant
@@ -70,7 +73,6 @@ done
 root="$(cd "$(dirname "$src")/.." && pwd -P)"
 prog=atlas
 . "$root/bin/lib/env.sh"
-. "$root/bin/lib/tunnel.sh"
 # The comment above, up to `set -euo pipefail`: the usage.
 header() { sed -n '2,/^set -euo/p' "$root/bin/atlas" | sed '$d' | sed 's/^# \{0,1\}//'; }
 usage() { header; exit 2; }
@@ -95,7 +97,7 @@ done
 
 resolve_env
 
-# Reuse the ordinary generated agent client without managing a proxy or service.
+# Reuse the ordinary generated agent client without managing a service.
 run_agent_client() {
   cd "$root/clients/agent"
   mix compile >&2
@@ -105,7 +107,7 @@ run_agent_client() {
   ATLAS_CALLER_CWD="$caller" exec mix atlas.agent "$cmd" --env "$env" ${args[@]+"${args[@]}"}
 }
 
-# Discovery is the agent client's internal runtime-discover; it needs no tunnel or build cleaning.
+# Discovery is the agent client's internal runtime-discover; it needs no reachability check or build cleaning.
 if [ "$cmd" = discover ]; then
   cmd=runtime-discover
   run_agent_client
@@ -127,14 +129,14 @@ update_build() {
 # renamed app never stops the core from starting (IS-Atlas-67).
 clean_build() { "$root/bin/clean-build" "$root" >&2; }
 
-# What only an environment on Fly does differently: Control is reached through the tunnel,
-# which a command opens when it needs Control (Runtime's broker relies on this unattended).
+# What only an environment on Fly does differently: Control is on the tailnet; a command that
+# needs it checks it answers there first, and says how to find out why not.
 if [ -n "$fly_app" ]; then
   if [ "$env" = prod ]; then branch=master; else branch=develop; fi
   on_fly="$env runs on Fly ($fly_app and $fly_rela_app); a merge to $branch deploys it"
   case "$cmd" in
     migrate-done-owner) echo "atlas: the migration reads rela on this Mac; $on_fly. Migrate a copy: docs/guides/test-on-fly.md, \"A migration\"" >&2; exit 1 ;;
-    turn|put|set|get|facts|list|delete|tools|plan|steer|help) ensure_tunnel ;;
+    turn|put|set|get|facts|list|delete|tools|plan|steer|help) reach_control ;;
   esac
 fi
 
@@ -142,7 +144,7 @@ case "$cmd" in
   tui)
     update_build
     if [ -n "$fly_app" ]; then
-      ensure_tunnel
+      reach_control
     elif ! listening; then
       # atlas is Control's client: it starts no rela and no core (atlas-ops does).
       echo "atlas: Control for $env does not answer: atlas-ops restart --env $env" >&2

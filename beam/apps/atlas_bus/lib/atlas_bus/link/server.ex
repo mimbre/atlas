@@ -2,74 +2,69 @@ defmodule AtlasBus.Link.Server do
   @moduledoc "The private, opt-in Bus listener. Tokens are bound to machine names."
   use GenServer
   alias AtlasBus.Link
+  require Logger
 
   def start_link(settings), do: GenServer.start_link(__MODULE__, settings, name: __MODULE__)
   def port, do: GenServer.call(__MODULE__, :port)
 
   def init(settings) do
     Process.flag(:trap_exit, true)
-    host = settings["host"] || "127.0.0.1"
-    {:ok, ip} = :inet.parse_address(String.to_charlist(host))
-    family = if tuple_size(ip) == 8, do: :inet6, else: :inet
 
     {:ok, socket} =
-      :gen_tcp.listen(settings["port"], [
-        family,
+      AtlasTransport.listen(Map.put_new(settings, "host", "127.0.0.1"), [
         :binary,
         packet: :line,
         packet_size: 4_194_304,
         buffer: 4_194_304,
         active: false,
-        ip: ip,
         reuseaddr: true
       ])
 
-    owner = self()
-
-    {acceptor, ref} =
-      :erlang.spawn_opt(fn -> accept(socket, settings, owner) end, [:link, :monitor])
-
-    {:ok, %{socket: socket, acceptor: acceptor, ref: ref, connections: MapSet.new()}}
+    {:ok, peers} = Task.Supervisor.start_link(max_children: 64)
+    {acceptor, ref} = start_acceptor(socket, settings, peers)
+    {:ok, %{socket: socket, acceptor: acceptor, ref: ref, peers: peers, settings: settings}}
   end
 
-  def handle_call(:port, _from, state), do: {:reply, elem(:inet.port(state.socket), 1), state}
+  def handle_call(:port, _from, state),
+    do: {:reply, elem(AtlasTransport.port(state.socket), 1), state}
 
-  def handle_info({:connection, pid}, state) do
-    Process.monitor(pid)
-    {:noreply, %{state | connections: MapSet.put(state.connections, pid)}}
+  def handle_info({:DOWN, ref, :process, _, reason}, %{ref: ref} = state) do
+    case AtlasTransport.port(state.socket) do
+      {:ok, _} ->
+        Logger.warning("Bus acceptor exited: #{inspect(reason)}; restarting")
+        {acceptor, ref} = start_acceptor(state.socket, state.settings, state.peers)
+        {:noreply, %{state | acceptor: acceptor, ref: ref}}
+
+      _ ->
+        {:stop, :listener_closed, state}
+    end
   end
 
-  def handle_info({:DOWN, ref, :process, _pid, reason}, %{ref: ref} = state),
-    do: {:stop, {:acceptor, reason}, state}
-
-  def handle_info({:DOWN, _, :process, pid, _}, state),
-    do: {:noreply, %{state | connections: MapSet.delete(state.connections, pid)}}
+  def handle_info({:EXIT, pid, reason}, %{peers: pid} = state),
+    do: {:stop, {:peers, reason}, state}
 
   def handle_info({:EXIT, _pid, _reason}, state), do: {:noreply, state}
 
   def terminate(_, state) do
-    :gen_tcp.close(state.socket)
+    AtlasTransport.close(state.socket)
     Process.exit(state.acceptor, :shutdown)
-    Enum.each(state.connections, &Process.exit(&1, :shutdown))
+    if Process.alive?(state.peers), do: Supervisor.stop(state.peers)
   end
 
-  defp accept(listener, settings, owner) do
-    case :gen_tcp.accept(listener) do
-      {:ok, socket} ->
-        pid =
-          spawn_link(fn ->
-            receive do
-              {:socket, s} -> connection(s, settings)
-            end
-          end)
+  defp start_acceptor(socket, settings, peers),
+    do: :erlang.spawn_opt(fn -> accept(socket, settings, peers) end, [:link, :monitor])
 
-        :ok = :gen_tcp.controlling_process(socket, pid)
-        send(owner, {:connection, pid})
-        send(pid, {:socket, socket})
-        accept(listener, settings, owner)
+  defp accept(listener, settings, peers) do
+    case AtlasTransport.accept_peer(listener) do
+      {:ok, socket} ->
+        AtlasTransport.start_peer(peers, socket, &connection(&1, settings))
+        accept(listener, settings, peers)
 
       {:error, :closed} ->
         :ok
+
+      {:error, _} ->
+        accept(listener, settings, peers)
     end
   end
 
@@ -77,31 +72,31 @@ defmodule AtlasBus.Link.Server do
     Process.flag(:trap_exit, true)
 
     try do
-      with {:ok, line} <- :gen_tcp.recv(socket, 0, 5_000),
+      with {:ok, line} <- AtlasTransport.recv(socket, 0, 5_000),
            {:ok, %{"op" => "hello", "environment" => env, "machine" => machine, "token" => token}} <-
              JSON.decode(line),
            true <- env == AtlasBus.environment(),
            true <- is_binary(machine) and Regex.match?(~r/^[a-zA-Z0-9_.-]+$/, machine),
            true <- Link.same_token?(token, (settings["tokens"] || %{})[machine]) do
-        :ok = :gen_tcp.send(socket, Link.encode("welcome", %{}))
-        :inet.setopts(socket, active: :once)
+        :ok = AtlasTransport.send(socket, Link.encode("welcome", %{}))
+        AtlasTransport.setopts(socket, active: :once)
         loop(socket, machine, %{})
       else
-        _ -> :gen_tcp.send(socket, Link.encode("refused", %{"reason" => "hello refused"}))
+        _ -> AtlasTransport.send(socket, Link.encode("refused", %{"reason" => "hello refused"}))
       end
     after
-      :gen_tcp.close(socket)
+      AtlasTransport.close(socket)
     end
   end
 
   defp loop(socket, machine, endpoints) do
     receive do
-      {:tcp, ^socket, line} ->
+      {transport, ^socket, line} when transport in [:tcp, :ssl] ->
         case JSON.decode(line) do
           {:ok, %{} = frame} ->
             case frame(socket, machine, endpoints, frame) do
               {:ok, next} ->
-                :inet.setopts(socket, active: :once)
+                AtlasTransport.setopts(socket, active: :once)
                 loop(socket, machine, next)
 
               :close ->
@@ -114,7 +109,7 @@ defmodule AtlasBus.Link.Server do
 
       {:deliver, name, envelope, content} ->
         if Link.deliver_allowed?(name, machine, envelope) do
-          :gen_tcp.send(
+          AtlasTransport.send(
             socket,
             Link.encode("deliver", %{
               "endpoint" => name,
@@ -126,10 +121,10 @@ defmodule AtlasBus.Link.Server do
 
         loop(socket, machine, endpoints)
 
-      {:tcp_closed, ^socket} ->
+      {closed, ^socket} when closed in [:tcp_closed, :ssl_closed] ->
         stop(endpoints)
 
-      {:tcp_error, ^socket, _} ->
+      {error, ^socket, _} when error in [:tcp_error, :ssl_error] ->
         stop(endpoints)
 
       {:EXIT, pid, _} ->
@@ -200,7 +195,7 @@ defmodule AtlasBus.Link.Server do
   defp frame(socket, _, _, _), do: refuse(socket)
 
   defp refuse(socket) do
-    :gen_tcp.send(socket, Link.encode("refused", %{"reason" => "frame refused"}))
+    AtlasTransport.send(socket, Link.encode("refused", %{"reason" => "frame refused"}))
     :close
   end
 

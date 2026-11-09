@@ -61,8 +61,7 @@ defmodule AtlasTui.WorkerOutputConnection do
       owner: owner,
       monitor: Process.monitor(owner),
       env: env,
-      host: String.to_charlist(settings["control"]["host"]),
-      port: settings["control"]["port"],
+      destination: settings["control"],
       socket: nil,
       phase: :connecting,
       pending: nil,
@@ -84,7 +83,7 @@ defmodule AtlasTui.WorkerOutputConnection do
       send_timeout_close: true
     ]
 
-    case :gen_tcp.connect(state.host, state.port, options, @connect_timeout) do
+    case AtlasTransport.connect(state.destination, options, @connect_timeout) do
       {:ok, socket} ->
         state = %{state | socket: socket, phase: :welcome}
 
@@ -115,7 +114,7 @@ defmodule AtlasTui.WorkerOutputConnection do
   def handle_cast({:send_request, message}, state) do
     with {:ok, pending} <- request(message),
          {:ok, bytes} <- encode(message) do
-      case :gen_tcp.send(state.socket, bytes) do
+      case AtlasTransport.send(state.socket, bytes) do
         :ok ->
           state = deadline(%{state | pending: pending}, :request_timeout, @request_timeout)
           {:noreply, state}
@@ -129,18 +128,21 @@ defmodule AtlasTui.WorkerOutputConnection do
   end
 
   @impl true
-  def handle_info({:tcp, socket, line}, %{socket: socket} = state) do
+  def handle_info({transport, socket, line}, %{socket: socket} = state)
+      when transport in [:tcp, :ssl] do
     case JSON.decode(line) do
       {:ok, message} when is_map(message) -> receive_message(state, message)
       _ -> finish(state, :invalid_frame)
     end
   end
 
-  def handle_info({:tcp_closed, socket}, %{socket: socket} = state),
-    do: finish(state, :closed)
+  def handle_info({closed, socket}, %{socket: socket} = state)
+      when closed in [:tcp_closed, :ssl_closed],
+      do: finish(state, :closed)
 
-  def handle_info({:tcp_error, socket, reason}, %{socket: socket} = state),
-    do: finish(state, {:tcp, reason})
+  def handle_info({error, socket, reason}, %{socket: socket} = state)
+      when error in [:tcp_error, :ssl_error],
+      do: finish(state, {:tcp, reason})
 
   def handle_info({:deadline, token}, %{deadline: {_timer, token, reason}} = state),
     do: finish(state, reason)
@@ -155,7 +157,7 @@ defmodule AtlasTui.WorkerOutputConnection do
 
   @impl true
   def terminate(_reason, state) do
-    if state.socket, do: :gen_tcp.close(state.socket)
+    if state.socket, do: AtlasTransport.close(state.socket)
     cancel_deadline(state)
     :ok
   end
@@ -209,11 +211,11 @@ defmodule AtlasTui.WorkerOutputConnection do
   end
 
   defp send_wire(socket, message) do
-    with {:ok, bytes} <- encode(message), do: :gen_tcp.send(socket, bytes)
+    with {:ok, bytes} <- encode(message), do: AtlasTransport.send(socket, bytes)
   end
 
   defp listen(state) do
-    case :inet.setopts(state.socket, active: :once) do
+    case AtlasTransport.setopts(state.socket, active: :once) do
       :ok -> {:noreply, state}
       {:error, reason} -> finish(state, {:tcp, reason})
     end
@@ -236,7 +238,7 @@ defmodule AtlasTui.WorkerOutputConnection do
 
   defp close(state, reason) do
     state = cancel_deadline(state)
-    if state.socket, do: :gen_tcp.close(state.socket)
+    if state.socket, do: AtlasTransport.close(state.socket)
     notify(state, {:closed, reason})
     %{state | socket: nil, pending: nil}
   end

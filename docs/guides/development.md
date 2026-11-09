@@ -1,5 +1,7 @@
 # Development
 
+
+Remote transport now requires verified full hostnames and TLS certificates; the live configuration is not supplied and cutover is blocked. See [private transport](private-transport.md). Short node names below identify apps, not authenticated connection destinations.
 How to build and run the tests: see the Develop section of the [README](../../README.md).
 
 ## Rules the tests check
@@ -16,3 +18,7 @@ How to build and run the tests: see the Develop section of the [README](../../RE
 It needs no setup beyond Elixir, tmux, `python3` and `curl`. On its first run it installs the pinned rela (version and checksum in `rela/scripts/start-test.sh`) into `~/.cache/atlas/rela-<version>` (`$XDG_CACHE_HOME/atlas` when set), and, unless `python3` already has `rela/scripts/requirements.txt`, a private Python for rela's scripts into `~/.cache/atlas/python`; later runs reuse both. Settings you give win: `ATLAS_E2E_RELA_BIN` names a folder with rela's binaries (installed there when missing), and `ATLAS_CONFIG_PYTHON` (or a `.venv-config` at the root) names the Python. A bare `cd e2e && mix atlas.e2e` does none of this setup.
 
 A step fails when TUI 1 takes longer than 1 second after the key to show its stored change, or TUI 2 to show it by hint. The 5-second reconcile is a fallback, not the path. On a failure both screens, the logs and the error go to `e2e/artifacts/` (an artifact in CI). CI runs it on every pull request and on develop and master. A new use case adds its scenario in the same pull request as its code.
+
+## Reaching test and prod
+
+Test and prod run on Fly, and their cores are on the tailnet (D-0089): `atlas` and the TUI connect straight to `control.host:control.port` of `env/<env>.json` (`eyra-atlas-test:7691`, `eyra-atlas:7591`). A development machine needs Tailscale on, MagicDNS on, and the tailnet's ACL allowing it; there is no tunnel to open. Off the tailnet, a command says `not on the tailnet: tailscale status` and stops. A private instance (`ATLAS_ENV_FILE`, `bin/atlas-dev e2e`) runs on this machine on `127.0.0.1` and needs none of this. The tests stub `nc` and `tailscale` and never reach the tailnet (`e2e/test/atlas_command_test.exs`, `e2e/test/core_run_test.exs`).

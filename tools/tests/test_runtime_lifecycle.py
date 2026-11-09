@@ -47,13 +47,11 @@ class OwnershipLifecycleTest(unittest.TestCase):
         inspector=SimpleNamespace(validate_pid=validate,parse_pid=lambda s:validate(int(s)),process_identity=identity,process_state=state)
         controller=module.LocalRuntime(ROOT,'test','fixture',directory,configuration,client,inspector=inspector)
         record=dict(version='1',target=dict(environment='test',machine='fixture'),directory=str(directory),configuration=str(configuration),root=str(ROOT),client=str(client),instance='a'*32,phase='started',processes={})
-        for role,pid in [('runtime',111),('tunnel',222)]:
-            argv=(['beam',*controller._boot_args(record['instance'])] if role=='runtime' else ['/private/fly','proxy','1234:7694','-a','private','-q'])
-            if role=='tunnel': record['tunnel_command']=argv
-            snapshots[pid]=dict(pid=pid,start=['birth',str(pid)],uid=os.getuid(),exe='/erlang/beam.smp' if role=='runtime' else '/private/fly',argv=argv)
-            live[pid]=True
-            record['processes'][role]={key:snapshots[pid][key] for key in ('pid','uid','start')}
-            (directory/f'{role}.pid').write_text(str(pid))
+        pid=111
+        snapshots[pid]=dict(pid=pid,start=['birth',str(pid)],uid=os.getuid(),exe='/erlang/beam.smp',argv=['beam',*controller._boot_args(record['instance'])])
+        live[pid]=True
+        record['processes']['runtime']={key:snapshots[pid][key] for key in ('pid','uid','start')}
+        (directory/'runtime.pid').write_text(str(pid))
         (directory/'runtime.processes.json').write_text(json.dumps(record))
         return module,controller,record,snapshots,live,calls
 
@@ -61,7 +59,7 @@ class OwnershipLifecycleTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             module,c,record,snapshots,live,calls=self.fixture(temporary)
             c.file.unlink()
-            for role in ('runtime','tunnel'): (c.base/f'{role}.pid').unlink()
+            (c.base/'runtime.pid').unlink()
             settings=json.loads(c.configuration.read_text())
             for agents in ({}, None, [], "", False):
                 with self.subTest(agents=agents):
@@ -88,30 +86,28 @@ class OwnershipLifecycleTest(unittest.TestCase):
             import copy
             cases=[]
             bad=copy.deepcopy(record); bad['directory']+='-other'; cases.append((bad,None))
-            bad=copy.deepcopy(record); bad['processes']['tunnel']['start']=['reused']; cases.append((bad,None))
+            bad=copy.deepcopy(record); bad['processes']['runtime']['start']=['reused']; cases.append((bad,None))
             bad=copy.deepcopy(record); bad['processes']['runtime']['pid']+=2**32; cases.append((bad,None))
             cases.append((record,'foreign-role'))
-            bad=copy.deepcopy(record);bad['tunnel_command'][0]='/private/unrelated';cases.append((bad,'foreign-tunnel'))
             bad=copy.deepcopy(record);bad['root']+='-prefix';cases.append((bad,None))
             bad=copy.deepcopy(record);bad['configuration']+='-prefix';cases.append((bad,None))
             bad=copy.deepcopy(record);bad['target']['environment']='prod';cases.append((bad,None))
             bad=copy.deepcopy(record);bad['target']['machine']='other';cases.append((bad,None))
             bad=copy.deepcopy(record);bad['instance']='b'*32;cases.append((bad,None))
-            bad=copy.deepcopy(record);bad['processes']['tunnel']['uid']=-1;cases.append((bad,None))
+            bad=copy.deepcopy(record);bad['processes']['runtime']['uid']=-1;cases.append((bad,None))
+            # A second process role (the fly proxy before D-0089) is not this node's.
+            bad=copy.deepcopy(record);bad['processes']['tunnel']=dict(bad['processes']['runtime']);cases.append((bad,None))
             for bad,alter in cases:
                 with self.subTest(alter=alter), patch.object(module.os,'kill') as kill, patch.object(module.os,'killpg') as groups:
                     (c.file).write_text(json.dumps(bad))
                     original=snapshots[111]['argv']
                     if alter == 'foreign-role': snapshots[111]['argv']=['/unrelated/program']
-                    if alter == 'foreign-tunnel':
-                        snapshots[222]['argv']=bad['tunnel_command'];snapshots[222]['exe']='/private/unrelated'
                     try:
                         with self.assertRaises((ValueError,OSError)): c.stop()
                         kill.assert_not_called(); groups.assert_not_called()
                         self.assertTrue((c.base/'runtime.pid').exists())
                     finally:
                         snapshots[111]['argv']=original
-                        snapshots[222]['argv']=record['tunnel_command'];snapshots[222]['exe']='/private/fly'
 
     def test_proven_start_is_idempotent_and_stop_only_signals_proven_exact_pids(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -122,11 +118,11 @@ class OwnershipLifecycleTest(unittest.TestCase):
             def terminate(pid,sig): sent.append((pid,sig)); live[pid]=False
             with patch.object(module.os,'kill',side_effect=terminate),patch.object(module.os,'killpg',side_effect=AssertionError('group signal forbidden')):
                 stopped=c.stop(); self.assertEqual(stopped['phase'],'stopped')
-                self.assertEqual([pid for pid,_ in sent],[111,222])
-                self.assertEqual(set(stopped['completed_processes']),{'runtime','tunnel'})
+                self.assertEqual([pid for pid,_ in sent],[111])
+                self.assertEqual(set(stopped['completed_processes']),{'runtime'})
                 self.assertFalse((c.base/'runtime.pid').exists())
                 self.assertEqual(c.stop()['phase'],'stopped')
-                self.assertEqual(len(sent),2)
+                self.assertEqual(len(sent),1)
 
     def test_busy_and_unconfirmed_exit_have_no_duplicate_or_escalation(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -164,7 +160,7 @@ class OwnershipLifecycleTest(unittest.TestCase):
             with self.subTest(receipt=receipt_kind), tempfile.TemporaryDirectory() as temporary:
                 module,c,record,snapshots,live,calls=self.fixture(temporary)
                 c.file.unlink()
-                for role in ('runtime','tunnel'): (c.base/f'{role}.pid').unlink()
+                (c.base/'runtime.pid').unlink()
                 def spawn(command, **kwargs):
                     self.assertNotIn('ATLAS_RUNTIME_READ_TOKEN',kwargs['env'])
                     nonce=command[-1]
@@ -189,35 +185,33 @@ class OwnershipLifecycleTest(unittest.TestCase):
             with patch.object(module.subprocess,'Popen') as spawn,patch.object(module.subprocess,'check_output') as credentials:
                 with self.assertRaises(ValueError): c.start()
                 credentials.assert_not_called();spawn.assert_not_called()
-            for role in ('runtime','tunnel'): (c.base/f'{role}.pid').unlink()
+            (c.base/'runtime.pid').unlink()
             with patch.dict(os.environ,ATLAS_BUS_LINK_TOKEN=''),patch.object(module.subprocess,'check_output',return_value=b''),patch.object(module.subprocess,'Popen') as spawn:
                 with self.assertRaises(ValueError): c.start()
                 spawn.assert_not_called();self.assertFalse(c.file.exists())
 
 
-    def test_fly_keychain_and_runtime_children_all_exclude_read_grant(self):
+    def test_keychain_and_runtime_children_exclude_read_grant_and_no_proxy_starts(self):
         from types import SimpleNamespace
         with tempfile.TemporaryDirectory() as temporary:
             module,c,record,snapshots,live,calls=self.fixture(temporary)
             c.file.unlink()
-            for role in ('runtime','tunnel'): (c.base/f'{role}.pid').unlink()
+            (c.base/'runtime.pid').unlink()
             c.client_file.write_text(json.dumps({'env':'test','fly':{'in_use':True,'app':'private-app'}}))
             seen=[]
             def credential(command,**kwargs):
                 seen.append(('keychain',dict(kwargs.get('env',os.environ))))
                 return b'private-writer-synthetic'
             def spawn(command,**kwargs):
-                role='proxy' if command[0]=='/private/fly' else 'runtime'
+                role='runtime' if command[0]=='mix' else 'other:'+command[0]
                 seen.append((role,dict(kwargs.get('env',os.environ))))
-                if role=='proxy':
-                    snapshots[222]['argv']=command
-                    return SimpleNamespace(pid=222,poll=lambda:None)
                 nonce=command[-1];snapshots[111]['argv']=['beam',*c._boot_args(nonce)]
                 c._write(c.base/('runtime-ready-'+nonce+'.json'),json.dumps(dict(target=c.target,instance=nonce,pid=111)))
                 return SimpleNamespace(pid=111,poll=lambda:None)
-            with patch.dict(os.environ,ATLAS_BUS_LINK_TOKEN='',ATLAS_RUNTIME_READ_TOKEN='private-read-synthetic'),patch.object(module,'shutil_which_fly',return_value='/private/fly'),patch.object(module.subprocess,'check_output',side_effect=credential),patch.object(module.subprocess,'Popen',side_effect=spawn),patch.object(module.os,'kill',side_effect=AssertionError('no real signals')):
+            with patch.dict(os.environ,ATLAS_BUS_LINK_TOKEN='',ATLAS_RUNTIME_READ_TOKEN='private-read-synthetic'),patch.object(module.subprocess,'check_output',side_effect=credential),patch.object(module.subprocess,'Popen',side_effect=spawn),patch.object(module.os,'kill',side_effect=AssertionError('no real signals')):
                 c.start()
-            self.assertEqual([role for role,_ in seen],['keychain','proxy','runtime'])
+            # The client file still says the environment runs on Fly: the node dials the Bus link itself.
+            self.assertEqual([role for role,_ in seen],['keychain','runtime'])
             for role,env in seen:
                 self.assertFalse('ATLAS_RUNTIME_READ_TOKEN' in env,role)
 
