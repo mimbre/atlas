@@ -235,6 +235,8 @@ defmodule AtlasState.FlowsTest do
     end
   end
 
+  # Resolves the native schema with rela/scripts/config.py (Python with PyYAML).
+  @tag :integration
   test "the definitions in rela/atlas.json are sound" do
     extra = @root |> Path.join("rela/atlas.json") |> File.read!() |> JSON.decode!()
     assert map_size(extra["flows"]) > 0
