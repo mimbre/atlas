@@ -1301,8 +1301,91 @@ defmodule AtlasCodeTest do
     end
   end
 
+  test "repository fingerprints match Runtime's golden fixture byte for byte" do
+    %{"cases" => [_ | _] = cases} =
+      Path.expand("../../../../tools/runtime/snapshot/testdata/fingerprints.json", __DIR__)
+      |> File.read!()
+      |> JSON.decode!()
+
+    for %{"name" => name, "request" => request, "canonical" => canonical, "fingerprint" => fpr} <-
+          cases do
+      sorted = Map.update!(request, "entries", &Enum.sort_by(&1, fn entry -> entry["path"] end))
+      assert JSON.encode!(sorted) == canonical, name
+      assert "fpr_" <> hex(canonical) == fpr, name
+      # A change ID is outside the fingerprint.
+      assert AtlasCode.fingerprint(Map.put(request, "change_id", uuid(1))) == fpr, name
+    end
+  end
+
   describe "reviews and integrations" do
     setup %{tmp_dir: dir}, do: provider(dir, "reviews-home")
+
+    test "a given fingerprint must be the change's content before a review or integration has effects",
+         %{port: port, home: home, remote: remote, base: base, sealed: sealed} do
+      change = uuid(110)
+      revision = sealed.(change, "github.com/test/plain", %{"README.md" => "approved\n"})
+      fpr = fingerprint_of(home, change)
+      reviews = Path.join(home, "reviews")
+
+      assert {409,
+              %{
+                "error" => %{
+                  "code" => "fingerprint_mismatch",
+                  "details" => %{"change_id" => ^change, "fingerprint" => ^fpr}
+                }
+              }} =
+               orchestrate(
+                 port,
+                 "/v1/reviews",
+                 Map.put(review(uuid(111), change), "fingerprint", fingerprint(1))
+               )
+
+      refute File.exists?(reviews)
+      assert git(remote, ["for-each-ref", "refs/heads/work"]) == ""
+
+      # The refused ID is free: the approved fingerprint opens the review, and repeats replay it.
+      body = Map.put(review(uuid(111), change), "fingerprint", fpr)
+
+      assert {200, %{"state" => "open", "revision" => ^revision}} =
+               orchestrate(port, "/v1/reviews", body)
+
+      assert {200, %{"state" => "open"}} = orchestrate(port, "/v1/reviews", body)
+
+      assert {409, %{"error" => %{"code" => "conflict"}}} =
+               orchestrate(port, "/v1/reviews", %{body | "fingerprint" => fingerprint(1)})
+
+      assert {409, %{"error" => %{"code" => "conflict"}}} =
+               orchestrate(port, "/v1/reviews", Map.delete(body, "fingerprint"))
+
+      assert git(remote, ["reflog", "show", "refs/heads/work/review-" <> uuid(111)])
+             |> String.split("\n", trim: true)
+             |> length() == 1
+
+      {200, %{"revision" => target}} = resolve(port, "github.com/test/plain", "develop")
+      ok = Map.put(integration(uuid(112), uuid(111), revision, target), "fingerprint", fpr)
+
+      assert {409,
+              %{
+                "error" => %{
+                  "code" => "fingerprint_mismatch",
+                  "details" => %{"change_id" => ^change, "fingerprint" => ^fpr}
+                }
+              }} =
+               orchestrate(port, "/v1/integrations", %{ok | "fingerprint" => fingerprint(1)})
+
+      refute File.exists?(Path.join(home, "integrations"))
+      assert git(remote, ["rev-parse", "refs/heads/develop"]) == base <> "\n"
+
+      assert {200, %{"state" => "integrated", "method" => "fast_forward"}} =
+               orchestrate(port, "/v1/integrations", ok)
+
+      assert {200, %{"state" => "integrated"}} = orchestrate(port, "/v1/integrations", ok)
+
+      assert {409, %{"error" => %{"code" => "conflict"}}} =
+               orchestrate(port, "/v1/integrations", %{ok | "fingerprint" => fingerprint(1)})
+
+      assert git(remote, ["rev-parse", "refs/heads/develop"]) == commit_of(home, revision) <> "\n"
+    end
 
     test "only the orchestrator token reviews and integrates; it may call every endpoint", %{
       port: port
@@ -1362,7 +1445,10 @@ defmodule AtlasCodeTest do
             %{ok | "title" => "a\nb"},
             %{ok | "title" => String.duplicate("t", 257)},
             # Attribution is required in review bodies.
-            %{ok | "body" => "No attribution"}
+            %{ok | "body" => "No attribution"},
+            Map.put(ok, "fingerprint", "fpr_" <> String.duplicate("A", 64)),
+            Map.put(ok, "fingerprint", 1),
+            ok |> Map.put("fingerprint", fingerprint(0)) |> Map.put("extra", 1)
           ] do
         assert {400, %{"error" => %{"code" => "invalid_request"}}} =
                  orchestrate(port, "/v1/reviews", body)
@@ -1921,7 +2007,9 @@ defmodule AtlasCodeTest do
             %{ok | "target_revision" => base},
             %{ok | "revision" => commit},
             %{ok | "integration_id" => "x"},
-            %{ok | "review_id" => 1}
+            %{ok | "review_id" => 1},
+            Map.put(ok, "fingerprint", "sha256:" <> String.duplicate("0", 64)),
+            ok |> Map.put("fingerprint", fingerprint(0)) |> Map.put("extra", 1)
           ] do
         assert {400, %{"error" => %{"code" => "invalid_request"}}} =
                  orchestrate(port, "/v1/integrations", body)
@@ -2385,6 +2473,13 @@ defmodule AtlasCodeTest do
     do: JSON.decode!(File.read!(Path.join([home, "revisions", revision <> ".json"])))["commit"]
 
   defp rev(n), do: "rev_" <> String.pad_leading(Integer.to_string(n), 64, "0")
+  defp fingerprint(n), do: "fpr_" <> String.pad_leading(Integer.to_string(n), 64, "0")
+
+  # Recomputed from the stored request the way Runtime's submit computes it.
+  defp fingerprint_of(home, change) do
+    request = JSON.decode!(File.read!(Path.join([home, "changes", change, "request.json"])))
+    "fpr_" <> hex(JSON.encode!(Map.delete(request, "change_id")))
+  end
 
   defp review(id, change),
     do: %{
