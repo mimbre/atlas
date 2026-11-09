@@ -726,8 +726,11 @@ defmodule AtlasRuntime.ServiceTest do
     assert {%{released: nil}, ^restarted, false} =
              call(restarted, %{"command" => "release", "worker_id" => "alpha"})
 
-    # Without registration or latch the worker is unknown again after restart.
-    error(restarted, %{"command" => "status", "worker_id" => "alpha"}, "Unknown worker")
+    # Without registration or latch its latest saved turn still identifies the worker.
+    assert {%{"id" => ^id, "worker_id" => "alpha", "state" => "stopped", admission_latch: nil},
+            ^restarted, false} = call(restarted, %{"command" => "status", "worker_id" => "alpha"})
+
+    error(restarted, %{"command" => "status", "worker_id" => "missing"}, "Unknown worker")
     File.write!(Path.join([state.dir, "workers", "alpha", "admission-latch.json"]), "not JSON")
     error(restarted, start, "Invalid admission latch")
     error(restarted, %{"command" => "release", "worker_id" => "alpha"}, "Invalid admission latch")
@@ -770,7 +773,9 @@ defmodule AtlasRuntime.ServiceTest do
     assert %{state: "failed", termination: %{"error" => ":native_failed"}} =
              state.workers["alpha"].run
 
-    assert [%{"kind" => "execution_failed"}] = events(state)
+    assert [%{"kind" => "execution_failed"} = failed] = events(state)
+    # Only restart reconciliation marks a failure as an interruption.
+    refute Map.has_key?(failed, "interruption")
   end
 
   test "natural completion races keep the honest outcome", %{state: state} do

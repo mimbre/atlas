@@ -28,6 +28,10 @@ defmodule AtlasRuntime.Persistence.History do
     %{turns: turns}
   end
 
+  @doc "The newest saved turn of an unregistered worker, as `historical/3` reads it, or nil."
+  def latest(dir, worker_id),
+    do: Enum.find(list(dir, %{}).turns, &(&1["worker_id"] == worker_id))
+
   def owned_saved_turn!(dir, turn, worker_id) do
     path = Path.join([dir, "turns", turn, "turn.json"])
 
