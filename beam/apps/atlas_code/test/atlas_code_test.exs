@@ -1006,6 +1006,85 @@ defmodule AtlasCodeTest do
       assert status != 0
     end
 
+    # Git owns ignore rules: a new path that `git add -A` in the change's working tree would skip
+    # (base and written .gitignore files, nested ones, negations, ignored directories) is left
+    # out of the sealed tree; a path tracked in the base stays even when a pattern matches it.
+    test "a seal leaves out new paths the resulting tree's .gitignore files ignore", %{
+      tmp_dir: dir
+    } do
+      {source, _base} =
+        fixture(dir, "ignoring", fn source ->
+          for {path, bytes} <- [
+                {".gitignore", "cache/\n*.tmp\n!keep.tmp\n/out/\n"},
+                {"pkg/.gitignore", "local.txt\n"},
+                {"pkg/main.txt", "main\n"},
+                {"pkg/tracked.tmp", "tracked\n"}
+              ] do
+            File.mkdir_p!(Path.dirname(Path.join(source, path)))
+            File.write!(Path.join(source, path), bytes)
+          end
+
+          git(source, ["add", "-f", "pkg/tracked.tmp"])
+        end)
+
+      {home, port} = serve(dir, "ignoring-home", %{"github.com/test/app" => "file://" <> source})
+      {200, %{"revision" => revision}} = resolve(port, "github.com/test/app", "develop")
+
+      {200, %{"snapshot_id" => snapshot_id}} =
+        snapshot(port, [
+          %{"repository" => "github.com/test/app", "revision" => revision, "path" => "app"}
+        ])
+
+      [cache] = Path.wildcard(Path.join([home, "cache", "*.git"]))
+      id = uuid(77)
+
+      kept = %{
+        "pkg/main.txt" => "main again\n",
+        "pkg/tracked.tmp" => "tracked again\n",
+        "pkg/new.txt" => "new\n",
+        "keep.tmp" => "negated\n",
+        "other/local.txt" => "not under pkg\n",
+        "extra/.gitignore" => "*.log\n"
+      }
+
+      ignored = %{
+        "pkg/cache/m.bin" => <<0, 1, 2>>,
+        "cache/top.bin" => <<3, 4>>,
+        "pkg/scratch.tmp" => "scratch\n",
+        ~s(pkg/say "hi".tmp) => "quoted\n",
+        "pkg/local.txt" => "local\n",
+        "out/result.txt" => "result\n",
+        "extra/run.log" => "log\n"
+      }
+
+      entries =
+        Enum.map(Map.merge(kept, ignored), fn {path, bytes} -> write(path, bytes) end) ++
+          [symlink("out/link", "../pkg/main.txt")]
+
+      assert {200, %{"state" => "open"}} =
+               submit(port, %{
+                 "change_id" => id,
+                 "snapshot_id" => snapshot_id,
+                 "repository" => "github.com/test/app",
+                 "base_revision" => revision,
+                 "entries" => entries
+               })
+
+      for {_path, bytes} <- Map.merge(kept, ignored),
+          do: {200, _} = upload(port, id, hex(bytes), bytes)
+
+      assert {200, %{"state" => "sealed", "revision" => sealed}} = seal(port, id)
+      assert {200, %{"revision" => ^sealed}} = seal(port, id)
+
+      paths =
+        cache
+        |> git(["ls-tree", "-r", "-z", "--name-only", "--full-tree", commit_of(home, sealed)])
+        |> :binary.split(<<0>>, [:global, :trim_all])
+        |> Enum.sort()
+
+      assert paths == Enum.sort([".gitignore", "pkg/.gitignore" | Map.keys(kept)])
+    end
+
     test "base mismatches, unknown targets and unsafe or conflicting entries are refused", %{
       port: port,
       home: home,
