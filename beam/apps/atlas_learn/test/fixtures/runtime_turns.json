@@ -1,0 +1,14 @@
+{
+  "api": "runtime.read/1",
+  "op": "turns",
+  "turns": [
+    {"turn_id": "turn-00000000000000a8", "worker_id": "delta", "state": "finished", "backend": "claude", "model": "opus", "source_turn_id": null, "started_at": "2026-11-08T09:00:00Z", "ended_at": "2026-11-08T09:30:00Z", "result": "Done", "error": null},
+    {"turn_id": "turn-00000000000000a7", "worker_id": "gamma", "state": "finished", "backend": "codex", "model": "gpt-5", "source_turn_id": "turn-00000000000000ff", "started_at": "2026-11-10T20:00:00Z", "ended_at": "2026-11-10T20:40:00Z", "result": "Answered the follow-up", "error": null},
+    {"turn_id": "turn-00000000000000a6", "worker_id": "gamma", "state": "failed", "backend": "codex", "requested_model": "gpt-5", "model": null, "source_turn_id": null, "started_at": "2026-11-10T18:00:00Z", "ended_at": "2026-11-10T18:01:00Z", "result": null, "error": "codex exited with status 1\nstack trace follows"},
+    {"turn_id": "turn-00000000000000a5", "worker_id": "beta", "state": "unknown", "recorded_state": "running", "backend": "claude", "model": "opus", "source_turn_id": null, "started_at": "2026-11-10T16:00:00Z", "ended_at": null, "result": null, "error": null},
+    {"turn_id": "turn-00000000000000a4", "worker_id": "beta", "state": "finished", "backend": "claude", "model": "opus", "source_turn_id": null, "started_at": "2026-11-10T14:00:00Z", "ended_at": "2026-11-10T14:50:00Z", "result": "Done: the focused tests pass", "error": null},
+    {"turn_id": "turn-00000000000000a3", "worker_id": "alpha", "state": "failed", "backend": "codex", "model": "gpt-5", "source_turn_id": "turn-00000000000000a2", "started_at": "2026-11-10T10:00:00Z", "ended_at": "2026-11-10T10:05:00Z", "result": null, "error": "codex exited with status 1"},
+    {"turn_id": "turn-00000000000000a2", "worker_id": "alpha", "state": "finished", "backend": "codex", "model": "gpt-5", "source_turn_id": "turn-00000000000000a1", "started_at": "2026-11-10T08:00:00Z", "ended_at": "2026-11-10T09:00:00Z", "result": "Fixed the review findings", "error": null},
+    {"turn_id": "turn-00000000000000a1", "worker_id": "alpha", "state": "finished", "backend": "codex", "model": "gpt-5", "source_turn_id": null, "started_at": "2026-11-09T10:00:00Z", "ended_at": "2026-11-09T11:00:00Z", "result": "First pass done", "error": null}
+  ]
+}

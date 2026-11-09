@@ -21,6 +21,10 @@ defmodule AtlasBus.BoundaryTest do
     atlas_runtime: "AtlasRuntime",
     atlas_control: "AtlasControl"
   }
+  # Learn reads the layers through their own read surfaces (a socket, records, the `atlas`
+  # client), never over the Bus or by calling them: it depends on no app, names no layer
+  # and knows no entity.
+  @readers [{"beam/apps/atlas_learn", "AtlasLearn"}]
   # Clients of Control: the TUI, and the command line agents drive Atlas with.
   @clients [{"clients/tui", "AtlasTui"}, {"clients/agent", "AtlasAgent"}]
 
@@ -113,6 +117,14 @@ defmodule AtlasBus.BoundaryTest do
       end
     end
 
+    test "a reader depends on no other app" do
+      for {dir, _} <- @readers do
+        mix = File.read!(Path.join([@root, dir, "mix.exs"]))
+        deps = Regex.scan(~r/\{:(\w+), in_umbrella: true\}/, mix) |> Enum.map(&List.last/1)
+        assert deps == [], "#{dir} depends on #{inspect(deps)}; a reader depends on no app"
+      end
+    end
+
     test "no layer's compiled code calls another layer" do
       for {app, own} <- @layers do
         beams =
@@ -135,7 +147,8 @@ defmodule AtlasBus.BoundaryTest do
     end
 
     test "no layer or client names another layer in its source" do
-      dirs = Enum.map(@layers, fn {app, ns} -> {"beam/apps/#{app}", ns} end) ++ @clients
+      dirs =
+        Enum.map(@layers, fn {app, ns} -> {"beam/apps/#{app}", ns} end) ++ @clients ++ @readers
 
       for {dir, own} <- dirs, file <- sources(dir, own) do
         names = foreign_names(File.read!(file), own)
@@ -146,7 +159,9 @@ defmodule AtlasBus.BoundaryTest do
     end
 
     test "nothing on the BEAM side or in a client names an entity" do
-      dirs = Enum.map(@layers, fn {app, ns} -> {"beam/apps/#{app}", ns} end) ++ @clients
+      dirs =
+        Enum.map(@layers, fn {app, ns} -> {"beam/apps/#{app}", ns} end) ++ @clients ++ @readers
+
       files = Enum.flat_map(dirs, fn {dir, own} -> sources(dir, own) end)
       assert Path.join(@root, "bff/contract/lib/blocks.ex") in files
       assert length(files) > 20
