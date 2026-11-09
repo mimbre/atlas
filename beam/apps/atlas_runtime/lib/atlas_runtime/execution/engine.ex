@@ -203,24 +203,30 @@ defmodule AtlasRuntime.Engine do
   end
 
   # Ownership still includes a held item, so its current turn may finish normally.
-  # A nonempty handover field only bars a new turn, until Flow transfers or cancels it.
-  # Runtime treats this as an opaque barrier; Flow alone interprets its origin/owner.
-  # The open facts each agent owns: `[%{agent, item, kind, startable?}]`.
+  # A deferred handover only bars a new turn, until Flow transfers or cancels it.
+  # Runtime treats it as an opaque barrier; Flow alone interprets its origin/owner.
+  # The open facts each agent owns: `[%{agent, item, kind, startable?}]`, as Facts'
+  # presentation of the work on them says (open: something to do; a completed run is
+  # never open, whatever is still written on the fact).
   defp owned(kinds, agents) do
     Enum.reduce_while(kinds, {:ok, []}, fn {kind, flow}, {:ok, acc} ->
       found =
         Enum.reduce_while(Enum.sort(Map.keys(agents)), {:ok, []}, fn agent, {:ok, acc} ->
-          case Talk.read(kind, %{"linked" => %{flow["owner_relation"] => agent}, "plain" => true}) do
+          case Talk.read(kind, %{
+                 "linked" => %{flow["owner_relation"] => agent},
+                 "plain" => true,
+                 "presentation" => true
+               }) do
             %{"facts" => facts} ->
               open =
                 for fact <- facts,
-                    open?(fact, flow),
+                    open?(fact),
                     do: %{
                       agent: agent,
                       item: fact["key"],
                       kind: kind,
                       ownership: flow,
-                      startable?: handover_clear?(fact, flow)
+                      startable?: handover_clear?(fact)
                     }
 
               {:cont, {:ok, acc ++ open}}
@@ -237,16 +243,10 @@ defmodule AtlasRuntime.Engine do
     end)
   end
 
-  defp handover_clear?(fact, %{"handover_field" => field}) when is_binary(field),
-    do: fact["values"][field] in [nil, ""]
+  defp handover_clear?(fact), do: get_in(fact, ["presentation", "handover"]) == nil
 
-  defp handover_clear?(_fact, _flow), do: true
-
-  # Open while Flow has a state for it (its `state_field`); without one, while it is owned.
-  defp open?(fact, %{"state_field" => field}) when is_binary(field),
-    do: fact["values"][field] not in [nil, ""]
-
-  defp open?(_fact, _flow), do: true
+  # Open while its presentation has something to do.
+  defp open?(fact), do: get_in(fact, ["presentation", "actionable"]) == true
 
   defp start(owned, names, turns, agents, opts) do
     n = Enum.count(turns, &(owned.item in (get_in(&1, ["links", names.on]) || []))) + 1

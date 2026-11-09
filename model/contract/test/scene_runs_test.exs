@@ -350,6 +350,24 @@ defmodule Model.SceneRunsTest do
     end
   end
 
+  # The assignment as Facts answers it to Control: the work on the subject presented
+  # (`AtlasFacts.Presentation`) from its active run of `flow` in the state it wrote.
+  defp presented(assignment, fact, flow) do
+    p = Enum.find(Model.AtlasEyra.presentation(), &(&1["subject"] == @kind))
+    state = assignment["values"]["flow_state"]
+
+    run = %{
+      "key" => "R-1",
+      "flow" => flow,
+      "generation" => 1,
+      "status" => "active",
+      "state" => state
+    }
+
+    shown = AtlasFacts.Presentation.view(p, assignment, fact, [run], fn -> false end)
+    Map.put(assignment, "presentation", shown)
+  end
+
   test "the decider's answers write the verdict, Accept with accepted_by, Reject with a note" do
     fact = %{
       "key" => "SC-Atlas-01",
@@ -357,11 +375,13 @@ defmodule Model.SceneRunsTest do
       "links" => %{"assignment" => ["AS-SC-Atlas-01"]}
     }
 
-    assignment = %{
-      "key" => "AS-SC-Atlas-01",
-      "values" => %{"flow_state" => "to_test", "expected" => "Test it"},
-      "links" => %{"assigned_to" => ["someone"]}
-    }
+    assignment =
+      %{
+        "key" => "AS-SC-Atlas-01",
+        "values" => %{"flow_state" => "to_test", "expected" => "Test it"},
+        "links" => %{"assigned_to" => ["someone"]}
+      }
+      |> presented(fact, @name)
 
     item = %{"fact" => fact, "parts" => %{"assignment" => assignment}}
     viewer = %{key: "someone", kind: "person"}
@@ -395,7 +415,12 @@ defmodule Model.SceneRunsTest do
           {"building", "Build it"},
           {"to_test", "Test it"}
         ] do
-      a = %{assignment | "values" => %{"flow_state" => state, "expected" => expected}}
+      a =
+        presented(
+          %{assignment | "values" => %{"flow_state" => state, "expected" => expected}},
+          fact,
+          @name
+        )
 
       assert %{expected: ^expected} =
                Model.AtlasEyra.todo(@kind, fact, %{"assignment" => a}, viewer)

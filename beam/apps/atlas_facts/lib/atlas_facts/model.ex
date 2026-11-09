@@ -73,6 +73,15 @@ defmodule AtlasFacts.Model do
   @callback run_mapping() :: nil | map
 
   @doc """
+  Who presents the work on each kind of fact: `[presenter]`, each `%{"subject", "kind",
+  "on", "field", "state_field", "handover_field", "deadline_field", "owner_relation",
+  "flows", "legacy", "states"}` (`AtlasFacts.Presentation`). A read that asks for it
+  (`"presentation" => true`) answers each fact of a presenter's `kind` with its
+  `"presentation"`, derived from the runs of the subject its work is on.
+  """
+  @callback presentation() :: [map]
+
+  @doc """
   The outside system the facts of `kind` are copied from, or nil: `%{"system",
   "address", "fields", "until", "names"}` (`names`: `%{"field", "relation", "when",
   "kind", "prefix"}`).

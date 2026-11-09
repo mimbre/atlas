@@ -4,27 +4,24 @@ defmodule Model.RuntimeTest do
   alias Model.AtlasEyra
 
   @committed "../../rela/atlas.json" |> File.read!() |> JSON.decode!()
+  @selection ("../../rela/flow-runtime.json"
+              |> File.read!()
+              |> JSON.decode!())["flow_runtime"][
+               "selection"
+             ]
 
-  # What Runtime read from the description before it was given the model (D-0083 slice 4):
-  # the facts flows write on (`on`'s one kind, or their kinds), owned through their
-  # owner relation; the kinds the turn's `on` and `by` lead to.
+  # What Runtime works on: the facts the selected subflows present their work on (their
+  # projection's `on`'s one kind), owned through its owner relation, once each (slice 13:
+  # whether one is open and free to start on, Facts' presentation of it says); the kinds
+  # the turn's `on` and `by` lead to.
   defp relations, do: AtlasEyra.__rela__(:description).schema["relations"]
 
-  defp written(flows) do
-    for {_name, %{"owner_relation" => relation} = flow} <- Enum.sort(flows),
+  defp written(selection) do
+    for {_name, %{"projection" => %{"owner_relation" => relation} = p}} <- Enum.sort(selection),
         is_binary(relation),
-        kind <-
-          (case flow["on"] && relations()[flow["on"]]["to"] do
-             [to] -> [to]
-             _ -> flow["kinds"] || []
-           end),
+        [kind] <- [relations()[p["on"]]["to"]],
         uniq: true,
-        do: %{
-          "kind" => kind,
-          "owner_relation" => relation,
-          "state_field" => flow["state_field"],
-          "handover_field" => flow["handover_field"]
-        }
+        do: %{"kind" => kind, "owner_relation" => relation}
   end
 
   test "the turn, its agent and the guidance records are the committed description's" do
@@ -33,7 +30,7 @@ defmodule Model.RuntimeTest do
 
     assert Map.drop(turn, ["items", "on_kinds"]) == names
     assert turn["on_kinds"] == relations()[names["on"]]["to"]
-    assert turn["items"] == written(@committed["flows"])
+    assert turn["items"] == written(@selection)
 
     assert AtlasEyra.agent() == %{
              "kind" => hd(relations()[names["by"]]["to"]),

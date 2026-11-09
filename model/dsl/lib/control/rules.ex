@@ -69,37 +69,60 @@ defmodule RelaDSL.Control.Rules do
   end
 
   @doc """
-  What the owner of `fact` is to do, when `viewer` (`%{key: …}`) is its owner: the flow
-  on its kind writes its owner, what is expected and the state it is in on the fact or,
-  for a flow `on` a component, on that part (`parts`, by kind). Nil for anyone else, or
-  when the state says nothing to do.
+  What the owner of `fact` is to do, when `viewer` (`%{key: …}`) is its owner, as Facts'
+  presentation of its work says (`"presentation"` on the fact or, for work presented `on`
+  a component, on that part, `parts` by kind): what is expected, why, and the state's
+  todo. Nil for anyone else, or when the presentation offers nothing to do (no state, or
+  one whose projection Flow has not written yet). While its run ended and the work was
+  reopened, it says so to anyone (`reopened`, when the model words it), with no answers.
 
   `%{title, expected, why, instructions, section, answers, words}`: `why` is `%{text,
   since, by}`; `section` the part of the fact's field the state names (`%{heading,
   text}`) or nil; each answer `%{key, label, note, change, set, remove}`.
   """
   def todo(flow, fact, parts, viewer) do
-    with {written, %{"todo" => %{} = todo} = state} <- owner_state(flow, fact, parts, viewer) do
-      origin = get_in(written, ["origins", flow.owner_relation]) || %{}
+    case owner_view(flow, fact, parts, viewer) do
+      {written, %{"todo" => %{} = todo} = view} ->
+        origin = get_in(written, ["origins", flow.owner_relation]) || %{}
 
-      section =
-        with %{"field" => field, "heading" => heading} <- todo["section"],
-             text when is_binary(text) <-
-               section(to_text(get_in(fact, ["values", field])), heading),
-             do: %{heading: heading, text: text},
-             else: (_ -> nil)
+        section =
+          with %{"field" => field, "heading" => heading} <- todo["section"],
+               text when is_binary(text) <-
+                 section(to_text(get_in(fact, ["values", field])), heading),
+               do: %{heading: heading, text: text},
+               else: (_ -> nil)
 
+        %{
+          title: flow.words.title,
+          expected: to_text(view["expected"]),
+          why: %{
+            text: origin["cause"] || view["why"] || "—",
+            since: origin["since"],
+            by: origin["by"]
+          },
+          instructions: todo["instructions"],
+          section: section,
+          answers: Enum.map(answers(todo), &answer_view/1),
+          words: flow.words
+        }
+
+      _ ->
+        reopened(flow, fact, parts)
+    end
+  end
+
+  # Reopened work whose run ended: nothing is expected until its run is restarted
+  # explicitly, and nobody owns it; said to anyone, in the model's words.
+  defp reopened(flow, fact, parts) do
+    with %{"reopened" => true} = view <- view(flow, fact, parts),
+         text when text != "" <- flow.words[:reopened] || "" do
       %{
         title: flow.words.title,
-        expected: to_text(get_in(written, ["values", flow.field])),
-        why: %{
-          text: origin["cause"] || state["why"] || "—",
-          since: origin["since"],
-          by: origin["by"]
-        },
-        instructions: todo["instructions"],
-        section: section,
-        answers: Enum.map(answers(todo), &answer_view/1),
+        expected: text,
+        why: %{text: view["why"] || "—", since: nil, by: nil},
+        instructions: nil,
+        section: nil,
+        answers: [],
         words: flow.words
       }
     else
@@ -118,7 +141,7 @@ defmodule RelaDSL.Control.Rules do
       with %{} <- flow,
            %{"fact" => %{} = fact} <- item,
            {_written, %{"todo" => %{} = todo}} <-
-             owner_state(flow, fact, item["parts"] || %{}, viewer) do
+             owner_view(flow, fact, item["parts"] || %{}, viewer) do
         Enum.find(answers(todo), &(&1["key"] == name and is_map(&1["change"])))
       else
         _ -> nil
@@ -151,17 +174,31 @@ defmodule RelaDSL.Control.Rules do
       remove: if(is_binary(a["remove"]), do: a["remove"])
     }
 
-  # The fact the flow writes on and the state it is in, when `viewer` is its owner.
-  defp owner_state(flow, fact, parts, viewer) do
+  # The fact the work is presented on and its presentation, when `viewer` owns the work
+  # and the presentation offers something to do.
+  defp owner_view(flow, fact, parts, viewer) do
+    with {written, view} <- written_view(flow, fact, parts),
+         by when is_binary(by) <- viewer && viewer[:key],
+         true <- by in (view["owner"] || []),
+         true <- view["actionable"] == true do
+      {written, view}
+    else
+      _ -> nil
+    end
+  end
+
+  defp view(flow, fact, parts) do
+    case written_view(flow, fact, parts) do
+      {_written, view} -> view
+      nil -> nil
+    end
+  end
+
+  defp written_view(flow, fact, parts) do
     written = if flow.on, do: flow.on_kind && (parts || %{})[flow.on_kind], else: fact
 
-    with %{} <- written,
-         by when is_binary(by) <- viewer && viewer[:key],
-         true <- by in (get_in(written, ["links", flow.owner_relation]) || []),
-         name when name not in [nil, ""] <- get_in(written, ["values", flow.state_field]),
-         %{} = state <- flow.states[name] do
-      {written, state}
-    else
+    case written do
+      %{"presentation" => %{} = view} -> {written, view}
       _ -> nil
     end
   end

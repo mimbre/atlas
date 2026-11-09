@@ -271,8 +271,12 @@ defmodule AtlasControl.FakeStore do
     end
   end
 
-  # One read's answer, with what it depended on, as Facts says it.
-  defp answer(s, kind, content) do
+  # One read's answer, with what it depended on, as Facts says it, and the presentation of
+  # each fact when the read asks for it (`AtlasControl.Presented`).
+  defp answer(s, kind, content),
+    do: AtlasControl.Presented.answer(s.model, kind, content, plain_answer(s, kind, content))
+
+  defp plain_answer(s, kind, content) do
     case {kind, content} do
       {kind, %{"key" => key}} ->
         case s.facts[{kind, key}] do

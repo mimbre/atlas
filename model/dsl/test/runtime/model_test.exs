@@ -31,19 +31,10 @@ defmodule RelaDSL.Runtime.ModelTest do
     end
 
     test "a turn works on what flows write on: on's one kind, or the flow's own kinds" do
+      # Whether one is open, and whether a handover waits, is Facts' presentation's.
       assert Workshop.turn()["items"] == [
-               %{
-                 "kind" => "card",
-                 "owner_relation" => "owned_by",
-                 "state_field" => "step",
-                 "handover_field" => "later"
-               },
-               %{
-                 "kind" => "crate",
-                 "owner_relation" => "owned_by",
-                 "state_field" => "step",
-                 "handover_field" => "later"
-               }
+               %{"kind" => "card", "owner_relation" => "owned_by"},
+               %{"kind" => "crate", "owner_relation" => "owned_by"}
              ]
     end
 
