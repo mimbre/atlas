@@ -223,23 +223,18 @@ flows:
             - { to: to_test, roles: [atlas-flow], when: "entity.open_children == 0" }
       to_test:
         label: Test it
-        status: input_required
-        waiting_for: [acceptor]
         outputs:
           - set: { properties: { verdict: none } }
         on:
           change:
-            - { to: accepted, roles: [acceptor], when: "entity.verdict == 'accept'" }
-            - { to: rework, roles: [acceptor], when: "entity.verdict == 'reject'" }
+            - { to: accepted, when: "entity.verdict == 'accept'" }
+            - { to: rework, when: "entity.verdict == 'reject'" }
+            - { to: building, roles: [atlas-flow], when: "entity.open_children > 0" }
       rework:
         label: Rework it
-        outputs:
-          - set: { properties: { pass_result: none } }
         on:
           change:
             - { to: building, roles: [atlas-flow], when: "entity.open_children > 0" }
-            - { to: to_test, roles: [atlas-flow], when: "entity.pass_result == 'delivered'" }
-            - { to: to_test, roles: [atlas-flow], label: Rework failed; the acceptor decides, when: "entity.pass_result == 'failed'" }
       accepted:
         label: Accepted
         final: true

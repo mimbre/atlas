@@ -217,9 +217,10 @@ defmodule Model.DeciderTest do
       assert AtlasFlow.Model.owner(flow.owner("to_test"), actors) == decider
     end
 
-    # The use case's build run tests it with the same person (slice 11).
-    for env <- [:prod, :test] do
-      build = Enum.find(Model.AtlasEyra.subflows(env), &(&1.name() == "test_and_accept_use_case"))
+    # The use case's build run tests it with the same person (slice 11), and the scene's
+    # run (slice 12).
+    for env <- [:prod, :test], name <- ~w(test_and_accept_use_case test_and_accept_scene) do
+      build = Enum.find(Model.AtlasEyra.subflows(env), &(&1.name() == name))
       assert AtlasFlow.Model.owner(build.owner("to_test")["default"], actors) == decider
     end
 
@@ -262,7 +263,8 @@ defmodule Model.DeciderTest do
 
     # Slice 7 selects the review and the test of a pull request too (Model.ReviewRunsTest),
     # slice 8 the pull request and slice 9 the issue (Model.DeliveryRunsTest), slice 10 the
-    # design of a use case and slice 11 its building and testing (Model.AcceptanceRunsTest).
+    # design of a use case and slice 11 its building and testing (Model.AcceptanceRunsTest),
+    # slice 12 the scene (Model.SceneRunsTest): all eight.
     assert selected == [
              "decide",
              "design_and_accept",
@@ -270,8 +272,11 @@ defmodule Model.DeciderTest do
              "pr_review",
              "pr_test",
              "pull_request",
+             "test_and_accept_scene",
              "test_and_accept_use_case"
            ]
+
+    assert length(selected) == length(Model.AtlasEyra.subflows(:prod))
 
     selection = Model.AtlasEyra.selection("decide")
     assert selection["subject"] == definition.subject()

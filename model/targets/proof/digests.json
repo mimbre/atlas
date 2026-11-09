@@ -477,10 +477,20 @@
     },
     "test_and_accept_scene": {
       "prod": {
-        "digest": "79141c9da4b0fe990b2add3265ce542b546a0a68f9922e0128c502aa5ae1b444",
+        "digest": "c29dfcb9a206681c88eaf60343ac2f05841fccb39e86b8b8530373584afa8a8f",
         "history": [
           {
             "digest": "79141c9da4b0fe990b2add3265ce542b546a0a68f9922e0128c502aa5ae1b444",
+            "states": [
+              "accepted",
+              "break_down",
+              "building",
+              "rework",
+              "to_test"
+            ]
+          },
+          {
+            "digest": "c29dfcb9a206681c88eaf60343ac2f05841fccb39e86b8b8530373584afa8a8f",
             "states": [
               "accepted",
               "break_down",
@@ -499,10 +509,20 @@
         ]
       },
       "test": {
-        "digest": "79141c9da4b0fe990b2add3265ce542b546a0a68f9922e0128c502aa5ae1b444",
+        "digest": "c29dfcb9a206681c88eaf60343ac2f05841fccb39e86b8b8530373584afa8a8f",
         "history": [
           {
             "digest": "79141c9da4b0fe990b2add3265ce542b546a0a68f9922e0128c502aa5ae1b444",
+            "states": [
+              "accepted",
+              "break_down",
+              "building",
+              "rework",
+              "to_test"
+            ]
+          },
+          {
+            "digest": "c29dfcb9a206681c88eaf60343ac2f05841fccb39e86b8b8530373584afa8a8f",
             "states": [
               "accepted",
               "break_down",

@@ -963,7 +963,6 @@
           ],
           "creates": [],
           "final": false,
-          "kind": "pass",
           "label": "Break it down into use cases",
           "present": {
             "expected": "Break it down into use cases and issues",
@@ -973,11 +972,6 @@
             "why": "nothing is under it yet"
           },
           "set": [],
-          "spec": {
-            "mode": "author",
-            "profile": "architect",
-            "writes": "none"
-          },
           "timers": [],
           "waiting_for": []
         },
@@ -1016,22 +1010,10 @@
               "roles": ["atlas-flow"],
               "to": "building",
               "when": "entity.open_children > 0"
-            },
-            {
-              "roles": ["atlas-flow"],
-              "to": "to_test",
-              "when": "entity.pass_result == 'delivered'"
-            },
-            {
-              "label": "Rework failed; the acceptor decides",
-              "roles": ["atlas-flow"],
-              "to": "to_test",
-              "when": "entity.pass_result == 'failed'"
             }
           ],
           "creates": [],
           "final": false,
-          "kind": "pass",
           "label": "Rework it",
           "present": {
             "expected": "Rework: {note}",
@@ -1040,17 +1022,7 @@
             },
             "why": "reopened"
           },
-          "set": [
-            {
-              "field": "pass_result",
-              "value": "none"
-            }
-          ],
-          "spec": {
-            "input": ["channel", "newest_since_last_pass"],
-            "mode": "rework",
-            "profile": "architect"
-          },
+          "set": [],
           "timers": [],
           "waiting_for": []
         },
@@ -1058,32 +1030,55 @@
           "awaits": [],
           "branches": [
             {
-              "roles": ["acceptor"],
+              "roles": [],
               "to": "accepted",
               "when": "entity.verdict == 'accept'"
             },
             {
-              "roles": ["acceptor"],
+              "roles": [],
               "to": "rework",
               "when": "entity.verdict == 'reject'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "building",
+              "when": "entity.open_children > 0"
             }
           ],
           "creates": [],
           "final": false,
           "label": "Test it",
+          "owner": {
+            "default": {
+              "config": "decider",
+              "kind": "person"
+            },
+            "relation": "assigned_to",
+            "via": "assignment"
+          },
           "present": {
             "expected": "Test it",
             "todo": {
               "answers": [
                 {
+                  "change": {
+                    "self": "accepted_by",
+                    "values": {
+                      "verdict": "accept"
+                    }
+                  },
                   "key": "a",
-                  "label": "Accept",
-                  "set": "accepted_by"
+                  "label": "Accept"
                 },
                 {
+                  "change": {
+                    "values": {
+                      "verdict": "reject"
+                    }
+                  },
                   "key": "f",
                   "label": "Reject",
-                  "remove": "accepted_by"
+                  "note": true
                 }
               ],
               "instructions": "Try the test below, then accept it, or reject it with a note.",
@@ -1100,9 +1095,8 @@
               "value": "none"
             }
           ],
-          "status": "input_required",
           "timers": [],
-          "waiting_for": ["acceptor"]
+          "waiting_for": []
         }
       },
       "subject": "scene"
@@ -1516,6 +1510,6 @@
       "version": 1
     }
   },
-  "rela_flows_sha256": "9daeeb59d105f33f8bc32df685ca5f2326943da5cd0c1efac89f49320cfb8a95",
+  "rela_flows_sha256": "b5f9c39b1dbf6a074906b1cbd444150dd9ae3978082072fcd3f1c369def4c7bf",
   "writer": "system:atlas-flow"
 }
