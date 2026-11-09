@@ -138,6 +138,68 @@ defmodule AtlasTuiTest do
     assert {_, [:quit]} = press(m, [{:char, "q"}])
   end
 
+  test "a start page: declared keys open their lists, enter opens a row, esc goes back but not from the start" do
+    nothing = "Nothing is assigned to you now."
+
+    start = %{
+      "op" => "page",
+      "path" => "/",
+      "title" => "Atlas",
+      "back" => nil,
+      "reason" => "open",
+      "blocks" => [
+        %{
+          "type" => "list",
+          "props" => %{
+            "title" => "Assigned to you",
+            "rows" => [],
+            "empty" => nothing,
+            "actions" => [
+              %{"label" => "Widgets", "key" => "s", "to" => "/k/widget"},
+              %{"label" => "Makers", "key" => "g", "to" => "/k/maker"},
+              %{"label" => "Open work", "key" => "l", "to" => "/k/part"}
+            ]
+          }
+        }
+      ]
+    }
+
+    m = model(start)
+    assert screen(m) =~ nothing
+
+    for {key, to} <- [{"s", "/k/widget"}, {"g", "/k/maker"}, {"l", "/k/part"}] do
+      assert {_, [{:send, %{"op" => "open", "to" => ^to}}]} = press(m, [{:char, key}])
+    end
+
+    assert press(m, [:esc]) == {m, []}
+    assert press(m, [:enter]) == {m, []}
+
+    widgets = %{
+      "op" => "page",
+      "path" => "/k/widget",
+      "title" => "Widgets",
+      "back" => "/",
+      "reason" => "open",
+      "blocks" => [
+        %{
+          "type" => "list",
+          "props" => %{
+            "title" => "Widgets",
+            "rows" => [
+              %{"label" => "Ask", "detail" => "W-1", "to" => "/k/widget/W-1"},
+              %{"label" => "Plan", "detail" => "W-2", "to" => "/k/widget/W-2"}
+            ]
+          }
+        }
+      ]
+    }
+
+    m = model(widgets)
+    assert screen(m) =~ "Widgets · 2"
+    assert {_, [{:send, %{"op" => "open", "to" => "/k/widget/W-2"}}]} = press(m, [:down, :enter])
+    assert {_, [{:send, %{"op" => "open", "to" => "/"}}]} = press(m, [:esc])
+  end
+
   test "a link opens its web address: the item's, and the selected row's" do
     url = "https://example.org/things/2"
     link = %{"label" => "Open in browser", "key" => "o", "url" => url}
@@ -452,6 +514,62 @@ defmodule AtlasTuiTest do
     assert {_, [{:send, %{"op" => "open", "to" => "/k/thing"}}]} = press(m, [:esc])
   end
 
+  test "an update form offers the other parents as a choice and stores the one chosen" do
+    choices =
+      for {key, title} <- [{"W-1", "Ask"}, {"W-2", "Plan"}, {"W-3", "Run"}],
+          do: %{"value" => key, "label" => "#{key} #{title}"}
+
+    update = %{
+      "op" => "page",
+      "path" => "/k/part/P-1/edit",
+      "title" => "Update part P-1",
+      "back" => "/k/part/P-1",
+      "reason" => "open",
+      "blocks" => [
+        %{
+          "type" => "form",
+          "props" => %{
+            "title" => "Update part P-1",
+            "submit_label" => "Update",
+            "submit_to" => %{"endpoint" => "update", "params" => %{"key" => "P-1"}},
+            "cancel_to" => "/k/part/P-1",
+            "inputs" => [
+              %{"name" => "title", "label" => "Title", "kind" => "text", "value" => "Fix it"},
+              %{
+                "name" => "in_widget",
+                "label" => "In widget",
+                "kind" => "choice",
+                "value" => "W-2",
+                "choices" => choices
+              }
+            ]
+          }
+        }
+      ]
+    }
+
+    m = model(update)
+    assert screen(m) =~ "‹ W-2 Plan ›"
+    {m, []} = press(m, [:down, :right])
+    assert screen(m) =~ "‹ W-3 Run ›"
+    # Past the last widget it comes round to the first; left goes back.
+    {m, []} = press(m, [:right])
+    assert m.values["in_widget"] == "W-1"
+    {m, []} = press(m, [:left, :left])
+    assert m.values["in_widget"] == "W-2"
+    {m, []} = press(m, [:right])
+
+    assert {_,
+            [
+              {:send,
+               %{
+                 "endpoint" => "update",
+                 "params" => %{"key" => "P-1"},
+                 "values" => %{"title" => "Fix it", "in_widget" => "W-3"}
+               }}
+            ]} = press(m, [:ctrl_s])
+  end
+
   test "a long text wraps in its field instead of being cut" do
     long = String.duplicate("abcdefghij ", 12) |> String.trim()
     {m, _} = press(model(@form), Enum.map(String.graphemes(long), &{:char, &1}))
@@ -506,6 +624,23 @@ defmodule AtlasTuiTest do
     assert Model.focusable(Model.form(m2)) |> Enum.at(m2.focus) |> Map.get(:name) == "state"
     {m3, _} = press(m, [:tab])
     assert Enum.at(Model.focusable(Model.form(m3)), m3.focus) == :submit
+  end
+
+  test "a multi-line value: entering it starts on its first line; End goes to the end of the cursor's line" do
+    page =
+      put_in(
+        @notes_form,
+        ["blocks", Access.at(0), "props", "inputs", Access.at(2), "value"],
+        "First line\nSecond line"
+      )
+
+    {m, _} = press(model(page), [:down, :down])
+    {m, _} = press(m, type("Intro") ++ [:enter, :end] ++ type(" (and how)"))
+    assert m.values["notes"] == "Intro\nFirst line (and how)\nSecond line"
+
+    # Home and End stay on the cursor's line.
+    {m, _} = press(m, [:up, :end] ++ type(":") ++ [:down, :down, :home] ++ type("> "))
+    assert m.values["notes"] == "Intro:\nFirst line (and how)\n> Second line"
   end
 
   test "a long multi-line input scrolls to keep the cursor in sight" do
