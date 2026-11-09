@@ -4,7 +4,7 @@ defmodule AtlasRuntime.ServerLifecycleTest do
   alias AtlasBus.Envelope
   alias AtlasRuntime.Agent.Native
   alias AtlasRuntime.Integrations.AtlasServer.Lifecycle
-  alias AtlasRuntime.{BackendPolicy, ExecutionEvents, Output, OutputEndpoint, Service}
+  alias AtlasRuntime.{ExecutionEvents, Output, OutputEndpoint, Service}
   alias AtlasBFFContract.Wire.Runtime.OutputProtocol, as: Wire
 
   @moduletag capture_log: true
@@ -552,7 +552,6 @@ defmodule AtlasRuntime.ServerLifecycleTest do
 
       state = %{
         dir: dir,
-        policy: BackendPolicy.empty(),
         events: ExecutionEvents.open(dir),
         stopping: false,
         server: %{config: config(), reporter: self()},

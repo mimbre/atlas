@@ -10,6 +10,18 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Boundary do
           implementation: MySystem.Lending
       end
 
+  With a private model, add the mappings between its entities and the contract's models
+  (`AtlasRuntimeBoundary.Generator.Mappings`) and the model, and it also generates the
+  translations (see "Translations" below):
+
+      defmodule MySystem.Boundary.Lending do
+        use AtlasRuntimeBoundary.Generator.Targets.Boundary,
+          contract: MyContracts.Lending,
+          mappings: MyContracts.LendingMappings,
+          model: MySystem.Model.Lending,
+          implementation: MySystem.Lending
+      end
+
   It defines, in and under that module (the facade, `F` below):
 
   - **A struct per model**, `F.<Model>` (`:lend_input` is `F.LendInput`), with the
@@ -61,9 +73,47 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Boundary do
   facade, so it may use the facade's structs.
 
   A model may not be named `outcome` or `implementation` (those modules are the target's).
+
+  ## Translations (`mappings:` and `model:`, given together)
+
+  `model:` is a compiled module with `__schema__/0` of the model schema shape
+  (`AtlasRuntimeBoundary.Generator.ModelSchema`) and, per entity, a struct module named
+  after it (`:loan_record` is `<model>.LoanRecord`) with `@type t` and `new/1` (atom keys;
+  a nested entity as its struct or a map; a `one_of` member as its struct or a map with
+  `kind:` naming its entity). That is what a model target gives; this target reads
+  nothing else of it.
+
+  When the facade compiles, every mapping is checked against the contract and the model,
+  and a mistake is a `CompileError` at the mapping's line:
+
+  - an unknown model entity or field, or an unknown boundary model or field;
+  - a model field that no boundary field takes (keep its name, rename it, or drop it), or
+    a boundary field that no model field gives and that is not supplied;
+  - types that renaming cannot fit. A primitive fits itself; an enum fits an enum when
+    each model value (after `values:` renames) is a boundary value, and, both ways, each
+    boundary value has exactly one model value; a model string fits a boundary enum (the
+    value is checked when translated); an entity fits a boundary model when the entity's
+    mapping gives that model (both ways, when this one goes both ways); a `one_of` fits
+    a `one_of` member by member in the same way; a list fits a list of a fitting type;
+  - a required boundary field that is supplied, in a mapping that another one holds
+    (nothing could supply it there).
+
+  It adds to `F`:
+
+  - `from_model(entity, opts \\\\ [])`: the boundary struct of a model entity (of any mapped
+    entity): renames applied, dropped fields absent, built through the boundary model's
+    `new/1`, so `{:ok, struct}` or `{:error, [reason]}`. `supply: [field: value]` gives
+    the fields the mapping supplies; `as: outcome` gives that outcome's struct instead of
+    the model's, for an outcome that carries the mapped model;
+  - `to_model(struct, opts \\\\ [])`, for each mapping both ways: the model entity of a
+    boundary struct, renames reversed, built through the model's `new/1`, whose result it
+    returns. `with: [field: value]` gives fields the mapping drops (the model's private
+    fields);
+  - a `@spec` for each mapping. Calling either with something no mapping covers, or with
+    an option the mapping does not declare, raises `ContractError`.
   """
 
-  alias AtlasRuntimeBoundary.Generator.Targets.Boundary.Values
+  alias AtlasRuntimeBoundary.Generator.Targets.Boundary.{Translations, Values}
 
   @reserved ["Outcome", "Implementation"]
 
@@ -72,8 +122,15 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Boundary do
     fail = &raise(CompileError, file: caller.file, line: caller.line, description: &1)
 
     unless Keyword.keyword?(opts) and
-             Enum.sort(Keyword.keys(opts)) == [:contract, :implementation],
-           do: fail.("use #{inspect(__MODULE__)} takes contract: and implementation:")
+             Enum.sort(Keyword.keys(opts)) in [
+               [:contract, :implementation],
+               [:contract, :implementation, :mappings, :model]
+             ],
+           do:
+             fail.(
+               "use #{inspect(__MODULE__)} takes contract: and implementation:, " <>
+                 "and optionally mappings: and model: together"
+             )
 
     contract = Macro.expand(opts[:contract], caller)
 
@@ -132,6 +189,21 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Boundary do
       end
 
     behaviour = Module.concat(facade, Implementation)
+
+    translations =
+      if Keyword.has_key?(opts, :mappings),
+        do:
+          translations(
+            Translations.plan!(
+              schema,
+              models,
+              outcomes,
+              Macro.expand(opts[:mappings], caller),
+              Macro.expand(opts[:model], caller),
+              fail
+            )
+          ),
+        else: []
 
     # What a capability answers on invalid input: {outcome module, fields} or nil.
     invalid_answer = fn capability ->
@@ -274,6 +346,7 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Boundary do
       end
 
       unquote_splicing(functions)
+      unquote_splicing(translations)
 
       @after_verify __MODULE__
       @doc false
@@ -371,6 +444,86 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Boundary do
         others -> "#{name}/#{arity} (it has #{Enum.map_join(others, ", ", &"#{name}/#{&1}")})"
       end
     end
+  end
+
+  # from_model/1,2 and to_model/1,2, with a @spec per mapping.
+  defp translations(plan) do
+    mappings = plan.mappings |> Map.values() |> Enum.sort_by(& &1.line)
+
+    from_specs =
+      for mapping <- mappings, arity <- [1, 2] do
+        args =
+          [quote(do: unquote(mapping.model_module).t())] ++
+            if(arity == 2, do: [quote(do: keyword())], else: [])
+
+        results =
+          union(
+            for(
+              module <- [mapping.boundary_module | Enum.map(mapping.outcomes, &elem(&1, 1))],
+              do: quote(do: unquote(module).t())
+            )
+          )
+
+        quote do
+          @spec from_model(unquote_splicing(args)) ::
+                  {:ok, unquote(results)} | {:error, [String.t()]}
+        end
+      end
+
+    to_specs =
+      for %{direction: :both} = mapping <- mappings, arity <- [1, 2] do
+        args =
+          [quote(do: unquote(mapping.boundary_module).t())] ++
+            if(arity == 2, do: [quote(do: keyword())], else: [])
+
+        quote do
+          @spec to_model(unquote_splicing(args)) ::
+                  {:ok, unquote(mapping.model_module).t()} | {:error, term()}
+        end
+      end
+
+    from_doc = """
+    The boundary struct of a model entity: its mapping's renames applied, its dropped
+    fields absent, built through the boundary model's `new/1`. `{:ok, struct}`, or
+    `{:error, [reason]}` when the result does not validate. Options:
+
+    - `supply:` the boundary fields the mapping declares as `supply:`;
+    - `as:` an outcome that carries the mapped model: its outcome struct instead.
+
+    Mappings: #{Enum.map_join(mappings, ", ", &"`#{&1.model}` → `#{&1.boundary}`")}.
+    """
+
+    to_doc = """
+    The model entity of a boundary struct, for a mapping both ways: renames reversed,
+    built through the model's `new/1`, whose `{:ok, entity}` or `{:error, reason}` it
+    returns. `with:` gives fields the mapping drops (the model's private fields).
+
+    Mappings: #{Enum.map_join(for(%{direction: :both} = m <- mappings, do: m), ", ", &"`#{&1.boundary}` → `#{&1.model}`")}.
+    """
+
+    [
+      quote do
+        @doc false
+        def __translations__, do: unquote(Macro.escape(plan))
+
+        @doc unquote(from_doc)
+        unquote_splicing(from_specs)
+
+        def from_model(entity, opts \\ []),
+          do: Translations.from_model(__MODULE__, __translations__(), entity, opts)
+      end
+    ] ++
+      if to_specs == [],
+        do: [],
+        else: [
+          quote do
+            @doc unquote(to_doc)
+            unquote_splicing(to_specs)
+
+            def to_model(value, opts \\ []),
+              do: Translations.to_model(__MODULE__, __translations__(), value, opts)
+          end
+        ]
   end
 
   # A model's or an outcome's struct module.

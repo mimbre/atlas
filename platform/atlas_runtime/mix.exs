@@ -26,10 +26,17 @@ defmodule AtlasRuntime.MixProject do
   # Runtime reaches other layers only over Bus; the shared contract supplies wire codecs.
   # It runs the model it is wired to by configuration (AtlasRuntime.Model) and depends on
   # none; its tests write a neutral model in the Rela DSL.
+  # Its own contracts (design 2026-11-16-runtime-backend §1.2): the boundary, and the
+  # backend that carries it, served by Plug on Bandit (the umbrella's first Hex
+  # dependencies, locked in products/software_factory/mix.lock).
   defp deps,
     do: [
       {:atlas_bus, in_umbrella: true},
       {:atlas_bff_contract, path: "../atlas_control/backend/contract"},
+      {:atlas_runtime_boundary, path: "boundary/contract"},
+      {:atlas_runtime_backend, path: "backend/contract"},
+      {:plug, "~> 1.19"},
+      {:bandit, "~> 1.10"},
       {:rela_dsl, path: "../../products/software_factory/model/generator", only: :test}
     ]
 end

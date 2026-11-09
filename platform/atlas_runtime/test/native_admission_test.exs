@@ -1,7 +1,7 @@
 defmodule AtlasRuntime.NativeAdmissionTest do
   use ExUnit.Case, async: false
 
-  alias AtlasRuntime.{BackendPolicy, CommandAdmissions, Service, TestHost}
+  alias AtlasRuntime.{Availability, CommandAdmissions, Service, TestHost}
 
   @moduletag capture_log: true
 
@@ -196,6 +196,10 @@ defmodule AtlasRuntime.NativeAdmissionTest do
     [launch] = launches(context.dir)
     assert launch["record"]["request_id"] == "concurrent"
     assert launch["record"]["turn_id"] == reply["turn_id"]
+    # Service passes its Runtime home to the host, which denies it to the plain read-only profile.
+    home = AtlasRuntime.Workspaces.workspace_path(context.dir)
+    assert ~s(default_permissions="atlas_read_only") in launch["argv"]
+    assert Enum.any?(launch["argv"], &String.contains?(&1, ~s(#{JSON.encode!(home)}="none")))
   end
 
   test "one global ID refuses changed caller intent before worker or backend resolution",
@@ -260,26 +264,30 @@ defmodule AtlasRuntime.NativeAdmissionTest do
     refute Map.has_key?(plain, "admission")
     finished(context.service, "other")
 
-    call(context.service, %{
-      "command" => "preferences",
-      "preferred" => %{"backend" => "claude", "model" => "sonnet"},
-      "fallback" => %{"backend" => "codex", "model" => "changed-model"}
-    })
+    File.write!(
+      Path.join(context.dir, "policy.json"),
+      JSON.encode!(%{
+        "version" => 1,
+        "profiles" => %{
+          "deep_coding" => %{
+            "permissions" => ["read-only", "review-packet"],
+            "cost_classes" => ["standard"],
+            "options" => [
+              %{"provider" => "anthropic", "harness" => "claude", "model" => "sonnet"},
+              %{"provider" => "openai", "harness" => "codex", "model" => "changed-model"}
+            ]
+          }
+        }
+      })
+    )
 
-    :sys.replace_state(context.service, fn state ->
-      evidence = %{"status" => "rejected", "rateLimitType" => "seven_day", "resetsAt" => nil}
-
-      %{
-        state
-        | policy:
-            BackendPolicy.record_quota(
-              state.policy,
-              evidence,
-              reply["turn_id"],
-              System.system_time(:second)
-            )
-      }
-    end)
+    Availability.record_quota(
+      context.dir,
+      "claude",
+      %{"status" => "rejected", "rateLimitType" => "seven_day", "resetsAt" => nil},
+      reply["turn_id"],
+      System.system_time(:second)
+    )
 
     File.rm!(Path.join(context.bin, "codex"))
     File.rm_rf!(context.workspace)
@@ -806,12 +814,23 @@ defmodule AtlasRuntime.NativeAdmissionTest do
     assert status == 0, output
     frozen = JSON.decode!(output)
 
-    # A different local preference cannot replace an explicitly frozen backend.
-    call(context.service, %{
-      "command" => "preferences",
-      "preferred" => %{"backend" => "claude", "model" => "sonnet"},
-      "fallback" => %{"backend" => "codex", "model" => nil}
-    })
+    # A different local policy cannot replace an explicitly frozen backend.
+    File.write!(
+      Path.join(home, "policy.json"),
+      JSON.encode!(%{
+        "version" => 1,
+        "profiles" => %{
+          "deep_coding" => %{
+            "permissions" => ["read-only", "review-packet"],
+            "cost_classes" => ["standard"],
+            "options" => [
+              %{"provider" => "anthropic", "harness" => "claude", "model" => "sonnet"},
+              %{"provider" => "openai", "harness" => "codex", "model" => "gpt-6.1-sol"}
+            ]
+          }
+        }
+      })
+    )
 
     Process.register(context.service, Service)
     opts = [machine: "desk", dir: home]

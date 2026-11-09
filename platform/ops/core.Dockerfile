@@ -23,7 +23,12 @@ COPY platform/atlas_runtime /src/platform/atlas_runtime
 COPY products/software_factory/mix.exs products/software_factory/.formatter.exs products/software_factory/.gitignore /src/products/software_factory/
 COPY products/software_factory/config /src/products/software_factory/config
 COPY products/software_factory/integration /src/products/software_factory/integration
+# The umbrella's Hex dependencies (Plug and Bandit, which the Runtime's backend in
+# platform/atlas_runtime/backend compiles against; the release never starts its listener),
+# exactly as mix.lock pins them. Hex and rebar first: telemetry builds with rebar3.
+COPY products/software_factory/mix.lock /src/products/software_factory/mix.lock
 WORKDIR /src/products/software_factory
+RUN mix local.hex --force && mix local.rebar --force && mix deps.get --only prod --check-locked
 RUN mix compile --warnings-as-errors && mix release atlas
 
 # Optional Control ingress binaries, pinned and checksum verified for each architecture.

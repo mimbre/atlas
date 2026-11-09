@@ -112,11 +112,11 @@ func TestFolderProfileArgumentsAreTheEnforcementContract(t *testing.T) {
 	if !strings.Contains(want[3], q(filepath.Join(user, ".config", "gh"))+`="none"`) || strings.Contains(want[3], q(filepath.Join(user, "linkbin"))) {
 		t.Fatal("contract fixture lost the credential deny or kept the unresolved symlink")
 	}
-	if routed, err := permissionArguments(scope, scratch, inspector); err != nil || !slices.Equal(routed, want) {
+	if routed, err := permissionArguments(scope, scratch, inspector, ""); err != nil || !slices.Equal(routed, want) {
 		t.Fatalf("profile dispatch differs: %q %v", routed, err)
 	}
 	for _, unknown := range []any{map[string]any{"profile": "other", "root": dest}, map[string]any{"root": dest}} {
-		if _, err := permissionArguments(unknown, scratch, inspector); err == nil || err.Error() != "Unknown permission profile" {
+		if _, err := permissionArguments(unknown, scratch, inspector, ""); err == nil || err.Error() != "Unknown permission profile" {
 			t.Fatalf("unknown profile accepted: %v", err)
 		}
 	}
@@ -852,7 +852,7 @@ func TestPacketProfileArgumentsAreTheEnforcementContract(t *testing.T) {
 	readable := homePath(t, user, home, tree)
 	scratch := filepath.Join(home, "scratch", "turn-1")
 	inspector := filepath.Join(user, "bin", "atlas-runtime")
-	args, err := permissionArguments(scope, scratch, inspector)
+	args, err := permissionArguments(scope, scratch, inspector, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -881,14 +881,14 @@ func TestPacketProfileArgumentsAreTheEnforcementContract(t *testing.T) {
 		t.Fatal("contract fixture grants the tree or the author folder")
 	}
 	executable := filepath.Join(findings, "atlas-runtime")
-	if _, err := permissionArguments(scope, scratch, executable); err == nil || err.Error() != "Runtime executable "+executable+
+	if _, err := permissionArguments(scope, scratch, executable, ""); err == nil || err.Error() != "Runtime executable "+executable+
 		" is inside worker-writable "+findings+"; install atlas-runtime outside the materialized folder and worker temp" {
 		t.Fatalf("inspector in findings accepted: %v", err)
 	}
 	for _, key := range []string{"packet", "findings"} {
 		broken := maps.Clone(scope)
 		broken[key] = dest
-		if _, err := permissionArguments(broken, scratch, inspector); err == nil || err.Error() != "Review packet scope is incomplete" {
+		if _, err := permissionArguments(broken, scratch, inspector, ""); err == nil || err.Error() != "Review packet scope is incomplete" {
 			t.Fatalf("scope with another %s accepted: %v", key, err)
 		}
 		if _, err := claudePacketSettings(broken, "/u/.ac-12345678", user, inspector); err == nil || err.Error() != "Review packet scope is incomplete" {
