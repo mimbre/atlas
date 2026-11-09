@@ -57,7 +57,9 @@ defmodule Model.ReviewRunsTest do
     for env <- @envs do
       runner = AtlasFlow.Model.load(Model.AtlasEyra, env, %{"decider" => "someone"})
       assert runner.refusal == nil
-      assert Enum.sort(Map.keys(runner.config["selection"])) == ~w(decide pr_review pr_test)
+
+      assert Enum.sort(Map.keys(runner.config["selection"])) ==
+               ~w(decide pr_review pr_test pull_request)
 
       for {name, _, _, _, _} <- @kinds do
         f = flow(env, name)

@@ -30,9 +30,11 @@ defmodule Model.GoldenTest do
   # flows have new versions (were fb94ff2ad22d759e and cea573908d89e395).
   # Slice 7: pr_review and pr_test lose their pass and take superseded as written (were
   # f8969c0536e1442b and c3eae1a7a5eeea98).
+  # Slice 8: pull_request loses its integrate effect and its creates; merged ends it from
+  # every open state (was 1235a3dae3c7e42b).
   @versions [
     {"issue", [issue: "5e2320f6db243534"]},
-    {"pull_request", [pull_request: "1235a3dae3c7e42b"]},
+    {"pull_request", [pull_request: "0684c47a59a3e818"]},
     {"pr_review", [pr_review: "9d16908ccca4b854"]},
     {"pr_test", [pr_test: "816eaa1d9ee76d3b"]},
     {"use_case",
@@ -104,7 +106,7 @@ defmodule Model.GoldenTest do
              )
   end
 
-  test "the committed composition is the compiled one; production applies none of it" do
+  test "the committed composition is the compiled one; Flow applies the pull request's links" do
     compiled = AtlasEyra.composition()
     no_nil = &Enum.map(&1, fn x -> Map.reject(x, fn {_, v} -> v == nil end) end)
     assert Committed.composition() == Map.update!(compiled, "links", no_nil)
@@ -121,13 +123,25 @@ defmodule Model.GoldenTest do
              {"test_and_accept_use_case", "scene"}
            ]
 
-    # Slice 7 selects decide, pr_review and pr_test; the parent of their links (the pull
-    # request) is not selected until slice 8, so no link or count has both ends selected:
-    # Flow applies none, and nothing refuses.
+    # Slice 8 selects the pull request, the parent of the review's and the test's links:
+    # Flow applies those two, by the revision they are current for. The pull request's own
+    # link to its issue waits for the issue (slice 9); no count has both ends selected.
     for env <- [:prod, :test] do
       runner = AtlasFlow.Model.load(AtlasEyra, env, %{"decider" => "someone"})
-      assert Map.keys(runner.config["selection"]) == ["decide", "pr_review", "pr_test"]
-      assert runner.config["composition"] == %{"links" => [], "counts" => []}
+
+      assert Map.keys(runner.config["selection"]) == [
+               "decide",
+               "pr_review",
+               "pr_test",
+               "pull_request"
+             ]
+
+      assert Enum.map(runner.config["composition"]["links"], &{&1["child"], &1["current"]}) == [
+               {"pr_review", %{"child" => "revision", "parent" => "revision"}},
+               {"pr_test", %{"child" => "revision", "parent" => "revision"}}
+             ]
+
+      assert runner.config["composition"]["counts"] == []
       assert runner.refusal == nil
     end
   end
@@ -150,8 +164,8 @@ defmodule Model.GoldenTest do
     assert flows["design_and_accept"]["states"]["design_gate"]["spec"] ==
              %{"gate" => "design", "version" => 1}
 
-    assert %{"kind" => "effect", "spec" => %{"field" => "integration", "gate" => "integrate"}} =
-             flows["pull_request"]["states"]["integrating"]
+    # The integrate effect waits for a Code receiver; the gate stays for Code (slice 8).
+    refute Map.has_key?(flows["pull_request"]["states"]["integrating"], "kind")
 
     assert %{"flavor" => "rule", "purpose" => "flow", "rule" => %{"all" => [_, _, _]}} =
              Committed.gates()["integrate"]

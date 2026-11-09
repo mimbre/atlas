@@ -226,7 +226,9 @@ defmodule RelaDSL.Description.Subflows do
             not field?(schema, kind, c),
             do: at.("choice #{c} is not a field of #{kind}")
           ) ++
-            if(RelaDSL.Description.Build.choice_states(f, o[:choices] || []) == [],
+            if(
+              (o[:choices] || []) != [] and
+                RelaDSL.Description.Build.choice_states(f, o[:choices]) == [],
               do: [
                 at.(
                   "no state of #{name} waits for people to choose #{Enum.join(o[:choices] || [], ", ")}"

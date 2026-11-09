@@ -1,21 +1,35 @@
 defmodule Model.PullRequest do
   @moduledoc """
-  The pull request subflow. It starts when State records the pull request that the
-  Issue's publish effect created, and it ends when Code has integrated it or it is
-  closed.
+  The pull request subflow. It starts when a pull request is recorded, and it ends when
+  it is merged (`integrated`) or closed.
 
   How it reads:
 
-    * `checking` creates a review and a test of the pull request (`pr_review`,
+    * `checking` waits for the review and the test of the pull request (`pr_review`,
       `pr_test`), each with a subflow of its own. Their outcomes come back as
-      `review_outcome` and `test_outcome`, written by the composition's links.
+      `review_outcome` and `test_outcome`, written by the composition's links, and only
+      from the review and test of its current `revision`.
     * Approved and passed, together, lead to `integrating`: a rule Rela can express,
       so it is a branch and not a gate.
     * Changes requested or a failed test lead to `changes_requested`, until a new
       revision arrives (`update`) and the checks start again.
-    * `integrating` asks Code to integrate the exact approved revision; Code applies
-      the `integrate` rule gate first. A refusal or no answer goes to a maintainer.
-    * Closing the pull request ends the subflow from any state that allows it.
+    * Merged or closed (GitHub's `state`, as its connector fills it) ends it from every
+      state that is not final.
+
+  Slice 8 runs it on Flow's durable runs (`select`), in place of the legacy flow
+  `review_and_merge`. Three parity fixes keep it to what runs today, where a person or
+  an agent merges a pull request by hand and Flow only presents it:
+
+    * no integrate effect yet: Code has no receiver that passed the effect contract, and
+      an effect Flow cannot run would refuse every selected subflow; `integrating` is
+      the merge by hand, ended by the merge, so the `blocked` that only a refused or
+      silent effect reached is gone (the `integrate` gate stays, for Code);
+    * no creates yet: Flow cannot create a review or a test, whose kinds have short ids
+      that Rela makes and Flow's create names one, nor fill their `revision`; whoever
+      asks for a review or test creates it for the pull request's current `revision`,
+      as today;
+    * a new revision is reported by whoever pushes it (`update`, a plain branch): nothing
+      in Atlas reports one yet, and a branch only Atlas takes would never be taken.
   """
   use RelaDSL
 
@@ -106,9 +120,9 @@ defmodule Model.PullRequest do
 
   # Before Code integrates a pull request: CI is green on the exact head being
   # integrated, and the fingerprint approved at review is the one sent at integration.
-  # The pull request subflow's integrate effect names it; Code applies it before it
-  # integrates (by hand until then). A missing or null field is uncertain, so it goes
-  # to a person.
+  # Code applies it before it integrates (by hand until then); the pull request subflow
+  # names it again once its integrate effect runs. A missing or null field is uncertain,
+  # so it goes to a person.
   defgate :integrate,
     version: 1,
     flavor: :rule,
@@ -144,9 +158,8 @@ defmodule Model.PullRequest do
       )
 
       set review_outcome: :none, test_outcome: :none, update: :none
-      create :pr_review, properties: [title: "Review of {{subject.id}}"], relate: :review_of
-      create :pr_test, properties: [title: "Test of {{subject.id}}"], relate: :test_of
       branch to: :closed, when: "entity.state == 'closed'"
+      branch to: :integrated, when: "entity.state == 'merged'"
       await :review_outcome, changes_requested: :changes_requested
       await :test_outcome, failed: :changes_requested
 
@@ -156,28 +169,78 @@ defmodule Model.PullRequest do
     end
 
     state :changes_requested, label: "Changes requested" do
+      present(
+        expected: "Make the changes asked for",
+        why: "its review requested changes or its test failed",
+        instructions:
+          "Push a revision that makes them, set revision to its head commit and update to updated; its review and test start again."
+      )
+
       branch to: :closed, when: "entity.state == 'closed'"
-      branch to: :checking, by: :atlas, when: "entity.update == 'updated'"
+      branch to: :integrated, when: "entity.state == 'merged'"
+      branch to: :checking, when: "entity.update == 'updated'"
     end
 
     state :integrating, label: "Integrate" do
-      effect :integrate,
-        service: :code,
-        field: :integration,
-        gate: :integrate,
-        fingerprint: {:current_change, true},
-        target: {:resolve, true},
-        on: [done: :integrated, refused: :blocked]
+      present(
+        expected: "Merge it",
+        why: "its review approved and its test passed",
+        instructions: "Merge the reviewed and tested revision, or close it."
+      )
 
-      timer :no_effect, "1h", to: :blocked, label: "Code did not answer within an hour"
-    end
-
-    state :blocked, label: "Integration needs a person" do
-      wait_for [:maintainer], on: :integration, reset: false, retry: :integrating
-      branch to: :closed, roles: [:maintainer], when: "entity.state == 'closed'"
+      branch to: :integrated, when: "entity.state == 'merged'"
+      branch to: :closed, when: "entity.state == 'closed'"
     end
 
     final :integrated, label: "Integrated"
     final :closed, label: "Closed", status: :cancelled
   end
+
+  # How the runs of pull_request are selected, imported from the pull request as it was
+  # before the subflow ran, and presented: on its Assignment, as the legacy flow
+  # review_and_merge did, which no longer drives a pull request. The first row that holds
+  # gives the entry. A final row is completed history (no entry writes, nothing rerun):
+  # merged or closed, first, as the subflow's own branches come first. An open pull
+  # request whose outcomes already say where it is joins that wait without anything
+  # written. Any other open pull request (none of today's has an outcome: no flow wrote
+  # one) matches no row and starts in `checking`, as a new one does: it enters its
+  # checks, writing only their reset outcomes; nothing it had is rerun.
+  select(:pull_request,
+    legacy: :review_and_merge,
+    choices: [],
+    projection: [
+      on: :assignment,
+      state_field: :flow_state,
+      handover_field: :handover,
+      owner_relation: :assigned_to,
+      field: :expected
+    ],
+    admission: [],
+    imports: [
+      [when: [state: [:merged]], state: :integrated],
+      [when: [state: [:closed]], state: :closed],
+      [when: [review_outcome: [:changes_requested]], state: :changes_requested],
+      [when: [test_outcome: [:failed]], state: :changes_requested],
+      [when: [review_outcome: [:approved], test_outcome: [:passed]], state: :integrating]
+    ]
+  )
+
+  # The approved migration of its runs, from the digest the base branch recorded
+  # (RelaDSL.RunIdentity); the same in prod and test. No run had that digest: the
+  # subflow was never selected before slice 8. A run that did would move along it as a
+  # state migration (re-entering its state), never as a re-key; one waiting in `blocked`,
+  # which went with the effect, would wait for the merge by hand in `integrating`.
+  migrate(:pull_request,
+    from: "0d65d9a4aa1cdf916e022547e3f4a1974505cd94c349e9809f1a441f13cd8335",
+    to: "e183d55ea7eb411d29dd812053dff89078b4ef131068a3223d40c22617bffbd0",
+    states: [
+      blocked: :integrating,
+      changes_requested: :changes_requested,
+      checking: :checking,
+      closed: :closed,
+      integrated: :integrated,
+      integrating: :integrating
+    ],
+    reason: "Slice 8: selected without its integrate effect and creates; merged by hand"
+  )
 end
