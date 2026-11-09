@@ -17,15 +17,19 @@ defmodule AtlasFlow.ItemTest do
     big = Map.put(FakeFacts.description(), "notes", Enum.map(1..20_000, &%{"n" => &1}))
     start_supervised!({FakeFacts, description: big})
     for key <- ["ada", "bob"], do: FakeFacts.put("clerk", %{"key" => key})
-    FakeFacts.put("box", %{"key" => "B-1", "progress" => %{"value" => "check"}})
+    # Its own fact: a process another test file left running (atlas_flow_test starts them
+    # under the shared supervisor, Registry frees a name only a moment after its process
+    # stops) holds its own key, never this one, whatever the order of the files.
+    key = "B-#{System.unique_integer([:positive])}"
+    FakeFacts.put("box", %{"key" => key, "progress" => %{"value" => "check"}})
     clock = start_supervised!({ManualClock, ~U[2026-11-12 00:00:00Z]})
 
     pid =
-      start_supervised!({Item, {"box", "B-1", every: @every, clock: {ManualClock, clock}}})
+      start_supervised!({Item, {"box", key, every: @every, clock: {ManualClock, clock}}})
 
     # Its first look (sent in init) is handled before this.
     :sys.get_state(pid)
-    assert FakeFacts.get("box", "B-1")["values"]["todo"] == "Check it"
+    assert FakeFacts.get("box", key)["values"]["todo"] == "Check it"
 
     # Traced to this test only; tracing ends with either process.
     :erlang.trace_pattern({Item, :handle_info, 2}, [{:_, [], [{:return_trace}]}], [:local])
