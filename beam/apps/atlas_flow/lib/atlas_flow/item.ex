@@ -77,8 +77,12 @@ defmodule AtlasFlow.Item do
          %{"fact" => fact} when is_map(fact) <-
            Talk.read(state.kind, %{"key" => state.key, "incoming" => false}) do
       parents = parent_relations(description, state.kind)
-      children = children(parents, description, state.key)
-      {current, vars} = Definition.state_of(flow, fact, children, parents)
+      pointing = Definition.pointing(description, flow, state.kind)
+
+      children =
+        children(parents, description, state.key) ++ pointed(pointing, description, state.key)
+
+      {current, vars} = Definition.state_of(flow, fact, children, parents, pointing)
       result = move(state, description, {name, flow}, fact, current, vars)
 
       if current["done"] == true and result != :held,
@@ -309,5 +313,19 @@ defmodule AtlasFlow.Item do
         _ -> []
       end
     end)
+  end
+
+  # The facts that point at it through the associations its flow reads (`empty`), of every
+  # kind they start at. A read Facts does not answer counts as something pointing at it:
+  # not knowing is never "nothing is based on it".
+  defp pointed(relations, description, key) do
+    for relation <- relations,
+        from <- get_in(description, ["relations", relation, "from"]) || [],
+        fact <-
+          (case Talk.read(from, %{"linked" => %{relation => key}, "plain" => true}) do
+             %{"facts" => facts} -> facts
+             _ -> [%{"links" => %{relation => [key]}}]
+           end),
+        do: fact
   end
 end

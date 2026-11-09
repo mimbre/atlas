@@ -46,7 +46,8 @@ defmodule AtlasFacts.Server do
     Ledger,
     Links,
     Progress,
-    Rela
+    Rela,
+    Review
   }
 
   @description "_description"
@@ -563,11 +564,13 @@ defmodule AtlasFacts.Server do
     end)
   end
 
-  # How far each fact is, from the facts under it, as the description's rule says.
+  # How far each fact is, from the facts under it, as the description's rule says; and
+  # whether it is to be reviewed, from the facts it points at.
   defp with_progress(state, kind, facts) do
-    Progress.annotate(state.description, kind, facts, fn of ->
-      collection(state, get_in(state.description, ["entities", of, "plural"]))
-    end)
+    list = fn of -> collection(state, get_in(state.description, ["entities", of, "plural"])) end
+
+    with {:ok, facts} <- Progress.annotate(state.description, kind, facts, list),
+         do: Review.annotate(state.description, kind, facts, list)
   end
 
   # Only successful raw lists are shared inside this synchronous page request.
@@ -605,6 +608,7 @@ defmodule AtlasFacts.Server do
 
     wired = if fact[:progress], do: Map.put(wired, "progress", fact.progress), else: wired
     wired = if fact[:completion], do: Map.put(wired, "completion", fact.completion), else: wired
+    wired = if fact[:review], do: Map.put(wired, "review", fact.review), else: wired
 
     # Late is worked out on every read, plain ones too: it costs no read.
     case Late.of(state.description, kind, fact[:properties]) do

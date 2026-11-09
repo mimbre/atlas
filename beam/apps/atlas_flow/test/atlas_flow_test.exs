@@ -266,6 +266,63 @@ defmodule AtlasFlowTest do
       assert briefing.([]) == {"fill", "Fill it with crates", "ada"}
       assert briefing.([%{"links" => %{"in_box" => ["B-1"]}}]) == {"packing", "Pack it", "ada"}
     end
+
+    test "empty through an association that ends at its kind: nothing points at it yet" do
+      # A tag labels a box (an association, not a parent relation).
+      flow = %{
+        "states" => [
+          %{
+            "name" => "wait",
+            "when" => %{"values" => %{"sealed" => [true]}, "empty" => "labels"}
+          },
+          %{"name" => "done", "when" => %{"values" => %{"sealed" => [true]}}, "done" => true},
+          %{"name" => "packing"}
+        ]
+      }
+
+      sealed = %{"values" => %{"sealed" => true}}
+
+      name = fn children, pointing ->
+        {state, _} = Definition.state_of(flow, sealed, children, [], pointing)
+        state["name"]
+      end
+
+      assert name.([], ["labels"]) == "wait"
+      assert name.([%{"links" => %{"labels" => ["B-1"]}}], ["labels"]) == "done"
+      # An association Flow does not read for this kind is never empty.
+      assert name.([], []) == "done"
+
+      description = %{
+        "relations" => %{
+          "labels" => %{"from" => ["tag"], "to" => ["box"]},
+          "in_box" => %{"from" => ["crate"], "to" => ["box"], "parent" => true}
+        }
+      }
+
+      assert Definition.pointing(description, flow, "box") == ["labels"]
+      assert Definition.pointing(description, flow, "tag") == []
+    end
+
+    test "what is expected may name the fact's own fields; a condition's note wins" do
+      state = %{"expected" => "Label it: {notes} ({note})"}
+      fact = %{"values" => %{"notes" => "fragile", "note" => "own"}}
+      {_, vars} = Definition.state_of(%{"states" => [state]}, fact, [], [])
+      assert Definition.expected(state, vars) == "Label it: fragile (own)"
+
+      {_, vars} =
+        Definition.state_of(
+          %{"states" => [Map.put(state, "when", %{"reopened" => "signed_by"})]},
+          put_in(fact, ["origins"], %{
+            "signed_by" => %{"keys" => [], "position" => 3, "cause" => "torn"}
+          }),
+          [],
+          []
+        )
+
+      assert Definition.expected(state, vars) == "Label it: fragile (torn)"
+      # Without the field, its place is empty and a trailing colon goes.
+      assert Definition.expected(%{"expected" => "Label it: {notes}"}, %{}) =~ "Label it"
+    end
   end
 
   describe "one process per open fact" do
@@ -501,6 +558,58 @@ defmodule AtlasFlowTest do
       eventually(fn ->
         match?([{other, _}] when other != pid, Registry.lookup(AtlasFlow.Items, {"box", "B-1"}))
       end)
+    end
+
+    test "a fact that waits until something points at it through an association" do
+      flow = %{
+        "kinds" => ["box"],
+        "field" => "todo",
+        "owner_relation" => "owned_by",
+        "states" => [
+          %{
+            "name" => "wait",
+            "when" => %{"values" => %{"sealed" => [true]}, "empty" => "labels"},
+            "owner" => %{"kind" => "clerk", "key" => "ada"},
+            "expected" => "Label it: {notes}",
+            "why" => "nothing labels it yet",
+            "next" => ["done"]
+          },
+          %{"name" => "done", "when" => %{"values" => %{"sealed" => [true]}}, "done" => true},
+          %{
+            "name" => "packing",
+            "owner" => %{"kind" => "clerk", "key" => "bob"},
+            "expected" => "Pack it",
+            "next" => ["wait"]
+          }
+        ]
+      }
+
+      description =
+        FakeFacts.description(flow)
+        |> put_in(["entities", "tag"], %{"plural" => "tags"})
+        |> put_in(["relations", "labels"], %{"from" => ["tag"], "to" => ["box"]})
+
+      FakeFacts.set_description(description)
+
+      # Sealed by itself (done, were nothing read), but nothing labels it: open work.
+      FakeFacts.put("box", %{
+        "key" => "B-1",
+        "values" => %{"sealed" => true, "notes" => "fragile"}
+      })
+
+      engine()
+      eventually(fn -> FakeFacts.get("box", "B-1")["values"]["todo"] == "Label it: fragile" end)
+      assert FakeFacts.get("box", "B-1")["links"]["owned_by"] == ["ada"]
+
+      # A tag now labels it: the tag's hint wakes the box, which is done and stops.
+      FakeFacts.put("tag", %{"key" => "T-1", "links" => %{"labels" => ["B-1"]}})
+      :ok = AtlasBus.attach("tester-#{System.unique_integer([:positive])}")
+
+      {:stored, _} =
+        AtlasFlow.Talk.put("tag", %{"op" => "change", "key" => "T-1", "values" => %{}})
+
+      eventually(fn -> not alive("B-1") end)
+      refute Map.has_key?(FakeFacts.get("box", "B-1")["values"], "todo")
     end
   end
 end

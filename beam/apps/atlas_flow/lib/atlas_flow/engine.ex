@@ -125,7 +125,9 @@ defmodule AtlasFlow.Engine do
           for kind <- kinds, {_name, flow} = Definition.for_kind(description, kind) do
             case Talk.read(kind, %{}) do
               %{"facts" => facts} ->
-                for fact <- facts, open?(flow, fact), do: ensure(kind, fact["key"], state)
+                for fact <- facts,
+                    open?(description, kind, flow, fact),
+                    do: ensure(kind, fact["key"], state)
 
               other ->
                 Logger.warning("flow could not list #{kind}: #{inspect(other)}")
@@ -187,7 +189,17 @@ defmodule AtlasFlow.Engine do
                 component_open?(description, from_kind, item),
                 do: {from_kind, item["key"]}
 
-          Enum.uniq(parents ++ ended ++ components)
+          # An association a flow reads (`empty`): the fact it points at may wait for it.
+          anchors =
+            for {_name, flow} <- Definition.flows(description),
+                to <- flow["kinds"] || [],
+                relation <- Definition.pointing(description, flow, to),
+                kind in (get_in(description, ["relations", relation, "from"]) || []),
+                anchor <- links[relation] || [],
+                uniq: true,
+                do: {to, anchor}
+
+          Enum.uniq(parents ++ ended ++ components ++ anchors)
 
         _ ->
           []
@@ -198,15 +210,18 @@ defmodule AtlasFlow.Engine do
 
   defp component_open?(description, kind, fact) do
     case Definition.for_kind(description, kind) do
-      {_name, flow} -> open?(flow, fact)
+      {_name, flow} -> open?(description, kind, flow, fact)
       nil -> true
     end
   end
 
   # A fact that is done by itself alone (what hangs under it can only reopen work its own
-  # facts already say is open) needs no process.
-  defp open?(flow, fact) do
-    {current, _} = Definition.state_of(flow, fact, [], [])
+  # facts already say is open) needs no process. Nothing is taken to point at it through the
+  # associations its flow reads (`empty`): its process reads them and stops when done.
+  defp open?(description, kind, flow, fact) do
+    {current, _} =
+      Definition.state_of(flow, fact, [], [], Definition.pointing(description, flow, kind))
+
     current["done"] != true
   end
 

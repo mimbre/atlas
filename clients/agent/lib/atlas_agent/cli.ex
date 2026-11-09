@@ -225,8 +225,13 @@ defmodule AtlasAgent.CLI do
 
   defp show({:turn, context}, true), do: json(context, 0)
 
-  defp show({:turn, context}, false),
-    do: IO.puts("Turn #{context["key"]} on #{context["on"]}\n\n" <> text(context["item"])) && 0
+  # What the worker reads first (the item's anchors and the standing rules), then the item.
+  defp show({:turn, context}, false) do
+    first = if context["read_first"], do: context["read_first"] <> "\n\n", else: ""
+
+    IO.puts("Turn #{context["key"]} on #{context["on"]}\n\n" <> first <> text(context["item"])) &&
+      0
+  end
 
   defp show({:outcome, outcome}, true), do: json(outcome, 0)
 

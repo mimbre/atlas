@@ -455,7 +455,7 @@ defmodule AtlasControl.Session do
   defp handle_op("turn", _message, state) do
     result =
       case AtlasControl.Turns.current(state.description, state.by, &ask/2) do
-        {:ok, context} -> Map.take(context, ["key", "on"])
+        {:ok, context} -> Map.take(context, ["key", "on", "read_first"])
         {:error, why} -> %{"error" => why}
       end
 

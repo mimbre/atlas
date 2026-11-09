@@ -223,7 +223,8 @@
           "scope",
           "reversibility",
           "force",
-          "enforced_by"
+          "enforced_by",
+          "no_work"
         ],
         "id": {
           "prefix": "D-",
@@ -249,6 +250,9 @@
         },
         "decided_at": {
           "label": "Decided at"
+        },
+        "no_work": {
+          "label": "No work needed"
         }
       },
       "requires": [
@@ -310,6 +314,9 @@
         "only": {
           "status": [
             "superseded"
+          ],
+          "no_work": [
+            true
           ]
         },
         "error": "{key} is {value} and is never edited; a newer decision supersedes it"

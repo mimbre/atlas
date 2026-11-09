@@ -363,6 +363,9 @@ entities:
       decided_at:
         type: datetime
         description: When it was accepted or rejected
+      no_work:
+        type: boolean
+        description: True when carrying it out needs no work; it then waits for none
   gate_verdict:
     label: Gate verdict
     plural: gate_verdicts
