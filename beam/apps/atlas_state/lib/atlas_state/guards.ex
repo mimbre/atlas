@@ -23,6 +23,12 @@ defmodule AtlasState.Guards do
   - `replaces`: `%{"relation", "when", "of", "set", "error"}`: a fact stored holding `when`
     sets `set` on every fact it links to through `relation` (`replaced/3`, in the same
     write), and each of those must hold `of`.
+  - `sealed`: `%{"once", "links", "error", "once_error"}`: a record, immutable once
+    written. A stored fact is never deleted, and a change keeps every property and link it
+    has (`error`, with {key} and {field}), except those named in `once` (properties or
+    relations, such as outcomes observed afterwards) and, with `"links" => "once"`, every
+    relation: each may be set while it is empty, and is then kept too (`once_error`).
+    Sending what is there already changes nothing.
 
   A fact is `%{"values" => %{property => value}, "links" => %{relation => [key]}}`.
   """
@@ -30,7 +36,7 @@ defmodule AtlasState.Guards do
   @doc "The rules of `kind` in the description; an empty map when it has none."
   def of(description, kind) do
     spec = get_in(description, ["entities", kind]) || %{}
-    Map.take(spec, ["requires", "authority", "frozen", "replaces", "layering"])
+    Map.take(spec, ["requires", "authority", "frozen", "replaces", "layering", "sealed"])
   end
 
   @doc """
@@ -47,11 +53,11 @@ defmodule AtlasState.Guards do
     kind_of = env["kind_of"] || fn _, _ -> nil end
     fetch = env["fetch"] || fn _ -> nil end
 
-    case frozen(rules["frozen"], op, key, current, values, links) do
-      :ok when op == "delete" ->
+    with :ok <- sealed(rules["sealed"], op, key, current, values, links),
+         :ok <- frozen(rules["frozen"], op, key, current, values, links) do
+      if op == "delete" do
         :ok
-
-      :ok ->
+      else
         fact = after_write(current, values, links)
 
         reasons =
@@ -62,9 +68,7 @@ defmodule AtlasState.Guards do
             layering(rules["layering"], key, current, fact, fetch, env["incoming"])
 
         if reasons == [], do: :ok, else: {:refused, reasons}
-
-      refused ->
-        refused
+      end
     end
   end
 
@@ -108,6 +112,47 @@ defmodule AtlasState.Guards do
   end
 
   defp frozen(_rule, _op, _key, _current, _values, _links), do: :ok
+
+  # A record keeps what it was written with; a `once` field is set while it is empty, then kept.
+  defp sealed(%{} = rule, op, key, %{} = current, values, links) do
+    once = List.wrap(rule["once"])
+    old_values = current["values"] || %{}
+    old_links = current["links"] || %{}
+
+    fields =
+      for {name, value} <- values,
+          loose(value) != loose(old_values[name]),
+          do: {name, loose(old_values[name]) == nil}
+
+    relations =
+      for {relation, keys} <- links,
+          was = List.wrap(old_links[relation]),
+          Enum.sort(List.wrap(keys)) != Enum.sort(was),
+          do: {relation, was == []}
+
+    once = if rule["links"] == "once", do: once ++ Enum.map(relations, &elem(&1, 0)), else: once
+
+    reasons =
+      if op == "delete" do
+        [seal_error(nil, key, "")]
+      else
+        for {name, empty?} <- fields ++ relations, not (empty? and name in once) do
+          if name in once,
+            do: seal_error(rule["once_error"] || rule["error"], key, name),
+            else: seal_error(rule["error"], key, name)
+        end
+      end
+
+    if reasons == [], do: :ok, else: {:refused, Enum.uniq(reasons)}
+  end
+
+  defp sealed(_rule, _op, _key, _current, _values, _links), do: :ok
+
+  defp seal_error(nil, key, ""), do: "#{key} is a record and is never deleted"
+  defp seal_error(nil, key, field), do: "#{key} is a record; #{field} is never changed"
+
+  defp seal_error(text, key, field),
+    do: text |> String.replace("{key}", key) |> String.replace("{field}", field)
 
   defp requires(rules, fact) do
     for rule <- List.wrap(rules),

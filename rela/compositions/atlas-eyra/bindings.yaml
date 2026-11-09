@@ -1,4 +1,4 @@
-# Composition owns the complete list of assignable kinds.
+# Composition owns the complete list of assignable kinds, and what a gate verdict is about.
 relations:
   assignment:
     label: assignment
@@ -28,3 +28,18 @@ relations:
     inverse:
       id: work
       label: work
+  about:
+    label: about
+    description: The fact a gate verdict decided on; any kind the composition has.
+    from:
+    - gate_verdict
+    to:
+    - scene
+    - use_case
+    - issue
+    - pull_request
+    - decision
+    max_outgoing: 1
+    inverse:
+      id: gate_verdicts
+      label: gate verdicts

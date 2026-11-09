@@ -197,6 +197,16 @@ defmodule AtlasAgent.FakeControl do
     {"/k/#{fact.kind}/#{key}", %{s | facts: Map.put(s.facts, key, fact)}}
   end
 
+  defp apply_submit(
+         s,
+         %{"endpoint" => "link", "params" => %{"key" => key, "relation" => rel}} = m
+       ) do
+    fact = s.facts[key]
+    keys = String.split(m["values"]["to"] || "", ",", trim: true)
+    fact = Map.update(fact, :links, %{rel => keys}, &Map.put(&1, rel, keys))
+    {"/k/#{fact.kind}/#{key}", %{s | facts: Map.put(s.facts, key, fact)}}
+  end
+
   defp apply_submit(s, %{"endpoint" => "delete", "params" => %{"key" => key}}) do
     fact = s.facts[key]
     {"/k/#{fact.kind}", %{s | facts: Map.delete(s.facts, key)}}
@@ -264,6 +274,7 @@ defmodule AtlasAgent.FakeControl do
       ["k", "_", key] -> fact_page(s, key)
       ["k", _, key, "edit"] -> edit_page(s, key)
       ["k", "_", key, "delete"] -> delete_page(s, key)
+      ["k", "_", key, "links", relation] -> links_page(s, key, relation)
       ["k", kind, "new"] -> create_page(s, kind, nil)
       ["k", kind, "new", "_parent", parent] -> create_page(s, kind, parent)
       ["k", kind, key] -> fact_page(s, key) |> Map.put("path", "/k/#{kind}/#{key}")
@@ -381,6 +392,26 @@ defmodule AtlasAgent.FakeControl do
           "inputs" => inputs(kind(s, f.kind), f.values)
         })
         |> then(&%{"path" => "/k/_/#{key}/edit", "title" => title, "blocks" => [&1]})
+    end
+  end
+
+  # An association's form, for a kind that names it in `links`.
+  defp links_page(s, key, relation) do
+    with %{} = f <- s.facts[key],
+         true <- relation in (kind(s, f.kind)[:links] || []) do
+      title = "#{relation} of #{key}"
+
+      form(%{
+        "title" => title,
+        "submit_to" => %{
+          "endpoint" => "link",
+          "params" => %{"key" => key, "relation" => relation}
+        },
+        "inputs" => [%{"name" => "to", "label" => "To", "kind" => "text", "value" => ""}]
+      })
+      |> then(&%{"path" => "/k/_/#{key}/links/#{relation}", "title" => title, "blocks" => [&1]})
+    else
+      _ -> missing("/k/_/#{key}/links/#{relation}", "#{key} #{relation}")
     end
   end
 
