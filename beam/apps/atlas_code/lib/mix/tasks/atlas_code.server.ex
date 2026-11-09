@@ -8,7 +8,8 @@ defmodule Mix.Tasks.AtlasCode.Server do
   It starts no other Atlas layer. See `AtlasCode` for the home's files. Stop it with SIGTERM
   (`kill PID`), which releases the home. After Ctrl-C, a crash or SIGKILL the next start
   recovers the home itself once `ps` shows the old PID gone, so a supervisor such as launchd
-  can restart it; only when that cannot be shown run `mix atlas_code.unlock`.
+  can restart it; only when that cannot be shown run `mix atlas_code.unlock`. For a faster
+  restart under a supervisor run the `atlas_code` release instead (see `AtlasCode.Server`).
   """
   use Mix.Task
 
@@ -20,19 +21,7 @@ defmodule Mix.Tasks.AtlasCode.Server do
 
     # Not app.start: the umbrella's runtime.exs belongs to the core and Runtime nodes.
     Mix.Task.run("compile")
-    {:ok, _} = Application.ensure_all_started(:atlas_code)
-    {:ok, pid, port} = AtlasCode.start(home)
-
-    # SIGTERM stops the server, then the home is released and the VM stops. Ctrl-C aborts the
-    # VM without either, leaving the home owned until the next start recovers it.
-    {:ok, _} =
-      System.trap_signal(:sigterm, :atlas_code, fn ->
-        AtlasCode.stop(pid)
-        System.stop()
-        :ok
-      end)
-
-    IO.puts("Code ready on 127.0.0.1:#{port}")
+    {:ok, _pid, _port} = AtlasCode.Server.serve(home)
     Process.sleep(:infinity)
   end
 end

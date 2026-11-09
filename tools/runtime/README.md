@@ -559,6 +559,22 @@ atlas-runtime turns          # saved history across workers and restarts
 atlas-runtime service stop
 ```
 
+For a process supervisor (launchd), run Code as the `atlas_code` OTP release instead: it skips `mix`'s startup (compile check, deps), so a restart after a hard kill takes well under a second instead of ~14 s. It starts Code through the same path as `mix atlas_code.server` (`AtlasCode.Server.serve/1`): same `ATLAS_CODE_HOME`, owner, lock and recovery, and the same `Code ready on 127.0.0.1:PORT` line. Build it from the persistent checkout, and rebuild after each update:
+
+```sh
+cd /abs/persistent-checkout/beam
+MIX_ENV=prod mix release atlas_code          # writes _build/prod/rel/atlas_code; --path DIR elsewhere
+```
+
+```sh
+#!/bin/sh
+# atlas-code: runs the Code release in the foreground until stopped
+ATLAS_CODE_HOME="${ATLAS_CODE_HOME:-/abs/code-home}" \
+  exec /abs/persistent-checkout/beam/_build/prod/rel/atlas_code/bin/atlas_code eval "AtlasCode.Server.run()"
+```
+
+Use `eval "AtlasCode.Server.run()"`, not `bin/atlas_code start`: Code has no application callback, so `start` would boot an idle VM. The release reads no `config/runtime.exs` (no `ATLAS_ENV` needed), as with the mix task. It exits nonzero without `ATLAS_CODE_HOME` or when start is refused; SIGTERM stops it as below. `mix atlas_code.server` remains the way to run Code during development; `mix atlas_code.unlock` and `mix atlas_code.migrate` stay mix tasks.
+
 Run one Code process per Code home; a second start, or `mix atlas_code.migrate`, is refused while `service.owner/` names a live owner. Stop Code with SIGTERM (`kill PID`): it stops serving, then releases the home. Ctrl-C, a crash, SIGKILL or power loss leaves `service.owner/` behind; the next start recovers it itself when `ps` shows the recorded PID gone, keeps the `service.owner.ended-OWNER` tombstone, logs the old owner ID and PID, and starts, so a process supervisor such as launchd can restart Code. While that PID is running (including a PID since reused by another process) or `ps` cannot tell, start is refused as before and prints the owner's ID; once you have checked that the owner has stopped, recover with `ATLAS_CODE_HOME=/abs/code-home mix atlas_code.unlock --owner OWNER` (same check), or, for a reused PID, rename `service.owner` to `service.owner.ended-OWNER` by hand. `mix atlas_code.migrate` never recovers automatically. Atlas itself does not restart Code. The Runtime home's `code.json` keeps pointing at that port and `runtime.token`. Existing homes, saved turns and the daemon are reused unchanged; the wrapper moves or overwrites nothing. Rebuild the binary only after its daemon is stopped.
 
 ## Model-free native sandbox verification

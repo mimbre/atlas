@@ -15,7 +15,8 @@ defmodule AtlasCode.MixProject do
     ]
   end
 
-  # No application callback: the service runs only when `mix atlas_code.server` starts it.
+  # No application callback: the service runs only when `mix atlas_code.server` or the
+  # `atlas_code` release starts it (`AtlasCode.Server`).
   def application do
     [extra_applications: [:logger, :inets, :crypto]]
   end
