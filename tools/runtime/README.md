@@ -394,6 +394,21 @@ A strict, reproducible preparation, not a rebuild after edits: it regenerates ex
 
 Tests (step 11b, 2026-11-09): Go tests with stand-in Codex, npm and node cover the exact arguments and offline environment, regeneration with a clean status, diff and submit, exclusion of only untracked outputs, failures for a changed, re-moded or removed tracked output, a file outside the outputs and a failing script, every refusal, repeats, the shared lock, an interrupted claim, and version 1 and 2 record validation. `TestRunProfileIsEnforcedByInstalledCodexSandbox` probes the network-off profile under the installed Codex sandbox; it, the host-level tests and a real viewer build need a run outside the worker sandbox, where its Codex home check and loopback listening are denied; only the snapshot-level tests ran inside it.
 
+## Review packets (snapshot freeze)
+
+```sh
+atlas-runtime snapshot freeze --dest /abs/assignment --turn TURN_ID --packet /abs/packet --packet-id UUID [--previous PACKET_ID]
+```
+
+Freezes a materialized folder after its author turn, so a review has a stable subject while the author keeps working. Offline: no Code, Runtime service or Git.
+
+- **Refused first, nothing made:** an active owner of the folder (the lock workers and submissions take), a turn that did not run in the folder or is not finished, stopped or killed, a packet path that exists, overlaps the folder or the Runtime home, or lies in a Git work tree, a `--previous` that is not a recorded packet or is this packet, and anything submit refuses (FIFOs, sockets and devices anywhere; in a repository also escaping symlinks, `.git` paths, files over 64 MiB and a request over 1 MiB).
+- **Packet:** `/abs/packet/tree` is a copy of the folder, each file an APFS clone (copy-on-write, so only metadata is written) or, where the filesystem cannot clone, a streamed copy. Directories are 0555 and files lose their write bits. The tree is recorded as a materialization of the same snapshot with `packet_id`, and a preparation result is copied with it, so `snapshot status|diff|submit --dest /abs/packet/tree` work and report what the folder reported. Next to it: `packet.json`, `diff.json` (exactly `snapshot diff --dest /abs/packet/tree`) and an empty, writable `findings/`. The Runtime home keeps the authoritative `packet.json` and `diff.json` in `packets/PACKET_ID/`.
+- **Fingerprints:** every repository in `packet.json` has the fingerprint and entries `snapshot submit` reports and sends for the same content; a clean repository has `entries: []`. The packet fingerprint is `fpr_` + SHA-256 of `{"repositories":[{"fingerprint","path","repository"}…],"snapshot_id","version":1}`, sorted by path. Paths outside every repository are listed in `outside` and are in no fingerprint.
+- **Consistency:** the tree is scanned again after the copy; content that differs from the folder's scan refuses with `folder … changed during freeze; nothing was frozen` and removes the packet folder and its records.
+- **Result:** `packet.json` plus `state: "frozen"`, `packet` and `cost`: `elapsed_ms`, `files`, `bytes`, `cloned_files`, `copied_files`, `copied_bytes`, `free_bytes_before`, `free_bytes_after` and `disk_used_bytes` (the drop in free space; noisy on a busy volume). A repeat with the same packet ID and arguments returns the recorded packet with `state: "existing"` and no cost; other arguments under a used ID are a conflict.
+- **Limits:** read-only modes do not stop a process of the same user; enforcement for review passes is the planned `review-packet` profile. Clones keep extended attributes and ACLs. Nothing removes packets yet (`snapshot discard` is a later step).
+
 ## Claude scoped repository writes
 
 Select Claude repository writes explicitly with `atlas-runtime start --backend claude --cwd /canonical/independent/repository --permissions dedicated-repository "Edit the assigned file and create a local commit"`, or use managed `--repo` provisioning below. This reuses independent-root validation and owned directory locking. It enables Bash alongside read-only Read/Glob/Grep, never Edit/Write. Native settings require sandbox availability, disable unsandboxed escape and excluded commands, retain the existing GitHub domain list, and deny writes to `.agents`, `.codex`, `.aws`, `.claude`, `.git/config` and `.git/hooks`. Generic workspace-write remains refused.

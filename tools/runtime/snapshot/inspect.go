@@ -67,6 +67,11 @@ func Inspect(home, dest string, paths []string, diffs bool) (map[string]any, err
 	if err != nil {
 		return nil, err
 	}
+	return f.report(changes), nil
+}
+
+// report is the status or diff result for the folder's changes.
+func (f *folder) report(changes []change) map[string]any {
 	result := map[string]any{"snapshot_id": f.id, "destination": f.dest, "clean": len(changes) == 0, "changes": changes}
 	if p := f.preparation; p != nil {
 		summary := map[string]any{"kind": p.Kind, "path": p.Path, "outputs": p.Outputs, "state": p.State, "ready": p.Ready()}
@@ -75,7 +80,7 @@ func Inspect(home, dest string, paths []string, diffs bool) (map[string]any, err
 		}
 		result["preparation"] = summary
 	}
-	return result, nil
+	return result
 }
 
 func openFolder(home, dest string) (*folder, error) {

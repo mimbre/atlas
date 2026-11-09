@@ -31,3 +31,32 @@ func canonicalDirectory(dest string) (string, error) {
 	}
 	return string(path[:bytes.IndexByte(path, 0)]), nil
 }
+
+// clone creates the new file to as an APFS copy-on-write clone of the regular file from, with its
+// mode, through clonefileat(2) (syscall 462), never following a symlink at from. Only metadata is
+// written; blocks are shared until either side changes. A filesystem without clones gives ENOTSUP
+// and another volume EXDEV, which the caller answers with a streamed copy.
+func clone(from, to string) error {
+	source, err := syscall.BytePtrFromString(from)
+	if err != nil {
+		return err
+	}
+	target, err := syscall.BytePtrFromString(to)
+	if err != nil {
+		return err
+	}
+	atFDCWD, cloneNoFollow := -2, 0x0001 // AT_FDCWD on macOS, CLONE_NOFOLLOW
+	if _, _, errno := syscall.Syscall6(462, uintptr(atFDCWD), uintptr(unsafe.Pointer(source)), uintptr(atFDCWD), uintptr(unsafe.Pointer(target)), uintptr(cloneNoFollow), 0); errno != 0 {
+		return &os.LinkError{Op: "clonefile", Old: from, New: to, Err: errno}
+	}
+	return nil
+}
+
+// freeBytes is the space available to this user on the filesystem holding path.
+func freeBytes(path string) (int64, error) {
+	var s syscall.Statfs_t
+	if err := syscall.Statfs(path, &s); err != nil {
+		return 0, err
+	}
+	return int64(s.Bavail) * int64(s.Bsize), nil
+}
