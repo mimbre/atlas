@@ -35,10 +35,12 @@ defmodule AtlasFlowContract.IssueTest do
   end
 
   test "the two gates it names are defined with their versions" do
-    assert [
-             %{name: :delivery_evidence, version: 1, verdicts: [:review, :rework, :person]},
-             %{name: :review, version: 1, verdicts: [:ready, :rework, :person]}
-           ] = AtlasFlowContract.Gates.__gates__()
+    gates = Map.new(AtlasFlowContract.Gates.__gates__(), &{&1.name, &1})
+
+    assert %{version: 1, purpose: :flow, verdicts: [:review, :rework, :person]} =
+             gates.delivery_evidence
+
+    assert %{version: 1, purpose: :flow, verdicts: [:ready, :rework, :person]} = gates.review
   end
 
   defp expected_states do

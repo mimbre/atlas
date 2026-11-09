@@ -8,16 +8,19 @@ defmodule Mix.Tasks.Atlas.Flow.GenTest do
     real = System.get_env("ATLAS_RELA_BIN")
     System.delete_env("ATLAS_RELA_BIN")
     Application.put_env(:atlas_flow_generator, :contract, AtlasFlowGenerator.Example)
+    Application.put_env(:atlas_flow_generator, :gates, AtlasFlowGenerator.Example.Gates)
 
     Application.put_env(:atlas_flow_generator, :targets,
       rela: Path.join(dir, "rela"),
+      atlas: Path.join(dir, "atlas"),
       diagrams: Path.join(dir, "diagrams")
     )
 
     Mix.shell(Mix.Shell.Process)
 
     on_exit(fn ->
-      for key <- [:contract, :targets], do: Application.delete_env(:atlas_flow_generator, key)
+      for key <- [:contract, :gates, :targets],
+          do: Application.delete_env(:atlas_flow_generator, key)
 
       if real,
         do: System.put_env("ATLAS_RELA_BIN", real),
@@ -29,6 +32,7 @@ defmodule Mix.Tasks.Atlas.Flow.GenTest do
     %{
       real: real,
       yaml: Path.join(dir, "rela/flows.yaml"),
+      json: Path.join(dir, "atlas/flows.json"),
       diagram: Path.join(dir, "diagrams/letter.md")
     }
   end
@@ -77,6 +81,33 @@ defmodule Mix.Tasks.Atlas.Flow.GenTest do
       assert_received {:mix_shell, :error, ["rela not run (ATLAS_RELA_BIN is not set)" <> _]}
     end
 
+    test "writes flows.json with its header, every gate, and the hash of flows.yaml", c do
+      gen()
+      json = File.read!(c.json)
+      assert AtlasFlowGenerator.Header.generated?(".json", json)
+      assert json =~ "test/support/example.ex"
+      data = JSON.decode!(json)
+      assert data["rela_flows_sha256"] == AtlasFlowGenerator.Atlas.sha256(File.read!(c.yaml))
+      assert Map.keys(data["gates"]) == ["proofread", "size_limit"]
+      assert Map.keys(data["flows"]) == ["letter"]
+    end
+
+    test "--check fails on a hand edit of flows.json", %{json: json, diagram: d} do
+      gen()
+      put_diagram(d)
+      gen(["--check"])
+      File.write!(json, String.replace(File.read!(json), ~s("version": 2), ~s("version": 3)))
+      assert_raise Mix.Error, ~r/out of date.*atlas\/flows.json/, fn -> gen(["--check"]) end
+      gen()
+      gen(["--check"])
+    end
+
+    test "a gate the subflows name in another version fails the task", %{json: json} do
+      Application.put_env(:atlas_flow_generator, :gates, AtlasFlowGenerator.Example)
+      assert_raise Mix.Error, ~r/flows.json: .*names gate proofread version 2/, fn -> gen() end
+      refute File.exists?(json)
+    end
+
     test "--check fails on a missing diagram, which it cannot draw", %{diagram: diagram} do
       gen()
       refute File.exists?(diagram)
@@ -123,16 +154,19 @@ defmodule Mix.Tasks.Atlas.Flow.GenTest do
       put_diagram(c.diagram)
       old_yaml = Path.join(dir, "rela/old.yaml")
       old_md = Path.join(dir, "diagrams/gone.md")
+      old_json = Path.join(dir, "atlas/old.json")
       File.write!(old_yaml, File.read!(c.yaml))
       File.write!(old_md, File.read!(c.diagram))
+      File.write!(old_json, File.read!(c.json))
 
-      assert_raise Mix.Error, ~r/old.yaml \(left over\).*gone.md \(left over\)/, fn ->
-        gen(["--check"])
-      end
+      assert_raise Mix.Error,
+                   ~r/old.yaml \(left over\).*old.json \(left over\).*gone.md \(left over\)/,
+                   fn -> gen(["--check"]) end
 
       gen()
       refute File.exists?(old_yaml)
       refute File.exists?(old_md)
+      refute File.exists?(old_json)
     end
 
     test "a hand-written file is never overwritten nor removed", %{tmp_dir: dir, yaml: yaml} do

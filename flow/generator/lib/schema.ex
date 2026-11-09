@@ -63,6 +63,39 @@ defmodule AtlasFlowGenerator.Schema do
   Branches are tried in the order written; a mechanism's branches sit where the
   mechanism is written.
 
+  ## Gates
+
+  A gate is data for the shared Gates framework, which evaluates it, records each
+  verdict with the gate's name and version, and writes the verdict on the subject.
+  Its **evaluator** gives one of four outcomes, and `decide` maps every one of them
+  to a verdict:
+
+  | outcome | smart gate (advice) | rule gate (`rule`) |
+  |---|---|---|
+  | `pass` | the advice passes it | every condition holds |
+  | `changes_required` | the advice asks for changes | a condition does not hold |
+  | `uncertain` | the advice is not sure | a field a condition reads is missing or null |
+  | `error` | the evaluation failed or timed out | the evaluation failed |
+
+  Both flavors share the outcomes, so a gate can change flavor without changing
+  `decide`. No verdict, `uncertain` or `error` means a person: both must decide the
+  gate's `person` verdict. A missing field outweighs a condition that does not hold.
+
+  A rule is `[all: conditions]`; each condition reads fields of the gate's
+  `evidence` (the fixed input set, nothing else):
+
+    * `{:equals, field, value}`: the field equals `value` (a string, number or boolean);
+    * `{:same, field, other}`: the two fields are equal.
+
+      defgate :match, version: 1, flavor: :rule, purpose: :flow,
+        evidence: [:status, :sent, :seen],
+        rule: [all: [{:equals, :status, "ok"}, {:same, :sent, :seen}]],
+        verdicts: [:go, :stop, :person],
+        decide: [pass: :go, changes_required: :stop, uncertain: :person, error: :person]
+
+  A gate need not be named by a subflow: it is checked the same way, and other
+  callers of Gates may name it.
+
   ## Data
 
   `use AtlasFlowGenerator.Schema` gives the module `__flows__/0` and `__gates__/0`,
@@ -78,8 +111,10 @@ defmodule AtlasFlowGenerator.Schema do
       no mechanism and waits for no one;
     * a state that only people with a role can move waits for them (`wait_for`),
       has a mechanism, or awaits a field; each role it waits for has a branch;
-    * a gate's verdicts are mapped exactly; a smart gate's `decide` covers every
-      advice outcome, and `uncertain` and `error` decide its person verdict;
+    * a gate's verdicts are mapped exactly; its `decide` covers every evaluator
+      outcome, and `uncertain` and `error` decide its person verdict;
+    * a gate's `purpose` is `:flow` or `:decider`; a smart gate names its `advice`
+      and has no `rule`; a rule gate has a `rule` (below) and no `advice`;
     * a pass or an effect maps exactly its result values;
     * at most one mechanism per state, and no field set twice in a state;
     * `initial` names a state that is not final; there is a start trigger;
@@ -94,7 +129,8 @@ defmodule AtlasFlowGenerator.Schema do
   @writer "atlas-flow"
   @pass_results [:delivered, :failed]
   @effect_results [:done, :refused]
-  @advice_outcomes [:pass, :changes_required, :uncertain, :error]
+  @outcomes [:pass, :changes_required, :uncertain, :error]
+  @purposes [:flow, :decider]
   @max_timers 8
   @name ~r/^[a-z][a-z0-9_-]{0,63}$/
   @once [:run_as, :per_subject, :owner, :channel, :initial]
@@ -256,8 +292,9 @@ defmodule AtlasFlowGenerator.Schema do
 
   @doc """
   A gate: `version:`, `flavor:` (`:smart`, advised then decided by policy, or `:rule`),
-  `verdicts:` it writes, `person:` (the verdict that hands over to a person, default
-  `:person`), `decide:` (advice outcome to verdict), `advice:`, `evidence:`, `policy:`.
+  `purpose:` (`:flow` or `:decider`), `verdicts:` it writes, `person:` (the verdict
+  that hands over to a person, default `:person`), `decide:` (evaluator outcome to
+  verdict), `evidence:`, `advice:` (smart) or `rule:` (rule), `policy:`.
   """
   defmacro defgate(name, opts) do
     quote do
@@ -348,6 +385,7 @@ defmodule AtlasFlowGenerator.Schema do
 
     refuse!(problems, file)
     flows = Enum.map(flows, &(&1 |> Map.delete(:initial_line) |> Map.put(:file, file)))
+    gates = Enum.map(gates, &Map.put(&1, :file, file))
 
     quote do
       @doc "The subflows this module defines, as plain data."
@@ -395,7 +433,9 @@ defmodule AtlasFlowGenerator.Schema do
         name: name,
         version: opts[:version],
         flavor: opts[:flavor],
+        purpose: opts[:purpose],
         advice: opts[:advice],
+        rule: opts[:rule],
         evidence: Keyword.get(opts, :evidence, []),
         verdicts: Keyword.get(opts, :verdicts, []),
         person: Keyword.get(opts, :person, :person),
@@ -414,34 +454,84 @@ defmodule AtlasFlowGenerator.Schema do
 
   defp gate_problems(g) do
     pre = "gate #{g.name}: "
-    decided = Keyword.keys(g.decide)
 
     [
       not valid_name?(g.name) && "#{g.name} is not a valid name",
       not (is_integer(g.version) and g.version > 0) && pre <> "needs version: a positive integer",
       g.flavor not in [:smart, :rule] && pre <> "flavor must be :smart or :rule",
+      g.purpose not in @purposes && pre <> "purpose must be :flow or :decider",
       g.verdicts == [] && pre <> "needs verdicts: the values it writes",
       g.verdicts != Enum.uniq(g.verdicts) && pre <> "names a verdict twice",
       (g.verdicts != [] and g.person not in g.verdicts) &&
         pre <> "its person verdict #{g.person} is not among its verdicts"
-    ] ++
-      if g.flavor == :smart do
-        missing = @advice_outcomes -- decided
-        unknown = decided -- @advice_outcomes
-        wrong = for {_, v} <- g.decide, v not in g.verdicts, do: v
+    ] ++ decide_problems(g, pre) ++ flavor_problems(g, pre)
+  end
 
-        [
-          missing != [] && pre <> "decide does not cover the advice outcome(s) #{list(missing)}",
-          unknown != [] && pre <> "decide names unknown outcome(s) #{list(unknown)}",
-          wrong != [] && pre <> "decide maps to #{list(wrong)}, which is not a verdict"
-        ] ++
-          for k <- [:uncertain, :error], k in decided, g.decide[k] != g.person do
-            pre <> "#{k} must decide #{g.person}: an uncertain or failed advice goes to a person"
-          end
-      else
-        []
+  # decide is total over the evaluator's outcomes, whatever the flavor, and what the
+  # evaluator cannot settle goes to a person.
+  defp decide_problems(g, pre) do
+    decided = Keyword.keys(g.decide)
+    missing = @outcomes -- decided
+    unknown = Enum.uniq(decided) -- @outcomes
+    twice = decided -- Enum.uniq(decided)
+    wrong = for {_, v} <- g.decide, v not in g.verdicts, do: v
+
+    [
+      missing != [] && pre <> "decide does not cover the evaluator outcome(s) #{list(missing)}",
+      unknown != [] && pre <> "decide names unknown outcome(s) #{list(unknown)}",
+      twice != [] && pre <> "decide maps #{list(Enum.uniq(twice))} twice",
+      wrong != [] && pre <> "decide maps to #{list(wrong)}, which is not a verdict"
+    ] ++
+      for k <- [:uncertain, :error], k in decided, g.decide[k] != g.person do
+        pre <> "#{k} must decide #{g.person}: an uncertain or failed evaluation goes to a person"
       end
   end
+
+  defp flavor_problems(%{flavor: :smart} = g, pre) do
+    [
+      g.advice == nil && pre <> "a smart gate needs advice: who advises it",
+      g.rule != nil && pre <> "a smart gate decides by its advice; rule: is for rule gates"
+    ]
+  end
+
+  defp flavor_problems(%{flavor: :rule} = g, pre) do
+    [g.advice != nil && pre <> "a rule gate decides by its rule; it takes no advice"] ++
+      rule_problems(g.rule, g.evidence, pre)
+  end
+
+  defp flavor_problems(_g, _pre), do: []
+
+  defp rule_problems(nil, _evidence, pre),
+    do: [pre <> "a rule gate needs rule: [all: conditions] over its evidence"]
+
+  defp rule_problems([all: [_ | _] = conditions], evidence, pre) do
+    Enum.flat_map(conditions, fn c ->
+      case condition_fields(c) do
+        nil ->
+          [
+            pre <>
+              "rule condition #{inspect(c)} is not {:equals, field, value} or {:same, field, other}"
+          ]
+
+        fields ->
+          for f <- fields,
+              f not in evidence,
+              do: pre <> "rule reads #{f}, which is not in its evidence"
+      end
+    end)
+  end
+
+  defp rule_problems(_rule, _evidence, pre),
+    do: [pre <> "rule must be [all: conditions], with at least one condition"]
+
+  defp condition_fields({:equals, field, value})
+       when is_atom(field) and (is_binary(value) or is_number(value) or is_boolean(value)),
+       do: [field]
+
+  defp condition_fields({:same, field, other}) when is_atom(field) and is_atom(other),
+    do: [field, other]
+
+  defp condition_fields(_), do: nil
 
   # -- Subflows: from what was written to plain data --
 

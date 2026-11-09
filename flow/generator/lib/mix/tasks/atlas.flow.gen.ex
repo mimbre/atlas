@@ -8,14 +8,18 @@ defmodule Mix.Tasks.Atlas.Flow.Gen do
 
       config :atlas_flow_generator,
         contract: MyFlows,
-        targets: [rela: "../targets/rela", diagrams: "../targets/diagrams"],
+        gates: MyFlows.Gates,
+        targets: [rela: "../targets/rela", atlas: "../targets/atlas", diagrams: "../targets/diagrams"],
         root: "../.."
 
-  `contract` uses `AtlasFlowGenerator.Schema`; the task reads only its `__flows__/0`.
-  `root` (optional, default the project's folder) is what the header's path to the
-  contract file is relative to. The targets:
+  `contract` and `gates` (optional, default the contract) use
+  `AtlasFlowGenerator.Schema`; the task reads only the contract's `__flows__/0` and the
+  gates' `__gates__/0`. `root` (optional, default the project's folder) is what the
+  header's path to the contract file is relative to. The targets:
 
     * `rela`: `flows.yaml`, every subflow in Rela's format (`AtlasFlowGenerator.Rela`);
+    * `atlas`: `flows.json`, what Atlas runs them by, and every gate
+      (`AtlasFlowGenerator.Atlas`), bound to that `flows.yaml` by its SHA-256;
     * `diagrams`: `<subflow>.md` for each subflow, its state diagram as Rela draws it.
 
   **Rela.** When `ATLAS_RELA_BIN` names the folder holding the pinned `rela` (26.11.2;
@@ -31,10 +35,10 @@ defmodule Mix.Tasks.Atlas.Flow.Gen do
   """
   use Mix.Task
 
-  alias AtlasFlowGenerator.{Header, Rela}
+  alias AtlasFlowGenerator.{Atlas, Header, Rela}
 
   @requirements ["compile"]
-  @targets [:rela, :diagrams]
+  @targets [:rela, :atlas, :diagrams]
 
   @impl true
   def run(args) do
@@ -42,12 +46,30 @@ defmodule Mix.Tasks.Atlas.Flow.Gen do
     if rest != [], do: Mix.raise("unexpected argument #{Enum.join(rest, " ")}")
 
     targets = targets!()
-    flows = contract!().__flows__()
+    contract = contract!()
+    flows = contract.__flows__()
+    gates = Application.get_env(:atlas_flow_generator, :gates, contract).__gates__()
     root = Path.expand(Application.get_env(:atlas_flow_generator, :root, "."))
-    source = flows |> Enum.map(&Path.relative_to(&1.file, root)) |> Enum.uniq() |> Enum.join(", ")
 
-    yaml = Header.put(".yaml", source, Rela.flows_yaml(flows))
-    rela = for dir <- List.wrap(targets[:rela]), do: {Path.join(dir, "flows.yaml"), yaml}
+    source = fn items ->
+      items |> Enum.map(&Path.relative_to(&1.file, root)) |> Enum.uniq() |> Enum.join(", ")
+    end
+
+    flows_source = source.(flows)
+    yaml = Header.put(".yaml", flows_source, Rela.flows_yaml(flows))
+
+    # flows.json also comes from the gates, and is bound to this run's flows.yaml.
+    json =
+      Header.put(
+        ".json",
+        source.(flows ++ gates),
+        atlas_json!(flows, gates, Atlas.sha256(yaml))
+      )
+
+    always =
+      for(dir <- List.wrap(targets[:rela]), do: {Path.join(dir, "flows.yaml"), yaml}) ++
+        for dir <- List.wrap(targets[:atlas]), do: {Path.join(dir, "flows.json"), json}
+
     diagram_dir = targets[:diagrams]
 
     diagram_paths =
@@ -65,7 +87,7 @@ defmodule Mix.Tasks.Atlas.Flow.Gen do
             {:ok, shown} ->
               drawn =
                 for {path, one} <- Enum.zip(diagram_paths, shown),
-                    do: {path, Header.put(".md", source, Rela.diagram(one))}
+                    do: {path, Header.put(".md", flows_source, Rela.diagram(one))}
 
               {drawn, nil}
 
@@ -74,10 +96,10 @@ defmodule Mix.Tasks.Atlas.Flow.Gen do
           end
       end
 
-    files = rela ++ if(diagrams == :not_drawn, do: [], else: diagrams)
+    files = always ++ if(diagrams == :not_drawn, do: [], else: diagrams)
     stale = for {path, body} <- files, File.read(path) != {:ok, body}, do: path
     missing = if diagrams == :not_drawn, do: Enum.reject(diagram_paths, &File.exists?/1), else: []
-    leftovers = leftovers(targets, Enum.map(rela, &elem(&1, 0)) ++ diagram_paths)
+    leftovers = leftovers(targets, Enum.map(always, &elem(&1, 0)) ++ diagram_paths)
     note = fn -> if rela_note, do: Mix.shell().error(rela_note) end
 
     cond do
@@ -118,6 +140,12 @@ defmodule Mix.Tasks.Atlas.Flow.Gen do
         for path <- missing, do: Mix.shell().error("#{path} is missing and was not drawn")
         note.()
     end
+  end
+
+  defp atlas_json!(flows, gates, sha) do
+    Atlas.flows_json(flows, gates, sha)
+  rescue
+    e in ArgumentError -> Mix.raise("flows.json: " <> Exception.message(e))
   end
 
   # Files with the header, in a target's folder, that the task does not write now.
