@@ -53,7 +53,7 @@ The DSL is plain macros, not Spark: a contract of a few blocks, models and kinds
 ### Source ownership
 
 - `lib/contract.ex`: root composition and existing presentation version.
-- `lib/blocks.ex`: blocks and markup only; `lib/pages.ex` and `lib/endpoints.ex`: page paths and endpoint declarations.
+- `lib/blocks.ex`: blocks only; `lib/markup.ex`: kinds of markup; `lib/pages.ex` and `lib/endpoints.ex`: page paths and endpoint declarations.
 - `lib/models/{runtime,workers,presentation}.ex`: shared payload types. These describe transmitted values, not Rela's stored entities and relationships.
 - `lib/wire/control/{session,discovery,workers}.ex`: client–Server session/steer vocabulary, exact-machine discovery and worker operations.
 - `lib/wire/runtime.ex`: Runtime worker/machine/attachment control and Server–Runtime output reads. The existing on-wire `channel` strings do not change with source ownership.
