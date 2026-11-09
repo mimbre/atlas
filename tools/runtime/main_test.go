@@ -209,7 +209,8 @@ func TestExecuteRejectsInvalidEventsBeforeSocketRequest(t *testing.T) {
 		{"trailing positional", []string{"--limit", "50", "extra"}, "does not accept positional arguments"},
 		{"positional after separator", []string{"--", "extra"}, "does not accept positional arguments"},
 		{"unknown flag", []string{"--unknown"}, "flag provided but not defined"},
-		{"follow unsupported", []string{"--follow"}, "flag provided but not defined"},
+		{"follow with limit", []string{"--follow", "--limit", "50"}, "does not accept --limit"},
+		{"follow with empty cursor", []string{"--follow", "--cursor="}, "cursor must be nonempty"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			result, err := execute(append([]string{"events"}, test.args...))
