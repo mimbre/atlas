@@ -163,6 +163,21 @@ defmodule AtlasRuntime.BackendPolicyTest do
     end
   end
 
+  test "review-packet is a capability of both backends without sandbox or provisioning" do
+    request = %{"permissions" => "review-packet"}
+    assert Policy.select(configured(), nil, request, @now)["selected"] == @preferred
+    assert Policy.select(blocked(), nil, request, @now)["selected"] == @fallback
+
+    for unsupported <- [
+          Map.put(request, "sandbox", "read-only"),
+          Map.put(request, "repository", "https://github.com/eyra/atlas.git")
+        ] do
+      assert_raise RuntimeError, ~r/Selected claude/, fn ->
+        Policy.select(configured(), nil, unsupported, @now)
+      end
+    end
+  end
+
   test "invalid configuration refuses rather than selecting a different provider" do
     for target <- [
           %{"backend" => "unknown", "model" => nil},

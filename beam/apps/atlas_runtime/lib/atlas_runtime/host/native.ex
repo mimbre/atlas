@@ -1,11 +1,11 @@
 defmodule AtlasRuntime.Agent.Native do
   @moduledoc """
   Owned official CLI execution using existing native authentication. Codex remains
-  the default, with its read-only, workspace-write, dedicated-repository and
-  materialized-folder modes.
+  the default, with its read-only, workspace-write, dedicated-repository,
+  materialized-folder and review-packet modes.
   Claude supports fresh restricted read-only assignments, explicit independent
-  repository Bash execution, including managed provisioning, materialized-folder
-  execution and explicit saved continuation.
+  repository Bash execution, including managed provisioning, materialized-folder and
+  review-packet execution and explicit saved continuation.
   Claude questions require explicit `questions_enabled: true`; answer delivery
   acknowledges a native stdin write, while processed evidence requires a tool result.
   Requires explicit `command`, `workspace` and `goal` agent settings. The native
@@ -96,17 +96,23 @@ defmodule AtlasRuntime.Agent.Native do
       is_nil(model) ||
         (is_binary(model) && Regex.match?(~r/\A[A-Za-z0-9][A-Za-z0-9._:\/\[\]-]{0,199}\z/, model))
 
-    # Both backends refuse unknown profiles; a materialized folder is never provisioned.
+    # Both backends refuse unknown profiles; a materialized folder or packet tree is never provisioned.
     supported =
       (backend == "codex" &&
          (is_nil(scope) ||
-            (is_map(scope) && scope["profile"] in ["dedicated-repository", "materialized-folder"]))) ||
+            (is_map(scope) &&
+               scope["profile"] in [
+                 "dedicated-repository",
+                 "materialized-folder",
+                 "review-packet"
+               ]))) ||
         (backend == "claude" &&
            (is_nil(session) || (is_map(resume_context) && is_binary(model))) &&
            ((sandbox == "read-only" && is_nil(scope) && is_nil(repository)) ||
               (is_nil(sandbox) && is_map(scope) &&
                  (scope["profile"] == "dedicated-repository" ||
-                    (scope["profile"] == "materialized-folder" && is_nil(repository))))))
+                    (scope["profile"] in ["materialized-folder", "review-packet"] &&
+                       is_nil(repository))))))
 
     if command && host &&
          AtlasRuntime.Workspaces.valid_request?(workspace, sandbox, scope, repository) &&

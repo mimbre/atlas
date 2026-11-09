@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -321,6 +322,17 @@ func requireNestedSeatbelt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sandbox-exec probe: %v %s", err, out)
 	}
+}
+
+// installedCodexHome is an isolated home whose CODEX_HOME exists: the installed `codex sandbox` refuses
+// to run when CODEX_HOME names a missing path, so every probe would fail, allowed ones included.
+func installedCodexHome(t *testing.T) string {
+	t.Helper()
+	user := isolatedHome(t)
+	if err := os.MkdirAll(os.Getenv("CODEX_HOME"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	return user
 }
 
 // claudeFolder materializes a folder outside every system temp root, beneath the real home
@@ -650,7 +662,7 @@ func TestFolderProfileIsEnforcedByInstalledCodexSandbox(t *testing.T) {
 		t.Skip("requires the installed Codex CLI on macOS")
 	}
 	requireNestedSeatbelt(t)
-	user := isolatedHome(t)
+	user := installedCodexHome(t)
 	home, dest := filepath.Join(user, "runtime"), filepath.Join(user, "work")
 	scope := materialize(t, home, dest)
 	inspector := filepath.Join(home, "atlas-runtime")
@@ -778,5 +790,347 @@ func TestFolderProfileIsEnforcedByInstalledCodexSandbox(t *testing.T) {
 		if out, err := shell(false, script); err != nil {
 			t.Fatalf("unsandboxed control %q failed: %v %s", script, err, out)
 		}
+	}
+}
+
+// authorTurn is the ended author turn whose folder freeze copies.
+const authorTurn = "turn-00000000000000aa"
+
+// freeze freezes the materialized folder dest, holding repo/new.txt, into the new packet folder
+// packet as packet id and returns the review-packet scope of its tree. The read-only packet is made
+// writable again, with its record under the home, at cleanup so the test's temp folders can be removed.
+func freeze(t *testing.T, home, dest, packet, id string) map[string]any {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dest, "repo", "new.txt"), []byte("reviewed\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, "turns", authorTurn), 0700); err != nil {
+		t.Fatal(err)
+	}
+	turn := fmt.Sprintf(`{"id":%q,"cwd":%q,"state":"finished","worker_id":"author","backend":"codex"}`, authorTurn, dest)
+	if err := os.WriteFile(filepath.Join(home, "turns", authorTurn, "turn.json"), []byte(turn), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := snapshot.Freeze(home, dest, authorTurn, packet, id, ""); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { writable(packet); writable(snapshot.PacketDir(home, id)) })
+	scope, err := workspace.PacketScope(filepath.Join(packet, "tree"), home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return scope
+}
+
+// writable gives the owner write access to everything below path, which may be read-only.
+func writable(path string) {
+	filepath.WalkDir(path, func(name string, entry fs.DirEntry, err error) error {
+		if err == nil && entry.Type()&fs.ModeSymlink == 0 {
+			info, _ := entry.Info()
+			os.Chmod(name, info.Mode().Perm()|0700)
+		}
+		return nil
+	})
+}
+
+const packetID = "11111111-2222-4333-8444-555555555555"
+
+func TestPacketProfileArgumentsAreTheEnforcementContract(t *testing.T) {
+	user := isolatedHome(t)
+	home, dest, packet := filepath.Join(user, "runtime"), filepath.Join(user, "work"), filepath.Join(user, "packet")
+	materialize(t, home, dest)
+	scope := freeze(t, home, dest, packet, packetID)
+	tree, findings := filepath.Join(packet, "tree"), filepath.Join(packet, "findings")
+	if scope["profile"] != "review-packet" || scope["root"] != tree || scope["packet"] != packet || scope["findings"] != findings ||
+		scope["packet_id"] != packetID || !strings.HasPrefix(scope["fingerprint"].(string), "fpr_") {
+		t.Fatalf("packet scope %v", scope)
+	}
+	token := filepath.Join(user, "code-home", "runtime.token")
+	if err := os.WriteFile(filepath.Join(home, "code.json"), []byte(fmt.Sprintf(`{"url":"http://127.0.0.1:1","token_file":%q}`, token)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	readable := homePath(t, user, home, tree)
+	scratch := filepath.Join(home, "scratch", "turn-1")
+	inspector := filepath.Join(user, "bin", "atlas-runtime")
+	args, err := permissionArguments(scope, scratch, inspector)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := func(path string) string { body, _ := json.Marshal(path); return string(body) }
+	// The tree and the packet files are read, only findings and scratch are written; the rest is the folder profile.
+	filesystem := []string{q(tree) + `="read"`, q(filepath.Join(packet, "packet.json")) + `="read"`, q(filepath.Join(packet, "diff.json")) + `="read"`,
+		q(findings) + `="write"`, q(scratch) + `="write"`, q(user) + `="none"`, q(home) + `="none"`,
+		q(scope["record"].(string)) + `="read"`, q(scope["baseline"].(string)) + `="read"`,
+		q(tree+"/.git") + `="none"`, q(tree+"/repo/.git") + `="none"`}
+	for _, path := range readable {
+		filesystem = append(filesystem, q(path)+`="read"`)
+	}
+	filesystem = append(filesystem, q(token)+`="none"`, q(filepath.Dir(token))+`="none"`)
+	for _, name := range credentialPaths {
+		filesystem = append(filesystem, q(filepath.Join(user, name))+`="none"`)
+	}
+	filesystem = append(filesystem, q(inspector)+`="read"`)
+	network := `network={enabled=true,allow_local_binding=true,unix_sockets={` + q(scratch) + `="allow"}}`
+	want := []string{"-c", `default_permissions="atlas_review_packet"`, "-c",
+		`permissions={atlas_review_packet={extends=":read-only",filesystem={` + strings.Join(filesystem, ",") + `},` + network + `}}`,
+		"-c", "features.network_proxy=true"}
+	if !slices.Equal(args, want) {
+		t.Fatalf("got  %q\nwant %q", args, want)
+	}
+	if strings.Contains(want[3], q(tree)+`="write"`) || strings.Contains(want[3], q(dest)) {
+		t.Fatal("contract fixture grants the tree or the author folder")
+	}
+	executable := filepath.Join(findings, "atlas-runtime")
+	if _, err := permissionArguments(scope, scratch, executable); err == nil || err.Error() != "Runtime executable "+executable+
+		" is inside worker-writable "+findings+"; install atlas-runtime outside the materialized folder and worker temp" {
+		t.Fatalf("inspector in findings accepted: %v", err)
+	}
+	for _, key := range []string{"packet", "findings"} {
+		broken := maps.Clone(scope)
+		broken[key] = dest
+		if _, err := permissionArguments(broken, scratch, inspector); err == nil || err.Error() != "Review packet scope is incomplete" {
+			t.Fatalf("scope with another %s accepted: %v", key, err)
+		}
+		if _, err := claudePacketSettings(broken, "/u/.ac-12345678", user, inspector); err == nil || err.Error() != "Review packet scope is incomplete" {
+			t.Fatalf("Claude scope with another %s accepted: %v", key, err)
+		}
+	}
+}
+
+func TestClaudePacketSettingsAreTheEnforcementContract(t *testing.T) {
+	user := isolatedHomeIn(t, outsideSystemTemp(t))
+	system := t.TempDir()
+	t.Setenv("TMPDIR", system)
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	home, dest, packet := filepath.Join(user, "runtime"), filepath.Join(user, "work"), filepath.Join(user, "packet")
+	materialize(t, home, dest)
+	scope := freeze(t, home, dest, packet, packetID)
+	tree, findings := filepath.Join(packet, "tree"), filepath.Join(packet, "findings")
+	frozen := []string{tree, filepath.Join(packet, "packet.json"), filepath.Join(packet, "diff.json")}
+	readable := homePath(t, user, home, tree)
+	temporary := "/u/.ac-12345678"
+	inspector := filepath.Join(user, "bin", "atlas-runtime")
+	encoded, err := claudePacketSettings(scope, temporary, user, inspector)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var roots []string
+	for _, path := range []string{"/tmp", "/var/tmp", system} {
+		resolved, _ := resolvePath(path)
+		if !slices.Contains(roots, resolved) {
+			roots = append(roots, resolved)
+		}
+	}
+	slices.Sort(roots)
+	record, baseline := scope["record"].(string), scope["baseline"].(string)
+	protected := []string{home, tree + "/.git", tree + "/repo/.git", user + "/.claude"}
+	for _, name := range credentialPaths {
+		if name != ".claude" {
+			protected = append(protected, filepath.Join(user, name))
+		}
+	}
+	var rules []string
+	for _, path := range protected {
+		rules = append(rules, "Read(/"+path+")")
+	}
+	for _, tool := range []string{"Edit", "Write"} {
+		for _, path := range frozen {
+			rules = append(rules, tool+"(/"+path+")")
+		}
+	}
+	q := func(values ...string) string { body, _ := json.Marshal(values); return string(body) }
+	allowRead := append(append([]string{record, baseline, user + "/.claude/shell-snapshots", user + "/.claude/session-env"}, frozen...), findings, temporary)
+	want := `{"sandbox":{"enabled":true,"failIfUnavailable":true,"allowUnsandboxedCommands":false,"excludedCommands":[],` +
+		`"filesystem":{"allowWrite":` + q(findings, temporary) + `,"denyWrite":` + q(append(append(append(roots, protected...), frozen...), record, baseline)...) +
+		`,"denyRead":` + q(append([]string{user}, protected...)...) + `,"allowRead":` + q(append(append(allowRead, readable...), inspector)...) +
+		`},"network":{"allowedDomains":[],"strictAllowlist":true,"allowUnixSockets":` + q(temporary) +
+		`,"allowAllUnixSockets":false,"allowLocalBinding":true}},` +
+		`"permissions":{"deny":` + q(rules...) + `}}`
+	if encoded != want {
+		t.Fatalf("got  %s\nwant %s", encoded, want)
+	}
+	executable := filepath.Join(findings, "atlas-runtime")
+	if _, err := claudePacketSettings(scope, temporary, user, executable); err == nil || err.Error() != "Runtime executable "+executable+
+		" is inside worker-writable "+findings+"; install atlas-runtime outside the materialized folder and worker temp" {
+		t.Fatalf("inspector in findings accepted: %v", err)
+	}
+	// A protected token directory containing the packet would also deny reading the tree.
+	if err := os.WriteFile(filepath.Join(home, "code.json"), []byte(fmt.Sprintf(`{"token_file":%q}`, filepath.Join(user, "t"))), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := claudePacketSettings(scope, temporary, user, inspector); err == nil || err.Error() != "Protected path "+user+" contains "+tree {
+		t.Fatalf("token directory containing the packet accepted: %v", err)
+	}
+}
+
+// TestPacketLaunchRefusesAPacketChangedOutOfBand starts and continues a review pass in a packet
+// tree, then changes each packet in another way behind Runtime's back: start and continue both
+// refuse before the native CLI runs, release the tree lock and leave no scratch.
+func TestPacketLaunchRefusesAPacketChangedOutOfBand(t *testing.T) {
+	user := isolatedHome(t)
+	home, dest := filepath.Join(user, "runtime"), filepath.Join(user, "work")
+	materialize(t, home, dest)
+	folder := t.TempDir()
+	native := fixture(t, folder, `printf '%s\n' "$@" > "$0.args"
+printf '%s\n' '{"type":"thread.started","thread_id":"native-session"}' '{"type":"turn.completed"}'
+`)
+	packet := filepath.Join(user, "packet")
+	tree := filepath.Join(packet, "tree")
+	scope := freeze(t, home, dest, packet, packetID)
+	for _, session := range []string{"", "native-session"} {
+		args := scopedArgs(t, native, tree, folder, scope)
+		args[5] = session
+		if records, code := startHost(t, args).finish(t); code != 0 || records[len(records)-1]["exit_code"] != 0.0 {
+			t.Fatalf("session %q: code=%d records=%v", session, code, records)
+		}
+		if argv, _ := os.ReadFile(native + ".args"); !strings.Contains(string(argv), `default_permissions="atlas_review_packet"`) ||
+			!strings.Contains(string(argv), "--cd\n"+tree+"\n") {
+			t.Fatalf("session %q argv: %s", session, argv)
+		}
+	}
+	// The author profile never runs in a packet tree, which would let it write the frozen content.
+	if _, err := workspace.FolderScope(tree, home); err == nil || err.Error() != "Materialized folder "+tree+" is the tree of review packet "+packetID+"; review it with --permissions review-packet" {
+		t.Fatalf("materialized-folder scope of a packet tree: %v", err)
+	}
+
+	edit := func(path string, change func() error) func() error {
+		return func() error {
+			os.Chmod(filepath.Dir(path), 0755)
+			os.Chmod(path, 0644)
+			return change()
+		}
+	}
+	for index, c := range []struct {
+		name    string
+		change  func(packet string) error
+		message string
+	}{
+		{"content", func(p string) error {
+			path := filepath.Join(p, "tree", "repo", "new.txt")
+			return edit(path, func() error { return os.WriteFile(path, []byte("changed\n"), 0644) })()
+		}, "the tree was modified after the freeze"},
+		{"mode", func(p string) error { return os.Chmod(filepath.Join(p, "tree", "repo", "new.txt"), 0555) }, "the tree was modified after the freeze"},
+		{"outside every repository", func(p string) error {
+			os.Chmod(filepath.Join(p, "tree"), 0755)
+			return os.WriteFile(filepath.Join(p, "tree", "notes.md"), []byte("planted\n"), 0644)
+		}, "the tree was modified after the freeze"},
+		{"packet.json", func(p string) error {
+			path := filepath.Join(p, "packet.json")
+			return edit(path, func() error { return os.WriteFile(path, []byte("{}"), 0644) })()
+		}, "packet.json was changed or removed"},
+		{"diff.json", func(p string) error {
+			path := filepath.Join(p, "diff.json")
+			return edit(path, func() error { return os.Remove(path) })()
+		}, "diff.json was changed or removed"},
+		{"scope", func(string) error { return nil }, "Review packet permission scope changed"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			p := filepath.Join(user, fmt.Sprintf("packet-%d", index))
+			id := fmt.Sprintf("11111111-2222-4333-8444-%012d", index)
+			scope := freeze(t, home, dest, p, id)
+			tree := filepath.Join(p, "tree")
+			if c.name == "scope" {
+				scope = maps.Clone(scope)
+				scope["fingerprint"] = "fpr_" + strings.Repeat("0", 64)
+			}
+			if err := c.change(p); err != nil {
+				t.Fatal(err)
+			}
+			if c.name != "scope" {
+				if _, err := workspace.PacketScope(tree, home); err == nil || !strings.Contains(err.Error(), c.message) {
+					t.Fatalf("changed packet scope: %v", err)
+				}
+			}
+			fixture(t, folder, "touch \"$0.executed\"\n")
+			for _, session := range []string{"", "native-session"} {
+				args := scopedArgs(t, native, tree, folder, scope)
+				args[5] = session
+				host := startHost(t, args)
+				if records, code := host.finish(t); code != 1 || len(records) != 0 || !strings.Contains(host.stderr.String(), c.message) {
+					t.Fatalf("session %q: code=%d records=%v stderr=%s", session, code, records, host.stderr.String())
+				}
+				if diagnostic, _ := os.ReadFile(filepath.Join(folder, "stderr.log")); !strings.Contains(string(diagnostic), c.message) {
+					t.Fatalf("refusal must reach stderr.log: %q", diagnostic)
+				}
+			}
+			if _, err := os.Stat(native + ".executed"); err == nil {
+				t.Fatal("native CLI executed despite a refusal")
+			}
+			if _, err := os.Stat(filepath.Join(home, "scratch", filepath.Base(folder))); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("refused launch left scratch: %v", err)
+			}
+			lock, _, err := workspace.Lock(tree, false)
+			if err != nil {
+				t.Fatalf("refused launch kept the lock: %v", err)
+			}
+			lock.Close()
+		})
+	}
+}
+
+// TestPacketProfileIsEnforcedByInstalledCodexSandbox runs real review commands under the installed
+// Codex seatbelt with the exact review-packet arguments: the tree and packet files cannot be written,
+// re-moded or removed, findings and scratch can be written, and the inspector diffs the tree.
+func TestPacketProfileIsEnforcedByInstalledCodexSandbox(t *testing.T) {
+	codex, err := exec.LookPath("codex")
+	if runtime.GOOS != "darwin" || err != nil {
+		t.Skip("requires the installed Codex CLI on macOS")
+	}
+	requireNestedSeatbelt(t)
+	user := installedCodexHome(t)
+	home, dest, packet := filepath.Join(user, "runtime"), filepath.Join(user, "work"), filepath.Join(user, "packet")
+	materialize(t, home, dest)
+	scope := freeze(t, home, dest, packet, packetID)
+	tree := filepath.Join(packet, "tree")
+	inspector := filepath.Join(home, "atlas-runtime")
+	if out, err := exec.Command("go", "build", "-o", inspector, "github.com/eyra/atlas/tools/runtime").CombinedOutput(); err != nil {
+		t.Fatalf("build: %v %s", err, out)
+	}
+	scratch := filepath.Join(home, "scratch", "turn-review")
+	if err := os.MkdirAll(filepath.Join(scratch, "tmp"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	args, err := packetArguments(scope, scratch, user, inspector)
+	if err != nil {
+		t.Fatal(err)
+	}
+	environment := append(os.Environ(), "ATLAS_RUNTIME_HOME="+home, "ATLAS_RUNTIME_EXECUTABLE="+inspector, "TMPDIR="+filepath.Join(scratch, "tmp"))
+	shell := func(script string) (string, error) {
+		command := exec.Command(codex, append(append([]string{"sandbox", "-P", "atlas_review_packet", "-C", tree}, args...), "--", "sh", "-c", script)...)
+		command.Dir, command.Env = tree, environment
+		out, err := command.CombinedOutput()
+		return string(out), err
+	}
+	for _, probe := range []struct {
+		script  string
+		allowed bool
+	}{
+		{"cat repo/new.txt ../packet.json ../diff.json", true},
+		{"echo x > repo/new.txt", false},
+		{"echo x >> repo/new.txt", false},
+		{"touch repo/planted", false},
+		{"chmod u+w repo/new.txt", false},
+		{"chmod u+w repo", false},
+		{"rm -f repo/new.txt", false},
+		{"mv repo/new.txt repo/moved.txt", false},
+		{"echo x > ../packet.json", false},
+		{"chmod u+w ../diff.json", false},
+		{"touch ../planted", false},
+		{fmt.Sprintf("touch %q", filepath.Join(dest, "repo", "planted")), false},
+		{`echo '{"version":1}' > ../findings/findings.json && cat ../findings/findings.json`, true},
+		{`echo scratch > "$TMPDIR/f" && cat "$TMPDIR/f"`, true},
+	} {
+		out, err := shell(probe.script)
+		t.Logf("sandboxed %q: err=%v output=%q", probe.script, err, out)
+		if (err == nil) != probe.allowed {
+			t.Fatalf("sandboxed %q: allowed=%v want %v: %s", probe.script, err == nil, probe.allowed, out)
+		}
+	}
+	if out, err := shell(`"$ATLAS_RUNTIME_EXECUTABLE" snapshot diff --dest ` + tree); err != nil || !strings.Contains(out, "+reviewed") {
+		t.Fatalf("sandboxed snapshot diff: %v %s", err, out)
+	}
+	// Nothing the review could reach changed the packet: its scope still verifies.
+	if after, err := workspace.PacketScope(tree, home); err != nil || !workspace.JSONEqual(after, scope) {
+		t.Fatalf("packet changed under the sandbox: %v", err)
 	}
 }

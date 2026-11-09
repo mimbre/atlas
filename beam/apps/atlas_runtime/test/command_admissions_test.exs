@@ -657,6 +657,74 @@ defmodule AtlasRuntime.CommandAdmissionsTest do
     end
   end
 
+  test "review-packet binding retains exactly the verified packet scope", context do
+    File.mkdir_p!(Path.join(context.dir, "packet/tree"))
+
+    request =
+      Admissions.canonical(%{
+        "command" => "start",
+        "cwd" => Path.join(context.dir, "packet/tree"),
+        "assignment" => " Review.\n",
+        "permissions" => "review-packet"
+      })
+
+    tree = request["cwd"]
+    packet = Path.dirname(tree)
+    home = Path.join(context.dir, "runtime")
+
+    scope = %{
+      "profile" => "review-packet",
+      "version" => 1,
+      "root" => tree,
+      "snapshot_id" => "sha256:" <> String.duplicate("c", 64),
+      "repositories" => ["repo"],
+      "home" => home,
+      "record" => Path.join(home, "materializations/x.json"),
+      "baseline" => Path.join(home, "snapshots/" <> String.duplicate("c", 64)),
+      "packet" => packet,
+      "findings" => Path.join(packet, "findings"),
+      "packet_id" => "11111111-2222-4333-8444-555555555555",
+      "fingerprint" => "fpr_" <> String.duplicate("d", 64)
+    }
+
+    binding = %{context.binding | "sandbox" => nil, "permissions" => scope, "cwd" => tree}
+
+    run =
+      Map.merge(context.run, %{
+        sandbox: nil,
+        permissions: scope,
+        cwd: tree,
+        assignment: request["assignment"]
+      })
+
+    dir = Path.join(context.dir, "admissions")
+    record = Admissions.reserve(dir, "Request_1", request, binding, @turn, run)
+    assert Admissions.load(dir, "Request_1") == record
+    assert record["binding"]["permissions"] == scope
+
+    for {bad_request, bad_binding} <- [
+          {request, %{binding | "permissions" => Map.delete(scope, "fingerprint")}},
+          {request, %{binding | "permissions" => %{scope | "fingerprint" => "sha256:x"}}},
+          {request, %{binding | "permissions" => %{scope | "packet_id" => "P"}}},
+          {request, %{binding | "permissions" => %{scope | "findings" => tree}}},
+          {request, %{binding | "permissions" => %{scope | "packet" => home}}},
+          {request, %{binding | "permissions" => %{scope | "profile" => "materialized-folder"}}},
+          {request, %{binding | "repository" => %{"url" => "u", "branch" => "b"}}},
+          {Map.put(request, "permissions", "materialized-folder"), binding}
+        ] do
+      assert_raise Admissions.StorageError, fn ->
+        Admissions.reserve(
+          Path.join(context.dir, "bad"),
+          "Request_1",
+          bad_request,
+          bad_binding,
+          @turn,
+          run
+        )
+      end
+    end
+  end
+
   test "managed saved continuation preserves base revision and rejects unrelated metadata",
        context do
     cwd = context.request["cwd"]

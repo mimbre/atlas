@@ -66,8 +66,8 @@ func TestClaudeValidationKeepsPythonOrderAndMessages(t *testing.T) {
 		{"resume without model", map[int]string{5: claudeSession, 10: context}, "Claude resume requires a confirmed UUID, model and saved execution context"},
 		{"resume without context", map[int]string{5: claudeSession, 9: `"m"`}, "Claude resume requires a confirmed UUID, model and saved execution context"},
 		{"scope conflicts with sandbox", map[int]string{6: `{"profile":"dedicated-repository","root":"/r"}`}, "Dedicated repository permissions conflict with sandbox"},
-		{"unknown profile", map[int]string{4: "", 6: `{"profile":"other","root":"/r"}`}, "Claude supports only the dedicated-repository and materialized-folder permission profiles"},
-		{"profile is required", map[int]string{4: "", 6: `{"root":"/r"}`}, "Claude supports only the dedicated-repository and materialized-folder permission profiles"},
+		{"unknown profile", map[int]string{4: "", 6: `{"profile":"other","root":"/r"}`}, "Claude supports only the dedicated-repository, materialized-folder and review-packet permission profiles"},
+		{"profile is required", map[int]string{4: "", 6: `{"root":"/r"}`}, "Claude supports only the dedicated-repository, materialized-folder and review-packet permission profiles"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			directory := t.TempDir()

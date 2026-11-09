@@ -156,7 +156,12 @@ defmodule AtlasRuntime.CommandAdmissions do
         do: raise(ArgumentError, "Questions are supported only by Claude")
 
       request = Map.put(request, "questions_enabled", questions)
-      optional!(request, "permissions", &(&1 in ["dedicated-repository", "materialized-folder"]))
+
+      optional!(
+        request,
+        "permissions",
+        &(&1 in ["dedicated-repository", "materialized-folder", "review-packet"])
+      )
 
       cond do
         Map.has_key?(request, "repository") or Map.has_key?(request, "branch") ->
@@ -269,11 +274,26 @@ defmodule AtlasRuntime.CommandAdmissions do
        }) do
     Enum.sort(Map.keys(scope)) ==
       ~w(baseline home profile record repositories root snapshot_id version) and
-      scope["version"] == 1 and scope["root"] == cwd and
-      matches?(scope["snapshot_id"], ~r/\Asha256:[0-9a-f]{64}\z/) and
-      is_list(scope["repositories"]) and scope["repositories"] != [] and
-      Enum.all?(scope["repositories"], &text?/1) and
-      Enum.all?([scope["home"], scope["record"], scope["baseline"]], &absolute_path?/1)
+      materialized_scope?(scope, cwd)
+  end
+
+  # A review pass runs in the packet tree P/tree and writes only P/findings.
+  defp valid_permissions?(%{
+         "permissions" => %{"profile" => "review-packet"} = scope,
+         "sandbox" => nil,
+         "cwd" => cwd,
+         "repository" => nil
+       }) do
+    Enum.sort(Map.keys(scope)) ==
+      ~w(baseline findings fingerprint home packet packet_id profile record repositories root snapshot_id version) and
+      materialized_scope?(scope, cwd) and absolute_path?(scope["packet"]) and
+      scope["root"] == Path.join(scope["packet"], "tree") and
+      scope["findings"] == Path.join(scope["packet"], "findings") and
+      matches?(
+        scope["packet_id"],
+        ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/
+      ) and
+      matches?(scope["fingerprint"], ~r/\Afpr_[0-9a-f]{64}\z/)
   end
 
   defp valid_permissions?(%{"permissions" => scope, "sandbox" => nil, "cwd" => cwd})
@@ -288,6 +308,14 @@ defmodule AtlasRuntime.CommandAdmissions do
   end
 
   defp valid_permissions?(_), do: false
+
+  defp materialized_scope?(scope, cwd) do
+    scope["version"] == 1 and scope["root"] == cwd and
+      matches?(scope["snapshot_id"], ~r/\Asha256:[0-9a-f]{64}\z/) and
+      is_list(scope["repositories"]) and scope["repositories"] != [] and
+      Enum.all?(scope["repositories"], &text?/1) and
+      Enum.all?([scope["home"], scope["record"], scope["baseline"]], &absolute_path?/1)
+  end
 
   defp valid_repository?(%{"repository" => nil}), do: true
 
