@@ -551,6 +551,139 @@
   },
   "format": 1,
   "gates": {
+    "accept_decision": {
+      "answer_within": {
+        "prod": "48h",
+        "test": "5m"
+      },
+      "decide": {
+        "advise": "person",
+        "agent": "agent",
+        "agent_unverified": "agent_unverified",
+        "error": "person",
+        "person": "person",
+        "person_always": "person_always",
+        "uncertain": "person"
+      },
+      "evidence": {
+        "category": ["field", "category"],
+        "delegated": ["present", "delegated_by"],
+        "forces": [
+          ["field", "force"],
+          ["linked", "supersedes", "force"]
+        ],
+        "overrule_rate": [
+          "history",
+          "overruled",
+          {
+            "same": ["category"],
+            "window": 50
+          }
+        ],
+        "production_release": ["constant", false],
+        "reversibility": ["field", "reversibility"],
+        "rollback_automated": ["constant", false],
+        "scope": ["field", "scope"],
+        "timed_out": [
+          "flow",
+          "timed_out",
+          {
+            "default": false
+          }
+        ],
+        "verdicts_seen": [
+          "history",
+          "count",
+          {
+            "same": ["category"],
+            "window": 50
+          }
+        ]
+      },
+      "fixed": "person_always",
+      "fixed_rules": [
+        {
+          "decision": "D-0024",
+          "name": "amends_principle",
+          "then": "person_always",
+          "when": [
+            ["includes", "forces", "principle"]
+          ]
+        },
+        {
+          "decision": "D-0028",
+          "name": "production_release",
+          "then": "person_always",
+          "when": [
+            ["equals", "production_release", true],
+            ["equals", "rollback_automated", false]
+          ]
+        }
+      ],
+      "flavor": "rule",
+      "person": "person",
+      "policy": {},
+      "purpose": "decider",
+      "rule": {
+        "first": [
+          {
+            "decision": "D-0024",
+            "name": "amends_principle",
+            "then": "person_always",
+            "when": [
+              ["includes", "forces", "principle"]
+            ]
+          },
+          {
+            "decision": "D-0028",
+            "name": "production_release",
+            "then": "person_always",
+            "when": [
+              ["equals", "production_release", true],
+              ["equals", "rollback_automated", false]
+            ]
+          },
+          {
+            "then": "agent_unverified",
+            "when": [
+              ["equals", "timed_out", true]
+            ]
+          },
+          {
+            "then": "person",
+            "when": [
+              [
+                "in",
+                "category",
+                ["product", "security"]
+              ]
+            ]
+          },
+          {
+            "then": "person",
+            "when": [
+              ["equals", "reversibility", "one_way"]
+            ]
+          },
+          {
+            "then": "person",
+            "when": [
+              ["at_least", "overrule_rate", 0.2],
+              ["at_least", "verdicts_seen", 10]
+            ]
+          },
+          {
+            "then": "agent",
+            "when": [
+              ["equals", "delegated", true]
+            ]
+          }
+        ],
+        "otherwise": "advise"
+      },
+      "verdicts": ["person_always", "person", "agent", "agent_unverified"],
+      "version": 1
+    },
     "delivery_evidence": {
       "advice": "jev",
       "decide": {

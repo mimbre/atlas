@@ -6,11 +6,33 @@ defmodule AtlasGates.Definitions do
 
   A gate, with string keys as written: `version`, `flavor` (`rule` or `smart`), `purpose`
   (`flow` or `decider`), `evidence` (the named fields it decides on), `rule` for a rule gate
-  (`%{"all" => [condition, ...]}`), `decide` (each rule outcome to a verdict), `verdicts`
+  (`all` conditions or ordered `first`/`otherwise` cases), `decide` (each rule outcome to a verdict), `verdicts`
   (the verdicts it may give) and the safe verdict for when it cannot decide by itself.
   """
   use AtlasFlowGenerator.Runtime, target: "../../../../../flow/targets/atlas/flows.json"
 
   @doc "The gate named `name` from `gates` (default: the generated ones): `{:ok, gate}` or `:error`."
   def fetch(name, gates \\ gates()), do: Map.fetch(gates, name)
+
+  @doc "Fixed cases must be the nonempty prefix emitted by the generator, before tunable cases."
+  def check_fixed(%{
+        "fixed" => fixed,
+        "fixed_rules" => [_ | _] = rules,
+        "rule" => %{"first" => cases}
+      })
+      when is_list(cases) do
+    if Enum.take(cases, length(rules)) == rules and
+         Enum.all?(rules, fn r ->
+           is_map(r) and r["then"] == fixed and is_binary(r["decision"]) and
+             String.trim(r["decision"]) != ""
+         end),
+       do: :ok,
+       else: {:error, "fixed rules must come first, unchanged and with their decisions"}
+  end
+
+  def check_fixed(gate) do
+    if Map.has_key?(gate, "fixed") or Map.has_key?(gate, "fixed_rules"),
+      do: {:error, "fixed rules are missing or malformed"},
+      else: :ok
+  end
 end

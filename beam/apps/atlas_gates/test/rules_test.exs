@@ -63,7 +63,13 @@ defmodule AtlasGates.RulesTest do
       for {name, gate} <- rule_gates do
         assert {"uncertain", _} = Rules.evaluate(gate, %{}), "#{name} without evidence"
 
-        assert {"pass", []} = Rules.evaluate(gate, meeting(gate)),
+        expected =
+          case gate["rule"] do
+            %{"first" => [first | _]} -> first["then"]
+            _ -> "pass"
+          end
+
+        assert {^expected, []} = Rules.evaluate(gate, meeting(gate)),
                "#{name} on evidence that meets it"
 
         assert AtlasGates.Request.safe_verdict(gate) in gate["verdicts"]
@@ -72,8 +78,14 @@ defmodule AtlasGates.RulesTest do
   end
 
   # Evidence that meets a rule gate's conditions, made from the rule itself.
+  defp meeting(%{"rule" => %{"first" => [first | _]}}),
+    do: meeting(%{"rule" => %{"all" => first["when"]}})
+
   defp meeting(%{"rule" => %{"all" => conditions}}) do
     Enum.reduce(conditions, %{}, fn
+      ["includes", field, value], acc -> Map.put(acc, field, [value])
+      ["in", field, [value | _]], acc -> Map.put(acc, field, value)
+      ["at_least", field, value], acc -> Map.put(acc, field, value)
       ["equals", field, value], acc -> Map.put(acc, field, value)
       ["same", a, b], acc -> acc |> Map.put(a, "same-#{a}-#{b}") |> Map.put(b, "same-#{a}-#{b}")
     end)

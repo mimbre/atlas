@@ -118,6 +118,20 @@ defmodule AtlasFlowGenerator.Schema do
   A gate need not be named by a subflow: it is checked the same way, and other
   callers of Gates may name it.
 
+  Ordered rules use `[first: [[when: conditions, then: outcome], ...], otherwise: outcome]`.
+  Each case is a conjunction; the first matching case returns its outcome. A missing
+  field in a case stops evaluation as uncertain. Conditions also include `in` (value
+  membership), `includes` (list membership) and `at_least` (a numeric threshold).
+  `decide` covers these named outcomes plus uncertain and error.
+
+  `defrules name do rule name, when: conditions, decision: citation end` declares
+  shared fixed cases. `fixed: name` prepends them, retaining their names and citations
+  as `fixed_rules` so readers can verify the prefix. Evidence may name its sources
+  in a keyword list; this slice carries those sources as data. `answer_within:` carries
+  limits by environment. Neither sources nor limits are executed by the generator.
+  Decider gates name `fixed: :person_always`, have exactly `person_always`, `person`,
+  `agent`, `agent_unverified` as verdicts, and map uncertain, error and advise to person.
+
   ## Data
 
   `use AtlasFlowGenerator.Schema` gives the module `__flows__/0` and `__gates__/0`,
@@ -191,6 +205,8 @@ defmodule AtlasFlowGenerator.Schema do
     create: 2,
     timer: 3,
     present: 1,
+    defrules: 2,
+    rule: 2,
     defgate: 2
   ]
 
@@ -200,6 +216,7 @@ defmodule AtlasFlowGenerator.Schema do
       import AtlasFlowGenerator.Schema, only: unquote(@macros)
       Module.register_attribute(__MODULE__, :afg_flows, accumulate: true)
       Module.register_attribute(__MODULE__, :afg_gates, accumulate: true)
+      Module.register_attribute(__MODULE__, :afg_rules, accumulate: true)
       Module.put_attribute(__MODULE__, :afg_gates_module, unquote(opts[:gates]))
       Module.put_attribute(__MODULE__, :afg_scope, nil)
       @before_compile AtlasFlowGenerator.Schema
@@ -362,6 +379,41 @@ defmodule AtlasFlowGenerator.Schema do
 
   # -- Recording, while the module body runs -----------------------------------------
 
+  @doc "Shared fixed rules, prepended to a gate's ordered cases by fixed:."
+  defmacro defrules(name, do: block) do
+    quote do
+      AtlasFlowGenerator.Schema.__open__(
+        __MODULE__,
+        :rules,
+        unquote(name),
+        __ENV__.file,
+        __ENV__.line
+      )
+
+      unquote(block)
+      AtlasFlowGenerator.Schema.__close__(__MODULE__, :rules)
+    end
+  end
+
+  @doc "A named fixed rule with when: conditions and the decision: it implements."
+  defmacro rule(name, opts) do
+    quote do
+      AtlasFlowGenerator.Schema.__add__(
+        __MODULE__,
+        :rule,
+        {unquote(name), unquote(opts)},
+        __ENV__.file,
+        __ENV__.line
+      )
+    end
+  end
+
+  def __open__(mod, :rules, name, file, line) do
+    in_scope!(mod, nil, "defrules", "at the top of the module", file, line)
+    Module.put_attribute(mod, :afg_rule_set, %{name: name, line: line, rules: []})
+    Module.put_attribute(mod, :afg_scope, :rules)
+  end
+
   @doc false
   def __open__(mod, :subflow, {name, opts}, file, line) do
     in_scope!(mod, nil, "subflow", "at the top of the module", file, line)
@@ -385,12 +437,22 @@ defmodule AtlasFlowGenerator.Schema do
     Module.put_attribute(mod, :afg_scope, :subflow)
   end
 
+  def __close__(mod, :rules) do
+    Module.put_attribute(mod, :afg_rules, Module.get_attribute(mod, :afg_rule_set))
+    Module.put_attribute(mod, :afg_scope, nil)
+  end
+
   def __close__(mod, :subflow) do
     Module.put_attribute(mod, :afg_flows, Module.get_attribute(mod, :afg_flow))
     Module.put_attribute(mod, :afg_scope, nil)
   end
 
   @doc false
+  def __add__(mod, :rule, {name, opts}, file, line) do
+    in_scope!(mod, :rules, "rule", "inside defrules", file, line)
+    update(mod, :afg_rule_set, :rules, %{name: name, opts: opts, line: line})
+  end
+
   def __add__(mod, :header, {key, _} = entry, file, line) do
     in_scope!(mod, :subflow, key, "directly inside a subflow", file, line)
     update(mod, :afg_flow, :header, {entry, line})
@@ -431,7 +493,9 @@ defmodule AtlasFlowGenerator.Schema do
   defmacro __before_compile__(env) do
     file = env.file
     own = env.module |> Module.get_attribute(:afg_gates) |> Enum.reverse()
-    {gates, gate_problems} = build_gates(own)
+    rules = env.module |> Module.get_attribute(:afg_rules) |> Enum.reverse()
+    refuse!(rules_problems(rules), file)
+    {gates, gate_problems} = build_gates(own, rules)
     refuse!(gate_problems, file)
 
     raw = env.module |> Module.get_attribute(:afg_flows) |> Enum.reverse()
@@ -487,7 +551,7 @@ defmodule AtlasFlowGenerator.Schema do
 
   # -- Gates --
 
-  defp build_gates(raw) do
+  defp build_gates(raw, rules) do
     Enum.reduce(raw, {[], []}, fn %{name: name, opts: opts, line: line}, {gates, problems} ->
       gate = %{
         name: name,
@@ -503,8 +567,51 @@ defmodule AtlasFlowGenerator.Schema do
         policy: Keyword.get(opts, :policy, [])
       }
 
+      fixed = Enum.find(rules, &(&1.name == opts[:fixed]))
+
+      expanded =
+        if fixed,
+          do:
+            Enum.map(fixed.rules, fn r ->
+              [name: r.name, when: r.opts[:when], then: fixed.name, decision: r.opts[:decision]]
+            end),
+          else: []
+
+      gate =
+        if opts[:fixed] do
+          gate
+          |> Map.put(:fixed, opts[:fixed])
+          |> Map.put(:fixed_rules, expanded)
+          |> Map.update!(:rule, fn
+            [first: cases, otherwise: fallback] when is_list(cases) ->
+              [first: expanded ++ cases, otherwise: fallback]
+
+            other ->
+              other
+          end)
+        else
+          gate
+        end
+
+      gate =
+        if opts[:answer_within],
+          do: Map.put(gate, :answer_within, opts[:answer_within]),
+          else: gate
+
+      fixed_problems = [
+        (opts[:fixed] != nil and fixed == nil) &&
+          "gate #{name}: fixed names unknown defrules #{opts[:fixed]}",
+        (opts[:fixed] != nil and not match?([first: _, otherwise: _], gate.rule)) &&
+          "gate #{name}: fixed needs an ordered first/otherwise rule"
+      ]
+
       twice = Enum.any?(gates, &(&1.name == name))
-      ps = for p <- [twice_problem(twice, name) | gate_problems(gate)], p, do: {line, p}
+
+      ps =
+        for p <- [twice_problem(twice, name) | fixed_problems ++ gate_problems(gate)],
+            p,
+            do: {line, p}
+
       {gates ++ [gate], problems ++ ps}
     end)
   end
@@ -524,15 +631,61 @@ defmodule AtlasFlowGenerator.Schema do
       g.verdicts != Enum.uniq(g.verdicts) && pre <> "names a verdict twice",
       (g.verdicts != [] and g.person not in g.verdicts) &&
         pre <> "its person verdict #{g.person} is not among its verdicts"
-    ] ++ decide_problems(g, pre) ++ flavor_problems(g, pre)
+    ] ++ decide_problems(g, pre) ++ flavor_problems(g, pre) ++ decider_problems(g, pre)
   end
+
+  defp rules_problems(rules) do
+    names = Enum.map(rules, & &1.name)
+
+    Enum.flat_map(rules, fn group ->
+      [
+        {group.line,
+         group.name in (names -- Enum.uniq(names)) && "defrules #{group.name} is defined twice"},
+        {group.line, group.rules == [] && "defrules #{group.name} needs at least one rule"}
+      ] ++
+        Enum.flat_map(group.rules, fn r ->
+          [
+            {r.line, not valid_name?(r.name) && "fixed rule #{r.name} needs a valid name"},
+            {r.line,
+             not (is_binary(r.opts[:decision]) and String.trim(r.opts[:decision]) != "") &&
+               "fixed rule #{r.name} needs decision: the decision it implements"}
+          ]
+        end)
+    end)
+    |> Enum.filter(fn {_, p} -> p end)
+  end
+
+  defp decider_problems(%{purpose: :decider} = g, pre) do
+    [
+      g[:fixed] != :person_always && pre <> "a decider needs fixed: :person_always",
+      Enum.sort(g.verdicts) != Enum.sort([:person_always, :person, :agent, :agent_unverified]) &&
+        pre <>
+          "a decider's verdicts must be exactly person_always, person, agent, agent_unverified"
+    ] ++
+      for k <- [:uncertain, :error, :advise],
+          g.decide[k] != :person,
+          do: pre <> "a decider must map #{k} to person"
+  end
+
+  defp decider_problems(_g, _pre), do: []
+
+  defp outcomes(%{rule: [first: cases, otherwise: fallback]}) when is_list(cases) do
+    Enum.uniq([
+      :uncertain,
+      :error,
+      fallback
+      | Enum.flat_map(cases, fn c -> if Keyword.keyword?(c), do: [c[:then]], else: [] end)
+    ])
+  end
+
+  defp outcomes(_g), do: @outcomes
 
   # decide is total over the evaluator's outcomes, whatever the flavor, and what the
   # evaluator cannot settle goes to a person.
   defp decide_problems(g, pre) do
     decided = Keyword.keys(g.decide)
-    missing = @outcomes -- decided
-    unknown = Enum.uniq(decided) -- @outcomes
+    missing = outcomes(g) -- decided
+    unknown = Enum.uniq(decided) -- outcomes(g)
     twice = decided -- Enum.uniq(decided)
     wrong = for {_, v} <- g.decide, v not in g.verdicts, do: v
 
@@ -556,10 +709,25 @@ defmodule AtlasFlowGenerator.Schema do
 
   defp flavor_problems(%{flavor: :rule} = g, pre) do
     [g.advice != nil && pre <> "a rule gate decides by its rule; it takes no advice"] ++
-      rule_problems(g.rule, g.evidence, pre)
+      rule_problems(g.rule, evidence_fields(g.evidence), pre)
   end
 
   defp flavor_problems(_g, _pre), do: []
+
+  defp evidence_fields(evidence) do
+    if Keyword.keyword?(evidence), do: Keyword.keys(evidence), else: evidence
+  end
+
+  defp rule_problems([first: cases, otherwise: fallback], evidence, pre)
+       when is_list(cases) and cases != [] and is_atom(fallback) and not is_nil(fallback) do
+    Enum.flat_map(cases, fn c ->
+      if Keyword.keyword?(c) and is_atom(c[:then]) and c[:then] != nil do
+        rule_problems([all: c[:when]], evidence, pre)
+      else
+        [pre <> "each first rule case needs when: conditions and then: outcome"]
+      end
+    end)
+  end
 
   defp rule_problems(nil, _evidence, pre),
     do: [pre <> "a rule gate needs rule: [all: conditions] over its evidence"]
@@ -570,7 +738,7 @@ defmodule AtlasFlowGenerator.Schema do
         nil ->
           [
             pre <>
-              "rule condition #{inspect(c)} is not {:equals, field, value} or {:same, field, other}"
+              "rule condition #{inspect(c)} is not {:equals, field, value} or {:same, field, other}, or a valid in/includes/at_least condition"
           ]
 
         fields ->
@@ -582,7 +750,10 @@ defmodule AtlasFlowGenerator.Schema do
   end
 
   defp rule_problems(_rule, _evidence, pre),
-    do: [pre <> "rule must be [all: conditions], with at least one condition"]
+    do: [
+      pre <>
+        "rule must be [all: conditions] or [first: cases, otherwise: outcome], with at least one condition or case"
+    ]
 
   defp condition_fields({:equals, field, value})
        when is_atom(field) and (is_binary(value) or is_number(value) or is_boolean(value)),
@@ -590,6 +761,15 @@ defmodule AtlasFlowGenerator.Schema do
 
   defp condition_fields({:same, field, other}) when is_atom(field) and is_atom(other),
     do: [field, other]
+
+  defp condition_fields({:in, field, values}) when is_atom(field) and is_list(values), do: [field]
+
+  defp condition_fields({:includes, field, value})
+       when is_atom(field) and (is_binary(value) or is_number(value) or is_boolean(value)),
+       do: [field]
+
+  defp condition_fields({:at_least, field, value}) when is_atom(field) and is_number(value),
+    do: [field]
 
   defp condition_fields(_), do: nil
 

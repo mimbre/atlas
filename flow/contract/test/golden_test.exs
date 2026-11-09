@@ -100,7 +100,13 @@ defmodule AtlasFlowContract.GoldenTest do
     assert %{"flavor" => "rule", "purpose" => "flow", "rule" => %{"all" => [_, _, _]}} =
              Committed.gates()["integrate"]
 
-    assert Map.keys(Committed.gates()) == ["delivery_evidence", "design", "integrate", "review"]
+    assert Map.keys(Committed.gates()) == [
+             "accept_decision",
+             "delivery_evidence",
+             "design",
+             "integrate",
+             "review"
+           ]
   end
 
   @tag :rela
