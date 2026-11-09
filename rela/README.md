@@ -1,8 +1,8 @@
 # Versioned description
 
 `schema.yaml` selects native rela 26.11.2 includes. Foundation owns actors,
-Assignments and turns; optional foundation audit owns requests/steps; software
-factory owns Issue/PR and compatibility fields; module `eyra` owns Scene/Use Case and
+Assignments and turns; optional foundation audit owns requests/steps; module
+`software` owns Issue/PR and compatibility fields; module `eyra` owns Scene/Use Case and
 hierarchy/acceptance. The composition owns the complete `assignment` relation.
 Includes are relative to the selected schema root, including nested includes.
 Every definition has one owner; no overrides or property augmentation.
@@ -59,7 +59,7 @@ internal consistency check within the existing merge-driven promotion route.
 
 `tests/profiles.py` creates disposable foundation-only and incident compositions.
 They are dependency proofs, not installed workflows. Foundation omits audit/software/
-`eyra`; incident reuses foundation/audit/factory and selects independent person service
+`eyra`; incident reuses foundation/audit/software and selects independent person service
 resolution, with no Scene, Use Case or accepted_by. Its e2e uses private stores,
 Control, a GitHub stand-in and Runtime stub only. Existing populated `eyra` stores
 cannot switch to these fixtures; fits must continue refusing stranded data.
