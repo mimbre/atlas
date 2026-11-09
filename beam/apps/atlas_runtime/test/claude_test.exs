@@ -91,9 +91,13 @@ defmodule AtlasRuntime.ClaudeTest do
   end
 
   test "any other exit is a crash; stop kills the process", %{tmp_dir: dir} do
-    {:ok, pid} = Claude.start(@turn, opts(dir, fake(dir, "exit 3\n")))
-    ref = Process.monitor(pid)
-    assert_receive {:DOWN, ^ref, :process, ^pid, {:exit, 3}}, 2_000
+    # Monitored as it starts (Claude.start/2's GenServer.start, with the monitor set in the
+    # same step): a fake that exits at once can be gone before a later Process.monitor/1,
+    # whose DOWN then says :noproc, not why it ended. Its exit always comes: no deadline.
+    {:ok, {pid, ref}} =
+      :gen_server.start_monitor(Claude, {self(), @turn, opts(dir, fake(dir, "exit 3\n"))}, [])
+
+    assert {:exit, 3} == receive(do: ({:DOWN, ^ref, :process, ^pid, reason} -> reason))
 
     # The adapter intentionally removes system tools from PATH. exec also keeps the
     # long-lived fake on the exact port PID that stop must terminate.
