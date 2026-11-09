@@ -237,6 +237,8 @@ type claudeSandbox struct {
 	ExcludedCommands         []string         `json:"excludedCommands"`
 	Filesystem               claudeFilesystem `json:"filesystem"`
 	Network                  claudeNetwork    `json:"network"`
+	// AllowPty lets sandboxed commands open pseudo-terminals (/dev/ptmx); Claude honours it on macOS only.
+	AllowPty bool `json:"allowPty,omitempty"`
 }
 
 type claudePermissions struct {
@@ -265,7 +267,7 @@ func claudeRepositorySettings(scope any, temporary string) (string, error) {
 	}
 	settings := claudeSettings{Sandbox: claudeSandbox{true, true, false, []string{},
 		claudeFilesystem{AllowWrite: []string{root, temporary}, DenyWrite: deny},
-		claudeNetwork{AllowedDomains: fields["network_hosts"]}}}
+		claudeNetwork{AllowedDomains: fields["network_hosts"]}, false}}
 	if platform == "darwin" {
 		settings.Sandbox.Network.AllowMachLookup = []string{"com.apple.trustd.agent"}
 	}
@@ -280,10 +282,11 @@ func claudeRepositorySettings(scope any, temporary string) (string, error) {
 // sockets only inside the private temp (Claude scopes them on macOS only; Linux still blocks them).
 // Read deny rules cover the native Read/Glob/Grep tools; Claude also merges them into the
 // sandbox's denyRead, which is listed explicitly for the Bash sandbox as well. Bash may
-// read (and so execute) the inspector even inside a denied path.
+// read (and so execute) the inspector even inside a denied path. Bash may open pseudo-terminals,
+// so tmux panes (the e2e TUIs) run in the worker; a review pass may not.
 func claudeFolderSettings(scope map[string]any, temporary, user, inspector string) (string, error) {
 	root, _ := scope["root"].(string)
-	return claudeWorkerSettings(scope, temporary, user, inspector, []string{root}, nil)
+	return claudeWorkerSettings(scope, temporary, user, inspector, []string{root}, nil, true)
 }
 
 // claudePacketSettings is the native sandbox and file-tool policy of a review pass: the policy of the
@@ -298,12 +301,13 @@ func claudePacketSettings(scope map[string]any, temporary, user, inspector strin
 		return "", errors.New("Review packet scope is incomplete")
 	}
 	return claudeWorkerSettings(scope, temporary, user, inspector, []string{findings},
-		[]string{root, filepath.Join(packet, "packet.json"), filepath.Join(packet, "diff.json")})
+		[]string{root, filepath.Join(packet, "packet.json"), filepath.Join(packet, "diff.json")}, false)
 }
 
 // claudeWorkerSettings is the policy described at claudeFolderSettings with writable as the written
-// project paths and frozen as project paths that are read but never written.
-func claudeWorkerSettings(scope map[string]any, temporary, user, inspector string, writable, frozen []string) (string, error) {
+// project paths, frozen as project paths that are read but never written, and pty whether Bash may
+// open pseudo-terminals.
+func claudeWorkerSettings(scope map[string]any, temporary, user, inspector string, writable, frozen []string, pty bool) (string, error) {
 	root, _ := scope["root"].(string)
 	home, _ := scope["home"].(string)
 	record, _ := scope["record"].(string)
@@ -413,7 +417,7 @@ func claudeWorkerSettings(scope map[string]any, temporary, user, inspector strin
 			claudeFilesystem{AllowWrite: append(slices.Clone(writable), temporary),
 				DenyWrite: append(append(roots, protected...), readOnly...), DenyRead: append([]string{user}, protected...), AllowRead: allowRead},
 			claudeNetwork{AllowedDomains: []string{}, StrictAllowlist: true, AllowUnixSockets: []string{temporary},
-				AllowLocalBinding: true}},
+				AllowLocalBinding: true}, pty},
 		Permissions: &claudePermissions{rules},
 	}
 	return encodeSettings(settings)
