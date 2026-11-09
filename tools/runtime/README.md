@@ -394,7 +394,7 @@ A strict, reproducible preparation, not a rebuild after edits: it regenerates ex
 
 Tests (step 11b, 2026-11-09): Go tests with stand-in Codex, npm and node cover the exact arguments and offline environment, regeneration with a clean status, diff and submit, exclusion of only untracked outputs, failures for a changed, re-moded or removed tracked output, a file outside the outputs and a failing script, every refusal, repeats, the shared lock, an interrupted claim, and version 1 and 2 record validation. `TestRunProfileIsEnforcedByInstalledCodexSandbox` probes the network-off profile under the installed Codex sandbox; it, the host-level tests and a real viewer build need a run outside the worker sandbox, where its Codex home check and loopback listening are denied; only the snapshot-level tests ran inside it.
 
-## Review packets (snapshot freeze)
+## Review packets (snapshot freeze, snapshot discard)
 
 ```sh
 atlas-runtime snapshot freeze --dest /abs/assignment --turn TURN_ID --packet /abs/packet --packet-id UUID [--previous PACKET_ID]
@@ -407,7 +407,19 @@ Freezes a materialized folder after its author turn, so a review has a stable su
 - **Fingerprints:** every repository in `packet.json` has the fingerprint and entries `snapshot submit` reports and sends for the same content; a clean repository has `entries: []`. The packet fingerprint is `fpr_` + SHA-256 of `{"repositories":[{"fingerprint","path","repository"}…],"snapshot_id","version":1}`, sorted by path. Paths outside every repository are listed in `outside` and are in no fingerprint.
 - **Consistency:** the tree is scanned again after the copy; content that differs from the folder's scan refuses with `folder … changed during freeze; nothing was frozen` and removes the packet folder and its records.
 - **Result:** `packet.json` plus `state: "frozen"`, `packet` and `cost`: `elapsed_ms`, `files`, `bytes`, `cloned_files`, `copied_files`, `copied_bytes`, `free_bytes_before`, `free_bytes_after` and `disk_used_bytes` (the drop in free space; noisy on a busy volume). A repeat with the same packet ID and arguments returns the recorded packet with `state: "existing"` and no cost; other arguments under a used ID are a conflict.
-- **Limits:** read-only modes do not stop a process of the same user; enforcement for review passes is the planned `review-packet` profile. Clones keep extended attributes and ACLs. Nothing removes packets yet (`snapshot discard` is a later step).
+- **Limits:** read-only modes do not stop a process of the same user; enforcement for review passes is the planned `review-packet` profile. Clones keep extended attributes and ACLs. Runtime removes no packet by itself; `snapshot discard` below removes one on request.
+
+```sh
+atlas-runtime snapshot discard --packet /abs/packet | --packet-id UUID
+```
+
+Removes a packet folder once its review is over. Offline: no Code, Runtime service or Git.
+
+- **Refused, nothing removed:** both or neither of `--packet` and `--packet-id`, a packet ID or path with no record under `packets/`, a lock on `/abs/packet/tree` (a review pass or a submission from the tree: `folder … has an active Runtime owner; nothing was discarded`), and a folder at the recorded path whose `tree` is not a directory or is not recorded as this packet.
+- **Removed:** `/abs/packet` (the read-only tree, `packet.json`, `diff.json` and `findings/`), the tree's materialization record and its copied preparation result. Read-only directories and files are made writable first; symbolic links are never followed, and every change stays inside the folder, as the host's scratch cleanup does.
+- **Kept:** `packets/PACKET_ID/` with `packet.json`, `diff.json` and the findings records, plus a new `discarded.json` `{packet_id, packet, tree, fingerprint, discarded_at}`. Retention of these records is the planned cleanup step.
+- **Result and repeats:** `{state: "discarded", packet_id, packet, tree, fingerprint, discarded_at, record}`. A repeat by path or ID returns the same result; an interrupted discard (folder gone, record left) completes on a repeat. By path, after a later freeze reused the path, the packet not yet discarded is chosen; with all discarded, the latest discard is reported.
+- **Limits:** a folder left by a freeze killed before its commit point has no record under `packets/` and is not removed by discard; remove it by hand. Discard is not coordinated with a concurrent `snapshot findings` on the same packet beyond the tree lock.
 
 ## Claude scoped repository writes
 
