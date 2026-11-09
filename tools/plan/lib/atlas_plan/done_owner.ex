@@ -21,8 +21,6 @@ defmodule AtlasPlan.DoneOwner do
   steps, and writes nothing. A second run finds nothing left to do.
   """
 
-  alias AtlasPlan.Owner
-
   @cause "done: no owner (IS-Atlas-75's rule)"
   @component "assignment"
   @owner "assigned_to"
@@ -88,12 +86,11 @@ defmodule AtlasPlan.DoneOwner do
   def run(client, url, opts \\ []) do
     say = Keyword.get(opts, :say, &IO.puts/1)
 
-    with {:ok, schema} <- Owner.get(url, "_schema"),
+    with {:ok, schema} <- get(url, "_schema"),
          plural when is_binary(plural) <-
            get_in(schema, ["entities", @component, "plural"]) ||
              {:error, "rela has no #{@component} kind: does it run the new description?"},
-         {:ok, facts} <- Owner.read(url, [plural]) do
-      parts = facts[plural] || []
+         {:ok, parts} <- list(url, plural, 1, []) do
       origins = origins(client, candidates(parts))
       steps = steps(parts, origins)
       say.("IS-Atlas-88 one-off: #{length(steps)} steps; cause: #{@cause}")
@@ -140,6 +137,33 @@ defmodule AtlasPlan.DoneOwner do
 
       error ->
         error
+    end
+  end
+
+  # rela's API, read-only: every fact of a kind, page by page.
+  defp list(url, plural, page, acc) do
+    case get(url, "#{plural}?per_page=100&page=#{page}") do
+      {:ok, %{"data" => data, "meta" => meta}} ->
+        acc = acc ++ data
+        if meta["has_more"], do: list(url, plural, page + 1, acc), else: {:ok, acc}
+
+      {:ok, other} ->
+        {:error, "rela answered #{plural} with #{inspect(other) |> String.slice(0, 200)}"}
+
+      error ->
+        error
+    end
+  end
+
+  defp get(url, path) do
+    address = String.to_charlist("#{url}/#{path}")
+
+    case :httpc.request(:get, {address, [{~c"accept", ~c"application/json"}]}, [timeout: 10_000],
+           body_format: :binary
+         ) do
+      {:ok, {{_, 200, _}, _, body}} -> {:ok, JSON.decode!(body)}
+      {:ok, {{_, status, _}, _, _}} -> {:error, "rela at #{url} answered #{status} to #{path}"}
+      other -> {:error, "rela at #{url} did not answer #{path}: #{inspect(other)}"}
     end
   end
 end

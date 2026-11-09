@@ -8,11 +8,11 @@ and worker operations live under `AtlasBFFContract.Wire.Control`. The root
 dispatch and literal CLI bindings; `Wire.Runtime.Types` generates shared structs.
 The JSON target exports the same definitions.
 
-The first consumers are the private IS125 stub playground and later production
-CLI/Console adapters. Declaring a command does not expose an endpoint or grant a
-permission. Services still authenticate identities, authorize targets, report
-proven capabilities, bind request IDs and enforce lifecycle policy. This slice
-does not activate a worker, listener, model or harness.
+The Runtime node and Control use it; production CLI/Console adapters are to
+follow. Declaring a command does not expose an endpoint or grant a permission.
+Services still authenticate identities, authorize targets, report proven
+capabilities, bind request IDs and enforce lifecycle policy. This slice does not
+activate a worker, listener, model or harness.
 
 Control frames use channel `control`, version `0.1.0` and a request ID. Status
 events use channel `event` and a sequence; they are snapshots/hints, not durable

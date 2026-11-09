@@ -64,7 +64,7 @@ def observe_status(root, environment, request, inspect_process=None, client_file
     status['capabilities']['local_start'] = False
     # Reuse the shared pure PID parser before invoking any inspector. Its native
     # boundary independently checks pid_t bounds too; no stop path is used here.
-    spec = importlib.util.spec_from_file_location('atlas_process_identity', Path(root)/'tools/runtime-playground/launch.py')
+    spec = importlib.util.spec_from_file_location('atlas_process_identity', Path(root)/'tools/process_identity.py')
     inspector = importlib.util.module_from_spec(spec)
     previous = sys.dont_write_bytecode
     try:

@@ -12,5 +12,3 @@ atlas put pull_request --url https://github.com/mimbre/atlas/pull/14 --in IS-Atl
 `--in <code>` names the parent, `--<field>-file <path>` or `--<field> -` (stdin) reads text of several lines, and `atlas get <code>` and `atlas list <kind> [--in <code>]` read.
 
 An agent that plans gets the same actions as tools: `atlas tools` lists them, made from rela's description through Control. `atlas plan --on <code> "<request>"` asks the environment's planner (`agent.planner` in `env/<env>.json`: a local `claude -p` that may only read, or any command) what it would do on that page. It answers steps, each checked against the form it would fill, and writes nothing ([uc-atlas-16.md](uc-atlas-16.md)). In the TUI, `:` asks the same agent (`atlas steer`, which the TUI starts) about the page you are on; you keep, edit or drop each step, and the kept ones run through Control ([uc-atlas-17.md](uc-atlas-17.md)).
-
-`atlas load-plan <SCENES.md> tools/plan/links.json [--dry-run]` loads a plan from a SCENES.md file the same way. It never changes an existing item, and when a code is taken it maps it to the next one.

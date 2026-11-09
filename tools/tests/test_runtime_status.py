@@ -145,8 +145,8 @@ class StatusProjectionTest(unittest.TestCase):
             home = Path(temporary)/'runtime'; home.mkdir()
             config = home/'runtime.json'; config.write_text(json.dumps({'env': 'test', 'runtime': {'machine': 'fixture'}, 'bus_link': {'machine': 'fixture'}}))
             (home/'runtime.pid').write_text('1234')
-            fake = Path(temporary)/'checkout'; (fake/'tools/runtime-playground').mkdir(parents=True)
-            (fake/'tools/runtime-playground/launch.py').write_text('def parse_pid(record): return int(record)\ndef process_identity(pid): return {"uid": '+str(os.getuid())+'}\n')
+            fake = Path(temporary)/'checkout'; (fake/'tools').mkdir(parents=True)
+            (fake/'tools/process_identity.py').write_text('def parse_pid(record): return int(record)\ndef process_identity(pid): return {"uid": '+str(os.getuid())+'}\n')
             before = sorted(str(p) for p in Path(temporary).rglob('*'))
             previous = sys.dont_write_bytecode
             try:

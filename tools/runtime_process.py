@@ -26,7 +26,7 @@ class LocalRuntime:
         self.client_file = Path(client_file).resolve()
         self.file = self.base/'runtime.processes.json'
         if inspector is None:
-            spec = importlib.util.spec_from_file_location('owned_runtime_inspector', self.root/'tools/runtime-playground/launch.py')
+            spec = importlib.util.spec_from_file_location('owned_runtime_inspector', self.root/'tools/process_identity.py')
             inspector = importlib.util.module_from_spec(spec)
             previous = sys.dont_write_bytecode
             try:

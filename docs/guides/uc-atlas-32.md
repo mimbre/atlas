@@ -37,30 +37,9 @@ The rules are data in `rela/atlas.json`: `completion` per kind (`by` an associat
 
 **Known limit, until there is sign-in:** a client is what its hello says (`tui`, `agent`, `migration`). Control has no sign-in, so "only a person accepts" holds only as long as clients say truthfully what they are. Anything that says `tui` acts as the environment's `tui_user`.
 
-## Prod: the migration (for the coordinator, after the merge)
+## Prod: the migration
 
-The description changes, so rela has to restart on it, then the data follows. Dry run first:
-
-```sh
-cd ~/projects/eyra/atlas            # on develop, with this merged
-atlas rela-stop --env prod          # rela reads the new schema.yaml when it starts
-atlas restart --env prod            # starts rela again, and the core of this build
-atlas migrate-completion --env prod --dry-run
-atlas migrate-completion --env prod
-```
-
-The dry run prints every step and writes nothing. On prod today that is 47 steps, each one fact with the cause `completion becomes an association (UC-Atlas-32)`:
-
-- the person `melle`;
-- `accepted_by` melle on UC-Atlas-01, 02, 03 and 04 (the ones with completed=true; no scene has it);
-- 30 issues from stage testing to development;
-- `done_in` for the 12 issues done in another issue's pull request: IS-Atlas-02 to 07 in PR #1, IS-Atlas-08 in PR #2, IS-Atlas-12 and 34 to 37 in PR #14 (`tools/plan/done_in.json`).
-
-The real run then stops rela, removes the old `completed` values with rela's own `rela migrate gc` (rela keeps a removed field's values and refuses to change them over its API), and starts rela again. A second run finds nothing to do.
-
-Check: `atlas get UC-Atlas-01 --env prod` shows `Accepted by: melle (since …, by migration: completion becomes an association (UC-Atlas-32))`; `atlas get IS-Atlas-34 --env prod` shows `Also done in: PR-eyra-atlas-14`.
-
-IS-Atlas-62 and IS-Atlas-63 merge together, then the migration runs. After it the accepted use cases show Done again, and every issue with a merged pull request (its own, or `done_in`) shows Done.
+The one-off `atlas migrate-completion` made the person `melle`, set `accepted_by` and `done_in` from the old values, and removed the old `completed` values; it has since been removed.
 
 ## What changed for this
 
@@ -68,6 +47,5 @@ IS-Atlas-62 and IS-Atlas-63 merge together, then the migration runs. After it th
 - **State:** a change may set or remove the links of the relations it names. State records the fact that set each link (when, position, by, cause) in `links.dets` in its data folder, and answers each link with its `origins`, and one fact with the `history` of its links.
 - **Control:** a page shows each association with the fact that set it (`pair.origin` in the contract, 0.8.0). `/k/<kind>/<key>/links/<relation>` sets or removes an association's links, with a note as its cause; parents and `set_by` associations are refused there. Each fact carries `by`: who is on the session. A submit may carry a `cause`.
 - **Clients:** the TUI shows the origin dim under the value. `atlas set <key> <association>=<key>` sets a link, empty removes it, and `--cause` says why (put and set). `atlas get --json` gives `origins`.
-- **Tools:** `atlas migrate-completion` (`tools/plan`, `AtlasPlan.Completion`).
 - **IS-Atlas-64:** `rela/atlas.json` gives `accepted_by` `only_target` (only one of the facts it points at sets it, to itself; `also`: the migration), `actions` (`set`: Accept, `remove`: Reopen, both on `a`, so the page has one action on it), `requires_completed_children` and `closes_parent`. Control offers the actions on the page to a person only (`/k/<kind>/<key>/set/<rel>` asks first, `/remove/<rel>` asks for a note), refuses them for anyone else, and refuses a create or move under an accepted fact. It learns the TUI's user is a person when that person exists (on hello, and on every reconcile).
 - **IS-Atlas-63:** `AtlasState.Completion` works out why a fact is completed from its kind's `completion` rule; reads answer it as `completion`. `AtlasState.Progress` shows Done only for a completed fact, `To test` when all its children are and it is not. An issue has a progress rule of its own (`own: stage`), so its row shows `Done` in place of its stage. A pull request's change is a hint to every page whose progress or completion it changes. The page's `Progress` line says why it is done.

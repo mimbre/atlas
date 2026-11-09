@@ -106,7 +106,7 @@ defmodule Mix.Tasks.Atlas.E2e do
 
   # Compile first, so starting the core or a TUI never waits for a compile.
   defp compile do
-    for dir <- ["beam", "clients/tui", "clients/agent", "tools/plan"] do
+    for dir <- ["beam", "clients/tui", "clients/agent"] do
       {out, status} =
         System.cmd("mix", ["compile"],
           cd: Path.join(Instance.root(), dir),
