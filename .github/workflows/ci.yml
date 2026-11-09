@@ -148,6 +148,9 @@ jobs:
       - run: mix compile --warnings-as-errors
       - run: mix format --check-formatted
       - run: mix test --include integration
+      # A submit through Control waits until Flow settled past it (docs/design/page-freshness.md
+      # §2.2), on Facts, Flow and a Control session over the Bus; ExUnit exits non-zero on a failure.
+      - run: mix run integration/settle_submit.exs
 
   tui:
     name: TUI
