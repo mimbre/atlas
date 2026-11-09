@@ -7,7 +7,8 @@ defmodule AtlasTui.ConsoleView do
     title = if shell, do: shell["title"], else: "Atlas Console"
     count = if model.count, do: " · " <> model.count, else: ""
     stale = if console.stale && shell, do: " · stale shell", else: ""
-    suffix = " · #{model.env}"
+    # The environment segment keeps a cell either side, so it reads as a badge.
+    suffix = " · #{model.env} "
     title = String.slice(title, 0, max(width - String.length(suffix) - 1, 0))
     # Keep environment and stale state readable even in a narrow viewport.
     {title, stale} =
@@ -15,11 +16,20 @@ defmodule AtlasTui.ConsoleView do
         do: {"stale shell", ""},
         else: {title, stale}
 
+    # The bar spans the row; only production marks its environment name, as a badge.
+    bar = [
+      {:header, " #{title} ·"},
+      {if(model.env == "prod", do: :prod, else: :header), " #{model.env} "},
+      {:header, String.trim_leading(count)},
+      {:pending, stale}
+    ]
+
+    bar = Enum.reject(bar, fn {_, text} -> text == "" end)
+
+    used = Enum.reduce(bar, 0, fn {_, text}, n -> n + String.length(text) end)
+
     [
-      [
-        {if(model.env == "prod", do: :prod, else: :bold), " #{title}#{suffix}#{count}"},
-        {:pending, stale}
-      ],
+      bar ++ [{:header, String.duplicate(" ", max(width - used, 0))}],
       [{:dim, "┌" <> String.duplicate("─", max(width - 2, 0)) <> "┐"}],
       [{:dim, "│"}] ++ tabs(shell, console.active, max(width - 2, 0)) ++ [{:dim, "│"}],
       [{:dim, "└" <> String.duplicate("─", max(width - 2, 0)) <> "┘"}]
