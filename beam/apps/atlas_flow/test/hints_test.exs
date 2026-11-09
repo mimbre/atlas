@@ -444,7 +444,7 @@ defmodule AtlasFlow.HintsTest do
     assert todo("W-9") == nil
 
     ManualClock.advance(c.clock, @every)
-    :sys.get_state(c.engine)
+    Engine.idle(c.engine)
     assert todo("W-9") == "Tend it"
   end
 

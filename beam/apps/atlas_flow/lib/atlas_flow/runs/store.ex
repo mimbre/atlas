@@ -299,15 +299,84 @@ defmodule AtlasFlow.Runs.Store do
   def reconcile(nil, _flows, _now), do: {:ok, []}
 
   def reconcile(config, flows, now) do
-    config = with_flows(config, flows)
+    with {:ok, %{runs: known, subjects: subjects}} <- plan(config, flows) do
+      Enum.reduce_while(subjects, {:ok, known}, fn subject, {:ok, known} ->
+        case reconcile_subjects(config, flows, now, known, [subject]) do
+          {:ok, runs} -> {:cont, {:ok, merge(known, runs)}}
+          error -> {:halt, error}
+        end
+      end)
+    end
+  end
 
-    with {:ok, restored} <- restore(config, flows, now),
-         {:ok, runs} <- scan(config, flows, now, restored) do
+  @doc """
+  What a round reconciles, read whole from Facts but not reconciled yet: `{:ok, %{runs:,
+  subjects:}}`. `runs`: the latest generation of every run of a selected subflow, as Facts
+  holds it. `subjects` (`[{kind, key}]`, each once): the subject of each of those runs,
+  then each subject a selection admits that has none yet. Reconciling each subject with
+  `reconcile_subjects/5` (one after the other, in any number of steps) reconciles every
+  run, as one reconcile would: a subject reconciled again (by a hint in between) is only
+  drained again, and writes nothing it wrote already.
+  """
+  def plan(nil, _flows), do: {:ok, %{runs: [], subjects: []}}
+
+  def plan(config, _flows) do
+    with {:ok, runs} <- stored_runs(config),
+         {:ok, admitted} <- admitted_subjects(config) do
+      subjects = for(run <- runs, do: {run["subject_kind"], run["subject_key"]}) ++ admitted
+      {:ok, %{runs: runs, subjects: Enum.uniq(subjects)}}
+    end
+  end
+
+  @doc """
+  `known` runs with `runs` reconciled since (as `reconcile_subjects/5` answers them, the
+  latest drained first): each replaces the one of its subflow and subject, and the latest
+  generation is kept.
+  """
+  def merge(known, runs) do
+    (known ++ Enum.reverse(runs))
+    |> Enum.group_by(&{&1["flow"], &1["subject_kind"], &1["subject_key"]})
+    |> Enum.map(fn {_, group} ->
+      # The last one reconciled of the latest generation.
+      top = Enum.max_by(group, & &1["generation"])
+      group |> Enum.filter(&(&1["generation"] == top["generation"])) |> List.last()
+    end)
+  end
+
+  # The latest generation of every run of a selected subflow, as Facts holds it.
+  defp stored_runs(config) do
+    with %{"facts" => facts} <- Talk.transition_read(config["kind"], %{}),
+         decoded = Enum.map(facts, &decode(config, &1)),
+         true <- Enum.all?(decoded, &match?({:ok, _}, &1)) do
+      runs = for {:ok, run} <- decoded, Map.has_key?(config["selection"], run["flow"]), do: run
+
       {:ok,
        runs
-       |> Enum.group_by(&{&1["flow"], &1["subject_key"]})
-       |> Enum.map(fn {_, group} -> Enum.max_by(group, & &1["generation"]) end)}
+       |> Enum.group_by(&{&1["flow"], &1["subject_kind"], &1["subject_key"]})
+       |> Enum.map(fn {_, group} -> Enum.max_by(group, & &1["generation"]) end)
+       |> Enum.sort_by(&{&1["subject_kind"], &1["subject_key"], &1["flow"]})}
+    else
+      other -> {:error, {:runs_unavailable, other}}
     end
+  end
+
+  # Every subject a selection admits now, `{kind, key}`, in the selection's order.
+  defp admitted_subjects(config) do
+    Enum.reduce_while(Enum.sort(config["selection"]), {:ok, []}, fn {_name, selection},
+                                                                    {:ok, acc} ->
+      case Talk.transition_read(selection["subject"], %{}) do
+        %{"facts" => subjects} ->
+          admitted =
+            for subject <- Enum.sort_by(subjects, & &1["key"]),
+                Run.holds?(selection["admission"], subject["values"] || %{}),
+                do: {selection["subject"], subject["key"]}
+
+          {:cont, {:ok, acc ++ admitted}}
+
+        other ->
+          {:halt, {:error, {:unavailable, other}}}
+      end
+    end)
   end
 
   @doc """
@@ -375,61 +444,6 @@ defmodule AtlasFlow.Runs.Store do
     end
   end
 
-  defp restore(config, flows, now) do
-    with %{"facts" => facts} <- Talk.transition_read(config["kind"], %{}),
-         decoded = Enum.map(facts, &decode(config, &1)),
-         true <- Enum.all?(decoded, &match?({:ok, _}, &1)) do
-      runs = for {:ok, run} <- decoded, Map.has_key?(config["selection"], run["flow"]), do: run
-
-      runs =
-        runs
-        |> Enum.group_by(&{&1["flow"], &1["subject_kind"], &1["subject_key"]})
-        |> Enum.map(fn {_, group} -> Enum.max_by(group, & &1["generation"]) end)
-
-      Enum.reduce_while(runs, {:ok, []}, fn run, {:ok, acc} ->
-        case settle(config, run["key"], flows[run["flow"]], now) do
-          {:ok, restored, parents} -> {:cont, {:ok, parents ++ [restored | acc]}}
-          error -> {:halt, error}
-        end
-      end)
-    else
-      other -> {:error, {:runs_unavailable, other}}
-    end
-  end
-
-  defp scan(config, flows, now, restored) do
-    Enum.reduce_while(config["selection"], {:ok, restored}, fn {name, selection}, {:ok, runs} ->
-      case Talk.transition_read(selection["subject"], %{}) do
-        %{"facts" => subjects} = answer ->
-          subjects =
-            Enum.map(
-              subjects,
-              &Map.put(&1, "position", answer["position"] || &1["position"] || 0)
-            )
-
-          result =
-            Enum.reduce_while(subjects, {:ok, runs}, fn subject, {:ok, acc} ->
-              if Run.holds?(selection["admission"], subject["values"] || %{}) do
-                case reconcile_subject(config, name, flows[name], selection, subject, now, acc) do
-                  {:ok, run, parents} -> {:cont, {:ok, parents ++ [run | acc]}}
-                  error -> {:halt, error}
-                end
-              else
-                {:cont, {:ok, acc}}
-              end
-            end)
-
-          case result do
-            {:ok, _} -> {:cont, result}
-            error -> {:halt, error}
-          end
-
-        other ->
-          {:halt, {:error, {:unavailable, other}}}
-      end
-    end)
-  end
-
   defp reconcile_subject(config, name, flow, selection, subject, now, restored) do
     existing = Enum.find(restored, &(&1["flow"] == name and &1["subject_key"] == subject["key"]))
 
@@ -448,9 +462,13 @@ defmodule AtlasFlow.Runs.Store do
 
   # Drain one run; when it is a child of an applied link or count and it moved (another
   # state, entry or status), drain the runs on its parents too, so a child's completion
-  # reaches its parent in the same reconcile and not only after a hint Flow never gets
-  # (its own writes are not hinted). `{:ok, run, parents}`: the runs it drained.
-  defp settle(config, key, flow, now, new \\ nil) do
+  # reaches its ancestors in the same reconcile and not only after a hint Flow never
+  # gets (its own writes are not hinted). Bound the parent chain as the drain's own
+  # transitions are bounded. `{:ok, run, parents}`: the runs it drained, latest first.
+  defp settle(config, key, flow, now, new \\ nil, remaining \\ 32)
+  defp settle(_config, _key, _flow, _now, _new, 0), do: {:error, :transition_limit}
+
+  defp settle(config, key, flow, now, new, remaining) do
     # A new run moved when its reaction took it from where it was made.
     before =
       case new || fetch(config, key) do
@@ -468,7 +486,8 @@ defmodule AtlasFlow.Runs.Store do
       moved = fn -> Map.take(before || %{}, @moved) != Map.take(run, @moved) end
 
       if child?(config, run["flow"]) and moved.() do
-        with {:ok, parents} <- parents(config, run, now), do: {:ok, run, parents}
+        with {:ok, parents} <- parents(config, run, now, remaining - 1),
+             do: {:ok, run, parents}
       else
         {:ok, run, []}
       end
@@ -562,8 +581,11 @@ defmodule AtlasFlow.Runs.Store do
     # entry the stored run is in). A moved cursor reads none yet: a link, count or
     # synthetic input may move it on without them, and it is stored before they are read.
     cursor? = config["inputs"] == nil or durable?(d, run, ~w(state entry status deadlines))
+    # Only a run that takes inputs reads them: a completed, blocked or idle one never takes
+    # one, and a prepared input left on it would fail the read.
+    read? = cursor? and Run.takes_inputs?(run)
 
-    with {:ok, inputs} <- if(cursor?, do: read_inputs(config["inputs"], run), else: {:ok, []}) do
+    with {:ok, inputs} <- if(read?, do: read_inputs(config["inputs"], run), else: {:ok, []}) do
       # Recover prepared writes first, then fetch the subject's current ETag.
       case Talk.transition_read(run["subject_kind"], %{
              "key" => run["subject_key"],
@@ -738,7 +760,7 @@ defmodule AtlasFlow.Runs.Store do
 
   # The runs on the parents a child run relates to now, drained. A parent the child left
   # (a delete or a move) is counted again by its own hint or the next round.
-  defp parents(config, child, now) do
+  defp parents(config, child, now, remaining) do
     entries =
       for x <- config["composition"]["links"] ++ config["composition"]["counts"],
           x["child"] == child["flow"],
@@ -761,8 +783,9 @@ defmodule AtlasFlow.Runs.Store do
 
         Enum.reduce_while(targets, {:ok, []}, fn {name, kind, parent}, {:ok, acc} ->
           with {:ok, %{} = run} <- latest(config, name, kind, parent),
-               {:ok, drained} <- drain(config, run["key"], config["flows"][name], now, 32) do
-            {:cont, {:ok, [drained | acc]}}
+               {:ok, drained, ancestors} <-
+                 settle(config, run["key"], config["flows"][name], now, nil, remaining) do
+            {:cont, {:ok, ancestors ++ [drained | acc]}}
           else
             {:ok, nil} -> {:cont, {:ok, acc}}
             error -> {:halt, error}

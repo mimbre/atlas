@@ -1,5 +1,6 @@
 # The steps of the page freshness proof, required by proof.exs once the e2e helpers it
 # names (AtlasE2E.Scenario, AtlasE2E.Tui, PageFreshness.*) are loaded into the core's node.
+# Setup may use Control's bounded-wait fallback; the steps check pages, timing and marks.
 import ExUnit.Assertions
 import AtlasE2E.Scenario
 
@@ -61,7 +62,7 @@ try do
   keys = Map.keys(titles)
   see(t1, "4 assigned to you", 30_000)
 
-  step "Precision: an unrelated page gets no push; a page that depends on the write does", fn ->
+  step("Precision: an unrelated page gets no push; a page that depends on the write does", fn ->
     press(t2, "w")
     see(t2, "Agent requests")
     since = Sessions.now()
@@ -82,116 +83,137 @@ try do
     assert pushes != []
     assert Enum.all?(pushes, &(&1["path"] == "/k/agent" and &1["reason"] == "hint"))
     assert "ranger" in Enum.map(Sessions.rows(List.last(pushes)), & &1.key)
-  end
+  end)
 
-  step "Read-your-writes: the stored page shows Flow's outcome; `a` selects the row at its index",
-       fn ->
-         before = rows.(t1, keys)
-         assert length(before) == 4
-         [first, second | _] = before
-         open_row(t1, titles[first.key])
-         see(t1, "Decision #{first.key}: #{titles[first.key]}")
-         press(t1, "a")
-         see(t1, "Accept #{first.key}?")
-         since = Sessions.now()
-         at = press(t1, "y")
+  step(
+    "Read-your-writes: the stored page shows Flow's outcome; `a` selects the row at its index",
+    fn ->
+      before = rows.(t1, keys)
+      assert length(before) == 4
+      [first, second | _] = before
+      open_row(t1, titles[first.key])
+      see(t1, "Decision #{first.key}: #{titles[first.key]}")
+      press(t1, "a")
+      see(t1, "Accept #{first.key}?")
+      since = Sessions.now()
+      at = press(t1, "y")
 
-         # The first page after the key is the stored one, and it already shows what Flow
-         # did with the answer: the decision handed on, one fewer assigned to you.
-         stored(
-           t1,
-           ~r/3 assigned to you.*Decision #{first.key}: .*· stored at \d\d:\d\d:\d\d · position \d+/s,
-           at
-         )
+      # The first page after the key is the stored one, and it already shows what Flow
+      # did with the answer: the decision handed on, one fewer assigned to you.
+      stored(
+        t1,
+        ~r/3 assigned to you.*Decision #{first.key}: .*· stored at \d\d:\d\d:\d\d · position \d+/s,
+        at
+      )
 
-         pages = Sessions.pages(watch, a, since)
-         stored = Enum.find(pages, &(&1["reason"] == "stored"))
-         assert stored["path"] == "/k/decision/#{first.key}"
-         assert "coordinator" in Enum.map(Sessions.rows(stored), & &1.key)
-         assert stored["count"] =~ ~r/^3 assigned to you/
-         # Meanwhile the list it came from was flagged, without a read.
-         assert Enum.any?(pages, fn page ->
-                  page["path"] == "/" and page["reason"] == "pending" and
-                    %{key: first.key, label: titles[first.key], pending: true} in Sessions.rows(
-                      page
-                    )
-                end)
+      pages = Sessions.pages(watch, a, since)
+      stored = Enum.find(pages, &(&1["reason"] == "stored"))
+      assert stored["path"] == "/k/decision/#{first.key}"
+      assert "coordinator" in Enum.map(Sessions.rows(stored), & &1.key)
+      assert stored["count"] =~ ~r/^3 assigned to you/
+      # Meanwhile the list it came from was flagged, without a read.
+      assert Enum.any?(pages, fn page ->
+               page["path"] == "/" and page["reason"] == "pending" and
+                 %{key: first.key, label: titles[first.key], pending: true} in Sessions.rows(page)
+             end)
 
-         refute Enum.any?(CoreLog.lines(), &(&1 =~ "settle timeout"))
+      # Back on the list: the answered row left it; the row now at its index is selected.
+      start_page(t1)
+      gone(t1, "from cache")
+      after_rows = rows.(t1, keys)
+      # The other rows keep their order.
+      assert Enum.map(after_rows, & &1.key) == Enum.map(before, & &1.key) -- [first.key]
+      assert selected.(after_rows) == 0
+      assert Enum.at(after_rows, 0).key == second.key
+    end
+  )
 
-         # Back on the list: the answered row left it; the row now at its index is selected.
-         start_page(t1)
-         gone(t1, "from cache")
-         after_rows = rows.(t1, keys)
-         # The other rows keep their order.
-         assert Enum.map(after_rows, & &1.key) == Enum.map(before, & &1.key) -- [first.key]
-         assert selected.(after_rows) == 0
-         assert Enum.at(after_rows, 0).key == second.key
-       end
+  step(
+    "Marker: the answered row is pending until Flow settles; `f` selects the row at its index",
+    fn ->
+      before = rows.(t1, keys)
+      assert length(before) == 3
+      [_, middle, next] = before
+      :ok = Sessions.quiet(a, 5_000)
+      :ok = Sessions.quiet(b, 5_000)
+      control = ControlTime.hold(self())
+      flow = FlowTime.hold()
 
-  step "Marker: the answered row is pending until Flow settles; `f` selects the row at its index",
-       fn ->
-         before = rows.(t1, keys)
-         assert length(before) == 3
-         [_, middle, next] = before
-         :ok = Sessions.quiet(a, 5_000)
-         :ok = Sessions.quiet(b, 5_000)
-         control = ControlTime.hold(self())
-         flow = FlowTime.hold()
+      try do
+        open_row(t1, titles[middle.key])
+        see(t1, "Decision #{middle.key}: #{titles[middle.key]}")
+        press(t1, "f")
+        see(t1, "Reject #{middle.key}")
+        type(t1, "Not now: the page freshness proof.")
+        boundary = Sessions.cursor(watch, a)
+        press(t1, "C-s")
 
-         try do
-           open_row(t1, titles[middle.key])
-           see(t1, "Decision #{middle.key}: #{titles[middle.key]}")
-           press(t1, "f")
-           see(t1, "Reject #{middle.key}")
-           type(t1, "Not now: the page freshness proof.")
-           since = Sessions.now()
-           press(t1, "C-s")
+        # Stored: the session asks Flow how far it settled and waits, at most its budget,
+        # which is held.
+        assert_receive {:held, ^a, {:settle_timeout, _}, 1_000}, 10_000
+        position = Sessions.settling(a).position
 
-           # Stored: the session asks Flow how far it settled and waits, at most its budget,
-           # which is held.
-           assert_receive {:held, ^a, {:settle_timeout, _}, 1_000}, 10_000
-           position = Sessions.settling(a).position
+        try do
+          start_page(t1)
+          pattern = ~r/› #{middle.key}\s+#{Regex.escape(titles[middle.key])}\s+⋯ being processed/
+          screen = see(t1, pattern)
+          assert length(Regex.scan(~r/being processed/, screen)) == 1
+          assert selected.(rows.(t1, keys)) == 1
 
-           start_page(t1)
-           pattern = ~r/› #{middle.key}\s+#{Regex.escape(titles[middle.key])}\s+⋯ being processed/
-           screen = see(t1, pattern)
-           assert length(Regex.scan(~r/being processed/, screen)) == 1
-           assert selected.(rows.(t1, keys)) == 1
+          # Every list page sent since the key shows the row, pending: none shows it gone.
+          lists =
+            for %{type: "send", message: %{"op" => "page", "path" => "/"} = page} <-
+                  Sessions.ledger(watch, a, boundary, position),
+                do: page
 
-           # Every list page sent since the key shows the row, pending: none shows it gone.
-           lists = for page <- Sessions.pages(watch, a, since), page["path"] == "/", do: page
-           assert lists != []
+          assert lists != []
 
-           for page <- lists,
-               do:
-                 assert(
-                   %{key: middle.key, label: titles[middle.key], pending: true} in Sessions.rows(
-                     page
-                   )
-                 )
+          for page <- lists,
+              do:
+                assert(
+                  %{key: middle.key, label: titles[middle.key], pending: true} in Sessions.rows(
+                    page
+                  )
+                )
 
-           # Flow catches up; the session hears it settled past the write.
-           settling = Sessions.now()
-           :ok = FlowTime.until(flow, fn -> Sessions.unmarked?(a) end, 10_000)
-           gone(t1, "being processed")
-           gone(t1, ~r/ #{middle.key}  /)
-           assert :sys.get_state(a).settled >= position
+          # Flow catches up; the session hears it settled past the write.
+          :ok = FlowTime.until(flow, fn -> Sessions.unmarked?(a) end, 10_000)
+          gone(t1, "being processed")
+          gone(t1, ~r/ #{middle.key}  /)
+          assert :sys.get_state(a).settled >= position
 
-           for page <- Sessions.pages(watch, a, settling), page["path"] == "/" do
-             refute middle.key in Enum.map(Sessions.rows(page), & &1.key)
-             refute Enum.any?(Sessions.rows(page), & &1.pending)
-           end
+          after_rows = rows.(t1, keys)
+          assert Enum.map(after_rows, & &1.key) == Enum.map(before, & &1.key) -- [middle.key]
+          assert selected.(after_rows) == 1
+          assert Enum.at(after_rows, 1).key == next.key
+        after
+          # The wrapper retains proof: lines even on failure, after the private
+          # instance is removed. Keep every event, including non-page sends.
+          ledger = Sessions.ledger(watch, a, boundary, position)
 
-           after_rows = rows.(t1, keys)
-           assert Enum.map(after_rows, & &1.key) == Enum.map(before, & &1.key) -- [middle.key]
-           assert selected.(after_rows) == 1
-           assert Enum.at(after_rows, 1).key == next.key
-         after
-           FlowTime.release(flow)
-           ControlTime.release(control)
-         end
-       end
+          IO.puts(
+            "proof: marker frames " <>
+              JSON.encode!(%{
+                position: position,
+                changed: middle.key,
+                before: Enum.map(before, & &1.key),
+                events: Sessions.evidence(ledger)
+              })
+          )
+
+          # Validate precisely the ledger retained above, including catch-up and
+          # frames emitted during the final TUI checks. No reason/time filtering.
+          Sessions.assert_marker_frames(ledger, Enum.map(before, & &1.key), %{
+            key: middle.key,
+            label: titles[middle.key]
+          })
+        end
+      after
+        FlowTime.release(flow)
+        ControlTime.release(control)
+      end
+    end
+  )
 
   IO.puts("page freshness proof: #{Process.get(:e2e_steps)} steps passed")
 after

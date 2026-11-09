@@ -53,10 +53,37 @@ defmodule AtlasFlow.SettledTest do
       assert {[], s} = Settled.handled(s, 6, [7])
       assert {[], s} = Settled.seen(s, 8)
       assert Settled.value(s) == 4
-      # A round reconciled every run: settled through all that was looked at.
+      # No round began after it: nothing is released.
+      assert {[], ^s} = Settled.release(s)
+      # A round planned after it reconciled every run: settled through all looked at.
+      {[], s} = Settled.begin(s)
       assert {[{:w, 8}], s} = Settled.release(s)
       assert Settled.value(s) == 8
       assert {[], s} = Settled.handled(s, 9, [])
+      assert Settled.value(s) == 9
+    end
+
+    test "a hint held while a round steps waits for the next round, not the one stepping" do
+      {[], s} = Settled.hold(Settled.new(), 3)
+      {[], s} = Settled.begin(s)
+      # Between the round's steps: one hint held, one handled after it.
+      {[], s} = Settled.wait(s, 5, :w)
+      {[], s} = Settled.hold(s, 5)
+      {[], s} = Settled.handled(s, 6, [])
+      assert Settled.value(s) == 2
+
+      # The round ends: 3 is settled, 5 not (its subject may have stepped before it came).
+      assert {[], s} = Settled.release(s)
+      assert Settled.value(s) == 4
+      {[], s} = Settled.begin(s)
+      assert {[{:w, 6}], s} = Settled.release(s)
+      assert Settled.value(s) == 6 and s.held == []
+    end
+
+    test "what is held is kept as its lowest position once a round begins" do
+      s = Enum.reduce(10..100, Settled.new(), fn p, s -> elem(Settled.hold(s, p), 1) end)
+      {[], s} = Settled.begin(s)
+      assert s.held == [10]
       assert Settled.value(s) == 9
     end
 
