@@ -48,6 +48,7 @@ defmodule AtlasTui.Interactions do
       | projection: projection,
         generation: model.console.generation + 1,
         action_error: error,
+        key_buffer: "",
         legend: if(projection && page["path"] == model.path, do: model.console.legend, else: nil)
     }
 
@@ -143,6 +144,32 @@ defmodule AtlasTui.Interactions do
   end
 
   def key(model, key) do
+    sequences? =
+      context(model) == "browse" and
+        Enum.any?(active(model), fn action ->
+          Enum.any?(action["props"]["keys"], &String.match?(&1, ~r/^[0-9]{2,6}$/))
+        end)
+
+    case {sequences?, key, model.console.key_buffer} do
+      {true, {:char, digit}, buffer} when digit in ~w(0 1 2 3 4 5 6 7 8 9) ->
+        {put_in(model.console.key_buffer, String.slice(buffer <> digit, 0, 7)), []}
+
+      {true, :enter, buffer} when buffer != "" ->
+        model = put_in(model.console.key_buffer, "")
+        dispatch(model, capture(model, {:char, buffer}))
+
+      {true, :backspace, buffer} when buffer != "" ->
+        {put_in(model.console.key_buffer, String.slice(buffer, 0, String.length(buffer) - 1)), []}
+
+      {_, :esc, buffer} when buffer != "" ->
+        {put_in(model.console.key_buffer, ""), []}
+
+      _ ->
+        direct_key(put_in(model.console.key_buffer, ""), key)
+    end
+  end
+
+  defp direct_key(model, key) do
     case capture(model, key) do
       nil ->
         if model.console.legend || model.console.expected,
@@ -174,6 +201,10 @@ defmodule AtlasTui.Interactions do
   defp execute(model, %{"name" => "tab_next"}, _label), do: Console.cycle(model, 1)
   defp execute(model, %{"name" => "tab_previous"}, _label), do: Console.cycle(model, -1)
   defp execute(model, %{"name" => "open", "to" => to}, _label), do: Console.open(model, to)
+
+  defp execute(model, %{"name" => "invoke", "call" => call}, _label),
+    do:
+      {%{model | waiting: true}, [{:send, Map.merge(call, %{"op" => "submit", "values" => %{}})}]}
 
   defp execute(model, %{"name" => "open_url", "url" => url}, _label),
     do: Model.external(model, url)

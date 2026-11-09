@@ -164,6 +164,8 @@
             "fields": [
               "title",
               "decision",
+              "consequences",
+              "options",
               "category",
               "scope",
               "reversibility",
@@ -196,6 +198,7 @@
         "ask": [
           "title",
           "decision",
+          "options",
           "context",
           "consequences",
           "category",
@@ -212,6 +215,68 @@
           "digits": 4,
           "first": 24,
           "prefix": "D-"
+        }
+      },
+      "decision_options": {
+        "adopt": {
+          "consequences": "consequences",
+          "rule": "decision"
+        },
+        "answered_at": "decided_at",
+        "answered_by": "decided_by",
+        "content": [
+          "title",
+          "decision",
+          "consequences",
+          "category",
+          "scope",
+          "reversibility",
+          "force",
+          "enforced_by",
+          "context",
+          "no_work"
+        ],
+        "content_links": [
+          "supersedes",
+          "follows_from",
+          "delegated_by"
+        ],
+        "definition": "options",
+        "errors": {
+          "changed": "the offered decision options changed; open the decision again",
+          "invalid": "a decision needs a question, rationale, distinct complete options with at least one decline, and the recommended option first",
+          "not_json": "decision options must be a JSON definition",
+          "removed": "decision options cannot be removed or answered without their definition",
+          "selection": "selection must apply exactly one offered option with its decision time",
+          "unselected": "select an offered option to decide this decision"
+        },
+        "history": "option_history",
+        "legacy_fingerprint": {
+          "fields": [
+            "title",
+            "decision",
+            "category",
+            "scope",
+            "reversibility",
+            "force"
+          ],
+          "relations": [
+            "supersedes"
+          ]
+        },
+        "revision": "selected_revision",
+        "selected": "selected_option",
+        "snapshot": "selected_definition",
+        "status": {
+          "adopt": "accepted",
+          "decline": "rejected",
+          "field": "status",
+          "open": "proposed",
+          "replaceable": [
+            "accepted",
+            "superseded"
+          ],
+          "superseded": "superseded"
         }
       },
       "delete_error": "Decisions are an append-only ledger; a decision is never deleted. Record a new one that supersedes it instead.",
@@ -275,6 +340,15 @@
         },
         "no_work": {
           "label": "No work needed"
+        },
+        "option_history": {
+          "multiline": true
+        },
+        "options": {
+          "multiline": true
+        },
+        "selected_definition": {
+          "multiline": true
         },
         "unverified": {
           "label": "Unverified",

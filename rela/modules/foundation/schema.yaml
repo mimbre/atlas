@@ -366,6 +366,21 @@ entities:
       context:
         type: string
         description: Why it was decided
+      options:
+        type: string
+        description: 'Single-choice JSON: question, options (id, text, details, effect, rule, consequences), recommended ID and rationale'
+      selected_option:
+        type: string
+        description: The selected semantic option ID
+      selected_definition:
+        type: string
+        description: The exact offered definition selected
+      selected_revision:
+        type: string
+        description: The displayed offer and authorization content revision
+      option_history:
+        type: string
+        description: Prior complete offered revisions, maintained by Facts
       consequences:
         type: string
         description: What changes because of it

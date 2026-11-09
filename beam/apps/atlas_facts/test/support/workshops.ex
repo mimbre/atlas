@@ -5,6 +5,44 @@ defmodule AtlasFacts.Workshops do
   """
   alias AtlasFacts.Workshop.Description
 
+  defmodule Options do
+    use AtlasFacts.TestModel,
+      description:
+        Description.with(%{
+          "entities" => %{
+            "widget" => %{
+              "decision_options" => %{
+                "definition" => "options",
+                "selected" => "selected_option",
+                "snapshot" => "selected_definition",
+                "revision" => "selected_revision",
+                "history" => "option_history",
+                "answered_at" => "decided_at",
+                "answered_by" => "decided_by",
+                "status" => %{
+                  "field" => "status",
+                  "open" => "proposed",
+                  "adopt" => "accepted",
+                  "decline" => "rejected",
+                  "superseded" => "superseded",
+                  "replaceable" => ["accepted", "superseded"]
+                },
+                "adopt" => %{"rule" => "decision", "consequences" => "consequences"},
+                "content" =>
+                  ~w(title decision consequences category scope reversibility force enforced_by context no_work),
+                "content_links" => ~w(supersedes follows_from delegated_by)
+              },
+              "properties" =>
+                Map.new(
+                  ~w(options selected_option selected_definition selected_revision option_history status decision consequences),
+                  &{&1, %{"type" => "string"}}
+                )
+                |> Map.put("decided_at", %{"type" => "datetime"})
+            }
+          }
+        })
+  end
+
   defmodule Asked do
     @moduledoc "A create asks only a title: an addition rela does not serve."
     use AtlasFacts.TestModel,

@@ -84,6 +84,80 @@ defmodule Model.Decision do
     )
 
     field(:context, :string, description: "Why it was decided", multiline: true)
+
+    field(:options, :string,
+      description:
+        "Single-choice JSON: question, options (id, text, details, effect, rule, consequences), recommended ID and rationale",
+      multiline: true
+    )
+
+    field(:selected_option, :string, description: "The selected semantic option ID")
+
+    field(:selected_definition, :string,
+      description: "The exact offered definition selected",
+      multiline: true
+    )
+
+    field(:selected_revision, :string,
+      description: "The displayed offer and authorization content revision"
+    )
+
+    field(:option_history, :string,
+      description: "Prior complete offered revisions, maintained by Facts",
+      multiline: true
+    )
+
+    # The DSL's single-choice mechanism, in this kind's fields and words.
+    decision_options(
+      definition: :options,
+      selected: :selected_option,
+      snapshot: :selected_definition,
+      revision: :selected_revision,
+      history: :option_history,
+      answered_at: :decided_at,
+      answered_by: :decided_by,
+      status: [
+        field: :status,
+        open: :proposed,
+        adopt: :accepted,
+        decline: :rejected,
+        superseded: :superseded,
+        replaceable: [:accepted, :superseded]
+      ],
+      # An adopted option's rule and consequences become the decision's; a decline sets neither.
+      adopt: [rule: :decision, consequences: :consequences],
+      # What one offered revision covers, besides the definition itself.
+      content: [
+        :title,
+        :decision,
+        :consequences,
+        :category,
+        :scope,
+        :reversibility,
+        :force,
+        :enforced_by,
+        :context,
+        :no_work
+      ],
+      content_links: [:supersedes, :follows_from, :delegated_by],
+      # Pending decisions had this exact fingerprint scope before options existed; a
+      # decision without options (historical or created without them) still matches it.
+      # No offered decision may use it.
+      legacy_fingerprint: [
+        fields: [:title, :decision, :category, :scope, :reversibility, :force],
+        relations: [:supersedes]
+      ],
+      errors: [
+        invalid:
+          "a decision needs a question, rationale, distinct complete options with at least one decline, and the recommended option first",
+        not_json: "decision options must be a JSON definition",
+        removed: "decision options cannot be removed or answered without their definition",
+        unselected: "select an offered option to decide this decision",
+        changed: "the offered decision options changed; open the decision again",
+        selection: "selection must apply exactly one offered option with its decision time"
+      ]
+    )
+
     field(:consequences, :string, description: "What changes because of it", multiline: true)
     field(:category, :decision_category, description: "What it is about")
     field(:scope, :decision_scope, description: "How widely it holds")
@@ -140,6 +214,7 @@ defmodule Model.Decision do
       ask: [
         :title,
         :decision,
+        :options,
         :context,
         :consequences,
         :category,
@@ -173,7 +248,16 @@ defmodule Model.Decision do
         relation: :about,
         kind: :gate_verdict,
         fingerprint: [
-          fields: [:title, :decision, :category, :scope, :reversibility, :force],
+          fields: [
+            :title,
+            :decision,
+            :consequences,
+            :options,
+            :category,
+            :scope,
+            :reversibility,
+            :force
+          ],
           relations: [:supersedes]
         ]
       ]
@@ -265,7 +349,16 @@ defmodule Model.Decision do
     purpose: :decider,
     fixed: :person_always,
     fingerprint: [
-      fields: [:title, :decision, :category, :scope, :reversibility, :force],
+      fields: [
+        :title,
+        :decision,
+        :consequences,
+        :options,
+        :category,
+        :scope,
+        :reversibility,
+        :force
+      ],
       relations: [:supersedes]
     ],
     evidence: [

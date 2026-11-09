@@ -57,6 +57,88 @@ defmodule AtlasFactsTest do
     assert %{"W-1" => {%{"title" => "One", "shade" => "dark"}, _}} = FakeRela.facts(rela)
   end
 
+  test "model-derived complete offer history is stored with the edit and refuses rewriting", %{
+    rela: rela,
+    dir: dir
+  } do
+    model = AtlasFacts.Workshops.Options
+    restart(rela, dir, model)
+
+    first = %{
+      "id" => "first",
+      "text" => "First",
+      "details" => "Leave it unchanged",
+      "effect" => "decline",
+      "rule" => "",
+      "consequences" => ""
+    }
+
+    second = %{first | "id" => "second", "text" => "Second"}
+
+    original =
+      JSON.encode!(%{
+        "question" => "Which example?",
+        "options" => [first, second],
+        "recommended" => "first",
+        "rationale" => "The first example is simpler"
+      })
+
+    assert {"stored", _, _} =
+             fact("create", "W-choice", %{
+               "title" => "Example",
+               "decision" => "Original",
+               "status" => "proposed",
+               "options" => original
+             })
+
+    edited = String.replace(original, "First", "Renamed")
+    assert {"stored", _, _} = fact("change", "W-choice", %{"options" => edited})
+    assert %{"fact" => %{"values" => values}} = read("widget", %{"key" => "W-choice"})
+    assert [entry] = JSON.decode!(values["option_history"])
+    assert entry["definition"] == original
+    assert entry["values"]["decision"] == "Original"
+    assert {"refused", _, _} = fact("change", "W-choice", %{"option_history" => "[]"})
+    %{"fact" => offered} = read("widget", %{"key" => "W-choice"})
+
+    rule = %{
+      "definition" => "options",
+      "selected" => "selected_option",
+      "snapshot" => "selected_definition",
+      "revision" => "selected_revision",
+      "history" => "option_history",
+      "answered_at" => "decided_at",
+      "answered_by" => "decided_by",
+      "status" => %{
+        "field" => "status",
+        "open" => "proposed",
+        "adopt" => "accepted",
+        "decline" => "rejected",
+        "superseded" => "superseded",
+        "replaceable" => ["accepted", "superseded"]
+      },
+      "adopt" => %{"rule" => "decision", "consequences" => "consequences"},
+      "content" =>
+        ~w(title decision consequences category scope reversibility force enforced_by context no_work),
+      "content_links" => ~w(supersedes follows_from delegated_by)
+    }
+
+    chosen = JSON.decode!(edited)["options"] |> hd()
+
+    selection =
+      RelaDSL.DecisionOptions.values(rule, edited, chosen, offered)
+      |> Map.put("decided_at", "2026-11-16T12:00:00Z")
+
+    assert {"stored", _, _} = fact("change", "W-choice", selection)
+    restart(rela, dir, model)
+    assert %{"fact" => %{"values" => reloaded}} = read("widget", %{"key" => "W-choice"})
+    assert [^entry, selected_offer] = JSON.decode!(reloaded["option_history"])
+    assert selected_offer["revision"] == reloaded["selected_revision"]
+    assert selected_offer["definition"] == edited
+    assert reloaded["selected_option"] == "first"
+    assert reloaded["selected_definition"] == edited
+    assert reloaded["options"] == edited
+  end
+
   test "a resent id is stored once and gets the same answer again", %{rela: rela} do
     first = fact("create", "W-1", %{"title" => "One"}, id: "fixed-id")
     FakeRela.poke(rela, "W-1", %{"title" => "Changed by someone else"})

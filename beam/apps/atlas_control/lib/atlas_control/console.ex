@@ -204,9 +204,10 @@ defmodule AtlasControl.Console do
 
   defp source_action(source, on) do
     {name, values} =
-      case source["to"] do
-        "agent:" <> intent -> {"agent_ask", %{"intent" => intent}}
-        to -> {"open", %{"to" => to}}
+      case source do
+        %{"submit_to" => %{} = call} -> {"invoke", %{"call" => call}}
+        %{"to" => "agent:" <> intent} -> {"agent_ask", %{"intent" => intent}}
+        %{"to" => to} -> {"open", %{"to" => to}}
       end
 
     %{
@@ -306,10 +307,12 @@ defmodule AtlasControl.Console do
         row: action.row
       )
 
+    # The keys are part of the identity: one call may be bound to several declared keys
+    # (a recommended choice is both `0` and `1`), each its own action.
     id =
       :crypto.hash(
         :sha256,
-        JSON.encode!([path, context, action.on, action.row, action.operation])
+        JSON.encode!([path, context, action.on, action.row, action.operation, action.keys])
       )
       |> Base.url_encode64(padding: false)
 

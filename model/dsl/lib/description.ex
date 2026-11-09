@@ -51,6 +51,7 @@ defmodule RelaDSL.Description do
     counts: 1,
     requires: 1,
     authority: 1,
+    decision_options: 1,
     frozen: 1,
     replaces: 1,
     layering: 1,

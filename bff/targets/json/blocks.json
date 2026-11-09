@@ -54,6 +54,41 @@
     {
       "fields": [
         {
+          "name": "question",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "options",
+          "required": true,
+          "type": "list of choice_option"
+        },
+        {
+          "name": "recommended",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "rationale",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "revision",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "instructions",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "name": "single_choice"
+    },
+    {
+      "fields": [
+        {
           "name": "title",
           "required": true,
           "type": "string"
@@ -2250,9 +2285,64 @@
           "name": "to",
           "required": true,
           "type": "string"
+        },
+        {
+          "name": "submit_to",
+          "required": false,
+          "type": "call"
         }
       ],
       "name": "action"
+    },
+    {
+      "fields": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "text",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "details",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "effect",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "rule",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "consequences",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "answer",
+          "required": true,
+          "type": "call"
+        },
+        {
+          "name": "note",
+          "required": false,
+          "type": "boolean"
+        },
+        {
+          "name": "shortcut",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "name": "choice_option"
     },
     {
       "fields": [
@@ -2495,6 +2585,11 @@
           "name": "interaction_source",
           "required": false,
           "type": "string"
+        },
+        {
+          "name": "call",
+          "required": false,
+          "type": "call"
         }
       ],
       "name": "console_operation"
@@ -5183,7 +5278,7 @@
       }
     }
   ],
-  "version": "0.16.0",
+  "version": "0.17.0",
   "wire": {
     "block": "{\"id\": \"<id>\", \"type\": \"<block>\", \"props\": {...}}",
     "markup": "{\"kind\": \"<kind>\", \"start\": \"<block id>\", \"end\": \"<block id>\", \"group\": \"<id, on a piece of split markup>\", \"props\": {...}}",
