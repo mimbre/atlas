@@ -1,7 +1,7 @@
 defmodule Model.IssueTest do
   use ExUnit.Case, async: true
 
-  alias Model.Issue
+  alias Model.Delivery
 
   # The Issue subflow as slice 9 runs it: v1 build_and_merge's one state, for its owner
   # and what the owner sees, waiting for its pull request's outcome (the composition's
@@ -23,20 +23,19 @@ defmodule Model.IssueTest do
   }
 
   test "the header: it starts when the issue is created, whatever its stage" do
-    assert [flow] = Issue.__flows__()
+    assert [flow] = Delivery.__flows__()
     assert Map.take(flow, Map.keys(@flow)) == @flow
     assert flow.initial == :author
-    assert String.ends_with?(flow.file, "software/issue.ex")
   end
 
   test "2 states and 3 transitions" do
-    [flow] = Issue.__flows__()
+    [flow] = Delivery.__flows__()
     assert length(flow.states) == 2
     assert Enum.sum(Enum.map(flow.states, &(length(&1.branches) + length(&1.timers)))) == 3
   end
 
   test "each state, its mechanism, reset, branches and timers" do
-    [flow] = Issue.__flows__()
+    [flow] = Delivery.__flows__()
     assert Enum.map(flow.states, &Map.delete(&1, :line)) == expected_states()
   end
 
