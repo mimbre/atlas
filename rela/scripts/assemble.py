@@ -399,12 +399,12 @@ def validate(extra, schema, actors=None):
 def flow_check(description):
     # Call the actual generic engine check, with no application/model/server started.
     repo = Path(__file__).resolve().parents[2]
-    code = 'd = System.argv() |> hd() |> File.read!() |> JSON.decode!(); p = AtlasState.Flows.check(d); if Enum.any?(p, fn {_, v} -> v != [] end), do: (IO.inspect(p); System.halt(1))'
+    code = 'd = System.argv() |> hd() |> File.read!() |> JSON.decode!(); p = AtlasFacts.Flows.check(d); if Enum.any?(p, fn {_, v} -> v != [] end), do: (IO.inspect(p); System.halt(1))'
     with tempfile.NamedTemporaryFile(mode='w', suffix='.json') as file:
         json.dump(description, file)
         file.flush()
         env = dict(os.environ, ELIXIR_ERL_OPTIONS='+S 2:2')
-        subprocess.run(['elixir', '-r', str(repo / 'beam/apps/atlas_state/lib/atlas_state/flows.ex'), '-e', code, file.name], check=True, env=env)
+        subprocess.run(['elixir', '-r', str(repo / 'beam/apps/atlas_facts/lib/atlas_facts/flows.ex'), '-e', code, file.name], check=True, env=env)
 
 
 def native_check(root):

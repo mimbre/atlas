@@ -10,7 +10,7 @@ defmodule AtlasAgent.FakeControl do
   required: [field], list_title:, record: "request" | "step" | nil}`.
 
   `refuse` (a function of the submit message, answering a list of reasons or nil) lets
-  a test have State refuse a write. Every submit is kept, in order, in `writes/1`.
+  a test have Facts refuse a write. Every submit is kept, in order, in `writes/1`.
   """
 
   def start(kinds, opts \\ []) do
@@ -175,7 +175,7 @@ defmodule AtlasAgent.FakeControl do
 
   defp held(_s, _message), do: nil
 
-  # What State refuses by its own rules: a write under or to a fact that is not there.
+  # What Facts refuses by its own rules: a write under or to a fact that is not there.
   defp check(s, %{"endpoint" => "create", "params" => %{"parent" => parent}}) do
     if Map.has_key?(s.facts, parent), do: nil, else: ["#{parent} does not exist"]
   end

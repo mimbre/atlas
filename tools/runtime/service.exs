@@ -18,7 +18,7 @@ Application.put_env(:atlas_runtime, :start, false)
 {:ok, _} = Application.ensure_all_started(:atlas_runtime)
 started = Enum.map(Application.started_applications(), &elem(&1, 0))
 
-if Enum.any?([:atlas_state, :atlas_flow, :atlas_control], &(&1 in started)),
+if Enum.any?([:atlas_facts, :atlas_flow, :atlas_control], &(&1 in started)),
   do: raise("Runtime must not start Atlas core services")
 
 {:ok, _} = AtlasRuntime.Service.start(dir, server && Map.delete(server, :token))

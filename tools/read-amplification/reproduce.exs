@@ -8,7 +8,7 @@ Application.put_env(:atlas_control, :start, false)
 {:ok, _} = Application.ensure_all_started(:atlas_control)
 
 defmodule ReadAmplification.Backend do
-  @behaviour AtlasState.Rela
+  @behaviour AtlasFacts.Rela
 
   def description(config) do
     {n, mode} =
@@ -35,14 +35,14 @@ defmodule ReadAmplification.Backend do
         :ok
     end
 
-    AtlasState.FakeRela.description(config.fake)
+    AtlasFacts.FakeRela.description(config.fake)
   end
 
-  for {name, arity} <- AtlasState.Rela.behaviour_info(:callbacks), name != :description do
+  for {name, arity} <- AtlasFacts.Rela.behaviour_info(:callbacks), name != :description do
     args = Macro.generate_arguments(arity - 1, __MODULE__)
 
     def unquote(name)(config, unquote_splicing(args)),
-      do: apply(AtlasState.FakeRela, unquote(name), [config.fake, unquote_splicing(args)])
+      do: apply(AtlasFacts.FakeRela, unquote(name), [config.fake, unquote_splicing(args)])
   end
 end
 
@@ -59,15 +59,15 @@ defmodule ReadAmplification.Probe do
 
     Application.put_env(:atlas_control, :read_timeout_ms, 500)
     {:ok, counter} = Agent.start_link(fn -> %{n: 0, mode: :open} end)
-    fake = AtlasState.FakeRela.start()
+    fake = AtlasFacts.FakeRela.start()
     config = %{counter: counter, fake: fake, owner: self()}
     nonce = Base.encode16(:crypto.strong_rand_bytes(12), case: :lower)
     dir = Path.join(System.tmp_dir!(), "atlas-pressure-#{nonce}")
     File.mkdir!(dir)
 
-    state =
+    facts =
       start_supervised!(
-        {AtlasState.Server, rela: {ReadAmplification.Backend, config}, data_dir: dir}
+        {AtlasFacts.Server, rela: {ReadAmplification.Backend, config}, data_dir: dir}
       )
 
     start_supervised!({AtlasControl.Gateway, port: 0, name: :private_pressure_gateway})
@@ -81,7 +81,7 @@ defmodule ReadAmplification.Probe do
 
     %{
       counter: counter,
-      state: state,
+      facts: facts,
       port: AtlasControl.Gateway.port(:private_pressure_gateway),
       dir: dir
     }
@@ -115,8 +115,8 @@ defmodule ReadAmplification.Probe do
     if f["op"] == "page", do: Enum.reverse([f | frames]), else: page(s, [f | frames])
   end
 
-  defp observe(state) do
-    observer = spawn(fn -> observations(state, %{ids: [], max_state_queue: 0}) end)
+  defp observe(facts) do
+    observer = spawn(fn -> observations(facts, %{ids: [], max_facts_queue: 0}) end)
     :erlang.trace(Process.whereis(AtlasBus.Router), true, [:send, {:tracer, observer}])
 
     on_exit(fn ->
@@ -127,20 +127,20 @@ defmodule ReadAmplification.Probe do
     observer
   end
 
-  defp observations(state, data) do
+  defp observations(facts, data) do
     receive do
       {:trace, _, :send, {:atlas_bus, %Envelope{class: "read", kind: "_description", id: id}, _},
-       ^state} ->
-        {:message_queue_len, n} = Process.info(state, :message_queue_len)
+       ^facts} ->
+        {:message_queue_len, n} = Process.info(facts, :message_queue_len)
 
-        observations(state, %{ids: [id | data.ids], max_state_queue: max(n, data.max_state_queue)})
+        observations(facts, %{ids: [id | data.ids], max_facts_queue: max(n, data.max_facts_queue)})
 
       {:snapshot, from, ref} ->
         send(from, {ref, data})
-        observations(state, data)
+        observations(facts, data)
 
       _ ->
-        observations(state, data)
+        observations(facts, data)
     end
   end
 
@@ -157,7 +157,7 @@ defmodule ReadAmplification.Probe do
 
   test "healthy 300ms backend can answer inside 1500ms logical budget", ctx do
     Agent.update(ctx.counter, &%{&1 | mode: {:delay, 300}})
-    observer = observe(ctx.state)
+    observer = observe(ctx.facts)
     began = System.monotonic_time(:millisecond)
     s = connect(ctx.port)
     on_exit(fn -> :gen_tcp.close(s) end)
@@ -166,7 +166,7 @@ defmodule ReadAmplification.Probe do
     ref = make_ref()
     send(observer, {:snapshot, self(), ref})
     assert_receive {^ref, data}
-    failed = Enum.any?(frames, &String.contains?(JSON.encode!(&1), "State did not answer"))
+    failed = Enum.any?(frames, &String.contains?(JSON.encode!(&1), "Facts did not answer"))
 
     evidence("slow-schema", %{
       backend_ms: 300,
@@ -175,8 +175,8 @@ defmodule ReadAmplification.Probe do
       elapsed_ms: elapsed,
       backend_description_calls: Agent.get(ctx.counter, & &1.n),
       distinct_read_ids: Enum.uniq(data.ids),
-      max_state_queue: data.max_state_queue,
-      state_did_not_answer: failed,
+      max_facts_queue: data.max_facts_queue,
+      facts_did_not_answer: failed,
       fixture: ctx.dir
     })
 

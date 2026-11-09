@@ -7,7 +7,7 @@
     "ipv6": true,
     "extra": "rela/atlas.json"
   },
-  "state": { "data": "/data/beam" },
+  "facts": { "data": "/data/beam" },
   "connectors": {
     "github": {
       "api": "https://api.github.com",

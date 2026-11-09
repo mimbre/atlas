@@ -171,7 +171,7 @@ entities:
     label: Worker execution
     plural: worker_executions
     id_type: manual
-    description: Immutable durable execution; only the State guidance operation writes
+    description: Immutable durable execution; only the Facts guidance operation writes
       this record.
     properties:
       environment:
@@ -222,7 +222,7 @@ entities:
     label: Interaction
     plural: interactions
     id_type: manual
-    description: Immutable durable interaction; only the State guidance operation writes
+    description: Immutable durable interaction; only the Facts guidance operation writes
       this record.
     properties:
       environment:
@@ -268,7 +268,7 @@ entities:
     label: Interaction receipt
     plural: interaction_receipts
     id_type: manual
-    description: Immutable durable receipt; only the State guidance operation writes
+    description: Immutable durable receipt; only the Facts guidance operation writes
       this record.
     properties:
       environment:

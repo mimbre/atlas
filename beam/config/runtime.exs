@@ -38,13 +38,15 @@ if config_env() != :test do
       config :atlas_bus, link: Map.merge(link, %{"mode" => "server", "tokens" => tokens})
     end
 
-    config :atlas_state,
+    config :atlas_facts,
       rela_url: settings["rela"]["url"],
       # On Fly rela has an IPv6 address on the private network only.
       rela_ipv6: settings["rela"]["ipv6"] == true,
       description_extra: settings["rela"]["extra"] && Path.join(root, settings["rela"]["extra"]),
-      data_dir: expand.(settings["state"]["data"]),
-      # The connectors at State's edge: only those this environment has settings for.
+      # Facts' own data folder (`facts.data`; settings files before the rename said `state`).
+      data_dir:
+        expand.(get_in(settings, ["facts", "data"]) || raise("#{file} has no facts.data")),
+      # The connectors at Facts' edge: only those this environment has settings for.
       connectors: settings["connectors"] || %{}
 
     config :atlas_control,

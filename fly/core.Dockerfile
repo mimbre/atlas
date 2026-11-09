@@ -1,4 +1,4 @@
-# The core of an Atlas environment on Fly (Bus, State, Flow, Control) as a release. Built
+# The core of an Atlas environment on Fly (Bus, Facts, Flow, Control) as a release. Built
 # from the repository root:
 #   fly deploy --config fly/<env>/core.toml   (CI does this on a merge)
 FROM hexpm/elixir:1.18.4-erlang-28.5.0.2-debian-bookworm-20260610-slim AS build

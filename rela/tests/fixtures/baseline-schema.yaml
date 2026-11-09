@@ -21,7 +21,7 @@
 # A concept is an association, never a base type or a property prefix: a kind
 # has the concept when it is in the association's `from` (Melle, UC-Atlas-32).
 # The link has no attributes; the fact that sets it carries when, by whom and
-# why, and State answers the link with that fact.
+# why, and Facts answers the link with that fact.
 #   completable = accepted_by (Scene, Use case) to a person; an issue is
 #                 completed when its pull request is merged (IS-Atlas-63)
 

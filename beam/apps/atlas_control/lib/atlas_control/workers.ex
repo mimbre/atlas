@@ -1,6 +1,6 @@
 defmodule AtlasControl.Workers do
   @moduledoc """
-  Worker snapshots and durable guidance through State reads/writes supplied by Control.
+  Worker snapshots and durable guidance through Facts reads/writes supplied by Control.
   No harness calls, viewer-owned workers or local interaction store live here.
   """
 
@@ -53,7 +53,7 @@ defmodule AtlasControl.Workers do
   end
 
   # Grants name admitted actors, separately for read and submit. Kind is resolved
-  # from State only to verify the actor still exists, never as a blanket grant.
+  # from Facts only to verify the actor still exists, never as a blanket grant.
   def authorize(d, %{key: actor, kind: kind}, permission, read)
       when is_binary(actor) and is_binary(kind) do
     case get_in(d, ["guidance", "control", permission, "actors"]) do
@@ -62,7 +62,7 @@ defmodule AtlasControl.Workers do
           case read.(kind, %{"key" => actor, "plain" => true}) do
             %{"fact" => %{"key" => ^actor}} -> :ok
             %{"fact" => nil} -> {:error, "forbidden"}
-            _ -> {:error, "state_unavailable"}
+            _ -> {:error, "facts_unavailable"}
           end
         else
           {:error, "forbidden"}
@@ -104,7 +104,7 @@ defmodule AtlasControl.Workers do
       end
     else
       {:error, _} = error -> error
-      _ -> {:error, "state_unavailable"}
+      _ -> {:error, "facts_unavailable"}
     end
   end
 
@@ -202,7 +202,7 @@ defmodule AtlasControl.Workers do
               {:stored, %{"fact" => interaction}} ->
                 if same_submission?(interaction, values, actor),
                   do: {:ok, %{"interaction" => interaction}},
-                  else: {:error, "invalid_state_reply"}
+                  else: {:error, "invalid_facts_reply"}
 
               {:refused, %{"code" => code}} when is_binary(code) ->
                 {:error, code}
@@ -252,7 +252,7 @@ defmodule AtlasControl.Workers do
            "more" => page["more"]
          }}
       else
-        {:error, "invalid_state_reply"}
+        {:error, "invalid_facts_reply"}
       end
     end
   end
@@ -282,7 +282,7 @@ defmodule AtlasControl.Workers do
            "more" => page["more"]
          }}
       else
-        {:error, "invalid_state_reply"}
+        {:error, "invalid_facts_reply"}
       end
     else
       false -> {:error, "target_mismatch"}
@@ -332,7 +332,7 @@ defmodule AtlasControl.Workers do
         else: {:error, "unsupported"}
     else
       {:error, reason} when is_binary(reason) -> {:error, reason}
-      %{"error" => _} -> {:error, "state_unavailable"}
+      %{"error" => _} -> {:error, "facts_unavailable"}
       _ -> {:error, "stale_execution"}
     end
   end
@@ -378,7 +378,7 @@ defmodule AtlasControl.Workers do
         if fact["actor"] == actor.key and fact["client_key"] == key and
              fact["environment"] == AtlasBus.environment(),
            do: {:ok, fact},
-           else: {:error, "invalid_state_reply"}
+           else: {:error, "invalid_facts_reply"}
 
       %{"fact" => nil} ->
         {:ok, nil}
@@ -387,7 +387,7 @@ defmodule AtlasControl.Workers do
         {:ok, nil}
 
       _ ->
-        {:error, "state_unavailable"}
+        {:error, "facts_unavailable"}
     end
   end
 
@@ -396,7 +396,7 @@ defmodule AtlasControl.Workers do
       %{"fact" => %{} = fact} -> {:ok, fact}
       %{"fact" => nil} -> {:error, "not_found"}
       %{"code" => "not_found"} -> {:error, "not_found"}
-      _ -> {:error, "state_unavailable"}
+      _ -> {:error, "facts_unavailable"}
     end
   end
 
@@ -408,10 +408,10 @@ defmodule AtlasControl.Workers do
       when is_list(facts) and is_integer(position) and position >= 0 and is_boolean(more) ->
         if length(facts) <= 50 and (not more or position > query["after_position"]),
           do: {:ok, page},
-          else: {:error, "invalid_state_reply"}
+          else: {:error, "invalid_facts_reply"}
 
       _ ->
-        {:error, "state_unavailable"}
+        {:error, "facts_unavailable"}
     end
   end
 

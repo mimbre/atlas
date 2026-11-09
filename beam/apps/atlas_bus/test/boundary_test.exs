@@ -6,7 +6,7 @@ defmodule AtlasBus.BoundaryTest do
   1. Layers talk only over the Bus: no layer depends on, calls or names another layer.
      Checked three ways: the umbrella dependencies in each layer's mix.exs, the remote
      calls in each layer's compiled code, and the module names in its source.
-  2. Nothing outside rela's description knows an entity: no source of the Bus, State,
+  2. Nothing outside rela's description knows an entity: no source of the Bus, Facts,
      Control or a client (the TUI, the agents' command line) names one. Entities live in
      `rela/schema.yaml` only.
   """
@@ -16,7 +16,7 @@ defmodule AtlasBus.BoundaryTest do
 
   @layers %{
     atlas_bus: "AtlasBus",
-    atlas_state: "AtlasState",
+    atlas_facts: "AtlasFacts",
     atlas_flow: "AtlasFlow",
     atlas_runtime: "AtlasRuntime",
     atlas_control: "AtlasControl"
@@ -81,13 +81,13 @@ defmodule AtlasBus.BoundaryTest do
 
   describe "the checks catch violations" do
     test "a layer that names another layer" do
-      assert foreign_names("AtlasState.Server.handle(x)", "AtlasControl") == ["AtlasState"]
+      assert foreign_names("AtlasFacts.Server.handle(x)", "AtlasControl") == ["AtlasFacts"]
 
-      assert foreign_names("GenServer.call(AtlasControl.Session, :x)", "AtlasState") == [
+      assert foreign_names("GenServer.call(AtlasControl.Session, :x)", "AtlasFacts") == [
                "AtlasControl"
              ]
 
-      assert foreign_names("AtlasBus.send(envelope, content)", "AtlasState") == []
+      assert foreign_names("AtlasBus.send(envelope, content)", "AtlasFacts") == []
       assert foreign_names("# Generated from AtlasControl.Spec", "AtlasTui") == []
     end
 

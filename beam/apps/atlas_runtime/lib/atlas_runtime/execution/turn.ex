@@ -1,7 +1,7 @@
 defmodule AtlasRuntime.Turn do
   @moduledoc """
   One running turn (architecture v4, section 3): an agent acting on one item. It starts the
-  agent through its port, and puts every step as a fact in State, with its cause:
+  agent through its port, and puts every step as a fact in Facts, with its cause:
 
   - the turn, `running`, on its item and by its agent, with a lease until the silence limit
     (W1, W2);
@@ -13,7 +13,7 @@ defmodule AtlasRuntime.Turn do
     the grace (`leave_grace`), so its result is kept, as when it handed the item on itself
     (IS-Atlas-93); after it, the turn is stopped.
 
-  Durable lifecycle remains in State; Runtime.Output separately retains a bounded public
+  Durable lifecycle remains in Facts; Runtime.Output separately retains a bounded public
   output ring after this producer exits. Viewer reads never refresh the activity lease.
   When this process dies, the engine ends its durable running turn (C1), while Output's
   owner monitor closes the ring. Flow remains authority for the item's ownership (W3).
@@ -45,7 +45,7 @@ defmodule AtlasRuntime.Turn do
     :ok = AtlasBus.attach("runtime@#{turn.machine}/#{turn.key}")
     # The turn's agent and item, for the registry: one turn per agent at a time.
     Registry.update_value(AtlasRuntime.Turns, turn.key, fn _ -> {turn.agent, turn.item} end)
-    # Starting waits for State; the engine that started it does not.
+    # Starting waits for Facts; the engine that started it does not.
     {:ok, turn, {:continue, :start}}
   end
 
@@ -169,7 +169,7 @@ defmodule AtlasRuntime.Turn do
             {:noreply, %{state | written: state.active}}
 
           {:error, _why} ->
-            # State did not store it: the lease runs out by itself if this goes on.
+            # Facts did not store it: the lease runs out by itself if this goes on.
             schedule(state)
             {:noreply, state}
         end
@@ -234,7 +234,7 @@ defmodule AtlasRuntime.Turn do
         Logger.info("runtime: #{state.key} ended: #{why}")
 
       {:error, failed} ->
-        Logger.warning("runtime: #{state.key} not ended in State (#{failed}); the engine ends it")
+        Logger.warning("runtime: #{state.key} not ended in Facts (#{failed}); the engine ends it")
     end
 
     {:stop, :normal, state}

@@ -5,7 +5,7 @@ defmodule AtlasBFFContract.Wire.Control.Session do
   models_from(AtlasBFFContract.Models.Presentation)
 
   # IS-101 describes existing 0.14.0 bytes; no server-version bump or rollout gate.
-  # A stored outcome acknowledges State only; Runtime/Flow still reconcile separately.
+  # A stored outcome acknowledges Facts only; Runtime/Flow still reconcile separately.
   @page_required %{"path" => :string, "title" => :string, "blocks" => :list, "markup" => :list}
   @page_optional %{
     "back" => :string,

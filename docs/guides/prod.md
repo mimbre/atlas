@@ -27,7 +27,7 @@ starts. This changes only the local proxy, never the Fly machines or stored data
 and never retries a client's write. `atlas-ops status` reports an unavailable upstream
 separately from a closed tunnel.
 
-The probe proves transport, not State/rela health. An explicit hello refusal (for
+The probe proves transport, not Facts/rela health. An explicit hello refusal (for
 example an outdated client) also proves transport works; the client reports that
 refusal without a pointless proxy restart. Use `fly/smoke.sh prod` for read-only
 application checks. Persistent private-DNS or WireGuard failures still require
@@ -53,7 +53,7 @@ Prod gets the same two apps as test, on a private network of its own (`eyra-atla
 
 | | App | Machine | Data |
 |---|---|---|---|
-| Core | `eyra-atlas` | shared-cpu-1x, 256 MB, ams | volume `core_data` at `/data` (State's own: `/data/beam`) |
+| Core | `eyra-atlas` | shared-cpu-1x, 256 MB, ams | volume `core_data` at `/data` (Facts' own: `/data/beam`) |
 | rela | `eyra-atlas-rela` | shared-cpu-1x, 256 MB, ams | volume `rela_data` at `/data` (`/data/rela`) |
 
 A merge to master deploys prod (CI job `deploy-prod`, `fly/deploy.sh prod`). It works as test's:
@@ -86,7 +86,7 @@ tree as tested source 46dea5f0092726eb063e477a37d2ba81053f695c. Its actual prod 
 closure, health and Control were verified. The IS-90 source-transfer window is
 separately authorized; the ordinary client switch still requires coordinator review
 after the data checks. This guide grants no Runtime/listener/model activation.
-Preserve both `rela/` and `beam/`, including State's provenance and answered-fact records.
+Preserve both `rela/` and `beam/`, including Facts' provenance and answered-fact records.
 
 0. **Choose and verify the build.** Use the approved release policy (d-0023), confirm
    private GitHub authentication (a-0003), record the source/master commits and
@@ -223,7 +223,7 @@ policy gates do not authorize independent Runtime or real model activation.
 ### Storage backend and future backups
 
 This transfer copies the current rela file backend, including any attachments and
-selected configuration closure, plus separate durable BEAM State data. File manifests
+selected configuration closure, plus separate durable BEAM Facts data. File manifests
 are not a general database backup contract. Managed PostgreSQL is the intended later
 destination; conversion and routine backup infrastructure remain planned under
 SC-Atlas-09 / UC-Atlas-40 / IS-Atlas-115, outside the current release/transfer path.

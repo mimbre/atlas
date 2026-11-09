@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# The core of an Atlas environment on Fly (Bus, State, Flow, Control): the release, with
-# State's own data on the volume (/data/beam) and the settings of fly/<env>/core.json.
+# The core of an Atlas environment on Fly (Bus, Facts, Flow, Control): the release, with
+# Facts' own data on the volume (/data/beam) and the settings of fly/<env>/core.json.
 set -euo pipefail
 
 /app/fly/apply-move.sh beam

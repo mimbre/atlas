@@ -15,12 +15,12 @@ defmodule AtlasAgent.Steer do
   | `{"op":"cancel"}` | Drop the plan, also while it is being made. |
   | `{"op":"stop"}` | Stop a run before its next step; stored steps stay. |
 
-  When State refuses a step, the run stops there, and the agent asks the planner what
+  When Facts refuses a step, the run stops there, and the agent asks the planner what
   next, telling it what was stored, what was refused and why, and what was not run
   (UC-Atlas-18). The answer is a new plan, with `before` saying what happened; like any
   plan it runs only on `run`. The agent never retries a refused step by itself.
 
-  Everything is kept as facts in State (`AtlasAgent.Record`, UC-Atlas-19): the request
+  Everything is kept as facts in Facts (`AtlasAgent.Record`, UC-Atlas-19): the request
   once its plan is made, each step that ran or was dropped, with what it made or changed
   and the values it replaced, and the request's outcome. A failure to keep the record is
   a notice; it never makes the agent do more or less.
@@ -40,7 +40,7 @@ defmodule AtlasAgent.Steer do
 
   A run goes one step at a time, and waits `agent.step_pause_ms` (from the settings, 0 by
   default) after a step shows as stored before the next, so a user can follow it and has
-  all of that wait to stop, however long State took. A stop is seen before the next
+  all of that wait to stop, however long Facts took. A stop is seen before the next
   step, also during that wait (UC-Atlas-18); the steps not run say so. After the last
   step there is nothing to stop, so the run ends without that wait.
   """
@@ -259,7 +259,7 @@ defmodule AtlasAgent.Steer do
         state = keep_step(state, run.client, n, key, was)
         state = show(%{state | run: %{run | order: rest}})
         # The pause starts once the step shows as stored, so the user always has all of it
-        # to stop the run, however long keeping the step took (State may be busy). It is
+        # to stop the run, however long keeping the step took (Facts may be busy). It is
         # there to stop before the next step: after the last one the run ends at once.
         if rest == [],
           do: send(self(), :step),

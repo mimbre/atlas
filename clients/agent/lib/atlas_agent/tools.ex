@@ -25,7 +25,7 @@ defmodule AtlasAgent.Tools do
   def list(client) do
     with {:ok, kinds} <- AtlasAgent.kinds(client) do
       # The kinds the agent keeps its own record in are not tools (AtlasAgent.Record), nor
-      # those State makes with a fact (its Assignment): set them through that fact; nor
+      # those Facts makes with a fact (its Assignment): set them through that fact; nor
       # those only a layer writes (a turn: Runtime).
       kinds =
         Enum.reject(kinds, fn kind ->

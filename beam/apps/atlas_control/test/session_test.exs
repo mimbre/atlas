@@ -414,7 +414,7 @@ defmodule AtlasControl.SessionTest do
     assert %{"blocks" => [%{"props" => form}]} = next(a, "page")
     assert %{"value" => "W-1"} = Enum.find(form["inputs"], &(&1["name"] == "of_widget"))
 
-    # Emptied, it is refused before State sees it: a move never leaves a fact without one.
+    # Emptied, it is refused before Facts sees it: a move never leaves a fact without one.
     put(a, %{
       "op" => "submit",
       "to" => "/k/part/P-1/edit",
@@ -592,7 +592,7 @@ defmodule AtlasControl.SessionTest do
              next(a, "page")
   end
 
-  test "a refused delete answers with the page and State's reasons", %{port: port} do
+  test "a refused delete answers with the page and Facts' reasons", %{port: port} do
     FakeStore.put("W-1", %{"title" => "One"})
     FakeStore.refuse("W-1", "W-1 is locked")
     a = client(port)
@@ -620,7 +620,7 @@ defmodule AtlasControl.SessionTest do
     assert next(a, "notice", 200) == nil
   end
 
-  test "a key taken meanwhile: State refuses it, and Control tries the next number", %{port: port} do
+  test "a key taken meanwhile: Facts refuses it, and Control tries the next number", %{port: port} do
     FakeStore.put("W-01", %{"title" => "One"})
     FakeStore.reserve("W-02")
     FakeStore.reserve("W-03")
@@ -628,7 +628,7 @@ defmodule AtlasControl.SessionTest do
     next(a, "page")
 
     put(a, %{"op" => "submit", "to" => "/k/widget/new", "values" => %{"title" => "Two"}})
-    assert %{"text" => "Sent to State; waiting until it is stored…"} = next(a, "notice")
+    assert %{"text" => "Sent to Facts; waiting until it is stored…"} = next(a, "notice")
     assert %{"text" => "W-02 is taken; trying W-03…"} = next(a, "notice")
     assert %{"text" => "W-03 is taken; trying W-04…"} = next(a, "notice")
 
@@ -668,7 +668,7 @@ defmodule AtlasControl.SessionTest do
     assert %{"tone" => "pending"} = next(a, "notice")
     FakeStore.silent(false)
 
-    assert %{"tone" => "pending", "text" => "No answer from State yet; sent again."} =
+    assert %{"tone" => "pending", "text" => "No answer from Facts yet; sent again."} =
              next(a, "notice", 7_000)
 
     assert %{"tone" => "ok"} = next(a, "notice")
@@ -754,7 +754,7 @@ defmodule AtlasControl.SessionTest do
         })
       end
 
-      assert %{"title" => "State did not answer"} = next(a, "page", 200)
+      assert %{"title" => "Facts did not answer"} = next(a, "page", 200)
       elapsed = System.monotonic_time(:millisecond) - started
       assert elapsed >= 300 and elapsed < 500
       refute_receive {:atlas_bus, _, _}, 120
@@ -785,14 +785,14 @@ defmodule AtlasControl.SessionTest do
     end
   end
 
-  describe "a State that does not answer" do
+  describe "when Facts does not answer" do
     setup do
       # A read waits this long for each of its tries, so the tests need not wait 6 s.
       Application.put_env(:atlas_control, :read_timeout_ms, 50)
       on_exit(fn -> Application.delete_env(:atlas_control, :read_timeout_ms) end)
     end
 
-    test "a page says State did not answer; No such page only where Control has no page",
+    test "a page says Facts did not answer; No such page only where Control has no page",
          %{port: port} do
       FakeStore.put("W-1", %{"title" => "One"})
       FakeStore.silent_reads(true)
@@ -805,12 +805,12 @@ defmodule AtlasControl.SessionTest do
 
       put(a, %{"op" => "open", "to" => "/k/_/W-1"})
 
-      assert %{"title" => "State did not answer", "path" => "/k/_/W-1", "blocks" => [block]} =
+      assert %{"title" => "Facts did not answer", "path" => "/k/_/W-1", "blocks" => [block]} =
                next(a, "page")
 
-      assert block["props"]["text"] =~ "State did not answer"
+      assert block["props"]["text"] =~ "Facts did not answer"
 
-      # State answers again: a refresh works the page out.
+      # Facts answers again: a refresh works the page out.
       FakeStore.silent_reads(false)
       put(a, %{"op" => "refresh"})
       assert %{"path" => "/k/widget/W-1", "reason" => "reconcile"} = next(a, "page")
@@ -823,7 +823,7 @@ defmodule AtlasControl.SessionTest do
       FakeStore.silent_reads(["widget"])
 
       put(a, %{"op" => "open", "to" => "/k/_/W-1"})
-      assert %{"title" => "State did not answer"} = next(a, "page")
+      assert %{"title" => "Facts did not answer"} = next(a, "page")
     end
   end
 

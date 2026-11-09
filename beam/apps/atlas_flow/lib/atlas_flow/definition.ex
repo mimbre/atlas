@@ -20,7 +20,7 @@ defmodule AtlasFlow.Definition do
           {"name": ..., "owner": ..., ...}        the last holds when nothing else does
         ]}}
 
-  What a state's `when` can say, of the fact as State answers it:
+  What a state's `when` can say, of the fact as Facts answers it:
 
   - `"completed": true`: it is completed (`completion`);
   - `"progress": <value>`: its progress has that value (such as to test);
@@ -30,12 +30,12 @@ defmodule AtlasFlow.Definition do
   - `"values": {<property>: [<value>, ...]}`: each property has one of those values (such
     as merged or closed).
 
-  State checks every definition (`flow_problems` in the description it answers): every
+  Facts checks every definition (`flow_problems` in the description it answers): every
   state that is not done has an owner and a way out to a next state, and every state can
   reach done. A definition with problems is not run.
   """
 
-  @doc "The definitions that may run: `%{name => definition}`, without those State refused."
+  @doc "The definitions that may run: `%{name => definition}`, without those Facts refused."
   def flows(description) do
     problems = description["flow_problems"] || %{}
 
@@ -66,7 +66,7 @@ defmodule AtlasFlow.Definition do
 
   @doc """
   The state `fact` is in: `{state, vars}`, where `vars` fill its texts (`"note"`).
-  `children` are the facts that point at it through a parent relation, as State answers
+  `children` are the facts that point at it through a parent relation, as Facts answers
   them, with their `origins`; `parents` names those relations.
   """
   def state_of(flow, fact, children, parents) do

@@ -1,6 +1,6 @@
 # Runtime service and CLI
 
-One Go command-line client, a separate Elixir Runtime daemon, and explicitly targeted concurrent native workers. Each worker has at most one active execution. Codex remains the default without configured preferences; Claude requires explicit selection or an explicit preference. No Atlas server connection, unless explicitly opted into [lifecycle reporting](#optional-atlas-server-lifecycle-reporting), and no orchestration. Runtime and Bus are the only Atlas applications started; State, Flow, Control and Rela are not started.
+One Go command-line client, a separate Elixir Runtime daemon, and explicitly targeted concurrent native workers. Each worker has at most one active execution. Codex remains the default without configured preferences; Claude requires explicit selection or an explicit preference. No Atlas server connection, unless explicitly opted into [lifecycle reporting](#optional-atlas-server-lifecycle-reporting), and no orchestration. Runtime and Bus are the only Atlas applications started; Facts, Flow, Control and Rela are not started.
 
 ```sh
 atlas-runtime service start
@@ -510,9 +510,9 @@ Without `server.json`, nothing changes: no Bus link, no reporter, no extra `turn
 3. renews `activity` and `lease_until` at most once per lease interval, as connected turns do;
 4. ends it `ended` with an empty lease, `ended_at`, and `why` `finished`, `failed: <error>`, `stopped` or `killed` (not verified against Server consumers).
 
-It never sets a Flow outcome or item ownership, and Server gets no start, stop or guidance control over the native agent. Unlisted workers run as before, with no State writes.
+It never sets a Flow outcome or item ownership, and Server gets no start, stop or guidance control over the native agent. Unlisted workers run as before, with no Facts writes.
 
-`status`, `turns` and `turn.json` show what Server confirmed, in `server.report`: `turn` (`unconfirmed`, `running`, `ended`), `execution` (`unconfirmed`, `registered`) and the last failure in `error` (for example `turn not created: State did not answer`). Each write is one bounded exchange, so a missing or refusing Server never delays or changes `start`, `output`, `stop` or the local terminal state. `service stop` stops the running workers gracefully and exits only once none remains owned. The daemon then waits up to 5 s for pending reports before it exits, and the command returns once it has. With Server unreachable, a measured `service stop` took about 6 s in total.
+`status`, `turns` and `turn.json` show what Server confirmed, in `server.report`: `turn` (`unconfirmed`, `running`, `ended`), `execution` (`unconfirmed`, `registered`) and the last failure in `error` (for example `turn not created: Facts did not answer`). Each write is one bounded exchange, so a missing or refusing Server never delays or changes `start`, `output`, `stop` or the local terminal state. `service stop` stops the running workers gracefully and exits only once none remains owned. The daemon then waits up to 5 s for pending reports before it exits, and the command returns once it has. With Server unreachable, a measured `service stop` took about 6 s in total.
 
 This is a best-effort mirror. There is no retry queue, replay, crash reconciliation or automatic recovery. A failed write stays failed. If the turn was never created, nothing more is written for it. A turn left `running` by a daemon that died keeps a lease that simply runs out.
 

@@ -1,6 +1,6 @@
 # Try UC-Atlas-07: Run and supervise an agent
 
-This guide grows with the use case. IS-Atlas-15: Runtime, a BEAM application next to Bus, State, Flow and Control. It runs the turns of the agents its machine runs: a fact owned by such an agent gets a turn, and the turn keeps its lease while the agent shows activity (architecture v4, section 3, W1, W2, W4). Every start, renewal and end is a fact in State with its cause, by `runtime`. Flow decides who owns what; Runtime only runs turns for owners.
+This guide grows with the use case. IS-Atlas-15: Runtime, a BEAM application next to Bus, Facts, Flow and Control. It runs the turns of the agents its machine runs: a fact owned by such an agent gets a turn, and the turn keeps its lease while the agent shows activity (architecture v4, section 3, W1, W2, W4). Every start, renewal and end is a fact in Facts with its cause, by `runtime`. Flow decides who owns what; Runtime only runs turns for owners.
 
 No real agent runs yet: the agent behind a turn is a port, and this issue has only the stand-in, `stub`. IS-Atlas-18 adds Claude Code on the MacBook.
 
@@ -23,12 +23,12 @@ Test and prod have no `runtime` yet, so Runtime there does nothing; IS-Atlas-18 
 
 | Step | Command | What you should see |
 |---|---|---|
-| An agent's fact | `atlas put agent --name Runner`, then `atlas set UC-Atlas-NN assigned_to=runner --cause "runner builds it"` | Within a second, a turn `TU-AS-UC-Atlas-NN-1`: `atlas get TU-AS-UC-Atlas-NN-1` shows State Running, Machine, Lease until, and Activity `stub step N`, renewed every second while the stub is active. |
+| An agent's fact | `atlas put agent --name Runner`, then `atlas set UC-Atlas-NN assigned_to=runner --cause "runner builds it"` | Within a second, a turn `TU-AS-UC-Atlas-NN-1`: `atlas get TU-AS-UC-Atlas-NN-1` shows Facts Running, Machine, Lease until, and Activity `stub step N`, renewed every second while the stub is active. |
 | On its page | the use case's Assignment (`AS-UC-Atlas-NN`, in its references) | **Turns**: the turn, by hint. |
 | Silent | `echo silent > <stub_dir>/runner` | After the silence limit: State Ended, Why `silent for 3 s: no activity since …`. Then a new turn, `-2`, since runner still owns it. |
 | A crash | `echo "crash once" > <stub_dir>/runner` | The turn ends: `the agent crashed: :crashed`, and the next starts (`crash` makes every next turn crash too). |
 | Another owner | `atlas set UC-Atlas-NN assigned_to=<another agent> --cause …` | The turn ends: `AS-UC-Atlas-NN is no longer runner's to work on`, and no new one starts. |
-| Restarted | stop the Runtime node while a turn runs, start it again | The turn State had running ends: `no process runs it on <machine> any more (Runtime restarted)`, and a new one starts. |
+| Restarted | stop the Runtime node while a turn runs, start it again | The turn Facts had running ends: `no process runs it on <machine> any more (Runtime restarted)`, and a new one starts. |
 
 ## How it works
 
@@ -37,7 +37,7 @@ Test and prod have no `runtime` yet, so Runtime there does nothing; IS-Atlas-18 
   - `turn_on` to the Assignment (the fact Flow writes on) and `turn_by` to the agent.
 - **rela/atlas.json:** `runtime.turn` names the kind, its fields and relations, and its key (`TU-{on}-{n}`). Runtime names no kind. The kind is not by hand: no keys to make one, and the agent's tools leave it out.
 - **Runtime (`atlas_runtime`):**
-  - The **engine** reconciles every round and at once on a hint. A turn running in State on this machine without a process is ended; a turn whose fact is no longer its agent's (or no longer open: Flow has no state for it) is ended; an owned open fact without a turn gets one, one turn per agent at a time.
+  - The **engine** reconciles every round and at once on a hint. A turn running in Facts on this machine without a process is ended; a turn whose fact is no longer its agent's (or no longer open: Flow has no state for it) is ended; an owned open fact without a turn gets one, one turn per agent at a time.
   - Each **turn** is a process: it starts the agent through its port, writes the turn, renews the lease while there is activity, and writes its end.
   - The **port** (`AtlasRuntime.Agent`): `start` and `stop`, activity and the end as messages, a crash as the agent's process exiting. The stub reads its mode from a file.
   - It talks only over the Bus, under the same boundary tests as the other layers.
@@ -70,7 +70,7 @@ Runtime's second port, `claude`, runs one Claude Code process per turn, headless
 }
 ```
 
-- **Repeated crashes**, read from the turns in State:
+- **Repeated crashes**, read from the turns in Facts:
   - the next turn waits a pause that doubles with each crash in a row (`crash_pause_seconds`, 10);
   - after 3 crashes in 10 minutes on a machine, the agent gets no more turns there, and Runtime puts `cannot_run` on the agent ("on macbook since …: 3 crashes in 10 minutes"), cleared once that is no longer so.
 - **`turn_limit`:** no more turns for that agent on that machine than that, ever. A trial's one.
@@ -126,7 +126,7 @@ In the test environment, every browsing page (the start page, a list, a fact) ha
 | Where | Failure | Seen as it recovers |
 |---|---|---|
 | a turn Runtime runs | Kill its agent | the turn ends `the agent crashed: :killed`; the agent's next turn starts after the crash pause |
-| a fact Flow runs a process for | Kill its process | Flow's supervisor starts a new one at once, which reads State again (the notice names both) |
+| a fact Flow runs a process for | Kill its process | Flow's supervisor starts a new one at once, which reads Facts again (the notice names both) |
 | an agent Runtime runs through the stand-in | Make it idle | it shows `idle` and does nothing: its turn runs to its maximum, then a new one starts |
 |  | Make it silent | its turn ends `silent for …`, then a new one starts |
 |  | Make it end its turns empty | each turn ends at once, without a change, and the next one starts |

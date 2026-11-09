@@ -4,7 +4,7 @@
 The packaged description (whose manifest deploy.sh checks on both machines) maps
 guidance roles to kinds. These kinds must return their typed unscoped-read guard;
 all other advertised kinds must return an ordinary list. This does not prove
-positive scoped reads of stored guidance; private State fixtures cover those.
+positive scoped reads of stored guidance; private Facts fixtures cover those.
 """
 import json
 import os

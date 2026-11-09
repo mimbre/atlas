@@ -20,7 +20,7 @@ defmodule AtlasRuntime.Integrations.AtlasServer.Lifecycle do
   `server.json` is `{"environment", "machine", "host", "port", "token_file", "workers"}`:
   `machine` is this service's own dedicated machine name, never one a connected Engine uses;
   `workers` lists the local worker IDs that are reported (each must be a Server agent), and
-  other workers run as before without any State write. `token_file` names a regular file in
+  other workers run as before without any Facts write. `token_file` names a regular file in
   the Runtime home, owned by the home's owner and readable by nobody else. The token goes
   only to the Bus link: never to native agents, status, history or this module's messages.
   """
@@ -389,7 +389,7 @@ defmodule AtlasRuntime.Integrations.AtlasServer.Lifecycle do
         _unanswered ->
           case read(state, state.execution, Map.take(values, ~w(turn attempt))) do
             %{"fact" => %{} = execution} -> execution
-            _ -> {:error, "State did not answer"}
+            _ -> {:error, "Facts did not answer"}
           end
       end
 
@@ -440,7 +440,7 @@ defmodule AtlasRuntime.Integrations.AtlasServer.Lifecycle do
     case Talk.fact(kind, content, state.talk) do
       {:stored, _answer, _position} -> :ok
       {:refused, refusal} -> {:error, refusal_text(refusal)}
-      {:error, :no_answer} -> {:error, "State did not answer"}
+      {:error, :no_answer} -> {:error, "Facts did not answer"}
       other -> {:error, inspect(other)}
     end
   catch
@@ -473,7 +473,7 @@ defmodule AtlasRuntime.Integrations.AtlasServer.Lifecycle do
         {:error, to_string(why)}
 
       _ ->
-        {:error, "State did not answer"}
+        {:error, "Facts did not answer"}
     end
   end
 

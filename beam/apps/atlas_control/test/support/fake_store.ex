@@ -1,6 +1,6 @@
 defmodule AtlasControl.FakeStore do
   @moduledoc """
-  A stand-in for State on the Bus, for Control's tests: answers reads, stores facts in
+  A stand-in for Facts on the Bus, for Control's tests: answers reads, stores facts in
   memory, answers every fact with stored or refused. Its kinds are made up on purpose.
   """
   use GenServer
@@ -138,11 +138,11 @@ defmodule AtlasControl.FakeStore do
   def put(key, values, kind \\ "widget", links \\ %{}),
     do: GenServer.call(__MODULE__, {:put, kind, key, values, links})
 
-  @doc "The fact that set a link, as State answers it in `origins`."
+  @doc "The fact that set a link, as Facts answers it in `origins`."
   def origin(kind, key, relation, origin),
     do: GenServer.call(__MODULE__, {:origin, kind, key, relation, origin})
 
-  @doc "Every fact content State was sent, oldest first."
+  @doc "Every fact content Facts was sent, oldest first."
   def describe(description), do: GenServer.call(__MODULE__, {:describe, description})
 
   def sent, do: GenServer.call(__MODULE__, :sent)

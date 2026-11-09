@@ -9,7 +9,7 @@ What you can do: see in a list how far each use case and each scene is, worked o
 - `To test` when every item under it is completed and it is not: `To test · 12/12`. `Done` only when it is completed itself: accepted, or for an issue its pull request merged (UC-Atlas-32).
 - An item with nothing under it shows its Flux group (`Refine`, `Ready to pick up`). That comes before any stage: a scene with one use case still in Refine shows `Refine · 1/N`.
 
-Nothing is stored. State works it out from the facts on every read. The rule is data in rela's description (`progress` in `rela/atlas.json`), not code.
+Nothing is stored. Facts works it out from the facts on every read. The rule is data in rela's description (`progress` in `rela/atlas.json`), not code.
 
 Flux's status stays as it is, and you can still set it for a later Flux sync. It no longer shows in lists. An item's page shows it as **Flux group**.
 
@@ -37,6 +37,6 @@ In prod: open SC-Atlas-01. UC-Atlas-01 shows how far its issues are. `atlas set 
 ## What changed for this
 
 - **rela's description:** `rela/atlas.json` has a `progress` rule for scenes and use cases: which relation they roll up (`over`), which field of an issue says how far it is (`field`), and which field of their own to show while nothing is under them (`own`). The top-level `progress` gives the order of the values (least far first), the field that marks an item done, and `Done`. `properties.status.label` names the status "Flux group".
-- **State:** a read of a kind with a rule carries each fact's `progress`. It is worked out from the facts under it, at any depth, on every read (`AtlasState.Progress`). Nothing is stored.
+- **Facts:** a read of a kind with a rule carries each fact's `progress`. It is worked out from the facts under it, at any depth, on every read (`AtlasFacts.Progress`). Nothing is stored.
 - **Control:** a list row shows the progress in place of the item's own field and its completed flag. A hint from a kind that the progress rolls up redraws the list too, so an issue's change redraws the scene page and the scenes list. A page shows a field under the label the description gives it. None of this code names a kind.
 - **The end-to-end test:** `e2e/scenarios/uc-atlas-25.exs` follows this guide, with the command line on the issues and both TUIs on the use cases and the scenes.

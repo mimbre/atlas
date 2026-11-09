@@ -25,7 +25,7 @@ boot =
 
 started = Enum.map(Application.started_applications(), &elem(&1, 0))
 
-if Enum.any?([:atlas_state, :atlas_flow, :atlas_control], &(&1 in started)),
+if Enum.any?([:atlas_facts, :atlas_flow, :atlas_control], &(&1 in started)),
   do: raise("a Runtime node must not start core layers")
 
 IO.puts("Runtime node ready: #{inspect(AtlasBus.endpoints())}; core layers remain stopped")

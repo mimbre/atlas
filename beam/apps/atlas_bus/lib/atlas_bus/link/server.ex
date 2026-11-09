@@ -186,7 +186,7 @@ defmodule AtlasBus.Link.Server do
          "content" => content
        }) do
     envelope = Link.envelope_in(map)
-    # A remote Runtime cannot forge State acknowledgements or invoke failure controls.
+    # A remote Runtime cannot forge Facts acknowledgements or invoke failure controls.
     if endpoints[name] && Link.send_allowed?(name, machine, envelope) &&
          AtlasBus.Envelope.validate(envelope) == :ok &&
          envelope.environment == AtlasBus.environment() do

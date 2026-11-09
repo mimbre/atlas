@@ -31,16 +31,16 @@ The one-off `atlas migrate-owner` gave every fact that existed then the coordina
   - It has `assigned_to` from scene, use case, issue and pull request to person and agent, with `max_outgoing: 1` and the inverse `assignments`.
   - A kind is assignable by being in `assigned_to`'s `from`; adding one is a change to the description only.
 - **A relation to several kinds:**
-  - rela links each key with its kind, but answers only the keys. State finds out which kind a key is by reading it in each kind the relation points at, both on a write and when it answers one fact (`link_kinds`).
+  - rela links each key with its kind, but answers only the keys. Facts finds out which kind a key is by reading it in each kind the relation points at, both on a write and when it answers one fact (`link_kinds`).
   - A key of none is refused. Control opens it as that kind, and offers the facts of every such kind on the links page.
 - **A relation from several kinds:** the page it points at has one list per kind (`Assignments: Scenes`, …). As for any association, a list shows only when it has something.
-- **A key without an id prefix** (`melle`, `coordinator`): when more than one kind has no prefix, Control asks State which one has it, for `atlas get <key>`.
+- **A key without an id prefix** (`melle`, `coordinator`): when more than one kind has no prefix, Control asks Facts which one has it, for `atlas get <key>`.
 - **No kind is named** in BEAM, the TUI or the agent. The words a page shows ("Assigned to", "Assignments") are the relation's label and inverse label in the description, so naming them otherwise (d-0022) is a one-line change there.
 
 ### What changed for this
 
 - **rela:** `agent`; `assigned_to`.
-- **State:** relations to several kinds; `link_kinds` in a fact's answer.
+- **Facts:** relations to several kinds; `link_kinds` in a fact's answer.
 - **Control:** lists per kind for a relation from several; rows and the links page for one to several; keys without a prefix.
 - **The end-to-end test:** `e2e/scenarios/uc-atlas-27-owner.exs`.
 - **Prod:** restart rela (it reads `schema.yaml` when it starts) and the core, then run the migration.
@@ -78,10 +78,10 @@ In prod, after the merge and a restart, every open scene and use case gets its `
   4. `building` (otherwise).
 
   Each open state names its owner, what is expected, why, and its next states.
-- **The check:** State checks every definition before anyone runs it (`AtlasState.Flows`). Every state that is not done has an owner and a way out to a next state, every state reaches done, the last state holds when no other does, and the kinds, field and owner relation exist. The description State answers carries `flow_problems`, and Flow runs only a sound definition. A unit test checks the definitions in `rela/atlas.json`, so CI refuses an unsound one.
-- **The engine:** Flow is its own BEAM application, `atlas_flow`, beside Bus, State and Control, and it talks only over the Bus.
+- **The check:** Facts checks every definition before anyone runs it (`AtlasFacts.Flows`). Every state that is not done has an owner and a way out to a next state, every state reaches done, the last state holds when no other does, and the kinds, field and owner relation exist. The description Facts answers carries `flow_problems`, and Flow runs only a sound definition. A unit test checks the definitions in `rela/atlas.json`, so CI refuses an unsound one.
+- **The engine:** Flow is its own BEAM application, `atlas_flow`, beside Bus, Facts and Control, and it talks only over the Bus.
   - It runs one supervised process per open fact (`AtlasFlow.Item`), registered by kind and key, so a second one cannot start. Each process has a timer in every state (every minute; `flow.tick_seconds` in the environment's settings, or a state's `every_seconds`).
-  - On its timer, and at once on any hint, a process reads its fact and what hangs under it, works out the state, and stores only what differs (safe to repeat). It stops once its fact is done or gone. It keeps nothing State does not hold, so a crashed process is started again and goes on from State.
+  - On its timer, and at once on any hint, a process reads its fact and what hangs under it, works out the state, and stores only what differs (safe to repeat). It stops once its fact is done or gone. It keeps nothing Facts does not hold, so a crashed process is started again and goes on from Facts.
   - At boot, and every round, the engine starts a process for every open fact without one. A hint of a new fact starts its process at once. Nobody depends on a hint.
 - No kind is named in BEAM, TUI or agent code; the boundary test covers `atlas_flow` too.
 
@@ -115,7 +115,7 @@ The one-off `atlas migrate-assignment` gave every item that existed then its Ass
 - **`rela/atlas.json`:**
   - `relations.assignment.component` = `{key: "AS-{key}", values: {of: "{key}"}}`: the mark that makes it part of the item. It is `set_by: migration`: nobody links it by hand.
   - The flow `test_and_accept` has `"on": "assignment"`: Flow writes on the fact that relation points at.
-- **State** (`AtlasState.Components`):
+- **Facts** (`AtlasFacts.Components`):
   - A create of a fact with a component makes the component first, then the fact with its link, in one write with one cause. When the fact is refused, the component goes again.
   - A delete deletes the component too. Deleting a component alone is refused while its fact exists.
 - **Control:**
@@ -125,13 +125,13 @@ The one-off `atlas migrate-assignment` gave every item that existed then its Ass
 - **Flow:**
   - A definition with `on` reads the fact that relation points at, and writes `field` (and later `owner_relation`) there.
   - It writes `by: flow`, so the engine still passes over its own hints.
-  - State's check looks for the field and the owner relation on that kind, and refuses a rule that depends on them through `on`.
+  - Facts' check looks for the field and the owner relation on that kind, and refuses a rule that depends on them through `on`.
 - **No kind is named** in BEAM, the TUI or the agent. There is no new page or endpoint: the Assignment's pages are the generic ones.
 
 ### What changed for this
 
 - **rela:** the `assignment` kind and association; `assigned_to` starts at it; `expected` moved there.
-- **State:** components; Flow's check with `on`.
+- **Facts:** components; Flow's check with `on`.
 - **Control:** a fact's page shows its components; associations go to them; the delete confirm says so.
 - **Flow:** `on`.
 - **The end-to-end test:**
@@ -143,7 +143,7 @@ The one-off `atlas migrate-assignment` gave every item that existed then its Ass
 
 ## IS-Atlas-75: Flow writes the owner
 
-Flow now writes the owner too, on each fact's Assignment (IS-Atlas-78), together with what is expected, in one change with its cause, by `flow`. Each flow state names its owner with its kind (`"owner": {"kind": "agent", "key": "coordinator"}`), and State's check refuses a definition whose owner relation does not allow that kind.
+Flow now writes the owner too, on each fact's Assignment (IS-Atlas-78), together with what is expected, in one change with its cause, by `flow`. Each flow state names its owner with its kind (`"owner": {"kind": "agent", "key": "coordinator"}`), and Facts' check refuses a definition whose owner relation does not allow that kind.
 
 What each kind gets, from the flows in `rela/atlas.json`:
 

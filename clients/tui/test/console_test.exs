@@ -103,7 +103,7 @@ defmodule AtlasTui.ConsoleTest do
     model = ready()
 
     for invalid <- [
-          %{"op" => "boot", "error" => "State unavailable"},
+          %{"op" => "boot", "error" => "Facts unavailable"},
           Map.put(boot(), "tabs", []),
           Map.put(boot(), "env", "prod"),
           put_in(boot(), ["tabs", Access.at(0), "to"], "/k/widget/W1"),
