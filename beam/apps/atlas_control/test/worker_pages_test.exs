@@ -60,6 +60,154 @@ defmodule AtlasControl.WorkerPagesTest do
     )
   end
 
+  # The Workers page over these runs (`AtlasControl.Packing`: a run is a turn, going is
+  # running, over is ended, `until` its lease and `done_at` when it ended). Each run is
+  # `{key, status, at}`: `at` is the lease of a going run and the end of an over one.
+  defp workers_page(runs) do
+    description =
+      AtlasControl.Model.catalog(AtlasControl.Packing, %{
+        "workers" => %{"read" => %{"actors" => ["viewer"]}}
+      })
+
+    turns =
+      for {key, status, at} <- runs do
+        values = %{"host" => "m-#{key}", "try" => "1", "status" => status}
+
+        values =
+          if status == "going",
+            do: Map.put(values, "until", at),
+            else: Map.merge(values, %{"done_at" => at, "reason" => "finished"})
+
+        %{"key" => key, "values" => values, "links" => %{"worker" => ["w-#{key}"]}}
+      end
+
+    by_key = Map.new(turns, &{&1["key"], &1})
+
+    read = fn
+      "reader", %{"key" => "viewer"} ->
+        %{"fact" => %{"key" => "viewer"}}
+
+      "run", %{"plain" => true} = query when map_size(query) == 1 ->
+        %{"facts" => turns}
+
+      "run", %{"key" => key} ->
+        %{"fact" => by_key[key]}
+
+      "trace", %{"turn" => key, "attempt" => "1"} ->
+        %{
+          "fact" => %{
+            "key" => "trace-#{key}",
+            "environment" => AtlasBus.environment(),
+            "machine" => "m-#{key}",
+            "worker" => "w-#{key}",
+            "turn" => key,
+            "attempt" => "1"
+          }
+        }
+    end
+
+    page =
+      WorkerPages.render(
+        {:worker_page, :workers, %{}},
+        description,
+        %{key: "viewer", kind: "reader"},
+        read,
+        %{}
+      )
+
+    lists = for block <- page.blocks, do: {block["id"], block["type"], block["props"]}
+    {page, lists}
+  end
+
+  defp row_keys({_id, _type, props}), do: Enum.map(props["rows"], & &1["id"])
+
+  defp opens(key),
+    do:
+      WorkerPages.path(%{
+        "worker" => %{"machine" => "m-#{key}", "worker" => "w-#{key}"},
+        "turn" => key,
+        "attempt" => "1"
+      })
+
+  test "the Workers page lists running turns first, newest activity first, then finished ones newest end first" do
+    {_page, lists} =
+      workers_page([
+        {"R-1", "over", "2026-11-10T10:00:00Z"},
+        {"R-2", "going", "2026-11-13T09:00:00Z"},
+        {"R-3", "going", "2026-11-13T11:00:00Z"},
+        {"R-4", "over", "2026-11-12T10:00:00Z"},
+        {"R-5", "going", "2026-11-13T10:00:00Z"},
+        {"R-6", "over", "2026-11-11T10:00:00Z"}
+      ])
+
+    assert Enum.map(lists, fn {id, type, _} -> {id, type} end) == [
+             {"workers-running", "list"},
+             {"workers-finished", "list"}
+           ]
+
+    [running, finished] = lists
+    assert row_keys(running) == ["R-3", "R-5", "R-2"]
+    assert row_keys(finished) == ["R-4", "R-6", "R-1"]
+
+    # Each row opens its own turn's worker page, from either list.
+    for {_, _, props} <- lists, row <- props["rows"] do
+      assert row["to"] == opens(row["id"])
+
+      assert {:worker_page, :worker, %{turn: turn, attempt: "1"}} =
+               AtlasControl.Pages.route(row["to"])
+
+      assert turn == row["id"]
+    end
+  end
+
+  test "the Workers page keeps only the twenty most recently finished turns" do
+    runs =
+      for n <- 1..25 do
+        {"R-#{String.pad_leading("#{n}", 2, "0")}", "over",
+         DateTime.to_iso8601(DateTime.add(~U[2026-11-01 00:00:00Z], n, :hour))}
+      end
+
+    {_page, [running, finished]} = workers_page(Enum.shuffle(runs))
+    assert row_keys(running) == []
+
+    assert row_keys(finished) ==
+             for(n <- 25..6//-1, do: "R-#{String.pad_leading("#{n}", 2, "0")}")
+  end
+
+  test "an empty Running list keeps its place and its empty state" do
+    {page, [{"workers-running", "list", running}, {"workers-finished", "list", finished}]} =
+      workers_page([{"R-1", "over", "2026-11-10T10:00:00Z"}])
+
+    assert running["rows"] == []
+    assert is_binary(running["empty"]) and running["empty"] != ""
+    assert row_keys({nil, nil, finished}) == ["R-1"]
+
+    # Rows of the second list stay selectable and openable in the Console.
+    assert {:ok, projected} =
+             Console.project(
+               %{
+                 "path" => "/workers",
+                 "back" => page.back,
+                 "blocks" => page.blocks,
+                 "markup" => page.markup
+               },
+               1
+             )
+
+    assert {:ok, projection} = AtlasBFFContract.Console.compile(projected)
+
+    assert {:ok, bindings} =
+             AtlasBFFContract.Console.Projection.bindings(projection, %{
+               path: "/workers",
+               context: "browse",
+               generation: 0,
+               on: "workers-finished",
+               row: "R-1"
+             })
+
+    assert bindings["Enter"]["props"]["operation"]["name"] == "open_selected"
+  end
+
   test "worker and conversation panes retain stable boundaries and unavailable output is explicit" do
     {page, target} = fixture(%{"facts" => [], "after_position" => 0, "more" => false})
     assert Enum.map(page.blocks, & &1["id"]) == ["worker", "guidance-history", "worker-output"]

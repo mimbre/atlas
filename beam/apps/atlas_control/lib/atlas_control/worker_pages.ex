@@ -21,27 +21,26 @@ defmodule AtlasControl.WorkerPages do
     }
   end
 
+  # Running first, in a list of its own, newest activity first; then the turns that
+  # finished most recently (`Workers.board/3`). Each row is the turn: its key and the
+  # worker page of its exact execution.
   def render({:worker_page, :workers, _}, m, actor, read, _form) do
-    case call("worker_overview", %{}, m, actor, read) do
-      {:ok, %{"workers" => workers}} ->
-        rows =
-          for worker <- workers do
-            execution = worker["execution"]
-            identity = execution["worker"]
-
-            Blocks.row(
-              label: identity["worker"],
-              detail: "#{identity["machine"]} · #{execution["turn"]} · #{worker["state"]}",
-              to: path(execution)
-            )
-          end
-
+    case Workers.board(m, actor, read) do
+      {:ok, %{"running" => running, "finished" => finished}} ->
         page("Workers", "/", [
-          Blocks.list(
-            title: "Running executions",
-            rows: rows,
-            empty: "No running execution is recorded."
-          )
+          {"workers-running",
+           Blocks.list(
+             title: "Running",
+             rows: Enum.map(running, &worker_row(&1, [&1["state"]])),
+             empty: "No worker is running."
+           )},
+          {"workers-finished",
+           Blocks.list(
+             title: "Finished",
+             rows:
+               Enum.map(finished, &worker_row(&1, [&1["reason"] || &1["state"], &1["ended_at"]])),
+             empty: "No worker has finished."
+           )}
         ])
 
       {:error, reason} ->
@@ -72,6 +71,22 @@ defmodule AtlasControl.WorkerPages do
       {:error, reason} ->
         error(reason, "/workers")
     end
+  end
+
+  defp worker_row(worker, about) do
+    execution = worker["execution"]
+    identity = execution["worker"]
+
+    Blocks.row(
+      id: execution["turn"],
+      label: identity["worker"],
+      detail:
+        Enum.join(
+          [identity["machine"], execution["turn"] | Enum.reject(about, &(&1 in [nil, ""]))],
+          " · "
+        ),
+      to: path(execution)
+    )
   end
 
   defp detail(view, execution, m, actor, read) do
