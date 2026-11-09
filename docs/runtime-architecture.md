@@ -48,9 +48,9 @@ Runtime remains local-first, running native agent CLIs on macOS. Neither Linux n
 - Keep permission configuration and credential material outside agent-writable locations. Agents cannot expand their own permissions.
 - Atlas Server or the external coordinator still owns workflow authorization, acceptance, merge and release decisions. The local component executes authorized GitHub operations; centralizing credentials does not transfer orchestration to Runtime.
 
-### Code service: contract (implemented: references, snapshots, changes, reviews, integrations)
+### Code service: contract (implemented: references, snapshots, changes, reviews, review updates, integrations)
 
-Status: every endpoint below (health, reference resolution, snapshot creation, manifest, archive, change submission, review and integration) is implemented in `beam/apps/atlas_code`. Clients see repository names, reference names, `sha256:` snapshot IDs, opaque `rev_<64 hex>` revision handles and their own UUIDs; commits, branches, refs, remote URLs and Git output stay inside Code. Runtime can materialize a snapshot, inspect it offline and submit a repository's changes as a sealed change with its own revision handle with `atlas-runtime snapshot materialize|status|diff|submit|rebind` (below); reviews and integrations are requested by the orchestrator, not by Runtime. Managed worker starts do not use snapshots yet. Everything under "Current callers" was cited from source at `f4492cbeb0f199b0228282c507ae6f8f05b05596` and is kept as that record. The earlier commit-, publication- and release-based contract is superseded; see "Superseded design" below.
+Status: every endpoint below (health, reference resolution, snapshot creation, manifest, archive, change submission, review, review update and integration) is implemented in `beam/apps/atlas_code`. Clients see repository names, reference names, `sha256:` snapshot IDs, opaque `rev_<64 hex>` revision handles and their own UUIDs; commits, branches, refs, remote URLs and Git output stay inside Code. Runtime can materialize a snapshot, inspect it offline and submit a repository's changes as a sealed change with its own revision handle with `atlas-runtime snapshot materialize|status|diff|submit|rebind` (below); reviews, review updates and integrations are requested by the orchestrator, not by Runtime. Managed worker starts do not use snapshots yet. Everything under "Current callers" was cited from source at `f4492cbeb0f199b0228282c507ae6f8f05b05596` and is kept as that record. The earlier commit-, publication- and release-based contract is superseded; see "Superseded design" below.
 
 Decisions that this contract follows:
 - Code is a separate local Elixir service beside Runtime, reached over authenticated loopback HTTP. The same contract can later be hosted on Atlas Server. No VM, Linux, filesystem mount or private Git server is required, and Runtime keeps working without Atlas Server.
@@ -93,7 +93,7 @@ Decisions that this contract follows:
 | Snapshot (manifest and archive) | creates and serves | downloads and materializes into worker folders, keeps an immutable baseline outside worker access | — |
 | Local status/diff | — | computes offline: worker folder against baseline | reads |
 | Change upload and seal | stores against the exact base revision | builds entries from the diff, uploads and seals them | — |
-| Review (location, pull request) and integration (target update) | performs | — | authorizes each one explicitly |
+| Review (location, pull request), review update (location) and integration (target update) | performs | — | authorizes each one explicitly |
 | Credentials and Git metadata | only holder | never | never |
 
 Workers only ever see their folders.
@@ -104,7 +104,7 @@ Code listens only on `127.0.0.1` with a configured port, using OTP `:inets` `htt
 
 There are two tokens, each in an owner-only (0600) regular file under the Code home:
 - the **runtime token** allows health, reference resolution, snapshot and change operations;
-- the **orchestrator token** (optional, different from the runtime token) allows everything, including reviews and integrations. Without it, every review and integration is `403 forbidden`.
+- the **orchestrator token** (optional, different from the runtime token) allows everything, including reviews, review updates and integrations. Without it, every one of those is `403 forbidden`.
 
 Runtime never passes either token to native workers; `Agent.Native` already strips all but a fixed environment list.
 
@@ -119,7 +119,7 @@ Every error response is `{"error": {"code": "<code>", "message": "<text>", "deta
 | 403 | `forbidden` (wrong token, repository not allowed, reviews and integrations not configured) |
 | 404 | `not_found`, `unknown_reference`, `unknown_revision` |
 | 405 | `method_not_allowed` |
-| 409 | `snapshot_superseded`, `repository_mismatch`, `base_mismatch`, `conflict`, `change_not_sealed`, `location_taken`, `review_not_open`, `review_has_no_target`, `revision_mismatch`, `fingerprint_mismatch`, `target_moved`, `integration_conflict`, `integration_refused` |
+| 409 | `snapshot_superseded`, `repository_mismatch`, `base_mismatch`, `conflict`, `change_not_sealed`, `location_taken`, `review_not_open`, `review_has_no_target`, `revision_mismatch`, `fingerprint_mismatch`, `location_moved`, `update_refused`, `target_moved`, `integration_conflict`, `integration_refused` |
 | 413 | `payload_too_large` |
 | 422 | `incomplete_upload`, `unsupported_content` |
 | 502 | `review_incomplete` |
@@ -198,11 +198,32 @@ Snapshots as implemented:
    - Repository and revision come only from the sealed change: an unknown change is `404`, an open one `409 change_not_sealed`, a repository no longer allowed `403`.
    - With the optional `fingerprint` (`fpr_<64 hex>`), Code recomputes the change's repository fingerprint from its stored `request.json` without `change_id`, exactly as Runtime's submit does (see the fingerprint under submit below). A different value is `409 fingerprint_mismatch` with `{change_id, fingerprint}`, the change's actual fingerprint; no review is recorded and nothing is pushed. Without the field the review behaves as before.
    - Code makes the sealed revision visible on the remote at a location only Code names, `work/review-<review_id>`, with a create-only push that never moves an existing location (`409 location_taken`). On an `https://github.com/OWNER/REPO` remote it also opens a pull request from that location to `target`, adopting the single existing one for the location; on any other remote the pushed location is the review.
-   - Response: `{"review_id", "change_id", "repository", "target", "revision", "state": "open", "review_url"?}`.
+   - Response: `{"review_id", "change_id", "repository", "target", "revision", "state": "open", "review_url"?}`. After a review update (endpoint 8) `change_id` and `revision` are the current ones.
    - `reviews/<id>.json` records the request and phase before each remote effect: `pushing` → `pushed` → `open`, or `failed` when the location already existed. An identical repeat resumes from the recorded phase; a different body under the same ID, another or an added or dropped `fingerprint` included, is `409 conflict`. A refused fingerprint records nothing, so its ID stays free. A pushed review without its pull request is `502 review_incomplete` with `{phase: "pushed"}`, never success.
    - Git failures are `503 provider_unavailable` with the exit status only; raw Git or `gh` output never reaches a response. `config.json` may set `"gh"` to the `gh` executable; the default is `gh` on PATH, using Code's own `gh` login.
    - **Limits:** all reviews are serialized by one lock, including remote calls. A failed review's location claim is permanent.
-8. **Integration.** `POST /v1/integrations`, orchestrator token only.
+8. **Review update.** `POST /v1/review-updates`, orchestrator token only.
+   - Request: `{"update_id", "review_id", "change_id", "revision", "fingerprint"}`, exactly these keys, all required. IDs are lowercase UUIDs; `revision` is the review's current revision (`rev_<64 hex>`); `fingerprint` (`fpr_<64 hex>`) is the approved repository fingerprint of the new change. The fingerprint is required here, unlike on review and integration, because an update always follows a decision.
+   - Checks, in this order, each before any record or remote effect:
+
+     | Check | Refusal |
+     |---|---|
+     | the review exists | `404 not_found` `{review_id}` |
+     | the review is `open` | `409 review_not_open` `{review_id}` |
+     | the change exists and is sealed | `404 not_found` `{change_id}`, `409 change_not_sealed` `{change_id}` |
+     | the change is for the review's repository | `409 repository_mismatch` `{repository, change_id}` |
+     | `revision` is the review's **current** revision, so two updates cannot race | `409 revision_mismatch` `{review_id, revision}` with the current revision |
+     | `fingerprint` is the change's fingerprint, recomputed from its `request.json` as for a review | `409 fingerprint_mismatch` `{change_id, fingerprint}` with the actual one |
+     | the repository is still allowed, and the review's head and the change's sealed commit are in Code's cache | `403 forbidden`, `409 conflict` |
+
+   - Code builds a commit in its cache whose tree is exactly the sealed change's tree and whose single parent is the review's current head. Author and committer are `Atlas Code <atlas-code@localhost>` with the head's committer date, and the message names the change and the update, so the same update always gives the same commit. It keeps the private ref `refs/atlas/updates/<update_id>`. The tree is the approved content even when the new change was made from another base.
+   - Code fast-forwards the review location with `--force-with-lease` on the current head: the branch is never force-pushed, and a person sees the update as a new commit on top of what they reviewed. The pull request follows its branch, so there is no `gh` call.
+   - Response: `{"update_id", "review_id", "change_id", "repository", "previous_revision", "revision", "state": "open", "review_url"?}`, where `revision` is the new head.
+   - Once updated, the review's `revision` and `change_id` are the update's and its ID is appended to the review's `updates`. Integration then needs the new revision (the old one is `409 revision_mismatch`), and its optional fingerprint is checked against the new change. A repeat of the original review request replies with the current revision and change.
+   - Terminal refusals leave the location unchanged: `409 location_moved` `{review_id, current}` when someone else moved the location (`current` is its revision handle, or null when it is gone); `409 update_refused` `{review_id}` when the remote refuses the update, for example by branch policy, which Code never bypasses. Use a new `update_id` after deciding what follows.
+   - `review-updates/<id>.json` records the request before the push: `pushing` → `updated`, or `refused` with its code. An identical repeat replays the outcome or resumes `pushing`; a location already at the update's commit, or at a commit containing it, is the earlier push whose response was lost. A different body under the same ID is `409 conflict`. Refused checks record nothing, so their ID stays free.
+   - **Limits:** updates share the reviews lock, remote calls included. An integration that read the review just before an update finished may integrate the previous revision, which was approved too. An update to a change with the review's current tree is not refused and adds a commit without changes.
+9. **Integration.** `POST /v1/integrations`, orchestrator token only.
    - Request: `{"integration_id", "review_id", "revision", "target_revision", "fingerprint"?}`. `revision` must be the open review's revision (`409 revision_mismatch`, `409 review_not_open`); `target_revision` is the target's revision the orchestrator verified, from `references/resolve`.
    - With the optional `fingerprint`, Code checks it against the review's current change, so the target only receives the approved content: a different value is `409 fingerprint_mismatch` with `{change_id, fingerprint}`, before any record or remote effect, and the target is unchanged.
    - Code moves the review's target from exactly `target_revision` to the review: `already_integrated` when the target already contains it, `fast_forward` when possible, otherwise a `merge` built in Code's cache with a fixed identity and date. The push carries a lease on `target_revision`, so it never replaces work Code has not seen, and branch policy is never bypassed.
@@ -283,7 +304,7 @@ As implemented:
 - **Startup:** `cd beam/apps/atlas_code && ATLAS_CODE_HOME=/abs/home mix atlas_code.server`. It runs as its own BEAM process, binds only `127.0.0.1`, prints `Code ready on 127.0.0.1:PORT` and starts no Runtime, Bus or Facts.
 - **Ownership:** a running Code or migration owns its home through `service.owner/owner.json`; any other start or migration is refused. SIGTERM stops serving and then releases the home, keeping `service.owner.ended-<owner>`. After Ctrl-C, a crash, SIGKILL or power loss the owner stays; the next Code start runs the `mix atlas_code.unlock` check itself (the record still names that owner and `ps` proves its PID gone), moves it to its tombstone, logs the old owner and PID, and takes the home, so a supervisor can restart Code. A running, reused or undeterminable PID keeps start refused; then `mix atlas_code.unlock --owner <owner>` (same check) or, for a reused PID, a manual rename to the tombstone recovers it. Migration never recovers automatically.
 - **Code configuration:** `$ATLAS_CODE_HOME/config.json` is `{"port": N, "repositories": {"github.com/OWNER/REPO": "<git remote URL or path>"}}`. Its keys are the allow-list.
-- **Token:** `$ATLAS_CODE_HOME/runtime.token` must be a regular file with mode 0600 or stricter, otherwise start is refused. An optional `orchestrator.token` with the same rules, different from the runtime token, enables reviews and integrations (endpoints 7 and 8).
+- **Token:** `$ATLAS_CODE_HOME/runtime.token` must be a regular file with mode 0600 or stricter, otherwise start is refused. An optional `orchestrator.token` with the same rules, different from the runtime token, enables reviews, review updates and integrations (endpoints 7 to 9).
 - **Runtime configuration:** Runtime reads `<runtime state dir>/code.json`, i.e. `{"url": "http://127.0.0.1:PORT", "token_file": "/abs/path"}`. The Go CLI strips `ATLAS_*` from the daemon environment, which is why this is a file rather than environment variables.
 - **Managed start (since step 8):** Runtime no longer asks Code. `Prepare` fetches in the worker clone and branches from the fetched `origin/develop`, saved as `base_sha`. Admissions recorded while Code resolved the base keep `resolved_commit`. Saved runs and continuations keep `{url, branch, base_sha}`.
 - **Remaining Git responsibilities:** clone, fetch, origin and dirty checks still run inside the worker's sandboxed clone with the user's `gh` credential helper. Code only runs `ls-remote` through the same helper.
@@ -426,7 +447,7 @@ Folder preparation (steps 11a and 11b implemented, `tools/runtime/host/prepare.g
 
 Later bounded steps, each a separate assignment:
 1. Use materialized snapshots for worker starts automatically (orchestration).
-2. Proof of the full local workflow, including a real GitHub review and integration through Code. Only after that: withdraw worker GitHub access, remove the macOS trustd allowance where verified, then integrate through Code (endpoint 8) as the routine path.
+2. Proof of the full local workflow, including a real GitHub review and integration through Code. Only after that: withdraw worker GitHub access, remove the macOS trustd allowance where verified, then integrate through Code (endpoint 9) as the routine path.
 
 Open questions:
 - How the orchestrator token is provisioned to the external coordinator.
