@@ -176,7 +176,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: .rela-bin
-          key: rela-26.11.2-linux_amd64
+          key: rela-26.11.3-linux_amd64
       - run: rela/scripts/start-test.sh install
         working-directory: .
       - run: mix compile --warnings-as-errors
@@ -318,12 +318,12 @@ jobs:
         env:
           MIX_ENV: test
         run: mix test --include integration apps/atlas_facts/test/guidance_native_test.exs
-      - run: sudo apt-get update && sudo apt-get install -y tmux lsof netcat-openbsd jq
-      # rela-server, pinned in rela/scripts/start-test.sh; it downloads it when missing.
+      - run: sudo apt-get update && sudo apt-get install -y tmux lsof netcat-openbsd jq sqlite3
+      # rela-server-headless-sqlite, pinned in rela/scripts/start-test.sh; it downloads it when missing.
       - uses: actions/cache@v4
         with:
           path: .rela-bin
-          key: rela-26.11.2-linux_amd64
+          key: rela-26.11.3-linux_amd64
       - run: mix compile --warnings-as-errors && mix format --check-formatted
         working-directory: e2e
       # bin/atlas itself: prod by default, test only when asked; bin/atlas-dev e2e never on prod.

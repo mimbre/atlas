@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Selected native schema closure. Rela remains the semantic schema validator.
 
-Paths follow rela 26.11.2: every include is relative to the root schema directory.
+Paths follow rela 26.11.3: every include is relative to the root schema directory.
 Only configuration is copied; entities, relations and actor records are never written.
 """
 import argparse
@@ -9,10 +9,7 @@ import json
 import os
 from pathlib import Path
 import re
-import shutil
-import subprocess
 import sys
-import tempfile
 
 sys_path = str(Path(__file__).resolve().parent)
 if sys_path not in sys.path:
@@ -133,45 +130,11 @@ def same(root, data):
         (Path(root) / name).read_bytes() == (Path(data) / name).read_bytes() for name in files)
 
 
-def fits(root, data, binary):
-    _, schema = closure(root)
-    with tempfile.TemporaryDirectory(prefix='atlas-fits-') as tmp:
-        package(root, tmp)
-        for part in ('entities', 'relations'):
-            src = Path(data) / part
-            if src.exists():
-                shutil.copytree(src, Path(tmp) / part)
-            else:
-                (Path(tmp) / part).mkdir()
-        # Validation/scan failures must not be mistaken for an empty orphan list.
-        subprocess.run([binary, '--project', tmp, '--quiet', 'validate'], check=True,
-                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        scan = subprocess.run([binary, '--project', tmp, '--quiet', 'migrate', 'gc', '--scan'],
-                              check=True, capture_output=True, text=True)
-        orphans = re.findall(r'^  ([A-Za-z0-9_.]+)$', scan.stdout, re.M)
-        plurals = {spec.get('plural') for spec in schema.get('entities', {}).values()}
-        for folder in sorted((Path(tmp) / 'entities').iterdir()):
-            if folder.is_dir() and any(folder.iterdir()) and folder.name not in plurals:
-                orphans.append(f'{folder.name} (a kind this build has no more)')
-        relations = schema.get('relations', {})
-        # Disk files use canonical names; accept inverses too, as older stores can use them.
-        names = set(relations) | {s.get('inverse', {}).get('id') for s in relations.values()}
-        for file in sorted((Path(tmp) / 'relations').glob('*.md')):
-            parts = file.stem.split('--')
-            if len(parts) == 3 and parts[1] not in names:
-                orphans.append(f'{parts[1]} (a relation this build has no more)')
-        if orphans:
-            print('\n'.join(sorted(set(orphans))))
-            return False
-        return True
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['files', 'resolved', 'flat', 'copy', 'same', 'fits'])
+    parser.add_argument('command', choices=['files', 'resolved', 'flat', 'copy', 'same'])
     parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parent.parent)
     parser.add_argument('--data', type=Path)
-    parser.add_argument('--bin', default='rela')
     args = parser.parse_args()
     if args.command == 'files':
         print('\n'.join(closure(args.root)[0]))
@@ -186,16 +149,12 @@ def main():
             package(args.root, args.data)
         elif args.command == 'same':
             return 0 if same(args.root, args.data) else 1
-        elif args.command == 'fits':
-            return 0 if fits(args.root, args.data, args.bin) else 1
     return 0
 
 
 if __name__ == '__main__':
     try:
         sys.exit(main())
-    except (ConfigError, OSError, yaml.YAMLError, subprocess.CalledProcessError) as e:
+    except (ConfigError, OSError, yaml.YAMLError) as e:
         print(f'config: {e}', file=sys.stderr)
-        if isinstance(e, subprocess.CalledProcessError):
-            print(e.stderr.decode() if isinstance(e.stderr, bytes) else e.stderr, file=sys.stderr)
         sys.exit(1)

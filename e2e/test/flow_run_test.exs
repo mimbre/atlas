@@ -3,7 +3,7 @@ defmodule AtlasE2E.FlowRunTest do
   @root Path.expand("../..", __DIR__)
   @bin AtlasE2E.Instance.rela_bin()
   @moduletag skip:
-               if(@bin == nil, do: "set ATLAS_E2E_RELA_BIN to pinned Rela 26.11.2", else: false)
+               if(@bin == nil, do: "set ATLAS_E2E_RELA_BIN to pinned Rela 26.11.3", else: false)
   @moduletag timeout: 120_000
   @moduletag :tmp_dir
 
@@ -31,7 +31,7 @@ defmodule AtlasE2E.FlowRunTest do
   # A private neutral contract and schema; no deployment selection is modified.
   data = Path.join(dir, "neutral")
   File.mkdir_p!(data)
-  # Required by rela-server even though this proof uses only its HTTP API.
+  # Required by rela-server-headless-sqlite even though this proof uses only its HTTP API.
   File.write!(Path.join(data, "data-entry.yaml"), "app:\n  name: Private input proof\n")
   fields = ~w(request_id run flow subject_kind subject_key generation entry source_version subject_version actor roles changed_fields links payload_digest status position prepared_at applied_at)
   run_fields = ~w(flow subject_kind subject_key generation definition_sha256 state entry entered_at status deadlines pending input_cursor last_input blocked_reason)
@@ -78,7 +78,7 @@ defmodule AtlasE2E.FlowRunTest do
   {:ok, socket} = :gen_tcp.listen(0, [:binary, ip: {127, 0, 0, 1}])
   {:ok, port} = :inet.port(socket)
   :gen_tcp.close(socket)
-  server = Port.open({:spawn_executable, Path.join(bin, "rela-server")}, [:binary, :exit_status, :stderr_to_stdout, args: ["-project", data, "-bind", "127.0.0.1", "-port", to_string(port), "-quiet"]])
+  server = Port.open({:spawn_executable, Path.join(bin, "rela-server-headless-sqlite")}, [:binary, :exit_status, :stderr_to_stdout, args: ["-project", data, "-bind", "127.0.0.1", "-port", to_string(port), "-quiet"]])
   {:os_pid, os_pid} = Port.info(server, :os_pid)
   rela = {AtlasFacts.Rela.Http, "http://127.0.0.1:#{port}/api/v1"}
   facts_opts = [rela: rela, data_dir: Path.join(dir, "facts"), model: PrivateChoiceModel]
@@ -91,10 +91,10 @@ defmodule AtlasE2E.FlowRunTest do
       await = fn await, output ->
         receive do
           {^server, {:data, chunk}} -> await.(await, output <> chunk)
-          {^server, {:exit_status, status}} -> flunk("rela-server exited: #{status}\n#{output}")
+          {^server, {:exit_status, status}} -> flunk("rela-server-headless-sqlite exited: #{status}\n#{output}")
         after
           0 ->
-            assert Port.info(server, :os_pid) == {:os_pid, os_pid}, "rela-server stopped\n#{output}"
+            assert Port.info(server, :os_pid) == {:os_pid, os_pid}, "rela-server-headless-sqlite stopped\n#{output}"
             case Talk.read("_description", %{}) do
               %{"description" => %{"entities" => %{^input_kind => %{}}} = d} -> d
               other ->

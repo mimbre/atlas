@@ -33,7 +33,7 @@ assert status == 0, out
 :gen_tcp.close(socket)
 
 server =
-  Port.open({:spawn_executable, Path.join(bin, "rela-server")}, [
+  Port.open({:spawn_executable, Path.join(bin, "rela-server-headless-sqlite")}, [
     :binary,
     :exit_status,
     :stderr_to_stdout,

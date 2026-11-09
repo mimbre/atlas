@@ -22,8 +22,8 @@ fi
 mkdir -p "$root"
 echo "--- start-bg $(date -u +%Y-%m-%dT%H:%M:%SZ)" >>"$log"
 # perl's setsid puts rela in its own session, so a signal to the starter's
-# process group does not reach it; start-test.sh execs rela-server, so the
-# pid below is rela-server's.
+# process group does not reach it; start-test.sh execs rela-server-headless-sqlite, so the
+# pid below is rela-server-headless-sqlite's.
 nohup perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV or die "exec: $!"' \
   "$here/scripts/start-test.sh" >>"$log" 2>&1 </dev/null &
 pid=$!

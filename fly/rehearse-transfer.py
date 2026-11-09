@@ -9,6 +9,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import socket
 import subprocess
@@ -29,6 +30,7 @@ def run(args, env=None, check=True):
 def environment(file):
     env = dict(os.environ, ATLAS_ENV_FILE=str(file), ATLAS_NO_UPDATE="1",
                ELIXIR_ERL_OPTIONS="+S 1:1", MIX_ENV="dev")
+    env["ATLAS_RELA_BIN"] = json.loads(Path(file).read_text())["rela"]["bin"]
     # No model, cloud or keychain credentials are required.
     for key in ("GITHUB_TOKEN", "FLY_API_TOKEN", "ATLAS_BUS_LINK_TOKEN",
                 "ATLAS_RUNTIME_FILE", "ATLAS_RUNTIME_HOME"):
@@ -104,8 +106,10 @@ def transport():
 
     def mapped(value):
         # Only the test copies' fixed absolute mount paths are remapped.
-        return value.replace("/tmp/", str(volume / "tmp") + "/").replace(
-            "/data", str(volume)).replace("/app", str(ROOT))
+        mounts = {"/tmp/": str(volume / "tmp") + "/", "/data": str(volume),
+                  "/app/bin": str(folder.parent / "bin"), "/app": str(ROOT)}
+        # One pass keeps inserted private TMPDIR paths from being remapped again.
+        return re.sub(r"/tmp/|/data\b|/app/bin\b|/app\b", lambda match: mounts[match[0]], value)
 
     if args[0] == "status":
         held = (volume / "hold").exists()
@@ -113,8 +117,8 @@ def transport():
               "checks": [{"status": "critical" if held else "passing"}]}]}))
     elif args[:2] == ["ssh", "console"]:
         command = mapped(args[args.index("-C") + 1])
-        result = run(["bash", "-c", command], check=False)
-        sys.stdout.write(result.stdout)
+        result = subprocess.run(["bash", "-c", command],
+                                env=environment(Path(state["destination_file"])))
         sys.exit(result.returncode)
     elif args[:2] == ["ssh", "sftp"]:
         action = args[2]
@@ -137,7 +141,8 @@ def transport():
         # Execute an isolated copy of the actual boot-time archive application.
         # Only mount paths change; the production script itself is not modified.
         script = mapped((ROOT / "fly/apply-move.sh").read_text())
-        run(["bash", "-c", script, "apply-move", "beam" if role == "core" else "rela"])
+        run(["bash", "-c", script, "apply-move", "beam" if role == "core" else "rela"],
+            environment(file))
         if not (volume / "hold").exists():
             if role == "core":
                 ops(file, "restart")
@@ -152,7 +157,7 @@ def rehearse(output, binary):
     # Copy executables only; never read or copy the user's test dataset.
     local_bin = output / "bin"
     local_bin.mkdir()
-    for name in ("rela", "rela-server"):
+    for name in ("rela", "rela-sqlite", "rela-server-headless-sqlite"):
         shutil.copy2(binary / name, local_bin / name)
     source_file = settings(output / "source", local_bin)
     destination = output / "destination"
@@ -182,7 +187,7 @@ def rehearse(output, binary):
                ATLAS_FLY_LOCAL=str(output / "transfer"),
                ATLAS_FLY_IN_USE="false")
     (output / "transfer/bin").mkdir(parents=True)
-    for name in ("rela", "rela-server"):
+    for name in ("rela", "rela-sqlite", "rela-server-headless-sqlite"):
         shutil.copy2(local_bin / name, output / "transfer/bin" / name)
 
     def transfer(script, *args, check=True):
@@ -205,7 +210,7 @@ def rehearse(output, binary):
     files = [source_file, destination_file]
     try:
         ops(source_file, "restart")
-        record(source_file, "put", "agent", "--name", "Coordinator")
+        owner = record(source_file, "put", "agent", "--name", "Coordinator")
         scene = record(source_file, "put", "scene", "--title", "Synthetic source",
                        "--description", "Offline transfer baseline")
         scene_key = key(scene)
@@ -214,9 +219,16 @@ def rehearse(output, binary):
         issue = record(source_file, "put", "issue", "--in", key(uc),
                        "--title", "Synthetic issue", "--description", "Preserve ownership")
         assignment_key = "AS-" + key(issue)
+        ownership_cause = "Hand over the issue for the transfer preservation proof"
+        record(source_file, "set", assignment_key, f"assigned_to={key(owner)}",
+               "--cause", ownership_cause)
         baseline = {k: record(source_file, "get", k)
                     for k in (scene_key, key(uc), key(issue), assignment_key)}
         assert baseline[assignment_key]["origins"], "fixture needs Facts link provenance"
+        assert dict(baseline[assignment_key]["fields"])["Assigned to"] == key(owner)
+        ownership_origin = baseline[assignment_key]["origins"]["Assigned to"]
+        assert ownership_origin["since"] and ownership_origin["by"]
+        assert ownership_origin["cause"] == ownership_cause
         ops(destination_file, "restart")
         record(destination_file, "put", "scene",
                           "--title", "Previous destination", "--description", "Keep me")
@@ -235,7 +247,9 @@ def rehearse(output, binary):
         env["ATLAS_FLY_IN_USE"] = "false"
         transfer("fetch-from-fly.sh", "--to", output / "destination-before", "--hold")
         assert all((destination / role / "hold").exists() for role in ("core", "rela"))
-        assert any((output / "destination-before/rela/entities/scenes").glob("*.md"))
+        counted = run([ROOT / "fly/counts.sh", output / "destination-before/rela"],
+                      dict(env, ATLAS_RELA_BIN=str(local_bin)))
+        assert "scenes 1" in counted.stdout.splitlines(), counted.stdout
         before_dry = events.read_text().splitlines()
         transfer("move-to-fly.sh", "--from", backup, "--dry-run")
         dry_calls = [json.loads(line)["args"] for line in events.read_text().splitlines()[len(before_dry):]]
@@ -267,6 +281,10 @@ def rehearse(output, binary):
         ops(rollback_file, "restart")
         restored = record(rollback_file, "get", scene_key)
         assert restored == latest, "rollback lost latest authoritative write"
+        for code, old in baseline.items():
+            expected = latest if code == scene_key else old
+            assert record(rollback_file, "get", code) == expected, \
+                f"rollback Control record differs: {code}"
         (output / "latest-control.json").write_text(json.dumps(restored, indent=2))
         assert all((destination / role / "hold").exists() for role in ("core", "rela"))
         for name in ("rela", "beam"):

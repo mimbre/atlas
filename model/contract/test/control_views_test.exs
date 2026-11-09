@@ -5,7 +5,7 @@ defmodule Model.ControlViewsTest do
   read the description rela serves, with Atlas's additions merged in: rela gives a kind
   without a primary field one of its own, carries a type's values and labels on each
   property, and serves id prefixes as a list. The fixture is what the pinned rela
-  (26.11.2) serves for `rela/` at `GET /api/v1/_schema`; regenerate it from a running
+  (26.11.3) serves for `rela/` at `GET /api/v1/_schema`; regenerate it from a running
   rela when the model's kinds change.
   """
   use ExUnit.Case, async: true

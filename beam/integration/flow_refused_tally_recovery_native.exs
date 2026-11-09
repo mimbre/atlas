@@ -141,7 +141,7 @@ for mode <- [
 
   server =
     Port.open(
-      {:spawn_executable, Path.join(System.fetch_env!("ATLAS_RELA_BIN"), "rela-server")},
+      {:spawn_executable, Path.join(System.fetch_env!("ATLAS_RELA_BIN"), "rela-server-headless-sqlite")},
       [
         :binary,
         :exit_status,

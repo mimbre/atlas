@@ -56,9 +56,13 @@ if [ "$(machines rela "$rela_app")" -gt 0 ]; then
     for file in schema.yaml data-entry.yaml; do
       as rela ssh sftp put -a "$rela_app" "$next/$file" "/tmp/next/$file" >/dev/null
     done
+    # Stage current tools privately; the old image may have only a filesystem CLI.
+    for script in start-test.sh data.sh fits.sh; do
+      as rela ssh sftp put -a "$rela_app" -m 0755 "$root/rela/scripts/$script" "/tmp/next/scripts/$script" >/dev/null
+    done
     as rela ssh sftp put -a "$rela_app" -m 0755 "$root/fly/check-fits.sh" /tmp/next/scripts/description.sh >/dev/null
     if ! orphans="$(as rela ssh console -q -a "$rela_app" \
-      -C "env ATLAS_RELA_DATA=/data/rela ATLAS_RELA_BIN=/app/bin /tmp/next/scripts/description.sh fits" 2>/dev/null)"; then
+      -C "bash -c 'set -e; bin=/app/bin; if [ -e /data/rela/.rela/rela.db ]; then command -v sqlite3 >/dev/null || { echo \"preflight: SQLite data requires native sqlite3 (Debian package sqlite3); nothing deployed\" >&2; exit 1; }; ATLAS_RELA_BIN=/tmp/next/bin /tmp/next/scripts/start-test.sh install; bin=/tmp/next/bin; fi; ATLAS_RELA_DATA=/data/rela ATLAS_RELA_BIN=\$bin /tmp/next/scripts/description.sh fits'")"; then
       echo "deploy: this build's description no longer describes data rela $env holds on Fly:" >&2
       echo "$orphans" | tr -d '\r' | sed 's/^/  /' >&2
       fail "nothing deployed; $env keeps its build. Migrate that data first (docs/guides/test-on-fly.md, \"A migration\")"

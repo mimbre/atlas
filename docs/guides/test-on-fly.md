@@ -66,6 +66,11 @@ A successful stale skip is not delivery evidence: confirm the intended paired
 image labels, manifest checks and positive smoke result in the deployment log.
 
 The deployment verifies the packaged description manifest on both apps before smoke.
+
+Compatibility preflight uses the same `rela/scripts/fits.sh` and data snapshot helper as local startup. A first-upgrade image with legacy files and only `/app/bin/rela` needs no `sqlite3`, SQLite CLI or package installation: the flat-schema check uses that existing filesystem CLI. For a SQLite store, preflight requires native `sqlite3` and stages the hash-pinned current tools in `/tmp/next/bin`, leaving the old image's installed binaries untouched. If native `sqlite3` is absent, deployment refuses with a prerequisite error. Provision it through a reviewed image/held-store operations path before retrying; preflight never installs live packages. New images include Debian's `sqlite3` package.
+
+SQLite fits/counts use read-only native online backup, then native export from a private project containing the original description. They do not directly export the active server or copy its DB/WAL/SHM independently. Validation applies the proposed schema to the exported view and refuses removed populated fields, kinds or relations. Transfer counts therefore count real SQLite entities/links rather than empty markdown directories. Moving SQLite data also requires a headless SQLite destination image with its native tools. Archive transfer itself still uses the existing stopped-service holds/ownership protocol and complete file manifests; the private view is only for checking/counting, never a replacement archive.
+
 Smoke checks the image label and reads Control's advertised kinds. Ordinary kinds
 must return successful lists. Kinds mapped by the packaged description's guidance
 roles must instead return CLI exit 2 with the exact typed Facts code

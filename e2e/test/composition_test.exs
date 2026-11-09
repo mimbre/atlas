@@ -93,6 +93,23 @@ defmodule AtlasE2E.CompositionTest do
     end)
   end
 
+  # Read the private native store directly: Control deliberately refuses unscoped
+  # guidance reads. Markdown paths are empty with the SQLite backend.
+  defp stored_records(ctx) do
+    settings = Path.join(ctx.dir, "test.json") |> File.read!() |> JSON.decode!()
+    url = settings["rela"]["url"]
+    {schema, 0} = System.cmd("curl", ["-fsS", url <> "/_schema"])
+
+    for {kind, spec} <- JSON.decode!(schema)["entities"], into: %{} do
+      {json, 0} = System.cmd("curl", ["-fsS", url <> "/" <> spec["plural"]])
+      response = JSON.decode!(json)
+      records = response["data"]
+      assert is_list(records)
+      assert response["meta"]["has_more"] == false
+      {kind, Enum.sort_by(records, & &1["id"])}
+    end
+  end
+
   # The profiles are private compositions of the model (model/contract/profiles), compiled
   # in its test environment only; mix model.gen writes the Rela project of one.
   @profiles %{
@@ -153,7 +170,8 @@ defmodule AtlasE2E.CompositionTest do
 
     # IS-124: the real CLI/Control/Facts chain preserves the scope guard. The smoke
     # client reads this private composition and creates no guidance records.
-    before = Path.wildcard(Path.join(ctx.dir, "store/rela/entities/**/*.md"))
+    before = stored_records(ctx)
+    assert Enum.any?(before["person"], &(&1["id"] == "tester"))
     python = System.get_env("ATLAS_CONFIG_PYTHON") || "python3"
 
     {out, status} =
@@ -176,7 +194,7 @@ defmodule AtlasE2E.CompositionTest do
     for kind <- ["worker_execution", "interaction", "interaction_receipt"],
         do: assert(out =~ "#{kind}: scoped-read guard verified")
 
-    assert before == Path.wildcard(Path.join(ctx.dir, "store/rela/entities/**/*.md"))
+    assert before == stored_records(ctx)
   end
 
   test "incident uses stub turns and merged Issues, with independent person resolution", ctx do

@@ -19,7 +19,7 @@ defmodule AtlasE2E.FlowAcceptanceTest do
   @root Path.expand("../..", __DIR__)
   @bin AtlasE2E.Instance.rela_bin()
   @moduletag skip:
-               if(@bin == nil, do: "set ATLAS_E2E_RELA_BIN to pinned Rela 26.11.2", else: false)
+               if(@bin == nil, do: "set ATLAS_E2E_RELA_BIN to pinned Rela 26.11.3", else: false)
   @moduletag timeout: 120_000
   @moduletag :tmp_dir
 

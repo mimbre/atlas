@@ -1,6 +1,6 @@
 defmodule AtlasFacts.Rela.Http do
   @moduledoc """
-  The current rela (upstream v26.11.2) over HTTP. `config` is its API base URL, for
+  The current rela (upstream v26.11.3) over HTTP. `config` is its API base URL, for
   example `http://127.0.0.1:7690/api/v1`.
 
   What this release does that Facts must work around (rela project's IS-02 handoff):
