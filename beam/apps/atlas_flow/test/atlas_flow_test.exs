@@ -240,6 +240,28 @@ defmodule AtlasFlowTest do
       assert Definition.kinds(FakeState.description()) == ["box"]
       assert Definition.kinds(FakeState.description(FakeState.flow(), ["x has no owner"])) == []
     end
+
+    test "Atlas's own scene flow: briefed to break it down until something is under it" do
+      d = Path.expand("../../../../rela/atlas.json", __DIR__) |> File.read!() |> JSON.decode!()
+      flow = d["flows"]["test_and_accept"]
+
+      expected = fn children ->
+        {state, vars} = Definition.state_of(flow, %{}, children, ["in_scene"])
+        {state["name"], Definition.expected(state, vars), Definition.owner(state)}
+      end
+
+      assert expected.([]) ==
+               {"break_down", "Break it down into use cases and issues", "coordinator"}
+
+      assert expected.([%{"links" => %{"in_scene" => ["SC-1"]}}]) ==
+               {"building", "Build it", "coordinator"}
+
+      # Its turn is on the scene's Assignment: `TU-AS-<scene>-<n>`.
+      assignment = d["relations"][flow["on"]]["component"]["key"]
+      on = String.replace(assignment, "{key}", "SC-1")
+      turn = d["runtime"]["turn"]["key"]
+      assert turn |> String.replace("{on}", on) |> String.replace("{n}", "1") == "TU-AS-SC-1-1"
+    end
   end
 
   describe "one process per open fact" do

@@ -236,6 +236,90 @@ defmodule AtlasRuntimeTest do
     end)
   end
 
+  test "a turn keeps running while its item's state changes and a handover waits for it", %{
+    dir: dir
+  } do
+    box()
+    engine(dir, every: 3_600_000)
+    eventually(fn -> run("R-C-B-1-1")["values"]["status"] == "going" end)
+    [{turn, _}] = Registry.lookup(AtlasRuntime.Turns, "R-C-B-1-1")
+
+    # The agent adds children: Flow moves the item to its next state and defers the
+    # handover until this turn ends. The item is still ada's.
+    card =
+      FakeState.get("card", "C-B-1")
+      |> put_in(["values", "step"], "checking")
+      |> put_in(["values", "later"], "pending")
+
+    FakeState.put("card", card)
+    Engine.round(Engine)
+    settle_turns()
+
+    assert Registry.lookup(AtlasRuntime.Turns, "R-C-B-1-1") == [{turn, {"ada", "C-B-1"}}]
+    assert :sys.get_state(turn).leaving == nil
+    assert run("R-C-B-1-1")["values"]["status"] == "going"
+    assert run("R-C-B-1-2") == nil
+  end
+
+  test "after the grace a moved turn ends, no new one starts; back to its agent, the next", %{
+    dir: dir
+  } do
+    box()
+    engine(dir, every: 3_600_000, leave_grace: 0)
+    eventually(fn -> run("R-C-B-1-1")["values"]["status"] == "going" end)
+
+    box("bob")
+    Engine.round(Engine)
+    eventually(fn -> run("R-C-B-1-1")["values"]["status"] == "over" end)
+    assert run("R-C-B-1-1")["values"]["reason"] == "C-B-1 is no longer ada's to work on"
+    Engine.round(Engine)
+    assert FakeState.all("run") |> length() == 1
+
+    box()
+    Engine.round(Engine)
+    eventually(fn -> run("R-C-B-1-2")["values"]["status"] == "going" end)
+    assert run("R-C-B-1-2")["links"]["run_by"] == ["ada"]
+  end
+
+  test "a turn a human moved away stays ended: a later outcome by its agent changes nothing",
+       %{dir: dir} do
+    box()
+    engine(dir, every: 3_600_000, leave_grace: 0)
+    eventually(fn -> run("R-C-B-1-1")["values"]["status"] == "going" end)
+
+    box("bob")
+    Engine.round(Engine)
+    eventually(fn -> run("R-C-B-1-1")["values"]["status"] == "over" end)
+
+    FakeState.put("run", put_in(run("R-C-B-1-1"), ["values", "result"], "too late"))
+    Engine.round(Engine)
+    settle_turns()
+
+    assert run("R-C-B-1-1")["values"]["status"] == "over"
+    assert run("R-C-B-1-1")["values"]["reason"] == "C-B-1 is no longer ada's to work on"
+    assert FakeState.all("run") |> length() == 1
+  end
+
+  test "an idle agent's turn ends at its maximum; an empty one at once; each time the next",
+       %{dir: dir} do
+    box()
+    mode(dir, "ada", "idle")
+    engine(dir, max: 300)
+
+    eventually(fn -> run("R-C-B-1-1")["values"]["status"] == "over" end)
+    assert run("R-C-B-1-1")["values"]["reason"] =~ ~r/^longer than the maximum of \d+ s$/
+    eventually(fn -> run("R-C-B-1-2") != nil end)
+
+    # Empty: its turns end at once, without an outcome, and the next one starts each time.
+    mode(dir, "ada", "end")
+    empty = "the agent ended its turn: the stub ended its turn"
+
+    eventually(fn ->
+      ended = for r <- FakeState.all("run"), r["values"]["reason"] == empty, do: r["key"]
+      length(ended) >= 2
+    end)
+  end
+
   test "failures (IS-Atlas-23): kill a turn's agent; a stand-in agent's modes", %{dir: dir} do
     alias AtlasRuntime.Faults
     box()
@@ -296,6 +380,27 @@ defmodule AtlasRuntimeTest do
              "no process runs it on here any more (Runtime restarted)"
 
     assert run("R-X-1")["values"]["status"] == "going"
+  end
+
+  test "after a restart, the turn State had running ends and its agent gets the next", %{
+    dir: dir
+  } do
+    box()
+
+    FakeState.put("run", %{
+      "key" => "R-C-B-1-1",
+      "values" => %{"status" => "going", "host" => "here"},
+      "links" => %{"run_on" => ["C-B-1"], "run_by" => ["ada"]}
+    })
+
+    engine(dir, every: 3_600_000)
+    eventually(fn -> run("R-C-B-1-1")["values"]["status"] == "over" end)
+
+    assert run("R-C-B-1-1")["values"]["reason"] ==
+             "no process runs it on here any more (Runtime restarted)"
+
+    Engine.round(Engine)
+    eventually(fn -> run("R-C-B-1-2")["values"]["status"] == "going" end)
   end
 
   test "an agent's turn limit: no more turns here than that", %{dir: dir} do
