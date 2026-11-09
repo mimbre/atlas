@@ -180,4 +180,69 @@ final class SessionStateTests: XCTestCase {
         XCTAssertEqual(state.opened?.path, "/k/widget/W-01")
         XCTAssertNil(state.expected)
     }
+
+    // MARK: Submit
+
+    func testASubmittedCallIsSentAsItIsWithItsValues() {
+        var state = ready()
+        let call = CallModel(endpoint: "answer", params: ["kind": "decision", "key": "D-7", "answer": "decline"])
+
+        XCTAssertEqual(state.handle(.submit(call: call, values: ["note": "Not now."])), [
+            .send(.submit(SubmitRequest(endpoint: "answer", params: ["kind": "decision", "key": "D-7", "answer": "decline"],
+                                        values: ["note": "Not now."]))),
+        ])
+    }
+
+    func testNothingIsSubmittedBeforeTheSessionShowsPages() {
+        var state = booting()
+
+        XCTAssertEqual(state.handle(.submit(call: CallModel(endpoint: "answer"), values: [:])), [])
+    }
+
+    func testNoSubmitIsSentWhileAPageIsOnItsWay() {
+        var state = ready()
+        let call = CallModel(endpoint: "answer", params: ["kind": "decision", "key": "D-7", "answer": "adopt"])
+        _ = state.handle(.open(to: "/k/decision/D-7"))
+
+        XCTAssertEqual(state.handle(.submit(call: call, values: [:])), [])
+        XCTAssertFalse(state.submitting)
+
+        _ = state.handle(.line(Lines.page("/k/decision/D-7")))
+        XCTAssertEqual(state.handle(.submit(call: call, values: [:])), [
+            .send(.submit(SubmitRequest(endpoint: "answer", params: call.params!, values: [:]))),
+        ])
+    }
+
+    func testARepeatSubmitWaitsUntilControlRepliesStoredOrRefused() {
+        for reply in ["stored", "refused"] {
+            var state = ready()
+            let call = CallModel(endpoint: "answer", params: ["kind": "decision", "key": "D-7", "answer": "adopt"])
+            let sent: [SessionState.Effect] = [.send(.submit(SubmitRequest(endpoint: "answer", params: call.params!, values: [:])))]
+
+            XCTAssertEqual(state.handle(.submit(call: call, values: [:])), sent)
+            XCTAssertEqual(state.handle(.submit(call: call, values: [:])), [], reply)
+            // A page Control pushes is not the reply.
+            _ = state.handle(.line(Lines.page("/k/widget", reason: "reconcile", position: 3)))
+            XCTAssertEqual(state.handle(.submit(call: call, values: [:])), [], reply)
+
+            _ = state.handle(.line(Lines.page("/k/widget", reason: reply, position: 4)))
+            XCTAssertEqual(state.index?.path, "/k/widget", reply)
+            XCTAssertEqual(state.handle(.submit(call: call, values: [:])), sent, reply)
+        }
+    }
+
+    func testASubmitAwaitingItsReplyEndsWithAPageOpenedOrTheConnection() {
+        let call = CallModel(endpoint: "answer", params: ["answer": "adopt"])
+
+        var opened = ready()
+        _ = opened.handle(.submit(call: call, values: [:]))
+        _ = opened.handle(.open(to: "/k/widget/W-01"))
+        _ = opened.handle(.line(Lines.page("/k/widget/W-01")))
+        XCTAssertFalse(opened.submitting)
+
+        var dropped = ready()
+        _ = dropped.handle(.submit(call: call, values: [:]))
+        _ = dropped.handle(.closed)
+        XCTAssertFalse(dropped.submitting)
+    }
 }

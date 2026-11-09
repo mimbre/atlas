@@ -10,14 +10,18 @@ import SwiftUI
 struct ShellView: View {
     let session: Session
 
+    private func submit(_ call: CallModel, _ values: [String: String]) {
+        session.submit(call, values: values)
+    }
+
     var body: some View {
         let shell = ShellViewModel(session.state)
         NavigationSplitView {
             Sidebar(shell: shell, select: session.selectTab)
         } content: {
-            Column(page: shell.index, selectedPath: shell.selectedPath, open: session.open)
+            Column(page: shell.index, selectedPath: shell.selectedPath, open: session.open, submit: submit)
         } detail: {
-            Column(page: shell.opened, selectedPath: shell.selectedPath, open: session.open)
+            Column(page: shell.opened, selectedPath: shell.selectedPath, open: session.open, submit: submit)
         }
         .navigationTitle(shell.title ?? "")
         .toolbar {
@@ -63,10 +67,11 @@ struct Column: View {
     let page: PageMessage?
     let selectedPath: String?
     let open: (String) -> Void
+    let submit: (CallModel, [String: String]) -> Void
 
     var body: some View {
         if let page {
-            PageView(page: page, selectedPath: selectedPath, open: open)
+            PageView(page: page, selectedPath: selectedPath, open: open, submit: submit)
         } else {
             Color.clear
         }
