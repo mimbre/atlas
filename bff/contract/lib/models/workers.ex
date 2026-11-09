@@ -93,4 +93,122 @@ defmodule AtlasBFFContract.Models.Workers do
     field :consumption_id, :string
     field :reason, :string
   end
+
+  # The worker messages a client exchanges with Control on the worker pages, as they
+  # travel: each model is one envelope without its selector (`op`, `channel`, `version`).
+  # `Wire.Control.Workers` declares the envelopes; a contract test keeps the two equal.
+  defmodel :worker_error do
+    field :id, :string, required: true
+    field :error, :runtime_error, required: true
+  end
+
+  defmodel :worker_inspect_request do
+    field :id, :string, required: true
+    field :execution, :runtime_execution, required: true
+  end
+
+  defmodel :worker_inspect_result do
+    field :id, :string, required: true
+    field :view, :worker_view, required: true
+  end
+
+  defmodel :worker_submit_request do
+    field :id, :string, required: true
+    field :execution, :runtime_execution, required: true
+    field :guidance, :worker_guidance_input, required: true
+  end
+
+  defmodel :worker_submit_result do
+    field :id, :string, required: true
+    field :interaction, :worker_interaction, required: true
+  end
+
+  defmodel :worker_query_request do
+    field :id, :string, required: true
+    field :execution, :runtime_execution, required: true
+    field :client_key, :string, required: true
+  end
+
+  defmodel :worker_query_result do
+    field :id, :string, required: true
+    field :found, :boolean, required: true
+    field :interaction, :worker_interaction
+  end
+
+  defmodel :worker_history_request do
+    field :id, :string, required: true
+    field :execution, :runtime_execution, required: true
+    field :cursor, :string
+  end
+
+  defmodel :worker_history_result do
+    field :id, :string, required: true
+    field :interactions, {:list, :worker_interaction}, required: true
+    field :cursor, :string, required: true
+    field :more, :boolean, required: true
+  end
+
+  defmodel :worker_receipts_request do
+    field :id, :string, required: true
+    field :execution, :runtime_execution, required: true
+    field :interaction, :string, required: true
+    field :cursor, :string
+  end
+
+  defmodel :worker_receipts_result do
+    field :id, :string, required: true
+    field :receipts, {:list, :worker_receipt}, required: true
+    field :cursor, :string, required: true
+    field :more, :boolean, required: true
+  end
+
+  # Output errors may say what the worker is now and how the stream was reset.
+  defmodel :worker_output_error do
+    field :id, :string, required: true
+    field :error, :runtime_error, required: true
+    field :view, :worker_view
+    field :reset, :runtime_output_reset
+  end
+
+  defmodel :worker_output_subscribe_request do
+    field :id, :string, required: true
+    field :execution, :runtime_execution, required: true
+    field :cursor, :string
+  end
+
+  defmodel :worker_output_subscribe_result do
+    field :id, :string, required: true
+    field :subscription, :string, required: true
+    field :view, :worker_view, required: true
+    field :stream, :runtime_output_stream, required: true
+    field :cursor, :string, required: true
+    field :reset, :runtime_output_reset
+  end
+
+  defmodel :worker_output_next_request do
+    field :id, :string, required: true
+    field :subscription, :string, required: true
+    field :cursor, :string, required: true
+  end
+
+  defmodel :worker_output_next_result do
+    field :id, :string, required: true
+    field :subscription, :string, required: true
+    field :stream, :runtime_output_stream, required: true
+    field :events, {:list, :runtime_output_event}, required: true
+    field :cursor, :string, required: true
+    field :more, :boolean, required: true
+    field :reset, :runtime_output_reset
+    field :view, :worker_view
+  end
+
+  defmodel :worker_output_unsubscribe_request do
+    field :id, :string, required: true
+    field :subscription, :string, required: true
+  end
+
+  defmodel :worker_output_unsubscribe_result do
+    field :id, :string, required: true
+    field :subscription, :string, required: true
+  end
 end
