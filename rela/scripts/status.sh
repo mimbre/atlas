@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Show whether the Atlas test rela runs: pid, parent, address, answer.
+# Show whether the Atlas test rela runs: pid, address, answer.
 # Exit 0 when it runs and answers, 1 otherwise.
 set -uo pipefail
 
@@ -8,9 +8,9 @@ port="${ATLAS_RELA_PORT:-7690}"
 pidfile="$root/rela-server.pid"
 ok=0
 
+# By its pid file only: nothing here lists processes (ps), which a sandboxed worker may not.
 if [ -f "$pidfile" ] && pid="$(cat "$pidfile")" && kill -0 "$pid" 2>/dev/null; then
-  echo "process: running, pid $pid, parent $(ps -p "$pid" -o ppid= | tr -d ' ')"
-  ps -p "$pid" -o command= | sed 's/^/command: /'
+  echo "process: running, pid $pid (from $pidfile)"
 else
   echo "process: not running (pid file: ${pid:-none})"; ok=1
 fi

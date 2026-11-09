@@ -18,6 +18,8 @@ defmodule Mix.Tasks.Atlas.E2e do
   @impl true
   def run(args) do
     Mix.Task.run("app.start")
+    # rela_get and the stand-ins use :httpc, which needs a CA store even for http.
+    _ = AtlasFacts.Trust.load()
     started = System.monotonic_time(:millisecond)
     scenarios = load(args)
 

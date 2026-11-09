@@ -27,9 +27,7 @@ defmodule AtlasE2E.PythonDiscoveryTest do
     [rela_port, control_port] = Enum.map(sockets, &elem(:inet.port(&1), 1))
     Enum.each(sockets, &:gen_tcp.close/1)
 
-    bin =
-      System.get_env("ATLAS_E2E_RELA_BIN") ||
-        Path.join(System.user_home!(), ".local/share/atlas/test/bin")
+    bin = AtlasE2E.Instance.rela_bin!()
 
     settings = %{
       "env" => "test",
@@ -133,19 +131,18 @@ defmodule AtlasE2E.PythonDiscoveryTest do
     {out, code} =
       System.cmd(
         "tmux",
-        [
-          "-L",
-          ctx.socket,
-          "new-session",
-          "-d",
-          "-s",
-          "ordinary",
-          "-x",
-          "100",
-          "-y",
-          "30",
-          command
-        ],
+        AtlasE2E.Tui.server(ctx.socket) ++
+          [
+            "new-session",
+            "-d",
+            "-s",
+            "ordinary",
+            "-x",
+            "100",
+            "-y",
+            "30",
+            command
+          ],
         env: ctx.env,
         stderr_to_stdout: true
       )

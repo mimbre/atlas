@@ -15,9 +15,7 @@ defmodule AtlasE2E.CompositionTest do
     [rela_port, control_port] = Enum.map(sockets, &elem(:inet.port(&1), 1))
     Enum.each(sockets, &:gen_tcp.close/1)
 
-    bin =
-      System.get_env("ATLAS_E2E_RELA_BIN") ||
-        Path.join(System.user_home!(), ".local/share/atlas/test/bin")
+    bin = AtlasE2E.Instance.rela_bin!()
 
     github = AtlasE2E.GitHub.start()
     File.mkdir_p!(Path.join(dir, "stub"))

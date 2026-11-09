@@ -7,7 +7,7 @@ defmodule AtlasE2E.FlowReviewTest do
   """
   use ExUnit.Case, async: false
   @root Path.expand("../..", __DIR__)
-  @bin System.get_env("ATLAS_E2E_RELA_BIN") || System.get_env("ATLAS_RELA_BIN")
+  @bin AtlasE2E.Instance.rela_bin()
   @moduletag skip:
                if(@bin == nil, do: "set ATLAS_E2E_RELA_BIN to pinned Rela 26.11.2", else: false)
   @moduletag timeout: 120_000

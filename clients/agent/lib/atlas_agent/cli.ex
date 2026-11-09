@@ -28,6 +28,11 @@ defmodule AtlasAgent.CLI do
   """
 
   def main(args) do
+    # What it prints is UTF-8 (JSON is) whatever the caller's locale: without a UTF-8 one (a
+    # sandboxed worker's environment sets no LANG) Erlang opens stdio as latin1 and writes
+    # `\x{2014}` for `—`.
+    for device <- [:standard_io, :standard_error], do: :io.setopts(device, encoding: :unicode)
+
     {env, args} = take_flag(args, "--env", "prod")
 
     # The agent behind the TUI's `:` speaks JSON lines with the TUI until its stdin ends.

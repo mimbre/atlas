@@ -33,7 +33,7 @@ if [ "$port" = 7612 ]; then echo "start-test: port 7612 is the live store" >&2; 
 
 if [ ! -x "$bin/rela-server" ] || [ "$("$bin/rela" version)" != "rela version $version" ]; then
   echo "start-test: installing rela $version into $bin"
-  tmp="$(mktemp -d)"
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/atlas-rela-install.XXXXXX")"
   curl -fsSL -o "$tmp/$archive" \
     "https://github.com/sourcehaven-bv/rela/releases/download/v$version/$archive"
   if command -v shasum >/dev/null; then sum="shasum -a 256"; else sum=sha256sum; fi

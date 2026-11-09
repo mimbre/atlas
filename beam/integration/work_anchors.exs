@@ -1,5 +1,6 @@
 # Run in the umbrella with MIX_ENV=test against the pinned rela-server, without Python:
 #   ATLAS_E2E_RELA_BIN=<dir with rela-server> mix run integration/work_anchors.exs
+# (without it, rela is looked for as AtlasE2E.Instance.rela_bin!/0 does)
 # Proves, on the real description, the compiled model and a real rela store, the three ways work hangs from the
 # records it is based on: an accepted one with no work waits for it; work based on a
 # replaced one is to be reviewed; and a worker reads them first.
@@ -13,17 +14,19 @@ defmodule WorkAnchorsTest do
 
   @moduletag :tmp_dir
   @root Path.expand("../..", __DIR__)
-  @bin System.get_env("ATLAS_E2E_RELA_BIN") || Path.expand("~/.local/share/atlas/test/bin")
+  # rela's binaries: ATLAS_E2E_RELA_BIN, ATLAS_RELA_BIN, the `rela-bin` folder beside the
+  # checkout when it holds rela-server (a worker's), else the test instance's (as e2e's
+  # AtlasE2E.Instance.rela_bin!/0).
+  @bin Enum.find(
+         [System.get_env("ATLAS_E2E_RELA_BIN"), System.get_env("ATLAS_RELA_BIN")],
+         &(&1 not in [nil, ""])
+       ) ||
+         if(File.exists?(Path.join([@root, "../rela-bin", "rela-server"])),
+           do: Path.join(@root, "../rela-bin"),
+           else: Path.expand("~/.local/share/atlas/test/bin")
+         )
 
   setup %{tmp_dir: dir} do
-    # :httpc asks for the OS certificates even for http; where they cannot be read (inside a
-    # sandbox), the system bundle stands in.
-    try do
-      :public_key.cacerts_get()
-    rescue
-      _ -> :public_key.cacerts_load("/etc/ssl/cert.pem")
-    end
-
     Application.put_env(:atlas_bus, :store, "anchors-#{System.unique_integer([:positive])}")
     project = Path.join(dir, "rela")
     File.mkdir_p!(project)

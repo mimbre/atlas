@@ -10,6 +10,11 @@ defmodule AtlasPlan.MixProject do
       version: "0.1.0",
       elixir: "~> 1.18",
       start_permanent: false,
+      # Facts' CA store (AtlasFacts.Trust): :httpc needs one even for http.
+      elixirc_paths: [
+        "lib",
+        Path.expand("../../beam/apps/atlas_facts/lib/atlas_facts/trust", __DIR__)
+      ],
       deps: [{:atlas_agent, path: "../../clients/agent"}]
     ]
   end

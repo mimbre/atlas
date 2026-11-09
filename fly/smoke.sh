@@ -24,7 +24,7 @@ fly="$(command -v fly || command -v flyctl)" || fail "no flyctl"
 app="$(jq -r '.fly.app // empty' "$root/env/$env.json")"
 [ -n "$app" ] || fail "env/$env.json has no fly.app: $env does not run on Fly"
 
-dir="$(mktemp -d)"
+dir="$(mktemp -d "${TMPDIR:-/tmp}/atlas-smoke.XXXXXX")"
 port="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
 jq --arg dir "$dir" --argjson port "$port" \
   '.fly.in_use = true | .fly.local = $dir | .control.port = $port' "$root/env/$env.json" >"$dir/$env.json"

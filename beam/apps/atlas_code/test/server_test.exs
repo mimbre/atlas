@@ -3,7 +3,7 @@ defmodule AtlasCode.ServerTest do
   use ExUnit.Case, async: false
   import ExUnit.CaptureIO
 
-  @moduletag :tmp_dir
+  setup {AtlasCode.TestDir, :tmp_dir}
 
   test "serve/1 starts Code for the home, owns it and prints the ready line", %{tmp_dir: dir} do
     home = Path.join(dir, "home")

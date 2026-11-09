@@ -27,9 +27,7 @@ defmodule AtlasE2E.RelaDescriptionTest do
     File.mkdir_p!(dir)
     [rela_port, control_port] = free_ports(2)
 
-    bin =
-      System.get_env("ATLAS_E2E_RELA_BIN") ||
-        Path.join(System.user_home!(), ".local/share/atlas/test/bin")
+    bin = AtlasE2E.Instance.rela_bin!()
 
     settings = %{
       "env" => "test",

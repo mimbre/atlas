@@ -25,7 +25,7 @@ case "${1:-}" in
     ;;
 
   fits)
-    tmp="$(mktemp -d)"
+    tmp="$(mktemp -d "${TMPDIR:-/tmp}/atlas-check-fits.XXXXXX")"
     trap 'rm -rf "$tmp"' EXIT
     cp "$here/schema.yaml" "$here/data-entry.yaml" "$tmp/"
     for part in entities relations; do
