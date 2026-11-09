@@ -2,6 +2,10 @@ defmodule AtlasTui.WorkerConversation do
   @moduledoc "Exact-execution durable conversation state behind ordinary worker pages and forms."
   alias AtlasTui.{Blocks, Console, Model, WorkerGuidance, WorkerHistory, WorkerOutput}
 
+  # Backoff for transiently unavailable output, reset when a subscription succeeds.
+  @retry 2_000
+  @retry_limit 16_000
+
   defstruct execution: nil,
             mode: nil,
             active: false,
@@ -271,7 +275,8 @@ defmodule AtlasTui.WorkerConversation do
       ) do
     expected = target(model.console.expected, model.env)
 
-    if conversation.output.status not in [:unsupported, :unavailable, :error, :ended] and
+    if (conversation.output.status not in [:unsupported, :unavailable, :error, :ended] or
+          WorkerOutput.retryable?(conversation.output)) and
          (model.console.expected == nil or
             match?({:ok, execution, _} when execution == conversation.execution, expected)),
        do: conversation.execution,
@@ -295,9 +300,16 @@ defmodule AtlasTui.WorkerConversation do
     model = project(put_in(model.conversation.output, output))
 
     poll =
-      if output.status == :ready and map_size(output.pending) == 0,
-        do: [{:worker_output_poll, if(output.more, do: 0, else: 250)}],
-        else: []
+      cond do
+        output.status == :ready and map_size(output.pending) == 0 ->
+          [{:worker_output_poll, if(output.more, do: 0, else: 250)}]
+
+        WorkerOutput.retryable?(output) ->
+          [{:worker_output_retry, min(@retry * 2 ** output.retries, @retry_limit)}]
+
+        true ->
+          []
+      end
 
     {model, output_effects(requests) ++ poll}
   end

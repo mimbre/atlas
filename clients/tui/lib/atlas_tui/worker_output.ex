@@ -37,7 +37,8 @@ defmodule AtlasTui.WorkerOutput do
             notes: [],
             error: nil,
             current: false,
-            segment: 0
+            segment: 0,
+            retries: 0
 
   def new(execution) do
     execution = normalize(execution)
@@ -53,17 +54,25 @@ defmodule AtlasTui.WorkerOutput do
   def connect(%{valid: false} = state), do: {state, []}
   def connect(%{pending: pending} = state) when map_size(pending) > 0, do: {state, []}
 
-  def connect(%{subscription: subscription} = state) when not is_nil(subscription),
-    do: {state, []}
+  def connect(state) do
+    cond do
+      # Control reported the output temporarily unavailable: start over from the
+      # accepted cursor through a fresh inspect, as an explicit reconnect would.
+      retryable?(state) ->
+        connect(%{disconnect(state) | retries: state.retries + 1})
 
-  def connect(state),
-    do:
-      request(
-        %{state | error: nil, view_current: false},
-        :worker_inspect,
-        %{execution: state.execution},
-        :inspecting
-      )
+      not is_nil(state.subscription) ->
+        {state, []}
+
+      true ->
+        request(
+          %{state | error: nil, view_current: false},
+          :worker_inspect,
+          %{execution: state.execution},
+          :inspecting
+        )
+    end
+  end
 
   def next(%{pending: pending} = state) when map_size(pending) > 0, do: {state, []}
 
@@ -78,6 +87,23 @@ defmodule AtlasTui.WorkerOutput do
   end
 
   def next(state), do: {state, []}
+
+  @doc """
+  Whether unavailability is transient: a retryable `output_unavailable` error, or
+  an inspect reporting `output_unavailable`, while the worker still runs or the
+  stream has not been observed ended. Expired, unsupported and other reasons are final.
+  """
+  def retryable?(%{status: :unavailable, view: view} = state) when is_map(view) do
+    transient =
+      case state.error do
+        nil -> get_in(view, ["output", "reason"]) == "output_unavailable"
+        error -> error["code"] == "output_unavailable" and error["retryable"] == true
+      end
+
+    transient and (view["state"] == "running" or not state.ended)
+  end
+
+  def retryable?(_state), do: false
 
   def disconnect(state) do
     state = %{
@@ -219,7 +245,8 @@ defmodule AtlasTui.WorkerOutput do
           view_current: true,
           current: true,
           error: nil,
-          replay_watermark: reply["stream"]["watermark"]
+          replay_watermark: reply["stream"]["watermark"],
+          retries: 0
       }
 
       state = %{state | more: state.last_sequence < state.stream["watermark"]}

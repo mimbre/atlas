@@ -256,6 +256,9 @@ defmodule AtlasTui.App do
       :worker_output_restart, state ->
         stop_output(state)
 
+      {:worker_output_retry, delay}, state ->
+        output_failed(state, :output_unavailable, delay)
+
       {:open_url, url}, state ->
         AtlasTui.Browser.open(url, state.settings)
         state
@@ -376,11 +379,11 @@ defmodule AtlasTui.App do
     }
   end
 
-  defp output_failed(state, reason) do
+  defp output_failed(state, reason, delay \\ @reconnect) do
     target = state.output_target
     state = stop_output(state)
     token = make_ref()
-    timer = Process.send_after(self(), {:worker_output_retry, target, token}, @reconnect)
+    timer = Process.send_after(self(), {:worker_output_retry, target, token}, delay)
 
     notice = %{
       tone: "error",
