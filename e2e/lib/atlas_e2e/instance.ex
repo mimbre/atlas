@@ -83,6 +83,9 @@ defmodule AtlasE2E.Instance do
         "bin" => bin
       },
       "facts" => %{"data" => Path.join(dir, "beam")},
+      # Code's receiver of the integrate effect, as on test and prod; it reaches GitHub (the
+      # stand-in below) with the connector's settings, which refuses every write.
+      "code" => %{"data" => Path.join(dir, "code"), "repositories" => ["eyra/atlas"]},
       "reconcile_seconds" => 5,
       # GitHub is a stand-in (UC-Atlas-26), read every 2 seconds rather than 5 minutes.
       "connectors" => %{

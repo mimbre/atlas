@@ -4,9 +4,11 @@ defmodule AtlasE2E.FlowDeliveryTest do
   runs in place of their legacy flows, against a private Rela and real Facts
   (`beam/integration/flow_delivery_native.exs`). Imports of merged, closed and open pull
   requests, one writer, restart while waiting, changes requested, a new revision whose
-  replaced verdict is ignored, review and test together leading to the merge once, and the
-  merge by hand ending it; imports of issues, which build on while their pull request is
-  checked or sent back, and are done, once, when it is merged (the composition's link).
+  replaced verdict is ignored, review and test together leading to integrating once; Code's
+  receiver (with a fake GitHub) passing the effect contract, refusing a head pushed over the
+  approved one, and integrating the next approved revision once across a failure between
+  GitHub's merge and its outcome; imports of issues, which build on while their pull request
+  is checked or sent back, and are done, once, when it is merged (the composition's link).
   """
   use ExUnit.Case, async: false
   @root Path.expand("../..", __DIR__)
@@ -17,7 +19,7 @@ defmodule AtlasE2E.FlowDeliveryTest do
   @moduletag :tmp_dir
 
   # The child owns its private Rela and Facts and stops them even on an assertion failure.
-  test "the pull request and its issue on their runs: imports, restart, new revision, merge once",
+  test "the pull request and its issue on their runs: imports, restart, new revision, integrated once",
        %{tmp_dir: dir} do
     on_exit(fn -> File.rm_rf!(dir) end)
     script = Path.join(@root, "beam/integration/flow_delivery_native.exs")

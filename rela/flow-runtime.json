@@ -136,7 +136,8 @@
         "choices": [],
         "choice_states": [],
         "migrations": [
-          {"from":"0d65d9a4aa1cdf916e022547e3f4a1974505cd94c349e9809f1a441f13cd8335","to":"e183d55ea7eb411d29dd812053dff89078b4ef131068a3223d40c22617bffbd0","states":{"blocked":"integrating","changes_requested":"changes_requested","checking":"checking","closed":"closed","integrated":"integrated","integrating":"integrating"},"reason":"Slice 8: selected without its integrate effect and creates; merged by hand"}
+          {"from":"0d65d9a4aa1cdf916e022547e3f4a1974505cd94c349e9809f1a441f13cd8335","to":"e183d55ea7eb411d29dd812053dff89078b4ef131068a3223d40c22617bffbd0","states":{"blocked":"integrating","changes_requested":"changes_requested","checking":"checking","closed":"closed","integrated":"integrated","integrating":"integrating"},"reason":"Slice 8: selected without its integrate effect and creates; merged by hand"},
+          {"from":"e183d55ea7eb411d29dd812053dff89078b4ef131068a3223d40c22617bffbd0","to":"9e9822b579c9f85bd577c278b2c8a10ee7be7d04ee029e12ad8bf790cdc703de","states":{"changes_requested":"changes_requested","checking":"checking","closed":"closed","integrated":"integrated","integrating":"blocked"},"reason":"Integrate effect through Code's receiver; waiting runs blocked until a retry"}
         ],
         "subject": "pull_request",
         "legacy": "review_and_merge",
@@ -190,7 +191,7 @@
                 "passed"
               ]
             },
-            "state": "integrating"
+            "state": "blocked"
           }
         ]
       },

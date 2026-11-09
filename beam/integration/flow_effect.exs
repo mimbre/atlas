@@ -3,11 +3,10 @@
 # From beam/: MIX_ENV=test mix run integration/flow_effect.exs
 #
 # This proves Flow's side of the effect contract and recovery, not any real service.
-# The receiver is a test stub: it does not show that Code (or any remote host) returns
-# the original result for a repeated id, rejects a changed payload or recovers a lost
-# answer. Code update support is an external prerequisite, so Code migration stays
-# blocked: no real receiver is listed in :effect_receivers, and every generated effect
-# definition is refused before any write.
+# The receiver is a test stub: it shows nothing about Code. Code's own receiver, for
+# `integrate` only, passes the same contract in flow_delivery_native.exs; Code's create
+# and update are not receivers yet, so every definition naming them is refused before
+# any write.
 ExUnit.start()
 
 defmodule FlowEffectProof do
@@ -78,11 +77,13 @@ defmodule FlowEffectProof do
   end
 
   test "a lost response and a Flow restart give one operation with its original result", c do
+    previous = Application.get_env(:atlas_flow, :effect_receivers)
+
     Application.put_env(:atlas_flow, :effect_receivers, %{
       "ledger" => %{"contract" => 1, "address" => @address, "operations" => ["create"]}
     })
 
-    on_exit(fn -> Application.delete_env(:atlas_flow, :effect_receivers) end)
+    on_exit(fn -> Application.put_env(:atlas_flow, :effect_receivers, previous) end)
     assert :ok = Run.validate(flow())
     pid = receiver(c)
 

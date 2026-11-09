@@ -782,6 +782,44 @@
         }
       ],
       "states": {
+        "blocked": {
+          "awaits": [],
+          "branches": [
+            {
+              "roles": [],
+              "to": "integrated",
+              "when": "entity.state == 'merged'"
+            },
+            {
+              "roles": [],
+              "to": "closed",
+              "when": "entity.state == 'closed'"
+            },
+            {
+              "roles": [],
+              "to": "integrating",
+              "when": "entity.integration == 'retry'"
+            },
+            {
+              "roles": [],
+              "to": "checking",
+              "when": "entity.update == 'updated'"
+            }
+          ],
+          "creates": [],
+          "final": false,
+          "label": "Integration blocked",
+          "present": {
+            "expected": "Unblock its integration",
+            "todo": {
+              "instructions": "Its run says why. Set integration to retry once that is fixed, or push a revision that fixes it (set revision to its head commit and update to updated), or merge or close it by hand."
+            },
+            "why": "Code did not integrate it"
+          },
+          "set": [],
+          "timers": [],
+          "waiting_for": []
+        },
         "changes_requested": {
           "awaits": [],
           "branches": [
@@ -904,19 +942,59 @@
               "roles": [],
               "to": "closed",
               "when": "entity.state == 'closed'"
+            },
+            {
+              "roles": [],
+              "to": "checking",
+              "when": "entity.update == 'updated'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "integrated",
+              "when": "entity.integration == 'done'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "blocked",
+              "when": "entity.integration == 'refused'"
             }
           ],
           "creates": [],
           "final": false,
+          "kind": "effect",
           "label": "Integrate",
           "present": {
-            "expected": "Merge it",
+            "expected": "Let Code integrate it",
             "todo": {
-              "instructions": "Merge the reviewed and tested revision, or close it."
+              "instructions": "Code updates it from its base, waits for CI and merges the reviewed and tested revision once its review and test of that revision approved it. Until Code is asked, merging or closing it by hand ends it, and a new revision (set revision to its head commit and update to updated) starts its checks again."
             },
             "why": "its review approved and its test passed"
           },
-          "set": [],
+          "set": [
+            {
+              "field": "integration",
+              "value": "none"
+            }
+          ],
+          "spec": {
+            "action": "integrate",
+            "approved": "revision",
+            "approving": {
+              "review_outcome": ["approved"],
+              "test_outcome": ["passed"]
+            },
+            "contract": 1,
+            "field": "integration",
+            "fingerprint": {
+              "fields": ["revision"],
+              "relations": []
+            },
+            "name": "integrate",
+            "operation": "integrate",
+            "payload": ["revision"],
+            "service": "code",
+            "target": "url"
+          },
           "timers": [],
           "waiting_for": []
         }
@@ -1510,6 +1588,6 @@
       "version": 1
     }
   },
-  "rela_flows_sha256": "b5f9c39b1dbf6a074906b1cbd444150dd9ae3978082072fcd3f1c369def4c7bf",
+  "rela_flows_sha256": "40adef412f00c77ba0ae0bd21a45fb8f6d8e0894e940f37278e572457ddaa253",
   "writer": "system:atlas-flow"
 }

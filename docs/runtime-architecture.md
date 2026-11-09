@@ -52,6 +52,19 @@ Runtime remains local-first, running native agent CLIs on macOS. Neither Linux n
 
 Status: every endpoint below (health, reference resolution, snapshot creation, manifest, archive, change submission, review, review update and integration) is implemented in `beam/apps/atlas_code`. Clients see repository names, reference names, `sha256:` snapshot IDs, opaque `rev_<64 hex>` revision handles and their own UUIDs; commits, branches, refs, remote URLs and Git output stay inside Code. Runtime can materialize a snapshot, inspect it offline and submit a repository's changes as a sealed change with its own revision handle with `atlas-runtime snapshot materialize|status|diff|submit|rebind` (below); reviews, review updates and integrations are requested by the orchestrator, not by Runtime. Managed worker starts do not use snapshots yet. Everything under "Current callers" was cited from source at `f4492cbeb0f199b0228282c507ae6f8f05b05596` and is kept as that record. The earlier commit-, publication- and release-based contract is superseded; see "Superseded design" below.
 
+**Flow's integrate effect (in the core, not this local service).** `beam/apps/atlas_code` also holds Code's receiver of Flow's effect contract (`AtlasCode.Effects`, on the Bus as `code/effects`), for `integrate` of a GitHub pull at exactly the approved revision: it updates the branch from its base when it is behind (GitHub's update-branch, fenced by the head), waits for CI on that head, merges it when green (fenced by the head again), and refuses on a conflict, red CI, a closed pull or a moved head. Its journal (`code.data`) holds each request before any GitHub call, then its phase and outcome, so a repeat after a crash never acts twice. It runs in the core release when the core's settings have `code` (`data`, `repositories`, optional `merge_method`), with the GitHub connector's credentials (`connectors.github`); the local Code service never starts it. It does not use the Git-based `POST /v1/integrations` below, which pushes to the target without waiting for CI.
+
+The receiver shares `GITHUB_TOKEN` with the Facts GitHub connector, giving that process
+write authority too. On the one allowed repository the fine-grained permissions are
+Pull requests and Contents read/write, Checks and Commit statuses read, Metadata read,
+and Workflows write when base updates can change workflow files. Deploy with the existing
+read-only token, verify the migration to `blocked`, then rotate and explicitly retry
+approved runs (see `docs/guides/prod.md`). Fly test has no allowed repositories: the
+receiver refuses offline as `repository_not_allowed`. Its selection remains enabled so
+Flow can run the shared subflow. The journal stays with the core volume; the existing
+fetch/move scripts omit it, so preserve it with matching stopped run data as described
+in the prod guide. Unknown outcomes are reconciled under the existing request id.
+
 Decisions that this contract follows:
 - Code is a separate local Elixir service beside Runtime, reached over authenticated loopback HTTP. The same contract can later be hosted on Atlas Server. No VM, Linux, filesystem mount or private Git server is required, and Runtime keeps working without Atlas Server.
 - Code owns Git metadata, repository/provider credentials and Git operations.
