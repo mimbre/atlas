@@ -1663,13 +1663,8 @@ defmodule AtlasCode do
          {:ok, commit} <- revision(settings.home, repository, handle) do
       dir = cache(settings.home, repository, url)
 
-      slug =
-        Regex.run(~r{\Ahttps://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?)(?:\.git)?\z}, url,
-          capture: :all_but_first
-        )
-
       if commit?(dir, commit),
-        do: {:ok, %{url: url, dir: dir, slug: slug && hd(slug), commit: commit}},
+        do: {:ok, %{url: url, dir: dir, slug: github_slug(url), commit: commit}},
         else:
           error(
             409,
@@ -1776,6 +1771,20 @@ defmodule AtlasCode do
         "location_taken",
         "The review location already exists or is claimed; Code never overwrites it"
       )
+
+  @doc false
+  # The owner/repository of a GitHub remote, HTTPS or SSH, for gh; nil for any other remote,
+  # which therefore gets no pull request.
+  def github_slug(url) do
+    case Regex.run(
+           ~r{\A(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?)(?:\.git)?\z},
+           url,
+           capture: :all_but_first
+         ) do
+      [slug] -> slug
+      nil -> nil
+    end
+  end
 
   # An existing pull request for the location is one an earlier attempt created before its
   # response was lost, so it is adopted rather than duplicated. gh output is never returned.
