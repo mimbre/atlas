@@ -229,7 +229,7 @@ func TestExecuteRejectsInvalidStartBackendBeforeSocketRequest(t *testing.T) {
 func TestExecuteRejectsInvalidWorkerTargetsBeforeSocketRequest(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("ATLAS_RUNTIME_HOME", dir)
-	for _, command := range []string{"start", "status", "output", "stop", "continue"} {
+	for _, command := range []string{"start", "status", "output", "stop", "kill", "release", "continue"} {
 		for _, worker := range []string{"", " ", "Reviewer", "1reviewer", "-reviewer", "_reviewer", "../reviewer", "reviewer/name", "réviewer", "reviewer\n", strings.Repeat("a", 65)} {
 			t.Run(command+"/"+worker, func(t *testing.T) {
 				args := []string{command, "--worker=" + worker}
@@ -250,9 +250,16 @@ func TestExecuteRejectsInvalidWorkerTargetsBeforeSocketRequest(t *testing.T) {
 		want string
 	}{
 		{[]string{"status", "--worker"}, "flag needs an argument"},
-		{[]string{"stop", "--worker", "reviewer", "extra"}, "unexpected arguments"},
+		{[]string{"stop", "--worker", "reviewer", "--turn", "turn-1", "extra"}, "unexpected arguments"},
+		{[]string{"stop", "--worker", "reviewer"}, "use stop --worker NAME --turn TURN_ID"},
+		{[]string{"kill", "--turn", "turn-1"}, "use kill --worker NAME --turn TURN_ID"},
+		{[]string{"stop"}, "use stop --worker NAME --turn TURN_ID"},
+		{[]string{"kill", "--worker", "reviewer", "--turn="}, "turn must be nonempty"},
+		{[]string{"release"}, "use release --worker NAME"},
+		{[]string{"release", "--worker", "reviewer", "--turn", "turn-1"}, "flag provided but not defined"},
+		{[]string{"pause", "--worker", "reviewer"}, "unknown command"},
+		{[]string{"resume", "--worker", "reviewer"}, "unknown command"},
 		{[]string{"status", "--turn", "turn-1"}, "flag provided but not defined"},
-		{[]string{"stop", "--turn", "turn-1"}, "flag provided but not defined"},
 		{[]string{"start", "--turn", "turn-1"}, "flag provided but not defined"},
 		{[]string{"continue", "--worker", "reviewer"}, "use continue"},
 		{[]string{"continue", "--worker", "reviewer", "one", "two"}, "use continue"},
@@ -290,7 +297,9 @@ func TestWorkerParserPreservesAssignmentsAndValidBoundaries(t *testing.T) {
 			{"continue", "--turn", "turn-1", "--worker", worker, "--", "--worker other"},
 			{"continue", "--worker", worker, "--turn", "turn-1", "assignment"},
 			{"status", "--worker", worker},
-			{"stop", "--worker=" + worker},
+			{"stop", "--worker=" + worker, "--turn", "turn-1"},
+			{"kill", "--turn", "turn-1", "--worker", worker},
+			{"release", "--worker", worker},
 			{"output", "--worker", worker, "--turn", "turn-1"},
 			{"output", "--turn", "turn-1", "--worker=" + worker},
 		} {
@@ -425,6 +434,80 @@ func TestFollowPinsWorkerAndRefusesTurnChanges(t *testing.T) {
 	}
 }
 
+func TestFollowWaitsForConfirmedStopOrKill(t *testing.T) {
+	for _, test := range []struct{ pending, terminal string }{{"stopping", "stopped"}, {"killing", "killed"}} {
+		t.Run(test.pending, func(t *testing.T) {
+			dir, err := os.MkdirTemp("/tmp", "atlas-rt-test-")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { os.RemoveAll(dir) })
+			t.Setenv("ATLAS_RUNTIME_HOME", dir)
+			folder := t.TempDir()
+			if err = os.WriteFile(filepath.Join(folder, "stream.jsonl"), []byte("{\"text\":\"partial\"}\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			listener, err := net.Listen("unix", filepath.Join(dir, "runtime.sock"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer listener.Close()
+			// running, then pending with no confirmation, then the confirmed terminal state.
+			statuses := []map[string]any{
+				{"state": "running", "termination": nil},
+				{"state": test.pending, "termination": map[string]any{"confirmed_at": nil}},
+				{"state": test.terminal, "termination": map[string]any{"confirmed_at": "2026-11-09T08:00:00Z"}},
+			}
+			served := make(chan error, 1)
+			go func() {
+				for _, status := range statuses {
+					conn, err := listener.Accept()
+					if err != nil {
+						served <- err
+						return
+					}
+					var command map[string]any
+					if err = json.NewDecoder(conn).Decode(&command); err == nil {
+						status["id"], status["worker_id"], status["artifacts"] = "turn-1", "reviewer", folder
+						err = json.NewEncoder(conn).Encode(status)
+					}
+					conn.Close()
+					if err != nil {
+						served <- err
+						return
+					}
+				}
+				served <- nil
+			}()
+			var output bytes.Buffer
+			if _, err = executeTo([]string{"output", "--follow", "--worker", "reviewer"}, &output); err != nil {
+				t.Fatal(err)
+			}
+			if err := <-served; err != nil {
+				t.Fatal(err)
+			}
+			var rows []map[string]any
+			for decoder := json.NewDecoder(&output); ; {
+				var row map[string]any
+				if err := decoder.Decode(&row); err == io.EOF {
+					break
+				} else if err != nil {
+					t.Fatal(err)
+				}
+				rows = append(rows, row)
+			}
+			if len(rows) != 3 || rows[0]["type"] != "status" || rows[1]["type"] != "event" || rows[2]["type"] != "result" {
+				t.Fatalf("unexpected follow sequence: %#v", rows)
+			}
+			turn, _ := rows[2]["turn"].(map[string]any)
+			termination, _ := turn["termination"].(map[string]any)
+			if turn["state"] != test.terminal || termination["confirmed_at"] == nil {
+				t.Fatalf("follow ended before the confirmed %s: %#v", test.terminal, rows[2])
+			}
+		})
+	}
+}
+
 func TestAnswersRejectAmbiguousOrUnboundedInput(t *testing.T) {
 	for _, raw := range []string{
 		`null`, `[]`, `{}`, `{"q":null}`, `{"q":1}`, `{"q":[]}`, `{"q":{}}`,
@@ -486,7 +569,7 @@ func TestRequestIDsRejectInvalidIdentitiesAndUnsupportedCommands(t *testing.T) {
 			}
 		}
 	}
-	for _, operation := range []string{"status", "stop", "output", "events", "preferences", "question", "answer"} {
+	for _, operation := range []string{"status", "stop", "kill", "release", "output", "events", "preferences", "question", "answer"} {
 		_, err := execute([]string{operation, "--request-id", "explicit-id"})
 		if err == nil || !strings.Contains(err.Error(), "flag provided but not defined") {
 			t.Fatalf("%s accepted unsupported request identity: %v", operation, err)

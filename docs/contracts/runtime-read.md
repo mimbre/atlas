@@ -52,8 +52,9 @@ A **turn summary** has only these fields; absent values are `null` or omitted:
 
 - `turn_id`, `worker_id`, `source_turn_id` (the turn it continued), and `attempt`: the
   Server attempt of a Server-reported turn, otherwise `null`.
-- `state`: `running`, `finished`, `failed`, `stopped` or `unknown`. A turn saved as running
-  by a service that is gone is `unknown` with `recorded_state: "running"`.
+- `state`: `running`, `stopping`, `killing`, `finished`, `failed`, `stopped`, `killed` or
+  `unknown`. A turn saved as running, stopping or killing by a service that is gone is
+  `unknown` with that `recorded_state`.
 - `backend`, `requested_model`, `model` (as confirmed), `questions_enabled`.
 - `pending_question`: `{question_id, revision}` or `null`; question text is not returned.
 - `started_at`, `ended_at`, `activity` (the latest generic activity summary while live,

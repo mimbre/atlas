@@ -287,11 +287,14 @@ defmodule AtlasRuntime.PeerQuestionServiceTest do
   end
 
   defp stale_sender(context, :stopped) do
-    assert %{state: "stopped"} = ok(context.service, %{"command" => "stop", "worker_id" => "alpha"})
+    assert %{state: "stopping"} =
+             ok(context.service, %{"command" => "stop", "worker_id" => "alpha", "turn_id" => context.sender.id})
+    await_run(context.service, "alpha", &(&1.state == "stopped"))
     context
   end
   defp stale_sender(context, :replaced) do
     context = stale_sender(context, :stopped)
+    assert %{released: %{"turn_id" => _}} = ok(context.service, %{"command" => "release", "worker_id" => "alpha"})
     replacement = start(context.service, "alpha", context.sender_workspace, true)
     refute replacement.id == context.sender.id
     refute replacement.pending_question.id == context.sender.pending_question.id

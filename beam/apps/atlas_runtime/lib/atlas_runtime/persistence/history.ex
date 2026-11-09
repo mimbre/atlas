@@ -98,9 +98,10 @@ defmodule AtlasRuntime.Persistence.History do
             run
         end
 
+      # A service that is gone owns nothing: its unfinished turns are unknown, not still active.
       run =
-        if run["state"] == "running",
-          do: Map.merge(run, %{"state" => "unknown", "recorded_state" => "running"}),
+        if run["state"] in ["running", "stopping", "killing"],
+          do: Map.merge(run, %{"state" => "unknown", "recorded_state" => run["state"]}),
           else: run
 
       Map.merge(run, %{"id" => id, "artifacts" => folder})
@@ -112,7 +113,7 @@ defmodule AtlasRuntime.Persistence.History do
       old = Map.get(previous, id, %{run: %{worker_id: id, state: "idle"}}).run
 
       {worker, events, workers} =
-        if worker.run[:id] && worker.run.state in ["stopped", "finished", "failed"] &&
+        if worker.run[:id] && worker.run.state in ["stopped", "killed", "finished", "failed"] &&
              {worker.run[:id], worker.run.state} != {old[:id], old.state} do
           events = QuestionRecords.invalidate_turn(dir, events, worker.run.id, worker.run.state)
 
@@ -139,8 +140,10 @@ defmodule AtlasRuntime.Persistence.History do
 
       if worker.run != old, do: persist(worker.run)
 
+      # Stopping and killing are persisted in turn.json only; no transition event.
       events =
-        if {worker.run[:id], worker.run.state} != {old[:id], old.state},
+        if {worker.run[:id], worker.run.state} != {old[:id], old.state} and
+             worker.run.state not in ["stopping", "killing"],
           do: ExecutionEvents.append(dir, events, worker.run),
           else: events
 
@@ -153,6 +156,50 @@ defmodule AtlasRuntime.Persistence.History do
     File.write!(path <> ".tmp", JSON.encode!(run))
     File.rename!(path <> ".tmp", path)
   end
+
+  @doc """
+  The worker's admission latch, written before a stop or kill is signalled and kept across
+  restarts until an explicit release; nil when absent. Unreadable latches fail closed.
+  """
+  def latch(dir, worker_id) do
+    path = latch_path(dir, worker_id)
+
+    case File.read(path) do
+      {:ok, bytes} ->
+        case JSON.decode(bytes) do
+          {:ok, %{"worker_id" => ^worker_id, "turn_id" => turn, "latched_at" => at} = latch}
+          when map_size(latch) == 3 and is_binary(turn) and is_binary(at) ->
+            latch
+
+          _ ->
+            raise("Invalid admission latch for worker #{worker_id}")
+        end
+
+      {:error, :enoent} ->
+        nil
+
+      {:error, reason} ->
+        raise File.Error, reason: reason, action: "read admission latch", path: path
+    end
+  end
+
+  @doc "Latches the worker for `turn`, keeping an existing latch unchanged."
+  def latch!(dir, worker_id, turn, at) do
+    if latch = latch(dir, worker_id) do
+      latch
+    else
+      path = latch_path(dir, worker_id)
+      latch = %{"worker_id" => worker_id, "turn_id" => turn, "latched_at" => at}
+      File.mkdir_p!(Path.dirname(path))
+      File.write!(path <> ".tmp", JSON.encode!(latch))
+      File.rename!(path <> ".tmp", path)
+      latch
+    end
+  end
+
+  def release_latch!(dir, worker_id), do: File.rm!(latch_path(dir, worker_id))
+
+  defp latch_path(dir, worker_id), do: Path.join([dir, "workers", worker_id, "admission-latch.json"])
 
   @doc "A late Server report on a saved turn: kept only for its exact attempt."
   def server_report(dir, turn, attempt, report) do

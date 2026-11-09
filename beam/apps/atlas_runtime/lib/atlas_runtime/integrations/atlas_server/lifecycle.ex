@@ -443,6 +443,7 @@ defmodule AtlasRuntime.Integrations.AtlasServer.Lifecycle do
 
   defp why(%{state: "finished"}), do: "finished"
   defp why(%{state: "stopped"}), do: "stopped"
+  defp why(%{state: "killed"}), do: "killed"
   defp why(run), do: String.slice("failed: #{run[:error] || "unknown"}", 0, 500)
 
   defp failed(turn, why), do: put_in(turn.report["error"], why)

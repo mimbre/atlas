@@ -117,7 +117,8 @@ defmodule AtlasRuntime.ReadApiTest do
     assert Enum.any?(accepted, &(&1["kind"] == "execution_accepted" and &1["turn_id"] == id))
     for event <- accepted, do: refute(Map.has_key?(event, "session_id") or Map.has_key?(event, "record_ref"))
 
-    command(service, %{"command" => "stop", "worker_id" => "alpha"})
+    assert %{state: "stopping"} = command(service, %{"command" => "stop", "worker_id" => "alpha", "turn_id" => id})
+    await(fn -> read(dir, "turn", %{"turn_id" => id})["turn"]["state"] == "stopped" end)
     stopped = public!(read(dir, "turn", %{"turn_id" => id})["turn"])
     assert %{"state" => "stopped", "pending_question" => nil} = stopped
     assert is_binary(stopped["ended_at"])

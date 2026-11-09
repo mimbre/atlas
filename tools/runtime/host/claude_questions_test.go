@@ -836,7 +836,10 @@ func TestStopAndParentEOFCancelPendingOwnedGroup(t *testing.T) {
 			if control == "" {
 				run.host.stdin.Close()
 			} else {
+				// The fixture's descendant ignores SIGINT: the stop holds until an explicit kill.
 				run.host.stdin.Write([]byte(control))
+				run.until(t, "runtime.signal")
+				run.host.stdin.Write([]byte("kill\n"))
 			}
 			records := run.ended(t, true)
 			if ended := records[len(records)-1]; ended["stopped"] != true ||

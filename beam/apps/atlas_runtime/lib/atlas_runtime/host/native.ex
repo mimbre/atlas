@@ -9,8 +9,11 @@ defmodule AtlasRuntime.Agent.Native do
   Claude questions require explicit `questions_enabled: true`; answer delivery
   acknowledges a native stdin write, while processed evidence requires a tool result.
   Requires explicit `command`, `workspace` and `goal` agent settings. The native
-  host (Go `atlas-runtime native-host` of the launching CLI) owns a process group
-  and reaps it on stop or parent loss. JSONL output, stderr and the final answer
+  host (Go `atlas-runtime native-host` of the launching CLI) owns a process group.
+  `control/2` asks it to stop (one SIGINT, never escalated) or kill (SIGKILL); the
+  owner hears `{:terminated, info}` only after the host confirmed the group gone and
+  released its lock. Parent loss keeps the host's bounded interrupt-then-kill cleanup.
+  JSONL output, stderr and the final answer
   stay under `turns_dir/<turn key>`. Guidance is not
   supported. Success requires a successful native result and clean process exit.
   """
@@ -25,12 +28,35 @@ defmodule AtlasRuntime.Agent.Native do
   @impl AtlasRuntime.Agent
   def start(turn, opts), do: GenServer.start(__MODULE__, {self(), turn, opts})
 
+  @doc """
+  Internal cleanup for owners ending a turn, not the operator `stop`: interrupt, then kill
+  if the group outlives a three-second grace period, and return after the confirmed end.
+  """
   @impl AtlasRuntime.Agent
   def stop(pid) do
-    GenServer.call(pid, :stop, 10_000)
+    case await_control(pid, :stop, 3_000) do
+      :timeout -> await_control(pid, :kill, 10_000)
+      reply -> reply
+    end
+  end
+
+  defp await_control(pid, mode, timeout) do
+    GenServer.call(pid, {:control, mode, :await}, timeout)
   catch
-    :exit, {:noproc, _} -> :ok
-    :exit, {:normal, _} -> :ok
+    :exit, {:timeout, _} when mode == :stop -> :timeout
+    :exit, {reason, _} when reason in [:noproc, :normal] -> :ok
+  end
+
+  @doc """
+  Writes one operator control to the host and returns once it is written; the confirmed end
+  arrives later as `{:agent, pid, {:terminated, info}}`. Repeats are forwarded: the host
+  signals once per control and re-attempts only a refused signal. Kill wins over stop.
+  """
+  def control(pid, mode) when mode in [:stop, :kill] do
+    GenServer.call(pid, {:control, mode, :async}, 10_000)
+  catch
+    :exit, {reason, _} when reason in [:noproc, :normal] -> {:error, :native_execution_ended}
+    :exit, reason -> {:error, reason}
   end
 
   def answer(pid, question_id, answers) when is_pid(pid) and is_binary(question_id) do
@@ -132,6 +158,7 @@ defmodule AtlasRuntime.Agent.Native do
          failed: false,
          result: nil,
          process_exit: nil,
+         ended_control: nil,
          stopping: nil
        }}
     else
@@ -158,18 +185,25 @@ defmodule AtlasRuntime.Agent.Native do
     end
   end
 
-  def handle_call(:stop, from, state) do
+  def handle_call({:control, mode, wait}, from, state) do
     state = %{state | question: NativeQuestion.clear(state.question)}
-    write_control(state.port, "stop\n")
-    {:noreply, %{state | stopping: from}}
+
+    if write_control(state.port, "#{mode}\n") do
+      previous = state.stopping || %{mode: nil, waiters: []}
+      waiters = if wait == :await, do: [from | previous.waiters], else: previous.waiters
+      stopping = %{mode: if(previous.mode == :kill, do: :kill, else: mode), waiters: waiters}
+      state = %{state | stopping: stopping}
+      if wait == :await, do: {:noreply, state}, else: {:reply, :ok, state}
+    else
+      {:reply, {:error, :native_transport_closed}, state}
+    end
   end
 
+  # Nobody can follow or kill this execution any more: closing the control input makes the
+  # host interrupt, then kill after its bounded window, and reap the group before exiting.
   @impl true
-  def handle_info({:DOWN, ref, :process, _, _}, %{monitor: ref} = state) do
-    state = %{state | question: NativeQuestion.clear(state.question)}
-    write_control(state.port, "stop\n")
-    {:noreply, %{state | stopping: :owner_gone}}
-  end
+  def handle_info({:DOWN, ref, :process, _, _}, %{monitor: ref} = state),
+    do: {:stop, :normal, %{state | question: NativeQuestion.clear(state.question)}}
 
   def handle_info({:answer_timeout, id}, %{question: %{waiter: {id, _, _}}} = state),
     do:
@@ -190,12 +224,21 @@ defmodule AtlasRuntime.Agent.Native do
 
   def handle_info({port, {:exit_status, status}}, %{port: port} = state) do
     cond do
+      # The host exits only after the group was confirmed gone and its lock released.
       state.stopping != nil and status == 0 and is_integer(state.process_exit) ->
-        if state.stopping != :owner_gone, do: GenServer.reply(state.stopping, :ok)
+        Enum.each(state.stopping.waiters, &GenServer.reply(&1, :ok))
+        success = successful?(state)
+
+        send(state.owner, {:agent, self(), {:terminated, %{
+          "control" => state.ended_control,
+          "exit_code" => state.process_exit,
+          "native_result" => success,
+          "result" => if(success, do: state.result || "#{state.backend} completed the goal")
+        }}})
+
         {:stop, :normal, %{state | port: nil}}
 
-      status == 0 and state.process_exit == 0 and state.completed and not state.failed and
-          (state.backend == "codex" or (is_binary(state.model) and is_binary(state.session))) ->
+      status == 0 and successful?(state) ->
         send(
           state.owner,
           {:agent, self(), {:ended, state.result || "#{state.backend} completed the goal"}}
@@ -211,6 +254,11 @@ defmodule AtlasRuntime.Agent.Native do
 
   def handle_info(_, state), do: {:noreply, state}
 
+  defp successful?(state) do
+    state.process_exit == 0 and state.completed and not state.failed and
+      (state.backend == "codex" or (is_binary(state.model) and is_binary(state.session)))
+  end
+
   defp write_control(port, bytes) do
     Port.command(port, bytes)
   rescue
@@ -218,7 +266,12 @@ defmodule AtlasRuntime.Agent.Native do
   end
 
   defp consume(%{"type" => "runtime.process_ended", "exit_code" => code} = record, state),
-    do: %{NativeEvents.ended(record, state) | process_exit: code}
+    do: %{NativeEvents.ended(record, state) | process_exit: code, ended_control: record["control"]}
+
+  defp consume(%{"type" => "runtime.signal"} = record, state) do
+    send(state.owner, {:agent, self(), {:signal, Map.take(record, ["control", "signal", "error"])}})
+    state
+  end
 
   defp consume(%{"type" => "runtime.repository_prepared", "repository" => repository}, state) do
     send(state.owner, {:agent, self(), {:repository, repository}})

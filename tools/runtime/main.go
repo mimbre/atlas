@@ -312,7 +312,7 @@ func execute(args []string) (map[string]any, error) {
 
 func executeTo(args []string, out io.Writer) (map[string]any, error) {
 	if len(args) == 0 {
-		return nil, errors.New("use service start|status|stop, start [--worker NAME] [--questions] --cwd PATH ASSIGNMENT, continue [--worker NAME] [--turn TURN_ID] ASSIGNMENT, answer --worker NAME --turn TURN_ID --question QUESTION_ID --answers JSON_OBJECT, preferences, status [--worker NAME], turns, events [--cursor CURSOR] [--limit N], output [--worker NAME] [--follow | --turn TURN_ID], stop [--worker NAME], snapshot materialize --snapshot sha256:HEX --dest NEW_PATH, snapshot prepare --dest PATH --npm-ci REPO_PATH[/SUBDIR] | --npm-run REPO_PATH[/SUBDIR] --script NAME --output REPO_PATH/OUT..., snapshot status|diff --dest PATH [--path REPO_PATH]..., snapshot submit --dest PATH [--path REPO_PATH] --change-id UUID, or snapshot rebind --dest PATH")
+		return nil, errors.New("use service start|status|stop, start [--worker NAME] [--questions] --cwd PATH ASSIGNMENT, continue [--worker NAME] [--turn TURN_ID] ASSIGNMENT, answer --worker NAME --turn TURN_ID --question QUESTION_ID --answers JSON_OBJECT, preferences, status [--worker NAME], turns, events [--cursor CURSOR] [--limit N], output [--worker NAME] [--follow | --turn TURN_ID], stop|kill --worker NAME --turn TURN_ID, release --worker NAME, snapshot materialize --snapshot sha256:HEX --dest NEW_PATH, snapshot prepare --dest PATH --npm-ci REPO_PATH[/SUBDIR] | --npm-run REPO_PATH[/SUBDIR] --script NAME --output REPO_PATH/OUT..., snapshot status|diff --dest PATH [--path REPO_PATH]..., snapshot submit --dest PATH [--path REPO_PATH] --change-id UUID, or snapshot rebind --dest PATH")
 	}
 	dir, err := home()
 	if err != nil {
@@ -659,7 +659,7 @@ func executeTo(args []string, out io.Writer) (map[string]any, error) {
 			worker, _ := command["worker_id"].(string)
 			return nil, followOutput(out, worker)
 		}
-	case "status", "stop":
+	case "status", "release":
 		flags := flag.NewFlagSet(args[0], flag.ContinueOnError)
 		workerFlag(flags, command)
 		if err = flags.Parse(args[1:]); err != nil {
@@ -667,6 +667,22 @@ func executeTo(args []string, out io.Writer) (map[string]any, error) {
 		}
 		if flags.NArg() != 0 {
 			return nil, errors.New("unexpected arguments")
+		}
+		if args[0] == "release" && command["worker_id"] == nil {
+			return nil, errors.New("use release --worker NAME; it clears the stop latch and starts nothing")
+		}
+	case "stop", "kill":
+		flags := flag.NewFlagSet(args[0], flag.ContinueOnError)
+		workerFlag(flags, command)
+		turnFlag(flags, command)
+		if err = flags.Parse(args[1:]); err != nil {
+			return nil, err
+		}
+		if flags.NArg() != 0 {
+			return nil, errors.New("unexpected arguments")
+		}
+		if command["worker_id"] == nil || command["turn_id"] == nil {
+			return nil, fmt.Errorf("use %s --worker NAME --turn TURN_ID; the exact current turn is required", args[0])
 		}
 	case "turns":
 		if len(args) != 1 {
@@ -756,7 +772,9 @@ func followOutput(out io.Writer, worker string) error {
 	}()
 	events := eventReader{turnID: id, workerID: workerID, encoder: encoder}
 	for {
-		final := current["state"] != "running"
+		// Stopping and killing still own the execution; only its confirmed end is final.
+		state, _ := current["state"].(string)
+		final := state != "running" && state != "stopping" && state != "killing"
 		if file == nil {
 			file, err = os.Open(filepath.Join(folder, "stream.jsonl"))
 			if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -812,7 +830,7 @@ func main() {
 		host.Main(os.Args[2:])
 	}
 	if len(os.Args) == 2 && (os.Args[1] == "--help" || os.Args[1] == "-h") {
-		fmt.Println("atlas-runtime service start|status|stop\natlas-runtime start [--worker NAME] --cwd PATH [--backend codex|claude] [--sandbox read-only|workspace-write | --permissions dedicated-repository|materialized-folder] \"assignment\"\natlas-runtime start [--worker NAME] --repo https://github.com/OWNER/REPO.git --branch NEW_BRANCH [--backend codex|claude] --permissions dedicated-repository \"assignment\"\natlas-runtime continue [--worker NAME] [--turn TURN_ID] \"next assignment\"\natlas-runtime preferences\natlas-runtime preferences --preferred claude --fallback codex [--preferred-model MODEL] [--fallback-model MODEL]\natlas-runtime preferences --reenable claude\natlas-runtime status|stop [--worker NAME]\natlas-runtime turns\natlas-runtime output [--worker NAME] [--follow | --turn TURN_ID]\nStart uses configured preferences when --backend is omitted; without preferences it uses Codex. An explicit --backend never falls back. Configured models apply to the selected backend. Preferences inspects configuration and eligibility; --reenable claude clears its quota block. Claude defaults to read-only; explicit dedicated-repository uses native sandboxed Bash in an independent repository outside system temp roots. Codex-only materialized-folder runs in a folder published by snapshot materialize under this Runtime home, outside any Git work tree, with no network and no Git; worker commands may write only that folder and owned scratch and read only its record and baseline. Both use their official CLI login. Managed provisioning requires the installed Codex sandbox for Git preparation, including for Claude. Claude workspace-write is refused. Continue requires a successful saved native session and retains its worker, backend, model and scope. One active execution per worker. NAME must match ^[a-z][a-z0-9_-]{0,63}$. Omitted --worker selects the sole registered worker, or default when none exist; multiple workers require an explicit name. --turn selects its recorded worker; an explicit --worker must match. Flags precede assignment text; use -- before an assignment starting with a dash. Follow pins the selected worker and turn. Turns and events include all workers. Service status lists worker states; service stop stops all workers.")
+		fmt.Println("atlas-runtime service start|status|stop\natlas-runtime start [--worker NAME] --cwd PATH [--backend codex|claude] [--sandbox read-only|workspace-write | --permissions dedicated-repository|materialized-folder] \"assignment\"\natlas-runtime start [--worker NAME] --repo https://github.com/OWNER/REPO.git --branch NEW_BRANCH [--backend codex|claude] --permissions dedicated-repository \"assignment\"\natlas-runtime continue [--worker NAME] [--turn TURN_ID] \"next assignment\"\natlas-runtime preferences\natlas-runtime preferences --preferred claude --fallback codex [--preferred-model MODEL] [--fallback-model MODEL]\natlas-runtime preferences --reenable claude\natlas-runtime status [--worker NAME]\natlas-runtime stop|kill --worker NAME --turn TURN_ID\natlas-runtime release --worker NAME\natlas-runtime turns\natlas-runtime output [--worker NAME] [--follow | --turn TURN_ID]\nStart uses configured preferences when --backend is omitted; without preferences it uses Codex. An explicit --backend never falls back. Configured models apply to the selected backend. Preferences inspects configuration and eligibility; --reenable claude clears its quota block. Claude defaults to read-only; explicit dedicated-repository uses native sandboxed Bash in an independent repository outside system temp roots. Codex-only materialized-folder runs in a folder published by snapshot materialize under this Runtime home, outside any Git work tree, with no network and no Git; worker commands may write only that folder and owned scratch and read only its record and baseline. Both use their official CLI login. Managed provisioning requires the installed Codex sandbox for Git preparation, including for Claude. Claude workspace-write is refused. Continue requires a finished, stopped or killed turn with a confirmed saved native session (and model, for Claude), retains its worker, backend, model and scope, and starts a new turn from the current files; it never restores a process. One active execution per worker. NAME must match ^[a-z][a-z0-9_-]{0,63}$. Omitted --worker selects the sole registered worker, or default when none exist; multiple workers require an explicit name. --turn selects its recorded worker; an explicit --worker must match. Flags precede assignment text; use -- before an assignment starting with a dash. Follow pins the selected worker and turn. Turns and events include all workers. Service status lists worker states. Stop sends one SIGINT to the turn's process group and never escalates; the turn stays stopping until the whole group is gone. Kill sends SIGKILL and wins over stop; killing ends as killed. Both latch the worker before signalling: start and continue refuse until release, which starts nothing. Service stop stops every running worker the same way and exits only once no owned execution remains; repeat it, or kill the remaining workers.")
 		fmt.Println("atlas-runtime events [--cursor CURSOR] [--limit N]\nEvents returns one finite page of durable execution events, not native output or task-success claims. Limit defaults to 50 (1..100); follow is not supported.")
 		fmt.Println("Claude question opt-in: add --questions to start; continuation retains the saved capability.\natlas-runtime question --worker NAME --turn TURN_ID --question QUESTION_ID\natlas-runtime answer --worker NAME --turn TURN_ID --question QUESTION_ID --answers JSON_OBJECT\nAnswers map exact question texts to strings. Identical repeats return recorded admission without resending; conflicting answers refuse. Admission, delivery, native processing and verified task success are distinct. Codex does not support questions.")
 		fmt.Println("Lost-response-safe admission: add --request-id ID to start or continue. Reuse exactly that ID and request to inspect recorded admission without launching twice; changed requests conflict. ID matches ^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$. Accepted admission is not verified execution; indeterminate requires operator reconciliation and never auto-resends. recorded_result is the original admission snapshot, not live status.")

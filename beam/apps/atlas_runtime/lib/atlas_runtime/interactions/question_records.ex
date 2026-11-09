@@ -177,7 +177,7 @@ defmodule AtlasRuntime.QuestionRecords do
       record["outcome"] in ["pending", "unknown", "processed", "invalidated"] and
       is_boolean(record["active"]) and
       (is_nil(record["invalidation_reason"]) or record["invalidation_reason"] in
-        ["runtime_restart", "stopped", "finished", "failed"]) and
+        ["runtime_restart", "stopped", "killed", "finished", "failed"]) and
       timestamp?(record["created_at"]) and timestamp?(record["updated_at"]) and
       is_integer(record["revision"]) and record["revision"] in 1..5 and
       is_integer(record["published_revision"]) and record["published_revision"] in 0..record["revision"] and

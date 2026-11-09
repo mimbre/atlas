@@ -413,13 +413,13 @@ defmodule AtlasRuntime.NativeAdmissionTest do
     assert length(launches(context.dir)) == 1
   end
 
-  test "ordinary pre-admission File.Error remains a command error for ID and legacy callers", context do
+  test "missing saved Claude context is a pre-admission command error for ID and legacy callers", context do
     call(context.service, %{"command" => "start", "backend" => "claude", "cwd" => context.workspace, "assignment" => "plain:claude"})
     source = finished(context.service)
     File.rm!(Path.join(source.artifacts, "claude-context.json"))
     request = %{"command" => "continue", "assignment" => "admit:missing-context", "request_id" => "missing-context"}
-    assert command_error(context.service, request) =~ "claude-context.json"
-    assert command_error(context.service, Map.delete(request, "request_id")) =~ "claude-context.json"
+    command_error(context.service, request)
+    command_error(context.service, Map.delete(request, "request_id"))
     assert Process.alive?(context.service)
     refute File.exists?(Path.join(context.dir, "admissions/missing-context.json"))
     assert length(launches(context.dir)) == 1

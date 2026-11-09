@@ -60,8 +60,11 @@ defmodule AtlasRuntime.Service do
       case {request, reply} do
         {_, {:admission, record, run}} ->
           state.dir |> CommandAdmissions.accept(record, run) |> CommandAdmissions.public()
-        {%{"command" => "stop"}, %{worker_id: id}} ->
-          Map.get(next.workers, id, %{run: reply}).run
+        {%{"command" => name}, %{worker_id: id, id: turn}} when name in ["stop", "kill"] ->
+          case Map.get(next.workers, id) do
+            %{run: %{id: ^turn} = run} -> run
+            _ -> reply
+          end
         {%{"command" => "service-stop"}, %{workers: _}} ->
           reply = Map.put(reply, :workers, worker_runs(next))
           if Map.has_key?(reply, :agent), do: Map.put(reply, :agent, sole_run(next)), else: reply
@@ -97,10 +100,25 @@ defmodule AtlasRuntime.Service do
 
   defp command(%{"command" => "service-stop"} = request, %{stopping: true} = state)
        when map_size(request) == 1 do
-    reply = %{service: "stopping", workers: worker_runs(state)}
-    run = sole_run(state)
-    {if(run, do: Map.put(reply, :agent, run), else: reply), state, true}
+    case owned_workers(state) do
+      [] ->
+        reply = %{service: "stopping", workers: worker_runs(state)}
+        run = sole_run(state)
+        {if(run, do: Map.put(reply, :agent, run), else: reply), state, true}
+
+      owned ->
+        {pending_stop(owned, state), state, false}
+    end
   end
+
+  # While a service stop waits for owned executions, inspection and stop/kill stay available.
+  defp command(%{"command" => name} = request, %{stopping: true} = state)
+       when name in ["status", "output", "stop", "kill"],
+       do: worker_request(request, state)
+
+  defp command(%{"command" => name} = request, %{stopping: true} = state)
+       when name in ["events", "turns"],
+       do: command(request, %{state | stopping: false}) |> put_elem(1, state)
 
   defp command(_, %{stopping: true}), do: raise("Runtime service is stopping")
 
@@ -118,10 +136,23 @@ defmodule AtlasRuntime.Service do
 
 
   defp command(%{"command" => name} = request, state)
-       when name in ["start", "status", "output", "stop", "continue"] do
-    {worker_id, saved} = select_worker(request, state)
-    worker = Map.get(state.workers, worker_id, idle_worker(worker_id))
-    worker_command(request, worker_id, worker, saved, state)
+       when name in ["start", "status", "output", "stop", "kill", "continue"],
+       do: worker_request(request, state)
+
+  # Release only clears the worker's admission latch; it starts and resumes nothing.
+  defp command(%{"command" => "release"} = request, state) do
+    if Map.keys(request) -- ["command", "worker_id"] != [] or not Map.has_key?(request, "worker_id"),
+      do: raise("Release requires exactly --worker")
+    id = request["worker_id"]
+    if not valid_worker_id?(id), do: raise("Invalid worker ID")
+    latch = History.latch(state.dir, id)
+    case Map.get(state.workers, id) do
+      %{agent: agent, run: run} when not is_nil(agent) and not is_nil(latch) ->
+        raise("Worker #{id} still owns turn #{run.id} (#{run.state}); release after its end is confirmed")
+      _ -> :ok
+    end
+    if latch, do: History.release_latch!(state.dir, id)
+    {%{worker_id: id, released: latch, admission_latch: nil}, state, false}
   end
 
   defp command(%{"worker_id" => _}, _),
@@ -129,25 +160,33 @@ defmodule AtlasRuntime.Service do
 
   defp command(%{"command" => "service-status"}, state), do: service_status(state, "running")
 
+  # Every running worker gets the same graceful stop as `stop`; the daemon exits only once no
+  # owned execution remains, so a repeated service stop completes the shutdown.
   defp command(%{"command" => "service-stop"}, state) do
-    {workers, errors} =
-      Enum.reduce(Enum.sort(state.workers), {state.workers, []}, fn {id, worker}, {workers, errors} ->
-        try do
-          {Map.put(workers, id, stop(worker)), errors}
-        rescue
-          error -> {workers, errors ++ ["#{id}: #{Exception.message(error)}"]}
-        catch
-          :exit, reason -> {workers, errors ++ ["#{id}: #{inspect(reason)}"]}
+    {next, errors} =
+      Enum.reduce(Enum.sort(state.workers), {state, []}, fn {id, worker}, {next, errors} ->
+        if worker.agent && worker.run.state == "running" do
+          try do
+            {elem(control("stop", id, worker, next), 1), errors}
+          rescue
+            error -> {next, errors ++ ["#{id}: #{Exception.message(error)}"]}
+          end
+        else
+          {next, errors}
         end
       end)
-    next = %{state | workers: workers, stopping: errors == []}
-    if errors == [] do
-      reply = %{service: "stopping", workers: worker_runs(next)}
-      run = sole_run(next)
-      {if(run, do: Map.put(reply, :agent, run), else: reply), next, true}
-    else
-      {%{command_error: "Stop not confirmed: " <> Enum.join(errors, "; "),
-         workers: worker_runs(next)}, next, false}
+    next = %{next | stopping: errors == []}
+    owned = owned_workers(next)
+    cond do
+      errors != [] ->
+        {%{command_error: "Stop not confirmed: " <> Enum.join(errors, "; "),
+           workers: worker_runs(next)}, next, false}
+      owned != [] ->
+        {pending_stop(owned, next), next, false}
+      true ->
+        reply = %{service: "stopping", workers: worker_runs(next)}
+        run = sole_run(next)
+        {if(run, do: Map.put(reply, :agent, run), else: reply), next, true}
     end
   end
 
@@ -188,18 +227,33 @@ defmodule AtlasRuntime.Service do
 
   defp worker_command(request, id, worker, saved, state, admission \\ nil)
 
-  defp worker_command(%{"command" => "status"}, _id, worker, saved, state, _admission),
-    do: {saved || worker.run, state, false}
+  defp worker_command(%{"command" => "status"}, id, worker, saved, state, _admission),
+    do: {Map.put(saved || worker.run, :admission_latch, History.latch(state.dir, id)), state, false}
 
   defp worker_command(%{"command" => "output"}, _id, worker, saved, state, _admission) do
     run = saved || worker.run
     {Map.merge(run, History.output(run[:artifacts] || run["artifacts"])), state, false}
   end
 
-  defp worker_command(%{"command" => "stop"}, id, worker, _saved, state, _admission) do
-    next = stop(worker)
-    workers = if Map.has_key?(state.workers, id), do: Map.put(state.workers, id, next), else: state.workers
-    {next.run, %{state | workers: workers}, false}
+  # Stop and kill target one exact worker and turn. Only the current owned execution can change;
+  # an already stopped or killed turn repeats idempotently, anything else is a stale target.
+  defp worker_command(%{"command" => name} = request, id, worker, saved, state, _admission)
+       when name in ["stop", "kill"] do
+    if Enum.sort(Map.keys(request)) != ["command", "turn_id", "worker_id"],
+      do: raise("#{String.capitalize(name)} requires exactly --worker and --turn")
+    turn = request["turn_id"]
+    cond do
+      worker.agent && worker.run.id == turn ->
+        {run, next} = control(name, id, worker, state)
+        {run, next, false}
+      worker.run[:id] == turn and worker.run.state in ["stopped", "killed"] ->
+        {worker.run, state, false}
+      saved["state"] in ["stopped", "killed"] ->
+        {saved, state, false}
+      true ->
+        state_name = if worker.run[:id] == turn, do: worker.run.state, else: saved["state"]
+        raise("Turn #{turn} has no execution owned by this Runtime service to #{name} (#{state_name})")
+    end
   end
 
   defp worker_command(%{"command" => "start", "repository" => url, "branch" => branch,
@@ -207,6 +261,7 @@ defmodule AtlasRuntime.Service do
                  worker_id, worker, _saved, state, admission)
        when is_binary(url) and is_binary(branch) and is_binary(assignment) do
     if worker.agent, do: raise("Worker #{worker_id} already has an active agent; use status or stop")
+    unlatched!(state, worker_id)
     selection = select_backend(request, state)
     if Map.keys(request) -- ["command", "repository", "branch", "permissions", "assignment", "backend", "worker_id", "questions_enabled"] != [],
       do: raise("Repository provisioning cannot be combined with cwd or sandbox")
@@ -220,6 +275,7 @@ defmodule AtlasRuntime.Service do
                       worker_id, worker, _saved, state, admission)
        when is_binary(cwd) and is_binary(assignment) do
     if worker.agent, do: raise("Worker #{worker_id} already has an active agent; use status or stop")
+    unlatched!(state, worker_id)
     if Map.keys(request) -- ["command", "cwd", "assignment", "permissions", "sandbox", "backend", "worker_id", "questions_enabled"] != [],
       do: raise("Unknown start fields")
     if Map.has_key?(request, "repository") or Map.has_key?(request, "branch"),
@@ -246,12 +302,14 @@ defmodule AtlasRuntime.Service do
     if Map.keys(request) -- ["command", "assignment", "turn_id", "worker_id"] != [],
       do: raise("Continue accepts only an assignment, worker and optional turn ID; working directory and permissions cannot change")
     if worker.agent, do: raise("Worker #{worker_id} already has an active agent; wait for completion or stop it")
+    unlatched!(state, worker_id)
     run = saved || string_keys(worker.run)
     backend = Map.get(run, "backend", "codex")
     if backend not in ["codex", "claude"], do: raise("Unknown saved backend; sessions cannot switch vendors")
     questions_enabled = questions_enabled!(run, backend)
-    if run["state"] != "finished",
-      do: raise("Continue requires a successfully finished turn")
+    # A stopped or killed turn continues from its saved native session and the current files.
+    if run["state"] not in ["finished", "stopped", "killed"],
+      do: raise("Continue requires a finished, stopped or killed turn")
     session = run["session_id"]
     cwd = run["cwd"]
     sandbox = run["sandbox"]
@@ -268,7 +326,11 @@ defmodule AtlasRuntime.Service do
       if backend == "claude" do
         if not is_binary(run["model"]) or run["model"] == "",
           do: raise("The selected Claude turn has no confirmed model")
-        Path.join(run["artifacts"], "claude-context.json") |> File.read!() |> JSON.decode!()
+        case File.read(Path.join(run["artifacts"], "claude-context.json")) do
+          {:ok, bytes} -> JSON.decode!(bytes)
+          {:error, reason} ->
+            raise("The selected Claude turn has no saved native context: #{:file.format_error(reason)}")
+        end
       end
     target = %{"backend" => backend, "model" => run["model"] || run["requested_model"]}
     selection = %{"requested" => target, "selected" => target, "reason" => "continuation"}
@@ -286,7 +348,7 @@ defmodule AtlasRuntime.Service do
     if explicit? and not valid_worker_id?(requested), do: raise("Invalid worker ID")
     saved =
       if Map.has_key?(request, "turn_id") do
-        if request["command"] not in ["output", "continue"],
+        if request["command"] not in ["output", "continue", "stop", "kill"],
           do: raise("This command does not accept a turn ID")
         History.historical(request["turn_id"], state.dir, state.workers)
       end
@@ -303,12 +365,34 @@ defmodule AtlasRuntime.Service do
         true -> raise("Multiple workers are registered; specify --worker")
       end
 
+    # Restart clears registrations; a durable latch still identifies its worker.
     if explicit? and is_nil(saved) and request["command"] != "start" and
-         not Map.has_key?(state.workers, worker_id),
+         not Map.has_key?(state.workers, worker_id) and is_nil(History.latch(state.dir, worker_id)),
       do: raise("Unknown worker: #{worker_id}")
     {worker_id, saved}
   end
 
+
+  defp worker_request(request, state) do
+    {worker_id, saved} = select_worker(request, state)
+    worker = Map.get(state.workers, worker_id, idle_worker(worker_id))
+    worker_command(request, worker_id, worker, saved, state)
+  end
+
+  defp unlatched!(state, worker_id) do
+    if latch = History.latch(state.dir, worker_id),
+      do: raise("Worker #{worker_id} is latched after stopping turn #{latch["turn_id"]}; " <>
+        "run atlas-runtime release --worker #{worker_id} first")
+  end
+
+  defp owned_workers(state), do: for({id, %{agent: agent}} <- Enum.sort(state.workers), agent, do: id)
+
+  defp pending_stop(owned, state) do
+    names = Enum.map_join(owned, ", ", &"#{&1} (#{state.workers[&1].run.state})")
+    %{command_error: "Service stop pending: still owned executions: #{names}; " <>
+        "repeat service stop after their end is confirmed, or kill them",
+      workers: worker_runs(state)}
+  end
 
   defp idle_worker(id), do: %{agent: nil, monitor: nil, run: %{worker_id: id, state: "idle"}}
   defp worker_runs(state), do: Map.new(state.workers, fn {id, worker} -> {id, worker.run} end)
@@ -436,14 +520,39 @@ defmodule AtlasRuntime.Service do
   end
 
 
-  defp stop(%{agent: nil} = state), do: state
+  # The latch and the requested mode are durable before the host is signalled. Kill wins over
+  # stop; repeats keep their first request time and are forwarded, so the host re-attempts only
+  # a refused signal. The worker stays owned until the host confirms the group gone.
+  defp control(name, id, worker, state) do
+    run = worker.run
+    termination = run[:termination] ||
+      %{"mode" => nil, "stop_requested_at" => nil, "stop_signalled_at" => nil,
+        "kill_requested_at" => nil, "kill_signalled_at" => nil, "confirmed_at" => nil,
+        "exit_code" => nil, "native_result" => nil, "error" => nil}
+    now = DateTime.to_iso8601(DateTime.utc_now())
 
-  defp stop(state) do
-    :ok = Native.stop(state.agent)
-    Process.demonitor(state.monitor, [:flush])
-    finish_output(state.run)
-    %{state | agent: nil, monitor: nil,
-      run: Map.merge(state.run, %{state: "stopped", pending_question: nil, ended_at: DateTime.to_iso8601(DateTime.utc_now())})}
+    if name == "stop" and termination["mode"] == "kill" do
+      {run, state}
+    else
+      History.latch!(state.dir, id, run.id, now)
+      termination =
+        if termination["mode"] in [nil, "stop"] and termination["mode"] != name,
+          do: %{termination | "mode" => name, name <> "_requested_at" => now},
+          else: termination
+      run = Map.merge(run, %{state: if(name == "kill", do: "killing", else: "stopping"),
+                             pending_question: nil, termination: termination})
+      state = update_run(state, id, worker, run)
+      worker = state.workers[id]
+
+      case Native.control(worker.agent, String.to_existing_atom(name)) do
+        :ok ->
+          {state.workers[id].run, state}
+        {:error, reason} ->
+          run = put_in(worker.run, [:termination, "error"], "#{name} not delivered: #{inspect(reason)}")
+          state = update_run(state, id, worker, run)
+          {state.workers[id].run, state}
+      end
+    end
   end
 
   def handle_info({:agent, pid, message}, state) when is_pid(pid) do
@@ -462,6 +571,7 @@ defmodule AtlasRuntime.Service do
         finish_output(worker.run)
         run = Map.merge(worker.run, %{state: "failed", pending_question: nil, error: inspect(reason),
           ended_at: DateTime.to_iso8601(DateTime.utc_now())})
+        run = if run[:termination], do: put_in(run, [:termination, "error"], inspect(reason)), else: run
         next = put_worker(state, id, %{worker | agent: nil, monitor: nil, run: run})
         {:noreply, record_changes(state, next)}
     end
@@ -533,6 +643,37 @@ defmodule AtlasRuntime.Service do
     record_changes(state, next)
   end
 
+  defp agent_message({:signal, %{"control" => control} = signal}, id, %{run: %{termination: %{}}} = worker, state)
+       when control in ["stop", "kill"] do
+    termination =
+      case signal["error"] do
+        nil -> Map.merge(worker.run.termination, %{control <> "_signalled_at" => DateTime.to_iso8601(DateTime.utc_now()), "error" => nil})
+        error -> Map.put(worker.run.termination, "error", "#{signal["signal"]} refused: #{error}")
+      end
+    update_run(state, id, worker, Map.put(worker.run, :termination, termination))
+  end
+
+  # The host confirmed the owned group gone and released its lock. A control the host never
+  # applied (the execution ended first) leaves the natural outcome; the request stays recorded.
+  defp agent_message({:terminated, info}, id, %{run: %{termination: %{}}} = worker, state) do
+    Process.demonitor(worker.monitor, [:flush])
+    finish_output(worker.run)
+    now = DateTime.to_iso8601(DateTime.utc_now())
+    {terminal, extra} =
+      case {info["control"], info["native_result"]} do
+        {"kill", _} -> {"killed", %{}}
+        {"stop", _} -> {"stopped", %{}}
+        {_, true} -> {"finished", %{result: info["result"]}}
+        _ -> {"failed", %{error: "Native execution ended before the #{worker.run.termination["mode"]} was applied"}}
+      end
+    termination = Map.merge(worker.run.termination, %{"confirmed_at" => now,
+      "exit_code" => info["exit_code"], "native_result" => info["native_result"]})
+    run = worker.run |> Map.merge(extra) |> Map.merge(%{state: terminal, pending_question: nil,
+      termination: termination, ended_at: now})
+    next = put_worker(state, id, %{worker | agent: nil, monitor: nil, run: run})
+    record_changes(state, next)
+  end
+
   defp agent_message(_, _, _, state), do: state
 
   # A turn's public output (the provider's projection, as a connected turn's) is retained,
@@ -581,7 +722,7 @@ defmodule AtlasRuntime.Service do
 
       if worker.run[:server] do
         if new?, do: Lifecycle.started(reporter, worker.run)
-        if worker.run.state in ["stopped", "finished", "failed"] and (new? or worker.run.state != old.state),
+        if worker.run.state in ["stopped", "killed", "finished", "failed"] and (new? or worker.run.state != old.state),
           do: Lifecycle.ended(reporter, worker.run)
       end
     end)

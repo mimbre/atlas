@@ -14,6 +14,11 @@ defmodule AtlasRuntime.ServiceTest do
       {:reply, reply, state}
     end
     def handle_call(:stop, _from, reply), do: {:reply, reply, reply}
+    # Native.control/2: the reply is only the write; the test confirms the end separately.
+    def handle_call({:control, mode, :async}, {caller, _}, reply) do
+      send(caller, {:control_write, self(), mode})
+      {:reply, if(match?({:error, _}, reply), do: reply, else: :ok), reply}
+    end
     def handle_call({:answer, question_id, answers}, {caller, _}, reply) do
       send(caller, {:answer_write, question_id, answers})
       result =
@@ -71,6 +76,17 @@ defmodule AtlasRuntime.ServiceTest do
 
   defp events(state), do: ExecutionEvents.query(state.events, nil, 100)["events"]
 
+  defp stop(state, name, command \\ "stop"),
+    do: call(state, %{"command" => command, "worker_id" => name, "turn_id" => state.workers[name].run.id})
+
+  # The host's confirmed end: the group is gone and the lock released.
+  defp confirm(state, name, control, native_result \\ false) do
+    agent = state.workers[name].agent
+    {:noreply, next} = Service.handle_info({:agent, agent, {:terminated, %{"control" => control,
+      "exit_code" => 0, "native_result" => native_result, "result" => if(native_result, do: "done")}}}, state)
+    next
+  end
+
   defp question do
     %{id: "question-ab12", questions: [%{"question" => "Choose?"}],
       correlation: %{"session_id" => "00000000-0000-4000-8000-000000000001",
@@ -79,7 +95,7 @@ defmodule AtlasRuntime.ServiceTest do
   end
 
   defp saved(state, number, values) do
-    id = "turn-" <> String.pad_leading(Integer.to_string(number, 16), 16, "0")
+    id = "turn-" <> String.pad_leading(Integer.to_string(number, 16) |> String.downcase(), 16, "0")
     folder = Path.join([state.dir, "turns", id])
     File.mkdir_p!(folder)
     File.write!(Path.join(folder, "turn.json"), JSON.encode!(values))
@@ -121,8 +137,8 @@ defmodule AtlasRuntime.ServiceTest do
   test "empty and sole-worker defaults never choose by activity", %{state: state} do
     assert {%{worker_id: "default", state: "idle"}, ^state, false} =
              call(state, %{"command" => "status"})
-    assert {%{worker_id: "default", state: "idle"}, ^state, false} =
-             call(state, %{"command" => "stop"})
+    error(state, %{"command" => "stop"}, "Stop requires exactly --worker and --turn")
+    error(state, %{"command" => "kill", "worker_id" => "default"}, "Unknown worker")
 
     sole = worker(state, "alpha", 1, state: "finished")
     assert {%{worker_id: "alpha", state: "finished"}, ^sole, false} =
@@ -193,7 +209,7 @@ defmodule AtlasRuntime.ServiceTest do
             "Turn belongs to worker default, not other")
     end
     error(state, %{"command" => "continue", "turn_id" => id, "assignment" => "next"},
-          "successfully finished turn")
+          "finished, stopped or killed turn")
     assert state.workers == %{}
     assert events(state) == []
 
@@ -268,72 +284,186 @@ defmodule AtlasRuntime.ServiceTest do
   test "targeted stop changes one worker and service-stop stops all without duplicate events", %{state: state} do
     state = state |> worker("alpha", 1) |> worker("beta", 2)
     beta = state.workers["beta"]
-    assert {%{worker_id: "alpha", state: "stopped"}, state, false} =
-             call(state, %{"command" => "stop", "worker_id" => "alpha"})
+    alpha = state.workers["alpha"].agent
+    assert {%{worker_id: "alpha", state: "stopping", termination: %{"mode" => "stop"}}, state, false} =
+             stop(state, "alpha")
+    assert_received {:control_write, ^alpha, :stop}
     assert state.workers["beta"] == beta
-    assert {%{state: "stopped"}, ^state, false} =
-             call(state, %{"command" => "stop", "worker_id" => "alpha"})
+    assert state.workers["alpha"].agent == alpha
+    # The latch is durable and the turn is persisted as stopping, without a transition event.
+    assert %{"turn_id" => "turn-0000000000000001"} =
+             JSON.decode!(File.read!(Path.join([state.dir, "workers", "alpha", "admission-latch.json"])))
+    assert JSON.decode!(File.read!(Path.join(state.workers["alpha"].run.artifacts, "turn.json")))["state"] == "stopping"
+    assert events(state) == []
+    requested = state.workers["alpha"].run.termination["stop_requested_at"]
+    assert {%{state: "stopping", termination: %{"stop_requested_at" => ^requested}}, state, false} = stop(state, "alpha")
+    state = confirm(state, "alpha", "stop")
+    assert %{state: "stopped", termination: %{"confirmed_at" => confirmed}} = state.workers["alpha"].run
+    assert is_binary(confirmed)
+    assert {%{state: "stopped"}, ^state, false} = stop(state, "alpha")
+    assert {%{state: "stopped"}, ^state, false} = stop(state, "alpha", "kill")
+    assert {%{command_error: "Service stop pending: still owned executions: beta (stopping)" <> _}, state, false} =
+             call(state, %{"command" => "service-stop"})
+    assert state.stopping
+    state = confirm(state, "beta", "stop")
     assert {%{service: "stopping", workers: workers}, state, true} =
              call(state, %{"command" => "service-stop"})
     assert workers["alpha"].state == "stopped"
     assert workers["beta"].state == "stopped"
-    assert Enum.map(events(state), & &1["worker_id"]) == ["alpha", "beta"]
+    assert Enum.map(events(state), &{&1["worker_id"], &1["kind"]}) ==
+             [{"alpha", "execution_stopped"}, {"beta", "execution_stopped"}]
     assert Enum.all?(state.workers, fn {_, worker} -> worker.agent == nil and worker.monitor == nil end)
   end
 
-  test "partial service-stop failure retains completed stops and tries remaining workers", %{state: state} do
-    state = state |> worker("alpha", 1) |> worker("beta", 2, stop_reply: {:error, :refused}) |> worker("gamma", 3)
-    beta = state.workers["beta"]
-    assert {%{command_error: message}, next, false} = call(state, %{"command" => "service-stop"})
-    assert message =~ "beta"
-    refute next.stopping
-    assert next.workers["alpha"].agent == nil
-    assert next.workers["gamma"].agent == nil
-    assert next.workers["beta"] == beta
-    assert Enum.map(events(next), & &1["worker_id"]) == ["alpha", "gamma"]
-    assert {:noreply, next} = Service.handle_info({:DOWN, beta.monitor, :process, beta.agent, :failed}, next)
-    assert next.workers["beta"].run.state == "failed"
+  test "kill wins over stop, stays responsive while stopping and ends killed", %{state: state} do
+    state = worker(state, "alpha", 1)
+    agent = state.workers["alpha"].agent
+    {_, state, false} = stop(state, "alpha")
+    assert {%{state: "killing", termination: %{"mode" => "kill", "stop_requested_at" => stopped, "kill_requested_at" => killed}},
+            state, false} = stop(state, "alpha", "kill")
+    assert is_binary(stopped) and is_binary(killed)
+    assert_received {:control_write, ^agent, :stop}
+    assert_received {:control_write, ^agent, :kill}
+    # A later stop cannot downgrade the kill and sends nothing.
+    assert {%{state: "killing", termination: %{"mode" => "kill"}}, ^state, false} = stop(state, "alpha")
+    refute_received {:control_write, _, _}
+    {:noreply, state} = Service.handle_info({:agent, agent, {:signal, %{"control" => "kill", "signal" => "SIGKILL", "error" => nil}}}, state)
+    assert is_binary(state.workers["alpha"].run.termination["kill_signalled_at"])
+    state = confirm(state, "alpha", "kill")
+    assert state.workers["alpha"].run.state == "killed"
+    assert [%{"kind" => "execution_killed", "worker_id" => "alpha"}] = events(state)
+    saved = JSON.decode!(File.read!(Path.join(state.workers["alpha"].run.artifacts, "turn.json")))
+    assert saved["state"] == "killed"
+    assert saved["termination"]["mode"] == "kill"
+    assert is_binary(saved["termination"]["confirmed_at"])
   end
 
-  test "a completed service-stop whose caller disappeared still answers status and a repeated stop", %{state: state} do
-    # A Service process, without its socket, owning one worker whose stop outlasts the first caller.
-    alpha = worker(state, "alpha", 1, stop_reply: {:delay, 300, :ok}).workers["alpha"]
-    service =
-      :proc_lib.spawn(fn ->
-        alpha = %{alpha | monitor: Process.monitor(alpha.agent)}
-        :gen_server.enter_loop(Service, [], %{state | workers: %{"alpha" => alpha}})
-      end)
-    on_exit(fn -> Process.exit(service, :kill) end)
-
-    caller = spawn(fn -> GenServer.call(service, %{"command" => "service-stop"}, 50) end)
-    caller_ref = Process.monitor(caller)
-    assert_receive {:DOWN, ^caller_ref, :process, ^caller, {:timeout, _}}, 1_000
-
-    # The Service finishes the stop after its caller is gone, so the socket never requests shutdown.
-    stopped = :sys.get_state(service)
-    assert stopped.stopping
-    assert stopped.workers["alpha"].agent == nil
-    assert stopped.workers["alpha"].run.state == "stopped"
-    assert Process.alive?(service)
-
-    # The CLI's status preflight before it retries the stop.
-    assert {%{service: "stopping", agent_state: "stopped", workers: %{"alpha" => %{state: "stopped"}}},
-            false} = GenServer.call(service, %{"command" => "service-status"})
-
-    # New work and malformed service commands still refuse.
-    for request <- [%{"command" => "start", "worker_id" => "beta", "cwd" => state.dir, "assignment" => "next"},
-                    %{"command" => "start", "request_id" => "retry-1", "cwd" => state.dir, "assignment" => "next"},
-                    %{"command" => "continue", "worker_id" => "alpha", "assignment" => "next"},
-                    %{"command" => "stop", "worker_id" => "alpha"},
-                    %{"command" => "service-stop", "worker_id" => "alpha"}] do
-      assert {%{command_error: "Runtime service is stopping"}, false} = GenServer.call(service, request)
+  test "stop and kill require the exact current turn and refuse stale targets", %{state: state} do
+    old = saved(state, 9, %{"worker_id" => "alpha", "state" => "finished", "session_id" => "s",
+                            "cwd" => state.dir, "sandbox" => "read-only"})
+    killed = saved(state, 10, %{"worker_id" => "alpha", "state" => "killed"})
+    state = worker(state, "alpha", 1)
+    for command <- ["stop", "kill"] do
+      error(state, %{"command" => command, "worker_id" => "alpha"}, "requires exactly --worker and --turn")
+      error(state, %{"command" => command, "turn_id" => old}, "requires exactly --worker and --turn")
+      error(state, %{"command" => command, "worker_id" => "alpha", "turn_id" => old},
+            "has no execution owned by this Runtime service to #{command} (finished)")
+      error(state, %{"command" => command, "worker_id" => "beta", "turn_id" => state.workers["alpha"].run.id},
+            "Turn belongs to worker alpha, not beta")
+      error(state, %{"command" => command, "worker_id" => "alpha", "turn_id" => "turn-ffffffffffffffff"}, "Unknown turn")
+      assert {%{"state" => "killed"}, ^state, false} =
+               call(state, %{"command" => command, "worker_id" => "alpha", "turn_id" => killed})
     end
+    refute_received {:control_write, _, _}
+    refute File.exists?(Path.join([state.dir, "workers", "alpha", "admission-latch.json"]))
+    # After restart nothing is owned: a turn recorded as stopping is unknown and cannot be signalled.
+    {_, stopping, false} = stop(state, "alpha")
+    restarted = %{stopping | workers: %{}}
+    id = stopping.workers["alpha"].run.id
+    assert {%{"state" => "unknown", "recorded_state" => "stopping"}, ^restarted, false} =
+             call(restarted, %{"command" => "output", "turn_id" => id})
+    error(restarted, %{"command" => "kill", "worker_id" => "alpha", "turn_id" => id},
+          "has no execution owned by this Runtime service to kill (unknown)")
+  end
 
-    # The repeated stop returns the shutdown flag the socket acts on.
-    assert {%{service: "stopping", workers: %{"alpha" => %{state: "stopped"}}, agent: %{state: "stopped"}},
-            true} = GenServer.call(service, %{"command" => "service-stop"})
-    assert Enum.map(ExecutionEvents.query(:sys.get_state(service).events, nil, 100)["events"],
-             &{&1["worker_id"], &1["kind"]}) == [{"alpha", "execution_stopped"}]
+  test "the latch persists before signalling, survives restart and only release clears it", %{state: state} do
+    state = worker(state, "alpha", 1)
+    blocker = Path.join([state.dir, "workers", "alpha", "admission-latch.json.tmp"])
+    File.mkdir_p!(blocker)
+    error(state, %{"command" => "stop", "worker_id" => "alpha", "turn_id" => state.workers["alpha"].run.id}, "")
+    refute_received {:control_write, _, _}
+    File.rmdir!(blocker)
+    {_, state, false} = stop(state, "alpha")
+    error(state, %{"command" => "release", "worker_id" => "alpha"}, "still owns turn turn-0000000000000001 (stopping)")
+    state = confirm(state, "alpha", "stop")
+    id = state.workers["alpha"].run.id
+    start = %{"command" => "start", "worker_id" => "alpha", "cwd" => state.dir, "assignment" => "next"}
+    continue = %{"command" => "continue", "worker_id" => "alpha", "turn_id" => id, "assignment" => "next"}
+    for request <- [start, continue, Map.put(start, "request_id", "after-stop")] do
+      error(state, request, "Worker alpha is latched after stopping turn #{id}; run atlas-runtime release --worker alpha first")
+    end
+    refute File.exists?(Path.join(state.dir, "admissions/after-stop.json"))
+    restarted = %{state | workers: %{}}
+    assert {%{admission_latch: %{"turn_id" => ^id}}, ^restarted, false} =
+             call(restarted, %{"command" => "status", "worker_id" => "alpha"})
+    error(restarted, %{"command" => "status", "worker_id" => "missing"}, "Unknown worker")
+    error(restarted, start, "is latched after stopping turn")
+    for request <- [%{"command" => "release"}, %{"command" => "release", "worker_id" => "alpha", "turn_id" => id}] do
+      error(restarted, request, "Release requires exactly --worker")
+    end
+    turns = File.ls!(Path.join(state.dir, "turns"))
+    assert {%{worker_id: "alpha", released: %{"turn_id" => ^id}, admission_latch: nil}, ^restarted, false} =
+             call(restarted, %{"command" => "release", "worker_id" => "alpha"})
+    # Release launched nothing; a repeat is idempotent.
+    assert restarted.workers == %{}
+    assert File.ls!(Path.join(state.dir, "turns")) == turns
+    assert {%{released: nil}, ^restarted, false} = call(restarted, %{"command" => "release", "worker_id" => "alpha"})
+    # Without registration or latch the worker is unknown again after restart.
+    error(restarted, %{"command" => "status", "worker_id" => "alpha"}, "Unknown worker")
+    File.write!(Path.join([state.dir, "workers", "alpha", "admission-latch.json"]), "not JSON")
+    error(restarted, start, "Invalid admission latch")
+    error(restarted, %{"command" => "release", "worker_id" => "alpha"}, "Invalid admission latch")
+  end
+
+  test "signalling errors stay recorded and the execution stays owned", %{state: state} do
+    state = worker(state, "alpha", 1, stop_reply: {:error, :refused})
+    assert {%{state: "stopping", termination: %{"error" => "stop not delivered: :refused"}}, state, false} =
+             stop(state, "alpha")
+    agent = state.workers["alpha"].agent
+    assert state.workers["alpha"].agent
+    {:noreply, state} = Service.handle_info({:agent, agent, {:signal, %{"control" => "stop", "signal" => "SIGINT",
+      "error" => "operation not permitted"}}}, state)
+    assert state.workers["alpha"].run.termination["error"] == "SIGINT refused: operation not permitted"
+    assert JSON.decode!(File.read!(Path.join(state.workers["alpha"].run.artifacts, "turn.json")))["termination"]["error"] ==
+             "SIGINT refused: operation not permitted"
+    # Host failure while stopping is a failed turn with its termination error, never stopped.
+    {:noreply, state} = Service.handle_info({:DOWN, state.workers["alpha"].monitor, :process, agent, :native_failed}, state)
+    assert %{state: "failed", termination: %{"error" => ":native_failed"}} = state.workers["alpha"].run
+    assert [%{"kind" => "execution_failed"}] = events(state)
+  end
+
+  test "natural completion races keep the honest outcome", %{state: state} do
+    # Completion reached the service first: the stop finds a finished turn and changes nothing.
+    state = worker(state, "alpha", 1)
+    alpha = state.workers["alpha"]
+    {:noreply, finished} = Service.handle_info({:agent, alpha.agent, {:ended, "done"}}, state)
+    error(finished, %{"command" => "stop", "worker_id" => "alpha", "turn_id" => alpha.run.id}, "(finished)")
+    refute File.exists?(Path.join([state.dir, "workers", "alpha", "admission-latch.json"]))
+    # Completion already sent while the stop was written: the turn still finishes, request recorded.
+    {_, stopping, false} = stop(state, "alpha")
+    {:noreply, ended} = Service.handle_info({:agent, alpha.agent, {:ended, "done"}}, stopping)
+    assert %{state: "finished", result: "done", termination: %{"mode" => "stop"}} = ended.workers["alpha"].run
+    # The host ended the execution before it applied the control.
+    natural = confirm(stopping, "alpha", nil, true)
+    assert %{state: "finished", result: "done", termination: %{"confirmed_at" => _, "native_result" => true}} =
+             natural.workers["alpha"].run
+    failed = confirm(stopping, "alpha", nil)
+    assert %{state: "failed", error: "Native execution ended before the stop was applied"} = failed.workers["alpha"].run
+  end
+
+  test "a service stop waiting for owned executions keeps inspection and kill available", %{state: state} do
+    state = state |> worker("alpha", 1) |> worker("beta", 2, state: "finished")
+    {%{command_error: message}, state, false} = call(state, %{"command" => "service-stop"})
+    assert message =~ "alpha (stopping)"
+    assert state.stopping
+    assert {%{service: "stopping", workers: %{"alpha" => %{state: "stopping"}}}, ^state, false} =
+             call(state, %{"command" => "service-status"})
+    assert {%{state: "stopping"}, ^state, false} = call(state, %{"command" => "status", "worker_id" => "alpha"})
+    assert {%{"events" => []}, ^state, false} = call(state, %{"command" => "events"})
+    for request <- [%{"command" => "start", "worker_id" => "gamma", "cwd" => state.dir, "assignment" => "next"},
+                    %{"command" => "start", "request_id" => "retry-1", "cwd" => state.dir, "assignment" => "next"},
+                    %{"command" => "continue", "worker_id" => "beta", "assignment" => "next"},
+                    %{"command" => "release", "worker_id" => "alpha"},
+                    %{"command" => "service-stop", "worker_id" => "alpha"}] do
+      error(state, request, "Runtime service is stopping")
+    end
+    assert {%{command_error: "Service stop pending" <> _}, ^state, false} = call(state, %{"command" => "service-stop"})
+    {%{state: "killing"}, state, false} = stop(state, "alpha", "kill")
+    assert_received {:control_write, _, :kill}
+    state = confirm(state, "alpha", "kill")
+    assert {%{service: "stopping", workers: %{"alpha" => %{state: "killed"}}}, _, true} =
+             call(state, %{"command" => "service-stop"})
+    assert Enum.map(events(state), &{&1["worker_id"], &1["kind"]}) == [{"alpha", "execution_killed"}]
   end
 
   test "workspace preflight blocks identical, nested, parent and symlink aliases in every sandbox", %{state: state} do
@@ -362,7 +492,8 @@ defmodule AtlasRuntime.ServiceTest do
              "session_id" => "saved-session", "cwd" => state.dir, "sandbox" => "read-only"}
     invalid = [
       {%{"backend" => "other"}, "Unknown saved backend"},
-      {%{"state" => "stopped"}, "successfully finished turn"},
+      {%{"state" => "failed"}, "finished, stopped or killed turn"},
+      {%{"state" => "stopping"}, "finished, stopped or killed turn"},
       {%{"session_id" => nil}, "no confirmed native session"},
       {%{"cwd" => "relative"}, "no valid saved working directory"},
       {%{"sandbox" => "unrestricted"}, "no valid saved working directory"},
@@ -455,8 +586,8 @@ defmodule AtlasRuntime.ServiceTest do
       question = question()
       {:noreply, current} = Service.handle_info({:agent, alpha.agent, {:question, question}}, current)
       current = case terminal do
-        :stop -> {_, next, false} = call(current, %{"command" => "stop", "worker_id" => "alpha"}); next
-        :service_stop -> {_, next, true} = call(current, %{"command" => "service-stop"}); next
+        :stop -> {_, next, false} = stop(current, "alpha"); confirm(next, "alpha", "stop")
+        :service_stop -> {_, next, false} = call(current, %{"command" => "service-stop"}); confirm(next, "alpha", "stop")
         :finish -> {:noreply, next} = Service.handle_info({:agent, alpha.agent, {:ended, "done"}}, current); next
         :loss -> {:noreply, next} = Service.handle_info({:DOWN, alpha.monitor, :process, alpha.agent, :lost}, current); next
       end
@@ -610,7 +741,9 @@ defmodule AtlasRuntime.ServiceTest do
     {delivered, state, false} = call(state, request)
     assert delivered.status == "delivered"
     assert_received {:answer_write, "question-ab12", %{"Choose?" => "yes"}}
-    {stopped, state, false} = call(state, %{"command" => "stop", "worker_id" => "alpha"})
+    {_, state, false} = stop(state, "alpha")
+    state = confirm(state, "alpha", "stop")
+    stopped = state.workers["alpha"].run
     evidence = state.workers["alpha"].run.last_answer
     assert stopped == state.workers["alpha"].run
     assert stopped.last_answer == evidence
@@ -639,6 +772,8 @@ defmodule AtlasRuntime.ServiceTest do
     {accepted, state, false} = call(state, request)
     assert accepted.active == true
     assert_received {:answer_write, "question-ab12", %{"Choose?" => "yes"}}
+    {_, state, false} = call(state, %{"command" => "service-stop"})
+    state = confirm(state, "alpha", "stop")
     {reply, state, true} = call(state, %{"command" => "service-stop"})
     assert reply.workers["alpha"] == state.workers["alpha"].run
     assert reply.agent == state.workers["alpha"].run

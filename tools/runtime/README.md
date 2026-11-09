@@ -7,11 +7,11 @@ atlas-runtime service start
 atlas-runtime start --cwd /path/to/project "Read the project and explain its entry points"
 atlas-runtime status
 atlas-runtime output
-atlas-runtime stop
+atlas-runtime stop --worker default --turn "$TURN_ID"
 atlas-runtime service stop
 ```
 
-Commands return one JSON response, except `output --follow`, which streams JSON lines. `start` returns while the selected native agent runs. `stop` stops only the selected worker's agent, not the service. `service stop` stops all workers and then the daemon; a partial stop failure retains completed stops and refuses shutdown. If every worker stopped but the stop reply was lost (for example, the caller's 30 s deadline expired first), the daemon still refuses new work, `service status` reports `service: "stopping"`, and repeating `service stop` completes the shutdown. `service status` exposes a `workers` map. Single-worker `agent_state`/stop `agent` fields remain available only when unambiguous. No automatic daemon startup, assignment retries or stdin session. Command failures exit nonzero. A successful `status` or `output` query exits zero even for a failed turn, retaining its `state: "failed"`, `error`, ID and artifact location.
+Commands return one JSON response, except `output --follow`, which streams JSON lines. `start` returns while the selected native agent runs. `stop` and `kill` control only the exact worker and turn named, not the service; see [Stop, kill and release](#stop-kill-and-release). `service stop` gracefully stops every running worker, then refuses new work and reports `service: "stopping"` until no owned execution remains; it exits nonzero with the workers still pending, and repeating `service stop` completes the shutdown once they ended (or after you kill them). A latch-write failure retains the stops already requested and does not enter the stopping state. `service status` exposes a `workers` map. Single-worker `agent_state`/stop `agent` fields remain available only when unambiguous. No automatic daemon startup, assignment retries or stdin session. Command failures exit nonzero. A successful `status` or `output` query exits zero even for a failed turn, retaining its `state: "failed"`, `error`, ID and artifact location.
 
 ## Explicit concurrent workers
 
@@ -21,17 +21,43 @@ atlas-runtime start --worker console --backend claude --repo https://github.com/
 atlas-runtime start --worker runtime --backend claude --repo https://github.com/eyra/atlas.git --branch work/runtime-task --permissions dedicated-repository "Runtime assignment"
 atlas-runtime status --worker server
 atlas-runtime output --worker console --follow
-atlas-runtime stop --worker runtime
+atlas-runtime stop --worker runtime --turn "$RUNTIME_TURN"
 atlas-runtime continue --worker server --turn turn-0123456789abcdef "Next server assignment"
 ```
 
-Worker names match `[a-z][a-z0-9_-]{0,63}`. Flags precede the assignment; use `--` before a dash-leading assignment. Start/status/output/stop/continue accept `--worker`. Omission selects `default` when no workers are registered, or the sole registered worker; multiple workers always require a selector, even when only one is active. Workers register only after accepted start/continue and remain registered until daemon restart. Explicit unknown workers refuse except when starting or selecting a saved turn. A duplicate active worker refuses rather than queues.
+Worker names match `[a-z][a-z0-9_-]{0,63}`. Flags precede the assignment; use `--` before a dash-leading assignment. Start/status/output/continue accept `--worker`; `stop` and `kill` require `--worker` and `--turn`, and `release` requires `--worker`. Omission selects `default` when no workers are registered, or the sole registered worker; multiple workers always require a selector, even when only one is active. Workers register only after accepted start/continue and remain registered until daemon restart. Explicit unknown workers refuse except when starting, selecting a saved turn or naming a worker with a persisted admission latch. A duplicate active worker refuses rather than queues.
 
 `output --turn ID` and `continue --turn ID` resolve the saved worker. Supplying `--worker` as well must match; a session cannot transfer to another worker. Older saved turns without worker attribution belong to the original single-worker `default`. Restart clears the worker registry, starts no native processes and selects no historical execution automatically. `turns` lists all workers' history; `events` remains one global ordered stream, with `worker_id` on every new event. Older journal entries remain unchanged and unattributed. There is no per-worker cursor/filter or scheduler.
 
 Real isolated public-CLI proof on 2026-11-07: Server `turn-849a0f44f47663c9`, Console `turn-711cf725b155be0f` and Runtime `turn-a7e5136ac3891023` each provisioned a separate clone/branch from base `568217bf7986b3f266be4df27fc121cb13200fb9`. All three real `claude-opus-5-5` sessions overlapped inside bounded Bash calls. Stopping Runtime removed its process group/private temp while Server and Console remained running, then independently finished with exact worker-specific file contents and answers. Events attributed accepted/finished/stopped transitions to the correct workers/turns. Ambiguous control, duplicate worker, workspace collision and mismatched saved ownership refused; repeated stop added no event.
 
 After daemon restart, explicit Server continuation `turn-6f4aa53f92af74df` retained session `b400b621-68e0-488e-8d16-c95fec47e819`, model, cwd, repository and permissions, recalling the previous answer without tools. Targeted follow pinned worker/turn; replay from the prior global cursor returned only the continuation pair. The 39 focused ExUnit tests, 27 Python runner tests and Go CLI suite passed. All owned proof daemons/process groups/private temp directories were absent afterward; disposable binaries/builds were removed. That concurrent-worker proof did not exercise question/reply. Peer chat, scheduling, automatic recovery and Server/Console integration remain outside this capability.
+
+## Stop, kill and release
+
+```sh
+atlas-runtime stop --worker runtime --turn "$TURN_ID"
+atlas-runtime kill --worker runtime --turn "$TURN_ID"
+atlas-runtime release --worker runtime
+atlas-runtime continue --worker runtime --turn "$TURN_ID" "Continue from the current files"
+```
+
+`stop` asks the turn's native process group to end: the host sends one SIGINT and never escalates. The turn is `stopping` until the leader is reaped and no live member remains in its process group; a native CLI or descendant that ignores SIGINT keeps it `stopping`, with the workspace lock held, indefinitely. `kill` sends SIGKILL to the group immediately; the turn is `killing` until the same confirmation. Kill wins: it is accepted while stopping, and a later stop neither downgrades it nor sends anything. The terminal states are `stopped` and `killed`, with `execution_stopped` and `execution_killed` events; `stopping` and `killing` are persisted in `turn.json` and status only, with no events. After accepting a stop or kill the host no longer decodes provider output: the bytes stay raw in `stream.jsonl`, so partial or invalid JSON written while ending cannot fail the turn. `output --follow` keeps following a `stopping` or `killing` turn and returns its result only after the confirmed end. The host releases the directory lock, and removes its private temp or scratch, only after that confirmation. The worker folder, baseline, output and diagnostics are kept.
+
+Both commands need the exact current turn of the named worker. A turn that already ended `stopped` or `killed` repeats idempotently; a finished, failed, replaced, unknown or foreign turn refuses without signalling. Repeated requests keep their first request time. The host signals once per control; a repeat re-attempts only a signal that was refused. The turn's `termination` record holds `mode`, `stop_requested_at`/`kill_requested_at`, `stop_signalled_at`/`kill_signalled_at`, `confirmed_at`, the leader's `exit_code`, `native_result` and the last signalling or termination `error`. A refused signal leaves the execution owned and running. If the host fails while stopping, the turn is `failed` with that error. If the execution ended before the host applied the control, it keeps its natural outcome (`finished` with its result, or `failed`) and the request stays recorded.
+
+Before signalling, Runtime writes the worker's admission latch, `workers/<worker>/admission-latch.json`. While it exists, every new `start` and `continue` for that worker refuses, including after daemon restart. Only `release --worker NAME` removes it. Release refuses while the worker still owns its execution, is idempotent, and starts, resumes or reschedules nothing. A corrupt latch fails closed. `status --worker` reports `admission_latch`, also after restart when the latch is all that identifies the worker.
+
+`continue` accepts a `finished`, `stopped` or `killed` source turn that has a confirmed native session (and confirmed model and saved context, for Claude). It creates a new turn from the saved provider conversation and the files as they are now, including human edits made before the explicit continuation. It is not a frozen-process restore: the stopped native process is gone, and work that was in flight inside it is lost. After a daemon restart a turn left `stopping` or `killing` shows `state: "unknown"` with its `recorded_state`; nothing is owned or signalled, and the latch remains.
+
+`service stop` sends the same graceful stop to every running worker. While it waits, `status`, `output`, `events`, `turns`, `stop` and `kill` keep working; new work and `release` refuse.
+
+Limits:
+
+- The confirmation covers the owned process group. A descendant that leaves the group with `setsid`/`setpgid` (detached into its own session) is outside the group, outside Runtime's reach and is not confirmed gone. A focused host test shows such a descendant surviving `kill`.
+- Parent loss (the daemon or Native process disappears and closes the host's control input) keeps the host's bounded cleanup: one SIGINT, then SIGKILL after 3 s, because nothing can follow or kill the execution afterwards. Natural completion also keeps its existing 3 s exit window, after which leftover group members are killed, unless a stop or kill was requested.
+- Group liveness is probed with `kill(-pgid, 0)` after the leader is reaped, every 20 ms. As before, the group ID could in principle be reused once the group is empty.
+- Server lifecycle reporting passes `why: "killed"` through as text. How Atlas Server and its consumers treat that value has not been verified.
 
 ## Lost-response-safe start and continuation
 
@@ -123,7 +149,7 @@ atlas-runtime events --cursor "$NEXT_CURSOR" --limit 50
 atlas-runtime output --turn turn-0123456789abcdef
 ```
 
-`events` is a finite query, not a watcher. It returns immutable ordered execution, question-evidence, peer-correlation and handoff-reference snapshots with stable turn IDs, worker attribution for new events, native identity when known, and references usable by `output --turn`, `question`, `peer-question` or `handoff` for inspection. `execution_accepted` means Runtime accepted a start or continuation; `execution_finished` means the native turn ended normally, **not that its assigned task was verified successful**. Failure and explicit stop use `execution_failed` and `execution_stopped`. Assignments, questions, answers, handoff declarations and full logs are not copied into the event stream.
+`events` is a finite query, not a watcher. It returns immutable ordered execution, question-evidence, peer-correlation and handoff-reference snapshots with stable turn IDs, worker attribution for new events, native identity when known, and references usable by `output --turn`, `question`, `peer-question` or `handoff` for inspection. `execution_accepted` means Runtime accepted a start or continuation; `execution_finished` means the native turn ended normally, **not that its assigned task was verified successful**. Failure, confirmed stop and confirmed kill use `execution_failed`, `execution_stopped` and `execution_killed`; requesting a stop or kill appends no event. Assignments, questions, answers, handoff declarations and full logs are not copied into the event stream.
 
 The response includes `events`, `next_cursor`, `has_more`, `earliest_cursor`, `retention_gap` and `recording_started_at`. Save `next_cursor` only after processing the returned page. It advances only through returned events; an empty page preserves the supplied cursor. The initial empty query still returns a usable cursor. Replaying a retained cursor returns the same ordered prefix; newly appended events may extend a previously short page.
 
@@ -149,7 +175,7 @@ To explicitly resume a saved successful conversation, including after daemon res
 atlas-runtime continue --turn turn-0123456789abcdef "Next assignment"
 ```
 
-The saved turn must be `finished`, with a native session ID and valid saved cwd/sandbox; its working directory must still exist. Failed, stopped, unknown and incomplete records are refused. An active agent for that worker blocks continuation; other workers may continue independently unless their workspaces overlap. A new Runtime turn/artifact folder is created; the selected record is unchanged. Selecting an older turn resumes that conversation's current native history, not a rollback or fork at the selected turn. If the selected native backend cannot resume the exact session, the new turn fails without fallback.
+The saved turn must be `finished`, `stopped` or `killed`, with a confirmed native session ID and valid saved cwd/sandbox; its working directory must still exist. Failed, stopping, killing, unknown and incomplete records are refused, and so is a worker whose stop latch has not been released. An active agent for that worker blocks continuation; other workers may continue independently unless their workspaces overlap. A new Runtime turn/artifact folder is created; the selected record is unchanged. Selecting an older turn resumes that conversation's current native history, not a rollback or fork at the selected turn. If the selected native backend cannot resume the exact session, the new turn fails without fallback.
 
 Codex defaults to **read-only**, using the official CLI and the user's existing ChatGPT login (`codex login`). Explicitly opt into Codex's workspace-write sandbox for an editing assignment:
 
@@ -454,11 +480,11 @@ Without `server.json`, nothing changes: no Bus link, no reporter, no extra `turn
 1. creates that turn `running` on this machine, by its worker, without an item;
 2. registers that exact attempt's `worker_execution`, with harness `codex`/`claude`, harness version `unknown`, the requested model or `unknown`, and `queued_input`, `durable_accept_query` and `consumption_evidence` all `false`;
 3. renews `activity` and `lease_until` at most once per lease interval, as connected turns do;
-4. ends it `ended` with an empty lease, `ended_at`, and `why` `finished`, `failed: <error>` or `stopped`.
+4. ends it `ended` with an empty lease, `ended_at`, and `why` `finished`, `failed: <error>`, `stopped` or `killed` (not verified against Server consumers).
 
 It never sets a Flow outcome or item ownership, and Server gets no start, stop or guidance control over the native agent. Unlisted workers run as before, with no State writes.
 
-`status`, `turns` and `turn.json` show what Server confirmed, in `server.report`: `turn` (`unconfirmed`, `running`, `ended`), `execution` (`unconfirmed`, `registered`) and the last failure in `error` (for example `turn not created: State did not answer`). Each write is one bounded exchange, so a missing or refusing Server never delays or changes `start`, `output`, `stop` or the local terminal state. `service stop` stops the workers at once. The daemon then waits up to 5 s for pending reports before it exits, and the command returns once it has. With Server unreachable, a measured `service stop` took about 6 s in total.
+`status`, `turns` and `turn.json` show what Server confirmed, in `server.report`: `turn` (`unconfirmed`, `running`, `ended`), `execution` (`unconfirmed`, `registered`) and the last failure in `error` (for example `turn not created: State did not answer`). Each write is one bounded exchange, so a missing or refusing Server never delays or changes `start`, `output`, `stop` or the local terminal state. `service stop` stops the running workers gracefully and exits only once none remains owned. The daemon then waits up to 5 s for pending reports before it exits, and the command returns once it has. With Server unreachable, a measured `service stop` took about 6 s in total.
 
 This is a best-effort mirror. There is no retry queue, replay, crash reconciliation or automatic recovery. A failed write stays failed. If the turn was never created, nothing more is written for it. A turn left `running` by a daemon that died keeps a lease that simply runs out.
 

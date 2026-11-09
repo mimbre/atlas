@@ -111,6 +111,7 @@ defmodule AtlasRuntime.ExecutionEvents do
         "finished" -> "execution_finished"
         "failed" -> "execution_failed"
         "stopped" -> "execution_stopped"
+        "killed" -> "execution_killed"
         _ -> raise ArgumentError, "unsupported execution event state"
       end
 
@@ -357,7 +358,7 @@ defmodule AtlasRuntime.ExecutionEvents do
         "execution_accepted" ->
           map_size(event) == 8 + worker_fields and event["operation"] in ["start", "continue"]
 
-        terminal when terminal in ["execution_finished", "execution_failed", "execution_stopped"] ->
+        terminal when terminal in ["execution_finished", "execution_failed", "execution_stopped", "execution_killed"] ->
           map_size(event) == 7 + worker_fields
 
         _ ->

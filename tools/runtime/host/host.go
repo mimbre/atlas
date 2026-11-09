@@ -168,12 +168,14 @@ func run(args []string) (err error) {
 	var lock *os.File
 	var nativeTemporary *string
 	var questions *questionHost
-	groupKilled := false
+	// confirmed means the leader was reaped and no live member remained in its group.
+	groupKilled, confirmed := false, false
 	defer func() {
 		if questions != nil {
 			questions.cancel()
 		}
-		if leader != nil {
+		// Failure cleanup only; a confirmed end has nothing left to signal.
+		if leader != nil && !confirmed {
 			// Signal every descendant once; a second kill can hit orphan zombies on macOS.
 			if !groupKilled {
 				if killErr := leader.signalGroup(syscall.SIGKILL); killErr != nil {
@@ -384,11 +386,19 @@ func run(args []string) (err error) {
 	go pump(reader, 65536, outputs)
 	go pump(os.Stdin, 4096, controls)
 
-	stopped := false
-	var deadline <-chan time.Time
+	// control is "" until the first stop, kill or parent loss. Stop interrupts the group once and
+	// never escalates; kill wins over stop. Only natural-completion cleanup and parent loss, which
+	// leave nobody to send a later kill, may still force the group after their 3 s window.
+	control := ""
+	interrupted := false
+	var deadline, poll <-chan time.Time
 	parse := func(line []byte) error {
+		// An accepted control ends provider decoding; its bytes stay raw in stream.jsonl.
+		if control != "" {
+			return nil
+		}
 		record, err := jsonRecord(line, recordLimit)
-		if err != nil || stopped {
+		if err != nil {
 			return err
 		}
 		// Question checks run before provider confirmation; both precede forwarding.
@@ -396,7 +406,7 @@ func run(args []string) (err error) {
 			if err = questions.event(record); err != nil {
 				return err
 			}
-			if questions.finished {
+			if questions.finished && deadline == nil {
 				deadline = time.After(3 * time.Second)
 			}
 			if record["type"] == "control_response" {
@@ -411,27 +421,79 @@ func run(args []string) (err error) {
 		}
 		return emitRaw(`{"type":"runtime.event","event":`, line, "}")
 	}
+	// deliver signals the owned group for an operator control and reports the outcome; a refused
+	// signal leaves the execution running and stays retryable by an explicit repeated control.
+	deliver := func(name string, sig syscall.Signal) error {
+		failure := leader.signalGroup(sig)
+		record := map[string]any{"type": "runtime.signal", "control": name, "signal": map[syscall.Signal]string{
+			syscall.SIGINT: "SIGINT", syscall.SIGKILL: "SIGKILL"}[sig], "error": nil}
+		if failure != nil {
+			record["error"] = failure.Error()
+		} else if sig == syscall.SIGKILL {
+			groupKilled = true
+		} else {
+			interrupted = true
+		}
+		return emit(record)
+	}
 	var partial, controlPartial []byte
-	for outputs != nil {
+	for !confirmed {
 		select {
 		case read := <-controls:
 			if read.err != nil && read.err != io.EOF {
 				return read.err
 			}
-			// EOF always stops; without questions so does any control byte.
-			stop := read.err != nil || questions == nil
-			if !stop {
-				controlPartial = append(controlPartial, read.data...)
-				for {
-					index := bytes.IndexByte(controlPartial, '\n')
-					if index < 0 {
-						break
+			if read.err == io.EOF {
+				// The owner is gone: nothing can follow this execution or kill it later.
+				controls = nil
+				if control != "kill" {
+					if questions != nil {
+						questions.cancel()
 					}
-					line := controlPartial[:index]
-					controlPartial = controlPartial[index+1:]
-					if string(line) == "stop" {
-						stop = true
-						break
+					control = "parent_lost"
+					if !interrupted {
+						if err = leader.signalGroup(syscall.SIGINT); err != nil {
+							return err
+						}
+						interrupted = true
+					}
+					deadline = time.After(3 * time.Second)
+				}
+				continue
+			}
+			controlPartial = append(controlPartial, read.data...)
+			for {
+				index := bytes.IndexByte(controlPartial, '\n')
+				if index < 0 {
+					break
+				}
+				line := controlPartial[:index]
+				controlPartial = controlPartial[index+1:]
+				switch string(line) {
+				case "stop":
+					// A repeated stop re-attempts only a refused interrupt; kill already won.
+					if control == "" || (control == "stop" && !interrupted) {
+						if control == "" && questions != nil {
+							questions.cancel()
+						}
+						control, deadline = "stop", nil
+						if err = deliver("stop", syscall.SIGINT); err != nil {
+							return err
+						}
+					}
+				case "kill":
+					if !groupKilled {
+						if control == "" && questions != nil {
+							questions.cancel()
+						}
+						control, deadline = "kill", nil
+						if err = deliver("kill", syscall.SIGKILL); err != nil {
+							return err
+						}
+					}
+				default:
+					if questions == nil {
+						return errors.New("Unknown Runtime control")
 					}
 					command, err := jsonRecord(line, 32768)
 					if err != nil {
@@ -441,21 +503,9 @@ func run(args []string) (err error) {
 						return err
 					}
 				}
-				if len(controlPartial) > 32768 {
-					return errors.New("Runtime control record exceeds 32 KiB")
-				}
 			}
-			if !stop {
-				continue
-			}
-			controls = nil
-			stopped = true
-			if questions != nil {
-				questions.cancel()
-			}
-			deadline = time.After(3 * time.Second)
-			if err = leader.signalGroup(syscall.SIGINT); err != nil {
-				return err
+			if len(controlPartial) > 32768 {
+				return errors.New("Runtime control record exceeds 32 KiB")
 			}
 		case read := <-outputs:
 			if len(read.data) > 0 {
@@ -474,53 +524,83 @@ func run(args []string) (err error) {
 						return err
 					}
 				}
-				if len(partial) > recordLimit {
+				if control != "" {
+					partial = nil
+				} else if len(partial) > recordLimit {
 					return errors.New("Native event exceeds 1 MiB")
 				}
 			}
 			if read.err == io.EOF {
 				outputs = nil
+				if len(bytes.Trim(partial, " \t\n\r\v\f")) > 0 {
+					if err = parse(partial); err != nil {
+						return err
+					}
+				}
+				if questions != nil && !questions.finished && control == "" {
+					return errors.New("Native question transport ended before its result")
+				}
+				// EOF can precede the leader's exit; do not turn a clean exit into SIGKILL.
+				if control == "" && deadline == nil {
+					deadline = time.After(3 * time.Second)
+				}
+				poll = time.After(0)
 			} else if read.err != nil {
 				return read.err
 			}
 		case <-deadline:
-			if err = leader.signalGroup(syscall.SIGKILL); err != nil {
+			deadline = nil
+			if (control == "" || control == "parent_lost") && !groupKilled {
+				if err = leader.signalGroup(syscall.SIGKILL); err != nil {
+					return err
+				}
+				groupKilled = true
+			}
+		case <-poll:
+			poll = time.After(20 * time.Millisecond)
+			exited, err := leader.wait(0)
+			if err != nil {
 				return err
 			}
-			groupKilled = true
-			deadline = nil
+			if !exited {
+				continue
+			}
+			// Natural ends and parent loss still remove leftover descendants; a stop waits for them.
+			if (control == "" || control == "parent_lost") && !groupKilled {
+				if err = leader.signalGroup(syscall.SIGKILL); err != nil {
+					return err
+				}
+				groupKilled = true
+			}
+			if confirmed, err = groupGone(leader.pid); err != nil {
+				return err
+			}
 		case <-interrupts:
 			return errors.New("Native host interrupted")
 		}
 	}
-	if len(bytes.Trim(partial, " \t\n\r\v\f")) > 0 {
-		if err = parse(partial); err != nil {
-			return err
-		}
-	}
-	if questions != nil && !questions.finished && !stopped {
-		return errors.New("Native question transport ended before its result")
-	}
-	// EOF can precede the leader's exit; do not turn a clean exit into SIGKILL.
-	exited, err := leader.wait(3 * time.Second)
-	if err != nil {
+	if err = protocol.complete(control != ""); err != nil {
 		return err
 	}
-	if !exited {
-		if !groupKilled {
-			if err = leader.signalGroup(syscall.SIGKILL); err != nil {
-				return err
-			}
-			groupKilled = true
-		}
-		if _, err = leader.wait(-1); err != nil {
-			return err
-		}
+	ended := map[string]any{"type": "runtime.process_ended", "exit_code": leader.code(), "stopped": control != "", "control": nil}
+	if control != "" {
+		ended["control"] = control
 	}
-	if err = protocol.complete(stopped); err != nil {
-		return err
+	return emit(ended)
+}
+
+// groupGone probes the reaped leader's process group: no remaining member can receive signals.
+// Descendants that left the group (setsid/setpgid) are outside this check and Runtime's reach.
+func groupGone(pgid int) (bool, error) {
+	err := kill(-pgid, 0)
+	switch err {
+	case syscall.ESRCH:
+		return true, nil
+	case nil, syscall.EPERM:
+		// EPERM: macOS can refuse while the last member is exiting; probe again.
+		return false, nil
 	}
-	return emit(map[string]any{"type": "runtime.process_ended", "exit_code": leader.code(), "stopped": stopped})
+	return false, err
 }
 
 // homeDirectory follows Python's Path.home(): HOME when set, else the passwd entry.

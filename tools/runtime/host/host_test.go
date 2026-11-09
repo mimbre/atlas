@@ -250,7 +250,7 @@ func TestInvalidModelsNeverLaunchNative(t *testing.T) {
 }
 
 func TestStopInterruptsGroupAndReportsStopped(t *testing.T) {
-	for _, mode := range []string{"byte", "eof"} {
+	for _, mode := range []string{"stop", "parent_lost"} {
 		t.Run(mode, func(t *testing.T) {
 			directory := t.TempDir()
 			native := fixture(t, directory, `trap 'touch "$0.interrupted"; exit 0' INT
@@ -264,14 +264,19 @@ while :; do sleep 0.1; done
 			if record := host.record(t); record["type"] != "runtime.event" {
 				t.Fatalf("native event not forwarded: %v", record)
 			}
-			if mode == "byte" {
-				host.stdin.Write([]byte("x"))
+			if mode == "stop" {
+				host.stdin.Write([]byte("stop\n"))
+				if record := host.record(t); record["type"] != "runtime.signal" || record["control"] != "stop" ||
+					record["signal"] != "SIGINT" || record["error"] != nil {
+					t.Fatalf("stop must report its delivered interrupt: %v", record)
+				}
 			} else {
 				host.stdin.Close()
 			}
 			records, code := host.finish(t)
 			ended := records[len(records)-1]
-			if code != 0 || ended["type"] != "runtime.process_ended" || ended["stopped"] != true || ended["exit_code"] != 0.0 {
+			if code != 0 || ended["type"] != "runtime.process_ended" || ended["stopped"] != true ||
+				ended["exit_code"] != 0.0 || ended["control"] != mode {
 				t.Fatalf("stop did not end cleanly: code=%d records=%v stderr=%s", code, records, host.stderr.String())
 			}
 			if _, err := os.Stat(native + ".interrupted"); err != nil {
@@ -281,24 +286,18 @@ while :; do sleep 0.1; done
 	}
 }
 
-func TestIgnoredInterruptEscalatesToGroupKill(t *testing.T) {
+func TestUnknownControlWithoutQuestionsFails(t *testing.T) {
 	directory := t.TempDir()
-	native := fixture(t, directory, `trap '' INT
-printf '%s\n' '{"type":"ready"}'
+	native := fixture(t, directory, `printf '%s\n' '{"type":"ready"}'
 exec sleep 60
 `)
 	host := startHost(t, codexArgs(native, directory))
 	host.record(t)
 	host.record(t)
-	started := time.Now()
-	host.stdin.Write([]byte("stop\n"))
-	records, code := host.finish(t)
-	ended := records[len(records)-1]
-	if code != 0 || ended["stopped"] != true || ended["exit_code"] != -9.0 {
-		t.Fatalf("ignored interrupt not escalated: code=%d records=%v", code, records)
-	}
-	if elapsed := time.Since(started); elapsed < 3*time.Second || elapsed > 8*time.Second {
-		t.Fatalf("escalation outside the 3 s bound: %v", elapsed)
+	host.stdin.Write([]byte("pause\n"))
+	if records, code := host.finish(t); code != 1 || len(records) != 0 ||
+		host.stderr.String() != "Native runner: Unknown Runtime control\n" {
+		t.Fatalf("unknown control accepted: code=%d records=%v stderr=%q", code, records, host.stderr.String())
 	}
 }
 

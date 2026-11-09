@@ -105,8 +105,8 @@ defmodule AtlasRuntime.NativeQuestionTest do
       state = %{port: nil, question: question, stopping: nil}
       case terminal do
         :stop ->
-          assert {:noreply, %{question: %{pending: nil, waiter: nil}}} =
-                   Native.handle_call(:stop, {self(), make_ref()}, state)
+          assert {:reply, {:error, :native_transport_closed}, %{question: %{pending: nil, waiter: nil}}} =
+                   Native.handle_call({:control, :stop, :await}, {self(), make_ref()}, state)
         :terminate -> Native.terminate(:lost, state)
       end
       assert_receive {^tag, {:error, :native_question_cancelled}}
@@ -233,8 +233,8 @@ defmodule AtlasRuntime.NativeQuestionTest do
     {old_duplicate, state} = call(state, answer)
     assert old_duplicate == processed
     assert state.workers["alpha"].run.pending_question == next_pending
-    {stopped, _} = call(state, %{"command" => "stop", "worker_id" => "alpha"})
-    assert stopped.pending_question == nil
+    {stopped, _} = call(state, %{"command" => "stop", "worker_id" => "alpha", "turn_id" => state.workers["alpha"].run.id})
+    assert %{state: "stopping", pending_question: nil} = stopped
   end
 
   test "default and legacy continuation keep questions disabled", context do

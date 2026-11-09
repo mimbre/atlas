@@ -376,7 +376,12 @@ case "`+mode+`" in fail) exit 7 ;; stop) exec sleep 60 ;; esac
 				if info, err := os.Stat(temporary); err != nil || info.Mode().Perm() != 0700 {
 					t.Fatalf("private temp must be an owner-only directory: %v %v", info, err)
 				}
+				// The asynchronous child ignores SIGINT, so a stop waits for it until an explicit kill.
 				host.stdin.Write([]byte("stop\n"))
+				if signal := host.record(t); signal["type"] != "runtime.signal" || signal["control"] != "stop" {
+					t.Fatalf("stop not delivered: %v", signal)
+				}
+				host.stdin.Write([]byte("kill\n"))
 			}
 			records, code := host.finish(t)
 			ended := records[len(records)-1]
