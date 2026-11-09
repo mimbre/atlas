@@ -73,8 +73,9 @@ func TestFolderProfileArgumentsAreTheEnforcementContract(t *testing.T) {
 	for _, name := range credentialPaths {
 		filesystem = append(filesystem, q(filepath.Join(user, name))+`="none"`)
 	}
+	network := `network={enabled=true,allow_local_binding=true,unix_sockets={` + q(scratch) + `="allow"}}`
 	want := []string{"-c", `default_permissions="atlas_folder"`, "-c",
-		`permissions={atlas_folder={extends=":read-only",filesystem={` + strings.Join(filesystem, ",") + `},network={enabled=true,allow_local_binding=true}}}`,
+		`permissions={atlas_folder={extends=":read-only",filesystem={` + strings.Join(filesystem, ",") + `},` + network + `}}`,
 		"-c", "features.network_proxy=true"}
 	if !slices.Equal(args, want) {
 		t.Fatalf("got  %q\nwant %q", args, want)
@@ -92,7 +93,7 @@ func TestFolderProfileArgumentsAreTheEnforcementContract(t *testing.T) {
 	if args, err = folderArguments(scope, scratch, user, inside); err != nil {
 		t.Fatal(err)
 	}
-	granted := `permissions={atlas_folder={extends=":read-only",filesystem={` + strings.Join(append(filesystem, q(inside)+`="read"`), ",") + `},network={enabled=true,allow_local_binding=true}}}`
+	granted := `permissions={atlas_folder={extends=":read-only",filesystem={` + strings.Join(append(filesystem, q(inside)+`="read"`), ",") + `},` + network + `}}`
 	if !slices.Equal(args, append(want[:3:3], granted, "-c", "features.network_proxy=true")) {
 		t.Fatalf("inspector grant: got %q\nwant %q", args, granted)
 	}
@@ -352,7 +353,8 @@ func TestClaudeFolderSettingsAreTheEnforcementContract(t *testing.T) {
 		return `{"sandbox":{"enabled":true,"failIfUnavailable":true,"allowUnsandboxedCommands":false,"excludedCommands":[],` +
 			`"filesystem":{"allowWrite":` + q(dest, temporary) + `,"denyWrite":` + q(append(append(roots, protected...), record, baseline)...) +
 			`,"denyRead":` + q(protected...) + `,"allowRead":` + q(append([]string{record, baseline, user + "/.claude/shell-snapshots", user + "/.claude/session-env"}, granted...)...) +
-			`},"network":{"allowedDomains":[],"strictAllowlist":true,"allowAllUnixSockets":false,"allowLocalBinding":true}},` +
+			`},"network":{"allowedDomains":[],"strictAllowlist":true,"allowUnixSockets":` + q(temporary) +
+			`,"allowAllUnixSockets":false,"allowLocalBinding":true}},` +
 			`"permissions":{"deny":` + q(rules...) + `}}`
 	}
 	if encoded != want() {
@@ -613,6 +615,12 @@ func TestFolderProfileIsEnforcedByInstalledCodexSandbox(t *testing.T) {
 		return string(out), err
 	}
 	record, baseline := scope["record"].(string), scope["baseline"].(string)
+	// Relative to its directory, so test paths stay below macOS's 104-byte socket path limit. `cd -P`
+	// avoids the shell's logical path walk, which fails through the denied Runtime home above scratch.
+	unixSocket := func(directory string) string {
+		return fmt.Sprintf(`cd -P %s && python3 -c 'import os, socket; s = socket.socket(socket.AF_UNIX); s.bind("t.sock"); s.listen(1); `+
+			`c = socket.socket(socket.AF_UNIX); c.connect("t.sock"); os.unlink("t.sock")'`, directory)
+	}
 	for _, probe := range []struct {
 		script  string
 		allowed bool
@@ -636,6 +644,11 @@ func TestFolderProfileIsEnforcedByInstalledCodexSandbox(t *testing.T) {
 		{`python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); s.listen(1)'`, true},
 		{"curl -sS -f -m 8 https://example.com", false},
 		{"curl -sS -m 5 --noproxy '*' https://1.1.1.1", false},
+		// Unix-domain sockets bind and connect only inside the scratch folder.
+		{unixSocket(`"$TMPDIR"`), true},
+		{unixSocket(fmt.Sprintf("%q", dest)), false},
+		{unixSocket(fmt.Sprintf("%q", user)), false},
+		{unixSocket("/tmp"), false},
 	} {
 		out, err := shell(true, probe.script)
 		t.Logf("sandboxed %q: err=%v output=%q", probe.script, err, out)
@@ -664,6 +677,7 @@ func TestFolderProfileIsEnforcedByInstalledCodexSandbox(t *testing.T) {
 	for _, script := range []string{
 		fmt.Sprintf("cat %q %q %q", filepath.Join(home, "code.json"), token, filepath.Join(user, ".ssh", "id")),
 		"curl -sS -m 5 " + server.URL,
+		unixSocket(fmt.Sprintf("%q", dest)),
 	} {
 		if out, err := shell(false, script); err != nil {
 			t.Fatalf("unsandboxed control %q failed: %v %s", script, err, out)

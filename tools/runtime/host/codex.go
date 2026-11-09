@@ -80,8 +80,9 @@ var credentialPaths = []string{".codex", ".config/gh", ".ssh", ".aws", ".docker"
 // folderArguments translates a materialized-folder scope into the Codex permission profile:
 // write only the folder and scratch, read only the snapshot record and baseline, deny Git
 // metadata, the Runtime home, the Code token and user credentials under user, loopback networking
-// only: the network proxy allows no domain, so external connections fail. Workers may read
-// (and so execute) the inspector even inside a denied path.
+// only: the network proxy allows no domain, so external connections fail. Unix-domain sockets
+// bind and connect only inside scratch. Workers may read (and so execute) the inspector even
+// inside a denied path.
 func folderArguments(scope map[string]any, scratch, user, inspector string) ([]string, error) {
 	root, _ := scope["root"].(string)
 	home, _ := scope["home"].(string)
@@ -123,7 +124,12 @@ func folderArguments(scope map[string]any, scratch, user, inspector string) ([]s
 			break
 		}
 	}
-	arguments, err := profileArguments("atlas_folder", entries, "network={enabled=true,allow_local_binding=true}")
+	sockets, err := json.Marshal(scratch)
+	if err != nil {
+		return nil, err
+	}
+	arguments, err := profileArguments("atlas_folder", entries,
+		"network={enabled=true,allow_local_binding=true,unix_sockets={"+string(sockets)+`="allow"}}`)
 	if err != nil {
 		return nil, err
 	}

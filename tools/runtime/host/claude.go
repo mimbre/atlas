@@ -217,6 +217,7 @@ func truthy(value any) bool {
 type claudeNetwork struct {
 	AllowedDomains      any      `json:"allowedDomains"`
 	StrictAllowlist     bool     `json:"strictAllowlist,omitempty"`
+	AllowUnixSockets    []string `json:"allowUnixSockets,omitempty"`
 	AllowAllUnixSockets bool     `json:"allowAllUnixSockets"`
 	AllowLocalBinding   bool     `json:"allowLocalBinding"`
 	AllowMachLookup     []string `json:"allowMachLookup,omitempty"`
@@ -274,7 +275,8 @@ func claudeRepositorySettings(scope any, temporary string) (string, error) {
 // claudeFolderSettings is the native sandbox and file-tool policy of a materialized folder:
 // write only the folder and the private temp, read the snapshot record and baseline and, once
 // the folder was rebound, the rebind's done marker but not its journal, deny Git metadata, the Runtime home, the Code token and user credentials under user,
-// loopback networking only: local binding with an empty strict domain allowlist.
+// loopback networking only: local binding with an empty strict domain allowlist, and Unix-domain
+// sockets only inside the private temp (Claude scopes them on macOS only; Linux still blocks them).
 // Read deny rules cover the native Read/Glob/Grep tools; Claude also merges them into the
 // sandbox's denyRead, which is listed explicitly for the Bash sandbox as well. Bash may
 // read (and so execute) the inspector even inside a denied path.
@@ -368,7 +370,8 @@ func claudeFolderSettings(scope map[string]any, temporary, user, inspector strin
 		Sandbox: claudeSandbox{true, true, false, []string{},
 			claudeFilesystem{AllowWrite: []string{root, temporary},
 				DenyWrite: append(append(roots, protected...), readOnly...), DenyRead: protected, AllowRead: allowRead},
-			claudeNetwork{AllowedDomains: []string{}, StrictAllowlist: true, AllowLocalBinding: true}},
+			claudeNetwork{AllowedDomains: []string{}, StrictAllowlist: true, AllowUnixSockets: []string{temporary},
+				AllowLocalBinding: true}},
 		Permissions: &claudePermissions{rules},
 	}
 	return encodeSettings(settings)

@@ -326,7 +326,7 @@ Materialized-folder profile (implemented for Codex and Claude):
   - If the executable lies inside a path the profile denies (for example a deployment that keeps it in the Runtime home), that single file gets read access: a Codex `"<exe>"="read"` entry, or a Claude `allowRead` entry. The rest of the home stays denied.
   - An executable inside `DEST`, the Codex scratch folder or the Claude private temp is refused (`Runtime executable … is inside worker-writable …`), because a worker could replace it.
 - **Scope without Git:** the internal `atlas-runtime workspace folder-scope DEST HOME` verifies the materialization exactly as `snapshot status` does. It refuses a non-canonical `DEST`, a `.git` entry in `DEST` or any ancestor (so the trusted native Codex never finds a Git repository), and project or ancestor `.codex/config.toml`. The scope binds `{profile, version, root, snapshot_id, repositories, home, record, baseline}`. Start, continuation and the native host recompute it and require equality, so a re-recorded or replaced snapshot refuses continuation. No Git, Code request or pre-exec wrapper runs, and the directory lock is held until the process group is reaped.
-- **Effective Codex profile** (`extends=":read-only"`, `network={enabled=true,allow_local_binding=true}` with no allowed domains, `features.network_proxy=true`):
+- **Effective Codex profile** (`extends=":read-only"`, `network={enabled=true,allow_local_binding=true,unix_sockets={"<scratch>"="allow"}}` with no allowed domains, `features.network_proxy=true`):
   - `DEST` and a private `HOME/scratch/<turn>` are writable;
   - the Runtime `HOME` is `none`, except read access to this snapshot's record and baseline and, when present, this folder's exact rebind done marker;
   - `DEST/.git` and each `DEST/<repo>/.git` are `none`;
@@ -337,6 +337,10 @@ Materialized-folder profile (implemented for Codex and Claude):
   - Codex: workers may listen on and connect to loopback. Direct external connections fail with `EPERM`, and Codex's network proxy, which allows no domain, answers 403. Under the proxy Codex sets `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY` and `NO_PROXY=localhost,127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16` in worker commands; Runtime adds no environment overrides.
   - Claude: `allowLocalBinding` with an empty strict domain allowlist (see the Claude settings below).
   - Loopback listen/connect has so far been verified only for Codex on macOS. Claude's loopback-connect behaviour is pending proof, and no behaviour is claimed for Linux.
+- **Unix-domain sockets (both backends, always on):** workers may bind, listen on and connect to Unix sockets only inside their own scratch folder, which contains their `TMPDIR`; every other socket path stays denied (`EPERM`), and there is no all-sockets allowance.
+  - Codex: `unix_sockets={"<scratch>"="allow"}` in the network table, where scratch is `HOME/scratch/<turn>`.
+  - Claude: `allowUnixSockets: ["<private temp>"]` with `allowAllUnixSockets: false`. Claude scopes Unix sockets by path on macOS only; on Linux its seccomp filter cannot filter by path and ignores `allowUnixSockets`, so Claude workers there still get `EPERM` for every Unix socket.
+  - macOS limits a socket path to 104 bytes. Scratch paths fit with a short Runtime home (`~/.local/state/atlas-runtime/scratch/<turn>/tmp/...`, or Claude's `~/.ac-XXXXXXXX/tmp/...`), but a deep path below `TMPDIR` can still exceed it; that fails with a path-length error, not a sandbox denial.
 - **Accepted network limit:** every host loopback service is reachable from a worker, not only the worker's own listeners.
   - Code is reachable over loopback, but its token stays denied.
   - Erlang cookies passed in process arguments or environment (`-setcookie`, `RELEASE_COOKIE`) are visible through `ps`; only `~/.erlang.cookie` is denied. A worker that learns a cookie can reach a local node over loopback EPMD and distribution.
@@ -359,7 +363,7 @@ Claude with the materialized-folder profile:
   - `denyWrite` = system temp roots, the protected paths, and the record and baseline;
   - `denyRead` = the protected paths: the Runtime home, `DEST/.git` and each `DEST/<repo>/.git`, the Code token file and its directory, `~/.claude`, `~/.claude.json`, `~/.codex`, `~/.config/gh`, `~/.ssh`, `~/.aws`, `~/.docker`, `~/Library/Keychains`, `~/.git-credentials`, `~/.config/git`, `~/.netrc`, `~/.gitconfig`, `~/.erlang.cookie` and the default Runtime home;
   - `allowRead` = this snapshot's record and baseline, `~/.claude/shell-snapshots` and `~/.claude/session-env` (which Claude's Bash needs), the rebind's done marker when the folder was rebound (also in `denyWrite`), and the inspector executable when it lies inside a protected path;
-  - network: empty `allowedDomains` with `strictAllowlist`, `allowLocalBinding` for loopback, no Unix sockets, no trustd allowance. The shared network boundary and its accepted limit apply; loopback connect under Claude is not yet verified;
+  - network: empty `allowedDomains` with `strictAllowlist`, `allowLocalBinding` for loopback, `allowUnixSockets` = the private temp only (macOS only; `allowAllUnixSockets` stays false), no trustd allowance. The shared network and Unix-socket boundaries and the accepted limit apply; loopback connect and Unix sockets under Claude are not yet verified;
   - `permissions.deny` holds a `Read(//path)` rule for each protected path, which also governs Read/Glob/Grep.
 - **Limits (in addition to the shared deny-list limits):**
   - The trusted native Claude CLI itself runs `git remote`/`git ls-files` probes in `DEST` at each launch. They find no repository, but they are Git invocations by the provider, not by Runtime.
