@@ -3,7 +3,6 @@ defmodule AtlasRuntime.ReadApiTest do
   use ExUnit.Case, async: false
 
   alias AtlasRuntime.Agent.Native
-  alias AtlasRuntime.Execution.RestartReconciliation
   alias AtlasRuntime.{ExecutionEvents, Output, Service}
   alias AtlasRuntime.Inspection.Reads
 
@@ -218,8 +217,6 @@ defmodule AtlasRuntime.ReadApiTest do
     Enum.each(turns, &public!/1)
   end
 
-  # Reconciliation judges the dead turn's process from a `ps` listing.
-  @tag skip: AtlasRuntime.TestHost.missing(:process_listing)
   test "after a service restart, cursors resume, lost state is explicit and stale read.sock is replaced",
        %{dir: dir} do
     service = launch(dir)
@@ -233,18 +230,20 @@ defmodule AtlasRuntime.ReadApiTest do
 
     halt(service)
 
-    # Restart reconciliation ends the turn only once its native process is provably gone.
+    # Restart reconciliation ends the turn only once its native process is provably gone. The
+    # halt ended it; the probe, asked about exactly the recorded launch, states so without
+    # racing `ps` for the exit.
     process = Path.join([dir, "turns", run.id, "process.json"])
     pid = process |> File.read!() |> JSON.decode!() |> Map.fetch!("pid")
     launched = File.stat!(process, time: :posix).mtime
 
-    await(
-      fn -> match?({:gone, _}, RestartReconciliation.process_state(pid, launched)) end,
-      3_000
-    )
+    probe = fn
+      ^pid, ^launched -> {:gone, "halted with the previous service"}
+      _, _ -> :unknown
+    end
 
     assert File.exists?(Path.join(dir, "read.sock"))
-    restarted = launch(dir)
+    restarted = launch(dir, process_probe: probe)
     assert read(dir, "workers")["workers"] == []
     resumed = read(dir, "events", %{"cursor" => head})
     refute Map.has_key?(resumed, "reset")
@@ -270,7 +269,7 @@ defmodule AtlasRuntime.ReadApiTest do
 
     # A second restart finds the turn terminal and reports nothing again.
     halt(restarted)
-    launch(dir)
+    launch(dir, process_probe: probe)
     assert read(dir, "events", %{"cursor" => head})["events"] == resumed["events"]
 
     # A turn whose output was never retained here, and malformed or unknown targets.
