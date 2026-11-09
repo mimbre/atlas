@@ -8,8 +8,9 @@ local Prism viewer (`clients/viewer`) and independent macOS clients consume the 
 ## Transport
 
 - `<runtime home>/read.sock`, a Unix socket with mode `0600`, beside `runtime.sock`.
-- One JSON object per line, one request per connection; the reply is one JSON line.
-- No subscription or push. Clients poll with cursors and reconnect at will.
+- One JSON object per line, one request per connection; the reply is one JSON line, except
+  for `follow`, whose reply is a stream of lines on the same connection (see "Follow").
+- Clients poll with cursors, or `follow` execution events, and reconnect at will.
 - The socket exists while the service runs. Its file mode limits it to the Runtime's user;
   it is not an authentication or authorization layer.
 
@@ -28,6 +29,7 @@ or `{"api", "error": {"code", "message"}}`.
 | `turns` | none | `turns`: turn summaries, newest first |
 | `turn` | `turn_id` | `turn`: summary plus `answer`, `answer_truncated` |
 | `events` | `cursor?`, `limit?` (1..100, default 50) | `events`, `cursor`, `more`, `recording_started_at`, `reset?` |
+| `follow` | `cursor?` | a stream of frames, below |
 | `output` | `turn_id`, `cursor?` | `stream`, `events`, `cursor`, `more`, `reset?` |
 
 Error codes:
@@ -40,6 +42,7 @@ Error codes:
 | `unknown_turn` | No turn with this ID |
 | `invalid_cursor` | A malformed cursor, or one past the stream's end |
 | `output_unavailable` | No output is retained for this turn |
+| `too_many_followers` | 32 `follow` connections are already open |
 | `read_failed` | Runtime could not read its own records |
 
 ## Projections
@@ -104,6 +107,37 @@ results stay available through `turn`.
 A turn reported to Atlas Server keeps its output under its exact Server identity, which the
 Bus output endpoint also serves. Any other turn's output is kept under a local identity in
 a separate buffer that only `read.sock` reads. It is never reported or served over Bus.
+
+## Follow
+
+`{"api": "runtime.read/1", "op": "follow", "cursor"?: C}` keeps the connection open and
+pushes execution events as the service records them. There is no `limit`; pages hold up
+to 100 events. Admission is as for the other operations; an error (`invalid_request`,
+`invalid_cursor`, `too_many_followers`) is one error line, then the connection closes.
+
+Each frame is one line with `"api": "runtime.read/1", "op": "follow"` and a `type`:
+
+| `type` | Fields | When |
+|---|---|---|
+| `page` | the `events` result: `events`, `cursor`, `more`, `recording_started_at`, `reset?` | first, then whenever events were recorded |
+| `heartbeat` | `cursor` | 15 s without a page, once the service answered a read |
+| `end` | `reason`: `service_stopping`, `service_unresponsive` or `too_slow` | before the Runtime closes the stream, best effort |
+
+- **At least once, in order.** Every event after the cursor arrives at least once, in
+  strictly increasing `sequence` within one epoch, unless retention dropped it, which a
+  `reset` reports exactly as for `events`. Keep the last `cursor` after handling a page and
+  reconnect with it; duplicates occur only after a reconnect. There is no order across
+  epochs: after `epoch_changed`, reconcile from `turns` and `workers`.
+- **Liveness.** Each heartbeat is preceded by a page read the service must answer within
+  5 s; otherwise the stream ends with `service_unresponsive`. A heartbeat therefore means
+  the service answered within the last 20 s.
+- **Slow readers.** A reader that does not take a line within 5 s is closed (`too_slow`,
+  best effort); the service itself never waits for a follower.
+- **Closing.** Any input after the request closes the connection. A service stop ends the
+  stream with `service_stopping`. EOF without `end` means the Runtime is gone or unreachable.
+
+Frames are transport, not journal events, and are never persisted. `follow` is read-only
+like every operation here: it starts, stops, answers, acknowledges and restarts nothing.
 
 ## Not part of this contract
 

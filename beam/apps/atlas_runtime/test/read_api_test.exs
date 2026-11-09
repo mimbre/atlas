@@ -373,4 +373,359 @@ defmodule AtlasRuntime.ReadApiTest do
     assert {:sys.get_state(service), files(dir)} == before
     assert worker(dir, "alpha")["state"] == "running"
   end
+
+  describe "follow" do
+    # A missed signal would only show at a heartbeat, far beyond every receive bound here.
+    @quiet [heartbeat: 60_000]
+
+    defp launch(dir, options, start \\ []) do
+      File.rm(Path.join(dir, "runtime.sock"))
+      {:ok, pid} = GenServer.start(Service, {dir, nil, [], options}, start)
+      on_exit(fn -> halt(pid) end)
+      pid
+    end
+
+    defp connect(dir, name) do
+      {:ok, socket} =
+        :gen_tcp.connect({:local, Path.join(dir, name)}, 0, [
+          :binary,
+          active: false,
+          packet: :line,
+          buffer: 1_048_576
+        ])
+
+      socket
+    end
+
+    defp follow(dir, fields \\ %{}) do
+      socket = connect(dir, "read.sock")
+      request = Map.merge(%{"api" => "runtime.read/1", "op" => "follow"}, fields)
+      :ok = :gen_tcp.send(socket, JSON.encode!(request) <> "\n")
+      socket
+    end
+
+    defp frame(socket, timeout \\ 5_000) do
+      assert {:ok, line} = :gen_tcp.recv(socket, 0, timeout)
+      assert %{"api" => "runtime.read/1"} = frame = JSON.decode!(line)
+      frame
+    end
+
+    defp page(socket) do
+      assert %{"op" => "follow", "type" => "page", "events" => events} = page = frame(socket)
+
+      for event <- events,
+          do: refute(Map.has_key?(event, "session_id") or Map.has_key?(event, "record_ref"))
+
+      page
+    end
+
+    # Pages until every kind in `kinds` was seen on this connection; `{events, cursor}`.
+    defp collect(socket, kinds, {events, cursor}) do
+      if kinds -- Enum.map(events, & &1["kind"]) == [] do
+        {events, cursor}
+      else
+        page = page(socket)
+        collect(socket, kinds, {events ++ page["events"], page["cursor"]})
+      end
+    end
+
+    defp sequences(events), do: Enum.map(events, & &1["sequence"])
+
+    defp increasing!(events) do
+      numbers = sequences(events)
+      assert numbers == Enum.sort(Enum.uniq(numbers))
+    end
+
+    defp journal(dir, cursor, events \\ []) do
+      page = read(dir, "events", %{"cursor" => cursor, "limit" => 100})
+      events = events ++ page["events"]
+      if page["more"], do: journal(dir, page["cursor"], events), else: events
+    end
+
+    defp pending!(service, worker) do
+      await(fn -> :sys.get_state(service).workers[worker].run.pending_question end)
+    end
+
+    defp declaration do
+      %{
+        "kind" => "completion",
+        "repository_url" => "https://github.com/owner/repo.git",
+        "branch" => "work/task",
+        "base_sha" => String.duplicate("a", 40),
+        "head_sha" => String.duplicate("b", 40),
+        "result" => "Declared work complete",
+        "verification" => ["Not independently verified"],
+        "limits" => [],
+        "remaining_processes" => []
+      }
+    end
+
+    defp sequence(cursor), do: cursor |> String.split(":") |> List.last() |> String.to_integer()
+
+    defp closed!(socket), do: assert({:error, :closed} = :gen_tcp.recv(socket, 0, 5_000))
+
+    test "every journal kind arrives live, in order, and a reconnect with the last cursor skips nothing",
+         %{dir: dir} do
+      for worker <- ~w(gamma delta epsilon), do: File.mkdir_p!(Path.join(dir, worker))
+      service = launch(dir, follow: @quiet)
+      socket = follow(dir)
+      first = page(socket)
+      assert %{"events" => [], "more" => false, "cursor" => head} = first
+      refute Map.has_key?(first, "reset")
+      assert head == read(dir, "workers")["events_cursor"]
+
+      # A command append, then question_available from the agent message path, which stores
+      # its events before the checkpoint.
+      alpha = start(service, dir, "alpha", true)
+      seen = collect(socket, ["execution_accepted", "question_available"], {[], head})
+      question = pending!(service, "alpha")
+
+      command(service, %{
+        "command" => "answer",
+        "worker_id" => "alpha",
+        "turn_id" => alpha.id,
+        "question_id" => question.id,
+        "answers" => %{"Choose?" => "A"}
+      })
+
+      seen = collect(socket, ["answer_accepted"], seen)
+      File.write!(Path.join([dir, "alpha", "process-answer"]), "")
+      {before, cursor} = collect(socket, ["execution_finished"], seen)
+      increasing!(before)
+
+      # Drop the connection; what happens meanwhile is delivered on reconnect.
+      :gen_tcp.close(socket)
+      delta = start(service, dir, "delta", true)
+      pending!(service, "delta")
+      command(service, %{"command" => "kill", "worker_id" => "delta", "turn_id" => delta.id})
+
+      await(fn ->
+        Enum.any?(journal(dir, cursor), &(&1["kind"] == "execution_killed"))
+      end)
+
+      socket = follow(dir, %{"cursor" => cursor})
+      resumed = page(socket)
+      refute Map.has_key?(resumed, "reset")
+      assert hd(sequences(resumed["events"])) == sequence(cursor) + 1
+
+      seen =
+        collect(
+          socket,
+          ["execution_killed", "question_invalidated"],
+          {resumed["events"], resumed["cursor"]}
+        )
+
+      start(service, dir, "epsilon", true)
+      pending!(service, "epsilon")
+      Process.exit(:sys.get_state(service).workers["epsilon"].agent, :kill)
+      seen = collect(socket, ["execution_failed"], seen)
+
+      gamma = start(service, dir, "gamma", true)
+      routed = pending!(service, "gamma")
+
+      command(service, %{
+        "command" => "route-peer-question",
+        "worker_id" => "gamma",
+        "turn_id" => gamma.id,
+        "question_id" => routed.id,
+        "peer_worker_id" => "alpha",
+        "peer_source_turn_id" => alpha.id
+      })
+
+      seen = collect(socket, ["peer_question_routed"], seen)
+
+      command(service, %{
+        "command" => "submit-handoff",
+        "worker_id" => "alpha",
+        "turn_id" => alpha.id,
+        "handoff" => declaration()
+      })
+
+      seen = collect(socket, ["handoff_submitted"], seen)
+      command(service, %{"command" => "stop", "worker_id" => "gamma", "turn_id" => gamma.id})
+      {after_reconnect, last} = collect(socket, ["execution_stopped"], seen)
+      increasing!(after_reconnect)
+      :gen_tcp.close(socket)
+
+      # Nothing after the head was skipped; repeats are only of events after the cursor.
+      recorded = journal(dir, head)
+      assert List.last(recorded)["sequence"] == sequence(last)
+      assert sequences(Enum.uniq(before ++ after_reconnect)) == sequences(recorded)
+      assert Enum.all?(sequences(after_reconnect), &(&1 > sequence(cursor)))
+
+      for kind <- ~w(execution_accepted execution_finished execution_failed execution_stopped
+                     execution_killed question_available answer_accepted question_invalidated
+                     peer_question_routed handoff_submitted),
+          do: assert(Enum.any?(before ++ after_reconnect, &(&1["kind"] == kind)), kind)
+    end
+
+    test "follow reports retention gaps and replaced journals as resets, then the earliest events",
+         %{dir: dir} do
+      store = ExecutionEvents.open(dir)
+      early = ExecutionEvents.head(store)
+
+      store =
+        Enum.reduce(1..260, store, fn n, store ->
+          ExecutionEvents.append(dir, store, %{
+            id: "turn-" <> String.pad_leading(Integer.to_string(n, 16), 16, "0"),
+            worker_id: "alpha",
+            backend: "codex",
+            state: "running",
+            started_at: "2026-11-09T10:00:00Z"
+          })
+        end)
+
+      launch(dir, follow: @quiet)
+      other = String.duplicate("0", 32) <> ":1"
+
+      for {cursor, reset} <- [
+            {early, %{"reason" => "retention_gap", "from_sequence" => 1, "to_sequence" => 4}},
+            {store["epoch"] <> ":2",
+             %{"reason" => "retention_gap", "from_sequence" => 3, "to_sequence" => 4}},
+            {other, %{"reason" => "epoch_changed"}}
+          ] do
+        socket = follow(dir, %{"cursor" => cursor})
+        first = page(socket)
+        assert first["reset"] == reset
+        assert [%{"sequence" => 5} | _] = first["events"]
+        assert first["more"]
+        rest = Enum.map(1..2, fn _ -> page(socket) end)
+        refute Enum.any?(rest, &Map.has_key?(&1, "reset"))
+        events = first["events"] ++ Enum.flat_map(rest, & &1["events"])
+        assert sequences(events) == Enum.to_list(5..260)
+        refute List.last(rest)["more"]
+        :gen_tcp.close(socket)
+      end
+
+      for cursor <- [store["epoch"] <> ":999", "not-a-cursor"] do
+        socket = follow(dir, %{"cursor" => cursor})
+        assert frame(socket)["error"]["code"] == "invalid_cursor"
+        closed!(socket)
+      end
+
+      for fields <- [%{"limit" => 1}, %{"cursor" => ""}, %{"turn_id" => "x"}] do
+        socket = follow(dir, fields)
+        assert frame(socket)["error"]["code"] == "invalid_request"
+        closed!(socket)
+      end
+    end
+
+    # 1,000 real appends: each persists the whole journal, so this test is IO-bound.
+    @tag timeout: 600_000
+    test "a stalled follower never delays commands; it is closed and removed", %{dir: dir} do
+      turns =
+        for n <- 1..1_000 do
+          turn = "turn-" <> String.pad_leading(String.downcase(Integer.to_string(n, 16)), 16, "0")
+          folder = Path.join([dir, "turns", turn])
+          File.mkdir_p!(folder)
+
+          File.write!(
+            Path.join(folder, "turn.json"),
+            JSON.encode!(%{
+              "id" => turn,
+              "worker_id" => "alpha",
+              "state" => "finished",
+              "backend" => "codex",
+              "artifacts" => folder
+            })
+          )
+
+          turn
+        end
+
+      service = launch(dir, [follow: Keyword.put(@quiet, :send, 200)], name: Service)
+      # A reader that takes its first page and then nothing more.
+      socket = follow(dir)
+      page(socket)
+      [follower] = Map.keys(:sys.get_state(service).followers)
+      ref = Process.monitor(follower)
+
+      latencies =
+        for {turn, n} <- Enum.with_index(turns, 1) do
+          command(service, %{
+            "command" => "submit-handoff",
+            "worker_id" => "alpha",
+            "turn_id" => turn,
+            "handoff" => declaration()
+          })
+
+          if rem(n, 50) == 0, do: status_latency(dir)
+        end
+
+      assert :sys.get_state(service).events["sequence"] == 1_000
+      assert Enum.max(Enum.reject(latencies, &is_nil/1)) < 100
+      assert_receive {:DOWN, ^ref, :process, ^follower, _}, 5_000
+      await(fn -> :sys.get_state(service).followers == %{} end)
+      assert status_latency(dir) < 100
+    end
+
+    # One service-status round trip over runtime.sock, in milliseconds.
+    defp status_latency(dir) do
+      status = connect(dir, "runtime.sock")
+      started = System.monotonic_time(:millisecond)
+      :ok = :gen_tcp.send(status, ~s({"command":"service-status"}\n))
+      assert {:ok, line} = :gen_tcp.recv(status, 0, 5_000)
+      elapsed = System.monotonic_time(:millisecond) - started
+      assert %{"service" => "running"} = JSON.decode!(line)
+      :gen_tcp.close(status)
+      elapsed
+    end
+
+    test "32 followers at most; a closed follower frees its slot", %{dir: dir} do
+      service = launch(dir, follow: @quiet)
+      sockets = for _ <- 1..32, do: tap(follow(dir), &page/1)
+      refused = follow(dir)
+      assert frame(refused)["error"]["code"] == "too_many_followers"
+      closed!(refused)
+      assert map_size(:sys.get_state(service).followers) == 32
+
+      :gen_tcp.close(hd(sockets))
+      await(fn -> map_size(:sys.get_state(service).followers) == 31 end)
+      admitted = follow(dir)
+      assert %{"events" => []} = page(admitted)
+      Enum.each([admitted | tl(sockets)], &:gen_tcp.close/1)
+      await(fn -> :sys.get_state(service).followers == %{} end)
+    end
+
+    test "heartbeats follow a service answer; a service stop ends the stream; runtime.sock has no follow",
+         %{dir: dir} do
+      test = self()
+
+      launch(dir, [follow: [heartbeat: 20], halt: &send(test, {:halted, &1})], name: Service)
+      socket = follow(dir)
+      assert %{"cursor" => cursor} = page(socket)
+
+      for _ <- 1..2,
+          do:
+            assert(
+              frame(socket) == %{
+                "api" => "runtime.read/1",
+                "op" => "follow",
+                "type" => "heartbeat",
+                "cursor" => cursor
+              }
+            )
+
+      command = connect(dir, "runtime.sock")
+      :ok = :gen_tcp.send(command, ~s({"api":"runtime.read/1","op":"follow"}\n))
+      assert {:ok, line} = :gen_tcp.recv(command, 0, 5_000)
+      assert %{"command_error" => _} = JSON.decode!(line)
+      closed!(command)
+
+      stop = connect(dir, "runtime.sock")
+      :ok = :gen_tcp.send(stop, ~s({"command":"service-stop"}\n))
+      assert {:ok, _} = :gen_tcp.recv(stop, 0, 5_000)
+      assert_receive {:halted, 0}, 5_000
+
+      assert Enum.find(Stream.repeatedly(fn -> frame(socket) end), &(&1["type"] == "end")) ==
+               %{
+                 "api" => "runtime.read/1",
+                 "op" => "follow",
+                 "type" => "end",
+                 "reason" => "service_stopping"
+               }
+
+      closed!(socket)
+    end
+  end
 end
