@@ -1,6 +1,6 @@
 # 0002: Pages and endpoints in the BFF contract
 
-Status: accepted, 2026-11-03 (Melle: "Pages should also be part of the BFF. which pages the Control layer should serve. and possibly also Endpoints for form submits"; "also look at mica-bff for pages in the BFF"). UC-Atlas-35; this record comes with IS-Atlas-70 (pages); IS-Atlas-71 (form submits) and IS-Atlas-72 (the session's other calls) follow it.
+Status: accepted, 2026-11-03 (decision: "Pages should also be part of the BFF. which pages the Control layer should serve. and possibly also Endpoints for form submits"; "also look at mica-bff for pages in the BFF"). UC-Atlas-35; this record comes with IS-Atlas-70 (pages); IS-Atlas-71 (form submits) and IS-Atlas-72 (the session's other calls) follow it.
 
 ## Context
 

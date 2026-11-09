@@ -1,7 +1,7 @@
 # Durable exact-turn guidance (IS-Atlas-105 / IS-Atlas-109)
 
 The selected description maps execution, interaction and receipt roles to kinds and
-properties. Foundation supplies the three immutable entities. No Eyra work kinds
+properties. Foundation supplies the three immutable entities. No organisation-specific work kinds
 appear in the BEAM protocol; existing turn/Assignment links resolve the work item.
 
 All writes travel over Bus to State, using an operation and semantic values.

@@ -1,6 +1,6 @@
 # Try UC-Atlas-06: Hand a scene to an agent
 
-This guide grows with the use case, one section per issue. In the end Melle can see the agents, hand a scene to one (with or without a deadline), see the scene with that agent as owner and what it is expected to do ("Break it down into use cases and issues"), and see every open item with its owner, what is expected and whether it is late.
+This guide grows with the use case, one section per issue. In the end the operator can see the agents, hand a scene to one (with or without a deadline), see the scene with that agent as owner and what it is expected to do ("Break it down into use cases and issues"), and see every open item with its owner, what is expected and whether it is late.
 
 ## IS-Atlas-17: the agents, each with what is assigned to it
 

@@ -1,6 +1,6 @@
 # 0001: Control's spec as generator, contract and targets
 
-Status: accepted, 2026-11-03 (Melle: "look at prism repo to see how 3 layers are seperated: the generator, design (or contract), targets"; for Atlas the middle layer is the contract: "design is not something i would use for atlas")
+Status: accepted, 2026-11-03 (decision: "look at prism repo to see how 3 layers are seperated: the generator, design (or contract), targets"; for Atlas the middle layer is the contract: "design is not something i would use for atlas")
 
 ## Context
 
