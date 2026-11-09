@@ -18,6 +18,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/eyra/atlas/tools/runtime/snapshot"
 	"github.com/eyra/atlas/tools/runtime/workspace"
 )
 
@@ -271,8 +272,8 @@ func claudeRepositorySettings(scope any, temporary string) (string, error) {
 }
 
 // claudeFolderSettings is the native sandbox and file-tool policy of a materialized folder:
-// write only the folder and the private temp, read the snapshot record and baseline, deny
-// Git metadata, the Runtime home, the Code token and user credentials under user, no network.
+// write only the folder and the private temp, read the snapshot record and baseline and, once
+// the folder was rebound, the rebind's done marker but not its journal, deny Git metadata, the Runtime home, the Code token and user credentials under user, no network.
 // Read deny rules cover the native Read/Glob/Grep tools; Claude also merges them into the
 // sandbox's denyRead, which is listed explicitly for the Bash sandbox as well. Bash may
 // read (and so execute) the inspector even inside a denied path.
@@ -348,6 +349,14 @@ func claudeFolderSettings(scope map[string]any, temporary, user, inspector strin
 		return "", err
 	}
 	allowRead := []string{record, baseline, filepath.Join(resolved, "shell-snapshots"), filepath.Join(resolved, "session-env")}
+	readOnly := []string{record, baseline}
+	// Status and diff of a rebound folder need its done marker, which a rebind never removes.
+	marker := snapshot.RebindMarker(home, root)
+	if _, err = os.Lstat(marker); err == nil {
+		allowRead, readOnly = append(allowRead, marker), append(readOnly, marker)
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return "", err
+	}
 	// The sandbox's allowRead wins over its denyRead; grant only the inspector itself.
 	if slices.ContainsFunc(protected, func(path string) bool { return within(path, inspector) }) {
 		allowRead = append(allowRead, inspector)
@@ -355,7 +364,7 @@ func claudeFolderSettings(scope map[string]any, temporary, user, inspector strin
 	settings := claudeSettings{
 		Sandbox: claudeSandbox{true, true, false, []string{},
 			claudeFilesystem{AllowWrite: []string{root, temporary},
-				DenyWrite: append(append(roots, protected...), record, baseline), DenyRead: protected, AllowRead: allowRead},
+				DenyWrite: append(append(roots, protected...), readOnly...), DenyRead: protected, AllowRead: allowRead},
 			claudeNetwork{AllowedDomains: []string{}, StrictAllowlist: true}},
 		Permissions: &claudePermissions{rules},
 	}

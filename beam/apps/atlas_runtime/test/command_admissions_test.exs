@@ -329,7 +329,8 @@ defmodule AtlasRuntime.CommandAdmissionsTest do
       "git_dir" => Path.join(cwd, ".git"), "network_hosts" => ["github.com", "api.github.com"]}
     resolved = %{"url" => "https://github.com/owner/repo.git", "branch" => "task/admission",
       "resolved_commit" => String.duplicate("b", 40)}
-    # Admissions saved before Code carried only url and branch; they stay loadable.
+    # Admissions recorded while Code resolved the base carry its commit; fresh ones carry only url
+    # and branch. Both stay loadable.
     for {repository, index} <- Enum.with_index([resolved, Map.delete(resolved, "resolved_commit")]) do
       dir = Path.join(context.dir, "managed-#{index}")
       binding = %{context.binding | "sandbox" => nil, "permissions" => scope, "repository" => repository}

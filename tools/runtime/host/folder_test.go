@@ -17,6 +17,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/eyra/atlas/tools/runtime/snapshot"
 	"github.com/eyra/atlas/tools/runtime/workspace"
 )
 
@@ -24,7 +25,7 @@ import (
 // empty repository "repo", and returns its materialized-folder scope.
 func materialize(t *testing.T, home, dest string) map[string]any {
 	t.Helper()
-	manifest := `{"entries":[],"repositories":[{"commit":"` + strings.Repeat("a", 40) + `","path":"repo","repository":"r"}]}`
+	manifest := `{"entries":[],"repositories":[{"path":"repo","repository":"r","revision":"rev_` + strings.Repeat("a", 64) + `"}],"version":2}`
 	sum := sha256.Sum256([]byte(manifest))
 	id := "sha256:" + hex.EncodeToString(sum[:])
 	baseline := filepath.Join(home, "snapshots", hex.EncodeToString(sum[:]))
@@ -360,6 +361,24 @@ func TestClaudeFolderSettingsAreTheEnforcementContract(t *testing.T) {
 	inside := filepath.Join(home, "atlas-runtime")
 	if encoded, err = claudeFolderSettings(scope, temporary, user, inside); err != nil || encoded != want(inside) {
 		t.Fatalf("inspector grant: %v\ngot  %s\nwant %s", err, encoded, want(inside))
+	}
+	// A rebound folder's worker reads the rebind's done marker for status and diff, never its journal.
+	marker := snapshot.RebindMarker(scope["home"].(string), scope["root"].(string))
+	if err := os.MkdirAll(filepath.Dir(marker), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(marker, []byte(dest+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(filepath.Dir(marker), "journal.json"), []byte(`{"phase":"done"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	rebound := strings.Replace(want(marker), q(baseline)[1:]+`,"denyRead"`, q(baseline, marker)[1:]+`,"denyRead"`, 1)
+	if encoded, err = claudeFolderSettings(scope, temporary, user, inspector); err != nil || encoded != rebound {
+		t.Fatalf("done marker grant: %v\ngot  %s\nwant %s", err, encoded, rebound)
+	}
+	if err := os.RemoveAll(filepath.Join(home, "rebinds")); err != nil {
+		t.Fatal(err)
 	}
 	for _, writable := range []string{dest, temporary} {
 		executable := filepath.Join(writable, "atlas-runtime")

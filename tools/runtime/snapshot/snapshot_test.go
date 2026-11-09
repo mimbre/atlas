@@ -158,6 +158,8 @@ var long = "long-" + strings.Repeat("x", 110) + ".txt"
 
 // codeTree is the content of the two repositories behind testdata/code-*, which real Code
 // served for fixture repositories at 0786d60: POST /v1/snapshots, then GET manifest and archives.
+// code-manifest-v1.json is that reply from before revision handles; code-manifest.json is its
+// successor as Code's own migration (AtlasCode.Migration) wrote it, with the same entries.
 func codeTree(file, executable, dir os.FileMode) map[string]string {
 	f := func(mode os.FileMode, data string) string { return fmt.Sprintf("file %o %q", mode, data) }
 	binary := make([]byte, 512)
@@ -220,9 +222,8 @@ func TestCanonicalManifestMatchesCodeJSON(t *testing.T) {
 	if err = decoder.Decode(&m); err != nil {
 		t.Fatal(err)
 	}
-	// Code's reply is the canonical manifest with snapshot_id as its last sorted key.
-	cut := bytes.LastIndex(raw, []byte(`,"snapshot_id":`))
-	if want := append(raw[:cut:cut], '}'); !bytes.Equal(m.canonical(), want) {
+	// Code's reply is the canonical manifest with snapshot_id among its sorted keys.
+	if want := bytes.Replace(raw, []byte(`,"snapshot_id":"`+m.SnapshotID+`"`), nil, 1); !bytes.Equal(m.canonical(), want) {
 		t.Fatalf("canonical JSON differs from Code's:\n%s\n%s", m.canonical(), want)
 	}
 	if sum := sha256.Sum256(m.canonical()); "sha256:"+hex.EncodeToString(sum[:]) != m.SnapshotID {
@@ -347,8 +348,8 @@ func TestPublishingNeverReplacesAPathCreatedMeanwhile(t *testing.T) {
 
 // Synthetic snapshots: two repositories, a nested executable and a symlink.
 var (
-	one = repository{Commit: strings.Repeat("a", 40), Path: "one", Repository: "github.com/test/one"}
-	two = repository{Commit: strings.Repeat("b", 64), Path: "two", Repository: "github.com/test/two"}
+	one = repository{Revision: "rev_" + strings.Repeat("a", 64), Path: "one", Repository: "github.com/test/one"}
+	two = repository{Revision: "rev_" + strings.Repeat("b", 64), Path: "two", Repository: "github.com/test/two"}
 )
 
 func file(r repository, rel, mode, data string) entry {
@@ -364,7 +365,7 @@ func symlink(r repository, rel, target string) entry {
 
 func snapshotOf(t *testing.T, repositories []repository, entries ...entry) (string, []byte) {
 	t.Helper()
-	m := manifest{Entries: entries, Repositories: repositories}
+	m := manifest{Entries: entries, Repositories: repositories, Version: 2}
 	sum := sha256.Sum256(m.canonical())
 	m.SnapshotID = "sha256:" + hex.EncodeToString(sum[:])
 	raw, err := json.Marshal(m)
@@ -506,9 +507,9 @@ func TestUnsafeManifestsAreRefusedBeforeDownloading(t *testing.T) {
 		{"backslash", []repository{one}, []entry{file(one, `a\b`, "100644", "")}, "backslashes"},
 		{"outside repositories", []repository{one}, []entry{file(two, "b.txt", "100644", "")}, "outside every repository"},
 		{"wrong repository", []repository{one, two}, []entry{file(one, "a", "100644", ""), {Kind: "file", Mode: "100644", Path: "two/b", Repository: one.Repository, SHA256: strings.Repeat("0", 64)}}, "repository does not match"},
-		{"overlapping repositories", []repository{one, {Commit: one.Commit, Path: "one/nested", Repository: "github.com/test/nested"}}, nil, "overlapping repository paths"},
-		{"same repository path", []repository{one, {Commit: one.Commit, Path: "one", Repository: other.Repository}}, nil, "overlapping repository paths"},
-		{"unsafe repository path", []repository{{Commit: one.Commit, Path: "../one", Repository: one.Repository}}, nil, "unsafe repository path"},
+		{"overlapping repositories", []repository{one, {Revision: one.Revision, Path: "one/nested", Repository: "github.com/test/nested"}}, nil, "overlapping repository paths"},
+		{"same repository path", []repository{one, {Revision: one.Revision, Path: "one", Repository: other.Repository}}, nil, "overlapping repository paths"},
+		{"unsafe repository path", []repository{{Revision: one.Revision, Path: "../one", Repository: one.Repository}}, nil, "unsafe repository path"},
 		{"duplicate entry", []repository{one}, []entry{file(one, "a", "100644", ""), file(one, "a", "100644", "")}, "duplicate path"},
 		{"file and directory", []repository{one}, []entry{file(one, "a", "100644", ""), file(one, "a/b", "100644", "")}, `inside file or symlink "one/a"`},
 		{"absolute symlink", []repository{one}, []entry{absolute}, "must be relative"},

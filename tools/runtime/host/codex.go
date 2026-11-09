@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/eyra/atlas/tools/runtime/snapshot"
 )
 
 // codexCommand builds the official Codex CLI argv; an empty model keeps Codex's own default.
@@ -92,6 +94,12 @@ func folderArguments(scope map[string]any, scratch, user, inspector string) ([]s
 	}
 	entries := [][2]string{{root, "write"}, {scratch, "write"}, {home, "none"}, {record, "read"}, {baseline, "read"},
 		{filepath.Join(root, ".git"), "none"}}
+	marker := snapshot.RebindMarker(home, root)
+	if _, err := os.Lstat(marker); err == nil {
+		entries = append(entries, [2]string{marker, "read"})
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
 	for _, repository := range repositories {
 		path, ok := repository.(string)
 		if !ok {

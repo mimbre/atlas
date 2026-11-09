@@ -312,7 +312,7 @@ func execute(args []string) (map[string]any, error) {
 
 func executeTo(args []string, out io.Writer) (map[string]any, error) {
 	if len(args) == 0 {
-		return nil, errors.New("use service start|status|stop, start [--worker NAME] [--questions] --cwd PATH ASSIGNMENT, continue [--worker NAME] [--turn TURN_ID] ASSIGNMENT, answer --worker NAME --turn TURN_ID --question QUESTION_ID --answers JSON_OBJECT, preferences, status [--worker NAME], turns, events [--cursor CURSOR] [--limit N], output [--worker NAME] [--follow | --turn TURN_ID], stop [--worker NAME], snapshot materialize --snapshot sha256:HEX --dest NEW_PATH, snapshot status|diff --dest PATH [--path REPO_PATH]..., or snapshot submit --dest PATH [--path REPO_PATH] --change-id UUID")
+		return nil, errors.New("use service start|status|stop, start [--worker NAME] [--questions] --cwd PATH ASSIGNMENT, continue [--worker NAME] [--turn TURN_ID] ASSIGNMENT, answer --worker NAME --turn TURN_ID --question QUESTION_ID --answers JSON_OBJECT, preferences, status [--worker NAME], turns, events [--cursor CURSOR] [--limit N], output [--worker NAME] [--follow | --turn TURN_ID], stop [--worker NAME], snapshot materialize --snapshot sha256:HEX --dest NEW_PATH, snapshot status|diff --dest PATH [--path REPO_PATH]..., snapshot submit --dest PATH [--path REPO_PATH] --change-id UUID, or snapshot rebind --dest PATH")
 	}
 	dir, err := home()
 	if err != nil {
@@ -344,8 +344,8 @@ func executeTo(args []string, out io.Writer) (map[string]any, error) {
 		return service(dir, args[1])
 	}
 	if args[0] == "snapshot" {
-		usage := errors.New("use snapshot materialize --snapshot sha256:HEX --dest NEW_PATH, snapshot status|diff --dest PATH [--path REPO_PATH]..., or snapshot submit --dest PATH [--path REPO_PATH] --change-id UUID")
-		if len(args) < 2 || args[1] != "materialize" && args[1] != "status" && args[1] != "diff" && args[1] != "submit" {
+		usage := errors.New("use snapshot materialize --snapshot sha256:HEX --dest NEW_PATH, snapshot status|diff --dest PATH [--path REPO_PATH]..., snapshot submit --dest PATH [--path REPO_PATH] --change-id UUID, or snapshot rebind --dest PATH")
+		if len(args) < 2 || args[1] != "materialize" && args[1] != "status" && args[1] != "diff" && args[1] != "submit" && args[1] != "rebind" {
 			return nil, usage
 		}
 		flags := flag.NewFlagSet("snapshot "+args[1], flag.ContinueOnError)
@@ -357,6 +357,7 @@ func executeTo(args []string, out io.Writer) (map[string]any, error) {
 		case "submit":
 			path = flags.String("path", "", "materialized repository path; optional with one repository")
 			id = flags.String("change-id", "", "caller-chosen lowercase UUID; repeat it to resume")
+		case "rebind":
 		default:
 			flags.Func("path", "materialized repository path; repeat to select several", func(value string) error {
 				paths = append(paths, value)
@@ -374,6 +375,8 @@ func executeTo(args []string, out io.Writer) (map[string]any, error) {
 			return snapshot.Materialize(dir, *id, *dest)
 		case "submit":
 			return snapshot.Submit(dir, *dest, *path, *id)
+		case "rebind":
+			return snapshot.Rebind(dir, *dest)
 		}
 		return snapshot.Inspect(dir, *dest, paths, args[1] == "diff")
 	}
@@ -799,7 +802,8 @@ func main() {
 		fmt.Println("Explicit coordinator peer correlation (records only; never dispatches work or answers):\natlas-runtime route-peer-question --worker SENDER --turn TURN --question QUESTION --peer-worker PEER --peer-turn SOURCE\natlas-runtime peer-question --worker SENDER --turn TURN --question QUESTION\natlas-runtime bind-peer-reply --worker SENDER --turn TURN --question QUESTION --response-turn RESPONSE\nContinue and answer remain separate explicit commands. New transitions require the exact live pending sender question; reply binding requires the peer's successful continuation of the recorded source. Provenance is coordinator_routed_declaration, not authenticated native peer delivery. Identical routing repeats return original routed evidence; inspection returns current evidence. Conflicting targets or replies refuse.")
 		fmt.Println("Snapshot materialization (Code service required, Runtime service not):\natlas-runtime snapshot materialize --snapshot sha256:HEX --dest NEW_PATH\nVerifies the manifest identity and every archive entry, then publishes the new folder atomically and never replaces an existing path. Keeps a read-only baseline under the Runtime home in snapshots/HEX/ and records the destination in materializations/. No Git runs and no Git metadata is written.")
 		fmt.Println("Offline snapshot inspection (no Code, Runtime service or Git):\natlas-runtime snapshot status --dest PATH [--path REPO_PATH]...\natlas-runtime snapshot diff --dest PATH [--path REPO_PATH]...\nCompares a materialized folder with its verified baseline and writes to neither. Reports added, deleted, modified (binary flagged), mode, symlink and kind changes sorted by path; diff adds a unified diff per text content change. Symlinks are compared, never followed. --path selects repository paths; without it, files outside every repository are reported as added. Files over 1 MiB are not classified or diffed. Missing or invalid records or baselines fail.")
-		fmt.Println("Snapshot change submission (Code service required, Runtime service and Git not):\natlas-runtime snapshot submit --dest PATH [--path REPO_PATH] --change-id UUID\nSends one materialized repository's changes from its verified baseline to Code as a change and seals it into a private commit whose parent is the snapshot commit; nothing is pushed or published. --path may be omitted only with one repository. A clean repository returns state clean and sends nothing. Written files are captured into a private copy and the folder is scanned again before anything is sent; a folder that changed meanwhile is refused. FIFOs, sockets, devices, .git paths, symlinks leaving the repository and files over 64 MiB are refused; empty directories cannot be represented. Repeating the same command and change ID resumes an incomplete submission or returns the sealed commit; different content under the same ID is a conflict. Writes to neither the folder nor its baseline.")
+		fmt.Println("Snapshot change submission (Code service required, Runtime service and Git not):\natlas-runtime snapshot submit --dest PATH [--path REPO_PATH] --change-id UUID\nSends one materialized repository's changes from its verified baseline to Code as a change based on the snapshot's revision and seals it; the result names the sealed revision, nothing is reviewed or integrated. --path may be omitted only with one repository. A clean repository returns state clean and sends nothing. Written files are captured into a private copy and the folder is scanned again before anything is sent; a folder that changed meanwhile is refused. FIFOs, sockets, devices, .git paths, symlinks leaving the repository and files over 64 MiB are refused; empty directories cannot be represented. Repeating the same command and change ID resumes an incomplete submission or returns the sealed revision; different content under the same ID is a conflict. Writes to neither the folder nor its baseline.")
+		fmt.Println("Snapshot rebind (Code required, Runtime service stopped):\natlas-runtime snapshot rebind --dest PATH\nMoves a folder materialized before revision handles to the successor snapshot Code names for it, which must have exactly the same entries, repositories and paths. Copies a new baseline from the old one with every file re-hashed, then switches the saved turns bound to the folder's exact old scope, their Claude contexts and the materialization record, so they still continue; admissions, process logs, events and other turns are untouched. Never writes the folder. Backs up every original and journals each step under rebinds/; an interrupted rebind resumes when repeated, and until then the folder's status, diff, submit and scope refuse. Refuses while the Runtime service runs or may be starting, or while a worker owns the folder. A folder that already uses revision handles reports state current. Status, diff and submit of an older folder refuse until it is rebound.")
 		return
 	}
 	result, err := executeTo(os.Args[1:], os.Stdout)

@@ -574,9 +574,9 @@ func Prepare(scope, repository map[string]any, created bool, prefix []string) (m
 		return nil, errors.New("Managed repository request changed")
 	}
 	_, continuation := repository["base_sha"]
-	resolved, _ := repository["resolved_commit"].(string)
-	if !continuation && !regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`).MatchString(resolved) {
-		return nil, errors.New("Managed repository request has no commit resolved by Code")
+	// A fresh task branches from develop as this preparation fetches it; nothing else picks the base.
+	if _, resolved := repository["resolved_commit"]; resolved && !continuation {
+		return nil, errors.New("Managed repository request changed")
 	}
 	marker := filepath.Join(root, ".git/atlas-runtime-repository.json")
 	identity := map[string]any{"version": json.Number("1"), "url": url}
@@ -683,18 +683,17 @@ func Prepare(scope, repository map[string]any, created bool, prefix []string) (m
 	if code != 1 {
 		return nil, errors.New("Task branch already exists remotely or cannot be checked")
 	}
-	base, _, err := git(false, "rev-parse", "--verify", "--quiet", resolved+"^{commit}")
+	output, _, err := git(false, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/develop^{commit}")
 	if err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(base) != resolved {
-		return nil, fmt.Errorf("Commit %s resolved by Code is not in the fetched repository", resolved)
+	base := strings.TrimSpace(output)
+	if !regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`).MatchString(base) {
+		return nil, errors.New("Remote develop is not in the fetched repository")
 	}
-	if _, _, err = git(true, "checkout", "--no-overwrite-ignore", "--no-track", "-b", branch, resolved); err != nil {
+	if _, _, err = git(true, "checkout", "--no-overwrite-ignore", "--no-track", "-b", branch, base); err != nil {
 		return nil, err
 	}
-	// The saved record keeps today's continuation shape: base_sha replaces the request-only field.
-	delete(repository, "resolved_commit")
-	repository["base_sha"] = resolved
+	repository["base_sha"] = base
 	return repository, nil
 }

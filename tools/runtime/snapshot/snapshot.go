@@ -30,6 +30,7 @@ import (
 
 var (
 	snapshotID = regexp.MustCompile(`^sha256:([0-9a-f]{64})$`)
+	revisionID = regexp.MustCompile(`^rev_[0-9a-f]{64}$`)
 	digest     = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	loopback   = regexp.MustCompile(`^http://127\.0\.0\.1:[1-9][0-9]{0,4}$`)
 )
@@ -37,10 +38,11 @@ var (
 // Code gives up on an archive after 60 s without data; Runtime waits as long for each read.
 const idleTimeout = 60 * time.Second
 
+// repository is one repository of a snapshot at an opaque Code revision handle.
 type repository struct {
-	Commit     string `json:"commit"`
 	Path       string `json:"path"`
 	Repository string `json:"repository"`
+	Revision   string `json:"revision"`
 }
 
 type entry struct {
@@ -53,10 +55,12 @@ type entry struct {
 	Target     *string `json:"target,omitempty"`
 }
 
+// manifest is Code's version 2 snapshot manifest; older manifests are read only by Rebind.
 type manifest struct {
 	Entries      []entry      `json:"entries"`
 	Repositories []repository `json:"repositories"`
 	SnapshotID   string       `json:"snapshot_id"`
+	Version      int          `json:"version"`
 }
 
 // Materialize downloads snapshot id from Code into the new folder dest, keeps its baseline
@@ -318,38 +322,45 @@ func (c *code) manifest(id string) (*manifest, error) {
 }
 
 // canonical is the JSON whose SHA-256 Code uses as snapshot ID: Elixir's JSON.encode! of
-// {"entries", "repositories"}, i.e. sorted keys, no whitespace, raw UTF-8 and '/', and only
-// '"', '\' and control characters escaped (\b \t \n \f \r, otherwise upper-case \u00XX).
+// {"entries", "repositories", "version": 2}, i.e. sorted keys, no whitespace, raw UTF-8 and
+// '/', and only '"', '\' and control characters escaped (\b \t \n \f \r, otherwise
+// upper-case \u00XX).
 func (m *manifest) canonical() []byte {
 	var b bytes.Buffer
-	b.WriteString(`{"entries":[`)
-	for i, e := range m.Entries {
-		if i > 0 {
-			b.WriteByte(',')
-		}
-		field(&b, `{"kind":`, e.Kind)
-		field(&b, `,"mode":`, e.Mode)
-		field(&b, `,"path":`, e.Path)
-		field(&b, `,"repository":`, e.Repository)
-		field(&b, `,"sha256":`, e.SHA256)
-		b.WriteString(`,"size":` + strconv.FormatInt(e.Size, 10))
-		if e.Target != nil {
-			field(&b, `,"target":`, *e.Target)
-		}
-		b.WriteByte('}')
-	}
-	b.WriteString(`],"repositories":[`)
+	writeEntries(&b, m.Entries)
+	b.WriteString(`,"repositories":[`)
 	for i, r := range m.Repositories {
 		if i > 0 {
 			b.WriteByte(',')
 		}
-		field(&b, `{"commit":`, r.Commit)
-		field(&b, `,"path":`, r.Path)
+		field(&b, `{"path":`, r.Path)
 		field(&b, `,"repository":`, r.Repository)
+		field(&b, `,"revision":`, r.Revision)
 		b.WriteByte('}')
 	}
-	b.WriteString(`]}`)
+	b.WriteString(`],"version":2}`)
 	return b.Bytes()
+}
+
+// writeEntries writes `{"entries":[…]`, the part both manifest versions share byte for byte.
+func writeEntries(b *bytes.Buffer, entries []entry) {
+	b.WriteString(`{"entries":[`)
+	for i, e := range entries {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		field(b, `{"kind":`, e.Kind)
+		field(b, `,"mode":`, e.Mode)
+		field(b, `,"path":`, e.Path)
+		field(b, `,"repository":`, e.Repository)
+		field(b, `,"sha256":`, e.SHA256)
+		b.WriteString(`,"size":` + strconv.FormatInt(e.Size, 10))
+		if e.Target != nil {
+			field(b, `,"target":`, *e.Target)
+		}
+		b.WriteByte('}')
+	}
+	b.WriteByte(']')
 }
 
 func field(b *bytes.Buffer, key, value string) {
@@ -376,6 +387,9 @@ func field(b *bytes.Buffer, key, value string) {
 
 // check verifies the manifest's identity and safety and indexes its entries by path.
 func (m *manifest) check(id string, canonical []byte) (map[string]*entry, error) {
+	if m.Version != 2 {
+		return nil, fmt.Errorf("snapshot %s is manifest version %d, not 2", id, m.Version)
+	}
 	if sum := sha256.Sum256(canonical); m.SnapshotID != id || "sha256:"+hex.EncodeToString(sum[:]) != id {
 		return nil, fmt.Errorf("snapshot identity mismatch: Code's manifest for %s has ID %q and hashes to sha256:%x", id, m.SnapshotID, sum)
 	}
@@ -385,6 +399,9 @@ func (m *manifest) check(id string, canonical []byte) (map[string]*entry, error)
 	for i, r := range m.Repositories {
 		if !safe(r.Path) {
 			return nil, fmt.Errorf("unsafe repository path %q", r.Path)
+		}
+		if !revisionID.MatchString(r.Revision) {
+			return nil, fmt.Errorf("repository %q has no valid revision", r.Path)
 		}
 		for _, other := range m.Repositories[:i] {
 			if within(r.Path, other.Path) || within(other.Path, r.Path) {

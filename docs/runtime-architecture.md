@@ -33,9 +33,9 @@ Runtime remains local-first, running native agent CLIs on macOS. Neither Linux n
 - Keep permission configuration and credential material outside agent-writable locations. Agents cannot expand their own permissions.
 - Atlas Server or the external coordinator still owns workflow authorization, acceptance, merge and release decisions. The local component executes authorized GitHub operations; centralizing credentials does not transfer orchestration to Runtime.
 
-### Code service: contract (implemented: endpoints 1–7; release proposed)
+### Code service: contract (implemented: references, snapshots, changes, reviews, integrations)
 
-Status: endpoints 1–7 below (health, resolve, snapshot creation, manifest, archive, change submission, publication) are implemented in `beam/apps/atlas_code`. **Release remains a proposal.** Runtime can materialize a snapshot, inspect it offline and submit a repository's changes as a sealed Code-private commit with `atlas-runtime snapshot materialize|status|diff|submit` (below); publication is called by the orchestrator, not by Runtime. Managed worker starts do not use snapshots yet. Everything under "Current callers" was cited from source at `f4492cbeb0f199b0228282c507ae6f8f05b05596`; since step 2, the fresh-start base is Code's `resolve` result rather than `origin/develop` from the worker clone.
+Status: every endpoint below (health, reference resolution, snapshot creation, manifest, archive, change submission, review and integration) is implemented in `beam/apps/atlas_code`. Clients see repository names, reference names, `sha256:` snapshot IDs, opaque `rev_<64 hex>` revision handles and their own UUIDs; commits, branches, refs, remote URLs and Git output stay inside Code. Runtime can materialize a snapshot, inspect it offline and submit a repository's changes as a sealed change with its own revision handle with `atlas-runtime snapshot materialize|status|diff|submit|rebind` (below); reviews and integrations are requested by the orchestrator, not by Runtime. Managed worker starts do not use snapshots yet. Everything under "Current callers" was cited from source at `f4492cbeb0f199b0228282c507ae6f8f05b05596` and is kept as that record. The earlier commit-, publication- and release-based contract is superseded; see "Superseded design" below.
 
 Decisions from Melle that this contract follows:
 - Code is a separate local Elixir service beside Runtime, reached over authenticated loopback HTTP. The same contract can later be hosted on Atlas Server. No VM, Linux, filesystem mount or private Git server is required, and Runtime keeps working without Atlas Server.
@@ -74,26 +74,26 @@ Decisions from Melle that this contract follows:
 
 | | Code | Runtime | Orchestrator |
 |---|---|---|---|
-| Resolve a ref to an exact commit | performs | requests | chooses repository and ref |
+| Resolve a reference to a revision handle | performs | — | chooses repository and reference |
 | Snapshot (manifest and archive) | creates and serves | downloads and materializes into worker folders, keeps an immutable baseline outside worker access | — |
 | Local status/diff | — | computes offline: worker folder against baseline | reads |
-| Change upload | stores against the exact base | builds entries from the diff and uploads them | — |
-| Publication (branch, PR) and release (merge) | performs | — | authorizes each one explicitly |
+| Change upload and seal | stores against the exact base revision | builds entries from the diff, uploads and seals them | — |
+| Review (location, pull request) and integration (target update) | performs | — | authorizes each one explicitly |
 | Credentials and Git metadata | only holder | never | never |
 
 Workers only ever see their folders.
 
-#### Transport and errors (proposed)
+#### Transport and errors (implemented)
 
-Code listens only on `127.0.0.1` with a configured port, using OTP `:inets` `httpd`; Runtime calls it with `:httpc`. Neither needs a new dependency. Requests carry `Authorization: Bearer <token>`.
+Code listens only on `127.0.0.1` with a configured port, using OTP `:inets` `httpd`; Runtime's Go CLI calls it with the Go standard library. Every request, health included, carries `Authorization: Bearer <token>`.
 
-There are two tokens, each in an owner-only (0600) file under the Code home:
-- the **runtime token** allows resolve, snapshot and change operations;
-- the **orchestrator token** additionally allows publication and release.
+There are two tokens, each in an owner-only (0600) regular file under the Code home:
+- the **runtime token** allows health, reference resolution, snapshot and change operations;
+- the **orchestrator token** (optional, different from the runtime token) allows everything, including reviews and integrations. Without it, every review and integration is `403 forbidden`.
 
 Runtime never passes either token to native workers; `Agent.Native` already strips all but a fixed environment list.
 
-**Known limit:** a same-user token file is not hidden from a worker that can read the user's home directory, e.g. a Codex read-only sandbox. This proposal does not claim worker isolation from Code; that belongs to the later isolation work.
+**Known limit:** a same-user token file is not hidden from a worker that can read the user's home directory, e.g. a Codex read-only sandbox. This contract does not claim worker isolation from Code; that belongs to the later isolation work.
 
 Every error response is `{"error": {"code": "<code>", "message": "<text>", "details": {}}}` with the HTTP status shown:
 
@@ -101,32 +101,35 @@ Every error response is `{"error": {"code": "<code>", "message": "<text>", "deta
 |---|---|
 | 400 | `invalid_request` |
 | 401 | `unauthorized` |
-| 403 | `forbidden` (wrong token or repository not allowed) |
-| 404 | `not_found`, `unknown_ref` |
-| 409 | `base_mismatch`, `branch_exists`, `conflict` |
-| 422 | `incomplete_upload` |
+| 403 | `forbidden` (wrong token, repository not allowed, reviews and integrations not configured) |
+| 404 | `not_found`, `unknown_reference`, `unknown_revision` |
+| 405 | `method_not_allowed` |
+| 409 | `snapshot_superseded`, `repository_mismatch`, `base_mismatch`, `conflict`, `change_not_sealed`, `location_taken`, `review_not_open`, `review_has_no_target`, `revision_mismatch`, `target_moved`, `integration_conflict`, `integration_refused` |
+| 413 | `payload_too_large` |
+| 422 | `incomplete_upload`, `unsupported_content` |
+| 502 | `review_incomplete` |
 | 503 | `provider_unavailable` |
 
 Responses are JSON, except archive and blob bodies, which are bytes.
 
-#### Endpoints (1–7 implemented, 8 proposed)
+#### Endpoints (implemented)
 
 1. **Health.** `GET /v1/health` → `{"service": "atlas-code", "version": "…"}`.
-2. **Exact-revision preparation.** `POST /v1/revisions/resolve`
-   - Request: `{"repository": "github.com/eyra/atlas", "ref": "develop"}`.
-   - Response: `{"repository": …, "ref": …, "commit": "<40/64 hex>"}`.
-   - This is read-only (`git ls-remote` or a fetch into Code's own clone).
+2. **Reference resolution.** `POST /v1/references/resolve`
+   - Request: `{"repository": "github.com/eyra/atlas", "reference": "develop"}`, exactly these two keys. The reference must be a valid branch name.
+   - Response: `{"repository", "reference", "revision": "rev_<64 hex>"}`. An unknown reference is `404 unknown_reference`.
+   - Read-only (`git ls-remote`). A revision handle is the SHA-256 of its repository and commit, so it never changes; Code records it under `revisions/` before any reply carries it, and a handle of another repository is `409 repository_mismatch`.
 3. **Multi-repository snapshot.** `POST /v1/snapshots`
-   - Request: `{"repositories": [{"repository": "github.com/eyra/atlas", "commit": "<sha>", "path": "atlas"}]}`.
+   - Request: `{"repositories": [{"repository": "github.com/eyra/atlas", "revision": "rev_<hex>", "path": "atlas"}]}`.
    - Paths are relative, unique and non-overlapping.
-   - Response: `{"snapshot_id": "sha256:<digest of the canonical manifest>", "repositories": [{"repository", "commit", "path"}]}`.
-   - Idempotent: the same request returns the same ID. An unknown commit is a 404.
-4. **Snapshot manifest.** `GET /v1/snapshots/{id}/manifest` → `{"snapshot_id", "entries": [{"repository", "path", "kind": "file|symlink", "mode": "100644|100755|120000", "size", "sha256", "target"?}]}`. The `target` field is present for symlinks only.
+   - Response: `{"snapshot_id": "sha256:<digest of the canonical manifest>", "repositories": [{"path", "repository", "revision"}]}`.
+   - Idempotent: the same request returns the same ID. An unknown handle is `404 unknown_revision`; a revision on no branch of the remote is `404 not_found`.
+4. **Snapshot manifest.** `GET /v1/snapshots/{id}/manifest` → `{"snapshot_id", "version": 2, "repositories": [{"path", "repository", "revision"}], "entries": [{"repository", "path", "kind": "file|symlink", "mode": "100644|100755|120000", "size", "sha256", "target"?}]}`. The `target` field is present for symlinks only. A snapshot from before revision handles is `409 snapshot_superseded` with `details.successor`, the ID of its version 2 counterpart.
 5. **Snapshot archive.** `GET /v1/snapshots/{id}/archive?path=atlas` → a tar stream of the working tree only: no `.git`, no credentials, modes and symlinks preserved. Runtime verifies each entry against the manifest before materializing it.
 
 Snapshots as implemented:
-- **Cache:** Code keeps one private bare repository per allowed repository under `$ATLAS_CODE_HOME/cache/`. It fetches all branches with its credential helper when a requested commit is missing. Only commits reachable from a branch can be snapshotted; anything else is a 404. Snapshot manifests are stored once, atomically, under `$ATLAS_CODE_HOME/snapshots/`.
-- **Identity:** the snapshot ID is the sha256 of the canonical (sorted, compact) `{"entries", "repositories"}` JSON. Request order does not matter, and the commits are part of the identity. The manifest response also returns `repositories`, so Runtime can recompute the ID.
+- **Cache:** Code keeps one private bare repository per allowed repository under `$ATLAS_CODE_HOME/cache/`. It fetches all branches with its credential helper when a requested revision's commit is missing. Only commits reachable from a branch can be snapshotted; anything else is a 404. Snapshot manifests are stored once, atomically, under `$ATLAS_CODE_HOME/snapshots/`.
+- **Identity:** the snapshot ID is the sha256 of the canonical (sorted, compact) `{"entries", "repositories", "version": 2}` JSON. Request order does not matter, and the revision handles are part of the identity. The manifest response also returns `repositories` and `version`, so Runtime can recompute the ID.
 - **Exact bytes:** manifest digests and archive contents are Git blob bytes as stored. `.gitattributes` effects (export-subst, export-ignore, filters, line-ending conversion) are never applied, which is why Code builds the archive itself instead of using `git archive`.
 - **Archive:** tar member names are relative to the repository root. Files have mode 0644 or 0755 and symlinks are tar symlinks. There are no directory entries and no `.git`. Headers are deterministic (mtime 0, uid/gid 0, pax for names over 100 bytes). The archive is streamed blob by blob with a `Content-Length`.
 - **Refused content:** `422 unsupported_content`, listing every offending entry, for:
@@ -138,15 +141,15 @@ Snapshots as implemented:
 - **LFS:** pointer files are ordinary bytes and are not expanded.
 - **Limits:** no timeout on Code's `git fetch`; archive reads time out after 60 s without data. Concurrent snapshots of the same repository are serialized but were not stress-tested. Files of 8 GiB or more are untested.
 6. **Change submission.** Three requests:
-   1. `POST /v1/changes` with `{"change_id": "<caller UUID>", "snapshot_id", "repository", "base_commit", "entries": [{"path", "op": "write|delete", "kind", "mode", "size", "sha256", "target"?}]}`.
-      - `base_commit` must equal that repository's commit in the snapshot; otherwise `409 base_mismatch`.
-      - The response lists missing blob digests.
+   1. `POST /v1/changes` with `{"change_id": "<caller UUID>", "snapshot_id", "repository", "base_revision", "entries": [{"path", "op": "write|delete", "kind", "mode", "size", "sha256", "target"?}]}`.
+      - `base_revision` must equal that repository's revision in the snapshot; otherwise `409 base_mismatch` with the snapshot's `revision`.
+      - The response is `{"change_id", "state": "open", "missing": [<sha256>…]}`, or the sealed state below.
       - Repeating with the same `change_id` and identical body is idempotent; a different body is `409 conflict`.
    2. `PUT /v1/changes/{id}/blobs/{sha256}` with the bytes. Code verifies the digest and size. Re-uploading the same blob is a no-op.
    3. `POST /v1/changes/{id}/seal`.
       - Refuses with `422 incomplete_upload` and the missing digests until every blob is present.
-      - Then builds a commit whose parent is exactly `base_commit` on a Code-private ref, and returns `{"change_id", "state": "sealed", "commit"}`.
-   - Open (unsealed) changes are never visible to publication and may expire; sealing is the only transition.
+      - Then builds a commit whose parent is exactly the base revision's commit on a Code-private ref, and returns `{"change_id", "state": "sealed", "missing": [], "revision": "rev_<hex>"}`.
+   - Open (unsealed) changes are never visible to reviews and may expire; sealing is the only transition.
 
    Change submission as implemented:
    - **Body limits:** change IDs are canonical lowercase UUIDs. JSON bodies are capped at 16 KiB, except `POST /v1/changes` at 1 MiB; blobs are capped at 64 MiB, and anything larger gets `413 payload_too_large`.
@@ -164,9 +167,9 @@ Snapshots as implemented:
      - a blob upload is verified for size and digest and is a no-op when repeated;
      - an unreferenced digest is `404`.
    - **Seal:**
-     - Builds the tree in Code's private cache with a temporary index (no checkout, no `.gitattributes` filters), then runs `commit-tree -p <base_commit>`.
-     - Author and committer are `Atlas Code <atlas-code@localhost>`, with the base commit's committer date, so the same change always produces the same commit. The message is `Atlas change <id>`.
-     - Creates the private ref `refs/atlas/changes/<id>` without overwriting. A repeated seal returns the recorded commit.
+     - Builds the tree in Code's private cache with a temporary index (no checkout, no `.gitattributes` filters), then runs `commit-tree` on the base commit.
+     - Author and committer are `Atlas Code <atlas-code@localhost>`, with the base commit's committer date, so the same change always produces the same commit and revision. The message is `Atlas change <id>`.
+     - Creates the private ref `refs/atlas/changes/<id>` without overwriting. A repeated seal returns the recorded revision.
      - Nothing is pushed and `refs/heads` is never touched; a moved source branch does not change the parent.
    - **Limits:**
      - a blob upload is held in memory (up to 64 MiB) before its size is checked;
@@ -174,42 +177,74 @@ Snapshots as implemented:
      - a Git failure during seal returns a plain 500;
      - open changes are never cleaned up, and there is no `GET /v1/changes/{id}`; repeat the `POST` instead;
      - concurrency and a crash during seal were not tested.
-7. **Publication.** `POST /v1/publications`, orchestrator token only.
-   - Request: `{"publication_id", "change_id", "branch": "work/…", "pull_request": {"base": "develop", "title", "body"}?}`.
-   - Code pushes the sealed commit to a new branch: create-only, never forced (`409 branch_exists`). It opens the PR when one is requested.
-   - Response: `{"publication_id", "branch", "commit", "pr_url"?}`.
-   - If `develop` has moved, the PR shows the conflict; Code does not rebase.
-
-   Publication as implemented:
-   - **Authorization:** an optional `$ATLAS_CODE_HOME/orchestrator.token` (regular file, not a symlink, mode 0600 or stricter, non-empty, different from the runtime token; otherwise start is refused) enables publication. The orchestrator token is accepted on every endpoint. The runtime token gets `403 forbidden` "Publication requires the orchestrator token". Without an orchestrator token, publication is `403` "Publication is not configured". Tokens are compared as SHA-256 digests in constant time.
-   - **Request rules:**
-     - Unknown keys are refused, and the body is capped at 16 KiB.
-     - `branch` must start with `work/` and be a valid branch name.
-     - PR `title` must be one line of at most 256 characters, and the PR `body` must contain "Written by an AI agent".
-     - Repository, base and commit come only from the stored change. Unknown changes are `404`, open changes `409 change_not_sealed`, and repositories no longer allow-listed `403`.
-     - A PR on a remote that is not `https://github.com/OWNER/REPO(.git)` is `422 unsupported_provider`, refused before anything is recorded or pushed.
-   - **Create-only push:** `git push --porcelain --force-with-lease=refs/heads/B: URL COMMIT:refs/heads/B` from Code's cache. Only a "new branch" result counts. The lease does not refuse a branch already at the same commit (Git reports it as up to date), so Code treats that, and any rejection, as `409 branch_exists`.
-     - Existing remote branches are never moved, including fast-forwards.
-     - Another publication ID that already claimed the same repository and branch is also `409 branch_exists`.
-     - No merge, rebase or `develop` change; the cache's `refs/heads` are untouched.
-   - **Phases and retries:** `publications/<id>.json` records the request and phase atomically before each remote effect. The phases are `pushing` → `pushed` → `published`, or `failed`.
-     - An identical repeat resumes from the recorded phase; a different body under the same ID is `409 conflict`.
-     - A repeat in `pushing` first checks the remote. At the sealed commit, it counts as Code's own earlier push (a third party creating the same branch at the same commit looks identical and is harmless). Absent, it pushes again, create-only. At any other commit, `failed`.
-     - With a PR requested, `pushed` first adopts exactly one existing PR for the branch (`gh pr list --state all`), otherwise runs `gh pr create` (`GH_PROMPT_DISABLED=1`, body from a temp file). Any `gh` failure stays at `pushed` and returns `502 publication_incomplete` with `{phase, branch, commit}`; it is never reported as success.
-     - Git failures are `503 provider_unavailable` with the exit status only; raw Git or `gh` output never reaches a response.
-   - **Configuration:** `config.json` may set `"gh"` to the `gh` executable; the default is `gh` on PATH, using Code's own `gh` login.
-   - **Limits:**
-     - All publications are serialized by one lock, including remote calls.
-     - A failed publication's branch claim is permanent.
-     - The fixture tests prove PR creation and adoption only against a fixture `gh`. The coordinator's real local cycle then published real PR #178 through Code from a Runtime-submitted sealed change (`dfaa38cc96fa209b9696ce1a621ec50ae811274a`), verified the exact head and merged it at `760891d6b9bf13fb87d0a12f79afbf99f564087e` (evidence `/Users/melle/.dv-mtwh41yj/verification/local-development-cycle.json`). That proves publication, not worker-profile security.
-8. **Release.** `POST /v1/releases`, orchestrator token only.
-   - Request: `{"release_id", "pr_url", "expected_head": "<sha>"}`.
-   - Code merges only if the PR head equals `expected_head` and GitHub reports it mergeable; otherwise `409 conflict`.
-   - This is the last step and is proposed for after the local workflow proof.
+7. **Review.** `POST /v1/reviews`, orchestrator token only.
+   - Request: `{"review_id", "change_id", "target", "title", "body"}`, exactly these keys. IDs are lowercase UUIDs, `target` is the reference the review proposes to change (for example `develop`), `title` is one non-empty line of at most 256 characters, and `body` must contain "Written by an AI agent".
+   - Repository and revision come only from the sealed change: an unknown change is `404`, an open one `409 change_not_sealed`, a repository no longer allowed `403`.
+   - Code makes the sealed revision visible on the remote at a location only Code names, `work/review-<review_id>`, with a create-only push that never moves an existing location (`409 location_taken`). On an `https://github.com/OWNER/REPO` remote it also opens a pull request from that location to `target`, adopting the single existing one for the location; on any other remote the pushed location is the review.
+   - Response: `{"review_id", "change_id", "repository", "target", "revision", "state": "open", "review_url"?}`.
+   - `reviews/<id>.json` records the request and phase before each remote effect: `pushing` → `pushed` → `open`, or `failed` when the location already existed. An identical repeat resumes from the recorded phase; a different body under the same ID is `409 conflict`. A pushed review without its pull request is `502 review_incomplete` with `{phase: "pushed"}`, never success.
+   - Git failures are `503 provider_unavailable` with the exit status only; raw Git or `gh` output never reaches a response. `config.json` may set `"gh"` to the `gh` executable; the default is `gh` on PATH, using Code's own `gh` login.
+   - **Limits:** all reviews are serialized by one lock, including remote calls. A failed review's location claim is permanent.
+8. **Integration.** `POST /v1/integrations`, orchestrator token only.
+   - Request: `{"integration_id", "review_id", "revision", "target_revision"}`. `revision` must be the open review's revision (`409 revision_mismatch`, `409 review_not_open`); `target_revision` is the target's revision the orchestrator verified, from `references/resolve`.
+   - Code moves the review's target from exactly `target_revision` to the review: `already_integrated` when the target already contains it, `fast_forward` when possible, otherwise a `merge` built in Code's cache with a fixed identity and date. The push carries a lease on `target_revision`, so it never replaces work Code has not seen, and branch policy is never bypassed.
+   - Response: `{"integration_id", "review_id", "repository", "target", "revision", "method": "already_integrated|fast_forward|merge", "state": "integrated"}`, where `revision` is the target's new revision.
+   - Terminal refusals leave the target unchanged: `409 target_moved` with `{target, current}` (resolve again and use a new `integration_id`), `409 integration_conflict` with the conflicting `paths`, `409 integration_refused` when the remote refuses the update. A review migrated from a publication without a pull request has no target: `409 review_has_no_target`.
+   - `integrations/<id>.json` records every outcome, which is replayed for the same request; only `integrating` resumes. A different body under the same ID is `409 conflict`. All integrations are serialized by one lock.
 
 All mutating requests carry caller-chosen IDs. A repeated identical request returns the recorded result, the same rule as Runtime admissions.
 
+#### Superseded design: commits, publication and release
+
+**Superseded** by the endpoints above when Code moved to revision handles (step 8). It is kept as the record of the earlier contract and its evidence; do not call these endpoints or fields. `mix atlas_code.migrate` adds a revision handle for every recorded commit, a version 2 successor for every older snapshot, a `request.json` (and `revision`) for every change and a review for every publication, keeping its branch as the review location; it rewrites no existing record, and Code refuses to start until it is complete.
+
+| Superseded | Current |
+|---|---|
+| `POST /v1/revisions/resolve` with `ref`, returning `commit` | `POST /v1/references/resolve` with `reference`, returning `revision` |
+| snapshot repositories with `commit` | with `revision` |
+| change `base_commit`, seal returning `commit` | `base_revision`, seal returning `revision` |
+| `POST /v1/publications` (`publication_id`, `branch: "work/…"`, optional `pull_request`) | `POST /v1/reviews`; Code names the location |
+| proposed `POST /v1/releases` (`release_id`, `pr_url`, `expected_head`) | `POST /v1/integrations` with `target_revision` |
+| `404 unknown_ref`, `409 branch_exists`, `502 publication_incomplete` | `404 unknown_reference`, `409 location_taken`, `502 review_incomplete` |
+
+The superseded publication and release text, as it stood:
+
+> 7. **Publication.** `POST /v1/publications`, orchestrator token only.
+>    - Request: `{"publication_id", "change_id", "branch": "work/…", "pull_request": {"base": "develop", "title", "body"}?}`.
+>    - Code pushes the sealed commit to a new branch: create-only, never forced (`409 branch_exists`). It opens the PR when one is requested.
+>    - Response: `{"publication_id", "branch", "commit", "pr_url"?}`.
+>    - If `develop` has moved, the PR shows the conflict; Code does not rebase.
+>
+>    Publication as implemented:
+>    - **Authorization:** an optional `$ATLAS_CODE_HOME/orchestrator.token` (regular file, not a symlink, mode 0600 or stricter, non-empty, different from the runtime token; otherwise start is refused) enables publication. The orchestrator token is accepted on every endpoint. The runtime token gets `403 forbidden` "Publication requires the orchestrator token". Without an orchestrator token, publication is `403` "Publication is not configured". Tokens are compared as SHA-256 digests in constant time.
+>    - **Request rules:**
+>      - Unknown keys are refused, and the body is capped at 16 KiB.
+>      - `branch` must start with `work/` and be a valid branch name.
+>      - PR `title` must be one line of at most 256 characters, and the PR `body` must contain "Written by an AI agent".
+>      - Repository, base and commit come only from the stored change. Unknown changes are `404`, open changes `409 change_not_sealed`, and repositories no longer allow-listed `403`.
+>      - A PR on a remote that is not `https://github.com/OWNER/REPO(.git)` is `422 unsupported_provider`, refused before anything is recorded or pushed.
+>    - **Create-only push:** `git push --porcelain --force-with-lease=refs/heads/B: URL COMMIT:refs/heads/B` from Code's cache. Only a "new branch" result counts. The lease does not refuse a branch already at the same commit (Git reports it as up to date), so Code treats that, and any rejection, as `409 branch_exists`.
+>      - Existing remote branches are never moved, including fast-forwards.
+>      - Another publication ID that already claimed the same repository and branch is also `409 branch_exists`.
+>      - No merge, rebase or `develop` change; the cache's `refs/heads` are untouched.
+>    - **Phases and retries:** `publications/<id>.json` records the request and phase atomically before each remote effect. The phases are `pushing` → `pushed` → `published`, or `failed`.
+>      - An identical repeat resumes from the recorded phase; a different body under the same ID is `409 conflict`.
+>      - A repeat in `pushing` first checks the remote. At the sealed commit, it counts as Code's own earlier push (a third party creating the same branch at the same commit looks identical and is harmless). Absent, it pushes again, create-only. At any other commit, `failed`.
+>      - With a PR requested, `pushed` first adopts exactly one existing PR for the branch (`gh pr list --state all`), otherwise runs `gh pr create` (`GH_PROMPT_DISABLED=1`, body from a temp file). Any `gh` failure stays at `pushed` and returns `502 publication_incomplete` with `{phase, branch, commit}`; it is never reported as success.
+>      - Git failures are `503 provider_unavailable` with the exit status only; raw Git or `gh` output never reaches a response.
+>    - **Configuration:** `config.json` may set `"gh"` to the `gh` executable; the default is `gh` on PATH, using Code's own `gh` login.
+>    - **Limits:**
+>      - All publications are serialized by one lock, including remote calls.
+>      - A failed publication's branch claim is permanent.
+>      - The fixture tests prove PR creation and adoption only against a fixture `gh`. The coordinator's real local cycle then published real PR #178 through Code from a Runtime-submitted sealed change (`dfaa38cc96fa209b9696ce1a621ec50ae811274a`), verified the exact head and merged it at `760891d6b9bf13fb87d0a12f79afbf99f564087e` (evidence `/Users/melle/.dv-mtwh41yj/verification/local-development-cycle.json`). That proves publication, not worker-profile security.
+> 8. **Release.** `POST /v1/releases`, orchestrator token only.
+>    - Request: `{"release_id", "pr_url", "expected_head": "<sha>"}`.
+>    - Code merges only if the PR head equals `expected_head` and GitHub reports it mergeable; otherwise `409 conflict`.
+>    - This is the last step and is proposed for after the local workflow proof.
+
 #### Step 2: smallest runnable extraction (implemented)
+
+Historical record of step 2, kept as written. Its `POST /v1/revisions/resolve` is superseded by `POST /v1/references/resolve` (above), and since step 8 managed starts no longer call Code at all ("Managed start" below).
 
 Scope:
 - A new `beam/apps/atlas_code` application, started as its own local service (its own home, port and token files). It does not start Runtime.
@@ -228,10 +263,11 @@ Acceptance proof:
 
 As implemented:
 - **Startup:** `cd beam/apps/atlas_code && ATLAS_CODE_HOME=/abs/home mix atlas_code.server`. It runs as its own BEAM process, binds only `127.0.0.1`, prints `Code ready on 127.0.0.1:PORT` and starts no Runtime, Bus or State.
+- **Ownership:** a running Code or migration owns its home through `service.owner/owner.json`; any other start or migration is refused. SIGTERM stops serving and then releases the home, keeping `service.owner.ended-<owner>`. After Ctrl-C, a crash or SIGKILL the home stays owned until `mix atlas_code.unlock --owner <owner>`, which moves the owner only when it still names that owner and `ps` proves its PID gone; nothing reclaims a home automatically.
 - **Code configuration:** `$ATLAS_CODE_HOME/config.json` is `{"port": N, "repositories": {"github.com/OWNER/REPO": "<git remote URL or path>"}}`. Its keys are the allow-list.
-- **Token:** `$ATLAS_CODE_HOME/runtime.token` must be a regular file with mode 0600 or stricter, otherwise start is refused. An optional `orchestrator.token` with the same rules enables publication (endpoint 7).
+- **Token:** `$ATLAS_CODE_HOME/runtime.token` must be a regular file with mode 0600 or stricter, otherwise start is refused. An optional `orchestrator.token` with the same rules, different from the runtime token, enables reviews and integrations (endpoints 7 and 8).
 - **Runtime configuration:** Runtime reads `<runtime state dir>/code.json`, i.e. `{"url": "http://127.0.0.1:PORT", "token_file": "/abs/path"}`. The Go CLI strips `ATLAS_*` from the daemon environment, which is why this is a file rather than environment variables.
-- **Managed start:** Runtime resolves `develop` of the normalized repository before reserving an admission or creating anything. The fresh repository record carries `resolved_commit`. `Prepare` checks that commit exists after its existing fetch, branches from it, and saves it as `base_sha`. Saved runs and continuations keep `{url, branch, base_sha}`.
+- **Managed start (since step 8):** Runtime no longer asks Code. `Prepare` fetches in the worker clone and branches from the fetched `origin/develop`, saved as `base_sha`. Admissions recorded while Code resolved the base keep `resolved_commit`. Saved runs and continuations keep `{url, branch, base_sha}`.
 - **Remaining Git responsibilities:** clone, fetch, origin and dirty checks still run inside the worker's sandboxed clone with the user's `gh` credential helper. Code only runs `ls-remote` through the same helper.
 - **Limits:** Code has no timeout of its own on a hanging `ls-remote` (Runtime gives up after 15 s). Oversized bodies get httpd's HTML 413. Runtime does not check `token_file` permissions. Same-user processes, including workers, can read the token file.
 
@@ -241,6 +277,13 @@ Runtime snapshot materialization (implemented, Go package `tools/runtime/snapsho
 - **Writing:** files are created with `O_EXCL|O_NOFOLLOW`, and a directory the run did not create is refused. Everything is staged in a private (0700) folder next to the destination. The folder is published with an exclusive rename (`renameatx_np RENAME_EXCL` on macOS, `renameat2 RENAME_NOREPLACE` on Linux; other platforms are refused). An existing destination is never touched. A failure before publication removes all staging.
 - **Baseline:** an immutable, read-only copy is kept at `<runtime home>/snapshots/<hex>/` (`manifest.json`, `complete`, `tree/`). It is reused for later materializations of the same snapshot. `<runtime home>/materializations/<sha256(dest)>.json` records `{destination, snapshot_id, materialized_at}` after publication. Runtime runs no `git`, and no credentials or Git metadata reach the destination or the baseline.
 - **Limits:** a killed process leaves its 0700 staging folders. A reused baseline is trusted by its `complete` marker, not re-hashed. NFC/NFD name collisions are not modelled. There is no manifest size cap. Linux publishing has only been cross-compiled, not run.
+
+Rebind of folders from before revision handles (step 8, `tools/runtime/snapshot/rebind.go`):
+- **Command:** `atlas-runtime snapshot rebind --dest PATH`, with Code migrated and the Runtime service stopped. It holds `service.lock` and refuses while `runtime.sock` accepts or cannot be shown dead, and holds the folder's lock.
+- **Successor:** Code answers the old ID with `409 snapshot_superseded {successor}`. The successor must verify like any manifest and have byte-identical entries and the same repository names and paths in order. Only this command reads the older manifest format.
+- **Migration:** the new baseline is copied from the old one with every file re-hashed; the folder itself is never written. Saved turns whose `permissions` equal the folder's exact old scope, and their `claude-context.json`, get only that value swapped for the new scope (`snapshot_id` and `baseline`); then the materialization record names the successor with `rebound_from`. Admissions, process logs, events, the old baseline and turns bound to any other scope stay byte for byte.
+- **Safety:** `rebinds/<sha256(dest)>/journal.json` records the plan before any change, and `backup/` holds every original first. Phases (baseline, backups, files, record, verify) are idempotent and resume when the command is repeated, without Code. A file that is neither its backup nor its rewrite stops the rebind. Until it is done, status, diff, submit and folder scope refuse; an unrebound older folder refuses with the rebind hint.
+- **Done marker:** once the journal says done, the rebind writes `rebinds/<sha256(dest)>/done`, holding only the destination path; a repeat writes it if it is missing. Where the journal exists but cannot be read (`EPERM`/`EACCES`, as in a worker sandbox that denies the Runtime home), status, diff, submit and folder scope accept the folder only when that marker names it. Otherwise they refuse with `cannot tell whether the rebind of DEST finished`, followed by both read errors; an unreadable journal is never reported as unfinished. Any other journal read error is reported with its reason. Workers never get the journal, which lists the migrated turns and both scopes.
 
 Offline status and diff (implemented, `tools/runtime/snapshot/inspect.go`):
 - **Commands:** `atlas-runtime snapshot status --dest PATH [--path REPO_PATH]...` and `atlas-runtime snapshot diff --dest PATH [--path REPO_PATH]...` run in the CLI process with no daemon, Code request or Git.
@@ -269,9 +312,9 @@ Folder submission (implemented, `tools/runtime/snapshot/submit.go`):
 - **Refused locally, never silently omitted:** FIFOs, sockets and devices; `.git` paths; absolute or escaping symlinks; a repository folder, or an existing ancestor of it, replaced by a non-directory (checked without following symlinks); blobs over 64 MiB; a request over 1 MiB. Nothing is sent to Code. A missing repository folder or ancestor still submits its base files as deletions.
 - **Consistency:** every written file is copied (opened `O_NOFOLLOW`) into a private 0700 folder under `<runtime home>/submissions/`. Entries are built from those copies, and the folder is scanned again. Any difference refuses with `folder … changed during submission; nothing was sent to Code`. Uploads come from the copies, which are removed afterwards. Neither the destination nor the baseline is written, and the baseline is never "advanced".
 - **Flow:** `POST /v1/changes`, `PUT` each missing blob, then `POST …/seal`.
-  - A clean repository returns `state: "clean", commit: null` without contacting Code.
-  - Success returns `{snapshot_id, repository, path, base_commit, change_id, state: "sealed", commit}`.
-  - An identical repeat returns the same commit; an already-sealed change needs only the POST. Changed content under the same ID surfaces Code's `409 conflict`.
+  - A clean repository returns `state: "clean", revision: null` without contacting Code.
+  - Success returns `{snapshot_id, repository, path, base_revision, change_id, state: "sealed", revision}`, with Code's opaque revision handles.
+  - An identical repeat returns the same revision; an already-sealed change needs only the POST. Changed content under the same ID surfaces Code's `409 conflict`.
   - Any failure after or during the POST says the change is not confirmed sealed, that nothing was published, and to repeat the same command to resume. A resume uploads only what is still missing.
   - No local submission record is kept; Code's state answers repeats.
 - **Limits:** a file that changes and changes back between the copy and the rescan is not detected (only identical bytes could pass). Path checks refuse at the first problem rather than listing all. Each Code read times out after 60 s, and a slower seal is reported as unavailable with the resume hint.
@@ -285,7 +328,7 @@ Materialized-folder profile (implemented for Codex and Claude):
 - **Scope without Git:** the internal `atlas-runtime workspace folder-scope DEST HOME` verifies the materialization exactly as `snapshot status` does. It refuses a non-canonical `DEST`, a `.git` entry in `DEST` or any ancestor (so the trusted native Codex never finds a Git repository), and project or ancestor `.codex/config.toml`. The scope binds `{profile, version, root, snapshot_id, repositories, home, record, baseline}`. Start, continuation and the native host recompute it and require equality, so a re-recorded or replaced snapshot refuses continuation. No Git, Code request or pre-exec wrapper runs, and the directory lock is held until the process group is reaped.
 - **Effective Codex profile** (`extends=":read-only"`, `network.enabled=false`, no proxy):
   - `DEST` and a private `HOME/scratch/<turn>` are writable;
-  - the Runtime `HOME` is `none`, except read access to this snapshot's record and baseline;
+  - the Runtime `HOME` is `none`, except read access to this snapshot's record and baseline and, when present, this folder's exact rebind done marker;
   - `DEST/.git` and each `DEST/<repo>/.git` are `none`;
   - the Code token file and its directory (from `code.json`), `$CODEX_HOME`, and known credential paths are `none`: `~/.codex`, `~/.config/gh`, `~/.ssh`, `~/.aws`, `~/.docker`, `~/Library/Keychains`, `~/.git-credentials`, `~/.config/git`, `~/.netrc`, `~/.gitconfig`, `~/.claude`, `~/.claude.json`, and the default Runtime home.
 
@@ -298,7 +341,7 @@ Materialized-folder profile (implemented for Codex and Claude):
   - This is provider-sandbox confinement, not hostile-host isolation.
 
 Claude with the materialized-folder profile:
-- **Same scope, lock and continuation identity as Codex.** The Runtime host runs no Git and no pre-exec child. `claude-context.json` is written Git-free as `{cwd: DEST, git: null, permissions: scope}` and compared on continuation, so a rebound snapshot is refused. Native session/model confirmation and opt-in questions are unchanged.
+- **Same scope, lock and continuation identity as Codex.** The Runtime host runs no Git and no pre-exec child. `claude-context.json` is written Git-free as `{cwd: DEST, git: null, permissions: scope}` and compared on continuation. Explicit stopped-service rebind migrates the exact saved scope; an unrelated scope change is refused. Native session/model confirmation and opt-in questions are unchanged.
 - **Temp:** Claude's existing private temp (`~/.ac-XXXXXXXX`, under the 44-byte child-temp limit) is used as `CLAUDE_CODE_TMPDIR`, `TMPDIR` and cache base. It is removed after reaping. `DEST` inside a system temp root, or inside a protected path, is refused.
 - **Tools:** `Bash,Read,Glob,Grep`, plus `AskUserQuestion` with `--questions`. Edits go through Bash; the file tools are confined to the working directory by `--restricted`.
 - **Settings** (`--settings`):
@@ -306,7 +349,7 @@ Claude with the materialized-folder profile:
   - `allowWrite` = `DEST` and the private temp;
   - `denyWrite` = system temp roots, the protected paths, and the record and baseline;
   - `denyRead` = the protected paths: the Runtime home, `DEST/.git` and each `DEST/<repo>/.git`, the Code token file and its directory, `~/.claude`, `~/.claude.json`, `~/.codex`, `~/.config/gh`, `~/.ssh`, `~/.aws`, `~/.docker`, `~/Library/Keychains`, `~/.git-credentials`, `~/.config/git`, `~/.netrc`, `~/.gitconfig` and the default Runtime home;
-  - `allowRead` = this snapshot's record and baseline, `~/.claude/shell-snapshots` and `~/.claude/session-env` (which Claude's Bash needs), and the inspector executable when it lies inside a protected path;
+  - `allowRead` = this snapshot's record and baseline, `~/.claude/shell-snapshots` and `~/.claude/session-env` (which Claude's Bash needs), the rebind's done marker when the folder was rebound (also in `denyWrite`), and the inspector executable when it lies inside a protected path;
   - network: empty `allowedDomains` with `strictAllowlist`, no local binding or Unix sockets, no trustd allowance;
   - `permissions.deny` holds a `Read(//path)` rule for each protected path, which also governs Read/Glob/Grep.
 - **Limits (in addition to the shared deny-list limits):**
@@ -318,7 +361,7 @@ Claude with the materialized-folder profile:
 
 Later bounded steps, each a separate assignment:
 1. Use materialized snapshots for worker starts automatically (orchestration).
-2. Proof of the full local workflow, including real GitHub publication through Code. Only after that: withdraw worker GitHub access, remove the macOS trustd allowance where verified, then release (endpoint 8).
+2. Proof of the full local workflow, including a real GitHub review and integration through Code. Only after that: withdraw worker GitHub access, remove the macOS trustd allowance where verified, then integrate through Code (endpoint 8) as the routine path.
 
 Open questions:
 - How the orchestrator token is provisioned to the external coordinator.

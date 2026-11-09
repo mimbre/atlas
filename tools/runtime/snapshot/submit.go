@@ -23,7 +23,6 @@ const maxChange = 1 << 20
 
 var (
 	changeID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
-	commitID = regexp.MustCompile(`^([0-9a-f]{40}|[0-9a-f]{64})$`)
 	// maxBlob is Code's blob limit; a variable so tests need not write 64 MiB.
 	maxBlob int64 = 64 << 20
 	// afterCapture runs between capturing the blobs and the second scan; tests change the folder there.
@@ -50,7 +49,7 @@ func (e changeEntry) MarshalJSON() ([]byte, error) {
 }
 
 // Submit sends the changes of one repository in the folder dest, published by Materialize,
-// to Code as change id and seals them into a private commit. path selects the repository and
+// to Code as change id and seals them into a private revision. path selects the repository and
 // may be empty when there is only one. It writes to neither the folder nor its baseline;
 // a clean repository makes no request. A folder with an active Runtime owner is refused.
 func Submit(home, dest, path, id string) (map[string]any, error) {
@@ -89,7 +88,7 @@ func Submit(home, dest, path, id string) (map[string]any, error) {
 	if err = f.ancestors(r); err != nil {
 		return nil, err
 	}
-	result := map[string]any{"snapshot_id": f.id, "repository": r.Repository, "path": r.Path, "base_commit": r.Commit, "change_id": id, "state": "clean", "commit": nil}
+	result := map[string]any{"snapshot_id": f.id, "repository": r.Repository, "path": r.Path, "base_revision": r.Revision, "change_id": id, "state": "clean", "revision": nil}
 	if len(changes) == 0 {
 		return result, nil
 	}
@@ -125,18 +124,18 @@ func Submit(home, dest, path, id string) (map[string]any, error) {
 	if !reflect.DeepEqual(again, entries) {
 		return nil, fmt.Errorf("folder %s changed during submission; nothing was sent to Code, run the command again", f.dest)
 	}
-	body, err := json.Marshal(map[string]any{"change_id": id, "snapshot_id": f.id, "repository": r.Repository, "base_commit": r.Commit, "entries": entries})
+	body, err := json.Marshal(map[string]any{"change_id": id, "snapshot_id": f.id, "repository": r.Repository, "base_revision": r.Revision, "entries": entries})
 	if err != nil {
 		return nil, err
 	}
 	if len(body) > maxChange {
 		return nil, fmt.Errorf("the change request for %s is %d bytes, over Code's 1 MiB limit; nothing was sent to Code", r.Path, len(body))
 	}
-	commit, err := code.submit(id, body, blobs)
+	revision, err := code.submit(id, body, blobs)
 	if err != nil {
 		return nil, err
 	}
-	result["state"], result["commit"] = "sealed", commit
+	result["state"], result["revision"] = "sealed", revision
 	return result, nil
 }
 
@@ -282,11 +281,11 @@ type changeState struct {
 	ChangeID string   `json:"change_id"`
 	State    string   `json:"state"`
 	Missing  []string `json:"missing"`
-	Commit   string   `json:"commit"`
+	Revision string   `json:"revision"`
 }
 
 // submit creates change id from body, uploads the blobs Code reports missing from dir and seals
-// it, returning the commit. A repeat of a sealed change returns its commit without uploading.
+// it, returning its revision. A repeat of a sealed change returns it without uploading.
 func (c *code) submit(id string, body []byte, dir string) (string, error) {
 	s, err := c.change(http.MethodPost, "/v1/changes", bytes.NewReader(body), int64(len(body)), id)
 	if errors.Is(err, errUnavailable) {
@@ -307,7 +306,7 @@ func (c *code) submit(id string, body []byte, dir string) (string, error) {
 			return "", incomplete(id, err)
 		}
 	}
-	return s.Commit, nil
+	return s.Revision, nil
 }
 
 func incomplete(id string, err error) error {
@@ -323,7 +322,7 @@ func (c *code) change(method, path string, body io.Reader, size int64, id string
 	defer reply.Close()
 	var s changeState
 	if json.NewDecoder(io.LimitReader(reply, maxChange)).Decode(&s) != nil || s.ChangeID != id ||
-		s.State != "open" && s.State != "sealed" || s.State == "sealed" && !commitID.MatchString(s.Commit) {
+		s.State != "open" && s.State != "sealed" || s.State == "sealed" && !revisionID.MatchString(s.Revision) {
 		return nil, unavailable("invalid reply to %s %s", method, path)
 	}
 	return &s, nil
