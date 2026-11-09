@@ -160,6 +160,55 @@ jobs:
       - run: python3 -m unittest discover -s platform/ops/tests -v
         working-directory: .
 
+  runtime-model:
+    name: Runtime private model, its generator and file targets
+    needs: tested-tree
+    if: ${{ !cancelled() && needs.tested-tree.outputs.tested != 'true' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: platform/atlas_runtime/model
+    steps:
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28"
+          elixir-version: "1.18"
+      # It holds none of the Runtime's values and depends on no other generator (D36):
+      # neither the boundary's or the backend's nor Control's (atlas_control/bff).
+      - name: The generator holds none of the Runtime's values
+        run: |
+          if grep -rnE 'AtlasRuntime\.|AtlasRuntimeModel\.Work|AtlasRuntimeBoundary|AtlasRuntimeBackend|AtlasRuntimeBFF|AtlasBFF|AtlasControl|ATLAS_RUNTIME' generator/lib generator/test generator/mix.exs || grep -rniE 'atlas_runtime_boundary|atlas_runtime_backend|atlas_runtime_bff|atlas_bff|atlas_control|bff/generator|boundary/generator|backend/generator|work_record|key_index_entry|work_id|client_key|attempt|provenance|turn_id|harness|\.\./contract|model/contract|/contract|bff/|backend/|boundary/|control/' generator/lib generator/test generator/mix.exs || grep -nE 'path:' generator/mix.exs; then
+            echo "::error::platform/atlas_runtime/model/generator mentions the Runtime's model or depends on another generator. Keep the Runtime's values in platform/atlas_runtime/model/contract; the generator is self-contained."
+            exit 1
+          fi
+      # The model is the innermost layer (backend → boundary → model): it names neither, nor Control,
+      # and depends on its own generator only.
+      - name: The model contract names no boundary or backend
+        run: |
+          if grep -rnE --exclude-dir=_build --exclude-dir=deps 'AtlasRuntimeBoundary|AtlasRuntimeBackend|AtlasRuntimeBFF|AtlasBFF|AtlasControl|atlas_runtime_boundary|atlas_runtime_backend|atlas_runtime_bff|boundary/|backend/|bff/' contract targets || grep -rniE --exclude-dir=_build --exclude-dir=deps 'atlas_bff|atlas_control|control/' contract targets || grep -oE 'path: *"[^"]*"' contract/mix.exs | grep -vxF 'path: "../generator"'; then
+            echo "::error::platform/atlas_runtime/model refers to boundary, backend or Control. The boundary maps the model, never the other way round."
+            exit 1
+          fi
+      # Compiled and tested without the contract, on a neutral example.
+      - run: mix compile --warnings-as-errors
+        working-directory: platform/atlas_runtime/model/generator
+        env:
+          MIX_ENV: test
+      - run: mix format --check-formatted
+        working-directory: platform/atlas_runtime/model/generator
+      - run: mix test --warnings-as-errors
+        working-directory: platform/atlas_runtime/model/generator
+      - run: mix compile --warnings-as-errors
+        working-directory: platform/atlas_runtime/model/contract
+      - run: mix format --check-formatted
+        working-directory: platform/atlas_runtime/model/contract
+      # Fails when platform/atlas_runtime/model/targets differs from what the model generates (the format on disk), or is left over.
+      - run: mix runtime_model.gen --check
+        working-directory: platform/atlas_runtime/model/contract
+      - run: mix test --warnings-as-errors
+        working-directory: platform/atlas_runtime/model/contract
+
   model-dsl:
     name: Rela DSL on its own
     needs: tested-tree
@@ -426,7 +475,7 @@ jobs:
   # run tested it itself, and never from a fork.
   record-tested-tree:
     name: Record the tested tree
-    needs: [tested-tree, generator, runtime-boundary-generator, runtime-boundary-contract, contract, model-dsl, model-contract, beam, tui, agent, e2e, swift, apple]
+    needs: [tested-tree, generator, runtime-boundary-generator, runtime-boundary-contract, contract, runtime-model, model-dsl, model-contract, beam, tui, agent, e2e, swift, apple]
     if: >-
       needs.tested-tree.outputs.tested != 'true' && needs.tested-tree.outputs.tree != ''
       && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
