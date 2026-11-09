@@ -506,21 +506,15 @@ The binary points to this checkout for service startup; rebuild if the checkout 
 
 Development checks use `go -C tools/runtime test ./...`. Runtime ExUnit tests build an isolated copy of the same command plus a small Go fake native CLI, so those test runs require Go; they do not reuse or replace the installed client. All native executions run through the CLI's internal `native-host` command; workspace behavior is implemented only in Go. Runtime build, execution and tests do not use Python. The local Go module has no external dependencies.
 
-### Persistent non-default instance
+### Persistent instance
 
-To keep a second instance beside the shared installation, give it its own home and build its binary into that home, not over `$HOME/.local/bin/atlas-runtime` while another daemon uses it. Build from a checkout that stays in place:
-
-```sh
-go -C tools/runtime build -ldflags "-X main.repoRoot=$PWD" -o /abs/runtime-home/atlas-runtime .
-```
-
-Two POSIX wrappers on `PATH` then replace the absolute binary and home on every command. `atlas-dev` pins both; exporting only `ATLAS_RUNTIME_HOME` would let the shared binary start this home's daemon, and that daemon launches workers through the binary that started it.
+The machine has one Runtime installation: `$HOME/.local/bin/atlas-runtime`, built from the main clone as above. Its home is set once in the shell environment (for example in `~/.zshenv`):
 
 ```sh
-#!/bin/sh
-# atlas-dev
-ATLAS_RUNTIME_HOME=/abs/runtime-home exec /abs/runtime-home/atlas-runtime "$@"
+export ATLAS_RUNTIME_HOME=/abs/runtime-home
 ```
+
+Every `atlas-runtime` command then uses that binary and home. They belong together: a daemon launches workers through the binary that started it, so do not start this home's daemon from another binary.
 
 ```sh
 #!/bin/sh
@@ -531,13 +525,13 @@ ATLAS_CODE_HOME="${ATLAS_CODE_HOME:-/abs/code-home}" exec mix atlas_code.server
 
 ```sh
 atlas-dev-code               # own terminal; prints "Code ready on 127.0.0.1:PORT"
-atlas-dev service start
-atlas-dev service status     # "workers" map of registered workers
-atlas-dev turns              # saved history across workers and restarts
-atlas-dev service stop
+atlas-runtime service start
+atlas-runtime service status # "workers" map of registered workers
+atlas-runtime turns          # saved history across workers and restarts
+atlas-runtime service stop
 ```
 
-Run one Code process per Code home; a second start, or `mix atlas_code.migrate`, is refused while `service.owner/` names a live owner. Stop Code with SIGTERM (`kill PID`): it stops serving, then releases the home. Ctrl-C, a crash or SIGKILL leaves the home owned, and the next start prints the stale owner's ID; once that process has stopped, recover with `ATLAS_CODE_HOME=/abs/code-home mix atlas_code.unlock --owner OWNER` (refused while `ps` cannot show the PID gone). Nothing restarts Code. The Runtime home's `code.json` keeps pointing at that port and `runtime.token`. Existing homes, saved turns and the shared binary and daemon are reused unchanged; wrappers move or overwrite nothing. Rebuild into the instance home only after its daemon is stopped.
+Run one Code process per Code home; a second start, or `mix atlas_code.migrate`, is refused while `service.owner/` names a live owner. Stop Code with SIGTERM (`kill PID`): it stops serving, then releases the home. Ctrl-C, a crash or SIGKILL leaves the home owned, and the next start prints the stale owner's ID; once that process has stopped, recover with `ATLAS_CODE_HOME=/abs/code-home mix atlas_code.unlock --owner OWNER` (refused while `ps` cannot show the PID gone). Nothing restarts Code. The Runtime home's `code.json` keeps pointing at that port and `runtime.token`. Existing homes, saved turns and the daemon are reused unchanged; the wrapper moves or overwrites nothing. Rebuild the binary only after its daemon is stopped.
 
 ## Model-free native sandbox verification
 
