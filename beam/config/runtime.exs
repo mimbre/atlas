@@ -38,12 +38,12 @@ if config_env() != :test do
       config :atlas_bus, link: Map.merge(link, %{"mode" => "server", "tokens" => tokens})
     end
 
+    # What Facts stores by is the model's (config :atlas, model:), compiled in; rela must
+    # serve the schema it was built with, or Facts does not start.
     config :atlas_facts,
-      flow_runtime: Path.join(root, "rela/flow-runtime.json"),
       rela_url: settings["rela"]["url"],
       # On Fly rela has an IPv6 address on the private network only.
       rela_ipv6: settings["rela"]["ipv6"] == true,
-      description_extra: settings["rela"]["extra"] && Path.join(root, settings["rela"]["extra"]),
       # Facts' own data folder (`facts.data`; settings files before the rename said `state`).
       data_dir:
         expand.(get_in(settings, ["facts", "data"]) || raise("#{file} has no facts.data")),

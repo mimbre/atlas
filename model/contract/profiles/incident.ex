@@ -52,7 +52,8 @@ defmodule Model.Profiles.Incident do
     subflow_behaviour: AtlasFlow.Subflow,
     legacy_behaviour: AtlasFlow.Legacy
 
-  # The model Flow, Gates, Runtime and Control are wired to (config :atlas, model: …).
+  # The model Facts, Flow, Gates, Runtime and Control are wired to (config :atlas, model: …).
+  @behaviour AtlasFacts.Model
   @behaviour AtlasFlow.Model
   @behaviour AtlasGates.Model
   @behaviour AtlasRuntime.Model

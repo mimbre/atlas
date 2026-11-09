@@ -38,8 +38,7 @@ defmodule AtlasE2E.PythonDiscoveryTest do
         "url" => "http://127.0.0.1:#{rela_port}/api/v1",
         "port" => rela_port,
         "data" => Path.join(dir, "store/rela"),
-        "bin" => bin,
-        "extra" => "rela/atlas.json"
+        "bin" => bin
       },
       "facts" => %{"data" => Path.join(dir, "store/beam")}
     }

@@ -73,7 +73,8 @@ defmodule AtlasFacts.GuidanceNativeTest do
     {rela, pid, process} = start_rela(dir)
     {:ok, schema} = Rela.description(rela)
     extra = @root |> Path.join("rela/atlas.json") |> File.read!() |> JSON.decode!()
-    d = AtlasFacts.Description.merge(schema, extra)
+    # The guidance records and the turn, as the model compiles them (here from the proof).
+    d = Map.merge(schema, Map.take(extra, ["guidance", "runtime"]))
     turn = d["runtime"]["turn"]
     [worker_kind] = d["relations"][turn["by"]]["to"]
     worker_spec = d["entities"][worker_kind]

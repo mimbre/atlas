@@ -1,7 +1,7 @@
-defmodule AtlasFacts.ReviewTest do
+defmodule RelaDSL.Facts.ReviewTest do
   use ExUnit.Case, async: true
 
-  alias AtlasFacts.Review
+  alias RelaDSL.Facts.Derived
 
   # Made-up kinds: a label is printed from a template, which may be replaced.
   @d %{
@@ -42,10 +42,10 @@ defmodule AtlasFacts.ReviewTest do
           {"replaced", false, rule["label"]}
         ] do
       lists = %{"template" => [fact("T-1", %{"status" => status, "unverified" => flag})]}
-      assert (Review.of(d, lists, "label", label) || %{})["label"] == expected
+      assert (Derived.review_of(d, lists, "label", label) || %{})["label"] == expected
     end
 
-    assert Review.needs(d, "label") == ["template"]
+    assert Derived.review_needs(d, "label") == ["template"]
   end
 
   test "an own-field flag is visible only while it holds" do
@@ -57,12 +57,12 @@ defmodule AtlasFacts.ReviewTest do
       })
 
     assert {:ok, [%{review: %{"label" => "Red flag"}}]} =
-             Review.annotate(d, "template", [fact("T-1", %{"unverified" => true})], fn _ ->
+             Derived.review(d, "template", [fact("T-1", %{"unverified" => true})], fn _ ->
                flunk("no reads")
              end)
 
     assert {:ok, [%{review: nil}]} =
-             Review.annotate(d, "template", [fact("T-1", %{"unverified" => false})], fn _ ->
+             Derived.review(d, "template", [fact("T-1", %{"unverified" => false})], fn _ ->
                flunk("no reads")
              end)
   end
@@ -72,7 +72,12 @@ defmodule AtlasFacts.ReviewTest do
       "template" => [fact("T-1", %{"status" => "replaced"}), fact("T-2", %{"status" => "used"})]
     }
 
-    assert Review.of(@d, lists, "label", fact("L-1", %{}, %{"printed_from" => ["T-2", "T-1"]})) ==
+    assert Derived.review_of(
+             @d,
+             lists,
+             "label",
+             fact("L-1", %{}, %{"printed_from" => ["T-2", "T-1"]})
+           ) ==
              %{
                "label" => "Review: its template was replaced",
                "through" => "printed_from",
@@ -81,23 +86,25 @@ defmodule AtlasFacts.ReviewTest do
                "value" => "replaced"
              }
 
-    assert Review.of(@d, lists, "label", fact("L-2", %{}, %{"printed_from" => ["T-2"]})) == nil
-    assert Review.of(@d, lists, "label", fact("L-3", %{})) == nil
+    assert Derived.review_of(@d, lists, "label", fact("L-2", %{}, %{"printed_from" => ["T-2"]})) ==
+             nil
+
+    assert Derived.review_of(@d, lists, "label", fact("L-3", %{})) == nil
   end
 
   test "a kind without a rule reads nothing and is left as it is" do
-    assert Review.needs(@d, "label") == ["template"]
-    assert Review.needs(@d, "note") == []
+    assert Derived.review_needs(@d, "label") == ["template"]
+    assert Derived.review_needs(@d, "note") == []
     facts = [fact("N-1", %{})]
-    assert Review.annotate(@d, "note", facts, fn _ -> flunk("read") end) == {:ok, facts}
+    assert Derived.review(@d, "note", facts, fn _ -> flunk("read") end) == {:ok, facts}
   end
 
   test "annotate reads what the rule needs once; a failed read is returned as it is" do
     list = fn "template" -> {:ok, [fact("T-1", %{"status" => "replaced"})]} end
     linked = fact("L-1", %{}, %{"printed_from" => ["T-1"]})
-    assert {:ok, [%{review: %{"key" => "T-1"}}]} = Review.annotate(@d, "label", [linked], list)
+    assert {:ok, [%{review: %{"key" => "T-1"}}]} = Derived.review(@d, "label", [linked], list)
 
-    assert Review.annotate(@d, "label", [linked], fn _ -> {:error, :unavailable} end) ==
+    assert Derived.review(@d, "label", [linked], fn _ -> {:error, :unavailable} end) ==
              {:error, :unavailable}
   end
 end

@@ -6,20 +6,43 @@ defmodule AtlasFlowTest do
   # The depot's legacy flow, as the model compiled it.
   @pack AtlasFlow.Depot.Legacy.Pack
 
+  # A turn runs on a box (`work`) by a clerk: an owner is not handed over while it runs.
   defmodule Later do
-    use AtlasFlow.TestModel, legacy: [AtlasFlow.Packs.Later]
+    use AtlasFlow.TestModel,
+      legacy: [AtlasFlow.Packs.Later],
+      relations:
+        Map.put(AtlasFlow.Depot.relations(), "work", %{"from" => ["run"], "to" => ["box"]}),
+      turn: %{
+        "kind" => "run",
+        "on" => "work",
+        "by" => "worker",
+        "state" => "status",
+        "running" => "going"
+      }
   end
 
+  # A box has a card, made and deleted with it (a component).
   defmodule Carded do
-    use AtlasFlow.TestModel, legacy: [AtlasFlow.Packs.Carded]
+    use AtlasFlow.TestModel,
+      legacy: [AtlasFlow.Packs.Carded],
+      relations:
+        Map.put(AtlasFlow.Depot.relations(), "card", %{
+          "from" => ["box"],
+          "to" => ["card"],
+          "component" => %{}
+        })
   end
 
   defmodule Stepped do
     use AtlasFlow.TestModel, legacy: [AtlasFlow.Packs.Stepped]
   end
 
+  # A tag labels a box (an association the flow reads).
   defmodule Labelled do
-    use AtlasFlow.TestModel, legacy: [AtlasFlow.Packs.Labelled]
+    use AtlasFlow.TestModel,
+      legacy: [AtlasFlow.Packs.Labelled],
+      relations:
+        Map.put(AtlasFlow.Depot.relations(), "labels", %{"from" => ["tag"], "to" => ["box"]})
   end
 
   setup do
@@ -60,24 +83,8 @@ defmodule AtlasFlowTest do
   end
 
   defp deferred_setup do
-    description = FakeFacts.description()
-    description = put_in(description, ["entities", "run"], %{})
-
-    description =
-      put_in(description, ["relations", "work"], %{"from" => ["run"], "to" => ["box"]})
-
-    description =
-      Map.put(description, "runtime", %{
-        "turn" => %{
-          "kind" => "run",
-          "on" => "work",
-          "by" => "worker",
-          "state" => "status",
-          "running" => "going"
-        }
-      })
-
-    FakeFacts.set_description(description)
+    # rela describes the run kind; the turn and its relation are the model's (Later).
+    FakeFacts.set_description(put_in(FakeFacts.description(), ["entities", "run"], %{}))
 
     FakeFacts.put("box", %{
       "key" => "B-1",
@@ -162,16 +169,8 @@ defmodule AtlasFlowTest do
   end
 
   test "a component hint does not restart completed work to remove a historical owner" do
-    description = FakeFacts.description()
-
-    description =
-      put_in(description, ["relations", "card"], %{
-        "from" => ["box"],
-        "to" => ["card"],
-        "component" => %{}
-      })
-
-    FakeFacts.set_description(put_in(description, ["entities", "card"], %{}))
+    # The card component is the model's (Carded); rela describes the card kind.
+    FakeFacts.set_description(put_in(FakeFacts.description(), ["entities", "card"], %{}))
 
     FakeFacts.put("box", %{
       "key" => "B-done",
@@ -244,10 +243,11 @@ defmodule AtlasFlowTest do
       assert @pack.expected("again", %{"note" => ""}) == "Again"
     end
 
-    test "a flow Facts found problems in is not run" do
+    test "the flows run on their kinds and assign to what the model's owner relations point at" do
       flows = AtlasFlow.Depot.legacy()
-      assert Legacy.kinds(Legacy.runnable(flows, FakeFacts.description())) == ["box"]
-      assert Legacy.runnable(flows, FakeFacts.description(["x has no owner"])) == []
+      assert Legacy.kinds(flows) == ["box"]
+      assert Legacy.owner_kinds(flows, AtlasFlow.Depot.relations()) == ["clerk"]
+      assert AtlasFlow.Depot.relations()["in_box"]["parent"] == true
     end
 
     test "briefed by the empty state until something is under it, then by the next" do
@@ -273,15 +273,13 @@ defmodule AtlasFlowTest do
       # An association Flow does not read for this kind is never empty.
       assert name.([], []) == "done"
 
-      description = %{
-        "relations" => %{
-          "labels" => %{"from" => ["tag"], "to" => ["box"]},
-          "in_box" => %{"from" => ["crate"], "to" => ["box"], "parent" => true}
-        }
+      relations = %{
+        "labels" => %{"from" => ["tag"], "to" => ["box"]},
+        "in_box" => %{"from" => ["crate"], "to" => ["box"], "parent" => true}
       }
 
-      assert Legacy.pointing(Packs.Labelled, description, "box") == ["labels"]
-      assert Legacy.pointing(Packs.Labelled, description, "tag") == []
+      assert Legacy.pointing(Packs.Labelled, relations, "box") == ["labels"]
+      assert Legacy.pointing(Packs.Labelled, relations, "tag") == []
     end
 
     test "what is expected may name the fact's own fields; a condition's note wins" do
@@ -538,12 +536,9 @@ defmodule AtlasFlowTest do
     end
 
     test "a fact that waits until something points at it through an association" do
-      description =
-        FakeFacts.description()
-        |> put_in(["entities", "tag"], %{"plural" => "tags"})
-        |> put_in(["relations", "labels"], %{"from" => ["tag"], "to" => ["box"]})
-
-      FakeFacts.set_description(description)
+      FakeFacts.set_description(
+        put_in(FakeFacts.description(), ["entities", "tag"], %{"plural" => "tags"})
+      )
 
       # Sealed by itself (done, were nothing read), but nothing labels it: open work.
       FakeFacts.put("box", %{

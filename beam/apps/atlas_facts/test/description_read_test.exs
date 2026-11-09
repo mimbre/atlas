@@ -22,6 +22,9 @@ defmodule AtlasFacts.DescriptionReadTest do
 
     {:ok, counter} = Agent.start_link(fn -> %{calls: 0, revision: "first", up: true} end)
     start_supervised!({AtlasFacts.Server, rela: {CountingBackend, counter}, data_dir: dir})
+    # Facts read the schema once to start (it must be the model's); count from here.
+    assert Agent.get(counter, & &1.calls) == 1
+    Agent.update(counter, &%{&1 | calls: 0})
     :ok = AtlasBus.attach("description-reader-#{System.unique_integer([:positive])}")
     %{counter: counter}
   end

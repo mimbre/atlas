@@ -1,18 +1,19 @@
 defmodule RelaDSL.Project do
   @moduledoc """
   The Rela project of a composition (`RelaDSL.Composition`), as files: what Rela
-  serves and checks, and what Facts reads beside it until it reads the model itself.
+  serves and checks, and the proofs of what the model adds to it.
 
     * `schema.yaml`, which includes each module's file and the composition's bindings
       file, in that order; each file holds `types`, `entities` and `relations`
       (`RelaDSL.Description.Yaml`);
     * `acl.yaml`, the roles the flows name, when the composition has an `acl`;
-    * `atlas.json`, Atlas's additions, keys sorted (`RelaDSL.Description.Json`);
-    * `flow-runtime.json`, the run mapping, when a concept declares `flow_runtime`;
+    * `atlas.json`, Atlas's additions, keys sorted (`RelaDSL.Description.Json`): a proof
+      only, no component reads it (the model compiles them in);
+    * `flow-runtime.json`, the run mapping, when a concept declares `flow_runtime`: a
+      proof only, as `atlas.json`;
     * `flows.yaml`, when given (the subflows, with its generated header);
     * `atlas.manifest.json`: the SHA-256 of every file of the selected closure and of
-      `data-entry.yaml` (`inputs`), of `atlas.json` (`output_sha256`) and of
-      `flows.yaml` (`flows`). Packaging and startup check it (`rela/scripts/verify.py`).
+      `data-entry.yaml` (`inputs`) and of `flows.yaml` (`flows`). Packaging and startup check it (`rela/scripts/verify.py`).
 
   `data-entry.yaml` is rela-server's setting and stays hand-written: its bytes are
   given, to be hashed. Every path is relative to the project's folder.
@@ -56,7 +57,7 @@ defmodule RelaDSL.Project do
 
     manifest =
       {:ordered,
-       [{"inputs", {:ordered, inputs}}, {"output_sha256", sha256(extension)}] ++
+       [{"inputs", {:ordered, inputs}}] ++
          if(flows_yaml,
            do: [{"flows", {:ordered, [{"source", "flows.yaml"}, {"sha256", sha256(flows_yaml)}]}}],
            else: []

@@ -1,11 +1,56 @@
-# Facts' pure guards are exercised against the model without starting any app; Flow and
-# Gates are the model's (compile-time) dependencies.
-Code.require_file("../../../beam/apps/atlas_facts/lib/atlas_facts/guards.ex", __DIR__)
-
+# The write rules Facts checks are the model's compiled `check/4`, exercised without
+# starting any app; Flow, Gates and Facts are the model's (compile-time) dependencies.
 defmodule Model.DeciderTest do
   use ExUnit.Case, async: true
   alias AtlasGates.{Definitions, Request, Rules, Verdict}
   alias AtlasBus.Digest
+
+  @authority Model.AtlasEyra.__rela__(:description).extension["entities"]["decision"][
+               "authority"
+             ]
+
+  # The model's check of a write on a decision `key`: the fact as stored (`current`), what
+  # the write sets, who sends it, the kind each linked actor is, and the newest decider
+  # verdict on it (its properties, or nil).
+  defp check(op, current, values, links, actor, kind, verdict \\ nil) do
+    key = "D-example"
+
+    lookup = %{
+      "current" => fn -> current end,
+      "fact" => fn of, at -> if of == kind, do: %{key: at, properties: %{}, links: %{}} end,
+      "list" => fn
+        "gate_verdict" when is_map(verdict) ->
+          {:ok,
+           [
+             %{
+               key: "GV-0001",
+               links: %{"about" => [key]},
+               properties:
+                 Map.merge(verdict, %{
+                   "gate" => "accept_decision",
+                   "subject" => key,
+                   "purpose" => "decider"
+                 })
+             }
+           ]}
+
+        _ ->
+          {:ok, []}
+      end,
+      "incoming" => fn _, _, _ -> [] end,
+      "fingerprint" => &AtlasBus.SubjectFingerprint.of/2
+    }
+
+    case Model.AtlasEyra.check(
+           "decision",
+           %{"op" => op, "key" => key, "values" => values, "links" => links},
+           actor,
+           lookup
+         ) do
+      :ok -> :ok
+      {:refuse, reasons} -> {:refused, reasons}
+    end
+  end
 
   # The decide subflow as the model compiled it for `env`.
   defp decide(env), do: Enum.find(Model.AtlasEyra.subflows(env), &(&1.name() == "decide"))
@@ -175,60 +220,36 @@ defmodule Model.DeciderTest do
   end
 
   test "the frozen rule only permits clearing the unverified flag, and only Flow writes it" do
-    extra = JSON.decode!(File.read!("../../rela/atlas.json"))
-    extra = Map.merge(extra, JSON.decode!(File.read!("../../rela/flow-runtime.json")))
-    rules = AtlasFacts.Guards.of(extra, "decision")
-
     current = %{
       "values" => %{"status" => "accepted", "unverified" => true},
       "links" => %{"decided_by" => ["a"]}
     }
 
-    env = %{"writer" => "flow", "sender" => "flow", "kind_of" => fn _, _ -> "person" end}
+    flow = %{"by" => "flow", "sender" => "flow"}
 
-    assert :ok =
-             AtlasFacts.Guards.check(
-               rules,
-               "change",
-               "D-test",
-               current,
-               %{"unverified" => false},
-               %{},
-               env
-             )
+    assert :ok = check("change", current, %{"unverified" => false}, %{}, flow, "person")
 
     assert {:refused, _} =
-             AtlasFacts.Guards.check(
-               rules,
+             check(
                "change",
-               "D-test",
                put_in(current, ["values", "unverified"], false),
                %{"unverified" => true},
                %{},
-               env
+               flow,
+               "person"
              )
 
     assert {:refused, _} =
-             AtlasFacts.Guards.check(
-               rules,
+             check(
                "change",
-               "D-test",
                current,
                %{"unverified" => false},
                %{},
-               %{env | "sender" => "control/session-1"}
+               %{flow | "sender" => "control/session-1"},
+               "person"
              )
 
-    assert {:refused, _} =
-             AtlasFacts.Guards.check(
-               rules,
-               "change",
-               "D-test",
-               current,
-               %{"title" => "edited"},
-               %{},
-               env
-             )
+    assert {:refused, _} = check("change", current, %{"title" => "edited"}, %{}, flow, "person")
   end
 
   defp evidence(changes \\ %{}) do
@@ -334,8 +355,6 @@ defmodule Model.DeciderTest do
   end
 
   test "fresh verdict enforcement preserves the prior split for the complete classification matrix" do
-    description = JSON.decode!(File.read!("../../rela/atlas.json"))
-    authority = get_in(description, ["entities", "decision", "authority"])
     schema = File.read!("../../rela/modules/foundation/schema.yaml")
 
     values = fn type ->
@@ -361,32 +380,30 @@ defmodule Model.DeciderTest do
           force != "principle" and delegated
 
       assert result.outcome == "agent" == expected_agent
-      # Same write inputs as GuardsTest: create accepted, named writer, singleton
-      # decider/delegation links, and kind_of callback for both possible actors.
+      # An accepted write by its named writer, the one decided_by links; a delegation
+      # already stored (only its person sets it), and a principle naming its check.
       permitted = fn kind ->
-        links = %{"decided_by" => ["writer"]}
-        links = if delegated, do: Map.put(links, "delegated_by", ["person"]), else: links
+        current = %{
+          "values" => %{},
+          "links" => if(delegated, do: %{"delegated_by" => ["person"]}, else: %{})
+        }
 
-        AtlasFacts.Guards.check(
-          %{"authority" => authority},
-          "create",
-          "D-example",
-          nil,
-          Map.put(fields, "status", "accepted"),
+        links = %{"decided_by" => ["writer"]}
+
+        check(
+          "change",
+          current,
+          Map.merge(fields, %{"status" => "accepted", "enforced_by" => "a check"}),
           links,
+          %{"by" => "writer"},
+          kind,
           %{
-            "writer" => "writer",
-            "kind_of" => fn _, _ -> kind end,
-            "verdict" => fn "accept_decision", "D-example" ->
-              %{
-                "verdict" => result.outcome,
-                "fingerprint" =>
-                  AtlasBus.SubjectFingerprint.of(
-                    %{"values" => fields, "links" => links},
-                    authority["decider"]["fingerprint"]
-                  )
-              }
-            end
+            "verdict" => result.outcome,
+            "fingerprint" =>
+              AtlasBus.SubjectFingerprint.of(
+                %{"values" => fields, "links" => links},
+                @authority["decider"]["fingerprint"]
+              )
           }
         ) == :ok
       end
@@ -400,8 +417,7 @@ defmodule Model.DeciderTest do
 
   test "the gate declares the decided limits, v1 and fixed prefix" do
     {:ok, gate} = Definitions.fetch("accept_decision")
-    description = JSON.decode!(File.read!("../../rela/atlas.json"))
-    authority = get_in(description, ["entities", "decision", "authority"])
+    authority = @authority
     refute Map.has_key?(authority, "only_kind_when")
     refute Map.has_key?(authority, "delegated_by")
     assert authority["decider"]["fingerprint"] == gate["fingerprint"]
@@ -412,11 +428,12 @@ defmodule Model.DeciderTest do
   end
 
   test "each decider verdict and the stale default enforce the acceptance table" do
-    authority =
-      JSON.decode!(File.read!("../../rela/atlas.json"))["entities"]["decision"]["authority"]
+    fact = %{
+      "values" => %{"title" => "Example", "force" => "principle", "enforced_by" => "a check"},
+      "links" => %{}
+    }
 
-    fact = %{"values" => %{"title" => "Example", "force" => "principle"}, "links" => %{}}
-    fingerprint = AtlasBus.SubjectFingerprint.of(fact, authority["decider"]["fingerprint"])
+    fingerprint = AtlasBus.SubjectFingerprint.of(fact, @authority["decider"]["fingerprint"])
 
     for outcome <- [nil, "person_always", "person", "agent", "agent_unverified"],
         actor <- ["person", "agent"],
@@ -426,18 +443,14 @@ defmodule Model.DeciderTest do
           do: %{"verdict" => outcome, "fingerprint" => if(fresh, do: fingerprint, else: "old")}
 
       result =
-        AtlasFacts.Guards.check(
-          %{"authority" => authority},
+        check(
           "change",
-          "D-example",
           fact,
           %{"status" => "accepted"},
           %{"decided_by" => ["writer"]},
-          %{
-            "writer" => "writer",
-            "kind_of" => fn _, _ -> actor end,
-            "verdict" => fn _, _ -> verdict end
-          }
+          %{"by" => "writer"},
+          actor,
+          verdict
         )
 
       assert result == :ok ==

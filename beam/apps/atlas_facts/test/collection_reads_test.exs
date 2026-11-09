@@ -15,6 +15,7 @@ defmodule AtlasFacts.CollectionReadsTest do
 
     start_supervised!(
       {AtlasFacts.Server,
+       model: AtlasFacts.Counting,
        rela: {CountingRela, backend},
        data_dir: dir,
        collection_clock: fn -> CountingRela.clock(backend) end}

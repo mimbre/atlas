@@ -71,9 +71,12 @@ image holds `rela/flows.yaml`: Flow runs the compiled model (`model/contract`), 
 subflows have the same digests as the flows Rela checks.
 `flow-runtime.json` maps the durable runs; its migrations come from the `migrate`
 declarations beside each subflow, which `model/targets/proof/digests.json` proves.
+`atlas.json` and `flow-runtime.json` are proofs only: no component reads them (D-0083).
+Facts runs the compiled model and, at boot, refuses a rela whose served schema is not
+the one the model was built with (`rela_schema/0`).
 
 `atlas.manifest.json` records the hash of every file of the selected closure and of
-`data-entry.yaml`, of `atlas.json` (`output_sha256`) and of `flows.yaml` (`flows`). CI
+`data-entry.yaml` and of `flows.yaml` (`flows`). CI
 checks freshness; startup/images check the packaged hashes without needing Elixir or
 PyYAML in the core image (`scripts/verify.py`). Packaging copies the same closure and
 generated extension, never work facts. Fly delivery checks both image labels/provenance

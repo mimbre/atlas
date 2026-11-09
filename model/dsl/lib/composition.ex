@@ -55,7 +55,9 @@ defmodule RelaDSL.Composition do
   It gets the callbacks of the component that runs turns as well (`RelaDSL.Runtime.Model`:
   the turn, the agent, the guidance records and what a worker reads first), and those of
   the component that serves pages (`RelaDSL.Control.Model`: the shell, the start page,
-  the kinds, forms, keys, actions, what an owner is to do and their answers).
+  the kinds, forms, keys, actions, what an owner is to do and their answers), and those
+  of the store (`RelaDSL.Facts.Model`: the schema rela must serve, the write rules,
+  what a write brings along, what is worked out on a read, and the connectors).
 
   ## Introspection
 
@@ -319,11 +321,15 @@ defmodule RelaDSL.Composition do
         flows,
         gates,
         environments,
+        schema,
         extension,
         flow_runtime
       )
 
     runtime = RelaDSL.Runtime.Model.body(schema, extension)
+
+    facts =
+      RelaDSL.Facts.Model.body(schema, extension, flow_runtime && Plain.unorder(flow_runtime))
 
     control =
       RelaDSL.Control.Model.body(
@@ -337,6 +343,7 @@ defmodule RelaDSL.Composition do
       unquote(compiled)
       unquote(runtime)
       unquote(control)
+      unquote(facts)
 
       @doc "The model, as plain data (see `RelaDSL.Composition`)."
       def __rela__(:description), do: unquote(Macro.escape(description))

@@ -4,13 +4,6 @@ defmodule AtlasFacts.Description do
   properties, and the relations that point at them. Knows no kind by name.
   """
 
-  @doc "Merge `extra` into `description`, map by map; a value in `extra` wins."
-  def merge(description, extra) when is_map(description) and is_map(extra) do
-    Map.merge(description, extra, fn _key, left, right ->
-      if is_map(left) and is_map(right), do: merge(left, right), else: right
-    end)
-  end
-
   @doc "The description of `kind`, or nil when rela does not describe it."
   def kind(description, kind), do: get_in(description, ["entities", kind])
 

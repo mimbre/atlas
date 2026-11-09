@@ -8,7 +8,6 @@
     "modules/software/schema.yaml": "e78fe08fe4432588ddd226da4ba935d16ad7b66b7e3f221903ab0ef5fa3375f9",
     "schema.yaml": "bb229050951035f99de0877acd2fd4676fed384cd32964b16c4c236d30b08f5a"
   },
-  "output_sha256": "404fd657f4dc7ee5c43ff4b10a496881f68888927f94ea374a19c4173e11c285",
   "flows": {
     "source": "flows.yaml",
     "sha256": "ad26c078ad920f85d8b254ffdebaedf007c82ea75697145f8b381c1e6031f34a"

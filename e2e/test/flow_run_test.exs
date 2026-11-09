@@ -44,12 +44,19 @@ defmodule AtlasE2E.FlowRunTest do
   }
   # JSON is a YAML subset accepted by Rela.
   File.write!(Path.join(data, "schema.yaml"), JSON.encode!(%{"version" => "1.0", "namespace" => "https://example.invalid/neutral#", "entities" => entities, "relations" => %{"chosen_by" => %{"label" => "chosen by", "from" => ["box"], "to" => ["clerk"], "max_outgoing" => 1}}}))
+  # (the model below is compiled from these same kinds and relations)
   projection = %{"field" => "todo"}
   config = %{"version" => 1, "kind" => "cursor", "fields" => Map.new(run_fields, &{&1, &1}), "writer" => %{"sender" => "flow", "by" => "flow"},
     "selection" => %{"sort" => %{"subject" => "box", "legacy" => "sort", "projection" => projection, "admission" => %{}, "imports" => [], "follow_through" => nil}},
     "inputs" => %{"kind" => "choice", "fields" => Map.new(fields, &{&1, &1}), "acl" => %{"clerk" => %{"update" => ["box"]}}, "roles" => %{"clerk" => "chosen_by"}}}
-  File.write!(Path.join(dir, "extra.json"), JSON.encode!(%{"flows" => %{"sort" => Map.merge(projection, %{"kinds" => ["box"], "states" => [%{"name" => "waiting", "expected" => "Choose"}]})}}))
-  File.write!(Path.join(dir, "runtime.json"), JSON.encode!(%{"flow_runtime" => config}))
+  # The private model Facts stores by: the same schema rela is given, and the run mapping,
+  # compiled by the store generator as a composition is (Facts' neutral test model).
+  relations = %{"chosen_by" => %{"label" => "chosen by", "from" => ["box"], "to" => ["clerk"], "max_outgoing" => 1}}
+  Code.compile_string("""
+  defmodule PrivateChoiceModel do
+    use AtlasFacts.TestModel, description: #{inspect(%{"entities" => entities, "relations" => relations, "flow_runtime" => config}, limit: :infinity)}
+  end
+  """)
   Code.compile_string("""
   defmodule PrivateChoiceContract do
     use RelaDSL.Schema
@@ -74,7 +81,7 @@ defmodule AtlasE2E.FlowRunTest do
   server = Port.open({:spawn_executable, Path.join(bin, "rela-server")}, [:binary, :exit_status, :stderr_to_stdout, args: ["-project", data, "-bind", "127.0.0.1", "-port", to_string(port), "-quiet"]])
   {:os_pid, os_pid} = Port.info(server, :os_pid)
   rela = {AtlasFacts.Rela.Http, "http://127.0.0.1:#{port}/api/v1"}
-  facts_opts = [rela: rela, data_dir: Path.join(dir, "facts"), description_extra: Path.join(dir, "extra.json"), flow_runtime: Path.join(dir, "runtime.json")]
+  facts_opts = [rela: rela, data_dir: Path.join(dir, "facts"), model: PrivateChoiceModel]
   input_kind = config["inputs"]["kind"]
   try do
     {:ok, facts} = AtlasFacts.Server.start_link(facts_opts)
@@ -89,7 +96,7 @@ defmodule AtlasE2E.FlowRunTest do
           0 ->
             assert Port.info(server, :os_pid) == {:os_pid, os_pid}, "rela-server stopped\n#{output}"
             case Talk.read("_description", %{}) do
-              %{"description" => %{"entities" => %{^input_kind => %{}}, "flow_runtime" => %{"inputs" => %{"kind" => ^input_kind}}} = d} -> d
+              %{"description" => %{"entities" => %{^input_kind => %{}}} = d} -> d
               other ->
                 assert System.monotonic_time(:millisecond) < deadline,
                   "Facts did not describe the input kind at #{inspect(rela)}: #{inspect(other)}\n#{output}"
@@ -100,8 +107,10 @@ defmodule AtlasE2E.FlowRunTest do
       await.(await, "")
     end
     description = await_facts.()
-    # Facts serves the run configuration it checks inputs by; Flow runs the compiled subflow.
-    assert description["flow_runtime"] == config
+    # Facts answers rela's schema, the model's (it checked so at boot); it keeps runs and
+    # inputs by the model's run mapping, the configuration Flow runs them by.
+    assert Map.take(description, ~w(entities relations types)) == PrivateChoiceModel.rela_schema()
+    assert Map.take(PrivateChoiceModel.run_mapping(), ~w(kind fields writer inputs)) == Map.take(config, ~w(kind fields writer inputs))
     assert Run.validate(PrivateChoiceRun) == :ok
     {:stored, _} = Talk.put("clerk", %{"op" => "create", "key" => "ada", "values" => %{"name" => "Ada"}})
     {:stored, _} = Talk.put("box", %{"op" => "create", "key" => "B-1", "values" => %{}, "links" => %{"chosen_by" => ["ada"]}})

@@ -1,7 +1,7 @@
-defmodule AtlasFacts.GuardsTest do
+defmodule RelaDSL.Facts.GuardsTest do
   use ExUnit.Case, async: true
 
-  alias AtlasFacts.Guards
+  alias RelaDSL.Facts.Writes
 
   # Made-up kinds and rules: a ruling, decided by a judge or a clerk, that a newer one
   # overturns. Facts must not care what they are called.
@@ -42,13 +42,22 @@ defmodule AtlasFacts.GuardsTest do
   @kinds %{"J-1" => "judge", "C-1" => "clerk"}
   defp kind_of(_relation, key), do: @kinds[key]
 
+  # A subject's fingerprint, as a store gives the rules one: its deciding fields and
+  # relation keys, digested.
+  defp fingerprint(fact, spec) do
+    :erlang.phash2({
+      Map.new(spec["fields"] || [], &{&1, get_in(fact, ["values", &1])}),
+      Map.new(spec["relations"] || [], &{&1, Enum.sort(List.wrap(get_in(fact, ["links", &1])))})
+    })
+  end
+
   # Who writes: the judge, unless a test says otherwise; it is the one rulings name.
   defp check(op, current, values, links \\ %{}, others \\ %{}, env \\ %{}) do
     writer =
       Enum.at(List.wrap(links["ruled_by"] || get_in(current || %{}, ["links", "ruled_by"])), 0)
 
     env = Map.merge(%{"writer" => writer, "kind_of" => &kind_of/2, "fetch" => &others[&1]}, env)
-    Guards.check(@rules, op, "R-2", current, values, links, env)
+    Writes.check_rules(@rules, op, "R-2", current, values, links, env)
   end
 
   defp final(extra \\ %{}),
@@ -56,9 +65,9 @@ defmodule AtlasFacts.GuardsTest do
 
   test "the rules of a kind are read from its description; a kind without any has none" do
     description = %{"entities" => %{"ruling" => Map.put(@rules, "plural", "rulings")}}
-    assert Guards.of(description, "ruling") == @rules
-    assert Guards.of(description, "other") == %{}
-    assert Guards.check(%{}, "delete", "X", final(), %{}, %{}, %{}) == :ok
+    assert Writes.rules(description, "ruling") == @rules
+    assert Writes.rules(description, "other") == %{}
+    assert Writes.check_rules(%{}, "delete", "X", final(), %{}, %{}, %{}) == :ok
   end
 
   test "a final fact is never deleted, and a change may only overturn it" do
@@ -86,13 +95,13 @@ defmodule AtlasFacts.GuardsTest do
       }
     }
 
-    rules = Guards.of(description, "ruling")
+    rules = Writes.rules(description, "ruling")
     assert rules["only_target"] == %{"under" => only, "ruled_by" => only}
-    assert Guards.of(description, "absent") == %{}
+    assert Writes.rules(description, "absent") == %{}
 
     for relation <- ["under", "ruled_by"] do
       check = fn current, keys, writer ->
-        Guards.check(rules, "change", "R-2", current, %{}, %{relation => keys}, %{
+        Writes.check_rules(rules, "change", "R-2", current, %{}, %{relation => keys}, %{
           "writer" => writer
         })
       end
@@ -132,7 +141,7 @@ defmodule AtlasFacts.GuardsTest do
 
   test "who may make it final: the named kind always, another only when delegated" do
     final = %{"state" => "final"}
-    # A write that makes it final is also a decision by its writer (the next test); this one
+    # A write that makes it final is also a choice its writer makes (the next test); this one
     # is about the fact alone.
     no = "not this one's to decide"
 
@@ -181,9 +190,9 @@ defmodule AtlasFacts.GuardsTest do
     others = %{"R-1" => %{"state" => "final"}, "R-0" => %{"state" => "overturned"}}
     stored = %{"values" => %{"state" => "final"}, "links" => %{"overturns" => ["R-1", "R-0"]}}
 
-    assert Guards.replaced(@rules, stored, &others[&1]) == ["R-1"]
-    assert Guards.replaced(@rules, put_in(stored, ["values", "state"], "open"), & &1) == []
-    assert Guards.replaced(%{}, stored, &others[&1]) == []
+    assert Writes.replaced(@rules, stored, &others[&1]) == ["R-1"]
+    assert Writes.replaced(@rules, put_in(stored, ["values", "state"], "open"), & &1) == []
+    assert Writes.replaced(%{}, stored, &others[&1]) == []
   end
 
   test "a write that decides is the decider's own: no one else's, and an agent's only when delegated" do
@@ -204,7 +213,7 @@ defmodule AtlasFacts.GuardsTest do
     assert :ok = check("create", nil, final, clerk, %{}, by.("C-1"))
     assert {:refused, [^no]} = check("create", nil, final, clerk, %{}, by.("J-1"))
 
-    # Dropping it is a decision too, under the same rules, though only final needs a ruler.
+    # Dropping it decides it too, under the same rules, though only final needs a ruler.
     open = %{"values" => %{"state" => "open"}, "links" => %{"ruled_by" => ["C-1"]}}
     assert {:refused, [^no]} = check("change", open, %{"state" => "dropped"})
     assert :ok = check("change", open, %{"state" => "dropped"}, %{"under" => ["J-1"]})
@@ -212,7 +221,7 @@ defmodule AtlasFacts.GuardsTest do
     heavy = %{"state" => "dropped", "weight" => "heavy", "check" => "c"}
     assert {:refused, [^no]} = check("change", open, heavy, %{"under" => ["J-1"]})
 
-    # Writes that decide nothing need no decider; sending the same state again is no decision.
+    # Writes that decide nothing need no decider; sending the same state again decides nothing.
     assert :ok = check("change", open, %{"title" => "x"}, %{}, %{}, by.("anyone"))
     dropped = put_in(open, ["values", "state"], "dropped")
     assert :ok = check("change", dropped, %{"state" => "dropped"}, %{}, %{}, by.("anyone"))
@@ -220,7 +229,9 @@ defmodule AtlasFacts.GuardsTest do
     # `also` lets a named writer decide (as a migration may, when the description says so).
     rules = put_in(@rules, ["authority", "also"], ["importer"])
     env = %{"writer" => "importer", "kind_of" => &kind_of/2, "fetch" => fn _ -> nil end}
-    assert :ok = Guards.check(rules, "create", "R-2", nil, final, %{"ruled_by" => ["J-1"]}, env)
+
+    assert :ok =
+             Writes.check_rules(rules, "create", "R-2", nil, final, %{"ruled_by" => ["J-1"]}, env)
   end
 
   test "a fact never rests on one at a level it may not depend on" do
@@ -266,7 +277,7 @@ defmodule AtlasFacts.GuardsTest do
   }
 
   defp seal(op, current, values, links \\ %{}),
-    do: Guards.check(@sealed, op, "M-1", current, values, links, %{})
+    do: Writes.check_rules(@sealed, op, "M-1", current, values, links, %{})
 
   defp reading(values \\ %{}, links \\ %{}),
     do: %{
@@ -275,7 +286,7 @@ defmodule AtlasFacts.GuardsTest do
     }
 
   test "a sealed rule is read from the description" do
-    assert Guards.of(%{"entities" => %{"reading" => @sealed}}, "reading") == @sealed
+    assert Writes.rules(%{"entities" => %{"reading" => @sealed}}, "reading") == @sealed
   end
 
   test "a sealed record is written freely, then never changed, deleted or relinked" do
@@ -332,15 +343,15 @@ defmodule AtlasFacts.GuardsTest do
       ])
 
     assert {:refused, ["needs level"]} =
-             Guards.check(rules, "create", "M-1", nil, %{"meter" => "a"}, %{}, %{})
+             Writes.check_rules(rules, "create", "M-1", nil, %{"meter" => "a"}, %{}, %{})
 
     bare = %{"sealed" => %{"once" => ["finding"]}}
 
     assert {:refused, [why]} =
-             Guards.check(bare, "change", "M-1", reading(), %{"level" => 1}, %{}, %{})
+             Writes.check_rules(bare, "change", "M-1", reading(), %{"level" => 1}, %{}, %{})
 
     assert why =~ "level"
-    assert {:refused, [_]} = Guards.check(bare, "delete", "M-1", reading(), %{}, %{}, %{})
+    assert {:refused, [_]} = Writes.check_rules(bare, "delete", "M-1", reading(), %{}, %{}, %{})
   end
 
   test "with links once, every relation of a sealed record is set while empty, then kept" do
@@ -349,7 +360,7 @@ defmodule AtlasFacts.GuardsTest do
     }
 
     check = fn current, links ->
-      Guards.check(rules, "change", "M-1", current, %{}, links, %{})
+      Writes.check_rules(rules, "change", "M-1", current, %{}, links, %{})
     end
 
     bare = %{"values" => %{"meter" => "a"}, "links" => %{}}
@@ -361,7 +372,7 @@ defmodule AtlasFacts.GuardsTest do
 
     # Its properties stay sealed.
     assert {:refused, [_]} =
-             Guards.check(rules, "change", "M-1", bare, %{"meter" => "b"}, %{}, %{})
+             Writes.check_rules(rules, "change", "M-1", bare, %{"meter" => "b"}, %{}, %{})
   end
 
   test "machine records require both the configured Bus sender and writer, for all operations" do
@@ -370,7 +381,7 @@ defmodule AtlasFacts.GuardsTest do
       "flow_runtime" => %{"kind" => "cursor", "writer" => %{"sender" => "flow", "by" => "flow"}}
     }
 
-    rules = AtlasFacts.Guards.of(description, "cursor")
+    rules = Writes.rules(description, "cursor")
 
     for op <- ["create", "change", "delete"] do
       for env <- [
@@ -378,11 +389,11 @@ defmodule AtlasFacts.GuardsTest do
             %{"writer" => "client", "sender" => "flow"},
             %{}
           ] do
-        assert {:refused, _} = AtlasFacts.Guards.check(rules, op, "C-1", nil, %{}, %{}, env)
+        assert {:refused, _} = Writes.check_rules(rules, op, "C-1", nil, %{}, %{}, env)
       end
 
       assert :ok =
-               AtlasFacts.Guards.check(rules, op, "C-1", nil, %{}, %{}, %{
+               Writes.check_rules(rules, op, "C-1", nil, %{}, %{}, %{
                  "writer" => "flow",
                  "sender" => "flow"
                })
@@ -415,13 +426,14 @@ defmodule AtlasFacts.GuardsTest do
         if verdict,
           do: %{
             "verdict" => verdict,
-            "fingerprint" => AtlasBus.SubjectFingerprint.of(fact, fingerprint)
+            "fingerprint" => fingerprint(fact, fingerprint)
           }
 
-      Guards.check(rules, "change", "R-2", open, values, %{"ruled_by" => [writer]}, %{
+      Writes.check_rules(rules, "change", "R-2", open, values, %{"ruled_by" => [writer]}, %{
         "writer" => writer,
         "kind_of" => &kind_of/2,
-        "verdict" => fn "allow", "R-2" -> newest end
+        "verdict" => fn "allow", "R-2" -> newest end,
+        "fingerprint" => &fingerprint/2
       })
     end
 
@@ -439,10 +451,13 @@ defmodule AtlasFacts.GuardsTest do
 
   test "a ledger refuses deletion even with no children or verdict records" do
     rules =
-      Guards.of(%{"entities" => %{"bead" => %{"delete_error" => "Append-only ledger"}}}, "bead")
+      Writes.rules(
+        %{"entities" => %{"bead" => %{"delete_error" => "Append-only ledger"}}},
+        "bead"
+      )
 
     assert {:refused, ["Append-only ledger"]} =
-             Guards.check(
+             Writes.check_rules(
                rules,
                "delete",
                "B-1",
@@ -452,6 +467,6 @@ defmodule AtlasFacts.GuardsTest do
                %{}
              )
 
-    assert :ok = Guards.check(rules, "change", "B-1", nil, %{"color" => "blue"}, %{}, %{})
+    assert :ok = Writes.check_rules(rules, "change", "B-1", nil, %{"color" => "blue"}, %{}, %{})
   end
 end

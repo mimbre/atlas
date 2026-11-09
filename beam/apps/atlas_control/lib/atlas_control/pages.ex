@@ -38,9 +38,9 @@ defmodule AtlasControl.Pages do
     history only: shown, and set only by a client that says it is that (`by`). One with
     `only_target` is set and removed only by a client that is one of the facts it points
     at, and links only that one (who accepts is who it names). Its `actions` (`set`, `remove`:
-    label and key) are offered on the page, `requires_completed_children` refuses `set`
-    while a fact under it is not completed, and `closes_parent` refuses a new fact under
-    one that has the link.
+    label and key) are offered on the page. Pages only show these rules: Facts enforces
+    them, and every other write rule of a relation (`limit`, `closes_parent`,
+    `requires_completed_children`, the link to the one who decides), by the model.
   """
 
   require AtlasControl.Blocks, as: Blocks
@@ -1137,7 +1137,7 @@ defmodule AtlasControl.Pages do
   end
 
   # Link the fact to the client itself (Accept), after asking; refused, with why, while it
-  # may not: another client, already linked, or facts under it not completed.
+  # may not (as the page shows it: another client), or it is linked already.
   defp page({:set, kind, key, relation} = route, kind, k, m, answers, form) do
     back = path({:item, kind, key})
     r = rel(m, relation) || missing_relation(relation)
@@ -1149,7 +1149,12 @@ defmodule AtlasControl.Pages do
         missing(title, "#{key} does not exist (any more).", path({:list, kind}))
 
       %{"fact" => fact} ->
-        case set_problem(m, route, answers, form[:by], form[:by_kind]) do
+        problem =
+          if may_link?(m, relation, form[:by], form[:by_kind]),
+            do: set_problem(m, route, answers),
+            else: "#{String.capitalize(r.label)} is not set here: #{why_not(r)}."
+
+        case problem do
           nil ->
             confirm =
               Blocks.confirm(
@@ -1533,51 +1538,23 @@ defmodule AtlasControl.Pages do
       end
   end
 
-  @doc "Whether a client that is `by` may set `relation` to `keys`: only to itself, when so ruled."
-  def may_link_to?(m, relation, by, by_kind, keys) do
-    only = (rel(m, relation) || missing_relation(relation)).only_target
-
-    may_link?(m, relation, by, by_kind) and
-      (only == nil or by in only.also or Enum.all?(keys, &(&1 == by)))
-  end
-
   defp why_not(r), do: (r.only_target && r.only_target.error) || "not by this client"
 
   @doc """
-  Why the client `by` may not link the fact of `route` (`{:set, kind, key, relation}`) to
-  itself, or nil. `answers` are Facts' answers to the route's reads: the fact, then the
-  facts under it.
+  Why the fact of `route` (`{:set, kind, key, relation}`) cannot be linked to the client,
+  or nil: it has no such relation, or is linked already. `answers` are Facts' answers to
+  the route's reads, the fact first. Whether the client may, and whatever else the model
+  rules about the link, Facts checks.
   """
-  def set_problem(m, {:set, kind, key, relation}, [answer | child_answers], by, by_kind) do
+  def set_problem(m, {:set, kind, key, relation}, [answer | _]) do
     r = rel(m, relation) || missing_relation(relation)
     fact = answer["fact"] || %{}
     linked = get_in(fact, ["links", relation]) || []
 
-    open =
-      for {{_relation, _from, child_r}, %{"facts" => facts}} <-
-            Enum.zip(child_relations(m, kind), child_answers),
-          child_r.parent,
-          child <- facts,
-          child["completion"] == nil,
-          do: child["key"]
-
     cond do
-      kind not in r.from ->
-        "#{key} has no #{r.label}"
-
-      not may_link?(m, relation, by, by_kind) ->
-        "#{String.capitalize(r.label)} is not set here: #{why_not(r)}."
-
-      linked != [] ->
-        "#{key} is #{r.label} #{Enum.join(linked, ", ")} already."
-
-      open != [] and is_binary(r.requires_completed_children) ->
-        r.requires_completed_children
-        |> String.replace("{key}", key)
-        |> String.replace("{children}", Enum.join(Enum.sort(open), ", "))
-
-      true ->
-        nil
+      kind not in r.from -> "#{key} has no #{r.label}"
+      linked != [] -> "#{key} is #{r.label} #{Enum.join(linked, ", ")} already."
+      true -> nil
     end
   end
 
@@ -1628,22 +1605,6 @@ defmodule AtlasControl.Pages do
   end
 
   def change_cause(_change, _keys, _by, _note), do: nil
-
-  @doc """
-  Why a fact of `kind` may not go under `parent` (a fact of `parent_kind`, as Facts
-  answers it) through a parent relation, or nil: an association of the parent marked
-  `closes_parent` has a link (it is accepted).
-  """
-  def closed_problem(m, kind, parent_kind, parent) do
-    Enum.find_value(associations(m, parent_kind), fn r ->
-      if is_binary(r.closes_parent) and (get_in(parent, ["links", r.name]) || []) != [] do
-        r.closes_parent
-        |> String.replace("{parent}", parent["key"])
-        |> String.replace("{kind}", singular(m, parent_kind) |> String.downcase())
-        |> String.replace("{child}", singular(m, kind) |> String.downcase())
-      end
-    end)
-  end
 
   # The fact a read answered, or one with only its key (to title a page that says it is gone).
   defp fact_of(%{"fact" => %{} = fact}, _key), do: fact
@@ -1822,28 +1783,6 @@ defmodule AtlasControl.Pages do
         )
 
     Blocks.item(title: "#{todo.title}: #{todo.expected}", fields: fields)
-  end
-
-  @doc """
-  The link that makes `by` the one who decides, when a change sets a value that decides
-  (the change form's `decides`: `writes` a value, decided through `relation`) and does not
-  name them already; otherwise none. Facts still checks that they may decide.
-  """
-  def decider_link(m, kind, values, links, by) do
-    case m.module.form(kind, :edit) do
-      %{decides: %{relation: relation, writes: writes}} when is_binary(by) and by != "" ->
-        decides? =
-          Enum.any?(writes, fn {field, allowed} ->
-            Map.has_key?(values, field) and to_string(values[field]) in allowed
-          end)
-
-        if decides? and List.wrap(links[relation]) != [by],
-          do: %{relation => [by]},
-          else: %{}
-
-      _ ->
-        %{}
-    end
   end
 
   @doc "The owner's answer `name` (one that writes a change), from fresh item reads; or nil."
@@ -2051,45 +1990,6 @@ defmodule AtlasControl.Pages do
 
       name ->
         [Blocks.input(name: name, label: humanize(name), kind: "readonly", value: values[name])]
-    end
-  end
-
-  @doc """
-  The relations among `links` (`%{relation => [parent]}`) that limit how many facts point
-  at one parent (`limit`): `[{relation, parent}]`.
-  """
-  def limited(m, links) do
-    for {relation, parents} <- links,
-        is_map((rel(m, relation) || %{limit: nil}).limit),
-        parent <- parents,
-        do: {relation, parent}
-  end
-
-  @doc """
-  Why a fact of `kind` with key `key` may not point at `parent` through `relation`, or nil.
-  `children` are the facts of `kind` that point at it now. Only those whose `field` is one
-  of the limit's `values` count, and never the fact itself (sent again, or not moving).
-  """
-  def over_limit(m, relation, kind, key, parent, children) do
-    limit =
-      (rel(m, relation) || %{limit: nil}).limit || %{field: nil, values: [], max: nil, error: nil}
-
-    f = kind(m, kind) && field(kind(m, kind), limit.field)
-
-    counted =
-      Enum.filter(children, fn child ->
-        child["key"] != key and (child["values"] || %{})[limit.field] in limit.values
-      end)
-
-    if is_integer(limit.max) and length(counted) >= limit.max do
-      [first | _] = Enum.sort_by(counted, & &1["key"])
-      value = first["values"][limit.field]
-      label = (f && f.labels[value]) || to_text(value)
-
-      (limit.error || "{parent} already has {child} ({value})")
-      |> String.replace("{parent}", parent)
-      |> String.replace("{child}", first["key"])
-      |> String.replace("{value}", label)
     end
   end
 

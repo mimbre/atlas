@@ -25,7 +25,7 @@ defmodule RelaDSL.Description.OfficeTest do
     for {path, body} <- files, do: assert(body == File.read!(Path.join(@golden, path)), path)
   end
 
-  test "the manifest hashes the selected closure, data-entry.yaml, atlas.json and flows.yaml" do
+  test "the manifest hashes the selected closure, data-entry.yaml and flows.yaml; atlas.json is a proof" do
     files = Map.new(files())
     manifest = JSON.decode!(files["atlas.manifest.json"])
     sha = &(:crypto.hash(:sha256, &1) |> Base.encode16(case: :lower))
@@ -38,7 +38,7 @@ defmodule RelaDSL.Description.OfficeTest do
              "data-entry.yaml" => sha.("app:\n  name: Office\n")
            }
 
-    assert manifest["output_sha256"] == sha.(files["atlas.json"])
+    refute Map.has_key?(manifest, "output_sha256")
     assert manifest["flows"] == %{"source" => "flows.yaml", "sha256" => sha.("flows: {}\n")}
   end
 

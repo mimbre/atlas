@@ -8,7 +8,7 @@ defmodule AtlasRuntime.RuntimeGuidanceTest do
   alias AtlasRuntime.Agent.FakeInbox
   alias AtlasFacts.{GuidanceStore, Rela}
   @moduletag :tmp_dir
-  # Runtime runs the neutral guided model; Facts is given that model's description.
+  # Runtime and Facts run the neutral guided model; its store serves the model's schema.
   @model AtlasRuntime.TestModel.Guided
   defp description, do: AtlasRuntime.FakeFacts.description_of(@model)
 
@@ -22,7 +22,7 @@ defmodule AtlasRuntime.RuntimeGuidanceTest do
     )
 
     d = description()
-    {:ok, store} = GuidanceStore.start(Path.join(dir, "facts.json"), d)
+    {:ok, store} = GuidanceStore.start(Path.join(dir, "facts.json"), @model.rela_schema())
     rela = {GuidanceStore, store}
     {:ok, []} = Rela.create(rela, "clerks", "ada", %{}, %{})
 
@@ -31,7 +31,11 @@ defmodule AtlasRuntime.RuntimeGuidanceTest do
         "owned_by" => {"clerk", ["ada"]}
       })
 
-    server = start_supervised!({AtlasFacts.Server, rela: rela, data_dir: Path.join(dir, "facts")})
+    server =
+      start_supervised!(
+        {AtlasFacts.Server, rela: rela, data_dir: Path.join(dir, "facts"), model: @model}
+      )
+
     :ok = AtlasBus.attach("control/session-runtime-test")
 
     opts = [

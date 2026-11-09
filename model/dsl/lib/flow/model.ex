@@ -14,7 +14,12 @@ defmodule RelaDSL.Flow.Model do
       projected (`select`), with its approved `migrations`; nil when it is not selected;
     * `migrations/0`: every approved migration, with its `subflow`;
     * `actors/0`: the configured actors the model needs;
-    * `gates/0`: every gate, by name, as data.
+    * `relations/0`: every relation, by name, as the store describes it with the model's
+      additions (`parent`, `component`, ...): what a runner walks from a fact to the
+      facts above and under it;
+    * `gates/0`: every gate, by name, as data;
+    * `ids/0`: how the key of a fact of each kind is made, by kind: `prefix` and
+      `digits` (the next number), and every `prefixes` its keys start with.
 
   All of it is data the macros built when the model compiled; nothing is read from a
   file.
@@ -24,7 +29,7 @@ defmodule RelaDSL.Flow.Model do
   alias RelaDSL.Flow.{Legacy, Subflow}
 
   @doc false
-  def body(root, opts, flows, gates, environments, extension, flow_runtime) do
+  def body(root, opts, flows, gates, environments, schema, extension, flow_runtime) do
     subflow_behaviour = opts[:subflow_behaviour]
     legacy_behaviour = opts[:legacy_behaviour]
     file = to_string(root)
@@ -69,6 +74,20 @@ defmodule RelaDSL.Flow.Model do
         end
       end
 
+    described = RelaDSL.Facts.Model.described(RelaDSL.Facts.Served.of(schema), extension, nil)
+
+    ids =
+      Map.new(described["entities"] || %{}, fn {kind, spec} ->
+        prefix = get_in(spec, ["create", "id", "prefix"]) || spec["id_prefix"]
+
+        {kind,
+         %{
+           "prefix" => prefix,
+           "digits" => get_in(spec, ["create", "id", "digits"]) || 2,
+           "prefixes" => [prefix | spec["id_prefixes"] || []]
+         }}
+      end)
+
     quote do
       unquote_splicing(modules)
 
@@ -108,8 +127,14 @@ defmodule RelaDSL.Flow.Model do
       @doc "The configured actors the model needs."
       def actors, do: []
 
+      @doc "Every relation, by name, with the model's additions."
+      def relations, do: unquote(Macro.escape(described["relations"] || %{}))
+
       @doc "Every gate, by name, as data."
       def gates, do: unquote(Macro.escape(RelaDSL.Atlas.gate_data(gates)))
+
+      @doc "How the key of a fact of each kind is made: `prefix`, `digits`, `prefixes`."
+      def ids, do: unquote(Macro.escape(ids))
     end
   end
 

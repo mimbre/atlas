@@ -51,4 +51,8 @@ defmodule AtlasGates.Neutral do
 
   @impl true
   def gates, do: @gates
+
+  @doc "How a ruling's key is made: RU- and the next number, three digits."
+  @impl true
+  def ids, do: %{"ruling" => %{"prefix" => "RU-", "digits" => 3, "prefixes" => ["RU-"]}}
 end
