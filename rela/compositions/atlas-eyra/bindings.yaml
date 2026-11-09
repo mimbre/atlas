@@ -9,9 +9,22 @@ relations:
     - use_case
     - issue
     - pull_request
+    - decision
     to:
     - assignment
     max_outgoing: 1
     inverse:
       id: assignment_of
       label: assignment of
+  based_on:
+    label: based on
+    description: The decisions this work carries out; optional, most work has none.
+    from:
+    - scene
+    - use_case
+    - issue
+    to:
+    - decision
+    inverse:
+      id: work
+      label: work

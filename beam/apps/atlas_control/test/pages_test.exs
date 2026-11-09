@@ -773,6 +773,14 @@ defmodule AtlasControl.PagesTest do
     assert Pages.next_key(spec, ["W-01", "W-07", "W-x", "Z-99"]) == {"W-08", 8}
     assert Pages.next_key(spec, ["W-01"], 4) == {"W-05", 5}
 
+    # A ledger whose lower numbers are kept for facts added later starts at its first.
+    ledger =
+      put_in(spec, ["create"], %{"id" => %{"prefix" => "L-", "digits" => 4, "first" => 24}})
+
+    assert Pages.next_key(ledger, []) == {"L-0024", 24}
+    assert Pages.next_key(ledger, ["L-0003", "L-0023"]) == {"L-0024", 24}
+    assert Pages.next_key(ledger, ["L-0003", "L-0030"]) == {"L-0031", 31}
+
     assert Pages.create_values(spec, %{"title" => "One", "notes" => "", "shade" => "dark"}) ==
              %{"title" => "One", "notes" => "", "shade" => "light", "done" => false}
   end
