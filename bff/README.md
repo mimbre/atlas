@@ -136,7 +136,7 @@ Control to client:
 | `{"op":"bye","text"}` | Control closes the connection. |
 | `{"op":"turn","key":"<turn>","on":"<item>"}` | Current turn context; errors have `error` instead of the keys. An outcome is acknowledged with a stored page. |
 
-Every message here is an endpoint of the contract (`defendpoint`, its call the message's `op`; ADR 0002), with what it takes and what it replies, and `blocks.json` lists them: hello, refresh, the pages' `open`, the submits, what Control sends unasked (`page` by hint, `notice`, `bye`), and the agent's `ask`, `run`, `cancel` and `stop`. Unasked pages are the pushes `hint` and `pending`.
+Every message here is an endpoint of the contract (`defendpoint`, its call the message's `op`; ADR 0002), with what it takes and what it replies, and `blocks.json` lists them: hello, refresh, the pages' `open`, the submits, what Control sends unasked (`page` by hint, `notice`, `bye`), the agent's `ask`, `run`, `cancel` and `stop`, and the worker pages' messages (below, [Worker Control contract](#worker-control-contract)). Unasked pages are the pushes `hint` and `pending`.
 
 Paths are the contract's pages (`defpage`, ADR [0002](../docs/adr/0002-pages-and-endpoints.md)): `/`, `/_kinds`, `/k/:kind`, `/k/:kind/new`, `/k/:kind/new/:relation/:parent`, `/k/:kind/:key` and its `/edit`, `/delete`, `/links/:relation`, `/set/:relation`, `/answer/:answer`, `/remove/:relation`; in the test environment only, the failure pages `/faults`, `/k/:kind/:key/faults`, `/fault/:fault` and `/k/:kind/:key/fault/:fault` (IS-Atlas-23: what can be made to fail there, and the confirm that causes it). Control serves those and nothing else (a path outside them gets "No such page"); `blocks.json` lists them, and the targets give every Elixir consumer `pages/0`, `match/1` and `path/2` (`AtlasBFF.Paths`). A client with a screen only follows them.
 
@@ -222,6 +222,29 @@ query, history and receipt messages on the Control channel. It reuses Runtime's
 execution identity; `Contract` composes the wire APIs and shared payload models. Existing
 list/item/form blocks implement the worker pages, so they follow the block wire version
 (0.16.0); typed worker messages independently require version 0.1.0.
+
+The eight messages the TUI's worker pages exchange are endpoints of the contract too
+(`lib/endpoints.ex`; each call is the message's `op`, each takes and replies a model of
+`lib/models/workers.ex` that is exactly its envelope without `op`, `channel` and `version`,
+which `test/worker_endpoints_test.exs` checks). Every request carries an `id`, which its
+`<op>_result` or `<op>_error` repeats:
+
+| Endpoint | Takes | Replies `result` | Replies `error` |
+|---|---|---|---|
+| `worker_inspect` | `id`, `execution` | `id`, `view` | `worker_error`: `id`, `error` |
+| `worker_submit` | `id`, `execution`, `guidance` | `id`, `interaction` | `worker_error` |
+| `worker_query` | `id`, `execution`, `client_key` | `id`, `found`, `interaction`? | `worker_error` |
+| `worker_history` | `id`, `execution`, `cursor`? | `id`, `interactions`, `cursor`, `more` | `worker_error` |
+| `worker_receipts` | `id`, `execution`, `interaction`, `cursor`? | `id`, `receipts`, `cursor`, `more` | `worker_error` |
+| `worker_output_subscribe` | `id`, `execution`, `cursor`? | `id`, `subscription`, `view`, `stream`, `cursor`, `reset`? | `worker_output_error`: `id`, `error`, `view`?, `reset`? |
+| `worker_output_next` | `id`, `subscription`, `cursor` | `id`, `subscription`, `stream`, `events`, `cursor`, `more`, `reset`?, `view`? | `worker_output_error` |
+| `worker_output_unsubscribe` | `id`, `subscription` | `id`, `subscription` | `worker_output_error` |
+
+(`?`: optional.) Control sends no worker message unasked: output is read with
+`worker_output_next`, and the worker pages themselves change by the session's `hint` pages.
+`worker_overview` stays an operation without an endpoint: no worker page sends it. Declaring
+these endpoints changed no byte on the wire, so neither the block version (0.16.0) nor the
+worker version (0.1.0) moved, and no client is refused.
 
 Generate with the same `mix atlas.gen` command. Named actor grants, durable outcome
 semantics, bounds, generic-page limits and the outstanding Runtime integration are

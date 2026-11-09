@@ -82,6 +82,57 @@ defmodule AtlasBFFContract.Endpoints do
 
       defendpoint :cancel, wire: :cancel, call: :cancel, replies: [plan: :plan]
       defendpoint :stop, wire: :stop, call: :stop, replies: [plan: :plan, notice: :notice]
+
+      # The worker pages' typed messages (Wire.Control.Workers, version 0.1.0): each request
+      # carries an `id`, which its `<op>_result` or `<op>_error` repeats. Control sends no
+      # worker message unasked; output is read with worker_output_next.
+      defendpoint :worker_inspect,
+        wire: :worker_inspect,
+        call: :worker_inspect,
+        takes: :worker_inspect_request,
+        replies: [result: :worker_inspect_result, error: :worker_error]
+
+      defendpoint :worker_submit,
+        wire: :worker_submit,
+        call: :worker_submit,
+        takes: :worker_submit_request,
+        replies: [result: :worker_submit_result, error: :worker_error]
+
+      defendpoint :worker_query,
+        wire: :worker_query,
+        call: :worker_query,
+        takes: :worker_query_request,
+        replies: [result: :worker_query_result, error: :worker_error]
+
+      defendpoint :worker_history,
+        wire: :worker_history,
+        call: :worker_history,
+        takes: :worker_history_request,
+        replies: [result: :worker_history_result, error: :worker_error]
+
+      defendpoint :worker_receipts,
+        wire: :worker_receipts,
+        call: :worker_receipts,
+        takes: :worker_receipts_request,
+        replies: [result: :worker_receipts_result, error: :worker_error]
+
+      defendpoint :worker_output_subscribe,
+        wire: :worker_output_subscribe,
+        call: :worker_output_subscribe,
+        takes: :worker_output_subscribe_request,
+        replies: [result: :worker_output_subscribe_result, error: :worker_output_error]
+
+      defendpoint :worker_output_next,
+        wire: :worker_output_next,
+        call: :worker_output_next,
+        takes: :worker_output_next_request,
+        replies: [result: :worker_output_next_result, error: :worker_output_error]
+
+      defendpoint :worker_output_unsubscribe,
+        wire: :worker_output_unsubscribe,
+        call: :worker_output_unsubscribe,
+        takes: :worker_output_unsubscribe_request,
+        replies: [result: :worker_output_unsubscribe_result, error: :worker_output_error]
     end
   end
 end
