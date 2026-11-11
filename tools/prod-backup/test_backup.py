@@ -195,7 +195,7 @@ class BackupTest(unittest.TestCase):
             with self.assertRaises(backup.Refused): backup.fly(['status','-a','eyra-atlas','--json'])
         self.assertFalse((self.root/'calls.jsonl').exists())
 
-    def test_unreadable_state_is_not_a_verified_backup(self):
+    def test_unreadable_facts_data_is_not_a_verified_backup(self):
         file = self.root/'eyra-atlas/data/beam/ledger.dets';file.write_bytes(b'damaged')
         with self.assertRaises(backup.Refused): self.execute()
         self.assertFalse((self.root/'output/proof.json').exists())

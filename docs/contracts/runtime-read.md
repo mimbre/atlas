@@ -57,7 +57,11 @@ A **turn summary** has only these fields; absent values are `null` or omitted:
   Server attempt of a Server-reported turn, otherwise `null`.
 - `state`: `running`, `stopping`, `killing`, `finished`, `failed`, `stopped`, `killed` or
   `unknown`. A turn saved as running, stopping or killing by a service that is gone is
-  `unknown` with that `recorded_state`.
+  `unknown` with that `recorded_state`. At start, a service ends such a turn whose process is
+  provably gone (its recorded PID runs no process and leads no process group, or now belongs
+  to a process started at another time): `failed`, an `error` beginning `interrupted:`, that
+  `recorded_state`, and one `execution_failed` event with `interruption: "service_restart"`.
+  A turn whose process may still run stays.
 - `backend`, `requested_model`, `model` (as confirmed), `questions_enabled`.
 - `pending_question`: `{question_id, revision}` or `null`; question text is not returned.
 - `started_at`, `ended_at`, `activity` (the latest generic activity summary while live,
@@ -76,8 +80,10 @@ provider produced. They are returned as is and may contain paths or other user c
 
 An **execution event** has `sequence`, `kind`, `turn_id`, `worker_id` and `timestamp`, plus,
 where the event has them, `backend`, `model`, `operation`, `question_id`, `revision`,
-`peer_worker_id`, `peer_source_turn_id` and `response_turn_id`. Session IDs and record
-references are omitted. `execution_finished` is not task verification.
+`peer_worker_id`, `peer_source_turn_id`, `response_turn_id` and `interruption`. Session IDs
+and record references are omitted. `interruption` is `"service_restart"` only on the
+`execution_failed` of a turn a starting service ended because the service that ran it was
+gone and so was its process; an ordinary failure has no `interruption`. `execution_finished` is not task verification.
 
 ## Cursors, reconnect and gaps
 

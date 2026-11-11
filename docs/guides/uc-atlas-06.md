@@ -32,13 +32,13 @@ In prod the coordinator's count includes the facts that were done before IS-Atla
 
 The Assignment has an optional `deadline`, a date and time in UTC. Late is worked out on every read, as Progress is, and never stored. An Assignment is late while its deadline has passed and something is still expected of its owner, so while its fact is not done. Nothing else changes when it is late (SC-Atlas-02 step 9).
 
-It is description, plus one general rule in State and Control:
+It is description, plus one general rule in Facts and Control:
 
 - **`rela/schema.yaml`:** `deadline: { type: datetime }` on the assignment.
 - **`rela/atlas.json`:** the assignment kind gets
   - `late: {after: deadline, while: expected, label: late}`;
   - `by_hand: "update"`: its page offers `u` to change it, and nothing to make or delete one, because an Assignment goes with its fact.
-- **State:** it answers `late` with every fact of a kind with a late rule, plain reads too, and refuses a deadline that is not a date and time. rela itself would store one with only a warning.
+- **Facts:** it answers `late` with every fact of a kind with a late rule, plain reads too, and refuses a deadline that is not a date and time. rela itself would store one with only a warning.
 - **Control:**
   - a page shows `Deadline  2026-11-04 17:00 UTC · late`;
   - a list row supplies `Late · deadline 2026-11-04 17:00`, with late first; the TUI clips the date to fit its compact summary column;
@@ -102,7 +102,7 @@ It is description, plus one general condition in Flow:
 
 - **`rela/atlas.json`** (flow `test_and_accept`): `break_down` comes before `building`, with `when: {empty: in_scene}`.
 - **Flow:** `empty: <relation>` holds when nothing is under the fact through that parent relation. It never holds for a kind nothing belongs under through it. So a use case (nothing is `in_scene` under a use case) is never in `break_down`, and a use case without issues stays "Build it".
-- **State's check:** an `empty` must name a parent relation that puts something under one of the flow's kinds.
+- **Facts' check:** an `empty` must name a parent relation that puts something under one of the flow's kinds.
 
 In prod, after the merge, every scene without use cases moves from "Build it" to "Break it down into use cases and issues". The owner stays the coordinator, or whoever it was handed to.
 
@@ -137,7 +137,7 @@ It is description, plus Control's list of the kind the start's relation starts a
   - the list of the Assignment kind (`/k/assignment`, no new page in the contract) is Open work. It reads every Assignment and every fact they belong to, and shows the open ones.
   - `atlas list assignment` gives the same rows, one per open fact, by the fact's key.
 
-Control gathers Open work's unfiltered collection reads in one internal State request. Within that request, State reuses successful raw collection results when progress or completion needs the same collection again; pagination, enrichment and the complete page output stay unchanged. The data is discarded when the request ends, failed reads are not cached, and every later page request reads fresh data. This does not introduce a public protocol operation or a cross-request cache.
+Control gathers Open work's unfiltered collection reads in one internal Facts request. Within that request, Facts reuses successful raw collection results when progress or completion needs the same collection again; pagination, enrichment and the complete page output stay unchanged. The data is discarded when the request ends, failed reads are not cached, and every later page request reads fresh data. This does not introduce a public protocol operation or a cross-request cache.
 
 If any required collection fails, Open work shows the existing unavailable page with the read error instead of a partial list or the empty-state message. Successful collections do not make the result complete. A later successful request restores the current rows; only a fully successful read can report that nothing is open.
 

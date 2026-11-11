@@ -2024,6 +2024,324 @@ defmodule AtlasCodeTest do
       refute File.exists?(Path.join(home, "integrations"))
       assert git(remote, ["rev-parse", "refs/heads/develop"]) == base <> "\n"
     end
+
+    test "an update fast-forwards the pull request to the change's tree once; integration follows it",
+         %{tmp_dir: dir, port: port, home: home, remote: remote, sealed: sealed} do
+      first = sealed.(uuid(120), "github.com/test/app", %{"README.md" => "first\n"})
+      {200, _} = orchestrate(port, "/v1/reviews", review(uuid(121), uuid(120)))
+      calls = File.read!(Path.join(dir, "gh-calls"))
+      location = "refs/heads/work/review-" <> uuid(121)
+
+      # The rework was made from the base again; the update still carries exactly its content.
+      second =
+        sealed.(uuid(122), "github.com/test/app", %{
+          "README.md" => "second\n",
+          "other.txt" => "changed\n"
+        })
+
+      fpr = fingerprint_of(home, uuid(122))
+      body = review_update(uuid(123), uuid(121), uuid(122), first, fpr)
+      {update_id, review_id, change_id} = {uuid(123), uuid(121), uuid(122)}
+
+      assert {200,
+              %{
+                "update_id" => ^update_id,
+                "review_id" => ^review_id,
+                "change_id" => ^change_id,
+                "repository" => "github.com/test/app",
+                "previous_revision" => ^first,
+                "revision" => updated,
+                "state" => "open",
+                "review_url" => "https://github.com/test/app/pull/7"
+              } = reply} = orchestrate(port, "/v1/review-updates", body)
+
+      child = commit_of(home, updated)
+      refute updated in [first, second]
+      assert git(remote, ["rev-parse", location]) == child <> "\n"
+      assert git(remote, ["rev-parse", child <> "^@"]) == commit_of(home, first) <> "\n"
+
+      # The sealed change exists only in Code's cache; the child carries its exact tree.
+      [cache] =
+        Path.wildcard(Path.join([home, "cache", "*.git"]))
+        |> Enum.filter(&commit?(&1, commit_of(home, second)))
+
+      assert git(remote, ["rev-parse", child <> "^{tree}"]) ==
+               git(cache, ["rev-parse", commit_of(home, second) <> "^{tree}"])
+
+      assert git(remote, ["show", child <> ":other.txt"]) == "changed\n"
+
+      # Fixed identity, dated by its parent: the child depends only on the update.
+      assert git(remote, ["log", "-1", "--format=%an <%ae>|%cn <%ce>|%ct", child]) ==
+               git(remote, [
+                 "log",
+                 "-1",
+                 "--format=Atlas Code <atlas-code@localhost>|Atlas Code <atlas-code@localhost>|%ct",
+                 commit_of(home, first)
+               ])
+
+      # One fast-forward of the location, and the pull request follows it without a provider call.
+      assert reflog(remote, location) == 2
+      assert File.read!(Path.join(dir, "gh-calls")) == calls
+      assert {200, ^reply} = orchestrate(port, "/v1/review-updates", body)
+
+      review_file = Path.join([home, "reviews", uuid(121) <> ".json"])
+
+      assert %{"revision" => ^updated, "change_id" => "00000000-0000-4000-8000-000000000122"} =
+               original = review_file |> File.read!() |> JSON.decode!()
+
+      assert original["updates"] == [uuid(123)]
+
+      assert {200,
+              %{"revision" => ^updated, "change_id" => "00000000-0000-4000-8000-000000000122"}} =
+               orchestrate(port, "/v1/reviews", review(uuid(121), uuid(120)))
+
+      # Responses lost after the push: the location moved, the update record did not, and the
+      # review record did (first repeat) or did not (second).
+      file = Path.join([home, "review-updates", uuid(123) <> ".json"])
+      record = file |> File.read!() |> JSON.decode!()
+      File.write!(file, JSON.encode!(%{record | "phase" => "pushing"}))
+      assert {200, ^reply} = orchestrate(port, "/v1/review-updates", body)
+      assert JSON.decode!(File.read!(review_file)) == original
+      File.write!(file, JSON.encode!(%{record | "phase" => "pushing"}))
+
+      File.write!(
+        review_file,
+        JSON.encode!(
+          Map.drop(%{original | "revision" => first, "change_id" => uuid(120)}, ["updates"])
+        )
+      )
+
+      assert {200, ^reply} = orchestrate(port, "/v1/review-updates", body)
+      assert JSON.decode!(File.read!(review_file)) == original
+
+      # Code stopped before recording the update: the repeat derives the same commit, finds it
+      # pushed and claims its private ref again, which a different commit could not.
+      File.rm!(file)
+
+      File.write!(
+        review_file,
+        JSON.encode!(
+          Map.drop(%{original | "revision" => first, "change_id" => uuid(120)}, ["updates"])
+        )
+      )
+
+      assert {200, ^reply} = orchestrate(port, "/v1/review-updates", body)
+      assert JSON.decode!(File.read!(review_file)) == original
+      assert reflog(remote, location) == 2
+
+      for other <- [
+            %{body | "fingerprint" => fingerprint(1)},
+            %{body | "change_id" => uuid(120)},
+            %{body | "revision" => updated}
+          ] do
+        assert {409, %{"error" => %{"code" => "conflict"}}} =
+                 orchestrate(port, "/v1/review-updates", other)
+      end
+
+      # Integration now requires the update: the old revision and the old content are refused.
+      {200, %{"revision" => target}} = resolve(port, "github.com/test/plain", "develop")
+      target = AtlasCode.put_revision(home, "github.com/test/app", commit_of(home, target))
+      old = integration(uuid(124), uuid(121), first, target)
+
+      assert {409,
+              %{
+                "error" => %{
+                  "code" => "revision_mismatch",
+                  "details" => %{"revision" => ^updated}
+                }
+              }} =
+               orchestrate(port, "/v1/integrations", old)
+
+      assert {409, %{"error" => %{"code" => "fingerprint_mismatch"}}} =
+               orchestrate(
+                 port,
+                 "/v1/integrations",
+                 Map.put(
+                   %{old | "revision" => updated},
+                   "fingerprint",
+                   fingerprint_of(home, uuid(120))
+                 )
+               )
+
+      assert {200, %{"method" => "fast_forward", "revision" => ^updated, "state" => "integrated"}} =
+               orchestrate(
+                 port,
+                 "/v1/integrations",
+                 Map.put(integration(uuid(125), uuid(121), updated, target), "fingerprint", fpr)
+               )
+
+      assert git(remote, ["rev-parse", "refs/heads/develop"]) == child <> "\n"
+    end
+
+    test "every update check refuses before any record or remote effect", %{
+      port: port,
+      pid: pid,
+      home: home,
+      remote: remote,
+      base: base,
+      sealed: sealed,
+      snapshot_id: snapshot_id,
+      revisions: revisions
+    } do
+      first = sealed.(uuid(130), "github.com/test/plain", %{"README.md" => "first\n"})
+      {200, _} = orchestrate(port, "/v1/reviews", review(uuid(131), uuid(130)))
+      sealed.(uuid(132), "github.com/test/plain", %{"README.md" => "second\n"})
+      sealed.(uuid(133), "github.com/test/app", %{"README.md" => "elsewhere\n"})
+
+      {200, %{"state" => "open"}} =
+        submit(port, %{
+          "change_id" => uuid(134),
+          "snapshot_id" => snapshot_id,
+          "repository" => "github.com/test/plain",
+          "base_revision" => revisions["plain"],
+          "entries" => [write("README.md", "open\n")]
+        })
+
+      git(remote, ["update-ref", "refs/heads/work/review-#{uuid(135)}", base])
+      {409, _} = orchestrate(port, "/v1/reviews", review(uuid(135), uuid(130)))
+      fpr = fingerprint_of(home, uuid(132))
+      ok = review_update(uuid(136), uuid(131), uuid(132), first, fpr)
+      refs = git(remote, ["for-each-ref"])
+
+      for body <- [
+            "not json",
+            Map.delete(ok, "fingerprint"),
+            %{ok | "fingerprint" => nil},
+            %{ok | "fingerprint" => "fpr_" <> String.duplicate("A", 64)},
+            Map.put(ok, "extra", 1),
+            Map.put(ok, "target", "develop"),
+            %{ok | "update_id" => "x"},
+            %{ok | "review_id" => 1},
+            %{ok | "change_id" => uuid(132) <> "0"},
+            %{ok | "revision" => commit_of(home, first)}
+          ] do
+        assert {400, %{"error" => %{"code" => "invalid_request"}}} =
+                 orchestrate(port, "/v1/review-updates", body)
+      end
+
+      assert {403, %{"error" => %{"code" => "forbidden"}}} =
+               orchestrate(port, "/v1/review-updates", ok, @token)
+
+      refusals = [
+        {%{ok | "review_id" => uuid(139)}, 404, "not_found", %{"review_id" => uuid(139)}},
+        {%{ok | "review_id" => uuid(135)}, 409, "review_not_open", %{"review_id" => uuid(135)}},
+        {%{ok | "change_id" => uuid(138)}, 404, "not_found", %{"change_id" => uuid(138)}},
+        {%{ok | "change_id" => uuid(134)}, 409, "change_not_sealed", %{"change_id" => uuid(134)}},
+        {%{ok | "change_id" => uuid(133)}, 409, "repository_mismatch",
+         %{"repository" => "github.com/test/plain"}},
+        {%{ok | "revision" => rev(0)}, 409, "revision_mismatch", %{"revision" => first}},
+        {%{ok | "fingerprint" => fingerprint(1)}, 409, "fingerprint_mismatch",
+         %{"change_id" => uuid(132), "fingerprint" => fpr}}
+      ]
+
+      for {body, status, code, details} <- refusals do
+        assert {^status, %{"error" => %{"code" => ^code, "details" => got}}} =
+                 orchestrate(port, "/v1/review-updates", body)
+
+        assert Map.take(got, Map.keys(details)) == details, code
+      end
+
+      # The repository is no longer allowed, then its remote is one Code's cache does not hold.
+      config = Path.join(home, "config.json")
+      allowed = config |> File.read!() |> JSON.decode!()
+      AtlasCode.stop(pid)
+
+      for {repositories, status, code} <- [
+            {Map.delete(allowed["repositories"], "github.com/test/plain"), 403, "forbidden"},
+            {%{allowed["repositories"] | "github.com/test/plain" => "file://" <> remote <> "/."},
+             409, "conflict"}
+          ] do
+        File.write!(config, JSON.encode!(%{allowed | "repositories" => repositories}))
+        {:ok, pid, port} = AtlasCode.start(home)
+
+        assert {^status, %{"error" => %{"code" => ^code}}} =
+                 orchestrate(port, "/v1/review-updates", ok)
+
+        AtlasCode.stop(pid)
+      end
+
+      File.write!(config, JSON.encode!(allowed))
+      {:ok, pid, port} = AtlasCode.start(home)
+      on_exit(fn -> AtlasCode.stop(pid) end)
+
+      assert git(remote, ["for-each-ref"]) == refs
+      refute File.exists?(Path.join(home, "review-updates"))
+
+      assert %{"revision" => ^first, "change_id" => "00000000-0000-4000-8000-000000000130"} =
+               JSON.decode!(File.read!(Path.join([home, "reviews", uuid(131) <> ".json"])))
+
+      # Every refused update ID is still free.
+      assert {200, %{"previous_revision" => ^first}} =
+               orchestrate(port, "/v1/review-updates", ok)
+    end
+
+    test "a location moved by someone else or refused by the remote is never overwritten", %{
+      port: port,
+      home: home,
+      remote: remote,
+      sealed: sealed
+    } do
+      first = sealed.(uuid(140), "github.com/test/plain", %{"README.md" => "first\n"})
+      {200, _} = orchestrate(port, "/v1/reviews", review(uuid(141), uuid(140)))
+      sealed.(uuid(142), "github.com/test/plain", %{"README.md" => "second\n"})
+      fpr = fingerprint_of(home, uuid(142))
+      location = "refs/heads/work/review-" <> uuid(141)
+      pushed = on_top(remote, location)
+
+      body = review_update(uuid(143), uuid(141), uuid(142), first, fpr)
+
+      assert {409,
+              %{"error" => %{"code" => "location_moved", "details" => %{"current" => current}}} =
+                error} = orchestrate(port, "/v1/review-updates", body)
+
+      assert commit_of(home, current) == pushed
+      assert {409, ^error} = orchestrate(port, "/v1/review-updates", body)
+      assert git(remote, ["rev-parse", location]) == pushed <> "\n"
+
+      assert %{"revision" => ^first, "change_id" => "00000000-0000-4000-8000-000000000140"} =
+               JSON.decode!(File.read!(Path.join([home, "reviews", uuid(141) <> ".json"])))
+
+      # A person pushed on top of our update after its response was lost: it still counts.
+      sealed.(uuid(144), "github.com/test/plain", %{"README.md" => "landed\n"})
+      {200, _} = orchestrate(port, "/v1/reviews", review(uuid(145), uuid(144)))
+      sealed.(uuid(146), "github.com/test/plain", %{"README.md" => "after\n"})
+
+      landed =
+        review_update(
+          uuid(147),
+          uuid(145),
+          uuid(146),
+          commit_revision(home, uuid(144)),
+          fingerprint_of(home, uuid(146))
+        )
+
+      assert {200, reply} = orchestrate(port, "/v1/review-updates", landed)
+      file = Path.join([home, "review-updates", uuid(147) <> ".json"])
+      File.write!(file, JSON.encode!(%{JSON.decode!(File.read!(file)) | "phase" => "pushing"}))
+      on_top(remote, "refs/heads/work/review-" <> uuid(145))
+      assert {200, ^reply} = orchestrate(port, "/v1/review-updates", landed)
+
+      # Branch policy on the remote refuses the location's update.
+      sealed.(uuid(148), "github.com/test/plain", %{"README.md" => "protected\n"})
+
+      {200, %{"revision" => protected}} =
+        orchestrate(port, "/v1/reviews", review(uuid(149), uuid(148)))
+
+      hook = Path.join([remote, "hooks", "pre-receive"])
+      File.write!(hook, "#!/bin/sh\necho \"work branches are protected\" >&2\nexit 1\n")
+      File.chmod!(hook, 0o755)
+      refused = review_update(uuid(150), uuid(149), uuid(142), protected, fpr)
+
+      assert {409, %{"error" => %{"code" => "update_refused"}} = error} =
+               orchestrate(port, "/v1/review-updates", refused)
+
+      refute JSON.encode!(error) =~ "protected"
+      File.rm!(hook)
+      assert {409, ^error} = orchestrate(port, "/v1/review-updates", refused)
+
+      assert git(remote, ["rev-parse", "refs/heads/work/review-" <> uuid(149)]) ==
+               commit_of(home, protected) <> "\n"
+    end
   end
 
   describe "migration" do
@@ -2497,6 +2815,46 @@ defmodule AtlasCodeTest do
       "revision" => revision,
       "target_revision" => target
     }
+
+  defp review_update(id, review, change, revision, fingerprint),
+    do: %{
+      "update_id" => id,
+      "review_id" => review,
+      "change_id" => change,
+      "revision" => revision,
+      "fingerprint" => fingerprint
+    }
+
+  # The sealed revision of a change, from Code's own record.
+  defp commit_revision(home, change),
+    do: File.read!(Path.join([home, "changes", change, "revision"]))
+
+  # A third party's commit on top of `ref` in the bare remote, made without a work tree.
+  defp on_top(remote, ref) do
+    head = remote |> git(["rev-parse", ref]) |> String.trim()
+
+    commit =
+      remote
+      |> git([
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@t",
+        "commit-tree",
+        head <> "^{tree}",
+        "-p",
+        head,
+        "-m",
+        "pushed by someone else"
+      ])
+      |> String.trim()
+
+    git(remote, ["update-ref", ref, commit])
+    commit
+  end
+
+  defp reflog(remote, ref),
+    do: remote |> git(["reflog", "show", ref]) |> String.split("\n", trim: true) |> length()
 
   defp uuid(n),
     do: "00000000-0000-4000-8000-" <> String.pad_leading(Integer.to_string(n), 12, "0")

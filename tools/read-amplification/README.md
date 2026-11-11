@@ -1,6 +1,6 @@
 # Private description-read investigation (GitHub86)
 
-This probe runs actual Bus, State and Control against a synthetic memory backend,
+This probe runs actual Bus, Facts and Control against a synthetic memory backend,
 tiny private DETS files and a loopback port chosen by the OS. It starts no Flow,
 Runtime, model or external HTTP service. It is a diagnostic fixture, not a live
 load test. The output directory is explicit and fixtures are retained.
@@ -14,7 +14,7 @@ MIX_ENV=test ELIXIR_ERL_OPTIONS='+S 1:1' \
 ```
 
 The backend delay and release gate expose the request chain; a Router trace
-records read identities and queued State work. Six refresh frames are a finite
+records read identities and queued Facts work. Six refresh frames are a finite
 private experiment, with no artificial CPU load or repeated production probes.
 
 Observed before the fix, at source8730fac:
@@ -22,7 +22,7 @@ Observed before the fix, at source8730fac:
 | Case | Observation |
 | --- | --- |
 | One logical description read | Two backend schema fetches instead of one |
-| 300ms schema callback, 500ms wait, 1500ms logical budget | False State unavailable at1503ms; three distinct read IDs, five schema fetches begun |
+| 300ms schema callback, 500ms wait, 1500ms logical budget | False Facts unavailable at1503ms; three distinct read IDs, five schema fetches begun |
 | Six refreshes queued during one gated refresh | Seven renders, fourteen schema fetches |
 
 After removing only the redundant entity-kind prefetch for metadata reads:
@@ -40,7 +40,7 @@ responses without stale success, and refusal of a fact using the reserved kind.
 The observational refresh case intentionally records the remaining non-coalesced
 behavior; it is not a desired future contract. A later queue/coalescing change may
 update that experiment. Fresh-ID retries, late replies, reconcile amplification
-and State serialization remain open under [GitHub86](https://github.com/eyra/atlas/issues/86).
+and Facts serialization remain open under [GitHub86](https://github.com/eyra/atlas/issues/86).
 This slice does not redesign or claim to resolve them.
 
 No live deployment, restart, resource/auth change or production causality is

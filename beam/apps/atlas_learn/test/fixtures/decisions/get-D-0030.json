@@ -1,0 +1,1 @@
+{"key":"D-0030","path":"/k/_/D-0030","title":"Learn runs once a day","fields":[],"origins":{},"values":{"status":"accepted","decided_at":"2026-11-10T12:00:00Z"},"lists":[{"title":"supersedes","rows":[{"key":"D-0003","label":"Test and prod never connect","path":"/k/ledger/D-0003"}]},{"title":"Assignment","rows":[{"key":"AS-0007","label":"x","path":"/k/other/AS-0007"}]}]}

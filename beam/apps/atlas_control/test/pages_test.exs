@@ -453,7 +453,7 @@ defmodule AtlasControl.PagesTest do
           |> put_in(["entities", "part", "progress"], %{"over" => "on_part"})
           |> put_in(["entities", "widget", "properties", "shade", "label"], "Look")
 
-  test "a list shows how far each fact is, as State works it out, in place of its own field" do
+  test "a list shows how far each fact is, as Facts works it out, in place of its own field" do
     answer = %{
       "facts" => [
         Map.put(fact("W-1", %{"title" => "One", "shade" => "dark"}), "progress", %{
@@ -994,7 +994,7 @@ defmodule AtlasControl.PagesTest do
   end
 
   # Tasks are made and deleted with something else, changed by hand only; each has an
-  # optional time it is due, and is late (State says) once that has passed.
+  # optional time it is due, and is late (Facts says) once that has passed.
   @due @d
        |> put_in(["entities", "task"], %{
          "label" => "Task",
@@ -1028,7 +1028,7 @@ defmodule AtlasControl.PagesTest do
     assert Enum.map(item["actions"], & &1["key"]) == ["u"]
     assert %{"label" => "Due", "value" => "2026-11-04 11:00 UTC · overdue"} in item["fields"]
 
-    # Not late (State left it out): the time alone.
+    # Not late (Facts left it out): the time alone.
     answers = [%{"fact" => Map.delete(task, "late")} | tl(answers)]
     %{blocks: [%{"props" => item} | _]} = Pages.render({:item, "task", "T-1"}, @due, answers)
     assert %{"label" => "Due", "value" => "2026-11-04 11:00 UTC"} in item["fields"]
@@ -1051,6 +1051,38 @@ defmodule AtlasControl.PagesTest do
 
     assert Pages.values_for(spec, %{"due" => "tomorrow"}) == %{"due" => "tomorrow"}
     assert Pages.values_for(spec, %{"due" => ""}) == %{"due" => ""}
+  end
+
+  test "a fact Facts says is to be reviewed: the page says why, a list says it first" do
+    task =
+      fact("T-1", %{"title" => "Wrap", "todo" => "Wrap it"})
+      |> Map.put("review", %{
+        "label" => "Review: its pattern was replaced",
+        "through" => "cut_from",
+        "key" => "P-2",
+        "field" => "status",
+        "value" => "replaced"
+      })
+
+    answers =
+      [
+        %{"fact" => task}
+        | for(_ <- tl(Pages.reads({:item, "task", "T-1"}, @due)), do: %{"facts" => []})
+      ]
+
+    %{blocks: [%{"props" => item} | _]} = Pages.render({:item, "task", "T-1"}, @due, answers)
+
+    assert %{"label" => "Review: its pattern was replaced", "value" => "P-2 replaced"} in item[
+             "fields"
+           ]
+
+    %{blocks: [%{"props" => list}]} = Pages.render({:list, "task"}, @due, [%{"facts" => [task]}])
+    assert [%{"detail" => "Review: its pattern was replaced · P-2"}] = list["rows"]
+
+    # Nothing to review (Facts left it out): nothing said.
+    answers = [%{"fact" => Map.delete(task, "review")} | tl(answers)]
+    %{blocks: [%{"props" => item} | _]} = Pages.render({:item, "task", "T-1"}, @due, answers)
+    refute Enum.any?(item["fields"], &(&1["label"] =~ "Review"))
   end
 
   # Checked by: an action that changes it whether it is set or not, asking the widget's
@@ -1389,7 +1421,7 @@ defmodule AtlasControl.PagesTest do
              )
   end
 
-  test "a relation to several kinds: the row opens the kind State says the key is" do
+  test "a relation to several kinds: the row opens the kind Facts says the key is" do
     answer = %{
       "fact" =>
         fact("W-1", %{"title" => "One"})
@@ -1891,9 +1923,9 @@ defmodule AtlasControl.PagesTest do
       {title, confirm["text"]}
     end
 
-    assert page.(%{"error" => "State did not answer"}) ==
-             {"State did not answer",
-              "State did not answer. Showing nothing rather than something old."}
+    assert page.(%{"error" => "Facts did not answer"}) ==
+             {"Facts did not answer",
+              "Facts did not answer. Showing nothing rather than something old."}
 
     assert {"rela is not reachable", "rela is not reachable. " <> _} =
              page.(%{"error" => "rela is not reachable", "error_kind" => "unreachable"})

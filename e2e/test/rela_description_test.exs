@@ -41,7 +41,7 @@ defmodule AtlasE2E.RelaDescriptionTest do
         "bin" => bin,
         "extra" => "rela/atlas.json"
       },
-      "state" => %{"data" => Path.join(dir, "beam")},
+      "facts" => %{"data" => Path.join(dir, "beam")},
       "reconcile_seconds" => 5
     }
 

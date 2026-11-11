@@ -41,7 +41,7 @@ defmodule AtlasBFFContract.Blocks do
         field :confirm_label, :string
         field :confirm_to, :call
         field :cancel_to, :string, required: true
-        # Optional failure code from State; never inferred from the human explanation.
+        # Optional failure code from Facts; never inferred from the human explanation.
         field :code, :string
       end
 

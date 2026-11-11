@@ -7,7 +7,7 @@ defmodule AtlasTui.WorkerOutput do
   keeps the accepted cursor and permits an explicit `next/1` replay attempt.
   Disconnect invalidates the viewer subscription, not the worker. Its owner
   closes the isolated Control connection (or unsubscribes before closing it).
-  Cursors remain opaque and are never interpreted as State history positions.
+  Cursors remain opaque and are never interpreted as Facts history positions.
   """
   alias AtlasBFFContract.Wire.Control.Workers.Protocol, as: Wire
   alias AtlasTui.Blocks

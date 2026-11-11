@@ -35,9 +35,13 @@ defmodule AtlasRuntime.PeerQuestionServiceTest do
     }
   end
 
+  # Every relaunch follows `stop_service/1`, which ends the agents with the service, so a turn
+  # still running then was interrupted by the restart. Its native process exits on its own
+  # time; the probe states that outcome instead of racing `ps` for it.
   defp launch(dir) do
     File.rm(Path.join(dir, "runtime.sock"))
-    {:ok, pid} = GenServer.start(Service, dir)
+    probe = fn _pid, _started -> {:gone, "stopped with the previous service"} end
+    {:ok, pid} = GenServer.start(Service, {dir, nil, [], [process_probe: probe]})
     on_exit(fn -> stop_service(pid) end)
     pid
   end
@@ -576,6 +580,15 @@ defmodule AtlasRuntime.PeerQuestionServiceTest do
     assert checkpoint["published_revision"] == 2
     assert checkpoint["transitions"] == []
     journal = events(pid)
+
+    # The restart interrupted the sender's pending turn: reconciliation reports it exactly once,
+    # last, and the second restart below finds it terminal and adds nothing.
+    assert [%{"kind" => "execution_failed", "interruption" => "service_restart"} = failed] =
+             Enum.filter(journal, &(&1["kind"] == "execution_failed"))
+
+    assert failed["turn_id"] == context.sender.id
+    assert List.last(journal) == failed
+    assert failed["sequence"] > invalidation["sequence"]
     stop_service(pid)
 
     File.write!(

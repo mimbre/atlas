@@ -1,0 +1,199 @@
+# Complete definitions; included paths are relative to the selected root.
+types:
+  issue_stage:
+    values:
+    - specification
+    - design
+    - development
+    labels:
+      specification: Specification
+      design: Design
+      development: Development
+  pull_request_state:
+    values:
+    - open
+    - closed
+    - merged
+    labels:
+      open: Open
+      closed: Closed
+      merged: Merged
+  github_pull_url:
+    description: The web address of a GitHub pull request
+    validations:
+    - pattern: ^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[0-9]+$
+      error: Must be a GitHub pull request URL, e.g. https://github.com/eyra/atlas/pull/12
+entities:
+  issue:
+    label: Issue
+    plural: issues
+    aliases:
+    - is
+    id_type: manual
+    id_prefix: IS-
+    description: 'Small, independently testable work, normally one pull request (Flux''s
+
+      meaning). The id is its Atlas code, e.g. IS-Atlas-01.
+
+      '
+    properties:
+      title:
+        type: string
+        required: true
+        description: 'Without the code (Flux: name)'
+      description:
+        type: string
+        description: 'The text (Flux: description)'
+      flux_id:
+        type: string
+        unique: true
+        description: Flux (Basecamp) id, set by a later Flux sync
+      stage:
+        type: issue_stage
+        description: 'Flux: stage'
+      flux_ref:
+        type: string
+        unique: true
+        description: Flux's own issue code (ref), e.g. NEXT-240, set by a later Flux sync
+      pass_result:
+        type: string
+        description: 'Flow: how the last pass ended (none, delivered, failed)'
+      gate_result:
+        type: string
+        description: 'Flow: the last gate verdict, or a maintainer''s choice (none, review, rework, ready, person, close)'
+      effect_result:
+        type: string
+        description: 'Flow: how publishing the pull request ended (none, done, refused)'
+      pr_outcome:
+        type: string
+        description: 'Flow: where its pull request is (none, open, changes_requested, integrated, closed)'
+  pull_request:
+    label: Pull request
+    plural: pull_requests
+    aliases:
+    - pr
+    id_type: manual
+    id_prefix: PR-
+    description: 'A GitHub pull request for an issue. Linked by URL; a GitHub connector
+
+      fills title and state later. The id is derived from the URL,
+
+      PR-<owner>-<repo>-<number>, so linking the same URL twice is one record.
+
+      '
+    properties:
+      url:
+        type: github_pull_url
+        required: true
+        unique: true
+        description: 'GitHub: url'
+      title:
+        type: string
+        description: 'GitHub: title'
+      state:
+        type: pull_request_state
+        description: 'GitHub: state'
+      draft:
+        type: boolean
+        default: false
+        description: 'GitHub: isDraft'
+      review_outcome:
+        type: string
+        description: 'Flow: how its review ended (none, approved, changes_requested)'
+      test_outcome:
+        type: string
+        description: 'Flow: how its test ended (none, passed, failed)'
+      update:
+        type: string
+        description: 'Flow: updated when a new revision arrives after changes were requested (none, updated)'
+      integration:
+        type: string
+        description: 'Flow: how integrating it ended, or a maintainer''s retry (none, done, refused, retry)'
+  pr_review:
+    label: PR review
+    plural: pr_reviews
+    id_type: short
+    id_prefix: PRR-
+    description: 'The review of one pull request by a person, created by the pull request''s
+
+      flow. Its outcome is reported back to the pull request.
+
+      '
+    properties:
+      title:
+        type: string
+        required: true
+        description: What is reviewed
+      verdict:
+        type: string
+        description: 'The reviewer''s verdict: approved or changes_requested'
+      superseded:
+        type: boolean
+        default: false
+        description: True when a newer revision of the pull request replaced this review
+  pr_test:
+    label: PR test
+    plural: pr_tests
+    id_type: short
+    id_prefix: PRT-
+    description: 'The test of one pull request by a person, created by the pull request''s
+
+      flow. Its outcome is reported back to the pull request.
+
+      '
+    properties:
+      title:
+        type: string
+        required: true
+        description: What is tested
+      verdict:
+        type: string
+        description: 'The tester''s verdict: passed or failed'
+      superseded:
+        type: boolean
+        default: false
+        description: True when a newer revision of the pull request replaced this test
+relations:
+  in_issue:
+    label: in issue
+    description: A pull request belongs to at most one issue; an issue has zero or more pull requests.
+    from:
+    - pull_request
+    to:
+    - issue
+    max_outgoing: 1
+    inverse:
+      id: pull_requests
+      label: pull requests
+  review_of:
+    label: review of
+    description: A review belongs to one pull request; a pull request has its reviews.
+    from:
+    - pr_review
+    to:
+    - pull_request
+    max_outgoing: 1
+    inverse:
+      id: reviews
+      label: reviews
+  test_of:
+    label: test of
+    description: A test belongs to one pull request; a pull request has its tests.
+    from:
+    - pr_test
+    to:
+    - pull_request
+    max_outgoing: 1
+    inverse:
+      id: tests
+      label: tests
+  done_in:
+    label: also done in
+    description: A merged pull request of another issue that also did this one.
+    from:
+    - issue
+    to:
+    - pull_request
+    inverse:
+      id: also_done
+      label: also done

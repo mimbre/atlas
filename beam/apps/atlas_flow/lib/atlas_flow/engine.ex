@@ -7,14 +7,14 @@ defmodule AtlasFlow.Engine do
     definition runs on, and starts a process for each fact that has none. A process stops
     by itself once its fact is done; reading again starts it when the fact opens again.
   - It listens to every kind. A hint pokes the processes of the fact it is about and of
-    every fact above it (through its parent links, read plainly from State), so those look
+    every fact above it (through its parent links, read plainly from Facts), so those look
     again at once; one that has no process yet gets one. A hint about a delete pokes them
     all, since what was above it can no longer be read, and so does a new fact of a kind a
     flow assigns to (an owner that did not exist yet). A hint of Flow's own write is
-    passed over: Flow writes only what no state depends on (State checks that). A lost
+    passed over: Flow writes only what no state depends on (Facts checks that). A lost
     hint only waits for the timer (nobody depends on a hint).
 
-  It reaches State only over the Bus, as the endpoint `flow`.
+  It reaches Facts only over the Bus, as the endpoint `flow`.
   """
   use GenServer
 
@@ -28,7 +28,7 @@ defmodule AtlasFlow.Engine do
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name))
 
-  @doc "Read State and start what is missing, now (for tests)."
+  @doc "Read Facts and start what is missing, now (for tests)."
   def round(server), do: GenServer.call(server, :round, 30_000)
 
   @impl true
@@ -125,7 +125,9 @@ defmodule AtlasFlow.Engine do
           for kind <- kinds, {_name, flow} = Definition.for_kind(description, kind) do
             case Talk.read(kind, %{}) do
               %{"facts" => facts} ->
-                for fact <- facts, open?(flow, fact), do: ensure(kind, fact["key"], state)
+                for fact <- facts,
+                    open?(description, kind, flow, fact),
+                    do: ensure(kind, fact["key"], state)
 
               other ->
                 Logger.warning("flow could not list #{kind}: #{inspect(other)}")
@@ -187,7 +189,17 @@ defmodule AtlasFlow.Engine do
                 component_open?(description, from_kind, item),
                 do: {from_kind, item["key"]}
 
-          Enum.uniq(parents ++ ended ++ components)
+          # An association a flow reads (`empty`): the fact it points at may wait for it.
+          anchors =
+            for {_name, flow} <- Definition.flows(description),
+                to <- flow["kinds"] || [],
+                relation <- Definition.pointing(description, flow, to),
+                kind in (get_in(description, ["relations", relation, "from"]) || []),
+                anchor <- links[relation] || [],
+                uniq: true,
+                do: {to, anchor}
+
+          Enum.uniq(parents ++ ended ++ components ++ anchors)
 
         _ ->
           []
@@ -198,15 +210,18 @@ defmodule AtlasFlow.Engine do
 
   defp component_open?(description, kind, fact) do
     case Definition.for_kind(description, kind) do
-      {_name, flow} -> open?(flow, fact)
+      {_name, flow} -> open?(description, kind, flow, fact)
       nil -> true
     end
   end
 
   # A fact that is done by itself alone (what hangs under it can only reopen work its own
-  # facts already say is open) needs no process.
-  defp open?(flow, fact) do
-    {current, _} = Definition.state_of(flow, fact, [], [])
+  # facts already say is open) needs no process. Nothing is taken to point at it through the
+  # associations its flow reads (`empty`): its process reads them and stops when done.
+  defp open?(description, kind, flow, fact) do
+    {current, _} =
+      Definition.state_of(flow, fact, [], [], Definition.pointing(description, flow, kind))
+
     current["done"] != true
   end
 
@@ -232,7 +247,7 @@ defmodule AtlasFlow.Engine do
     end
   end
 
-  # A definition State refused is not run; say why once per round.
+  # A definition Facts refused is not run; say why once per round.
   defp report(description) do
     for {name, problems} <- description["flow_problems"] || %{}, problems != [] do
       Logger.error("flow #{name} is not run: #{Enum.join(problems, "; ")}")

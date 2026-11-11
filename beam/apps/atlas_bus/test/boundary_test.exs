@@ -6,7 +6,7 @@ defmodule AtlasBus.BoundaryTest do
   1. Layers talk only over the Bus: no layer depends on, calls or names another layer.
      Checked three ways: the umbrella dependencies in each layer's mix.exs, the remote
      calls in each layer's compiled code, and the module names in its source.
-  2. Nothing outside rela's description knows an entity: no source of the Bus, State,
+  2. Nothing outside rela's description knows an entity: no source of the Bus, Facts,
      Control or a client (the TUI, the agents' command line) names one. Entities live in
      `rela/schema.yaml` only.
   """
@@ -16,16 +16,21 @@ defmodule AtlasBus.BoundaryTest do
 
   @layers %{
     atlas_bus: "AtlasBus",
-    atlas_state: "AtlasState",
+    atlas_facts: "AtlasFacts",
     atlas_flow: "AtlasFlow",
     atlas_runtime: "AtlasRuntime",
-    atlas_control: "AtlasControl"
+    atlas_control: "AtlasControl",
+    atlas_gates: "AtlasGates"
   }
+  # Learn reads the layers through their own read surfaces (a socket, records, the `atlas`
+  # client), never over the Bus or by calling them: it depends on no app, names no layer
+  # and knows no entity.
+  @readers [{"beam/apps/atlas_learn", "AtlasLearn"}]
   # Clients of Control: the TUI, and the command line agents drive Atlas with.
   @clients [{"clients/tui", "AtlasTui"}, {"clients/agent", "AtlasAgent"}]
 
   # Names of the entities rela describes today. Extend it when rela describes more.
-  @entities ~r/\b(scenes?|use[ _-]?cases?|issues?|pull[ _-]?requests?|persons?|people)\b/i
+  @entities ~r/\b(scenes?|use[ _-]?cases?|issues?|pull[ _-]?requests?|pr[ _-]?(reviews?|tests?)|persons?|people)\b/i
 
   # GitHub's own words in Runtime's coordinator handoff protocol, not rela's entities: the
   # fixed handoff kind `pull_request` declares a GitHub pull request URL for a worker's branch,
@@ -77,13 +82,13 @@ defmodule AtlasBus.BoundaryTest do
 
   describe "the checks catch violations" do
     test "a layer that names another layer" do
-      assert foreign_names("AtlasState.Server.handle(x)", "AtlasControl") == ["AtlasState"]
+      assert foreign_names("AtlasFacts.Server.handle(x)", "AtlasControl") == ["AtlasFacts"]
 
-      assert foreign_names("GenServer.call(AtlasControl.Session, :x)", "AtlasState") == [
+      assert foreign_names("GenServer.call(AtlasControl.Session, :x)", "AtlasFacts") == [
                "AtlasControl"
              ]
 
-      assert foreign_names("AtlasBus.send(envelope, content)", "AtlasState") == []
+      assert foreign_names("AtlasBus.send(envelope, content)", "AtlasFacts") == []
       assert foreign_names("# Generated from AtlasControl.Spec", "AtlasTui") == []
     end
 
@@ -113,6 +118,14 @@ defmodule AtlasBus.BoundaryTest do
       end
     end
 
+    test "a reader depends on no other app" do
+      for {dir, _} <- @readers do
+        mix = File.read!(Path.join([@root, dir, "mix.exs"]))
+        deps = Regex.scan(~r/\{:(\w+), in_umbrella: true\}/, mix) |> Enum.map(&List.last/1)
+        assert deps == [], "#{dir} depends on #{inspect(deps)}; a reader depends on no app"
+      end
+    end
+
     test "no layer's compiled code calls another layer" do
       for {app, own} <- @layers do
         beams =
@@ -135,7 +148,8 @@ defmodule AtlasBus.BoundaryTest do
     end
 
     test "no layer or client names another layer in its source" do
-      dirs = Enum.map(@layers, fn {app, ns} -> {"beam/apps/#{app}", ns} end) ++ @clients
+      dirs =
+        Enum.map(@layers, fn {app, ns} -> {"beam/apps/#{app}", ns} end) ++ @clients ++ @readers
 
       for {dir, own} <- dirs, file <- sources(dir, own) do
         names = foreign_names(File.read!(file), own)
@@ -146,7 +160,9 @@ defmodule AtlasBus.BoundaryTest do
     end
 
     test "nothing on the BEAM side or in a client names an entity" do
-      dirs = Enum.map(@layers, fn {app, ns} -> {"beam/apps/#{app}", ns} end) ++ @clients
+      dirs =
+        Enum.map(@layers, fn {app, ns} -> {"beam/apps/#{app}", ns} end) ++ @clients ++ @readers
+
       files = Enum.flat_map(dirs, fn {dir, own} -> sources(dir, own) end)
       assert Path.join(@root, "bff/contract/lib/blocks.ex") in files
       assert length(files) > 20

@@ -56,7 +56,7 @@ defmodule AtlasBFFContract.Endpoints do
         takes: :hello,
         replies: [welcome: :welcome, page: :view_model, bye: :bye]
 
-      # Read the page shown again, from State: what a client does on an interval.
+      # Read the page shown again, from Facts: what a client does on an interval.
       defendpoint :refresh, wire: :refresh, call: :refresh, replies: [page: :view_model]
 
       # What Control sends unasked: a page again when a change it shows was stored by anyone

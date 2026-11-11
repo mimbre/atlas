@@ -25,7 +25,7 @@ Default `initial_to` is the first eligible tab. Explicit kind and resolvable
 generic-key detail/form links retain a canonical target and matching index tab.
 Valid details outside configured indexes have no active tab. An unknown target or
 removed index falls back to the first tab. Boot reuses ordinary Session routing,
-including State reads for ambiguous unprefixed generic keys. A failed lookup is a
+including Facts reads for ambiguous unprefixed generic keys. A failed lookup is a
 typed error rather than an authoritative fallback. Ordinary open still owns page
 existence/permissions. Boot never navigates, resets editing state, changes a draft
 or writes facts. Both raw and canonical emitted targets obey the 2048-byte limit,
@@ -38,7 +38,7 @@ the editing Session. Canonical tab destinations must also remain unique after
 percent decoding/encoding.
 
 Each boot reads the current description through Bus. Missing/invalid configuration
-or unavailable State returns `{"op":"boot","error":"..."}` without authoritative
+or Facts being unavailable returns `{"op":"boot","error":"..."}` without authoritative
 empty tabs or successful cached metadata. Validate the nested entity, relation and
 actor-resolution shapes before installation; keep the entire prior Session on a
 boot error. Only a successful boot installs fresh metadata/listeners. Retain the

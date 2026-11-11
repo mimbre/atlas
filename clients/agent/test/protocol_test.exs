@@ -92,7 +92,7 @@ defmodule AtlasAgent.ProtocolTest do
     message = Protocol.message(:turn_end, :turn_end, key: "T-1", outcome: "Done α\nnext")
     assert {:ok, %{"op" => "page", "reason" => "stored"}} = Client.turn(client, message)
     assert Client.turn(client, message) == {:error, "stale turn"}
-    assert Client.turn(client, message) == {:error, "State refused the outcome"}
+    assert Client.turn(client, message) == {:error, "Facts refused the outcome"}
     Client.close(client)
     Task.await(peer)
   end
@@ -117,7 +117,7 @@ defmodule AtlasAgent.ProtocolTest do
           {%{"op" => "page", "reason" => "stored"}, false, 0, "Outcome stored for T-1: -\n"},
           {%{"op" => "turn", "error" => "not the owner"}, true, 2, %{"error" => "not the owner"}},
           {%{"op" => "page", "reason" => "refused"}, true, 2,
-           %{"error" => "State refused the outcome"}}
+           %{"error" => "Facts refused the outcome"}}
         ] do
       {:ok, listener} = :gen_tcp.listen(0, [:binary, packet: :line, active: false])
       {:ok, {_, port}} = :inet.sockname(listener)

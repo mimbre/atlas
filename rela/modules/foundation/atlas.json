@@ -57,6 +57,14 @@
           "migration"
         ]
       }
+    },
+    "overruled_by": {
+      "only_target": {
+        "error": "only the person who overrules a verdict sets overruled_by, to themselves",
+        "also": [
+          "migration"
+        ]
+      }
     }
   },
   "entities": {
@@ -215,7 +223,8 @@
           "scope",
           "reversibility",
           "force",
-          "enforced_by"
+          "enforced_by",
+          "no_work"
         ],
         "id": {
           "prefix": "D-",
@@ -241,6 +250,9 @@
         },
         "decided_at": {
           "label": "Decided at"
+        },
+        "no_work": {
+          "label": "No work needed"
         }
       },
       "requires": [
@@ -302,6 +314,9 @@
         "only": {
           "status": [
             "superseded"
+          ],
+          "no_work": [
+            true
           ]
         },
         "error": "{key} is {value} and is never edited; a newer decision supersedes it"
@@ -329,11 +344,131 @@
         "field": "scope",
         "not": {
           "platform": [
-            "software_factory",
+            "software",
             "instance"
           ]
         },
-        "error": "{key} ({value}) may not follow from {other} ({other_value}): a platform decision never depends on a software_factory or instance one"
+        "error": "{key} ({value}) may not follow from {other} ({other_value}): a platform decision never depends on a software or instance one"
+      }
+    },
+    "gate_verdict": {
+      "top": false,
+      "primary": "gate",
+      "order": "newest",
+      "create": {
+        "ask": [
+          "gate",
+          "gate_version",
+          "flavor",
+          "purpose",
+          "subject",
+          "fingerprint",
+          "evidence",
+          "evidence_digest",
+          "rule_outcome",
+          "rule_version",
+          "advisor",
+          "model",
+          "rationale",
+          "scores",
+          "verdict",
+          "allowed_outcomes",
+          "unsettled",
+          "cost",
+          "duration_ms",
+          "decided_at"
+        ],
+        "id": {
+          "prefix": "GV-",
+          "digits": 4
+        }
+      },
+      "properties": {
+        "gate_version": {
+          "label": "Gate version"
+        },
+        "evidence": {
+          "multiline": true
+        },
+        "evidence_digest": {
+          "label": "Evidence digest"
+        },
+        "rule_outcome": {
+          "label": "Rule outcome"
+        },
+        "rule_version": {
+          "label": "Rule version"
+        },
+        "rationale": {
+          "multiline": true
+        },
+        "scores": {
+          "multiline": true
+        },
+        "allowed_outcomes": {
+          "label": "Allowed outcomes"
+        },
+        "duration_ms": {
+          "label": "Duration (ms)"
+        },
+        "decided_at": {
+          "label": "Decided at"
+        },
+        "overrule_reason": {
+          "label": "Overrule reason",
+          "multiline": true
+        },
+        "rework_after": {
+          "label": "Rework after",
+          "multiline": true
+        },
+        "defect_after": {
+          "label": "Defect after",
+          "multiline": true
+        },
+        "effort": {
+          "multiline": true
+        }
+      },
+      "requires": [
+        {
+          "when": {
+            "flavor": [
+              "rule"
+            ]
+          },
+          "fields": [
+            "rule_outcome",
+            "rule_version"
+          ],
+          "error": "a rule gate's verdict names its rule_outcome and rule_version"
+        },
+        {
+          "when": {
+            "flavor": [
+              "smart"
+            ]
+          },
+          "fields": [
+            "rule_outcome",
+            "rule_version",
+            "advisor",
+            "model",
+            "rationale"
+          ],
+          "error": "a smart gate's verdict names its rule_outcome, rule_version and the advice: advisor, model and rationale"
+        }
+      ],
+      "sealed": {
+        "once": [
+          "overrule_reason",
+          "rework_after",
+          "defect_after",
+          "effort"
+        ],
+        "links": "once",
+        "error": "{key} is a gate verdict and is never edited ({field}); record a new verdict that follows it",
+        "once_error": "{key}: {field} is set once and never changed"
       }
     }
   },

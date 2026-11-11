@@ -9,8 +9,14 @@ defmodule AtlasControl.Turns do
          [on_kind] <- get_in(description, ["relations", n["on"], "to"]),
          %{"fact" => %{} = item} <- read.(on_kind, %{"key" => key, "plain" => true}),
          true <- owner?(description, on_kind, item, by),
-         {:ok, on} <- original(description, on_kind, key, read) do
-      {:ok, %{"key" => turn["key"], "on" => on, "turn" => turn, "names" => n}}
+         {:ok, {kind_of_on, on}} <- original(description, on_kind, key, read) do
+      context = %{"key" => turn["key"], "on" => on, "turn" => turn, "names" => n}
+
+      # What the worker reads before it acts (the item's anchors and the standing rules).
+      case AtlasControl.ReadFirst.text(description, kind_of_on, on, read) do
+        nil -> {:ok, context}
+        text -> {:ok, Map.put(context, "read_first", text)}
+      end
     else
       _ -> {:error, "No single running turn is owned by this agent. Set ATLAS_AS to its key."}
     end
@@ -64,12 +70,12 @@ defmodule AtlasControl.Turns do
           do: {relation, from_kind}
 
     if components == [] do
-      {:ok, key}
+      {:ok, {kind, key}}
     else
       found =
         Enum.flat_map(components, fn {relation, from_kind} ->
           case read.(from_kind, %{"linked" => %{relation => key}, "plain" => true}) do
-            %{"facts" => facts} -> Enum.map(facts, & &1["key"])
+            %{"facts" => facts} -> Enum.map(facts, &{from_kind, &1["key"]})
             _ -> []
           end
         end)

@@ -8,6 +8,6 @@
     "ipv6": true,
     "extra": "rela/atlas-test.json"
   },
-  "state": { "data": "/data/beam" },
+  "facts": { "data": "/data/beam" },
   "reconcile_seconds": 5
 }

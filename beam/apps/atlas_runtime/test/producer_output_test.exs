@@ -70,7 +70,7 @@ defmodule AtlasRuntime.ProducerOutputTest do
     def handle_continue(:exit, opts), do: {:stop, opts[:reason], opts}
   end
 
-  # State's Bus contract, with actual registration/read ordering rather than injecting
+  # Facts' Bus contract, with actual registration/read ordering rather than injecting
   # an output identity into Turn state. No model or external process is started.
   defmodule Store do
     use GenServer

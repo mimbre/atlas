@@ -310,10 +310,9 @@ defmodule AtlasTui.WorkerOutputConnectionTest do
 
   test "reports a refused Control connection without fallback or reconnect", context do
     :gen_tcp.close(context.listener)
-    {:ok, pid} = WorkerOutputConnection.start(self(), "test", context.settings)
-    monitor = Process.monitor(pid)
+    {:ok, {pid, monitor}} = WorkerOutputConnection.start_monitor(self(), "test", context.settings)
     assert_receive {:worker_output_connection, ^pid, {:closed, {:connect, :econnrefused}}}, 3_000
-    assert_receive {:DOWN, ^monitor, :process, ^pid, _reason}, 1_000
+    assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}, 1_000
     refute_receive {:worker_output_connection, ^pid, :ready}
   end
 
@@ -322,8 +321,7 @@ defmodule AtlasTui.WorkerOutputConnectionTest do
       parent = self()
       owner = spawn(fn -> forward_messages(parent) end)
       on_exit(fn -> if Process.alive?(owner), do: Process.exit(owner, :kill) end)
-      {pid, socket} = start_connection(context, owner)
-      monitor = Process.monitor(pid)
+      {pid, monitor, socket} = start_monitored(context, owner)
 
       if unquote(phase) != :handshake do
         send_messages(socket, [welcome(), page()])
@@ -409,10 +407,20 @@ defmodule AtlasTui.WorkerOutputConnectionTest do
 
   defp start_connection(context, owner \\ self()) do
     {:ok, pid} = WorkerOutputConnection.start(owner, "test", context.settings)
+    {pid, accept_hello(context, pid)}
+  end
+
+  # Monitored as it starts: a later Process.monitor/1 can come after the end and see :noproc.
+  defp start_monitored(context, owner) do
+    {:ok, {pid, monitor}} = WorkerOutputConnection.start_monitor(owner, "test", context.settings)
+    {pid, monitor, accept_hello(context, pid)}
+  end
+
+  defp accept_hello(context, pid) do
     on_exit(fn -> WorkerOutputConnection.stop(pid) end)
     {:ok, socket} = :gen_tcp.accept(context.listener, 3_000)
     assert read_message(socket) == Console.hello(%{env: "test"})
-    {pid, socket}
+    socket
   end
 
   defp ready_connection(context) do

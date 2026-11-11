@@ -1,18 +1,22 @@
 {
   "inputs": {
-    "compositions/atlas-eyra/atlas.json": "215759ec0837a6785c8cae794f7b2d3e1d8cfd9ef5014804fdf499b2f545292f",
-    "compositions/atlas-eyra/bindings.yaml": "1ac911fbe8e4b2da020701a3cd815c6a875fb6e7fab7b3f126e03e536d59e6e5",
-    "compositions/atlas-eyra/sources.json": "f2943e33b78d4f347ef6e87921df31867ea1748522f078b5d7713bf955a54407",
+    "compositions/atlas-eyra/atlas.json": "f49d0568c994b98a4949f105ef7ef7be868fa44c220c64a0d53824cfccf83cc4",
+    "compositions/atlas-eyra/bindings.yaml": "3be85ecaaac4e42594048e4e767284661e0116fb37654bbfd26ee34fbcb71d4d",
+    "compositions/atlas-eyra/sources.json": "7f7e4a79381dca7c78f1a25f98c0262392ff5737cb4de25b38b579970b783d2a",
     "data-entry.yaml": "afe3e95d13e4cd9f52b43b3dc518d2922ba01283e8bfb5c31964ee43d1829cdc",
     "modules/eyra/atlas.json": "1dd88fec422b9b4a9bc4b6c519c4f1e0aadf236e93acc231324aa21ae04019c0",
-    "modules/eyra/schema.yaml": "85940b0a6e9ecc75016d310d7f61c47642d7b1dd12af7562b74a49168eff37b4",
-    "modules/foundation/atlas.json": "eaaa1ab7fe1fea94d8d52c0cc89d622a2f97c33cf907b1c8137b6675d91528a1",
+    "modules/eyra/schema.yaml": "101cc888c6a51291b2ce74cff33c0d2cd510817d4e464781f4f2a29b81abd080",
+    "modules/foundation/atlas.json": "593157ab0fb184d01f05237089ced328016ce38b32107763c5b69d8b69f06c83",
     "modules/foundation/audit/atlas.json": "18c2651218628dd09e350ce3305f05d62ad1cb82b9294dd608acb973b0a70bac",
     "modules/foundation/audit/schema.yaml": "64a7f9538b11ac3fb8cd2b9a2597d29211803e7accfe43f04495a0c934e18dc6",
-    "modules/foundation/schema.yaml": "5767416ddb822910adf8fef17caf77a0f1068d520cab198ef47da5a69e56d25b",
-    "modules/software-factory/atlas.json": "1f1a1ff4ed50cccb4bfc6d9449817f983abfaf6872edfc4e13c47578b2de77a7",
-    "modules/software-factory/schema.yaml": "f5e47096cedc7ab4649b98f0123da1855bce2c0aae3fd941d330e323726c251b",
-    "schema.yaml": "867320ac3ec6f822290adb4e19139987b204dc4695afd4dabeaba85b3dbbbc3b"
+    "modules/foundation/schema.yaml": "70815d65e1455b028b23c17117564d36b3966af9ab7fb3b660c2625b9d5346d6",
+    "modules/software/atlas.json": "1f1a1ff4ed50cccb4bfc6d9449817f983abfaf6872edfc4e13c47578b2de77a7",
+    "modules/software/schema.yaml": "a81cc96c0cfc941877d3a68505a43eecb05461ffbc1ce61b132000ab4d53b4e2",
+    "schema.yaml": "b260c86c9729cde43c8de97db05f377ae427ee76f502a4e374f32a2da0bce350"
   },
-  "output_sha256": "17f6863a43a50014ffefe8119940d2ee7a7b2bbf8a664d2a427e260aa06bd904"
+  "output_sha256": "083edc60e61c56bbc32ef4abda6bc31ab55759d72032574463dc968aef269727",
+  "flows": {
+    "source": "flow/targets/rela/flows.yaml",
+    "sha256": "1c06852915c01b8a18d9186aed8b0b4ea21aa3f238143588e3a70cb7c6dafed2"
+  }
 }

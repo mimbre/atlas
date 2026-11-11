@@ -39,7 +39,12 @@ class AssemblyTest(unittest.TestCase):
         prior['_about'] = self.original['_about']
         self.assertEqual(set(prior['entities'].pop('decision')), {'primary', 'order', 'create', 'properties', 'requires', 'authority', 'frozen', 'replaces', 'layering'})
         self.assertIn('only_target', prior['relations'].pop('decided_by'))
+        self.assertEqual(set(prior['entities'].pop('gate_verdict')), {'top', 'primary', 'order', 'create', 'properties', 'requires', 'sealed'})
+        self.assertIn('only_target', prior['relations'].pop('overruled_by'))
         self.assertEqual(prior['flows'].pop('decide')['kinds'], ['decision'])
+        # Decisions as anchors: what a turn reads first, and the review of work based on one.
+        self.assertEqual(prior.pop('read_first')['through'], 'based_on')
+        self.assertEqual(prior['relations'].pop('based_on'), {'review': {'field': 'status', 'value': 'superseded', 'label': 'Review: based on a superseded decision'}})
         self.assertEqual(prior['flows'].pop('design_and_accept')['kinds'], ['use_case'])
         self.assertEqual(prior['flows']['test_and_accept']['kinds'], ['scene'])
         prior['flows']['test_and_accept']['kinds'] = ['scene', 'use_case']
@@ -97,11 +102,41 @@ class AssemblyTest(unittest.TestCase):
             with self.assertRaises((config.ConfigError, KeyError)):
                 assemble.validate(bad, self.schema)
 
+    def test_gate_verdict_is_sealed_but_for_later_outcomes_and_links_set_once(self):
+        extra = assemble.build(self.root, self.manifest)
+        verdict = extra['entities']['gate_verdict']
+        props = self.schema['entities']['gate_verdict']['properties']
+        once = verdict['sealed']['once']
+        # Every field is either written with the verdict or set once afterwards; none both.
+        self.assertEqual(set(verdict['create']['ask']) | set(once), set(props))
+        self.assertFalse(set(verdict['create']['ask']) & set(once))
+        # Its links (about, follows, overruled_by) are set once each, after the create.
+        self.assertEqual(verdict['sealed']['links'], 'once')
+        self.assertEqual(self.schema['relations']['follows']['to'], ['gate_verdict'])
+        self.assertNotIn('gate_verdict', self.schema['relations']['assignment']['from'])
+        for mutate in [
+            lambda d: d['sealed']['once'].append('missing'),
+            lambda d: d['sealed'].update({'later': []}),
+            lambda d: d['sealed']['once'].append('decided_by'),
+            lambda d: d['sealed'].update({'links': 'always'}),
+        ]:
+            bad = copy.deepcopy(extra)
+            mutate(bad['entities']['gate_verdict'])
+            with self.assertRaises(config.ConfigError):
+                assemble.validate(bad, self.schema)
+
     def test_decision_flow_and_design_phase_are_sound(self):
         extra = assemble.build(self.root, self.manifest)
         decide = {s['name']: s for s in extra['flows']['decide']['states']}
-        self.assertEqual({n for n, s in decide.items() if s.get('done')}, {'accepted', 'rejected', 'superseded'})
-        self.assertEqual(decide['proposed']['next'], ['accepted', 'rejected'])
+        # no_work is final: accepted, and it says no work is needed. waiting is open work.
+        self.assertEqual({n for n, s in decide.items() if s.get('done')}, {'accepted', 'rejected', 'superseded', 'no_work'})
+        self.assertEqual(decide['no_work']['when'], {'values': {'status': ['accepted'], 'no_work': [True]}})
+        self.assertEqual(decide['waiting']['when'], {'values': {'status': ['accepted']}, 'empty': 'based_on'})
+        self.assertEqual(decide['waiting']['next'], ['accepted', 'no_work'])
+        names = [s['name'] for s in extra['flows']['decide']['states']]
+        self.assertLess(names.index('no_work'), names.index('waiting'))
+        self.assertLess(names.index('waiting'), names.index('accepted'))
+        self.assertEqual(decide['proposed']['next'], ['accepted', 'rejected', 'waiting', 'no_work'])
         design = [s['name'] for s in extra['flows']['design_and_accept']['states']]
         self.assertLess(design.index('design'), design.index('design_review'))
         self.assertLess(design.index('design_review'), design.index('building'))

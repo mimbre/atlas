@@ -53,7 +53,7 @@ Also try:
 ## What changed for this
 
 - **rela's description:** nothing. The choices are the relations with `max_outgoing: 1` that a kind has (`in_scene`, `in_use_case`, `in_issue`), read from `rela/schema.yaml`.
-- **State:** a change may carry links, as a create does. Each relation named is replaced in rela, in the same write as the fields; State checks first that the new parent exists. The move is stored with its cause (`Moved from UC-Atlas-01 to UC-Atlas-30 (in_use_case), by a change in Control`), and its hint goes to every page that lists the kind: the old parent's and the new one's.
+- **Facts:** a change may carry links, as a create does. Each relation named is replaced in rela, in the same write as the fields; Facts checks first that the new parent exists. The move is stored with its cause (`Moved from UC-Atlas-01 to UC-Atlas-30 (in_use_case), by a change in Control`), and its hint goes to every page that lists the kind: the old parent's and the new one's.
 - **Control:** the change form offers a choice per parent relation, of every item of the parent's kind; only a parent that differs is sent. `/_kinds` lists the relation among the fields, so `atlas help` and `atlas tools` offer it.
 - **Action names (IS-Atlas-58):** one function in Control, `AtlasControl.Pages.operation/3`, gives every action its words and key from the operation and the kind (`{"Create use case", "c"}`); lists, item pages, forms and buttons take them from it. `/_kinds` carries each kind's actions, and `atlas tools` takes its titles from there. A page with a second related list creates there with `s`, `x` or `z`; `a` and `r` stay free for Accept and Reopen.
 - **The end-to-end test:** `e2e/scenarios/uc-atlas-30.exs` follows this guide.

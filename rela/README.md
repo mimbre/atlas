@@ -1,8 +1,8 @@
 # Versioned description
 
 `schema.yaml` selects native rela 26.11.2 includes. Foundation owns actors,
-Assignments and turns; optional foundation audit owns requests/steps; software
-factory owns Issue/PR and compatibility fields; module `eyra` owns Scene/Use Case and
+Assignments and turns; optional foundation audit owns requests/steps; module
+`software` owns Issue/PR and compatibility fields; module `eyra` owns Scene/Use Case and
 hierarchy/acceptance. The composition owns the complete `assignment` relation.
 Includes are relative to the selected schema root, including nested includes.
 Every definition has one owner; no overrides or property augmentation.
@@ -33,7 +33,7 @@ image starts rela with native includes. No data migration is needed.
 Run `python3 -m unittest discover -s rela/tests -v`, pinned `rela --project rela
 validate`, and private e2e before delivery. `tests/fixtures/baseline-schema.yaml`
 is the delivered #79 schema: tests lock definitions and property/form order.
-`atlas.json` remains the single extension consumed by State. It is generated from
+`atlas.json` remains the single extension consumed by Facts. It is generated from
 `compositions/atlas-eyra/sources.json`; edit a listed module/composition fragment,
 then run the assembler with the pinned rela CLI installed:
 
@@ -46,9 +46,21 @@ Each map leaf has one author (even identical duplicates fail). Whole arrays have
 one owner. The bounded assembler rejects unknown annotation keys, schema structural
 overrides, dangling fields/relations/types, ambiguous parents, overlapping flows
 and shortcut collisions. It calls pinned rela validation and the actual generic
-`AtlasState.Flows.check`, without starting an application. Optional `--actors file`
+`AtlasFacts.Flows.check`, without starting an application. Optional `--actors file`
 checks an inventory obtained through Control, shaped `{kind: [keys]}`; actor facts
 are never shipped as configuration. Actor existence is also reconciled by Flow.
+
+`flows.yaml` is generated too: the assembler copies `flow/targets/rela/flows.yaml`
+(written by `mix atlas.flow.gen` in `flow/contract`) byte for byte, validates the
+description with it on a staging copy, records the source's hash under `flows` in
+`atlas.manifest.json`, and `--check` fails on a stale copy. `acl.yaml` holds the roles the
+flows name, so rela can check them. Rela defines and checks the flows; Atlas Flow runs
+them (D-0068). Neither file is part of the selected closure, so startup never copies them
+into a running rela's data (which runs without an `acl.yaml`, and would refuse flows that
+name roles). **Follow-up for the image:** the core image must hold `rela/flows.yaml` for
+Flow: add it to the `COPY rela/schema.yaml rela/data-entry.yaml …  /app/rela/` line of
+`fly/core.Dockerfile`, after the build stage copies `flow/generator` and `flow/targets`.
+The rela image does not need it.
 
 `atlas.manifest.json` records every selected schema/JSON input and generated output
 hash. CI checks freshness; startup/images check the packaged hashes without needing
@@ -59,7 +71,7 @@ internal consistency check within the existing merge-driven promotion route.
 
 `tests/profiles.py` creates disposable foundation-only and incident compositions.
 They are dependency proofs, not installed workflows. Foundation omits audit/software/
-`eyra`; incident reuses foundation/audit/factory and selects independent person service
+`eyra`; incident reuses foundation/audit/software and selects independent person service
 resolution, with no Scene, Use Case or accepted_by. Its e2e uses private stores,
 Control, a GitHub stand-in and Runtime stub only. Existing populated `eyra` stores
 cannot switch to these fixtures; fits must continue refusing stranded data.

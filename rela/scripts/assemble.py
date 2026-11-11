@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -51,7 +52,7 @@ def combine(left, right, path=''):
 
 def validate(extra, schema, actors=None):
     """Only current Atlas annotation vocabulary, with schema-resolved references."""
-    keys(extra, '_about todo runtime guidance start shell types entities relations progress flows', 'extension')
+    keys(extra, '_about todo runtime guidance start shell types entities relations progress flows read_first', 'extension')
     entities, relations, types = (schema.get(k, {}) for k in ('entities', 'relations', 'types'))
 
     def entity(kind):
@@ -178,7 +179,7 @@ def validate(extra, schema, actors=None):
     shortcuts = []
     for kind, spec in extra.get('entities', {}).items():
         entity(kind)
-        keys(spec, 'top primary start create properties completion progress connector agent order by_hand late actions counts requires authority frozen replaces layering', f'entities.{kind}')
+        keys(spec, 'top primary start create properties completion progress connector agent order by_hand late actions counts requires authority frozen replaces layering sealed', f'entities.{kind}')
         if 'start' in spec:
             navigation(spec['start'], kind + '.start')
             shortcuts.append(spec['start']['key'])
@@ -256,6 +257,13 @@ def validate(extra, schema, actors=None):
             keys(spec['frozen'], 'when only error', kind + '.frozen')
             values(kind, spec['frozen'].get('when', {}))
             values(kind, spec['frozen'].get('only', {}))
+        if 'sealed' in spec:
+            keys(spec['sealed'], 'once links error once_error', kind + '.sealed')
+            if spec['sealed'].get('links', 'once') != 'once':
+                raise ConfigError(f'{kind}.sealed.links: expected once')
+            for name in spec['sealed'].get('once', []):
+                if name not in entity(kind).get('properties', {}):
+                    relation(name, kind)
         if 'replaces' in spec:
             rule = spec['replaces']
             keys(rule, 'relation when of set error', kind + '.replaces')
@@ -269,7 +277,7 @@ def validate(extra, schema, actors=None):
     parents = {}
     for name, annotation in extra.get('relations', {}).items():
         rel = relation(name)
-        keys(annotation, 'parent add component set_by limit actions only_target requires_completed_children closes_parent', 'relations.' + name)
+        keys(annotation, 'parent add component set_by limit actions only_target requires_completed_children closes_parent review', 'relations.' + name)
         if annotation.get('parent'):
             for kind in rel['from']:
                 if kind in parents:
@@ -289,6 +297,10 @@ def validate(extra, schema, actors=None):
             keys(annotation['limit'], 'max field values error', name + '.limit')
             for kind in rel['from']:
                 values(kind, {annotation['limit']['field']: annotation['limit']['values']})
+        if 'review' in annotation:
+            keys(annotation['review'], 'field value label', name + '.review')
+            for kind in rel['to']:
+                values(kind, {annotation['review']['field']: [annotation['review']['value']]})
         if 'only_target' in annotation:
             keys(annotation['only_target'], 'error also', name + '.only_target')
         actions = annotation.get('actions', {})
@@ -364,6 +376,18 @@ def validate(extra, schema, actors=None):
                     if action in answer:
                         for kind in kinds:
                             relation(answer[action], kind)
+    if 'read_first' in extra:
+        spec = extra['read_first']
+        keys(spec, 'title through then standing tags text', 'read_first')
+        anchors = relation(spec['through'])['to']
+        if len(anchors) != 1:
+            raise ConfigError('read_first.through: must point at one kind')
+        relation(spec['then'], anchors[0])
+        for group in spec.get('standing', []):
+            keys(group, 'title first when', 'read_first.standing')
+            values(anchors[0], group.get('when', {}))
+        for name in spec.get('tags', []) + [spec['text']]:
+            field(anchors[0], name)
     runtime = extra.get('runtime', {})
     keys(runtime, 'turn agent', 'runtime')
     if runtime and not {'turn', 'agent'}.issubset(runtime):
@@ -392,15 +416,19 @@ def validate(extra, schema, actors=None):
 def flow_check(description):
     # Call the actual generic engine check, with no application/model/server started.
     repo = Path(__file__).resolve().parents[2]
-    code = 'd = System.argv() |> hd() |> File.read!() |> JSON.decode!(); p = AtlasState.Flows.check(d); if Enum.any?(p, fn {_, v} -> v != [] end), do: (IO.inspect(p); System.halt(1))'
+    code = 'd = System.argv() |> hd() |> File.read!() |> JSON.decode!(); p = AtlasFacts.Flows.check(d); if Enum.any?(p, fn {_, v} -> v != [] end), do: (IO.inspect(p); System.halt(1))'
     with tempfile.NamedTemporaryFile(mode='w', suffix='.json') as file:
         json.dump(description, file)
         file.flush()
         env = dict(os.environ, ELIXIR_ERL_OPTIONS='+S 2:2')
-        subprocess.run(['elixir', '-r', str(repo / 'beam/apps/atlas_state/lib/atlas_state/flows.ex'), '-e', code, file.name], check=True, env=env)
+        subprocess.run(['elixir', '-r', str(repo / 'beam/apps/atlas_facts/lib/atlas_facts/flows.ex'), '-e', code, file.name], check=True, env=env)
 
 
-def native_check(root):
+# Generated by mix atlas.flow.gen; copied byte for byte to <root>/flows.yaml.
+FLOWS = 'flow/targets/rela/flows.yaml'
+
+
+def native_check(root, flows=None):
     bindir = os.environ.get('ATLAS_E2E_RELA_BIN') or os.environ.get('ATLAS_RELA_BIN') or str(Path.home() / '.local/share/atlas/test/bin')
     binary = Path(bindir) / 'rela'
     if not binary.exists():
@@ -408,17 +436,26 @@ def native_check(root):
     version = subprocess.check_output([str(binary), 'version'], text=True).strip()
     if version != 'rela version 26.11.2':
         raise ConfigError(f'expected rela 26.11.2, got {version}')
-    subprocess.run([str(binary), '--project', str(root), '--quiet', 'validate'], check=True)
+    if flows is None:
+        subprocess.run([str(binary), '--project', str(root), '--quiet', 'validate'], check=True)
+        return
+    # Validate the description with the flows.yaml it is about to receive.
+    with tempfile.TemporaryDirectory(prefix='atlas-flows-') as tmp:
+        stage = Path(tmp) / 'rela'
+        shutil.copytree(root, stage)
+        (stage / 'flows.yaml').write_bytes(flows)
+        subprocess.run([str(binary), '--project', str(stage), '--quiet', 'validate'], check=True)
 
 
-def build(root, manifest, check=False, actors=None):
+def build(root, manifest, check=False, actors=None, flows=None):
     root = Path(root).resolve()
     if not (root / manifest).resolve().is_relative_to(root) or '..' in Path(manifest).parts:
         raise ConfigError('manifest escapes selected root')
     spec = read(root / manifest)
     keys(spec, 'sources output provenance', 'sources manifest')
     files, schema = closure(root)
-    native_check(root)
+    flows = Path(flows).read_bytes() if flows else None
+    native_check(root, flows)
     assembled = {}
     sources = spec['sources']
     if not isinstance(sources, list) or not sources or len(sources) != len(set(sources)) or len(sources) > 32:
@@ -445,8 +482,13 @@ def build(root, manifest, check=False, actors=None):
     output = (json.dumps(assembled, indent=2, ensure_ascii=False) + '\n').encode()
     inputs = sorted(set(files + sources + [manifest]))
     hashes = {name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in inputs}
-    provenance = (json.dumps({'inputs': hashes, 'output_sha256': hashlib.sha256(output).hexdigest()}, indent=2) + '\n').encode()
+    record = {'inputs': hashes, 'output_sha256': hashlib.sha256(output).hexdigest()}
+    if flows is not None:
+        record['flows'] = {'source': FLOWS, 'sha256': hashlib.sha256(flows).hexdigest()}
+    provenance = (json.dumps(record, indent=2) + '\n').encode()
     outputs = {spec['output']: output, spec['provenance']: provenance}
+    if flows is not None:
+        outputs['flows.yaml'] = flows
     for name in outputs:
         if not (root / name).resolve().is_relative_to(root) or name in inputs:
             raise ConfigError(f'unsafe output path: {name}')
@@ -471,7 +513,10 @@ def main():
     p.add_argument('--check', action='store_true')
     p.add_argument('--actors', type=Path, help='read-only Control inventory: {kind: [actor keys]}')
     a = p.parse_args()
-    build(a.root, a.manifest, a.check, read(a.actors) if a.actors else None)
+    # This repository's Rela project receives this repository's flows.
+    here = Path(__file__).resolve()
+    flows = here.parents[2] / FLOWS if a.root.resolve() == here.parent.parent else None
+    build(a.root, a.manifest, a.check, read(a.actors) if a.actors else None, flows)
 
 
 if __name__ == '__main__':

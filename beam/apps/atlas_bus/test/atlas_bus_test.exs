@@ -78,7 +78,7 @@ defmodule AtlasBusTest do
     end
   end
 
-  test "an addressed request and its answer bypass State and hints", c do
+  test "an addressed request and its answer bypass Facts and hints", c do
     endpoint(c.store)
     sender = endpoint(c.sender)
     target = endpoint(c.other)

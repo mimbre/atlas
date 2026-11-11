@@ -258,7 +258,7 @@ defmodule AtlasTui.WorkerGuidanceTest do
              result(old_query, %{"found" => true, "interaction" => interaction()})
            ) == {state, []}
 
-    assert Guidance.receive(state, error(old_query, "state_unavailable", true)) == {state, []}
+    assert Guidance.receive(state, error(old_query, "facts_unavailable", true)) == {state, []}
     {state, []} = Guidance.receive(state, result(query, %{"found" => false}))
     assert state.status == :retryable
   end
@@ -366,7 +366,7 @@ defmodule AtlasTui.WorkerGuidanceTest do
 
     {state, [query]} = Guidance.submit(state, %{})
     assert query["op"] == "worker_query"
-    reply = error(query, "state_unavailable", true)
+    reply = error(query, "facts_unavailable", true)
     {state, []} = Guidance.receive(state, reply)
     assert state.status == :unknown
     assert state.error == reply["error"]

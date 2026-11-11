@@ -1,6 +1,6 @@
 # Try UC-Atlas-19: See and overrule what the agent did
 
-What you can do: see every request you made with `:`, what became of it and each step of its plan. From an item the agent made or changed, reach the step and the request that caused it. Everything the agent does is kept as facts in State, like any other change, so it is there after a restart and can be overruled with `x` (IS-Atlas-46).
+What you can do: see every request you made with `:`, what became of it and each step of its plan. From an item the agent made or changed, reach the step and the request that caused it. Everything the agent does is kept as facts in Facts, like any other change, so it is there after a restart and can be overruled with `x` (IS-Atlas-46).
 
 ## Start
 

@@ -32,8 +32,8 @@ func claudeValidate(scope any, sandbox, session string, model, expectedContext a
 	if scope == nil && sandbox != "read-only" {
 		return errors.New("Claude requires read-only, dedicated-repository or materialized-folder execution")
 	}
-	if fields, _ := scope.(map[string]any); scope != nil && fields["profile"] != "dedicated-repository" && fields["profile"] != "materialized-folder" {
-		return errors.New("Claude supports only the dedicated-repository and materialized-folder permission profiles")
+	if fields, _ := scope.(map[string]any); scope != nil && !slices.Contains([]string{"dedicated-repository", "materialized-folder", "review-packet"}, fmt.Sprint(fields["profile"])) {
+		return errors.New("Claude supports only the dedicated-repository, materialized-folder and review-packet permission profiles")
 	}
 	if session == "" {
 		return nil
@@ -283,6 +283,28 @@ func claudeRepositorySettings(scope any, temporary string) (string, error) {
 // read (and so execute) the inspector even inside a denied path.
 func claudeFolderSettings(scope map[string]any, temporary, user, inspector string) (string, error) {
 	root, _ := scope["root"].(string)
+	return claudeWorkerSettings(scope, temporary, user, inspector, []string{root}, nil)
+}
+
+// claudePacketSettings is the native sandbox and file-tool policy of a review pass: the policy of the
+// materialized packet tree, except that the tree, packet.json and diff.json are read-only to the Bash
+// sandbox and denied to the file-editing tools, and the findings folder beside the tree is the one
+// written project path; a deny inside an allowed write would win, so findings is never below the tree.
+func claudePacketSettings(scope map[string]any, temporary, user, inspector string) (string, error) {
+	root, _ := scope["root"].(string)
+	packet, _ := scope["packet"].(string)
+	findings, _ := scope["findings"].(string)
+	if packet == "" || root != filepath.Join(packet, "tree") || findings != filepath.Join(packet, "findings") {
+		return "", errors.New("Review packet scope is incomplete")
+	}
+	return claudeWorkerSettings(scope, temporary, user, inspector, []string{findings},
+		[]string{root, filepath.Join(packet, "packet.json"), filepath.Join(packet, "diff.json")})
+}
+
+// claudeWorkerSettings is the policy described at claudeFolderSettings with writable as the written
+// project paths and frozen as project paths that are read but never written.
+func claudeWorkerSettings(scope map[string]any, temporary, user, inspector string, writable, frozen []string) (string, error) {
+	root, _ := scope["root"].(string)
 	home, _ := scope["home"].(string)
 	record, _ := scope["record"].(string)
 	baseline, _ := scope["baseline"].(string)
@@ -290,11 +312,16 @@ func claudeFolderSettings(scope map[string]any, temporary, user, inspector strin
 	if root == "" || home == "" || record == "" || baseline == "" || len(repositories) == 0 || inspector == "" {
 		return "", errors.New("Materialized folder scope is incomplete")
 	}
-	roots, err := claudeTemporaryRoots(root, temporary, "Claude materialized folders")
-	if err != nil {
-		return "", err
+	// The project paths, written or read, lie outside every system temp root, whose writes Claude denies.
+	project := append(slices.Clone(frozen), writable...)
+	var roots []string
+	var err error
+	for _, path := range project {
+		if roots, err = claudeTemporaryRoots(path, temporary, "Claude materialized folders"); err != nil {
+			return "", err
+		}
 	}
-	if err = writableInspector(inspector, root, temporary); err != nil {
+	if err = writableInspector(inspector, append(slices.Clone(writable), temporary)...); err != nil {
 		return "", err
 	}
 	protected := []string{home, filepath.Join(root, ".git")}
@@ -332,19 +359,25 @@ func claudeFolderSettings(scope map[string]any, temporary, user, inspector strin
 			protected = append(protected, path)
 		}
 	}
-	// Claude's deny wins over its allow, so a protected path cannot contain a writable one.
+	// Claude's deny wins over its allow, so a protected path cannot contain a project path or the private temp.
 	for _, path := range protected {
-		for _, writable := range []string{root, temporary} {
-			if writable == path || strings.HasPrefix(writable, path+"/") {
-				return "", fmt.Errorf("Protected path %s contains %s", path, writable)
+		for _, allowed := range append(slices.Clone(project), temporary) {
+			if allowed == path || strings.HasPrefix(allowed, path+"/") {
+				return "", fmt.Errorf("Protected path %s contains %s", path, allowed)
 			}
 		}
 	}
 	// shortcut: absolute paths go into rules unescaped; a path with glob characters or
 	// parentheses would need Claude's rule escaping, add it if Runtime homes ever contain them.
-	rules := make([]string, len(protected))
-	for index, path := range protected {
-		rules[index] = "Read(/" + path + ")" // `//` marks an absolute path in Claude rules.
+	var rules []string
+	for _, path := range protected {
+		rules = append(rules, "Read(/"+path+")") // `//` marks an absolute path in Claude rules.
+	}
+	// The file-editing tools may not touch a frozen path, whatever tools a later Runtime enables.
+	for _, tool := range []string{"Edit", "Write"} {
+		for _, path := range frozen {
+			rules = append(rules, tool+"(/"+path+")")
+		}
 	}
 	// Claude's Bash sources its shell snapshot from the config dir; Claude itself re-opens
 	// these two for blockReadsOutsideWorkingDirectories.
@@ -353,7 +386,7 @@ func claudeFolderSettings(scope map[string]any, temporary, user, inspector strin
 		return "", err
 	}
 	allowRead := []string{record, baseline, filepath.Join(resolved, "shell-snapshots"), filepath.Join(resolved, "session-env")}
-	readOnly := []string{record, baseline}
+	readOnly := append(slices.Clone(frozen), record, baseline)
 	// Status and diff of a rebound folder need its done marker, which a rebind never removes, and
 	// of a prepared folder its minimal result, never the diagnostics beside it.
 	for _, file := range []string{snapshot.RebindMarker(home, root), snapshot.PreparationResult(home, root)} {
@@ -366,18 +399,18 @@ func claudeFolderSettings(scope map[string]any, temporary, user, inspector strin
 	// The home is denied to the Bash sandbox only: a Read rule or denyWrite on it would also deny the
 	// folder below it. The file tools stay confined to the folder by --restricted. A protected path
 	// inside a re-allowed one stays denied: the sandbox re-applies a nested deny after its allows.
-	readable, err := homeReadable(user, protected, []string{root, temporary})
+	readable, err := homeReadable(user, protected, append(slices.Clone(project), temporary))
 	if err != nil {
 		return "", err
 	}
-	allowRead = append(append(allowRead, root, temporary), readable...)
+	allowRead = append(append(append(allowRead, project...), temporary), readable...)
 	// The sandbox's allowRead wins over its denyRead; grant only the inspector itself.
 	if within(user, inspector) || slices.ContainsFunc(protected, func(path string) bool { return within(path, inspector) }) {
 		allowRead = append(allowRead, inspector)
 	}
 	settings := claudeSettings{
 		Sandbox: claudeSandbox{true, true, false, []string{},
-			claudeFilesystem{AllowWrite: []string{root, temporary},
+			claudeFilesystem{AllowWrite: append(slices.Clone(writable), temporary),
 				DenyWrite: append(append(roots, protected...), readOnly...), DenyRead: append([]string{user}, protected...), AllowRead: allowRead},
 			claudeNetwork{AllowedDomains: []string{}, StrictAllowlist: true, AllowUnixSockets: []string{temporary},
 				AllowLocalBinding: true}},
@@ -528,10 +561,10 @@ func makeTemporary(directory string) (string, error) {
 
 // saveContext records the working directory, repository identity and permission scope,
 // refusing a continuation whose saved context drifted; it never writes on failure.
-// A materialized folder runs no Git: its verified scope is its whole identity.
+// A materialized folder or packet tree runs no Git: its verified scope is its whole identity.
 func saveContext(workspacePath string, scope any, folder string, expected any) error {
 	actual := map[string]any{"cwd": workspacePath, "git": nil}
-	if fields, _ := scope.(map[string]any); fields["profile"] != "materialized-folder" {
+	if fields, _ := scope.(map[string]any); fields["profile"] != "materialized-folder" && fields["profile"] != "review-packet" {
 		var err error
 		if actual, err = workspace.Context(workspacePath); err != nil {
 			return err

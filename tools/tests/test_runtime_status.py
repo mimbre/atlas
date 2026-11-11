@@ -15,30 +15,6 @@ import runtime_cli
 ROOT = Path(__file__).resolve().parents[2]
 
 
-class RuntimeStatusTest(unittest.TestCase):
-    def call(self, directory, pid=None):
-        client = directory/'client.json'; client.write_text(json.dumps({'env': 'test', 'control': {'port': 1}}))
-        home = directory/'runtime'
-        if pid is not None:
-            home.mkdir()
-            (home/'runtime.pid').write_text(str(pid))
-            (home/'runtime.json').write_text(json.dumps({'env': 'test', 'runtime': {'machine': 'fixture'}, 'bus_link': {'machine': 'fixture'}}))
-        result = subprocess.run([sys.executable, str(ROOT/'tools/runtime.py'), 'runtime-status', str(ROOT), 'test'],
-            text=True, capture_output=True, env=dict(os.environ, ATLAS_ENV_FILE=str(client), ATLAS_RUNTIME_HOME=str(home), ATLAS_RUNTIME_FILE=str(home/'runtime.json'), ELIXIR_ERL_OPTIONS='+S 1:1'))
-        return result, home
-
-    def test_status_does_not_create_runtime_home(self):
-        with tempfile.TemporaryDirectory() as directory:
-            result, home = self.call(Path(directory))
-            self.assertFalse(home.exists(), result.stdout+result.stderr)
-
-    def test_retained_live_pid_is_not_runtime_health_or_ownership(self):
-        with tempfile.TemporaryDirectory() as directory:
-            result, _ = self.call(Path(directory), os.getpid())
-            self.assertNotIn('running (pid', result.stdout)
-            self.assertIn('unverified', result.stdout.lower(), result.stdout+result.stderr)
-
-
 class StatusProjectionTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

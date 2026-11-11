@@ -5,7 +5,7 @@
 #
 #   atlas-ops move-to-fly --env test|prod [--from <folder>] [--dry-run] [--replace-live]
 #
-# <folder> holds rela/ (rela's data folder) and beam/ (State's own data), as
+# <folder> holds rela/ (rela's data folder) and beam/ (Facts' own data), as
 # ~/.local/share/atlas/<env> does; by default the folder in the settings' fly.move_from.
 # Point --from at a backup of it to move from the backup.
 #
@@ -56,7 +56,7 @@ echo
 
 # 1. Checks.
 [ -d "$from/rela/entities" ] || fail "$from/rela has no rela data (no entities/)"
-[ -d "$from/beam" ] || fail "$from/beam is missing: State's own data (who set each link, which facts were answered) moves too"
+[ -d "$from/beam" ] || fail "$from/beam is missing: Facts' own data (who set each link, which facts were answered) moves too"
 
 serving="$(pgrep -fl "rela-server -project $from/rela( |$)" 2>/dev/null || true)"
 if [ -n "$serving" ]; then

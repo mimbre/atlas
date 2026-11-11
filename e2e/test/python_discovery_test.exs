@@ -41,7 +41,7 @@ defmodule AtlasE2E.PythonDiscoveryTest do
         "bin" => bin,
         "extra" => "rela/atlas.json"
       },
-      "state" => %{"data" => Path.join(dir, "store/beam")}
+      "facts" => %{"data" => Path.join(dir, "store/beam")}
     }
 
     file = Path.join(dir, "test.json")

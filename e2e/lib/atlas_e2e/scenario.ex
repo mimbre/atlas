@@ -117,7 +117,7 @@ defmodule AtlasE2E.Scenario do
   @doc """
   Run `atlas <args> --env test` on the private instance, as an agent would, with
   `input` on stdin. Returns `{stdout, exit status, at}`; `at` is for `by_hint/3`: its
-  1 second starts when the command has answered (it answers once State stored).
+  1 second starts when the command has answered (it answers once Facts stored).
   """
   def atlas(instance, args, input \\ "") do
     clock = clock()

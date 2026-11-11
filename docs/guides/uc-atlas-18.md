@@ -22,7 +22,7 @@ Nothing is rolled back by itself: undoing a stored step is an overrule (UC-Atlas
 
 ### A refused step
 
-When State refuses a step, the run stops there, and the agent proposes what next as a new plan. That plan runs only on `enter`, like any other. The agent never retries a refused step by itself.
+When Facts refuses a step, the run stops there, and the agent proposes what next as a new plan. That plan runs only on `enter`, like any other. The agent never retries a refused step by itself.
 
 | Step | Keys | What you should see |
 |---|---|---|

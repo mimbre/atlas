@@ -300,8 +300,8 @@ defmodule AtlasTui.WorkerHistoryTest do
       Wire.reply(:worker_history, :error,
         id: request["id"],
         error: %{
-          code: "state_unavailable",
-          message: "Durable State disconnected",
+          code: "facts_unavailable",
+          message: "Durable Facts disconnected",
           retryable: true
         }
       )
@@ -312,7 +312,7 @@ defmodule AtlasTui.WorkerHistoryTest do
     assert state.interactions == [record]
     assert state.cursor == "page"
     assert state.pending == %{}
-    assert text(state) =~ "Durable State disconnected"
+    assert text(state) =~ "Durable Facts disconnected"
     assert text(state) =~ "Stale: last known projection"
     assert text(state) =~ record["body"]
     {state, [retry]} = WorkerHistory.next(state)

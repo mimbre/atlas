@@ -5,10 +5,10 @@ defmodule AtlasRuntime.Engine do
   own. Flow decides who owns what; Runtime only runs turns for owners.
 
   Every round (and at once on a hint about a fact it runs turns on, or a turn) it reads
-  State and reconciles, safe to repeat (C2):
+  Facts and reconciles, safe to repeat (C2):
 
-  1. A turn State has running on this machine with no process here (Runtime restarted, or
-     its process died): ended, with why. It keeps nothing State does not hold (C1).
+  1. A turn Facts has running on this machine with no process here (Runtime restarted, or
+     its process died): ended, with why. It keeps nothing Facts does not hold (C1).
   2. A turn whose item is no longer its agent's, or no longer open: ended (W1: only the
      owner works on an item). It may still end by itself for a grace (`leave_grace`, 10 s),
      so the result of an agent that handed its item on itself is kept (IS-Atlas-93).
@@ -17,13 +17,13 @@ defmodule AtlasRuntime.Engine do
      moment ago (it waits a pause that doubles with each crash in a row), or crashed 3 times
      in 10 minutes on this machine: it then cannot run here, and Runtime says so on the
      agent (`runtime.agent.cannot_run`), until that is no longer so (architecture v4,
-     section 10.2). All of it is read from the turns in State, nothing is remembered.
+     section 10.2). All of it is read from the turns in Facts, nothing is remembered.
 
   What it reads is the description's: the facts a flow writes on (its `on`, or its kinds),
   owned through the flow's `owner_relation`, open while its `state_field` has a value; and
   the turn's kind and fields (`runtime.turn` in `rela/atlas.json`). It names no kind.
 
-  It reaches State only over the Bus, as the endpoint `runtime`.
+  It reaches Facts only over the Bus, as the endpoint `runtime`.
   """
   use GenServer
 
@@ -138,7 +138,7 @@ defmodule AtlasRuntime.Engine do
               turn["values"][names.machine] == machine,
               do: turn
 
-        # 1. Running in State, with no process here.
+        # 1. Running in Facts, with no process here.
         orphaned = Enum.reject(mine, &Map.has_key?(local, &1["key"]))
 
         for turn <- orphaned do
@@ -327,7 +327,7 @@ defmodule AtlasRuntime.Engine do
   end
 
   # One historical turn/page per round, no model restart and no successor resolution.
-  # The bounded cursor is an optimization; State and native history remain authoritative.
+  # The bounded cursor is an optimization; Facts and native history remain authoritative.
   defp history(state, d, n, turns, local, agents, kinds) do
     machine = Keyword.fetch!(state.opts, :machine)
 
@@ -392,7 +392,7 @@ defmodule AtlasRuntime.Engine do
     end
   end
 
-  # A turn without its process: ended in State, with why.
+  # A turn without its process: ended in Facts, with why.
   defp lost(names, key, why) do
     content = %{
       "op" => "change",

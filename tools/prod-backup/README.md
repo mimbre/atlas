@@ -24,7 +24,7 @@ existing disk capacity. It refuses rather than resizing or changing credentials.
 
 The unchanged supported fetch-from-fly.sh holds/restarts core first, then rela,
 copies complete /data/beam and /data/rela while both are held, and releases rela
-then core with health checks. State/Bus persisted replies, positions and link
+then core with health checks. Facts/Bus persisted replies, positions and link
 provenance live in the complete beam tree; no additional configured Bus disk store
 exists. The rela tree covers facts/relations/attachments and schema/description closure.
 
@@ -37,7 +37,7 @@ must stay absent. Pending archives are never removed or applied automatically.
 
 The scoped Fly transport checks both holds at each transfer; remote file manifests
 before/after must match. Compressed remote/local SHA256 and extracted per-file
-manifests must match. Private State DETS files are opened read-only, repair:false,
+manifests must match. Private Facts DETS files are opened read-only, repair:false,
 and their bytes must stay identical. No Atlas application/model/restore service starts.
 
 Verified archives, manifests and counts are retained under
@@ -91,7 +91,7 @@ No rollback or live data replacement is automatic.
    new private folder. Match compressed hashes before extraction; never publish
    those files as public artifacts.
 3. Extract to recovery/rela and recovery/beam. Verify every file hash, counts,
-   schema closure and read-only State DETS integrity. Backup execution checks
+   schema closure and read-only Facts DETS integrity. Backup execution checks
    extraction against held source manifests; repeat against retained bytes before
    actual restoration. Keep original archives immutable.
 4. Prefer roll-forward with latest data. For a chosen paired restore, run the

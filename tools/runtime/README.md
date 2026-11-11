@@ -1,6 +1,6 @@
 # Runtime service and CLI
 
-One Go command-line client, a separate Elixir Runtime daemon, and explicitly targeted concurrent native workers. Each worker has at most one active execution. Codex remains the default without configured preferences; Claude requires explicit selection or an explicit preference. No Atlas server connection, unless explicitly opted into [lifecycle reporting](#optional-atlas-server-lifecycle-reporting), and no orchestration. Runtime and Bus are the only Atlas applications started; State, Flow, Control and Rela are not started.
+One Go command-line client, a separate Elixir Runtime daemon, and explicitly targeted concurrent native workers. Each worker has at most one active execution. Codex remains the default without configured preferences; Claude requires explicit selection or an explicit preference. No Atlas server connection, unless explicitly opted into [lifecycle reporting](#optional-atlas-server-lifecycle-reporting), and no orchestration. Runtime and Bus are the only Atlas applications started; Facts, Flow, Control and Rela are not started.
 
 ```sh
 atlas-runtime service start
@@ -162,7 +162,7 @@ atlas-runtime output --turn turn-0123456789abcdef
 
 `events --follow [--cursor C]` streams the same execution events from `read.sock` (`follow` in `docs/contracts/runtime-read.md`) until SIGINT or SIGTERM, which exit with status 0. It prints one JSON line per event as it arrives, `{"reset":{...}}` before the events when the Runtime reports a retention gap or epoch change, and `{"cursor":C}` after each page whose cursor changed. It is the `epoch:sequence` cursor of `events`; save it only after handling the lines before it. It reconnects on its own from the last printed cursor: at once after a connection closes without an `end` frame (or ends `too_slow`), otherwise with back-off from 1 s to 15 s. It prints its own `{"reachable":false,"reason":R}` once when the Runtime is lost (`R` is `connect_failed`, `connection_closed`, `silence` for 45 s without a page or heartbeat, the `end` reason such as `service_stopping`, or a retryable read error code), and `{"reachable":true}` with the next page. Delivery is at least once; duplicates can follow a reconnect. `invalid_cursor` and other refusals exit nonzero; `--limit` is refused with `--follow`. It never starts the service or any worker.
 
-`events` is a finite query, not a watcher. It returns immutable ordered execution, question-evidence, peer-correlation and handoff-reference snapshots with stable turn IDs, worker attribution for new events, native identity when known, and references usable by `output --turn`, `question`, `peer-question` or `handoff` for inspection. `execution_accepted` means Runtime accepted a start or continuation; `execution_finished` means the native turn ended normally, **not that its assigned task was verified successful**. Failure, confirmed stop and confirmed kill use `execution_failed`, `execution_stopped` and `execution_killed`; requesting a stop or kill appends no event. Assignments, questions, answers, handoff declarations and full logs are not copied into the event stream.
+`events` is a finite query, not a watcher. It returns immutable ordered execution, question-evidence, peer-correlation and handoff-reference snapshots with stable turn IDs, worker attribution for new events, native identity when known, and references usable by `output --turn`, `question`, `peer-question` or `handoff` for inspection. `execution_accepted` means Runtime accepted a start or continuation; `execution_finished` means the native turn ended normally, **not that its assigned task was verified successful**. Failure, confirmed stop and confirmed kill use `execution_failed`, `execution_stopped` and `execution_killed`; a turn a starting service ended because its service and process were gone is an `execution_failed` with `interruption: "service_restart"`, a field no ordinary failure has; requesting a stop or kill appends no event. Assignments, questions, answers, handoff declarations and full logs are not copied into the event stream.
 
 The response includes `events`, `next_cursor`, `has_more`, `earliest_cursor`, `retention_gap` and `recording_started_at`. Save `next_cursor` only after processing the returned page. It advances only through returned events; an empty page preserves the supplied cursor. The initial empty query still returns a usable cursor. Replaying a retained cursor returns the same ordered prefix; newly appended events may extend a previously short page.
 
@@ -394,6 +394,80 @@ A strict, reproducible preparation, not a rebuild after edits: it regenerates ex
 
 Tests (step 11b, 2026-11-09): Go tests with stand-in Codex, npm and node cover the exact arguments and offline environment, regeneration with a clean status, diff and submit, exclusion of only untracked outputs, failures for a changed, re-moded or removed tracked output, a file outside the outputs and a failing script, every refusal, repeats, the shared lock, an interrupted claim, and version 1 and 2 record validation. `TestRunProfileIsEnforcedByInstalledCodexSandbox` probes the network-off profile under the installed Codex sandbox; it, the host-level tests and a real viewer build need a run outside the worker sandbox, where its Codex home check and loopback listening are denied; only the snapshot-level tests ran inside it.
 
+## Review packets (snapshot freeze)
+
+```sh
+atlas-runtime snapshot freeze --dest /abs/assignment --turn TURN_ID --packet /abs/packet --packet-id UUID [--previous PACKET_ID]
+```
+
+Freezes a materialized folder after its author turn, so a review has a stable subject while the author keeps working. Offline: no Code, Runtime service or Git.
+
+- **Refused first, nothing made:** an active owner of the folder (the lock workers and submissions take), a turn that did not run in the folder or is not finished, stopped or killed, a packet path that exists, overlaps the folder or the Runtime home, or lies in a Git work tree, a `--previous` that is not a recorded packet or is this packet, and anything submit refuses (FIFOs, sockets and devices anywhere; in a repository also escaping symlinks, `.git` paths, files over 64 MiB and a request over 1 MiB).
+- **Packet:** `/abs/packet/tree` is a copy of the folder, each file an APFS clone (copy-on-write, so only metadata is written) or, where the filesystem cannot clone, a streamed copy. Directories are 0555 and files lose their write bits. The tree is recorded as a materialization of the same snapshot with `packet_id`, and a preparation result is copied with it, so `snapshot status|diff|submit --dest /abs/packet/tree` work and report what the folder reported. Next to it: `packet.json`, `diff.json` (exactly `snapshot diff --dest /abs/packet/tree`) and an empty, writable `findings/`. The Runtime home keeps the authoritative `packet.json` and `diff.json` in `packets/PACKET_ID/`.
+- **Fingerprints:** every repository in `packet.json` has the fingerprint and entries `snapshot submit` reports and sends for the same content; a clean repository has `entries: []`. The packet fingerprint is `fpr_` + SHA-256 of `{"repositories":[{"fingerprint","path","repository"}…],"snapshot_id","version":1}`, sorted by path. Paths outside every repository are listed in `outside` and are in no fingerprint.
+- **Consistency:** the tree is scanned again after the copy; content that differs from the folder's scan refuses with `folder … changed during freeze; nothing was frozen` and removes the packet folder and its records.
+- **Result:** `packet.json` plus `state: "frozen"`, `packet` and `cost`: `elapsed_ms`, `files`, `bytes`, `cloned_files`, `copied_files`, `copied_bytes`, `free_bytes_before`, `free_bytes_after` and `disk_used_bytes` (the drop in free space; noisy on a busy volume). A repeat with the same packet ID and arguments returns the recorded packet with `state: "existing"` and no cost; other arguments under a used ID are a conflict.
+- **Limits:** read-only modes do not stop a process of the same user; enforcement for review passes is the planned `review-packet` profile. Clones keep extended attributes and ACLs. Runtime removes no packet by itself; `snapshot discard` below removes one on request.
+
+## Review findings and the packet chain (snapshot findings, snapshot packets)
+
+```sh
+atlas-runtime snapshot findings --packet /abs/packet --turn REVIEW_TURN_ID
+atlas-runtime snapshot packets --dest /abs/assignment
+```
+
+`snapshot findings` records what a review pass wrote to `/abs/packet/findings/findings.json`. Fixed rules only: Runtime never writes a verdict, and a refusal is never a pass. Offline: no Code, Runtime service or Git.
+
+- **The file:** at most 65536 bytes (64 KiB) of UTF-8 JSON, one object without repeated keys and with exactly these fields:
+
+  ```json
+  {"version": 1, "packet_id": "<this packet>", "fingerprint": "<this packet's fpr_>",
+   "verdict": "pass | changes_required | uncertain", "summary": "…",
+   "findings": [{"id": "F1", "severity": "blocking | should-fix | note", "repository": "github.com/o/r", "path": "atlas/x.go",
+                 "lines": {"side": "new | old", "start": 10, "end": 14}, "problem": "…", "evidence": "…", "direction": "…"}],
+   "checked": ["…"], "not_checked": ["…"]}
+  ```
+
+  `repository`, `path` and `lines` may be `null` but must be present. `repository` and `path` are as `diff.json` names them: the repository name, and the path relative to the tree. The path must be in the tree or its baseline (a deleted file), reached through real directories only, and in the named repository. `lines` must lie within the tree's file (`new`) or the baseline's file (`old`). `id`, `summary` and `problem` are nonempty, and IDs are unique. A `blocking` finding with verdict `pass` is invalid.
+- **Refused, with nothing recorded:**
+  - the turn did not run in `/abs/packet/tree`, is not a `review-packet` pass of this packet and fingerprint, or is not finished, stopped or killed;
+  - an owner holds the tree's lock;
+  - code `packet_modified`: the tree, `packet.json` or `diff.json` changed after the freeze;
+  - code `packet_discarded`: the packet was discarded (`snapshot discard`), checked under the tree's lock;
+  - code `findings_missing`: no file;
+  - code `findings_invalid`: anything else above, including a file over 64 KiB or a symlink.
+
+  The CLI prints `{"error": …, "code": …}` for the coded refusals and exits 1.
+- **Record:** `<home>/packets/PACKET_ID/findings/REVIEW_TURN_ID.json` (0444, never replaced) and the result are `{version: 1, packet_id, fingerprint, review_turn, reviewer: {worker_id, backend, model, selection}, author: {turn_id, worker_id, backend, model, selection}, recorded_at, sha256, findings}`. `findings` is the file, compacted. `sha256` is the hash of its original bytes. The reviewer comes from the review turn's record. The author comes from `packet.json`, with the selection from the author turn's record (`null` if that record is gone). The result adds `state: "recorded"` and `record`.
+- **Repeat:** the same turn with an unchanged file returns the record with `state: "existing"`. A changed or removed file is a conflict. Each review turn is recorded once, and a packet can have several.
+
+`snapshot packets` lists every packet frozen from the folder, oldest first along the `previous` links (then by `created_at` and ID). Each entry has `packet_id`, `fingerprint`, `previous`, `snapshot_id`, `created_at`, `author`, `packet` (the packet folder), `discarded_at` (`null` until `snapshot discard`) and `findings` (every findings record, oldest first). It only reads, and the folder need not exist any more.
+
+Tests (review step 5, 2026-11-11): Go tests in `snapshot/findings_test.go` cover:
+- a recorded file with both selections, a repeat, a conflict after a change, and the exact 64 KiB boundary;
+- every refusal above, including one byte past 64 KiB;
+- a three-packet chain whose IDs sort opposite to the chain, listed in chain order with its findings.
+
+Limits:
+- Findings move through the Runtime record only. Delivering them as Issue channel messages is UC-Chan-04 (channels S9).
+- Line bounds are checked against the whole file, not the diff hunks.
+- The list includes full records, so its size grows with the chain.
+
+## Review packet discard (snapshot discard)
+
+```sh
+atlas-runtime snapshot discard --packet /abs/packet | --packet-id UUID
+```
+
+Removes a packet folder once its review is over. Offline: no Code, Runtime service or Git.
+
+- **Refused, nothing removed:** both or neither of `--packet` and `--packet-id`, a packet ID or path with no record under `packets/`, a lock on `/abs/packet/tree` (a review pass, `snapshot findings` or a submission from the tree: `folder … has an active Runtime owner; nothing was discarded`), and a folder at the recorded path whose `tree` is not a directory or is not recorded as this packet.
+- **Removed:** `/abs/packet` (the read-only tree, `packet.json`, `diff.json` and `findings/`), the tree's materialization record and its copied preparation result. Read-only directories and files are made writable first; symbolic links are never followed, and every change stays inside the folder, as the host's scratch cleanup does.
+- **Kept:** `packets/PACKET_ID/` with `packet.json`, `diff.json` and the findings records, plus a new `discarded.json` `{packet_id, packet, tree, fingerprint, discarded_at}`. Retention of these records is the planned cleanup step.
+- **With findings:** discard and `snapshot findings` take the same tree lock, so each refuses while the other runs. A stamped packet takes no more findings (code `packet_discarded`), and `snapshot packets` still lists it, with its findings and `discarded_at`.
+- **Result and repeats:** `{state: "discarded", packet_id, packet, tree, fingerprint, discarded_at, record}`. A repeat by path or ID returns the same result; an interrupted discard (folder gone, record left) completes on a repeat. By path, after a later freeze reused the path, the packet not yet discarded is chosen; with all discarded, the latest discard is reported.
+- **Limits:** a folder left by a freeze killed before its commit point has no record under `packets/` and is not removed by discard; remove it by hand.
+
 ## Claude scoped repository writes
 
 Select Claude repository writes explicitly with `atlas-runtime start --backend claude --cwd /canonical/independent/repository --permissions dedicated-repository "Edit the assigned file and create a local commit"`, or use managed `--repo` provisioning below. This reuses independent-root validation and owned directory locking. It enables Bash alongside read-only Read/Glob/Grep, never Edit/Write. Native settings require sandbox availability, disable unsandboxed escape and excluded commands, retain the existing GitHub domain list, and deny writes to `.agents`, `.codex`, `.aws`, `.claude`, `.git/config` and `.git/hooks`. Generic workspace-write remains refused.
@@ -510,9 +584,9 @@ Without `server.json`, nothing changes: no Bus link, no reporter, no extra `turn
 3. renews `activity` and `lease_until` at most once per lease interval, as connected turns do;
 4. ends it `ended` with an empty lease, `ended_at`, and `why` `finished`, `failed: <error>`, `stopped` or `killed` (not verified against Server consumers).
 
-It never sets a Flow outcome or item ownership, and Server gets no start, stop or guidance control over the native agent. Unlisted workers run as before, with no State writes.
+It never sets a Flow outcome or item ownership, and Server gets no start, stop or guidance control over the native agent. Unlisted workers run as before, with no Facts writes.
 
-`status`, `turns` and `turn.json` show what Server confirmed, in `server.report`: `turn` (`unconfirmed`, `running`, `ended`), `execution` (`unconfirmed`, `registered`) and the last failure in `error` (for example `turn not created: State did not answer`). Each write is one bounded exchange, so a missing or refusing Server never delays or changes `start`, `output`, `stop` or the local terminal state. `service stop` stops the running workers gracefully and exits only once none remains owned. The daemon then waits up to 5 s for pending reports before it exits, and the command returns once it has. With Server unreachable, a measured `service stop` took about 6 s in total.
+`status`, `turns` and `turn.json` show what Server confirmed, in `server.report`: `turn` (`unconfirmed`, `running`, `ended`), `execution` (`unconfirmed`, `registered`) and the last failure in `error` (for example `turn not created: Facts did not answer`). Each write is one bounded exchange, so a missing or refusing Server never delays or changes `start`, `output`, `stop` or the local terminal state. `service stop` stops the running workers gracefully and exits only once none remains owned. The daemon then waits up to 5 s for pending reports before it exits, and the command returns once it has. With Server unreachable, a measured `service stop` took about 6 s in total.
 
 This is a best-effort mirror. There is no retry queue, replay, crash reconciliation or automatic recovery. A failed write stays failed. If the turn was never created, nothing more is written for it. A turn left `running` by a daemon that died keeps a lease that simply runs out.
 

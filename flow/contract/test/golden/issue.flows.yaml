@@ -1,0 +1,104 @@
+# Software: Issue. Several private passes, then the PR effect.
+# Plain rela 26.11.2 flows.yaml. The Atlas layer (passes, gates, effects,
+# links) is in flows.atlas.yaml, keyed by flow and state.
+# Fields named *_result and pr_outcome are written only by the Atlas layer
+# (role atlas-flow); every state resets the field it waits on when entered.
+flows:
+  issue:
+    label: Issue
+    subject: issue
+    run_as: system:sf-flow
+    per_subject: one
+    start:
+      - on: predicate
+        when: "entity.stage == 'development'"
+    initial: author
+    states:
+      author:
+        label: Author pass
+        outputs:
+          - set: { properties: { pass_result: none } }
+        on:
+          change:
+            - { to: delivery_gate, roles: [atlas-flow], when: "entity.pass_result == 'delivered'" }
+            - { to: needs_person, roles: [atlas-flow], when: "entity.pass_result == 'failed'" }
+        after:
+          runtime_wait: { period: 2d, to: needs_person, label: The owner's Runtime did not finish the pass }
+      delivery_gate:
+        label: Delivery-evidence gate
+        outputs:
+          - set: { properties: { gate_result: none } }
+        on:
+          change:
+            - { to: review, roles: [atlas-flow], when: "entity.gate_result == 'review'" }
+            - { to: rework, roles: [atlas-flow], when: "entity.gate_result == 'rework'" }
+            - { to: needs_person, roles: [atlas-flow], when: "entity.gate_result == 'person'" }
+        after:
+          no_decision: { period: 1h, to: needs_person, label: No gate decision within an hour }
+      review:
+        label: Review pass
+        outputs:
+          - set: { properties: { pass_result: none } }
+        on:
+          change:
+            - { to: review_gate, roles: [atlas-flow], when: "entity.pass_result == 'delivered'" }
+            - { to: needs_person, roles: [atlas-flow], when: "entity.pass_result == 'failed'" }
+        after:
+          runtime_wait: { period: 2d, to: needs_person, label: The owner's Runtime did not finish the review }
+      review_gate:
+        label: Review gate
+        outputs:
+          - set: { properties: { gate_result: none } }
+        on:
+          change:
+            - { to: publish, roles: [atlas-flow], when: "entity.gate_result == 'ready'" }
+            - { to: rework, roles: [atlas-flow], when: "entity.gate_result == 'rework'" }
+            - { to: needs_person, roles: [atlas-flow], when: "entity.gate_result == 'person'" }
+        after:
+          no_decision: { period: 1h, to: needs_person, label: No gate decision within an hour }
+      rework:
+        label: Rework pass
+        outputs:
+          - set: { properties: { pass_result: none } }
+        on:
+          change:
+            - { to: delivery_gate, roles: [atlas-flow], when: "entity.pass_result == 'delivered'" }
+            - { to: needs_person, roles: [atlas-flow], when: "entity.pass_result == 'failed'" }
+        after:
+          runtime_wait: { period: 2d, to: needs_person, label: The owner's Runtime did not finish the rework }
+      publish:
+        label: Create or update the PR
+        outputs:
+          - set: { properties: { effect_result: none } }
+        on:
+          change:
+            - { to: in_pr, roles: [atlas-flow], when: "entity.effect_result == 'done'" }
+            - { to: needs_person, roles: [atlas-flow], when: "entity.effect_result == 'refused'" }
+        after:
+          no_effect: { period: 1h, to: needs_person, label: Code did not answer within an hour }
+      in_pr:
+        label: In pull request
+        on:
+          change:
+            - { to: rework, roles: [atlas-flow], when: "entity.pr_outcome == 'changes_requested'" }
+            - { to: done, roles: [atlas-flow], when: "entity.pr_outcome == 'integrated'" }
+            - { to: closed, roles: [atlas-flow], when: "entity.pr_outcome == 'closed'" }
+      needs_person:
+        label: A person decides
+        status: input_required
+        waiting_for: [maintainer]
+        outputs:
+          - set: { properties: { gate_result: none } }
+        on:
+          change:
+            - { to: review, roles: [maintainer], when: "entity.gate_result == 'review'" }
+            - { to: rework, roles: [maintainer], when: "entity.gate_result == 'rework'" }
+            - { to: publish, roles: [maintainer], when: "entity.gate_result == 'ready'" }
+            - { to: closed, roles: [maintainer], when: "entity.gate_result == 'close'" }
+      done:
+        label: Integrated
+        final: true
+      closed:
+        label: Closed
+        final: true
+        status: cancelled

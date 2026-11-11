@@ -33,7 +33,7 @@ defmodule AtlasE2E.CompositionTest do
         "bin" => bin,
         "extra" => "rela/atlas.json"
       },
-      "state" => %{"data" => Path.join(dir, "store/beam")},
+      "facts" => %{"data" => Path.join(dir, "store/beam")},
       "flow" => %{"tick_seconds" => 1},
       "connectors" => %{
         "github" => %{
@@ -123,7 +123,7 @@ defmodule AtlasE2E.CompositionTest do
     kinds = command(ctx, ["help"]) |> Enum.map(& &1["kind"])
 
     assert Enum.sort(kinds) ==
-             ~w(agent assignment decision interaction interaction_receipt person turn worker_execution)
+             ~w(agent assignment decision gate_verdict interaction interaction_receipt person turn worker_execution)
 
     tools = command(ctx, ["tools"]) |> JSON.encode!()
 
@@ -133,7 +133,7 @@ defmodule AtlasE2E.CompositionTest do
     person = command(ctx, ["put", "person", "--name", "Tester"])
     assert person["key"] == "tester"
 
-    # IS-124: the real CLI/Control/State chain preserves the scope guard. The smoke
+    # IS-124: the real CLI/Control/Facts chain preserves the scope guard. The smoke
     # client reads this private composition and creates no guidance records.
     before = Path.wildcard(Path.join(ctx.dir, "store/rela/entities/**/*.md"))
     python = System.get_env("ATLAS_CONFIG_PYTHON") || "python3"

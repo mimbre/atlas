@@ -3,6 +3,7 @@ defmodule AtlasAgent.CLI do
   `atlas put|set|get|list --env <env> ...` (or `mix atlas.agent ...` in clients/agent):
 
       atlas put  <kind> [--in <key>] --<field> <text> ...  create; prints the new item
+                 --link <association>=<key>[,<key>]       and link it, right after (repeatable)
       atlas set  <key> <field>=<text> ...                  change; prints the item
                  <association>=<key>                       link (empty: remove the link)
                  --cause <text>                            why (put and set), kept with it
@@ -16,7 +17,7 @@ defmodule AtlasAgent.CLI do
 
   Every command takes --json: it then prints one JSON value on stdout, the item, the
   list, or `{"refused": [reasons]}` / `{"error": text}`. Without it, short text.
-  A failed list also retains `code` when Control supplies a typed State failure.
+  A failed list also retains `code` when Control supplies a typed Facts failure.
   A value of `-` is read from stdin; `--<field>-file <path>` (put) and `<field>=@<path>`
   (set) read it from a file, for text of several lines. Which kinds exist and which
   fields a form asks for come from Control; a wrong one is answered with what it asks.
@@ -95,7 +96,10 @@ defmodule AtlasAgent.CLI do
   defp parse_command(["put", kind | rest]) do
     {parent, rest} = take_flag(rest, "--in", nil)
     {cause, rest} = take_flag(rest, "--cause", nil)
-    with {:ok, values} <- options(rest, %{}), do: {:ok, {:put, kind, values, parent, cause}}
+
+    with {:ok, links, rest} <- links(rest, %{}, []),
+         {:ok, values} <- options(rest, %{}),
+         do: {:ok, {:put, kind, values, parent, cause, links}}
   end
 
   defp parse_command(["set", key | assignments]) when assignments != [] do
@@ -120,8 +124,25 @@ defmodule AtlasAgent.CLI do
   defp run({:runtime_discovery, machine}, client),
     do: AtlasAgent.RuntimeDiscovery.read(client, machine)
 
-  defp run({:put, kind, values, parent, cause}, client),
-    do: client |> AtlasAgent.put(kind, values, parent, cause) |> then_get(client)
+  # Links go through each association's own form once the fact is there; when one is
+  # refused, the fact stays made and the refusal names its key, so it can be linked again.
+  defp run({:put, kind, values, parent, cause, links}, client) do
+    case AtlasAgent.put(client, kind, values, parent, cause) do
+      {:ok, key} when links == %{} ->
+        then_get({:ok, key}, client)
+
+      {:ok, key} ->
+        case AtlasAgent.set(client, key, links, cause) do
+          {:ok, key} -> then_get({:ok, key}, client)
+          {:refused, reasons} -> {:refused, ["#{key} is made, but not linked" | reasons]}
+          {:error, text} -> {:error, "#{key} is made, but not linked: #{text}"}
+          other -> other
+        end
+
+      other ->
+        other
+    end
+  end
 
   defp run({:set, key, values, cause}, client),
     do: client |> AtlasAgent.set(key, values, cause) |> then_get(client)
@@ -204,8 +225,13 @@ defmodule AtlasAgent.CLI do
 
   defp show({:turn, context}, true), do: json(context, 0)
 
-  defp show({:turn, context}, false),
-    do: IO.puts("Turn #{context["key"]} on #{context["on"]}\n\n" <> text(context["item"])) && 0
+  # What the worker reads first (the item's anchors and the standing rules), then the item.
+  defp show({:turn, context}, false) do
+    first = if context["read_first"], do: context["read_first"] <> "\n\n", else: ""
+
+    IO.puts("Turn #{context["key"]} on #{context["on"]}\n\n" <> first <> text(context["item"])) &&
+      0
+  end
 
   defp show({:outcome, outcome}, true), do: json(outcome, 0)
 
@@ -439,6 +465,18 @@ defmodule AtlasAgent.CLI do
   end
 
   defp take_switch(args, switch), do: {switch in args, List.delete(args, switch)}
+
+  # Every `--link <association>=<keys>` of a put; the rest are its fields.
+  defp links(["--link", link | rest], links, others) do
+    case String.split(link, "=", parts: 2) do
+      [relation, keys] when relation != "" -> links(rest, Map.put(links, relation, keys), others)
+      _ -> {:error, "expected --link <association>=<key>, got #{link}"}
+    end
+  end
+
+  defp links(["--link"], _links, _others), do: {:error, "expected --link <association>=<key>"}
+  defp links([arg | rest], links, others), do: links(rest, links, [arg | others])
+  defp links([], links, others), do: {:ok, links, Enum.reverse(others)}
 
   defp options(["--" <> name, value | rest], values) do
     case String.split(name, ~r/-file$/) do

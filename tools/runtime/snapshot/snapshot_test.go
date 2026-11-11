@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"net/http"
@@ -35,6 +36,11 @@ type fixture struct {
 func newFixture(t *testing.T, manifest []byte, archives map[string][]byte) *fixture {
 	t.Helper()
 	parent, err := filepath.EvalSymlinks(t.TempDir())
+	// Materialize resolves its destination parent the same way. Some worker sandboxes
+	// allow the temporary directory but deny metadata of an ancestor (notably HOME).
+	if errors.Is(err, fs.ErrPermission) {
+		t.Skipf("materialization requires destination-parent ancestor metadata for filepath.EvalSymlinks: %v", err)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}

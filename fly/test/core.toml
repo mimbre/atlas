@@ -1,4 +1,4 @@
-# The core of Atlas test on Fly (Bus, State, Flow, Control; IS-Atlas-26). Deployed from the
+# The core of Atlas test on Fly (Bus, Facts, Flow, Control; IS-Atlas-26). Deployed from the
 # repository root by CI on a merge to develop:
 #   fly deploy . --config fly/test/core.toml --dockerfile fly/core.Dockerfile
 # No [[services]] and no public address: clients reach Control on test's own private

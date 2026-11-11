@@ -121,7 +121,7 @@ defmodule Mix.Tasks.Atlas.E2e do
   # Write out what the machine still holds for the disk (on a CI runner: hundreds of MB from
   # installing and compiling just before) before the first step is timed. The kernel writes
   # it out ~30 s later otherwise, and while it does, a file write waits for the disk: rela's
-  # write of a fact, State's sync. CI measured one rela request at 836 ms in that window, and
+  # write of a fact, Facts' sync. CI measured one rela request at 836 ms in that window, and
   # a step missed its second (IS-Atlas-80).
   defp settle_disk do
     {_, 0} = System.cmd("sync", [])

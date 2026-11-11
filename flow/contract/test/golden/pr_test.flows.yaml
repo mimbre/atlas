@@ -1,0 +1,39 @@
+# Software: PR test, a linked flow on the PR, owned by a person.
+# Created by the pull_request flow's create output; starts on create.
+# The person sets verdict; the Atlas link reports the final state to the PR.
+flows:
+  pr_test:
+    label: PR test
+    subject: pr_test
+    per_subject: one
+    start:
+      - on: create
+    initial: working
+    states:
+      working:
+        label: PR test in progress
+        waiting_for: [tester]
+        on:
+          change:
+            - { to: superseded, roles: [atlas-flow], when: "entity.superseded == true" }
+            - { to: passed, roles: [tester], when: "entity.verdict == 'passed'" }
+            - { to: failed, roles: [tester], when: "entity.verdict == 'failed'" }
+        after:
+          stalled: { period: 3d, to: escalated, label: No outcome in three days }
+      escalated:
+        label: Escalated
+        status: input_required
+        waiting_for: [maintainer, tester]
+        on:
+          change:
+            - { to: superseded, roles: [atlas-flow], when: "entity.superseded == true" }
+            - { to: passed, roles: [maintainer, tester], when: "entity.verdict == 'passed'" }
+            - { to: failed, roles: [maintainer, tester], when: "entity.verdict == 'failed'" }
+      passed:
+        final: true
+      failed:
+        final: true
+      superseded:
+        label: Superseded by a newer PR revision
+        final: true
+        status: cancelled

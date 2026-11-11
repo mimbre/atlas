@@ -2,7 +2,7 @@ defmodule AtlasRuntime.Talk do
   @moduledoc """
   Reads and facts over the Bus, from the calling process (which must be attached), and
   the answer to each. A read is asked again a few times; a fact is sent again with the
-  same id while State does not answer, so it is stored once.
+  same id while Facts does not answer, so it is stored once.
   """
 
   alias AtlasBus.Envelope
@@ -10,7 +10,7 @@ defmodule AtlasRuntime.Talk do
   @wait 2_000
   @tries 3
 
-  @doc "Read: State's answer, or `%{\"error\" => …}`."
+  @doc "Read: Facts' answer, or `%{\"error\" => …}`."
   def read(kind, content, opts \\ []),
     do:
       read_request(
@@ -20,7 +20,7 @@ defmodule AtlasRuntime.Talk do
         Keyword.get(opts, :wait, @wait)
       )
 
-  defp read_request(_kind, _content, 0, _wait), do: %{"error" => "State did not answer"}
+  defp read_request(_kind, _content, 0, _wait), do: %{"error" => "Facts did not answer"}
 
   defp read_request(kind, content, tries, wait) do
     envelope = Envelope.new("read", kind)

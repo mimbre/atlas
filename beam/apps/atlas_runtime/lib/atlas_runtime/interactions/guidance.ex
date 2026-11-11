@@ -1,6 +1,6 @@
 defmodule AtlasRuntime.Guidance do
   @moduledoc """
-  Bounded exact-attempt reconciliation over State/Bus. State owns conversation history;
+  Bounded exact-attempt reconciliation over Facts/Bus. Facts owns conversation history;
   this module keeps only a page cursor. Native query is authority for receipts, never
   chat, activity, or the contents of an event. Flow remains authority for ownership.
 
@@ -303,7 +303,7 @@ defmodule AtlasRuntime.Guidance do
   end
 
   defp receipt(turn, i, stage, extra) do
-    # Stable immutable evidence ids make lost State acknowledgements safe to reconcile.
+    # Stable immutable evidence ids make lost Facts acknowledgements safe to reconcile.
     id =
       :crypto.hash(
         :sha256,

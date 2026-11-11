@@ -57,8 +57,68 @@ jobs:
       - run: python3 -m unittest discover -s tools/tests -v
         working-directory: .
 
+  flow-generator:
+    name: Flow generator on its own
+    runs-on: ubuntu-latest
+    env:
+      MIX_ENV: test
+    defaults:
+      run:
+        working-directory: flow/generator
+    steps:
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28"
+          elixir-version: "1.18"
+      - name: The generator holds none of Atlas's flows
+        run: |
+          if grep -rniE 'AtlasFlowContract|\.\./contract|flow/contract|\bissue\b|pull_request|pr_review|pr_test|use_case|\bscene\b|\bdecision\b|delivery_evidence' lib test mix.exs; then
+            echo "::error::flow/generator mentions Atlas's flows. Keep them in flow/contract."
+            exit 1
+          fi
+      # Compiled and tested without flow/contract, on a neutral example contract.
+      - run: mix compile --warnings-as-errors
+      - run: mix format --check-formatted
+      - run: mix test --warnings-as-errors
+
+  flow-contract:
+    name: Flows and their file targets
+    runs-on: ubuntu-latest
+    env:
+      # The pinned rela: --check validates flows.yaml with it and redraws the diagrams,
+      # and the contract's :rela tests run.
+      ATLAS_RELA_BIN: ${{ github.workspace }}/.rela-bin
+    defaults:
+      run:
+        working-directory: flow/contract
+    steps:
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28"
+          elixir-version: "1.18"
+      # rela, pinned in rela/scripts/start-test.sh; it downloads it when missing.
+      - uses: actions/cache@v4
+        with:
+          path: .rela-bin
+          key: rela-26.11.2-linux_amd64
+      - run: rela/scripts/start-test.sh install
+        working-directory: .
+      - run: mix compile --warnings-as-errors
+      - run: mix format --check-formatted
+      # Fails when a file in flow/targets differs from what the contract generates, is
+      # missing or left over, or when rela refuses the generated flows.yaml.
+      - run: mix atlas.flow.gen --check
+      - run: mix test
+      # Fails when rela/flows.yaml is not a byte-identical copy of flow/targets/rela/flows.yaml.
+      - run: python3 -m pip install -r rela/scripts/requirements.txt
+        working-directory: .
+      - run: python3 rela/scripts/assemble.py --check
+        working-directory: .
+
   beam:
-    name: Bus, State, Control
+    name: Bus, Facts, Control
     runs-on: ubuntu-latest
     env:
       MIX_ENV: test
@@ -141,7 +201,7 @@ jobs:
         working-directory: beam
         env:
           MIX_ENV: test
-        run: mix test --include integration apps/atlas_state/test/guidance_native_test.exs
+        run: mix test --include integration apps/atlas_facts/test/guidance_native_test.exs
       - run: sudo apt-get update && sudo apt-get install -y tmux lsof netcat-openbsd jq
       # rela-server, pinned in rela/scripts/start-test.sh; it downloads it when missing.
       - uses: actions/cache@v4
@@ -168,7 +228,7 @@ jobs:
   deploy-test:
     name: Deploy test on Fly, and a smoke check
     if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
-    needs: [generator, contract, beam, tui, agent]
+    needs: [generator, contract, flow-generator, flow-contract, beam, tui, agent]
     runs-on: ubuntu-latest
     env:
       ATLAS_RELA_BIN: ${{ github.workspace }}/.rela-bin
@@ -201,7 +261,7 @@ jobs:
   deploy-prod:
     name: Deploy prod on Fly, and a smoke check
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-    needs: [generator, contract, beam, tui, agent, e2e]
+    needs: [generator, contract, flow-generator, flow-contract, beam, tui, agent, e2e]
     runs-on: ubuntu-latest
     env:
       ATLAS_RELA_BIN: ${{ github.workspace }}/.rela-bin

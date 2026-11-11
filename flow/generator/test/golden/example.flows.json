@@ -1,0 +1,104 @@
+{
+  "flows": {
+    "letter": {
+      "channel": "mail",
+      "initial": "draft",
+      "owner": {
+        "relation": "held_by",
+        "via": "desk"
+      },
+      "states": {
+        "answered": {
+          "final": true,
+          "label": "Answered"
+        },
+        "draft": {
+          "final": false,
+          "kind": "pass",
+          "label": "Write the draft",
+          "spec": {
+            "mode": "draft",
+            "profile": "writer"
+          }
+        },
+        "dropped": {
+          "final": true
+        },
+        "post": {
+          "final": false,
+          "kind": "effect",
+          "label": "Post it",
+          "spec": {
+            "action": "post_letter",
+            "also": {
+              "reply": "none"
+            },
+            "field": "post_result",
+            "service": "mail"
+          }
+        },
+        "proofread": {
+          "final": false,
+          "kind": "gate",
+          "spec": {
+            "gate": "proofread",
+            "version": 2
+          }
+        },
+        "sent": {
+          "final": false,
+          "label": "Sent"
+        },
+        "stuck": {
+          "final": false,
+          "label": "Someone decides"
+        }
+      },
+      "subject": "letter"
+    }
+  },
+  "format": 1,
+  "gates": {
+    "proofread": {
+      "advice": "checker",
+      "decide": {
+        "changes_required": "redo",
+        "error": "person",
+        "pass": "send",
+        "uncertain": "person"
+      },
+      "evidence": ["draft"],
+      "flavor": "smart",
+      "person": "person",
+      "policy": {
+        "max_rounds": 2
+      },
+      "purpose": "flow",
+      "verdicts": ["send", "redo", "person"],
+      "version": 2
+    },
+    "size_limit": {
+      "decide": {
+        "changes_required": "person",
+        "error": "person",
+        "pass": "fits",
+        "uncertain": "person"
+      },
+      "evidence": ["pages", "envelope", "format"],
+      "flavor": "rule",
+      "person": "person",
+      "policy": {},
+      "purpose": "decider",
+      "rule": {
+        "all": [
+          ["equals", "pages", 1],
+          ["same", "envelope", "format"]
+        ]
+      },
+      "verdicts": ["fits", "person"],
+      "version": 1
+    }
+  },
+  "rela_flows_sha256": "4ef5b3607e97c599655450b538fc55aefaa029691a6d34d65ce0cd81117b94db",
+  "writer": "system:atlas-flow"
+}

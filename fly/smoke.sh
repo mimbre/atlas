@@ -6,9 +6,9 @@
 #
 #  1. With a label: the core on Fly runs that image (the build just deployed).
 #  2. bin/atlas opens a tunnel over WireGuard to Control on the private network, and
-#     Control answers with the kinds of rela's description: State read it from rela.
+#     Control answers with the kinds of rela's description: Facts read it from rela.
 #  3. Ordinary kinds list; description-declared restricted roles must return their
-#     exact typed scope guard. Scoped record reads are covered by private State tests,
+#     exact typed scope guard. Scoped record reads are covered by private Facts tests,
 #     not by enumerating or creating live guidance records during deployment.
 #
 # It runs on a private copy of env/<env>.json with a tunnel of its own on a free port, so

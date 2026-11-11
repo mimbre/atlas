@@ -19,6 +19,7 @@ defmodule AtlasAgent.CLITest do
       prefix: "PA-",
       under: "widget",
       asks: ~w(title description stage),
+      links: ~w(follows),
       list_title: "Parts"
     }
   ]
@@ -127,5 +128,47 @@ defmodule AtlasAgent.CLITest do
   test "list --in a key that is not there: exit 2" do
     {2, "", err} = atlas(["list", "part", "--in", "WI-99"])
     assert err =~ "WI-99"
+  end
+
+  test "put --link: makes the fact, then links it through the association, in one command",
+       %{control: c} do
+    widget = FakeControl.put(c, "widget", %{"title" => "W"})
+    first = FakeControl.put(c, "part", %{"title" => "First"}, widget)
+
+    {0, out, ""} =
+      atlas(["put", "part", "--in", widget, "--title", "Second", "--link", "follows=#{first}"])
+
+    assert out =~ "Part PA-02: Second"
+    assert FakeControl.fact(c, "PA-02").links == %{"follows" => [first]}
+
+    # The fields go in the create, the link only through its own form, after it.
+    assert [%{"endpoint" => "create", "values" => values}, %{"endpoint" => "link"}] =
+             FakeControl.writes(c)
+
+    assert values == %{"title" => "Second"}
+  end
+
+  test "put --link that is refused: exit 1, the fact stays made and the refusal names it" do
+    refuse = fn
+      %{"endpoint" => "link"} -> ["no such part"]
+      _ -> nil
+    end
+
+    control = FakeControl.start(@kinds, refuse: refuse)
+    FakeControl.use_env_file(control)
+    widget = FakeControl.put(control, "widget", %{"title" => "W"})
+
+    {1, out, err} =
+      atlas(["put", "part", "--in", widget, "--title", "T", "--link", "follows=PA-9", "--json"])
+
+    assert JSON.decode!(out)["refused"] == ["PA-01 is made, but not linked", "no such part"]
+    assert err =~ "PA-01 is made, but not linked"
+    assert FakeControl.fact(control, "PA-01").values == %{"title" => "T"}
+  end
+
+  test "put --link without an association=key: exit 2, nothing written", %{control: c} do
+    {2, _, err} = atlas(["put", "widget", "--title", "T", "--link", "follows"])
+    assert err =~ "--link <association>=<key>"
+    assert FakeControl.writes(c) == []
   end
 end

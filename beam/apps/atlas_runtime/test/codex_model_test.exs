@@ -99,6 +99,7 @@ defmodule AtlasRuntime.CodexModelTest do
     end
   end
 
+  # Monitored as it starts, so a fast-exiting fake is seen with its own exit reason.
   defp launch(dir, script, settings) do
     command = Path.join(dir, "fake-codex")
     File.write!(command, "#!/bin/sh\n" <> script)
@@ -109,7 +110,7 @@ defmodule AtlasRuntime.CodexModelTest do
     agent =
       Map.merge(%{"command" => command, "workspace" => workspace, "goal" => "Explain"}, settings)
 
-    Native.start(%{key: "TU-CODEX-MODEL", item: "work", agent: "worker"},
+    Native.start_monitor(%{key: "TU-CODEX-MODEL", item: "work", agent: "worker"},
       turns_dir: Path.join(dir, "turns"),
       agent: agent
     )
@@ -180,7 +181,7 @@ defmodule AtlasRuntime.CodexModelTest do
     workspace = Path.join(dir, "workspace")
 
     with_env([{"CODEX_HOME", home}], fn ->
-      {:ok, pid} =
+      {:ok, {pid, _}} =
         launch(
           dir,
           native_evidence("$CODEX_HOME", workspace) <>
@@ -190,7 +191,6 @@ defmodule AtlasRuntime.CodexModelTest do
           %{"session_id" => @session, "model" => "requested-model"}
         )
 
-      Process.monitor(pid)
       {received, :normal} = messages(pid)
       identity = Enum.find_index(received, &(&1 == {:identity, "codex", "native-confirmed"}))
       ended = Enum.find_index(received, &match?({:ended, _}, &1))
@@ -206,14 +206,13 @@ defmodule AtlasRuntime.CodexModelTest do
     workspace = Path.join(dir, "workspace")
 
     with_env([{"CODEX_HOME", nil}, {"HOME", home}], fn ->
-      {:ok, pid} =
+      {:ok, {pid, _}} =
         launch(
           dir,
           native_evidence("$HOME/.codex", workspace) <> "exit 3\n",
           %{}
         )
 
-      Process.monitor(pid)
       {received, reason} = messages(pid)
       assert {:identity, "codex", "native-confirmed"} in received
       assert reason == {:codex_failed, 0, 3}
@@ -226,14 +225,12 @@ defmodule AtlasRuntime.CodexModelTest do
     ready = Path.join(dir, "ready")
 
     with_env([{"CODEX_HOME", home}], fn ->
-      {:ok, pid} =
+      {:ok, {pid, _}} =
         launch(
           dir,
           native_evidence("$CODEX_HOME", workspace) <> "touch #{ready}\nsleep 60\n",
           %{}
         )
-
-      Process.monitor(pid)
 
       wait = fn wait ->
         if File.exists?(ready),

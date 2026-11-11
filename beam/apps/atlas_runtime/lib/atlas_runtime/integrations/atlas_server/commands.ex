@@ -18,8 +18,10 @@ defmodule AtlasRuntime.Integrations.AtlasServer.Commands do
   How to call the allowed `atlas` commands, and what the item's kind has (IS-Atlas-95), as
   `atlas help` says it: its usage lines for those commands (`atlas get --help`), and the
   kind's section (`atlas help <kind>`: its fields, and how a link such as `assigned_to` is
-  set). Read through the build's `atlas`, so nothing of it is written here. Empty where
-  `atlas` does not answer: the turn then runs with the rules alone.
+  set). First, what the worker reads before it acts, as `atlas turn` says it (the item's
+  anchors and the standing rules, its `read_first`). Read through the build's `atlas`, so
+  nothing of it is written here. Empty where `atlas` does not answer: the turn then runs
+  with the rules alone.
   """
   def forms(config, kind) do
     allowed = String.split(config[:allowed] || "get list set")
@@ -36,8 +38,21 @@ defmodule AtlasRuntime.Integrations.AtlasServer.Commands do
         _ -> []
       end
 
+    first =
+      case Broker.run(["turn", "--json"], config) do
+        {out, 0} ->
+          case JSON.decode(out) do
+            {:ok, %{"read_first" => text}} when is_binary(text) and text != "" -> text
+            _ -> nil
+          end
+
+        _ ->
+          nil
+      end
+
     Enum.join(
       [
+        if(first, do: "\n\n" <> first),
         if(usage != [],
           do:
             "\n\nThe atlas commands you may use (from `atlas help`):\n" <> Enum.join(usage, "\n")

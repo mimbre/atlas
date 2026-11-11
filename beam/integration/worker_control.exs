@@ -1,5 +1,5 @@
 # MIX_ENV=test mix run integration/worker_control.exs (needs Go on PATH)
-# Real Control sockets, Bus, State and private durable synthetic storage; no harness.
+# Real Control sockets, Bus, Facts and private durable synthetic storage; no harness.
 ExUnit.start(seed: 0)
 
 # Native turns run in the Go host of the launching CLI, named by ATLAS_RUNTIME_EXECUTABLE.
@@ -25,7 +25,7 @@ end
 defmodule WorkerControlTest do
   use ExUnit.Case, async: false
   alias AtlasBus.Envelope
-  alias AtlasState.{GuidanceStore, Rela}
+  alias AtlasFacts.{GuidanceStore, Rela}
   alias AtlasBFFContract.Wire.Control.Workers.Protocol, as: Wire
   @moduletag :tmp_dir
 
@@ -160,7 +160,7 @@ defmodule WorkerControlTest do
         %{"performer" => {"operator", ["W-1"]}, "task" => {"ticket", ["T-1"]}}
       )
 
-    start_supervised!({AtlasState.Server, rela: rela, data_dir: dir})
+    start_supervised!({AtlasFacts.Server, rela: rela, data_dir: dir})
 
     {:stored, %{"fact" => execution}} =
       bus("runtime@box", "synthetic_execution", %{
@@ -219,7 +219,7 @@ defmodule WorkerControlTest do
           {:atlas_bus, %Envelope{id: id, class: class}, answer} when id == envelope.id ->
             {String.to_existing_atom(class), answer}
         after
-          2000 -> flunk("State did not reply")
+          2000 -> flunk("Facts did not reply")
         end
       after
         Registry.unregister(AtlasBus.Endpoints, endpoint)

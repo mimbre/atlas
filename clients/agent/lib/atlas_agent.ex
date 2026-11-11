@@ -339,7 +339,7 @@ defmodule AtlasAgent do
   Whether `values` fit `form`: only what it asks, and on a create (`mode` `:create`)
   everything it requires. `:ok`, `{:refused, reasons}` or `{:error, text}`.
   """
-  # Only what the form asks reaches State; a create fills what the form requires.
+  # Only what the form asks reaches Facts; a create fills what the form requires.
   def asked(form, values, mode) do
     inputs = Enum.reject(form["inputs"] || [], &(&1["kind"] == "readonly"))
     names = Enum.map(inputs, & &1["name"])

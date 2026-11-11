@@ -230,17 +230,47 @@ defmodule AtlasRuntime.ReadApiTest do
 
     halt(service)
 
+    # Restart reconciliation ends the turn only once its native process is provably gone. The
+    # halt ended it; the probe, asked about exactly the recorded launch, states so without
+    # racing `ps` for the exit.
+    process = Path.join([dir, "turns", run.id, "process.json"])
+    pid = process |> File.read!() |> JSON.decode!() |> Map.fetch!("pid")
+    launched = File.stat!(process, time: :posix).mtime
+
+    probe = fn
+      ^pid, ^launched -> {:gone, "halted with the previous service"}
+      _, _ -> :unknown
+    end
+
     assert File.exists?(Path.join(dir, "read.sock"))
-    launch(dir)
+    restarted = launch(dir, process_probe: probe)
     assert read(dir, "workers")["workers"] == []
     resumed = read(dir, "events", %{"cursor" => head})
     refute Map.has_key?(resumed, "reset")
-    # Recovery invalidates the dead turn's question; nothing before the cursor is repeated.
-    assert [%{"kind" => "question_invalidated", "turn_id" => turn}] = resumed["events"]
-    assert turn == run.id
 
-    assert %{"state" => "unknown", "recorded_state" => "running"} =
+    # Recovery invalidates the dead turn's question and reports it, once, as interrupted by
+    # the restart, which no ordinary failure is; nothing before the cursor is repeated.
+    assert [
+             %{"kind" => "question_invalidated", "turn_id" => invalidated},
+             %{
+               "kind" => "execution_failed",
+               "turn_id" => failed,
+               "worker_id" => "alpha",
+               "backend" => "claude",
+               "model" => "claude-sonnet-4-6",
+               "interruption" => "service_restart"
+             }
+           ] = resumed["events"]
+
+    assert invalidated == run.id and failed == run.id
+
+    assert %{"state" => "failed", "recorded_state" => "running", "error" => "interrupted: " <> _} =
              read(dir, "turn", %{"turn_id" => run.id})["turn"]
+
+    # A second restart finds the turn terminal and reports nothing again.
+    halt(restarted)
+    launch(dir, process_probe: probe)
+    assert read(dir, "events", %{"cursor" => head})["events"] == resumed["events"]
 
     # A turn whose output was never retained here, and malformed or unknown targets.
     saved = "turn-00000000000000aa"

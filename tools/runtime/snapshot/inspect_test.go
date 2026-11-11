@@ -318,7 +318,7 @@ func TestTooManyChangedLinesGetANote(t *testing.T) {
 // diff and submit: ancestor symlinks resolve, a symlink or file at the folder is refused, and on
 // macOS a folder whose parent the sandbox will not stat (Codex's denied home) still resolves.
 func TestMaterializedResolvesTheFolderItselfNotItsAncestors(t *testing.T) {
-	root, err := filepath.EvalSymlinks(t.TempDir())
+	root, err := canonicalDirectory(t.TempDir())
 	must(t, err)
 	real := filepath.Join(root, "real", "dest")
 	must(t, os.MkdirAll(real, 0700))

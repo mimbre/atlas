@@ -3,7 +3,7 @@ defmodule AtlasTui.App do
   The running TUI: raw terminal input, the connection to Control, and the screen.
 
   - Every key goes through `AtlasTui.Model`; Control messages go through `AtlasTui.Console`.
-  - Every `reconcile_seconds` it asks Control to refresh the page from State, so a lost
+  - Every `reconcile_seconds` it asks Control to refresh the page from Facts, so a lost
     hint only delays what the screen shows.
   - A link's key opens its web address in the browser (`AtlasTui.Browser`).
   - When the connection drops it says so, retries every 2 seconds, and on return opens
@@ -346,8 +346,11 @@ defmodule AtlasTui.App do
 
       true ->
         state = stop_output(state)
-        {:ok, pid} = WorkerOutputConnection.start(self(), state.model.env, state.settings)
-        %{state | output: pid, output_target: target, output_monitor: Process.monitor(pid)}
+
+        {:ok, {pid, monitor}} =
+          WorkerOutputConnection.start_monitor(self(), state.model.env, state.settings)
+
+        %{state | output: pid, output_target: target, output_monitor: monitor}
     end
   end
 

@@ -76,7 +76,7 @@ def settings(folder, binary):
         "rela": {"url": f"http://127.0.0.1:{rela_port}/api/v1",
                  "port": rela_port, "data": str(folder / "rela"),
                  "bin": str(binary), "extra": "rela/atlas.json"},
-        "state": {"data": str(folder / "beam")},
+        "facts": {"data": str(folder / "beam")},
         "connectors": {}, "reconcile_seconds": 1,
         "flow": {"tick_seconds": 1}
     }, indent=2))
@@ -160,7 +160,7 @@ def rehearse(output, binary):
     (destination / "core").mkdir()
     (destination / "rela").mkdir()
     config["rela"]["data"] = str(destination / "rela/rela")
-    config["state"]["data"] = str(destination / "core/beam")
+    config["facts"]["data"] = str(destination / "core/beam")
     destination_file.write_text(json.dumps(config, indent=2))
     for role in ("core", "rela"):
         (destination / role / "tmp").mkdir()
@@ -215,7 +215,7 @@ def rehearse(output, binary):
         assignment_key = "AS-" + key(issue)
         baseline = {k: record(source_file, "get", k)
                     for k in (scene_key, key(uc), key(issue), assignment_key)}
-        assert baseline[assignment_key]["origins"], "fixture needs State link provenance"
+        assert baseline[assignment_key]["origins"], "fixture needs Facts link provenance"
         ops(destination_file, "restart")
         record(destination_file, "put", "scene",
                           "--title", "Previous destination", "--description", "Keep me")

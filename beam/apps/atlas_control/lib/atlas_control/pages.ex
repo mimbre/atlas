@@ -33,7 +33,7 @@ defmodule AtlasControl.Pages do
     at it, and adds new ones already pointing at it.
   - An association (any other relation): a concept a kind has by being in its `from`,
     such as who accepted it. Its page shows the link together with the fact that set it:
-    since when, by whom, why (State's `origins`). It is set or removed through its own
+    since when, by whom, why (Facts' `origins`). It is set or removed through its own
     form, never through the change form. One marked `set_by` (a migration, say) is
     history only: shown, and set only by a client that says it is that (`by`). One with
     `only_target` is set and removed only by a client that is one of the facts it points
@@ -143,7 +143,7 @@ defmodule AtlasControl.Pages do
 
   @doc """
   The kinds whose ids have no prefix (made from a name, say). A key no prefix claims is of
-  one of them; when there are several, Control asks State which one has it.
+  one of them; when there are several, Control asks Facts which one has it.
   """
   def unprefixed_kinds(description) do
     for {kind, spec} <- Enum.sort(description["entities"] || %{}),
@@ -456,7 +456,7 @@ defmodule AtlasControl.Pages do
   end
 
   def reads({:unavailable, _path, _failed}, _), do: []
-  # What can fail is asked of the layers (`AtlasControl.Faults`), not read from State.
+  # What can fail is asked of the layers (`AtlasControl.Faults`), not read from Facts.
   def reads({:faults, _on}, _), do: []
   def reads({:fault, _fault, _on}, _), do: []
   def reads({:new, _}, _), do: []
@@ -748,6 +748,7 @@ defmodule AtlasControl.Pages do
     detail =
       [
         owner,
+        review_text(fact),
         expected(description, from, fact, link),
         late_detail(link_spec, link),
         origin["since"] && "since " <> short_moment(origin["since"]),
@@ -856,7 +857,7 @@ defmodule AtlasControl.Pages do
   # Pages
 
   @doc """
-  The page for `route`: `%{title, back, blocks}`. `answers` are State's answers to
+  The page for `route`: `%{title, back, blocks}`. `answers` are Facts' answers to
   `reads/2`, in order. `form` carries values and errors to show a form again.
   """
   def render(route, description, answers, form \\ %{})
@@ -917,7 +918,7 @@ defmodule AtlasControl.Pages do
         {"kind:#{kind}",
          Blocks.item(
            title: "#{singular(spec, kind)} (#{kind})",
-           # A component (`components/2`): State makes and deletes it with its fact.
+           # A component (`components/2`): Facts makes and deletes it with its fact.
            # A kind only a layer writes (`by_hand: false`: a turn, Runtime's) is no tool.
            fields:
              [
@@ -967,7 +968,7 @@ defmodule AtlasControl.Pages do
   def render(:unknown, _description, _answers, _form),
     do: missing("No such page", "Control serves no page at this path.", "/")
 
-  # A page of the contract that could not be worked out, because State did not answer
+  # A page of the contract that could not be worked out, because Facts did not answer
   # (`AtlasControl.Session`): said as a failed read says it, never "No such page".
   def render({:unavailable, _path, failed}, _description, _answers, _form),
     do: unavailable(failed, "/")
@@ -1035,6 +1036,7 @@ defmodule AtlasControl.Pages do
               Blocks.pair(label: label, value: Enum.join(keys, ", "))
             end) ++
             progress_pair(description, spec, kind, fact) ++
+            review_pair(fact) ++
             linked(description, kind, fact) ++
             Enum.flat_map(parts, fn {part_kind, _spec, part, _made} ->
               linked(description, part_kind, part)
@@ -1603,7 +1605,7 @@ defmodule AtlasControl.Pages do
 
   @doc """
   Why the client `by` may not link the fact of `route` (`{:set, kind, key, relation}`) to
-  itself, or nil. `answers` are State's answers to the route's reads: the fact, then the
+  itself, or nil. `answers` are Facts' answers to the route's reads: the fact, then the
   facts under it.
   """
   def set_problem(description, {:set, kind, key, relation}, [answer | child_answers], by, by_kind) do
@@ -1682,7 +1684,7 @@ defmodule AtlasControl.Pages do
   def change_cause(_change, _keys, _by, _note), do: nil
 
   @doc """
-  Why a fact of `kind` may not go under `parent` (a fact of `parent_kind`, as State
+  Why a fact of `kind` may not go under `parent` (a fact of `parent_kind`, as Facts
   answers it) through a parent relation, or nil: an association of the parent marked
   `closes_parent` has a link (it is accepted).
   """
@@ -2025,7 +2027,7 @@ defmodule AtlasControl.Pages do
     end
   end
 
-  # The components State answered (one that is not there yet shows nothing): `[{kind, spec,
+  # The components Facts answered (one that is not there yet shows nothing): `[{kind, spec,
   # fact, made}]`, where `made` names the fields made from the fact's key.
   defp parts(description, kind, answers) do
     for {{_relation, part_kind, component}, %{"fact" => %{} = part}} <-
@@ -2035,7 +2037,7 @@ defmodule AtlasControl.Pages do
            Map.keys(component["values"] || %{})}
   end
 
-  # Its associations, each with the fact that set it (since, by, cause) when State knows
+  # Its associations, each with the fact that set it (since, by, cause) when Facts knows
   # it. One that was removed shows as removed while that is the latest fact about it.
   defp linked(description, kind, fact) do
     for {relation, spec} <- associations(description, kind),
@@ -2063,7 +2065,7 @@ defmodule AtlasControl.Pages do
         tos != [],
         keys = get_in(fact, ["links", relation]) || [],
         keys != [] do
-      # A relation that points at several kinds: State says which kind each key is.
+      # A relation that points at several kinds: Facts says which kind each key is.
       kind_of = fn key ->
         case tos do
           [to] -> to
@@ -2108,7 +2110,7 @@ defmodule AtlasControl.Pages do
   defp missing(title, text, back),
     do: page(title, back, [Blocks.confirm(title: title, text: text, cancel_to: back)])
 
-  # A read that failed, titled by what happened: State did not answer at all, rela could not
+  # A read that failed, titled by what happened: Facts did not answer at all, rela could not
   # be reached, or rela answered with an error (its own words, and what to do, are in the
   # text). Never "not reachable" when rela answered.
   defp unavailable(%{"error" => error} = failed, back) do
@@ -2116,7 +2118,7 @@ defmodule AtlasControl.Pages do
       case failed["error_kind"] do
         "unreachable" -> "rela is not reachable"
         "answered" -> "rela answered with an error"
-        _ -> "State did not answer"
+        _ -> "Facts did not answer"
       end
 
     page(title, back, [
@@ -2425,7 +2427,7 @@ defmodule AtlasControl.Pages do
 
   @doc """
   Turn a form's text values into the described types, for a fact. Unknown names are
-  passed on so State can refuse them.
+  passed on so Facts can refuse them.
   """
   def values_for(spec, raw) do
     props = spec["properties"] || %{}
@@ -2447,7 +2449,7 @@ defmodule AtlasControl.Pages do
   end
 
   # A date and time: `2026-11-04 17:00` (UTC), or any RFC 3339 instant; stored as RFC 3339
-  # in UTC. Anything else is passed on, for State to refuse.
+  # in UTC. Anything else is passed on, for Facts to refuse.
   defp typed(%{"type" => "datetime"}, text) do
     trimmed = String.trim(text)
 
@@ -2528,7 +2530,7 @@ defmodule AtlasControl.Pages do
     end
   end
 
-  # A kind with a progress rule shows how far a fact is (State works it out from the facts
+  # A kind with a progress rule shows how far a fact is (Facts works it out from the facts
   # under it) in place of its own field and the field that marks it done.
   defp detail(description, spec, fact) do
     progress? = is_map(spec["progress"])
@@ -2553,7 +2555,10 @@ defmodule AtlasControl.Pages do
 
     progress = if progress?, do: progress_text(fact["progress"]), else: nil
     # The id is the row's own; the detail does not repeat it.
-    case Enum.reject(shown ++ [progress, late_detail(spec, fact)], &is_nil/1) do
+    case Enum.reject(
+           [review_text(fact) | shown] ++ [progress, late_detail(spec, fact)],
+           &is_nil/1
+         ) do
       [] -> nil
       parts -> Enum.join(parts, " · ")
     end
@@ -2590,7 +2595,7 @@ defmodule AtlasControl.Pages do
   defp join_detail(detail, more), do: detail <> " · " <> more
 
   # A kind with a late rule (`late`: after, label) shows the time in `after`, and its label
-  # while State says the fact is late (worked out on every read).
+  # while Facts says the fact is late (worked out on every read).
   defp late(%{"late" => %{"after" => name} = rule}, %{"late" => true}, name),
     do: " · " <> (rule["label"] || "late")
 
@@ -2615,13 +2620,27 @@ defmodule AtlasControl.Pages do
 
   defp late_detail(_spec, _fact), do: nil
 
+  # A fact Facts says is to be reviewed (`review`, worked out on every read) shows the rule's
+  # label and the fact that makes it so: first in a list, and as its own line on a page.
+  defp review_text(%{"review" => %{"label" => label} = why}),
+    do: Enum.join(Enum.reject([label, why["key"]], &(&1 in [nil, ""])), " · ")
+
+  defp review_text(_fact), do: nil
+
+  defp review_pair(%{"review" => %{"label" => label} = why}) do
+    value = Enum.join(Enum.reject([why["key"], why["value"]], &(&1 in [nil, ""])), " ")
+    [Blocks.pair(label: label, value: value)]
+  end
+
+  defp review_pair(_fact), do: []
+
   defp progress_text(%{"label" => label, "count" => count, "of" => of}),
     do: "#{label} · #{count}/#{of}"
 
   defp progress_text(%{"label" => label}), do: label
   defp progress_text(_), do: nil
 
-  # How far the fact is, and why it is completed when it is (State works both out):
+  # How far the fact is, and why it is completed when it is (Facts works both out):
   # "Done · 12/12 · accepted by melle", with the fact that accepted it; "Done ·
   # PR-eyra-atlas-20 merged".
   defp progress_pair(description, spec, kind, fact) do

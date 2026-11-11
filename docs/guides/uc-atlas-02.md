@@ -21,7 +21,7 @@ Keep TUI 2 open on the same scene: every use case you add, change or remove in T
 
 Also try:
 
-- **No title.** Add a use case with an empty title. State refuses it (`title is required`). The form keeps what you typed.
+- **No title.** Add a use case with an empty title. Facts refuses it (`title is required`). The form keeps what you typed.
 - **Deleting a scene that has use cases.** In the scene, press `d`. It is refused: `still has 2 use cases. Remove them first` (with one: `still has 1 use case. Remove it first`). Atlas never deletes use cases along with their scene.
 - **Issues.** A use case shows an **Issues** list, with `c` to create one (UC-Atlas-03).
 
@@ -29,6 +29,6 @@ Also try:
 
 - **rela's description:** Use case is described there, with the same fields as Scene, and in an `in_scene` relation, at most one scene per use case.
 - **Control:** a page of any fact now lists the facts that point at it, adds new ones already pointing at it, and names the fact it points at.
-- **State:** writes and reads links between facts, for any relation the description has.
+- **Facts:** writes and reads links between facts, for any relation the description has.
 
 Nothing in the Bus changed. No code anywhere names a use case.

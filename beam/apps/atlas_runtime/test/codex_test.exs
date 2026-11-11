@@ -4,6 +4,8 @@ defmodule AtlasRuntime.CodexTest do
   @moduletag :tmp_dir
   @turn %{key: "TU-CODEX-1", item: "work", agent: "worker"}
 
+  # Monitored as it starts: a fake that exits at once can be gone before a later
+  # Process.monitor/1, whose DOWN then says :noproc instead of why it ended.
   defp launch(dir, script, owner \\ nil, settings \\ %{}) do
     command = Path.join(dir, "fake-codex")
     File.write!(command, "#!/bin/sh\n" <> script)
@@ -18,17 +20,16 @@ defmodule AtlasRuntime.CodexTest do
         )
     ]
 
-    if owner, do: send(owner, {:launch, opts}), else: Native.start(@turn, opts)
+    if owner, do: send(owner, {:launch, opts}), else: Native.start_monitor(@turn, opts)
   end
 
   test "clean exit and completed event preserve the real final answer", %{tmp_dir: dir} do
-    {:ok, pid} =
+    {:ok, {pid, ref}} =
       launch(dir, ~S"""
       printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"The sample totals prices and applies tax."}}'
       printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1}}'
       """)
 
-    ref = Process.monitor(pid)
     assert_receive {:agent, ^pid, {:ended, "The sample totals prices and applies tax."}}, 5_000
     assert_receive {:DOWN, ^ref, :process, ^pid, :normal}, 1_000
   end
@@ -36,7 +37,7 @@ defmodule AtlasRuntime.CodexTest do
   test "requested Codex model and Claude quota-shaped events cannot fabricate evidence", %{
     tmp_dir: dir
   } do
-    {:ok, pid} =
+    {:ok, {pid, ref}} =
       launch(
         dir,
         ~S"""
@@ -47,7 +48,6 @@ defmodule AtlasRuntime.CodexTest do
         %{"model" => "requested-model"}
       )
 
-    ref = Process.monitor(pid)
     assert_receive {:agent, ^pid, {:ended, _}}, 5_000
     assert_receive {:DOWN, ^ref, :process, ^pid, :normal}, 5_000
     refute_received {:agent, ^pid, {:identity, _, _}}
@@ -55,7 +55,7 @@ defmodule AtlasRuntime.CodexTest do
   end
 
   test "normal completion terminates descendants with redirected output", %{tmp_dir: dir} do
-    {:ok, pid} =
+    {:ok, {pid, _}} =
       launch(dir, ~S"""
       sleep 60 </dev/null >/dev/null 2>&1 &
       printf '{"type":"item.started","item":{"text":"child=%s"}}\n' "$!"
@@ -70,8 +70,7 @@ defmodule AtlasRuntime.CodexTest do
   end
 
   test "zero exit without completion is not success", %{tmp_dir: dir} do
-    {:ok, pid} = launch(dir, "exit 0\n")
-    ref = Process.monitor(pid)
+    {:ok, {pid, ref}} = launch(dir, "exit 0\n")
     assert_receive {:DOWN, ^ref, :process, ^pid, {:codex_failed, 0, 0}}, 5_000
     refute_received {:agent, ^pid, {:ended, _}}
   end
@@ -86,8 +85,7 @@ defmodule AtlasRuntime.CodexTest do
         ] do
       path = Path.join(dir, suffix)
       File.mkdir_p!(path)
-      {:ok, pid} = launch(path, script)
-      ref = Process.monitor(pid)
+      {:ok, {pid, ref}} = launch(path, script)
       assert_receive {:DOWN, ^ref, :process, ^pid, {:codex_failed, 0, ^code}}, 5_000
       refute_received {:agent, ^pid, {:ended, _}}
     end
@@ -108,10 +106,9 @@ defmodule AtlasRuntime.CodexTest do
       File.mkdir_p!(path)
       recording = Path.join(fixtures, name)
 
-      {:ok, pid} =
+      {:ok, {pid, ref}} =
         launch(path, "cat '#{recording}.stderr.log' >&2\ncat '#{recording}.stdout.jsonl'\n")
 
-      ref = Process.monitor(pid)
       reason = "every tool call failed before execution: " <> error
       assert_receive {:DOWN, ^ref, :process, ^pid, {:codex_failed, ^reason}}, 5_000
       refute_received {:agent, ^pid, {:ended, _}}
@@ -120,14 +117,13 @@ defmodule AtlasRuntime.CodexTest do
 
   test "a recorded error item without a router error leaves the turn finished", %{tmp_dir: dir} do
     recording = Path.join(__DIR__, "fixtures/codex_0_167_1/missing-host.stdout.jsonl")
-    {:ok, pid} = launch(dir, "cat '#{recording}'\n")
-    ref = Process.monitor(pid)
+    {:ok, {pid, ref}} = launch(dir, "cat '#{recording}'\n")
     assert_receive {:agent, ^pid, {:ended, _}}, 5_000
     assert_receive {:DOWN, ^ref, :process, ^pid, :normal}, 1_000
   end
 
   test "stop waits for the child process group to terminate", %{tmp_dir: dir} do
-    {:ok, pid} =
+    {:ok, {pid, _}} =
       launch(dir, ~S"""
       sleep 60 &
       child=$!
@@ -163,12 +159,16 @@ defmodule AtlasRuntime.CodexTest do
         end
       end)
 
+    ended = Path.join(dir, "ended")
+    {_, 0} = System.cmd("mkfifo", [ended])
+
+    # The adapter stops as soon as its owner goes; the host reaps the group afterwards.
+    # The child and its sleep hold the FIFO's write end, so EOF is the kernel saying both ended.
     launch(
       dir,
       ~S"""
       printf '{"type":"item.started","item":{"text":"child=%s"}}\n' "$$"
-      sleep 60
-      """,
+      """ <> "exec 3>'#{ended}'\nsleep 60\n",
       owner
     )
 
@@ -176,9 +176,13 @@ defmodule AtlasRuntime.CodexTest do
     ref = Process.monitor(adapter)
     assert_receive {:activity, "codex: item started"}, 5_000
     child = native_child(dir)
+    on_exit(fn -> System.cmd("kill", ["-KILL", child], stderr_to_stdout: true) end)
+    {:ok, reader} = :file.open(String.to_charlist(ended), [:read, :raw, :binary])
     Process.exit(owner, :kill)
     assert_receive {:DOWN, ^ref, :process, ^adapter, :normal}, 8_000
-    assert_dead(String.trim(child))
+    assert :file.read(reader, 1) == :eof
+    :ok = :file.close(reader)
+    assert_dead(child)
   end
 
   test "an unsupported sandbox is refused before launching a process", %{tmp_dir: dir} do
@@ -199,7 +203,7 @@ defmodule AtlasRuntime.CodexTest do
   test "resume refuses a different native session instead of completing a replacement", %{
     tmp_dir: dir
   } do
-    {:ok, pid} =
+    {:ok, {pid, ref}} =
       launch(
         dir,
         ~S"""
@@ -210,14 +214,13 @@ defmodule AtlasRuntime.CodexTest do
         %{"session_id" => "expected-session"}
       )
 
-    ref = Process.monitor(pid)
     assert_receive {:DOWN, ^ref, :process, ^pid, {:codex_failed, 1, nil}}, 5_000
     refute_received {:agent, ^pid, {:session, _}}
     refute_received {:agent, ^pid, {:ended, _}}
   end
 
   test "resume cannot report success without native session confirmation", %{tmp_dir: dir} do
-    {:ok, pid} =
+    {:ok, {pid, ref}} =
       launch(
         dir,
         ~S"""
@@ -227,7 +230,6 @@ defmodule AtlasRuntime.CodexTest do
         %{"session_id" => "expected-session"}
       )
 
-    ref = Process.monitor(pid)
     assert_receive {:DOWN, ^ref, :process, ^pid, {:codex_failed, 1, nil}}, 5_000
     refute_received {:agent, ^pid, {:ended, _}}
   end
@@ -235,7 +237,7 @@ defmodule AtlasRuntime.CodexTest do
   test "only public assistant text and safe tool metadata leave the native stream", %{
     tmp_dir: dir
   } do
-    {:ok, pid} =
+    {:ok, {pid, _}} =
       launch(dir, ~S"""
       printf '%s\n' '{"type":"item.completed","item":{"type":"reasoning","text":"PRIVATE_REASONING"}}'
       printf '%s\n' '{"type":"item.started","item":{"type":"command_execution","command":"PRIVATE_COMMAND","text":"PRIVATE_INPUT","status":"in_progress"}}'

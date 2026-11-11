@@ -25,7 +25,7 @@ defmodule AtlasRuntime.Inspection.Reads do
   @turn ~w(worker_id state recorded_state backend requested_model model questions_enabled
            source_turn_id started_at ended_at activity result error)
   @event ~w(sequence kind turn_id worker_id backend model operation timestamp question_id
-            revision peer_worker_id peer_source_turn_id response_turn_id)
+            revision peer_worker_id peer_source_turn_id response_turn_id interruption)
   @answer_bytes 1_048_576
 
   # Standalone output stays in its own buffer, which no Bus endpoint reads.

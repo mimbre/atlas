@@ -44,6 +44,12 @@ func permissionArguments(scope any, scratch, inspector string) ([]string, error)
 			return nil, err
 		}
 		return folderArguments(fields, scratch, user, inspector)
+	case "review-packet":
+		user, err := homeDirectory()
+		if err != nil {
+			return nil, err
+		}
+		return packetArguments(fields, scratch, user, inspector)
 	}
 	return nil, errors.New("Unknown permission profile")
 }
@@ -119,6 +125,27 @@ func homeReadable(user string, denied, writable []string) ([]string, error) {
 // inside scratch. Workers may read (and so execute) the inspector even inside a denied path.
 func folderArguments(scope map[string]any, scratch, user, inspector string) ([]string, error) {
 	root, _ := scope["root"].(string)
+	return workerArguments("atlas_folder", scope, [][2]string{{root, "write"}}, scratch, user, inspector)
+}
+
+// packetArguments translates a review-packet scope into the Codex permission profile of a review
+// pass: the materialized-folder profile of the packet tree, except that the tree, packet.json and
+// diff.json are only read and the findings folder, beside the tree, is the one written project path.
+func packetArguments(scope map[string]any, scratch, user, inspector string) ([]string, error) {
+	root, _ := scope["root"].(string)
+	packet, _ := scope["packet"].(string)
+	findings, _ := scope["findings"].(string)
+	if packet == "" || root != filepath.Join(packet, "tree") || findings != filepath.Join(packet, "findings") {
+		return nil, errors.New("Review packet scope is incomplete")
+	}
+	return workerArguments("atlas_review_packet", scope, [][2]string{{root, "read"},
+		{filepath.Join(packet, "packet.json"), "read"}, {filepath.Join(packet, "diff.json"), "read"}, {findings, "write"}}, scratch, user, inspector)
+}
+
+// workerArguments renders the Codex profile name of a worker whose project paths are the entries project;
+// everything else is the materialized-folder profile described at folderArguments.
+func workerArguments(name string, scope map[string]any, project [][2]string, scratch, user, inspector string) ([]string, error) {
+	root, _ := scope["root"].(string)
 	home, _ := scope["home"].(string)
 	record, _ := scope["record"].(string)
 	baseline, _ := scope["baseline"].(string)
@@ -126,15 +153,21 @@ func folderArguments(scope map[string]any, scratch, user, inspector string) ([]s
 	if root == "" || home == "" || record == "" || baseline == "" || len(repositories) == 0 || scratch == "" || inspector == "" {
 		return nil, errors.New("Materialized folder scope is incomplete")
 	}
-	if err := writableInspector(inspector, root, scratch); err != nil {
+	var paths, writable []string
+	for _, entry := range project {
+		if paths = append(paths, entry[0]); entry[1] == "write" {
+			writable = append(writable, entry[0])
+		}
+	}
+	if err := writableInspector(inspector, append(writable, scratch)...); err != nil {
 		return nil, err
 	}
 	user, err := resolvePath(user)
 	if err != nil {
 		return nil, err
 	}
-	entries := [][2]string{{root, "write"}, {scratch, "write"}, {user, "none"}, {home, "none"}, {record, "read"}, {baseline, "read"},
-		{filepath.Join(root, ".git"), "none"}}
+	entries := append(slices.Clone(project), [][2]string{{scratch, "write"}, {user, "none"}, {home, "none"}, {record, "read"}, {baseline, "read"},
+		{filepath.Join(root, ".git"), "none"}}...)
 	// Status, diff and submit of a prepared folder read its minimal result, never its diagnostics.
 	for _, file := range []string{snapshot.RebindMarker(home, root), snapshot.PreparationResult(home, root)} {
 		if _, err := os.Lstat(file); err == nil {
@@ -150,7 +183,7 @@ func folderArguments(scope map[string]any, scratch, user, inspector string) ([]s
 		}
 		entries = append(entries, [2]string{filepath.Join(root, path, ".git"), "none"})
 	}
-	denied, err := deniedEntries(home, user, nil, root, scratch)
+	denied, err := deniedEntries(home, user, nil, append(slices.Clone(paths), scratch)...)
 	if err != nil {
 		return nil, err
 	}
@@ -160,7 +193,7 @@ func folderArguments(scope map[string]any, scratch, user, inspector string) ([]s
 			none = append(none, entry[0])
 		}
 	}
-	readable, err := homeReadable(user, none, []string{root, scratch})
+	readable, err := homeReadable(user, none, append(slices.Clone(paths), scratch))
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +213,7 @@ func folderArguments(scope map[string]any, scratch, user, inspector string) ([]s
 	if err != nil {
 		return nil, err
 	}
-	arguments, err := profileArguments("atlas_folder", entries,
+	arguments, err := profileArguments(name, entries,
 		"network={enabled=true,allow_local_binding=true,unix_sockets={"+string(sockets)+`="allow"}}`)
 	if err != nil {
 		return nil, err

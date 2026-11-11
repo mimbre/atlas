@@ -2,10 +2,10 @@ defmodule AtlasFlow.Item do
   @moduledoc """
   One open fact's process (architecture, rule 2): alive while the fact is open, with a
   timer in every state. On its timer, and at once when poked (a hint), it reads its fact
-  and what hangs under it from State, works out its state from the flow definition, and
+  and what hangs under it from Facts, works out its state from the flow definition, and
   when the owner or what is expected differs from what is stored, stores the change, with
-  its cause. It keeps nothing State does not hold: restarted at any moment, it goes on
-  from State. When its fact is done (or gone) it stops.
+  its cause. It keeps nothing Facts does not hold: restarted at any moment, it goes on
+  from Facts. When its fact is done (or gone) it stops.
 
   Registered as `{kind, key}` in `AtlasFlow.Items`, so there is one per fact; starting a
   second one fails.
@@ -77,8 +77,12 @@ defmodule AtlasFlow.Item do
          %{"fact" => fact} when is_map(fact) <-
            Talk.read(state.kind, %{"key" => state.key, "incoming" => false}) do
       parents = parent_relations(description, state.kind)
-      children = children(parents, description, state.key)
-      {current, vars} = Definition.state_of(flow, fact, children, parents)
+      pointing = Definition.pointing(description, flow, state.kind)
+
+      children =
+        children(parents, description, state.key) ++ pointed(pointing, description, state.key)
+
+      {current, vars} = Definition.state_of(flow, fact, children, parents, pointing)
       result = move(state, description, {name, flow}, fact, current, vars)
 
       if current["done"] == true and result != :held,
@@ -88,7 +92,7 @@ defmodule AtlasFlow.Item do
       # Gone, or no flow runs on it any more: nothing to keep alive.
       %{"fact" => nil} -> :stop
       nil -> :stop
-      # State did not answer: try again on the timer.
+      # Facts did not answer: try again on the timer.
       _ -> {:wait, state.every}
     end
   end
@@ -176,10 +180,10 @@ defmodule AtlasFlow.Item do
     values = Map.merge(values, state_value(flow["state_field"], fact, current))
 
     cond do
-      # State did not say whether the owner exists: write nothing now, rather than what
+      # Facts did not say whether the owner exists: write nothing now, rather than what
       # is expected without its owner; the timer tries again.
       owner? == :unknown ->
-        Logger.warning("flow #{name}: #{state.key} not moved: State did not answer; tried again")
+        Logger.warning("flow #{name}: #{state.key} not moved: Facts did not answer; tried again")
 
       values != %{} or links != %{} ->
         # By flow: Flow passes over the hints of its own writes, on whichever fact.
@@ -223,7 +227,7 @@ defmodule AtlasFlow.Item do
     end
   end
 
-  # Unknown State availability preserves the owner and durable deferred handover.
+  # Unknown Facts availability preserves the owner and durable deferred handover.
   defp running?(_description, _key, []), do: false
 
   defp running?(description, key, owners) do
@@ -256,7 +260,7 @@ defmodule AtlasFlow.Item do
   end
 
   # The owner a state names must exist; until it does, only what is expected is written.
-  # :yes, :no (State says there is no such fact), or :unknown (State did not answer).
+  # :yes, :no (Facts says there is no such fact), or :unknown (Facts did not answer).
   defp owner_exists(current) do
     case {Definition.owner(current), Definition.owner_kind(current)} do
       {key, kind} when is_binary(key) and is_binary(kind) ->
@@ -309,5 +313,19 @@ defmodule AtlasFlow.Item do
         _ -> []
       end
     end)
+  end
+
+  # The facts that point at it through the associations its flow reads (`empty`), of every
+  # kind they start at. A read Facts does not answer counts as something pointing at it:
+  # not knowing is never "nothing is based on it".
+  defp pointed(relations, description, key) do
+    for relation <- relations,
+        from <- get_in(description, ["relations", relation, "from"]) || [],
+        fact <-
+          (case Talk.read(from, %{"linked" => %{relation => key}, "plain" => true}) do
+             %{"facts" => facts} -> facts
+             _ -> [%{"links" => %{relation => [key]}}]
+           end),
+        do: fact
   end
 end

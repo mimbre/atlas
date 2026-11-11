@@ -108,9 +108,10 @@ func run(args []string) (err error) {
 		complete(stopped bool) error
 	}
 	questionSession := ""
-	// A materialized-folder turn needs no pre-exec child: no Git and no repository preparation.
+	// A materialized-folder or review-packet turn needs no pre-exec child: no Git and no repository preparation.
 	folderScope, _ := scope.(map[string]any)
-	folderProfile := folderScope["profile"] == "materialized-folder"
+	review := folderScope["profile"] == "review-packet"
+	folderProfile := folderScope["profile"] == "materialized-folder" || review
 	runtimeHome, _ := folderScope["home"].(string)
 	// Workers inspect their folder with exactly this host's executable: "$ATLAS_RUNTIME_EXECUTABLE".
 	inspector := ""
@@ -185,9 +186,13 @@ func run(args []string) (err error) {
 			}
 			leader.wait(-1)
 		}
+		// A scratch that cannot be removed is a cleanup warning, never the turn's outcome: it is
+		// appended to the turn's stderr.log and the host's stderr, and the exit status stays the turn's.
 		if nativeTemporary != nil {
-			if removeErr := os.RemoveAll(*nativeTemporary); removeErr != nil {
-				err = removeErr
+			if removeErr := removeScratch(*nativeTemporary); removeErr != nil {
+				warning := "Native runner cleanup warning: " + removeErr.Error() + "\n"
+				errorsFile.WriteString(warning)
+				os.Stderr.WriteString(warning)
 			}
 		}
 		// Keep ownership until the complete process group has been reaped, including on stop.
@@ -205,9 +210,13 @@ func run(args []string) (err error) {
 	}
 	var environment []string
 	if folderProfile {
-		current, err := workspace.FolderScope(workspacePath, runtimeHome)
-		if err == nil && !workspace.JSONEqual(current, scope) {
-			err = errors.New("Materialized folder permission scope changed")
+		current, changed := workspace.FolderScope, "Materialized folder permission scope changed"
+		if review {
+			current, changed = workspace.PacketScope, "Review packet permission scope changed"
+		}
+		recomputed, err := current(workspacePath, runtimeHome)
+		if err == nil && !workspace.JSONEqual(recomputed, scope) {
+			err = errors.New(changed)
 		}
 		if err == nil && backend == "codex" {
 			if err = os.MkdirAll(filepath.Dir(scratch), 0700); err == nil {
@@ -247,7 +256,11 @@ func run(args []string) (err error) {
 		if folderProfile {
 			// HOME/scratch/<turn> would exceed Claude's 44-byte child-temp limit.
 			scratch = temporary
-			settings, err = claudeFolderSettings(folderScope, temporary, home, inspector)
+			if review {
+				settings, err = claudePacketSettings(folderScope, temporary, home, inspector)
+			} else {
+				settings, err = claudeFolderSettings(folderScope, temporary, home, inspector)
+			}
 		} else {
 			settings, err = claudeRepositorySettings(scope, temporary)
 		}

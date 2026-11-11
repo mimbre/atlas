@@ -8,6 +8,7 @@ defmodule AtlasRuntime.Service do
   alias AtlasRuntime.PeerQuestionRecords
   alias AtlasRuntime.QuestionRecords
   alias AtlasRuntime.Entrypoints.{ReadSocket, Socket}
+  alias AtlasRuntime.Execution.RestartReconciliation
   alias AtlasRuntime.Handoffs.Commands, as: Handoffs
   alias AtlasRuntime.Integrations.AtlasServer.Lifecycle
   alias AtlasRuntime.Inspection.Reads
@@ -29,11 +30,15 @@ defmodule AtlasRuntime.Service do
   def init({dir, server, reporting}), do: init({dir, server, reporting, []})
 
   # `reporting` and `options` are explicit dependency injection for tests: bounded Talk
-  # timing; `follow:` read.sock follow timing and `halt:` the exit after a service stop.
+  # timing; `follow:` read.sock follow timing, `halt:` the exit after a service stop and
+  # `process_probe:` the liveness check of restart reconciliation.
   def init({dir, server, reporting, options}) do
     policy = BackendPolicy.load(dir)
     events = History.recover(dir)
     Socket.start(dir, __MODULE__)
+    # The bound socket proves no other service runs here, and this one owns no port yet.
+    probe = Keyword.get(options, :process_probe, &RestartReconciliation.process_state/2)
+    events = RestartReconciliation.reconcile(dir, events, probe)
     ReadSocket.start(dir, self(), Keyword.get(options, :follow, []))
 
     state = %{
@@ -476,7 +481,8 @@ defmodule AtlasRuntime.Service do
 
           {sandbox, nil}
 
-        profile when profile in ["dedicated-repository", "materialized-folder"] ->
+        profile
+        when profile in ["dedicated-repository", "materialized-folder", "review-packet"] ->
           if Map.has_key?(request, "sandbox"),
             do: raise("Permissions cannot be combined with sandbox")
 
@@ -589,6 +595,9 @@ defmodule AtlasRuntime.Service do
   defp current_scope("materialized-folder", cwd, state),
     do: Workspaces.folder_scope(cwd, state.dir)
 
+  defp current_scope("review-packet", cwd, state),
+    do: Workspaces.packet_scope(cwd, state.dir)
+
   defp current_scope(_dedicated, cwd, _state), do: Workspaces.permission_scope(cwd)
 
   defp select_worker(request, state) do
@@ -625,7 +634,14 @@ defmodule AtlasRuntime.Service do
           raise("Multiple workers are registered; specify --worker")
       end
 
-    # Restart clears registrations; a durable latch still identifies its worker.
+    # Restart clears registrations; the worker's latest saved turn, or a durable latch, still
+    # identifies it, so status, output and continue select what they selected before.
+    saved =
+      if is_nil(saved) and request["command"] in ["status", "output", "continue"] and
+           not Map.has_key?(state.workers, worker_id),
+         do: History.latest(state.dir, worker_id),
+         else: saved
+
     if explicit? and is_nil(saved) and request["command"] != "start" and
          not Map.has_key?(state.workers, worker_id) and
          is_nil(History.latch(state.dir, worker_id)),
