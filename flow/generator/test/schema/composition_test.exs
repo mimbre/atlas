@@ -5,6 +5,7 @@ defmodule AtlasFlowGenerator.Schema.CompositionTest do
   # reports back to the letter (a link) and the letter counts its receipts (a count).
   @letter """
   subflow :letter, subject: :letter do
+    owner default: {:team, :desk}
     run_as "system:post"
     start :create
     initial :post
@@ -23,6 +24,7 @@ defmodule AtlasFlowGenerator.Schema.CompositionTest do
 
   @receipt """
   subflow :receipt, subject: :receipt do
+    owner default: {:team, :desk}
     start :create
     initial :out
     state :out do
@@ -159,7 +161,7 @@ defmodule AtlasFlowGenerator.Schema.CompositionTest do
 
     test "two subflows that start one run per subject by the same trigger" do
       other =
-        "subflow :copy, subject: :receipt do\n  start :create\n  initial :a\n  state :a do\n    wait_for [:carrier], on: :seen, reset: false, yes: :b\n  end\n  final :b\nend\n"
+        "subflow :copy, subject: :receipt do\n  owner default: {:team, :desk}\n  start :create\n  initial :a\n  state :a do\n    wait_for [:carrier], on: :seen, reset: false, yes: :b\n  end\n  final :b\nend\n"
 
       refused(
         [@letter, @receipt, other],

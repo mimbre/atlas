@@ -695,6 +695,88 @@ defmodule AtlasFactsTest do
   end
 
   # A made-up decider: only the maker a widget names makes it dark, as that maker.
+  test "delegation is given by its target and still lets another kind decide", %{
+    rela: rela,
+    dir: dir
+  } do
+    extra = Path.join(dir, "atlas.json")
+    error = "only the delegator sets under, to themselves"
+
+    File.write!(
+      extra,
+      JSON.encode!(%{
+        "relations" => %{
+          "under" => %{
+            "from" => ["widget"],
+            "to" => ["maker"],
+            "max_outgoing" => 1,
+            "only_target" => %{"error" => error, "also" => ["importer"]}
+          },
+          "ruled_by" => %{"from" => ["widget"], "to" => ["maker", "part"], "max_outgoing" => 1}
+        },
+        "entities" => %{
+          "widget" => %{
+            "authority" => %{
+              "when" => %{"shade" => ["dark"]},
+              "by" => "ruled_by",
+              "kind" => "maker",
+              "only_kind_when" => [%{"done" => [true]}],
+              "delegated_by" => "under",
+              "writes" => %{"shade" => ["dark"]},
+              "error" => "needs authority",
+              "writer_error" => "only its ruler decides"
+            }
+          }
+        }
+      })
+    )
+
+    stop_supervised!(AtlasFacts.Server)
+
+    start_supervised!(
+      {AtlasFacts.Server, rela: {FakeRela, rela}, data_dir: dir, description_extra: extra}
+    )
+
+    for key <- ["M-1", "M-2"] do
+      assert {"stored", _, _} = fact("create", key, %{"title" => key}, kind: "maker")
+    end
+
+    assert {"stored", _, _} = fact("create", "P-1", %{"title" => "Clerk"}, kind: "part")
+    assert {"stored", _, _} = fact("create", "W-1", %{"title" => "One"})
+
+    for writer <- ["P-1", "M-2", nil] do
+      assert {"refused", %{"reasons" => [^error]}, nil} =
+               fact("change", "W-1", %{}, links: %{"under" => ["M-1"]}, by: writer)
+    end
+
+    assert {"refused", %{"reasons" => [^error]}, nil} =
+             fact("create", "W-2", %{"title" => "Two", "shade" => "dark"},
+               links: %{"under" => ["M-1"], "ruled_by" => ["P-1"]},
+               by: "P-1"
+             )
+
+    refute Map.has_key?(FakeRela.facts(rela), "W-2")
+
+    assert {"stored", _, _} =
+             fact("change", "W-1", %{}, links: %{"under" => ["M-1"]}, by: "M-1")
+
+    for keys <- [[], ["M-2"]] do
+      assert {"refused", %{"reasons" => [^error]}, nil} =
+               fact("change", "W-1", %{}, links: %{"under" => keys}, by: "P-1")
+    end
+
+    assert %{"fact" => %{"links" => %{"under" => ["M-1"]}}} = read("widget", %{"key" => "W-1"})
+
+    assert {"stored", _, _} =
+             fact("change", "W-1", %{"shade" => "dark"},
+               links: %{"ruled_by" => ["P-1"]},
+               by: "P-1"
+             )
+
+    assert {"refused", %{"reasons" => ["needs authority"]}, nil} =
+             fact("change", "W-1", %{"done" => true}, by: "P-1")
+  end
+
   test "a write that decides is stored only from the one the fact names", %{rela: rela, dir: dir} do
     extra = Path.join(dir, "atlas.json")
 

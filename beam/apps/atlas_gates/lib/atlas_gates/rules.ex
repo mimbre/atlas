@@ -6,7 +6,17 @@ defmodule AtlasGates.Rules do
   A rule is `%{"all" => conditions}`: every condition must hold. A condition is
 
     * `["equals", field, value]`: the evidence's `field` is exactly `value`;
-    * `["same", field, other]`: the evidence's `field` and `other` are equal.
+    * `["same", field, other]`: the evidence's `field` and `other` are equal;
+    * `["in", field, values]`: the field's value is in `values`;
+    * `["includes", field, value]`: the field is a list holding `value`;
+    * `["at_least", field, minimum]`: the field is a number at least `minimum`.
+
+  An ordered rule is `%{"first" => [%{"when" => conditions, "then" => outcome}, ...],
+  "otherwise" => outcome}`. Each case requires all its conditions; the first match
+  returns its named outcome without reading later cases. An uncertain or erroneous
+  case stops evaluation. When none match, the otherwise outcome is returned, including
+  `advise`, which is settled by the gate's decide map without calling an advisor.
+  Fixed cases must remain the prefix declared by the generated definition.
 
   The outcome, with the reasons that led to it:
 
@@ -23,16 +33,32 @@ defmodule AtlasGates.Rules do
 
   @doc "Evaluate `gate`'s rule on `evidence` (a map of field name to value): `{outcome, reasons}`."
   @spec evaluate(map(), map()) :: {outcome(), [String.t()]}
+  def evaluate(%{"rule" => %{"first" => cases, "otherwise" => fallback}} = gate, evidence)
+      when is_list(cases) and cases != [] and is_binary(fallback) and is_map(evidence) do
+    with :ok <- AtlasGates.Definitions.check_fixed(gate) do
+      declared = gate["evidence"] || []
+      declared = if is_map(declared), do: Map.keys(declared), else: declared
+      first(cases, fallback, declared, evidence)
+    else
+      {:error, why} -> {"error", [why]}
+    end
+  end
+
   def evaluate(%{"rule" => %{"all" => conditions}} = gate, evidence)
       when is_list(conditions) and conditions != [] and is_map(evidence) do
-    declared = gate["evidence"] || []
-    results = Enum.map(conditions, &condition(&1, declared, evidence))
+    with :ok <- AtlasGates.Definitions.check_fixed(gate) do
+      declared = gate["evidence"] || []
+      declared = if is_map(declared), do: Map.keys(declared), else: declared
+      results = Enum.map(conditions, &condition(&1, declared, evidence))
 
-    cond do
-      bad = Enum.find(results, &match?({:error, _}, &1)) -> {"error", [elem(bad, 1)]}
-      unsettled(results) != [] -> {"uncertain", unsettled(results)}
-      failed(results) != [] -> {"changes_required", failed(results)}
-      true -> {"pass", []}
+      cond do
+        bad = Enum.find(results, &match?({:error, _}, &1)) -> {"error", [elem(bad, 1)]}
+        unsettled(results) != [] -> {"uncertain", unsettled(results)}
+        failed(results) != [] -> {"changes_required", failed(results)}
+        true -> {"pass", []}
+      end
+    else
+      {:error, why} -> {"error", [why]}
     end
   end
 
@@ -43,6 +69,51 @@ defmodule AtlasGates.Rules do
 
   defp unsettled(results), do: for({:uncertain, why} <- results, do: why)
   defp failed(results), do: for({:failed, why} <- results, do: why)
+
+  defp first([], fallback, _declared, _evidence), do: {fallback, []}
+
+  defp first([%{"when" => conditions, "then" => outcome} | rest], fallback, declared, evidence)
+       when is_list(conditions) and conditions != [] and is_binary(outcome) do
+    results = Enum.map(conditions, &condition(&1, declared, evidence))
+
+    cond do
+      bad = Enum.find(results, &match?({:error, _}, &1)) -> {"error", [elem(bad, 1)]}
+      unsettled(results) != [] -> {"uncertain", unsettled(results)}
+      failed(results) != [] -> first(rest, fallback, declared, evidence)
+      true -> {outcome, []}
+    end
+  end
+
+  defp first(_cases, _fallback, _declared, _evidence),
+    do: {"error", ["each first case needs nonempty when conditions and a then outcome"]}
+
+  defp condition(["in", name, choices], declared, evidence)
+       when is_binary(name) and is_list(choices) do
+    with {:ok, value} <- field(name, declared, evidence) do
+      if value in choices, do: :holds, else: {:failed, "#{name} is not in #{show(choices)}"}
+    end
+  end
+
+  defp condition(["includes", name, expected], declared, evidence) when is_binary(name) do
+    with {:ok, value} <- field(name, declared, evidence) do
+      cond do
+        not is_list(value) -> {:uncertain, "#{name} must be a list"}
+        expected in value -> :holds
+        true -> {:failed, "#{name} does not include #{show(expected)}"}
+      end
+    end
+  end
+
+  defp condition(["at_least", name, minimum], declared, evidence)
+       when is_binary(name) and is_number(minimum) do
+    with {:ok, value} <- field(name, declared, evidence) do
+      cond do
+        not is_number(value) -> {:uncertain, "#{name} must be a number"}
+        value >= minimum -> :holds
+        true -> {:failed, "#{name} is less than #{show(minimum)}"}
+      end
+    end
+  end
 
   defp condition(["equals", field, expected], declared, evidence) when is_binary(field) do
     with {:ok, value} <- field(field, declared, evidence) do

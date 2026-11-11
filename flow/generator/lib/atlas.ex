@@ -9,9 +9,12 @@ defmodule AtlasFlowGenerator.Atlas do
     * `gates`: every gate given, by name, as data (version, flavor, purpose,
       evidence, advice or rule, verdicts, person, decide, policy), whether or not a
       subflow names it;
-    * `flows`: each subflow by name, with its subject, owner, channel, initial
-      state, and `states`: each state with its label, whether it is final, and its
-      mechanism as `kind` and `spec`.
+    * `flows`: each subflow by name, with its subject, owner (`via`, `relation`, and
+      `default` as `{kind, key}`), channel, initial state, and `states`: each state
+      with its label, whether it is final, its own `owner` when it has one (as the
+      subflow's is written), its mechanism as `kind` and `spec`, and
+      `present`: what its owner sees, as `expected`, `why` and `todo` (`instructions`,
+      `section` as `{field, heading}`, `answers` as `[{key, label, set | remove}]`).
 
   The writer reads only the data of `__flows__/0` and `__gates__/0`. Every object's
   keys are written sorted, two spaces deep, one key per line; a list of plain values
@@ -51,6 +54,9 @@ defmodule AtlasFlowGenerator.Atlas do
     |> Map.update!(:decide, &Map.new/1)
     |> Map.update!(:policy, &Map.new/1)
     |> Map.take([
+      :fixed,
+      :fixed_rules,
+      :answer_within,
       :version,
       :flavor,
       :purpose,
@@ -81,8 +87,26 @@ defmodule AtlasFlowGenerator.Atlas do
         {kind, spec} -> %{kind: kind, spec: spec}
       end
 
-    Map.merge(%{label: s.label, final: s.final}, mechanism)
+    Map.merge(
+      %{label: s.label, final: s.final, present: present(s.present), owner: s.owner},
+      mechanism
+    )
   end
+
+  # What the owner sees, in the shape the description's flows have always given it:
+  # `expected` and `why`, and `todo` with the instructions, the section and the answers.
+  defp present(nil), do: nil
+
+  defp present(p) do
+    todo =
+      %{instructions: p.instructions, section: p.section, answers: nonempty(p.answers)}
+      |> Map.reject(fn {_, v} -> v == nil end)
+
+    %{expected: p.expected, why: p.why, todo: if(todo != %{}, do: todo)}
+  end
+
+  defp nonempty([]), do: nil
+  defp nonempty(list), do: list
 
   defp check_gates!(flows, gates) do
     names = Enum.map(gates, & &1.name)

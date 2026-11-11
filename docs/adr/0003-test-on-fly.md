@@ -8,7 +8,7 @@ Test ran on the MacBook: rela on 7690 and the core (Bus, Facts, Flow, Control) o
 
 ## Decision
 
-1. **Two apps: `eyra-atlas-test` (the core) and `eyra-atlas-test-rela` (rela)**, each one machine (shared-cpu-1x, 256 MB, region ams) with its own 1 GB volume at `/data`.
+1. **Two apps: `eyra-atlas-test` (the core) and `eyra-atlas-test-rela` (rela)**, each one machine (shared-cpu-1x, 512 MB for the core, 256 MB for rela, region ams) with its own 1 GB volume at `/data`.
    - rela is an outside system to Facts, the same pinned binary as on a Mac (`rela/scripts/start-test.sh`). As its own app it keeps its own lifecycle: a core deploy restarts the core only, while rela keeps serving.
    - A crash of one does not take the other down, and its logs, checks and status are its own (`fly status -a …`).
    - Each has its own deploy token, so CI's core token cannot touch rela's data except through Control.

@@ -7,6 +7,9 @@ defmodule AtlasFacts.Guards do
 
   - `requires`: `[%{"when", "fields", "error"}]`: a fact whose values hold `when` has each
     of `fields`.
+  - `only_target`: relation rules collected from the description: only the linked fact
+    itself, or a writer named in `also`, changes the relation. Replacing or removing a
+    link requires being its old target too; sending the same links changes nothing.
   - `authority`: `%{"when", "by", "kind", "only_kind_when", "delegated_by", "error",
     "writes", "writer_error", "also"}`: a fact that holds `when` links through `by` to one
     fact; of `kind` when any of `only_kind_when` holds, otherwise of `kind` or with a link
@@ -36,7 +39,16 @@ defmodule AtlasFacts.Guards do
   @doc "The rules of `kind` in the description; an empty map when it has none."
   def of(description, kind) do
     spec = get_in(description, ["entities", kind]) || %{}
-    Map.take(spec, ["requires", "authority", "frozen", "replaces", "layering", "sealed"])
+    rules = Map.take(spec, ["requires", "authority", "frozen", "replaces", "layering", "sealed"])
+
+    only_target =
+      for {name, relation} <- description["relations"] || %{},
+          kind in List.wrap(relation["from"]),
+          is_map(relation["only_target"]),
+          into: %{},
+          do: {name, relation["only_target"]}
+
+    if only_target == %{}, do: rules, else: Map.put(rules, "only_target", only_target)
   end
 
   @doc """
@@ -61,7 +73,8 @@ defmodule AtlasFacts.Guards do
         fact = after_write(current, values, links)
 
         reasons =
-          requires(rules["requires"], fact) ++
+          only_target(rules["only_target"], current, links, env["writer"]) ++
+            requires(rules["requires"], fact) ++
             authority(rules["authority"], fact, kind_of) ++
             decides(rules["authority"], current, values, fact, env["writer"], kind_of) ++
             replaces(rules["replaces"], key, fact, fetch) ++
@@ -90,6 +103,18 @@ defmodule AtlasFacts.Guards do
   end
 
   def replaced(_rules, _fact, _fetch), do: []
+
+  defp only_target(rules, current, links, writer) do
+    for {relation, rule} <- rules || %{},
+        Map.has_key?(links, relation),
+        was = List.wrap(get_in(current || %{}, ["links", relation])),
+        keys = List.wrap(links[relation]),
+        Enum.sort(was) != Enum.sort(keys),
+        not (is_binary(writer) and
+               (writer in List.wrap(rule["also"]) or
+                  Enum.all?(was ++ keys, &(&1 == writer)))),
+        do: rule["error"] || "only the target sets #{relation}, to themselves"
+  end
 
   defp frozen(%{"when" => condition} = rule, op, key, %{} = current, values, links) do
     if holds?(condition, current["values"]) do
