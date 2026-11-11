@@ -26,7 +26,7 @@ class LocalRuntime:
         self.client_file = Path(client_file).resolve()
         self.file = self.base/'runtime.processes.json'
         if inspector is None:
-            spec = importlib.util.spec_from_file_location('owned_runtime_inspector', self.root/'tools/runtime-playground/launch.py')
+            spec = importlib.util.spec_from_file_location('owned_runtime_inspector', self.root/'tools/process_identity.py')
             inspector = importlib.util.module_from_spec(spec)
             previous = sys.dont_write_bytecode
             try:
@@ -47,7 +47,7 @@ class LocalRuntime:
             raise OwnershipError('Runtime and Bus configuration must be objects')
         if settings.get('env') != self.target['environment'] or runtime.get('machine') != self.target['machine'] or link.get('machine') != self.target['machine'] or link.get('mode') != 'client':
             raise OwnershipError('Runtime configuration identity mismatch')
-        if not isinstance(runtime.get('agents'), dict) or not runtime['agents']:
+        if not isinstance(runtime.get('agents'), dict):
             raise OwnershipError('Runtime configuration needs its declared agents')
         if type(link.get('port')) is not int or not 0 < link['port'] < 65536:
             raise OwnershipError('invalid private Bus port')

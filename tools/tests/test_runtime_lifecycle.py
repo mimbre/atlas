@@ -17,8 +17,8 @@ class LegacySignalRegression(unittest.TestCase):
     def test_legacy_stop_never_uses_pid_only_group_signalling(self):
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary); (base/'runtime.pid').write_text('1234')
-            client = base/'client.json'; client.write_text('{}')
-            with patch.dict(os.environ, ATLAS_RUNTIME_HOME=str(base)), patch.object(sys, 'argv', ['runtime.py', 'runtime-stop', str(ROOT), str(client), 'test']), patch.object(subject.os, 'kill'), patch.object(subject.os, 'killpg') as groups, patch.object(subject.time, 'sleep'), patch.object(subject.subprocess, 'call', return_value=2):
+            client = base/'client.json'; client.write_text('{"env": "test"}')
+            with patch.dict(os.environ, ATLAS_RUNTIME_HOME=str(base), ATLAS_ENV_FILE=str(client)), patch.object(sys, 'argv', ['runtime.py', 'runtime-stop', str(ROOT), 'test']), patch.object(subject.os, 'kill'), patch.object(subject.os, 'killpg') as groups, patch.object(subject.time, 'sleep'), patch.object(subject.subprocess, 'call', return_value=2):
                 try: subject.main()
                 except SystemExit: pass
                 groups.assert_not_called()
@@ -56,6 +56,31 @@ class OwnershipLifecycleTest(unittest.TestCase):
             (directory/f'{role}.pid').write_text(str(pid))
         (directory/'runtime.processes.json').write_text(json.dumps(record))
         return module,controller,record,snapshots,live,calls
+
+    def test_explicit_empty_agents_allows_connection_only_but_invalid_declarations_refuse(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            module,c,record,snapshots,live,calls=self.fixture(temporary)
+            c.file.unlink()
+            for role in ('runtime','tunnel'): (c.base/f'{role}.pid').unlink()
+            settings=json.loads(c.configuration.read_text())
+            for agents in ({}, None, [], "", False):
+                with self.subTest(agents=agents):
+                    settings['runtime']['agents']=agents
+                    c.configuration.write_text(json.dumps(settings))
+                    if agents == {}:
+                        self.assertEqual(c.configuration_data()['runtime']['agents'], {})
+                    else:
+                        with self.assertRaises(ValueError): c.configuration_data()
+                    with patch.dict(os.environ, ATLAS_RUNTIME_HOME=str(c.base), ATLAS_RUNTIME_FILE=str(c.configuration)):
+                        status=subject.observe_status(ROOT,'test',{'target':c.target},client_file=str(c.client_file))
+                    self.assertEqual(status['state'],'absent')
+                    self.assertEqual(status['capabilities']['local_start'], agents == {})
+            del settings['runtime']['agents']
+            c.configuration.write_text(json.dumps(settings))
+            with self.assertRaises(ValueError): c.configuration_data()
+            with patch.dict(os.environ, ATLAS_RUNTIME_HOME=str(c.base), ATLAS_RUNTIME_FILE=str(c.configuration)):
+                status=subject.observe_status(ROOT,'test',{'target':c.target},client_file=str(c.client_file))
+            self.assertFalse(status['capabilities']['local_start'])
 
     def test_corrupt_prefix_role_reuse_and_pid_records_refuse_all_signals(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -6,7 +6,7 @@ defmodule AtlasControl.SpecTest do
   # The builders themselves are tested in the generator (bff/generator), on a neutral
   # contract; here: that Control's are made from Control's contract.
   test "Control's builders are its contract's blocks, models and markup" do
-    schema = AtlasBFFContract.Blocks.__schema__()
+    schema = AtlasBFFContract.Contract.__schema__()
     assert Blocks.version() == schema.version
 
     for entry <- schema.models ++ schema.blocks,

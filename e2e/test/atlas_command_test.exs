@@ -1,13 +1,17 @@
 defmodule AtlasE2E.AtlasCommandTest do
-  # What `bin/atlas` refuses or chooses before it starts anything: no rela, no core and no
-  # prod data is touched here. prod is the default; automation passes --env test or a
-  # private ATLAS_ENV_FILE, and a mismatch between the two is refused.
+  # What `bin/atlas` (the Control client) and `bin/atlas-ops` (operating) refuse or choose
+  # before they start anything: no rela, no core and no prod data is touched here. prod is
+  # the default; automation passes --env test or a private ATLAS_ENV_FILE, and a mismatch
+  # between the two is refused. Both resolve the environment through bin/lib/env.sh.
   use ExUnit.Case, async: true
 
   @root Path.expand("../..", __DIR__)
 
-  defp atlas(args, env \\ [], cd \\ @root) do
-    System.cmd(Path.join(@root, "bin/atlas"), args,
+  defp atlas(args, env \\ [], cd \\ @root), do: run("bin/atlas", args, env, cd)
+  defp ops(args, env \\ [], cd \\ @root), do: run("bin/atlas-ops", args, env, cd)
+
+  defp run(command, args, env, cd) do
+    System.cmd(Path.join(@root, command), args,
       env: [{"ATLAS_ENV_FILE", nil}, {"ATLAS_NO_UPDATE", "1"} | env],
       cd: cd,
       stderr_to_stdout: true
@@ -25,17 +29,24 @@ defmodule AtlasE2E.AtlasCommandTest do
   end
 
   test "prod is the default; --env test chooses test" do
-    assert {"prod " <> file, 0} = atlas(["env"])
+    assert {"prod " <> file, 0} = ops(["env"])
     assert String.trim(file) == Path.join(real(@root), "env/prod.json")
-    assert {"test " <> file, 0} = atlas(["env", "--env", "test"])
+    assert {"test " <> file, 0} = ops(["env", "--env", "test"])
     assert String.trim(file) == Path.join(real(@root), "env/test.json")
+    assert {"test " <> _, 0} = ops(["env", "--env=test"])
   end
 
   test "a private file is its own environment, and must agree with --env" do
     test_file = private_file("test")
-    assert {"test " <> _, 0} = atlas(["env"], [{"ATLAS_ENV_FILE", test_file}])
+    assert {"test " <> _, 0} = ops(["env"], [{"ATLAS_ENV_FILE", test_file}])
 
-    assert {out, 1} = atlas(["env", "--env", "prod"], [{"ATLAS_ENV_FILE", test_file}])
+    assert {out, 1} = ops(["env", "--env", "prod"], [{"ATLAS_ENV_FILE", test_file}])
+    assert out =~ "is for test, not prod"
+    assert {out, 1} = ops(["status", "--env", "prod"], [{"ATLAS_ENV_FILE", test_file}])
+    assert out =~ "is for test, not prod"
+
+    # atlas applies the same rule, before it connects to anything.
+    assert {out, 1} = atlas(["get", "X", "--env", "prod"], [{"ATLAS_ENV_FILE", test_file}])
     assert out =~ "is for test, not prod"
 
     prod_file = private_file("prod")
@@ -44,18 +55,24 @@ defmodule AtlasE2E.AtlasCommandTest do
   end
 
   test "an unknown or empty environment is refused" do
-    assert {out, 1} = atlas(["env", "--env", "staging"])
-    assert out =~ "no environment 'staging'"
-    assert {out, 2} = atlas(["env", "--env"])
-    assert out =~ "--env needs test or prod"
-    assert {_, 2} = atlas(["env", "--env="])
+    for {run, command} <- [{&ops/1, ["env"]}, {&ops/1, ["status"]}, {&atlas/1, ["get", "X"]}] do
+      assert {out, 1} = run.(command ++ ["--env", "staging"])
+      assert out =~ "no environment 'staging'"
+      assert {out, 2} = run.(command ++ ["--env"])
+      assert out =~ "--env needs test or prod"
+      assert {_, 2} = run.(command ++ ["--env="])
+    end
   end
 
-  test "surface selection belongs to the TUI and never reserves a generic property name" do
-    assert {out, 2} = atlas(["tui", "--surface", "unknown"])
-    assert out =~ "unknown TUI surface"
-    # Environment disagreement stops before any connection or command executes.
-    # A generic create option named surface must reach that guard unchanged.
+  test "the TUI rejects surface selectors without reserving generic entity properties" do
+    for value <- ["console", "legacy", "unknown"],
+        args <- [["--surface", value], ["--surface=#{value}"]],
+        command <- [[], ["tui"]] do
+      assert {out, 2} = atlas(command ++ args)
+      assert out =~ "unknown option --surface"
+    end
+
+    # Stop at the environment guard, before connecting or creating anything.
     assert {out, 1} =
              atlas(
                ["put", "widget", "--surface", "dark", "--env", "prod"],
@@ -65,14 +82,36 @@ defmodule AtlasE2E.AtlasCommandTest do
     assert out =~ "is for test, not prod"
   end
 
-  test "the end-to-end test refuses prod" do
-    assert {out, 1} = atlas(["e2e", "--env", "prod"])
-    assert out =~ "never on prod"
-    assert {out, 1} = atlas(["e2e", "uc-atlas-01", "--env=prod"])
-    assert out =~ "never on prod"
+  defp atlas_dev(args) do
+    System.cmd(Path.join(@root, "bin/atlas-dev"), args,
+      env: [{"ATLAS_ENV_FILE", nil}],
+      cd: @root,
+      stderr_to_stdout: true
+    )
   end
 
-  test "atlas works from any folder: from /, and from inside another repository" do
+  test "the end-to-end test refuses prod" do
+    assert {out, 1} = atlas_dev(["e2e", "--env", "prod"])
+    assert out =~ "never on prod"
+    assert {out, 1} = atlas_dev(["e2e", "uc-atlas-01", "--env=prod"])
+    assert out =~ "never on prod"
+    assert {out, 2} = atlas_dev(["e2e", "--env"])
+    assert out =~ "--env needs test or prod"
+  end
+
+  test "the end-to-end test is development tooling, not an atlas command" do
+    for args <- [["e2e"], ["e2e", "--env", "test"], ["e2e", "uc-atlas-01", "--env", "test"]] do
+      assert {out, 2} = atlas(args)
+      assert out =~ "atlas help [<kind>]", "atlas #{Enum.join(args, " ")}: #{out}"
+      refute out =~ "e2e"
+    end
+
+    assert {out, 2} = atlas_dev([])
+    assert out =~ "bin/atlas-dev e2e"
+    assert {_, 2} = atlas_dev(["tui"])
+  end
+
+  test "atlas-ops works from any folder: from /, and from inside another repository" do
     {common, 0} =
       System.cmd("git", ["-C", @root, "rev-parse", "--path-format=absolute", "--git-common-dir"])
 
@@ -84,11 +123,11 @@ defmodule AtlasE2E.AtlasCommandTest do
     {_, 0} = System.cmd("git", ["init", "-q", other])
 
     for cd <- ["/", other] do
-      assert {out, 0} = atlas(["main-clone"], [], cd)
-      assert String.trim(out) == main, "atlas main-clone from #{cd}: #{out}"
-      assert {out, 0} = atlas(["where"], [], cd)
-      assert String.trim(out) == real(@root), "atlas where from #{cd}: #{out}"
-      assert {"prod " <> file, 0} = atlas(["env"], [], cd)
+      assert {out, 0} = ops(["main-clone"], [], cd)
+      assert String.trim(out) == main, "atlas-ops main-clone from #{cd}: #{out}"
+      assert {out, 0} = ops(["where"], [], cd)
+      assert String.trim(out) == real(@root), "atlas-ops where from #{cd}: #{out}"
+      assert {"prod " <> file, 0} = ops(["env"], [], cd)
       assert String.trim(file) == Path.join(real(@root), "env/prod.json")
     end
   end
@@ -163,20 +202,85 @@ defmodule AtlasE2E.AtlasCommandTest do
   test "an environment on Fly runs no core and no rela here, and takes no migration" do
     on_fly = [{"ATLAS_ENV_FILE", fly_file()}]
 
-    assert {out, 1} = atlas(["up", "--env", "test"], on_fly)
+    assert {out, 1} = ops(["up", "--env", "test"], on_fly)
     assert out =~ "runs on Fly (eyra-atlas-test and eyra-atlas-test-rela)"
     assert out =~ "no core to run here"
-    assert {out, 1} = atlas(["rela-stop", "--env", "test"], on_fly)
-    assert out =~ "rela keeps running there"
-    assert {out, 1} = atlas(["migrate-assignment", "--dry-run", "--env", "test"], on_fly)
-    assert out =~ "the migrations read rela on this Mac"
-    assert {out, 0} = atlas(["stop", "--env", "test"], on_fly)
-    assert out =~ "closed this Mac's tunnel"
+
+    for args <- [["stop"], ["stop", "--rela"], ["restart"]] do
+      assert {out, 1} = ops(args ++ ["--env", "test"], on_fly)
+      assert out =~ "a merge to develop deploys it", "atlas-ops #{Enum.join(args, " ")}: #{out}"
+      assert out =~ "atlas-ops tunnel close --env test"
+    end
+
+    assert {out, 1} = atlas(["migrate-done-owner", "--dry-run", "--env", "test"], on_fly)
+    assert out =~ "the migration reads rela on this Mac"
+  end
+
+  test "the tunnel on Fly is shown and closed by atlas-ops; a local environment has none" do
+    on_fly = [{"ATLAS_ENV_FILE", fly_file()}]
+    assert {out, 0} = ops(["tunnel", "status", "--env", "test"], on_fly)
+    assert out =~ "tunnel: closed"
+    assert {out, 0} = ops(["tunnel", "close", "--env", "test"], on_fly)
+    assert out =~ "closed this machine's tunnel to eyra-atlas-test"
+    assert {_, 2} = ops(["tunnel", "--env", "test"], on_fly)
+    assert {_, 2} = ops(["tunnel", "open", "--env", "test"], on_fly)
+
+    local = [{"ATLAS_ENV_FILE", local_file()}]
+    assert {out, 1} = ops(["tunnel", "status", "--env", "test"], local)
+    assert out =~ "does not run on Fly"
+  end
+
+  test "on an environment on this Mac, atlas starts nothing: without Control, the TUI says how" do
+    file = local_file()
+    assert {out, 2} = atlas(["tui", "--env", "test"], [{"ATLAS_ENV_FILE", file}])
+    assert out =~ "Control for test does not answer: atlas-ops restart --env test"
+    refute File.exists?(Path.join(Path.dirname(file), "rela-server.pid"))
+    refute File.exists?(Path.join(Path.dirname(file), "core.pid"))
+  end
+
+  test "removed commands are unknown: they show the usage, exit 2 and run nothing" do
+    on_fly = [{"ATLAS_ENV_FILE", fly_file()}]
+
+    for args <- [
+          ["migrate-completion"],
+          ["migrate-owner", "--dry-run"],
+          ["migrate-assignment", "--dry-run"],
+          ["load-plan", "SCENES.md", "links.json"],
+          ["playground", "init", "/nonexistent"],
+          ["attach", "breaker", "--prototype", "/nonexistent"],
+          # Operating is atlas-ops.
+          ["status"],
+          ["logs"],
+          ["stop"],
+          ["restart"],
+          ["up"],
+          ["rela-status"],
+          ["rela-stop"],
+          ["move-to-fly", "--dry-run"],
+          ["fetch-from-fly", "--to", "/nonexistent"],
+          ["env"],
+          ["where"],
+          ["main-clone"],
+          ["install"]
+        ] do
+      assert {out, 2} = atlas(args ++ ["--env", "test"], on_fly), "atlas #{Enum.join(args, " ")}"
+      assert out =~ "atlas: try Atlas from any folder."
+      assert out =~ "atlas-ops --help"
+      refute out =~ "migrations read rela"
+      refute out =~ "opening the tunnel"
+      refute out =~ "closed this"
+    end
+
+    # atlas-ops takes no Control client word, and has no aliases for the old ones.
+    for word <- ["tui", "get", "rela-stop", "rela-status", "e2e"] do
+      assert {out, 2} = ops([word, "--env", "test"], on_fly), "atlas-ops #{word}"
+      assert out =~ "atlas-ops: operate an Atlas environment"
+    end
   end
 
   test "move-to-fly is only for an environment on Fly, and needs data to move" do
     local = [{"ATLAS_ENV_FILE", local_file()}]
-    assert {out, 1} = atlas(["move-to-fly", "--dry-run", "--env", "test"], local)
+    assert {out, 1} = ops(["move-to-fly", "--dry-run", "--env", "test"], local)
     assert out =~ "does not run on Fly"
 
     empty = Path.join(System.tmp_dir!(), "atlas-move-#{System.unique_integer([:positive])}")
@@ -186,7 +290,7 @@ defmodule AtlasE2E.AtlasCommandTest do
     on_fly = [{"ATLAS_ENV_FILE", fly_file()}]
 
     assert {out, 1} =
-             atlas(["move-to-fly", "--from", empty, "--dry-run", "--env", "test"], on_fly)
+             ops(["move-to-fly", "--from", empty, "--dry-run", "--env", "test"], on_fly)
 
     assert out =~ "has no rela data"
   end
@@ -226,30 +330,66 @@ defmodule AtlasE2E.AtlasCommandTest do
   end
 
   test "until \"in_use\" is true, prod's core runs on this Mac; then on Fly" do
-    assert {out, 0} = atlas(["stop", "--env", "prod"], [{"ATLAS_ENV_FILE", prod_file(false)}])
+    assert {out, 0} = ops(["stop", "--env", "prod"], [{"ATLAS_ENV_FILE", prod_file(false)}])
     assert out =~ "core stopped (rela keeps running)"
 
-    assert {out, 0} = atlas(["stop", "--env", "prod"], [{"ATLAS_ENV_FILE", prod_file(true)}])
-    assert out =~ "closed this Mac's tunnel to eyra-atlas"
+    on_fly = [{"ATLAS_ENV_FILE", prod_file(true)}]
+    assert {out, 1} = ops(["stop", "--env", "prod"], on_fly)
     assert out =~ "a merge to master deploys it"
+    assert {out, 0} = ops(["tunnel", "close", "--env", "prod"], on_fly)
+    assert out =~ "closed this machine's tunnel to eyra-atlas"
+  end
+
+  test "install links atlas and atlas-ops, never atlas-dev, and only from the main clone" do
+    home = Path.join(System.tmp_dir!(), "atlas-home-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(home)
+    on_exit(fn -> File.rm_rf!(home) end)
+
+    {common, 0} =
+      System.cmd("git", ["-C", @root, "rev-parse", "--path-format=absolute", "--git-common-dir"])
+
+    main = common |> String.trim() |> Path.dirname() |> real()
+    {out, status} = ops(["install"], [{"HOME", home}])
+
+    if main == real(@root) do
+      assert status == 0, out
+      bin = Path.join(home, ".local/bin")
+      assert {:ok, target} = File.read_link(Path.join(bin, "atlas"))
+      assert target == Path.join(real(@root), "bin/atlas")
+      assert {:ok, target} = File.read_link(Path.join(bin, "atlas-ops"))
+      assert target == Path.join(real(@root), "bin/atlas-ops")
+      refute File.exists?(Path.join(bin, "atlas-dev"))
+
+      # Through the link, atlas-ops still finds its checkout and bin/lib.
+      assert {"test " <> _, 0} =
+               System.cmd(Path.join(bin, "atlas-ops"), ["env", "--env", "test"],
+                 env: [{"ATLAS_ENV_FILE", nil}],
+                 cd: "/",
+                 stderr_to_stdout: true
+               )
+    else
+      assert status == 1, out
+      assert out =~ "install from the main clone"
+      refute File.exists?(Path.join(home, ".local/bin"))
+    end
   end
 
   test "moving onto the data clients use on Fly needs --replace-live" do
     on_fly = [{"ATLAS_ENV_FILE", fly_file()}]
-    assert {out, 1} = atlas(["move-to-fly", "--from", "/", "--env", "test"], on_fly)
+    assert {out, 1} = ops(["move-to-fly", "--from", "/", "--env", "test"], on_fly)
     assert out =~ "its data there is the live one"
     assert out =~ "add --replace-live"
   end
 
   test "fetch-from-fly needs a folder, and an environment on Fly" do
     on_fly = [{"ATLAS_ENV_FILE", fly_file()}]
-    assert {out, 1} = atlas(["fetch-from-fly", "--env", "test"], on_fly)
+    assert {out, 1} = ops(["fetch-from-fly", "--env", "test"], on_fly)
     assert out =~ "--to <folder>"
-    assert {out, 1} = atlas(["fetch-from-fly", "--to", "/", "--env", "test"], on_fly)
+    assert {out, 1} = ops(["fetch-from-fly", "--to", "/", "--env", "test"], on_fly)
     assert out =~ "is not empty"
 
     local = [{"ATLAS_ENV_FILE", local_file()}]
-    assert {out, 1} = atlas(["fetch-from-fly", "--to", "/tmp/x", "--env", "test"], local)
+    assert {out, 1} = ops(["fetch-from-fly", "--to", "/tmp/x", "--env", "test"], local)
     assert out =~ "does not run on Fly"
   end
 end

@@ -14,7 +14,7 @@ defmodule AtlasAgent.ProtocolTest do
   end
 
   test "hello preserves version, environment, category and actor isolation" do
-    version = AtlasBFFContract.Blocks.__schema__().version
+    version = AtlasBFFContract.Contract.__schema__().version
 
     assert Client.hello("prod", "agent") == %{
              "op" => "hello",
@@ -42,7 +42,7 @@ defmodule AtlasAgent.ProtocolTest do
     {:ok, listener} = :gen_tcp.listen(0, [:binary, packet: :line, active: false, reuseaddr: true])
     on_exit(fn -> :gen_tcp.close(listener) end)
     {:ok, {_, port}} = :inet.sockname(listener)
-    version = AtlasBFFContract.Blocks.__schema__().version
+    version = AtlasBFFContract.Contract.__schema__().version
 
     peer =
       Task.async(fn ->

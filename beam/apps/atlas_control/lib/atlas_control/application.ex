@@ -16,8 +16,12 @@ defmodule AtlasControl.Application do
       end
 
     children =
-      [{DynamicSupervisor, name: AtlasControl.Sessions, strategy: :one_for_one}] ++ gateway
+      [
+        AtlasControl.Output,
+        {DynamicSupervisor, name: AtlasControl.Sessions, strategy: :one_for_one}
+      ] ++ gateway
 
-    Supervisor.start_link(children, strategy: :one_for_one, name: AtlasControl.Supervisor)
+    # Losing admission state must close its sessions before admitting replacement viewers.
+    Supervisor.start_link(children, strategy: :rest_for_one, name: AtlasControl.Supervisor)
   end
 end

@@ -113,14 +113,16 @@ defmodule AtlasBus.Link.Server do
         end
 
       {:deliver, name, envelope, content} ->
-        :gen_tcp.send(
-          socket,
-          Link.encode("deliver", %{
-            "endpoint" => name,
-            "envelope" => Link.envelope_out(envelope),
-            "content" => content
-          })
-        )
+        if Link.deliver_allowed?(name, machine, envelope) do
+          :gen_tcp.send(
+            socket,
+            Link.encode("deliver", %{
+              "endpoint" => name,
+              "envelope" => Link.envelope_out(envelope),
+              "content" => content
+            })
+          )
+        end
 
         loop(socket, machine, endpoints)
 
@@ -177,7 +179,7 @@ defmodule AtlasBus.Link.Server do
       else: refuse(socket)
   end
 
-  defp frame(socket, _machine, endpoints, %{
+  defp frame(socket, machine, endpoints, %{
          "op" => "send",
          "endpoint" => name,
          "envelope" => %{} = map,
@@ -185,7 +187,7 @@ defmodule AtlasBus.Link.Server do
        }) do
     envelope = Link.envelope_in(map)
     # A remote Runtime cannot forge State acknowledgements or invoke failure controls.
-    if endpoints[name] && envelope.class in ~w(read fact answer) &&
+    if endpoints[name] && Link.send_allowed?(name, machine, envelope) &&
          AtlasBus.Envelope.validate(envelope) == :ok &&
          envelope.environment == AtlasBus.environment() do
       send(endpoints[name], {:send, envelope, content})

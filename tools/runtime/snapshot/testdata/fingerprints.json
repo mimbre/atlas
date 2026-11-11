@@ -1,0 +1,182 @@
+{
+ "about": "Repository fingerprints: fpr_ + hex SHA-256 of the UTF-8 bytes of canonical, which is Elixir JSON.encode! of request (a change request without change_id) with its entries sorted by path. Generated with Elixir 1.18 JSON.encode!; checked by tools/runtime/snapshot/fingerprint_test.go and meant for Code's tests too. Entries in request are deliberately not always in path order.",
+ "cases": [
+  {
+   "canonical": "{\"base_revision\":\"rev_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\",\"entries\":[{\"kind\":\"file\",\"mode\":\"100644\",\"op\":\"write\",\"path\":\"new/a-b.txt\",\"sha256\":\"f8359416cedbf4b44bd1cab71b791b4121e3b33748187c530e70207af87c3f39\",\"size\":5},{\"kind\":\"file\",\"mode\":\"100755\",\"op\":\"write\",\"path\":\"new/a/b.txt\",\"sha256\":\"a8076d3d28d21e02012b20eaf7dbf75409a6277134439025f282e368e3305abf\",\"size\":10},{\"kind\":\"file\",\"mode\":\"100644\",\"op\":\"write\",\"path\":\"new/b.txt\",\"sha256\":\"5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03\",\"size\":6}],\"repository\":\"github.com/example/one\",\"snapshot_id\":\"sha256:4f2c6f0d9e1b3a5c7d8e9f00112233445566778899aabbccddeeff0011223344\"}",
+   "description": "three added files, given out of path order; a-b sorts before a/b",
+   "fingerprint": "fpr_fc1b51ec8ffe7fef8b8fe6322a71c394ac4a7abc3f353e829a8203492020cfba",
+   "name": "add",
+   "request": {
+    "base_revision": "rev_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "entries": [
+     {
+      "kind": "file",
+      "mode": "100644",
+      "op": "write",
+      "path": "new/b.txt",
+      "sha256": "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03",
+      "size": 6
+     },
+     {
+      "kind": "file",
+      "mode": "100644",
+      "op": "write",
+      "path": "new/a-b.txt",
+      "sha256": "f8359416cedbf4b44bd1cab71b791b4121e3b33748187c530e70207af87c3f39",
+      "size": 5
+     },
+     {
+      "kind": "file",
+      "mode": "100755",
+      "op": "write",
+      "path": "new/a/b.txt",
+      "sha256": "a8076d3d28d21e02012b20eaf7dbf75409a6277134439025f282e368e3305abf",
+      "size": 10
+     }
+    ],
+    "repository": "github.com/example/one",
+    "snapshot_id": "sha256:4f2c6f0d9e1b3a5c7d8e9f00112233445566778899aabbccddeeff0011223344"
+   }
+  },
+  {
+   "canonical": "{\"base_revision\":\"rev_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\",\"entries\":[{\"op\":\"delete\",\"path\":\"dir/old\"},{\"op\":\"delete\",\"path\":\"gone.txt\"}],\"repository\":\"github.com/example/one\",\"snapshot_id\":\"sha256:4f2c6f0d9e1b3a5c7d8e9f00112233445566778899aabbccddeeff0011223344\"}",
+   "description": "deletes are {op, path} only",
+   "fingerprint": "fpr_a036fa0ec0c2ed6027ed74395d33cfd3f186a26836d7e94180627b6b328b4668",
+   "name": "delete",
+   "request": {
+    "base_revision": "rev_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "entries": [
+     {
+      "op": "delete",
+      "path": "gone.txt"
+     },
+     {
+      "op": "delete",
+      "path": "dir/old"
+     }
+    ],
+    "repository": "github.com/example/one",
+    "snapshot_id": "sha256:4f2c6f0d9e1b3a5c7d8e9f00112233445566778899aabbccddeeff0011223344"
+   }
+  },
+  {
+   "canonical": "{\"base_revision\":\"rev_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\",\"entries\":[{\"kind\":\"file\",\"mode\":\"100644\",\"op\":\"write\",\"path\":\"run.sh\",\"sha256\":\"a8076d3d28d21e02012b20eaf7dbf75409a6277134439025f282e368e3305abf\",\"size\":10}],\"repository\":\"github.com/example/one\",\"snapshot_id\":\"sha256:4f2c6f0d9e1b3a5c7d8e9f00112233445566778899aabbccddeeff0011223344\"}",
+   "description": "a mode-only change rewrites the same bytes with the new mode",
+   "fingerprint": "fpr_ec7e0851af071b7d0f8990380d53a0c7b2ee2577fcedd330841d8b79cba825df",
+   "name": "mode",
+   "request": {
+    "base_revision": "rev_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "entries": [
+     {
+      "kind": "file",
+      "mode": "100644",
+      "op": "write",
+      "path": "run.sh",
+      "sha256": "a8076d3d28d21e02012b20eaf7dbf75409a6277134439025f282e368e3305abf",
+      "size": 10
+     }
+    ],
+    "repository": "github.com/example/one",
+    "snapshot_id": "sha256:4f2c6f0d9e1b3a5c7d8e9f00112233445566778899aabbccddeeff0011223344"
+   }
+  },
+  {
+   "canonical": "{\"base_revision\":\"rev_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\",\"entries\":[{\"op\":\"delete\",\"path\":\"dir\"},{\"kind\":\"symlink\",\"mode\":\"120000\",\"op\":\"write\",\"path\":\"dir/up\",\"sha256\":\"bc05b2ec3b800610bf381243345db160f4d6a32b9120e1397a29e670e7259ca4\",\"size\":8,\"target\":\"../a.txt\"},{\"kind\":\"symlink\",\"mode\":\"120000\",\"op\":\"write\",\"path\":\"link\",\"sha256\":\"18b7cb099a9ea3f50ba899b5ba81e0d377a5f3b16f8f6eeb8b3e58cd4692b993\",\"size\":5,\"target\":\"a.txt\"}],\"repository\":\"github.com/example/one\",\"snapshot_id\":\"sha256:4f2c6f0d9e1b3a5c7d8e9f00112233445566778899aabbccddeeff0011223344\"}",
+   "description": "symlink writes carry target, size and sha256 of the target; a file replaced by a directory holding a link",
+   "fingerprint": "fpr_e4ef2745b761e4041c1232e7d5fbee5871bdcc2bbba4c93a9dcbe0804ff9931c",
+   "name": "symlink",
+   "request": {
+    "base_revision": "rev_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "entries": [
+     {
+      "kind": "symlink",
+      "mode": "120000",
+      "op": "write",
+      "path": "link",
+      "sha256": "18b7cb099a9ea3f50ba899b5ba81e0d377a5f3b16f8f6eeb8b3e58cd4692b993",
+      "size": 5,
+      "target": "a.txt"
+     },
+     {
+      "op": "delete",
+      "path": "dir"
+     },
+     {
+      "kind": "symlink",
+      "mode": "120000",
+      "op": "write",
+      "path": "dir/up",
+      "sha256": "bc05b2ec3b800610bf381243345db160f4d6a32b9120e1397a29e670e7259ca4",
+      "size": 8,
+      "target": "../a.txt"
+     }
+    ],
+    "repository": "github.com/example/one",
+    "snapshot_id": "sha256:4f2c6f0d9e1b3a5c7d8e9f00112233445566778899aabbccddeeff0011223344"
+   }
+  },
+  {
+   "canonical": "{\"base_revision\":\"rev_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\",\"entries\":[{\"kind\":\"file\",\"mode\":\"100644\",\"op\":\"write\",\"path\":\"data.bin\",\"sha256\":\"52561baaac3c462b483af07a4b8fbd0774e8b4bf1dd90130e71476ef249649df\",\"size\":4}],\"repository\":\"github.com/example/one\",\"snapshot_id\":\"sha256:4f2c6f0d9e1b3a5c7d8e9f00112233445566778899aabbccddeeff0011223344\"}",
+   "description": "binary content is identified only by size and sha256",
+   "fingerprint": "fpr_bd4d6581f8b08fffbac2a3d05a7cba49e1a4ed38b48f67e2ddea467cdbbbc4d7",
+   "name": "binary",
+   "request": {
+    "base_revision": "rev_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "entries": [
+     {
+      "kind": "file",
+      "mode": "100644",
+      "op": "write",
+      "path": "data.bin",
+      "sha256": "52561baaac3c462b483af07a4b8fbd0774e8b4bf1dd90130e71476ef249649df",
+      "size": 4
+     }
+    ],
+    "repository": "github.com/example/one",
+    "snapshot_id": "sha256:4f2c6f0d9e1b3a5c7d8e9f00112233445566778899aabbccddeeff0011223344"
+   }
+  },
+  {
+   "canonical": "{\"base_revision\":\"rev_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\",\"entries\":[],\"repository\":\"github.com/example/one\",\"snapshot_id\":\"sha256:4f2c6f0d9e1b3a5c7d8e9f00112233445566778899aabbccddeeff0011223344\"}",
+   "description": "a clean repository: entries []",
+   "fingerprint": "fpr_d4860f3c088cec74f988e1aa588fdd7a52da64962d67eacbc2d5432181458f1f",
+   "name": "clean",
+   "request": {
+    "base_revision": "rev_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "entries": [],
+    "repository": "github.com/example/one",
+    "snapshot_id": "sha256:4f2c6f0d9e1b3a5c7d8e9f00112233445566778899aabbccddeeff0011223344"
+   }
+  },
+  {
+   "canonical": "{\"base_revision\":\"rev_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\",\"entries\":[{\"kind\":\"symlink\",\"mode\":\"120000\",\"op\":\"write\",\"path\":\"ctl-link\",\"sha256\":\"ea8c5b844655608f3a85121b7dcc3a0b579bea9c20d0962ef705a8b92432a121\",\"size\":20,\"target\":\"x\\\"y\\\\z\\u0001\\b\\t\\n\\f\\r\\u000B\\u001F\u007f \u00e9\u2028\"},{\"kind\":\"file\",\"mode\":\"100644\",\"op\":\"write\",\"path\":\"dir/na\u00efve \\\"quoted\\\" \u65e5\u672c \u2713.txt\",\"sha256\":\"599c7c0c70071ddf9568a4b07213a61a06ddb301f494a3477c69aaf04c1ad1cd\",\"size\":3}],\"repository\":\"github.com/example/one\",\"snapshot_id\":\"sha256:4f2c6f0d9e1b3a5c7d8e9f00112233445566778899aabbccddeeff0011223344\"}",
+   "description": "non-ASCII stays raw UTF-8; quote and backslash are escaped; control characters use the short escapes or upper-case \\u00XX; DEL and U+2028 stay raw",
+   "fingerprint": "fpr_44a1b7eda9ae335710fe8a4f129e887ae9848020b817632ff4fec546f4bcd760",
+   "name": "escapes",
+   "request": {
+    "base_revision": "rev_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "entries": [
+     {
+      "kind": "file",
+      "mode": "100644",
+      "op": "write",
+      "path": "dir/na\u00efve \"quoted\" \u65e5\u672c \u2713.txt",
+      "sha256": "599c7c0c70071ddf9568a4b07213a61a06ddb301f494a3477c69aaf04c1ad1cd",
+      "size": 3
+     },
+     {
+      "kind": "symlink",
+      "mode": "120000",
+      "op": "write",
+      "path": "ctl-link",
+      "sha256": "ea8c5b844655608f3a85121b7dcc3a0b579bea9c20d0962ef705a8b92432a121",
+      "size": 20,
+      "target": "x\"y\\z\u0001\b\t\n\f\r\u000b\u001f\u007f \u00e9\u2028"
+     }
+    ],
+    "repository": "github.com/example/one",
+    "snapshot_id": "sha256:4f2c6f0d9e1b3a5c7d8e9f00112233445566778899aabbccddeeff0011223344"
+   }
+  }
+ ]
+}

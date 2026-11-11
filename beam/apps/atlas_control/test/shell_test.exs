@@ -3,7 +3,7 @@ defmodule AtlasControl.ShellTest do
   alias AtlasControl.{FakeStore, Shell}
 
   defmodule Protocol do
-    use AtlasBFF.Targets.Protocol, contract: AtlasBFFContract.Blocks, channel: :control
+    use AtlasBFF.Targets.Protocol, contract: AtlasBFFContract.Contract, channel: :control
   end
 
   defp description do
@@ -186,6 +186,57 @@ defmodule AtlasControl.ShellTest do
              receive_message(s)
 
     assert FakeStore.last_fact()["values"] == %{"title" => "After"}
+  end
+
+  test "a create form opened before boot stays the page; refresh keeps the draft silently", %{
+    port: port
+  } do
+    s = connected(port)
+    send_message(s, %{"op" => "open", "to" => "/k/widget/new"})
+    send_message(s, Protocol.message(:boot, :boot, to: "/k/widget"))
+    assert %{"op" => "page", "path" => "/k/widget/new"} = receive_message(s)
+
+    assert %{"op" => "boot", "active_tab" => "widgets", "initial_to" => "/k/widget"} =
+             receive_message(s)
+
+    send_message(s, %{"op" => "refresh"})
+    assert {:error, :timeout} = :gen_tcp.recv(s, 0, 100)
+    # Nothing was queued behind the silence: the next reply answers the next request.
+    assert %{"op" => "boot"} = boot(s)
+    assert FakeStore.sent() == []
+  end
+
+  test "boot to a component-held association resolves to the component's links page" do
+    d =
+      description()
+      |> put_in(["entities", "card"], %{
+        "label" => "Card",
+        "plural" => "cards",
+        "primary" => "of",
+        "top" => false,
+        "properties" => %{"of" => %{"type" => "string", "required" => true}}
+      })
+      |> put_in(["relations", "card"], %{
+        "label" => "card",
+        "from" => ["widget"],
+        "to" => ["card"],
+        "max_outgoing" => 1,
+        "set_by" => ["migration"],
+        "component" => %{"key" => "C-{key}", "values" => %{"of" => "{key}"}}
+      })
+      |> put_in(["relations", "held_by"], %{
+        "label" => "held by",
+        "from" => ["card"],
+        "to" => ["member"],
+        "max_outgoing" => 1
+      })
+
+    assert {:ok, shell} = Shell.boot(d, nil, "/k/widget/W-01/links/held_by")
+    assert shell["initial_to"] == "/k/card/C-W-01/links/held_by"
+    refute Map.has_key?(shell, "active_tab")
+    # The widget's own association is not redirected.
+    assert {:ok, own} = Shell.boot(d, nil, "/k/widget/W-01/links/checked_by")
+    assert own["initial_to"] == "/k/widget/W-01/links/checked_by"
   end
 
   test "State-resolved unprefixed detail and form links survive boot", %{port: port} do

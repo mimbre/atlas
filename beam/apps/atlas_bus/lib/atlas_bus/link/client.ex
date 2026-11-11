@@ -3,14 +3,28 @@ defmodule AtlasBus.Link.Client do
   use GenServer
   alias AtlasBus.Link
 
-  def start_link(settings), do: GenServer.start_link(__MODULE__, settings, name: __MODULE__)
+  # No settings pass through the supervisor: its child spec and start arguments carry no token.
+  def start_link(_ \\ []), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
   def sync(pid), do: GenServer.call(__MODULE__, {:sync, pid})
   def forward(envelope, content), do: GenServer.cast(__MODULE__, {:send, envelope, content})
   def status, do: GenServer.call(__MODULE__, :status)
 
-  def init(settings) do
+  # The token is kept apart, in a closure called only for `hello`, so printed diagnostics
+  # (state, failure arguments, exits) show `#Function<…>`. Code in this VM can still read it.
+  def init(:ok) do
+    settings = Link.settings()
+    token = settings["token"]
     send(self(), :connect)
-    {:ok, %{settings: settings, socket: nil, refs: %{}, delay: 2_000, names: %{}}}
+
+    {:ok,
+     %{
+       settings: Map.delete(settings, "token"),
+       secret: fn -> token end,
+       socket: nil,
+       refs: %{},
+       delay: 2_000,
+       names: %{}
+     }}
   end
 
   def handle_call(:status, _, state), do: {:reply, state.socket != nil, state}
@@ -55,7 +69,7 @@ defmodule AtlasBus.Link.Client do
         emit(socket, "hello", %{
           "environment" => AtlasBus.environment(),
           "machine" => s["machine"],
-          "token" => s["token"]
+          "token" => state.secret.()
         })
 
         case :gen_tcp.recv(socket, 0, 2_000) do
@@ -93,7 +107,8 @@ defmodule AtlasBus.Link.Client do
         envelope = Link.envelope_in(map)
 
         if envelope.environment == AtlasBus.environment() &&
-             AtlasBus.Envelope.validate(envelope) == :ok do
+             AtlasBus.Envelope.validate(envelope) == :ok &&
+             Link.deliver_allowed?(name, state.settings["machine"], envelope) do
           for {pid, _} <- Registry.lookup(AtlasBus.Endpoints, name),
               do: send(pid, {:atlas_bus, envelope, content})
         end

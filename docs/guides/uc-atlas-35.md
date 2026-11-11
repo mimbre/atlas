@@ -14,7 +14,9 @@ What you can do: read in one file every page Control serves and every call a cli
 
 ## What changed for this
 
-- **The contract** (`bff/contract/lib/blocks.ex`, 0.11.0): `defpage` for the pages, `defendpoint` for every other call, the session's messages as models (`hello`, `welcome`, `bye`, `notice`, `ask`, `run`), and `submit_to`/`confirm_to` as a `call` (an endpoint and its params).
+- **The contract** (`bff/contract/lib/contract.ex`, composing the existing 0.14.0 contract): `pages.ex` declares pages, `endpoints.ex` declares other calls, and `models/presentation.ex` declares session payloads (`hello`, `welcome`, `bye`, `notice`, `ask`, `run`) and the `call` used by `submit_to`/`confirm_to`.
 - **The generator**: `defpage` and `defendpoint`, the rules of paths (`AtlasBFF.Paths`), a map type (`{:map, :string}`); the targets give `pages`, `match`, `path`, `endpoints`, `endpoint`.
 - **Control** serves exactly the contract's pages, takes submits only at its submit endpoints, and checks the version in each hello.
 - **The end-to-end test**: `e2e/scenarios/uc-atlas-35.exs` follows this guide.
+
+<sub>Written by an AI agent (omp · openai-codex/gpt-6-astra).</sub>

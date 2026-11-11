@@ -3,6 +3,8 @@ defmodule AtlasState.GuidanceNativeTest do
   alias AtlasBus.Envelope
   alias AtlasState.{Guidance, Rela}
   @moduletag :tmp_dir
+  # Needs rela-server and rela/scripts/config.py (Python with PyYAML).
+  @moduletag :integration
   @root Path.expand("../../../..", __DIR__)
   @bin System.get_env("ATLAS_E2E_RELA_BIN") || Path.expand("~/.local/share/atlas/test/bin")
   @moduletag skip: not File.exists?(Path.join(@bin, "rela-server"))
@@ -50,7 +52,7 @@ defmodule AtlasState.GuidanceNativeTest do
 
   test "pinned HTTP store claims once, compares complete payload and replays evidence after restart",
        %{tmp_dir: dir} do
-    assert {"rela version 26.10.14\n", 0} = System.cmd(Path.join(@bin, "rela"), ["version"])
+    assert {"rela version 26.11.2\n", 0} = System.cmd(Path.join(@bin, "rela"), ["version"])
     python = System.get_env("ATLAS_CONFIG_PYTHON") || "python3"
 
     {output, code} =

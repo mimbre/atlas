@@ -3,8 +3,7 @@ defmodule AtlasTui.CLI do
   `mix atlas.tui --env test` (or `bin/atlas tui --env test` from the repository root).
 
   Connects to Control of one environment: prod by default, test with `--env test`.
-  Console is the default. `--surface legacy` explicitly selects the preceding client
-  presentation for compatibility checks; failed Console negotiation never falls back.
+  Console is the terminal client; failed negotiation never falls back.
   Settings come from `env/<env>.json` at the repository root, or from `ATLAS_ENV_FILE`
   (a private instance), whose `"env"` must be the same environment.
   """
@@ -12,17 +11,13 @@ defmodule AtlasTui.CLI do
   @root Path.expand("../../../..", __DIR__)
 
   def main(args) do
-    {opts, _rest, invalid} = OptionParser.parse(args, strict: [env: :string, surface: :string])
+    {opts, _rest, invalid} = OptionParser.parse(args, strict: [env: :string])
 
     env = opts[:env] || "prod"
-    surface = opts[:surface] || "console"
 
     cond do
       invalid != [] ->
         fail("Unknown option(s): #{Enum.map_join(invalid, " ", &elem(&1, 0))}. Use --env test.")
-
-      surface not in ["console", "legacy"] ->
-        fail("Unknown TUI surface #{inspect(surface)}. Use console or legacy.")
 
       env not in ["test", "prod"] ->
         fail("Atlas has no environment #{inspect(env)}. Use --env test or --env prod.")
@@ -36,7 +31,7 @@ defmodule AtlasTui.CLI do
             settings = JSON.decode!(json)
 
             if settings["env"] == env,
-              do: AtlasTui.App.run(env, settings, surface),
+              do: AtlasTui.App.run(env, settings),
               else: fail("#{file} is for #{inspect(settings["env"])}, not #{env}.")
 
           {:error, _} ->

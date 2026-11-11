@@ -9,6 +9,9 @@ import sys
 import tempfile
 import unittest
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import runtime_cli
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -20,8 +23,8 @@ class RuntimeStatusTest(unittest.TestCase):
             home.mkdir()
             (home/'runtime.pid').write_text(str(pid))
             (home/'runtime.json').write_text(json.dumps({'env': 'test', 'runtime': {'machine': 'fixture'}, 'bus_link': {'machine': 'fixture'}}))
-        result = subprocess.run([sys.executable, str(ROOT/'tools/runtime.py'), 'runtime-status', str(ROOT), str(client), 'test'],
-            text=True, capture_output=True, env=dict(os.environ, ATLAS_RUNTIME_HOME=str(home), ATLAS_RUNTIME_FILE=str(home/'runtime.json'), ELIXIR_ERL_OPTIONS='+S 1:1'))
+        result = subprocess.run([sys.executable, str(ROOT/'tools/runtime.py'), 'runtime-status', str(ROOT), 'test'],
+            text=True, capture_output=True, env=dict(os.environ, ATLAS_ENV_FILE=str(client), ATLAS_RUNTIME_HOME=str(home), ATLAS_RUNTIME_FILE=str(home/'runtime.json'), ELIXIR_ERL_OPTIONS='+S 1:1'))
         return result, home
 
     def test_status_does_not_create_runtime_home(self):
@@ -73,32 +76,60 @@ class StatusProjectionTest(unittest.TestCase):
                 self.assertEqual(before, {str(p): (p.read_bytes(), p.stat().st_mtime_ns) for p in home.iterdir()})
                 self.assertNotIn('NEVER-PRINT-THIS', json.dumps(status))
 
-    def test_cli_alias_json_and_missing_or_stale_private_records(self):
+    def test_node_cli_json_and_missing_or_stale_private_records(self):
         with tempfile.TemporaryDirectory() as temporary:
             home = Path(temporary)/'absent'
             client = Path(temporary)/'client.json'; client.write_text(json.dumps({'env': 'test', 'control': {'port': 1}}))
             env = dict(os.environ, ATLAS_ENV_FILE=str(client), ATLAS_RUNTIME_HOME=str(home), ATLAS_RUNTIME_FILE=str(home/'runtime.json'), PYTHONDONTWRITEBYTECODE='1')
-            def call(words):
-                return subprocess.run([str(ROOT/'bin/atlas'), *words, '--env', 'test', '--machine', 'fixture', '--json'], env=env, text=True, capture_output=True)
-            for words in [['runtime', 'status'], ['runtime-status']]:
-                result = call(words)
-                self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
-                frame = json.loads(result.stdout)
-                self.assertEqual(frame['target'], dict(environment='test', machine='fixture'))
-                self.assertEqual(frame['status']['state'], 'absent')
-                self.assertFalse(home.exists())
+            def node(*words, machine=('--machine', 'fixture')):
+                return subprocess.run([runtime_cli.executable(), 'node', *words, '--env', 'test', *machine, '--checkout', str(ROOT), '--json'], env=env, text=True, capture_output=True)
+            result = node('status')
+            self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
+            frame = json.loads(result.stdout)
+            self.assertEqual(frame['target'], dict(environment='test', machine='fixture'))
+            self.assertEqual(frame['status']['state'], 'absent')
+            self.assertFalse(home.exists())
             home.mkdir(); (home/'runtime.json').write_text(json.dumps({'env': 'test', 'runtime': {'machine': 'fixture'}, 'bus_link': {'machine': 'fixture'}}))
             (home/'runtime.pid').write_text('not-a-pid')
-            self.assertEqual(json.loads(call(['runtime', 'status']).stdout)['status']['state'], 'stale')
-            for words in [['runtime', 'status', '--unknown'], ['runtime', 'status', '--machine', 'other']]:
-                result = call(words)
+            self.assertEqual(json.loads(node('status').stdout)['status']['state'], 'stale')
+            # An omitted machine is the one runtime.json names.
+            result = node('status', machine=())
+            self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
+            self.assertEqual(json.loads(result.stdout)['target'], dict(environment='test', machine='fixture'))
+            for words in [['status', '--unknown'], ['status', '--machine', 'other']]:
+                result = node(*words)
                 self.assertNotEqual(result.returncode, 0)
-            for words in [['runtime', 'stop'], ['runtime-stop']]:
-                result = call(words)
-                self.assertNotEqual(result.returncode, 0)
-                refusal = json.loads(result.stdout)
-                self.assertEqual(refusal['op'], 'machine_stop_error')
-                self.assertEqual(refusal['error']['code'], 'ownership_refused')
+            result = node('stop')
+            self.assertNotEqual(result.returncode, 0)
+            refusal = json.loads(result.stdout)
+            self.assertEqual(refusal['op'], 'machine_stop_error')
+            self.assertEqual(refusal['error']['code'], 'ownership_refused')
+            # The node words left atlas: they show its usage and run nothing.
+            for words in [['runtime', 'status'], ['runtime-status'], ['runtime-stop'], ['runtime']]:
+                self.assertEqual(subprocess.run([str(ROOT/'bin/atlas'), *words, '--env', 'test'], env=env, text=True, capture_output=True).returncode, 2, words)
+
+    def test_node_cli_resolves_the_environment_like_atlas(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)/'absent'
+            client = Path(temporary)/'client.json'; client.write_text(json.dumps({'env': 'test', 'control': {'port': 1}}))
+            env = {key: value for key, value in os.environ.items() if not key.startswith('ATLAS_')}
+            env.update(ATLAS_RUNTIME_HOME=str(home), ATLAS_RUNTIME_FILE=str(home/'runtime.json'), PYTHONDONTWRITEBYTECODE='1')
+            def node(*words, **extra):
+                return subprocess.run([runtime_cli.executable(), 'node', 'status', *words, '--machine', 'fixture', '--checkout', str(ROOT), '--json'], env=dict(env, **extra), text=True, capture_output=True)
+            # A private file without --env is that file's environment.
+            result = node(ATLAS_ENV_FILE=str(client))
+            self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
+            self.assertEqual(json.loads(result.stdout)['target']['environment'], 'test')
+            # --env and the file's "env" must agree; an unknown environment runs nothing.
+            for words, extra in [(['--env', 'prod'], dict(ATLAS_ENV_FILE=str(client))), (['--env', 'staging'], {})]:
+                result = node(*words, **extra)
+                self.assertEqual(result.returncode, 1, result.stdout+result.stderr)
+                self.assertEqual(result.stdout, '')
+            # Without ATLAS_ENV_FILE, the checkout's env/<env>.json.
+            result = node('--env', 'test')
+            self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
+            self.assertEqual(json.loads(result.stdout)['target']['environment'], 'test')
+            self.assertFalse(home.exists())
 
 
     def test_pid_records_are_bounded_before_any_inspector_call(self):
@@ -133,7 +164,7 @@ class StatusProjectionTest(unittest.TestCase):
             env = dict(os.environ, ATLAS_ENV_FILE=str(client), ATLAS_RUNTIME_HOME=str(home), ATLAS_RUNTIME_FILE=str(config))
             for record in [str(os.getpid()+2**32), '9'*10000, 'not-a-pid']:
                 (home/'runtime.pid').write_text(record)
-                result = subprocess.run([str(ROOT/'bin/atlas'), 'runtime', 'status', '--env', 'test', '--machine', 'fixture', '--json'], env=env, text=True, capture_output=True)
+                result = subprocess.run([runtime_cli.executable(), 'node', 'status', '--env', 'test', '--machine', 'fixture', '--checkout', str(ROOT), '--json'], env=env, text=True, capture_output=True)
                 self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
                 report = json.loads(result.stdout)['status']
                 self.assertEqual(report['state'], 'stale')
@@ -145,8 +176,8 @@ class StatusProjectionTest(unittest.TestCase):
             home = Path(temporary)/'runtime'; home.mkdir()
             config = home/'runtime.json'; config.write_text(json.dumps({'env': 'test', 'runtime': {'machine': 'fixture'}, 'bus_link': {'machine': 'fixture'}}))
             (home/'runtime.pid').write_text('1234')
-            fake = Path(temporary)/'checkout'; (fake/'tools/runtime-playground').mkdir(parents=True)
-            (fake/'tools/runtime-playground/launch.py').write_text('def parse_pid(record): return int(record)\ndef process_identity(pid): return {"uid": '+str(os.getuid())+'}\n')
+            fake = Path(temporary)/'checkout'; (fake/'tools').mkdir(parents=True)
+            (fake/'tools/process_identity.py').write_text('def parse_pid(record): return int(record)\ndef process_identity(pid): return {"uid": '+str(os.getuid())+'}\n')
             before = sorted(str(p) for p in Path(temporary).rglob('*'))
             previous = sys.dont_write_bytecode
             try:

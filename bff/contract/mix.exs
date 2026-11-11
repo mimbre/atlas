@@ -1,9 +1,8 @@
 defmodule AtlasBFFContract.MixProject do
   use Mix.Project
 
-  # Control's contract: the blocks, models and kinds of markup Control sends and every
-  # client renders. Only the catalogue lives here; the DSL, the rules and the targets
-  # are the generator's (bff/generator).
+  # Atlas's presentation, payload models and Control/Runtime wire contracts.
+  # Only declarations live here; the DSL, rules and targets belong to bff/generator.
   def project do
     [
       app: :atlas_bff_contract,

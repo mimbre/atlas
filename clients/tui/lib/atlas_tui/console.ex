@@ -4,7 +4,7 @@ defmodule AtlasTui.Console do
   content: compatibility pages cannot replace local drafts, and failed boot never
   replaces the last good navigation. Effects use the ordinary Control endpoints.
   """
-  alias AtlasTui.{Blocks, Model, Protocol}
+  alias AtlasTui.{Blocks, Model, Protocol, WorkerConversation}
 
   defstruct shell: nil,
             stale: true,
@@ -13,6 +13,7 @@ defmodule AtlasTui.Console do
             boot_pending: false,
             boot_serial: 0,
             expected: nil,
+            in_flight: nil,
             restoring: false,
             active: nil,
             selections: %{},
@@ -36,6 +37,8 @@ defmodule AtlasTui.Console do
   end
 
   def disconnected(model) do
+    model = WorkerConversation.capture(model)
+
     %{
       model
       | connected: false,
@@ -46,6 +49,7 @@ defmodule AtlasTui.Console do
             boot_pending: false,
             boot_serial: 0,
             expected: nil,
+            in_flight: nil,
             restoring: false
         }
     }
@@ -83,6 +87,7 @@ defmodule AtlasTui.Console do
     if model.console.boot_pending do
       case validate_shell(message, model.env) do
         {:ok, shell} ->
+          previous_tabs = if model.console.shell, do: model.console.shell["tabs"], else: []
           console = %{model.console | shell: shell, stale: false, error: nil, boot_pending: false}
           model = %{model | console: console}
 
@@ -90,16 +95,24 @@ defmodule AtlasTui.Console do
             # Reopen the canonical target only after hello's compatibility page and
             # successful boot. Keep a local editor intact while restoring server path.
             target = if draft?(model) and model.path, do: model.path, else: shell["initial_to"]
-            console = %{console | phase: :content, expected: target, restoring: draft?(model)}
+
+            console = %{
+              console
+              | phase: :content,
+                expected: target,
+                in_flight: target,
+                restoring: draft?(model)
+            }
+
             {%{model | console: console}, [{:send, Protocol.request(:open, %{"to" => target})}]}
           else
             model = sync_active(model)
 
             removed_index =
-              match?({:ok, name, _} when name in [:home, :list], Blocks.match(model.path || "")) and
+              Enum.any?(previous_tabs, &(&1["to"] == model.path)) and
                 !Enum.any?(shell["tabs"], &(&1["to"] == model.path))
 
-            if removed_index && !draft?(model),
+            if removed_index && !draft?(model) && is_nil(console.expected),
               do: navigate(model, shell["initial_to"]),
               else: {model, []}
           end
@@ -117,11 +130,40 @@ defmodule AtlasTui.Console do
       when phase in [:welcome, :boot, :unsupported],
       do: {model, []}
 
+  # Open replies have no request ID and may redirect. Keep only one open on the
+  # wire; rapid tab presses change the desired target without queuing old views.
+  def receive(
+        %{console: %{phase: :ready, in_flight: sent, expected: desired}} = model,
+        %{"op" => "page", "reason" => "open"}
+      )
+      when sent != nil and sent != desired do
+    navigate(%{model | console: %{model.console | in_flight: nil}}, desired)
+  end
+
+  def receive(%{console: %{expected: target}} = model, %{"op" => "page", "reason" => reason})
+      when target != nil and reason != "open",
+      do: {model, []}
+
+  def receive(model, %{"op" => "page", "path" => path, "reason" => reason})
+      when reason in ["hint", "reconcile", "refresh"] and path != model.path,
+      do: {model, []}
+
   def receive(model, %{"op" => "page"} = message) do
     console = model.console
+    redirected = WorkerConversation.redirected?(model, message)
 
     {updated, effects} =
       cond do
+        redirected ->
+          {%{
+             model
+             | console: %{console | expected: nil, in_flight: nil, restoring: false},
+               notice: %{
+                 tone: "error",
+                 text: "Worker target changed; choose the exact turn explicitly."
+               }
+           }, []}
+
         console.expected && message["path"] != console.expected &&
             !(console.phase == :ready && message["reason"] == "open" && path?(message["path"])) ->
           {model, []}
@@ -144,7 +186,13 @@ defmodule AtlasTui.Console do
 
           {sync_active(%{
              updated
-             | console: %{updated.console | phase: :ready, expected: nil, restoring: false}
+             | console: %{
+                 updated.console
+                 | phase: :ready,
+                   expected: nil,
+                   in_flight: nil,
+                   restoring: false
+               }
            }), []}
 
         draft?(model) and message["path"] == model.path and
@@ -172,23 +220,36 @@ defmodule AtlasTui.Console do
           updated = %{
             updated
             | selected: selected,
-              console: %{updated.console | phase: :ready, expected: nil, restoring: false}
+              console: %{
+                updated.console
+                | phase: :ready,
+                  expected: nil,
+                  in_flight: nil,
+                  restoring: false
+              }
           }
 
           {sync_active(updated), []}
       end
 
-    {AtlasTui.Legend.reconcile(updated), effects}
+    {updated, worker_effects} =
+      if not redirected and updated.path == message["path"] and updated.console.phase == :ready,
+        do: WorkerConversation.install(updated, model),
+        else: {updated, []}
+
+    {AtlasTui.Legend.reconcile(updated), effects ++ worker_effects}
   end
 
   def receive(model, %{"op" => "bye"} = message) do
     {Model.message(disconnected(model), message), []}
   end
 
-  def receive(model, message), do: {Model.message(model, message), []}
+  def receive(model, message),
+    do: WorkerConversation.receive(Model.message(model, message), message)
 
   def refresh(%{connected: false} = model), do: {model, []}
   def refresh(%{console: %{boot_pending: true}} = model), do: {model, []}
+  def refresh(%{console: %{expected: target}} = model) when target != nil, do: {model, []}
 
   def refresh(model) do
     request = Protocol.request(:boot, if(model.path, do: %{"to" => model.path}, else: %{}))
@@ -212,7 +273,7 @@ defmodule AtlasTui.Console do
     console = model.console
 
     if console.shell && !console.stale && model.connected && console.phase == :ready &&
-         is_nil(console.expected) &&
+         !console.restoring &&
          !draft?(model) do
       tabs = console.shell["tabs"]
       index = Enum.find_index(tabs, &(&1["id"] == console.active)) || 0
@@ -224,17 +285,27 @@ defmodule AtlasTui.Console do
   end
 
   def navigate(model, target) do
+    model = WorkerConversation.capture(model)
+
     if is_binary(target) and match?({:ok, _, _}, Blocks.match(target)) do
       model = remember_selection(model)
+      console = %{model.console | expected: target, legend: nil}
+      active = console.shell && Enum.find(console.shell["tabs"], &(&1["to"] == target))
+      console = if active, do: %{console | active: active["id"]}, else: console
 
-      {%{model | console: %{model.console | expected: target}, notice: nil},
-       [{:send, Protocol.request(:open, %{"to" => target})}]}
+      if console.in_flight do
+        {%{model | console: console, notice: nil}, []}
+      else
+        {%{model | console: %{console | in_flight: target}, notice: nil},
+         [{:send, Protocol.request(:open, %{"to" => target})}]}
+      end
     else
       {model, []}
     end
   end
 
   defp sync_active(%{console: %{shell: nil}} = model), do: model
+  defp sync_active(%{console: %{expected: target}} = model) when target != nil, do: model
 
   defp sync_active(model) do
     active =
@@ -301,7 +372,7 @@ defmodule AtlasTui.Console do
   defp valid_tab?(%{"id" => id, "label" => label, "to" => to}) do
     text?(id, 64) and text?(label, 128) and path?(to) and
       case Blocks.match(to) do
-        {:ok, page, _} -> page in [:home, :list]
+        {:ok, page, _} -> page in [:home, :list, :workers]
         _ -> false
       end
   end

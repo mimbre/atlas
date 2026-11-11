@@ -55,22 +55,48 @@ defmodule AtlasControl.Pages do
 
   # Routes
 
-  # The pages are the contract's (`defpage` in AtlasBFFContract.Blocks): Control serves
+  # The pages are the contract's (`defpage` in AtlasBFFContract.Pages): Control serves
   # those and nothing else; a path outside them is no page (`:unknown`).
   def route(path) do
     case Blocks.match(path) do
-      {:ok, :home, _} -> :home
-      {:ok, :kinds, _} -> :kinds
-      {:ok, :list, p} -> {:list, p.kind}
-      {:ok, :new, p} -> {:new, p.kind}
-      {:ok, :new_under, p} -> {:new, p.kind, {p.relation, p.parent}}
-      {:ok, page, p} when page in [:item, :edit, :delete] -> {page, p.kind, p.key}
-      {:ok, page, p} when page in [:links, :set, :remove] -> {page, p.kind, p.key, p.relation}
-      {:ok, :faults, _} -> {:faults, nil}
-      {:ok, :fact_faults, p} -> {:faults, {p.kind, p.key}}
-      {:ok, :fault, p} -> {:fault, p.fault, nil}
-      {:ok, :fact_fault, p} -> {:fault, p.fault, {p.kind, p.key}}
-      :error -> :unknown
+      {:ok, :home, _} ->
+        :home
+
+      {:ok, page, params} when page in [:workers, :worker, :worker_guidance] ->
+        {:worker_page, page, params}
+
+      {:ok, :kinds, _} ->
+        :kinds
+
+      {:ok, :list, p} ->
+        {:list, p.kind}
+
+      {:ok, :new, p} ->
+        {:new, p.kind}
+
+      {:ok, :new_under, p} ->
+        {:new, p.kind, {p.relation, p.parent}}
+
+      {:ok, page, p} when page in [:item, :edit, :delete] ->
+        {page, p.kind, p.key}
+
+      {:ok, page, p} when page in [:links, :set, :remove] ->
+        {page, p.kind, p.key, p.relation}
+
+      {:ok, :faults, _} ->
+        {:faults, nil}
+
+      {:ok, :fact_faults, p} ->
+        {:faults, {p.kind, p.key}}
+
+      {:ok, :fault, p} ->
+        {:fault, p.fault, nil}
+
+      {:ok, :fact_fault, p} ->
+        {:fault, p.fault, {p.kind, p.key}}
+
+      :error ->
+        :unknown
     end
   end
 
@@ -193,6 +219,7 @@ defmodule AtlasControl.Pages do
   its name and parameters: the page whose form or confirm it comes from.
   """
   def submit_route(:create, p), do: {:new, p.kind}
+  def submit_route(:queue_worker_guidance, params), do: {:worker_page, :worker_guidance, params}
   def submit_route(:create_under, p), do: {:new, p.kind, {p.relation, p.parent}}
   def submit_route(:update, p), do: {:edit, p.kind, p.key}
   def submit_route(:delete, p), do: {:delete, p.kind, p.key}
@@ -242,6 +269,7 @@ defmodule AtlasControl.Pages do
 
   # A route's path, by the contract's page for it.
   def path(:home), do: Blocks.path(:home)
+  def path({:worker_page, page, params}), do: Blocks.path(page, params)
   def path(:kinds), do: Blocks.path(:kinds)
   def path({:list, kind}), do: Blocks.path(:list, kind: kind)
   def path({:new, kind}), do: Blocks.path(:new, kind: kind)
@@ -287,6 +315,7 @@ defmodule AtlasControl.Pages do
   @doc "The kind a route is about."
   def kind_of(:home), do: :all
   def kind_of(:unknown), do: nil
+  def kind_of({:worker_page, _, _}), do: nil
   def kind_of({:unavailable, _path, _failed}), do: nil
   def kind_of(:kinds), do: nil
   def kind_of(route), do: elem(route, 1)
@@ -297,6 +326,14 @@ defmodule AtlasControl.Pages do
   """
   def shows?(:home, _description, _kind), do: true
   def shows?({:assigned, _by}, _description, _kind), do: true
+
+  def shows?({:worker_page, _, _}, description, kind),
+    do:
+      kind == get_in(description, ["runtime", "turn", "kind"]) or
+        kind in Enum.map(
+          ~w(execution interaction receipt),
+          &get_in(description, ["guidance", &1, "kind"])
+        )
 
   def shows?({page, of, _key} = route, description, kind) when page in [:item, :delete] do
     listed = Enum.map(child_relations(description, of), &elem(&1, 1))
@@ -360,6 +397,7 @@ defmodule AtlasControl.Pages do
     end
   end
 
+  def form?({:worker_page, :worker_guidance, _}), do: true
   def form?(route), do: elem_match?(route, [:new, :edit, :links, :remove])
 
   defp elem_match?(route, pages), do: is_tuple(route) and elem(route, 0) in pages
@@ -382,6 +420,8 @@ defmodule AtlasControl.Pages do
   defp list_id(relation, _from, _spec), do: "list:" <> relation
 
   @doc "The reads a route needs: `[{kind, content}]`."
+  def reads({:worker_page, _, _}, _description), do: []
+
   def reads(:home, description) do
     case top_kinds(description) do
       [kind] -> reads({:list, kind}, description)
@@ -389,17 +429,15 @@ defmodule AtlasControl.Pages do
     end
   end
 
-  # What is assigned to `by` (`start.assigned` in the description): the facts of every kind
-  # the relation starts at that point at `by` through it (the Assignments), and the facts
-  # whose component (`components/2`) they are, one step on: only those, so State works out
-  # progress and completion for them alone.
+  # What is assigned to `by` (`start.assigned` in the description): read its Assignments
+  # once, then their owner kinds. assigned_facts/2 joins only those selected Assignments;
+  # nested linked reads would fetch the same full Assignment list again for every owner.
   def reads({:assigned, by}, description) do
     relation = assigned_rule(description)["relation"]
     froms = get_in(description, ["relations", relation, "from"]) || []
 
     for(from <- froms, do: {from, %{"linked" => %{relation => by}}}) ++
-      for {component, owner} <- owner_kinds(description, froms),
-          do: {owner, %{"linked" => %{component => %{relation => by}}}}
+      for {_component, owner} <- owner_kinds(description, froms), do: {owner, %{}}
   end
 
   # Open work (`start.open`): every fact of the kinds the start's relation starts at (the
@@ -736,22 +774,28 @@ defmodule AtlasControl.Pages do
 
   # Open work: the list of a kind the start's relation starts at, for everyone.
   defp open_work(description, kind, answers) do
-    rule = open_rule(description)
-    relation = assigned_rule(description)["relation"]
+    case Enum.find(answers, &match?(%{"error" => _}, &1)) do
+      nil ->
+        rule = open_rule(description)
+        relation = assigned_rule(description)["relation"]
 
-    rows =
-      for item <- open_facts(description, answers),
-          do: work_row(description, relation, item, true)
+        rows =
+          for item <- open_facts(description, answers),
+              do: work_row(description, relation, item, true)
 
-    list =
-      Blocks.list(
-        title: rule["title"] || plural(description["entities"][kind] || %{}, kind),
-        rows: rows,
-        empty: rule["empty"],
-        actions: []
-      )
+        list =
+          Blocks.list(
+            title: rule["title"] || plural(description["entities"][kind] || %{}, kind),
+            rows: rows,
+            empty: rule["empty"],
+            actions: []
+          )
 
-    page(rule["title"] || "", "/", [list])
+        page(rule["title"] || "", "/", [list])
+
+      failed ->
+        unavailable(failed, "/")
+    end
   end
 
   # What the fact's owner is expected to do: the value of the field a flow on its kind
@@ -2260,7 +2304,7 @@ defmodule AtlasControl.Pages do
   @doc """
   How a fact of a kind is created, from the description (`create` in `rela/atlas.json`):
   `ask` (the fields a create form asks for), `id` (`prefix` plus the next free number,
-  zero-padded to `digits`; or made `from` a property, see `key_for/2`) and `defaults`
+  zero-padded to `digits`, from `first` up; or made `from` a property, see `key_for/2`) and `defaults`
   (values for what it does not ask). Without a rule: every field a user may set,
   rela's id prefix, no defaults.
   """
@@ -2272,6 +2316,7 @@ defmodule AtlasControl.Pages do
       ask: rule["ask"] || for({name, prop} <- ordered(spec), settable?(prop), do: name),
       prefix: get_in(rule, ["id", "prefix"]) || prefix,
       digits: get_in(rule, ["id", "digits"]) || 2,
+      first: get_in(rule, ["id", "first"]) || 1,
       from: get_in(rule, ["id", "from"]),
       defaults: rule["defaults"] || %{}
     }
@@ -2313,10 +2358,11 @@ defmodule AtlasControl.Pages do
 
   @doc """
   The next free key of a kind: the rule's prefix plus one more than the highest number
-  among `keys` (and above `after`, when an earlier try was taken).
+  among `keys` (and above `after`, when an earlier try was taken), and never below the
+  rule's `first` (a ledger whose older numbers are kept for facts made later).
   """
   def next_key(spec, keys, after_number \\ 0) do
-    %{prefix: prefix, digits: digits} = create_rule(spec)
+    %{prefix: prefix, digits: digits, first: first} = create_rule(spec)
     {:ok, pattern} = Regex.compile("^" <> Regex.escape(prefix) <> "(\\d+)$")
 
     highest =
@@ -2329,7 +2375,7 @@ defmodule AtlasControl.Pages do
       end)
       |> Enum.max(fn -> 0 end)
 
-    number = max(highest, after_number) + 1
+    number = max(max(highest, after_number) + 1, if(is_integer(first), do: first, else: 1))
     {prefix <> String.pad_leading(Integer.to_string(number), digits, "0"), number}
   end
 
@@ -2448,7 +2494,7 @@ defmodule AtlasControl.Pages do
 
   # The primary value; while it is empty (a connector has not filled it yet), the value
   # the id is made from; else the key.
-  defp label(spec, fact) do
+  def label(spec, fact) do
     [primary(spec), id_property(spec)]
     |> Enum.map(&to_text(fact["values"][&1]))
     |> Enum.find(fact["key"], &(&1 != ""))

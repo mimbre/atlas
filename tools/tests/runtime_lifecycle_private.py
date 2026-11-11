@@ -4,7 +4,11 @@ import os
 from pathlib import Path
 import socket
 import subprocess
+import sys
 import tempfile
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import runtime_cli
 
 ROOT = Path(__file__).resolve().parents[2]
 parent = os.environ.get('ATLAS_LIFECYCLE_PROOF_DIR')
@@ -22,7 +26,7 @@ environment.update(ATLAS_NO_UPDATE='1', ATLAS_ENV_FILE=str(client), ATLAS_RUNTIM
 transcript = []
 
 def command(action):
-    result = subprocess.run([str(ROOT/'bin/atlas'),'runtime',action,'--env','test','--machine','private136','--json'],env=environment,text=True,capture_output=True,timeout=35)
+    result = subprocess.run([runtime_cli.executable(),'node',action,'--env','test','--machine','private136','--checkout',str(ROOT),'--json'],env=environment,text=True,capture_output=True,timeout=35)
     transcript.append(dict(operation=action,code=result.returncode,stdout=result.stdout,stderr=result.stderr))
     (directory/'transcript.json').write_text(json.dumps(transcript,indent=2))
     assert result.returncode == 0, transcript[-1]

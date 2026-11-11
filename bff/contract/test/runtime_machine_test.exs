@@ -1,6 +1,6 @@
 defmodule AtlasBFFContract.RuntimeMachineTest do
   use ExUnit.Case, async: true
-  alias AtlasBFFContract.Runtime.MachineProtocol, as: Wire
+  alias AtlasBFFContract.Wire.Runtime.MachineProtocol, as: Wire
 
   test "machine diagnostics never invent or weaken a worker identity" do
     target = %{"environment" => "test", "machine" => "fixture"}
@@ -9,7 +9,7 @@ defmodule AtlasBFFContract.RuntimeMachineTest do
     assert {:ok, :runtime_machine_status, ^request} =
              Wire.decode_request_json(JSON.encode!(request))
 
-    assert {:invalid, _} = AtlasBFFContract.Runtime.Protocol.decode_request(request)
+    assert {:invalid, _} = AtlasBFFContract.Wire.Runtime.Protocol.decode_request(request)
     assert {:invalid, _} = Wire.decode_request(put_in(request, ["target", "worker"], "invented"))
 
     for {command, operation} <- [
@@ -18,7 +18,7 @@ defmodule AtlasBFFContract.RuntimeMachineTest do
         ] do
       assert {:ok, ^operation, frame} = Wire.cli([command], id: "r", target: target)
       assert {:ok, ^operation, ^frame} = Wire.decode_request_json(JSON.encode!(frame))
-      assert {:invalid, _} = AtlasBFFContract.Runtime.Protocol.decode_request(frame)
+      assert {:invalid, _} = AtlasBFFContract.Wire.Runtime.Protocol.decode_request(frame)
 
       bytes =
         Wire.encode_reply(operation, :error,
@@ -31,7 +31,7 @@ defmodule AtlasBFFContract.RuntimeMachineTest do
     end
 
     assert_raise ArgumentError, fn ->
-      AtlasBFFContract.Runtime.Protocol.request(:runtime_status, id: "r", target: target)
+      AtlasBFFContract.Wire.Runtime.Protocol.request(:runtime_status, id: "r", target: target)
     end
 
     status = %{

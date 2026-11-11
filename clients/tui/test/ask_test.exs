@@ -2,7 +2,7 @@ defmodule AtlasTui.AskTest do
   @moduledoc "`:` asks the agent; its plan shows over the page (UC-Atlas-17)."
   use ExUnit.Case, async: true
 
-  alias AtlasTui.{Model, View}
+  alias AtlasTui.{ConsoleProjectionFixture, Interactions, Model, View}
 
   # A page, and what the agent sends, by hand; the kind is made up.
   @page %{
@@ -42,8 +42,7 @@ defmodule AtlasTui.AskTest do
     %{"op" => "plan", "block" => %{"id" => "plan", "type" => "plan", "props" => props}}
   end
 
-  defp model,
-    do: "test" |> Model.new() |> Model.message(%{"op" => "welcome"}) |> Model.message(@page)
+  defp model, do: ConsoleProjectionFixture.model(@page)
 
   defp press(model, keys) do
     Enum.reduce(keys, {model, []}, fn key, {m, effects} ->
@@ -62,21 +61,16 @@ defmodule AtlasTui.AskTest do
 
   test "`:` opens the request line; enter asks about the page, esc closes it" do
     {m, []} = press(model(), [{:char, ":"}] ++ type("make partz") ++ [:backspace, {:char, "s"}])
-    assert screen(m) =~ " : make parts"
-    assert screen(m) =~ "↵ ask the agent   esc close"
+    assert m.ask == "make parts"
+    assert Interactions.capture(m, :enter) != nil
 
     {closed, []} = press(m, [:esc])
     assert closed.ask == nil
-    refute screen(closed) =~ " : make parts"
 
     {m, ask} = asked()
     assert ask == %{"op" => "ask", "request" => "make parts", "on" => "/k/thing/T-1"}
     assert screen(m) =~ "Planning…"
     assert {%{plan: nil}, [{:agent, %{"op" => "cancel"}}]} = press(m, [:esc])
-  end
-
-  test "the help line offers `:`" do
-    assert screen(model()) =~ ": ask"
   end
 
   test "the plan shows each step with its form's title and values" do
@@ -92,7 +86,6 @@ defmodule AtlasTui.AskTest do
     assert text =~ "Title"
     assert text =~ "Two"
     assert text =~ "why: Asked."
-    assert text =~ "space keep/drop   e edit   ↵ run the kept steps"
   end
 
   test "drop one, edit another, enter runs the kept ones with the edited values" do
@@ -135,7 +128,7 @@ defmodule AtlasTui.AskTest do
       {m, []} = press(m, [{:char, "e"}, :backspace, :backspace, :backspace])
       assert m.values == %{"title" => "", "notes" => "n1"}
 
-      m = Model.message(m, Map.put(@page, "reason", reason))
+      {m, []} = ConsoleProjectionFixture.receive(m, Map.put(@page, "reason", reason))
       assert m.values == %{"title" => "", "notes" => "n1"}
       assert m.steps.editing == 1
       {m, []} = press(m, [:ctrl_s])
@@ -171,15 +164,74 @@ defmodule AtlasTui.AskTest do
         plan("done", [stored, Map.put(step(2, "Two", "stored"), "detail", "Stored as T-8.")])
       )
 
-    assert screen(done) =~ "↵ close"
     assert {%{plan: nil}, []} = press(done, [:enter])
   end
 
-  test "`:` on a proposed plan changes the request; a plan for a cancelled ask is ignored" do
+  test "running shows the agent's count; esc asks to stop, and a stopped plan keeps what was stored" do
+    {m, _} = asked()
+    m = Model.agent(m, plan("proposed", [step(1, "One"), step(2, "Two")]))
+    stored = Map.put(step(1, "One", "stored"), "detail", "Stored as T-7.")
+
+    running =
+      plan("running", [stored, step(2, "Two", "running")], %{"title" => "Running: 1 of 2 stored"})
+
+    m = Model.agent(m, running)
+    assert screen(m) =~ "Running: 1 of 2 stored"
+    # A running plan is not closed by enter; only esc stops it, after the current step.
+    assert {^m, []} = press(m, [:enter])
+    {m, [{:agent, %{"op" => "stop"}}]} = press(m, [:esc])
+    assert m.notice == %{tone: "pending", text: "Stopping after this step…"}
+    assert m.plan.state == "running"
+
+    not_run = Map.put(step(2, "Two", "not_run"), "detail", "Not run: stopped before it.")
+    m = Model.agent(m, plan("stopped", [stored, not_run], %{"title" => "Stopped: 1 of 2 stored"}))
+    assert m.notice == nil
+    text = screen(m)
+    assert text =~ "Stopped: 1 of 2 stored"
+    assert text =~ "Stored as T-7."
+    assert text =~ "Not run: stopped before it."
+    assert {%{plan: nil}, []} = press(m, [:enter])
+  end
+
+  test "after a run, closing the plan shows the page as hints left it" do
+    empty = "No parts yet. Press c to create one."
+    list = %{"type" => "list", "props" => %{"title" => "Parts", "rows" => [], "empty" => empty}}
+    page = update_in(@page, ["blocks"], &(&1 ++ [list]))
+    m = ConsoleProjectionFixture.model(page)
+    assert screen(m) =~ empty
+
+    {m, [{:agent, _}]} = press(m, [{:char, ":"}] ++ type("make parts") ++ [:enter])
+    m = Model.agent(m, plan("proposed", [step(1, "One"), step(2, "Two")]))
+    {m, [{:agent, %{"op" => "run"}}]} = press(m, [:enter])
+
+    # While the plan is shown, hints redraw the page underneath it.
+    rows = [
+      %{"label" => "One", "detail" => "T-7", "to" => "/k/thing/T-7"},
+      %{"label" => "Two", "detail" => "T-8", "to" => "/k/thing/T-8"}
+    ]
+
+    hinted = put_in(page, ["blocks", Access.at(1), "props", "rows"], rows)
+    {m, []} = ConsoleProjectionFixture.receive(m, Map.put(hinted, "reason", "hint"))
+
+    done =
+      for {n, key} <- [{1, "T-7"}, {2, "T-8"}],
+          do: Map.put(step(n, "x", "stored"), "detail", "Stored as #{key}.")
+
+    m = Model.agent(m, plan("done", done, %{"title" => "Done: 2 of 2 stored"}))
+    assert screen(m) =~ "Done: 2 of 2 stored"
+    refute screen(m) =~ "Parts · 2"
+
+    {m, []} = press(m, [:enter])
+    text = screen(m)
+    assert text =~ "Parts · 2"
+    assert text =~ "T-8"
+    refute text =~ empty
+  end
+
+  test "undeclared request shortcuts do not replace a proposal, and cancelled asks ignore late plans" do
     {m, _} = asked()
     m = Model.agent(m, plan("proposed", [step(1, "One")]))
-    {m, []} = press(m, [{:char, ":"}])
-    assert m.ask == "make parts"
+    assert press(m, [{:char, ":"}]) == {m, []}
 
     {m, _} = press(model(), [{:char, ":"}] ++ type("x") ++ [:enter, :esc])
     assert Model.agent(m, plan("proposed", [step(1, "One")])).plan == nil
@@ -195,13 +247,13 @@ defmodule AtlasTui.AskTest do
     assert {_, [{:agent, %{"op" => "run"}}]} = press(m, [:enter])
   end
 
-  test "an action for the agent (agent:<intent>) asks it about the page" do
+  test "a declared agent action sends its supplied intent and label" do
     page =
       put_in(@page, ["blocks", Access.at(0), "props", "actions"], [
         %{"label" => "Undo", "key" => "x", "to" => "agent:undo"}
       ])
 
-    m = "test" |> Model.new() |> Model.message(%{"op" => "welcome"}) |> Model.message(page)
+    m = ConsoleProjectionFixture.model(page)
     {m, [{:agent, ask}]} = press(m, [{:char, "x"}])
 
     assert ask == %{

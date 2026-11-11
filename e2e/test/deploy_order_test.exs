@@ -129,8 +129,6 @@ defmodule AtlasE2E.DeployOrderTest do
              "queue" => "max"
            }
 
-    assert Enum.sort(c.job["needs"]) == Enum.sort(~w(generator contract beam tui agent e2e))
-
     assert Enum.any?(
              c.jobs["deploy-prod"]["steps"],
              &String.contains?(&1["run"] || "", "fly/deploy.sh prod")

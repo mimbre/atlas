@@ -6,11 +6,13 @@ defmodule AtlasTui.ModeGenerationTest do
   alias AtlasTui.{Console, Model, Interactions}
 
   defp ready do
+    model = Model.new("test")
+
     model = %{
-      Model.new("test")
+      model
       | connected: true,
         console: %{
-          Console.new()
+          model.console
           | phase: :ready,
             stale: false,
             shell: %{"revision" => "shell1", "tabs" => []}

@@ -1,9 +1,9 @@
 defmodule AtlasTuiTest do
   use ExUnit.Case, async: true
 
-  alias AtlasTui.{Blocks, Keys, Model, View}
+  alias AtlasTui.{Blocks, ConsoleProjectionFixture, Interactions, Keys, Model, View}
 
-  # What Control sends, by hand; the TUI knows blocks only, so the kind is made up.
+  # Content fixtures are installed with declared Console projections below.
   @list %{
     "op" => "page",
     "path" => "/k/thing",
@@ -59,8 +59,7 @@ defmodule AtlasTuiTest do
     ]
   }
 
-  defp model(page),
-    do: "test" |> Model.new() |> Model.message(%{"op" => "welcome"}) |> Model.message(page)
+  defp model(page), do: ConsoleProjectionFixture.model(page)
 
   defp press(model, keys) do
     Enum.reduce(keys, {model, []}, fn key, {m, effects} ->
@@ -72,16 +71,28 @@ defmodule AtlasTuiTest do
   defp screen(model), do: model |> View.render(90, 20, 5) |> View.plain()
   defp tall(model), do: model |> View.render(90, 30, 5) |> View.plain()
 
-  test "a destination that is no page of the contract is not asked for" do
+  test "new models always start the Console handshake without local navigation fallbacks" do
+    model = Model.new("test")
+    assert model.console.phase == :welcome
+
+    for key <- [:tab, :down, :enter, :esc, {:char, "q"}, {:char, ":"}] do
+      assert Model.key(model, key) == {model, []}
+    end
+
+    assert Model.key(model, :ctrl_c) == {model, [:quit]}
+  end
+
+  test "invalid declared destinations fail closed without a legacy block-key fallback" do
     elsewhere =
       update_in(@list, ["blocks", Access.at(0), "props", "actions"], fn _ ->
         [%{"label" => "Somewhere", "key" => "c", "to" => "/nowhere/at/all"}]
       end)
 
-    assert {m, []} = press(model(elsewhere), [{:char, "c"}])
-    assert screen(m) =~ "Not opened: /nowhere/at/all is no page of Control's"
+    m = model(elsewhere)
+    assert m.console.projection == nil
+    assert m.console.action_error != nil
+    assert press(m, [{:char, "c"}, :down, :enter]) == {m, []}
 
-    # A page of the contract is.
     assert {_, [{:send, %{"op" => "open", "to" => "/k/thing/new"}}]} =
              press(model(@list), [{:char, "c"}])
 
@@ -95,16 +106,6 @@ defmodule AtlasTuiTest do
     assert Keys.parse(<<127, 19, 3>>) == {[:backspace, :ctrl_s, :ctrl_c], ""}
     assert Keys.parse("é") == {[{:char, "é"}], ""}
     assert Keys.parse("\e[H\e[F\e[1~\e[4~") == {[:home, :end, :home, :end], ""}
-  end
-
-  test "the header names the environment; prod stands out in white on red" do
-    ansi = fn env ->
-      env |> Model.new() |> View.render(90, 20, 5) |> View.to_ansi() |> IO.iodata_to_binary()
-    end
-
-    assert ansi.("prod") =~ "\e[0;1;97;41m Atlas · prod"
-    assert ansi.("test") =~ "\e[0;1m Atlas · test"
-    refute ansi.("test") =~ "41m"
   end
 
   test "an unknown or broken block becomes a fallback, and the rest still renders" do
@@ -127,15 +128,76 @@ defmodule AtlasTuiTest do
   test "a list: move, open a row, run an action from Control's keys" do
     m = model(@list)
     text = screen(m)
-    assert text =~ "Atlas · test"
     assert text =~ "› First"
-    assert text =~ "c Create thing"
+    assert Interactions.capture(m, {:char, "c"}) != nil
     assert text =~ "opened at 11:00:00 · position 3"
 
     assert {_, [{:send, %{"op" => "open", "to" => "/k/thing/T-2"}}]} = press(m, [:down, :enter])
     assert {_, [{:send, %{"op" => "open", "to" => "/k/thing/new"}}]} = press(m, [{:char, "c"}])
     assert {_, [{:send, %{"op" => "refresh"}}]} = press(m, [{:char, "r"}])
     assert {_, [:quit]} = press(m, [{:char, "q"}])
+  end
+
+  test "a start page: declared keys open their lists, enter opens a row, esc goes back but not from the start" do
+    nothing = "Nothing is assigned to you now."
+
+    start = %{
+      "op" => "page",
+      "path" => "/",
+      "title" => "Atlas",
+      "back" => nil,
+      "reason" => "open",
+      "blocks" => [
+        %{
+          "type" => "list",
+          "props" => %{
+            "title" => "Assigned to you",
+            "rows" => [],
+            "empty" => nothing,
+            "actions" => [
+              %{"label" => "Widgets", "key" => "s", "to" => "/k/widget"},
+              %{"label" => "Makers", "key" => "g", "to" => "/k/maker"},
+              %{"label" => "Open work", "key" => "l", "to" => "/k/part"}
+            ]
+          }
+        }
+      ]
+    }
+
+    m = model(start)
+    assert screen(m) =~ nothing
+
+    for {key, to} <- [{"s", "/k/widget"}, {"g", "/k/maker"}, {"l", "/k/part"}] do
+      assert {_, [{:send, %{"op" => "open", "to" => ^to}}]} = press(m, [{:char, key}])
+    end
+
+    assert press(m, [:esc]) == {m, []}
+    assert press(m, [:enter]) == {m, []}
+
+    widgets = %{
+      "op" => "page",
+      "path" => "/k/widget",
+      "title" => "Widgets",
+      "back" => "/",
+      "reason" => "open",
+      "blocks" => [
+        %{
+          "type" => "list",
+          "props" => %{
+            "title" => "Widgets",
+            "rows" => [
+              %{"label" => "Ask", "detail" => "W-1", "to" => "/k/widget/W-1"},
+              %{"label" => "Plan", "detail" => "W-2", "to" => "/k/widget/W-2"}
+            ]
+          }
+        }
+      ]
+    }
+
+    m = model(widgets)
+    assert screen(m) =~ "Widgets · 2"
+    assert {_, [{:send, %{"op" => "open", "to" => "/k/widget/W-2"}}]} = press(m, [:down, :enter])
+    assert {_, [{:send, %{"op" => "open", "to" => "/"}}]} = press(m, [:esc])
   end
 
   test "a link opens its web address: the item's, and the selected row's" do
@@ -146,11 +208,11 @@ defmodule AtlasTuiTest do
     m = model(%{@list | "blocks" => [put_in(list["props"]["rows"], rows)]})
 
     # Only the selected row's link: none on the first row.
-    refute screen(m) =~ "o Open in browser"
+    assert Interactions.capture(m, {:char, "o"}) == nil
     assert {_, []} = press(m, [{:char, "o"}])
 
     {m, _} = press(m, [:down])
-    assert screen(m) =~ "c Create thing   o Open in browser   ↑↓ move"
+    assert Interactions.capture(m, {:char, "o"}) != nil
     {m, effects} = press(m, [{:char, "o"}])
     assert effects == [{:open_url, url}]
     assert screen(m) =~ "i Opened #{url} in the browser"
@@ -163,23 +225,10 @@ defmodule AtlasTuiTest do
     assert {_, [{:open_url, ^url}]} =
              press(model(%{@list | "blocks" => [item]}), [{:char, "o"}])
 
-    # A help too long for one line goes on on the next; no entry is cut or lost.
-    narrow =
-      model(%{@list | "back" => "/", "blocks" => [item]})
-      |> View.render(40, 20, 5)
-      |> View.plain()
-      |> String.split("\n")
-
-    help = Enum.filter(narrow, &(&1 =~ ~r/Open in browser|esc back|q quit/))
-    assert help == [" o Open in browser   r refresh   : ask", " esc back   q quit"]
-    assert length(narrow) == 20
-
     # Anything but http and https is never opened.
     for bad <- ["file:///etc/passwd", "javascript:alert(1)", "https://", "https://a b"] do
-      item = put_in(item, ["props", "links"], [%{link | "url" => bad}])
-      {m, effects} = press(model(%{@list | "blocks" => [item]}), [{:char, "o"}])
-      assert effects == []
-      assert screen(m) =~ "Not opened: only http and https addresses"
+      assert Model.openable?(bad) == false
+      assert {_, []} = Model.external(model(@list), bad)
     end
 
     assert AtlasTui.Browser.open("file:///etc/passwd", %{}) == {:error, :not_http}
@@ -292,6 +341,55 @@ defmodule AtlasTuiTest do
     assert text =~ "› Wheel"
   end
 
+  test "short detail panes page through every value and provenance line without overscroll debt" do
+    values = Enum.map(1..60, &"VALUE_#{&1}_界é")
+    provenance = Enum.map(1..8, &"ORIGIN_#{&1}_界é")
+
+    page =
+      put_in(parted_page(1), ["blocks", Access.at(0), "props", "fields"], [
+        %{
+          "label" => "Long Unicode detail label 界é",
+          "value" => Enum.join(values, "\n"),
+          "origin" => %{"cause" => Enum.join(provenance, "\n")}
+        }
+      ])
+
+    draw = &View.frame(&1, &2, &3, 5)
+    m = %{model(page) | part: 0}
+    {initial, m} = draw.(m, 38, 24)
+
+    {bottom, screens} =
+      Enum.reduce(1..120, {m, [View.plain(initial)]}, fn _, {m, screens} ->
+        {m, []} = Model.operation(m, "page_next")
+        {rows, m} = draw.(m, 38, 24)
+        {m, [View.plain(rows) | screens]}
+      end)
+
+    for line <- values ++ provenance do
+      assert Enum.any?(screens, &String.contains?(&1, line)), "Skipped #{line}"
+    end
+
+    assert hd(screens) =~ List.last(provenance)
+    {up, []} = Model.operation(bottom, "page_previous")
+    {rows, _} = draw.(up, 38, 24)
+    refute View.plain(rows) == hd(screens)
+
+    for {width, height} <- [{140, 24}, {38, 20}, {38, 32}] do
+      {_, resized} = draw.(bottom, width, height)
+      {resized, []} = Model.operation(resized, "page_next")
+      {at_end, resized} = draw.(resized, width, height)
+      assert View.plain(at_end) =~ List.last(provenance)
+      {references, []} = Model.operation(resized, "part_next")
+      {_, references} = draw.(references, width, height)
+      {references, []} = Model.operation(references, "page_next")
+      {returned, []} = Model.operation(references, "part_previous")
+      assert returned.scrolls[0] == resized.scrolls[0]
+      {returned, []} = Model.operation(returned, "page_previous")
+      {rows, _} = draw.(returned, width, height)
+      refute View.plain(rows) == View.plain(at_end)
+    end
+  end
+
   test "a page in parts: a long content never hides the references" do
     m = parted(60)
     assert Model.parts(m) == [["item"], ["list:parts", "parent:of"]]
@@ -301,7 +399,6 @@ defmodule AtlasTuiTest do
     assert text =~ ~r/┌─ Content ─+┐\n(.*\n)+.*… \d+ more lines.*\n.*└─+┘\n.*┌─ References/u
     assert text =~ "› Wheel"
     assert text =~ "W-1"
-    assert text =~ "tab next part"
     assert length(String.split(text, "\n")) == 30
 
     # The rows of both lists are one selection.
@@ -309,14 +406,15 @@ defmodule AtlasTuiTest do
     assert tall(down) =~ "› W-1"
     assert {_, [{:send, %{"to" => "/k/widget/W-1"}}]} = press(down, [:enter])
 
-    # Tab: the arrows scroll the content now, and leave the selection alone.
-    {scrolled, _} = press(m, [:tab, :down, :down])
+    # Explicit pane operations leave the row selection alone while scrolling content.
+    {focused, []} = Model.operation(m, "part_next")
+    {_, focused} = View.frame(focused, 90, 30, 5)
+    {scrolled, []} = Model.operation(focused, "page_next")
     assert scrolled.selected == 0
-    assert tall(scrolled) =~ "↑ 2 lines above"
-    assert tall(scrolled) =~ "↑↓ scroll"
     refute tall(scrolled) =~ "Thing T-1: One"
     assert tall(scrolled) =~ "› Wheel"
-    {back, _} = press(scrolled, [:shift_tab, :down])
+    {back, []} = Model.operation(scrolled, "part_previous")
+    {back, []} = Model.key(back, :down)
     assert back.selected == 1
 
     # Side by side on a wide screen.
@@ -327,37 +425,59 @@ defmodule AtlasTuiTest do
     refute tall(parted(2)) =~ "more line"
   end
 
-  test "rows start with the id, in a column as wide as the longest; a long label is cut" do
-    rows = [
-      %{"id" => "T-1", "label" => "Short", "detail" => "Testing · 1/2", "to" => "/k/thing/T-1"},
-      %{
-        "id" => "T-1234",
-        "label" => String.duplicate("A very long label ", 6),
-        "detail" => "Merged",
-        "to" => "/k/thing/T-1234"
-      }
-    ]
+  test "row navigation reveals the selection without moving another pane's manual scroll" do
+    page =
+      update_in(parted_page(60), ["blocks", Access.at(1), "props", "rows"], fn _ ->
+        for n <- 1..30,
+            do: %{"label" => "Reference #{n}", "to" => "/k/part/P-#{n}"}
+      end)
 
-    [list] = @list["blocks"]
-    lines = model(%{@list | "blocks" => [put_in(list["props"]["rows"], rows)]}) |> screen()
-    [first, second] = Regex.scan(~r/^ (?:›| ) T-1.*$/mu, lines) |> Enum.map(&hd/1)
+    model = %{model(page) | selected: 15, part: 0, scroll: 23, scrolls: %{0 => 10, 1 => 100}}
+    refute tall(model) =~ "› Reference 16"
 
-    assert first =~ ~r/^ › T-1     Short\s+  Testing · 1\/2$/u
-    assert second =~ ~r/^   T-1234  A very long label .*…  Merged$/u
+    for {operation, selected, label} <- [
+          {"move_next", 16, "Reference 17"},
+          {"move_previous", 14, "Reference 15"},
+          {"select_first", 0, "Reference 1"},
+          {"select_last", 30, "W-1"}
+        ] do
+      {moved, []} = Model.operation(model, operation)
+      assert moved.selected == selected
+      assert moved.scrolls == %{0 => 10}
+      assert moved.scroll == 23
+      assert moved.part == 0
+      assert tall(moved) =~ "› #{label}"
+      assert tall(moved) =~ "↑ 10 lines above"
+    end
+  end
 
-    # The labels and the details each start in one column.
-    at = fn line, text -> line |> String.split(text) |> hd() |> String.length() end
-    assert at.(first, "Short") == at.(second, "A very")
-    assert String.length(first) <= 90 and String.length(second) <= 90
+  test "a flat list resumes following its selected row after manual scrolling" do
+    model = %{model(@list) | scroll: 10}
+
+    for operation <- ~w(move_next move_previous select_first select_last) do
+      {moved, []} = Model.operation(model, operation)
+      assert moved.scroll == nil
+      assert moved.scrolls == %{}
+      assert screen(moved) =~ "› "
+    end
   end
 
   test "a hint redraws the list and keeps the selected row" do
     {m, _} = press(model(@list), [:down])
-    hinted = Model.message(m, %{@list | "reason" => "hint", "position" => 4})
+
+    {hinted, []} =
+      ConsoleProjectionFixture.receive(m, %{@list | "reason" => "hint", "position" => 4})
+
     assert hinted.selected == 1
     assert screen(hinted) =~ "updated by hint at 11:00:00 · position 4"
 
-    reconciled = Model.message(hinted, %{@list | "reason" => "reconcile", "at" => "11:00:05"})
+    {reconciled, []} =
+      ConsoleProjectionFixture.receive(hinted, %{
+        @list
+        | "reason" => "reconcile",
+          "at" => "11:00:05"
+      })
+
     assert screen(reconciled) =~ "reconciled at 11:00:05 · position 3 · last hint at 11:00:00"
   end
 
@@ -394,6 +514,62 @@ defmodule AtlasTuiTest do
     assert {_, [{:send, %{"op" => "open", "to" => "/k/thing"}}]} = press(m, [:esc])
   end
 
+  test "an update form offers the other parents as a choice and stores the one chosen" do
+    choices =
+      for {key, title} <- [{"W-1", "Ask"}, {"W-2", "Plan"}, {"W-3", "Run"}],
+          do: %{"value" => key, "label" => "#{key} #{title}"}
+
+    update = %{
+      "op" => "page",
+      "path" => "/k/part/P-1/edit",
+      "title" => "Update part P-1",
+      "back" => "/k/part/P-1",
+      "reason" => "open",
+      "blocks" => [
+        %{
+          "type" => "form",
+          "props" => %{
+            "title" => "Update part P-1",
+            "submit_label" => "Update",
+            "submit_to" => %{"endpoint" => "update", "params" => %{"key" => "P-1"}},
+            "cancel_to" => "/k/part/P-1",
+            "inputs" => [
+              %{"name" => "title", "label" => "Title", "kind" => "text", "value" => "Fix it"},
+              %{
+                "name" => "in_widget",
+                "label" => "In widget",
+                "kind" => "choice",
+                "value" => "W-2",
+                "choices" => choices
+              }
+            ]
+          }
+        }
+      ]
+    }
+
+    m = model(update)
+    assert screen(m) =~ "‹ W-2 Plan ›"
+    {m, []} = press(m, [:down, :right])
+    assert screen(m) =~ "‹ W-3 Run ›"
+    # Past the last widget it comes round to the first; left goes back.
+    {m, []} = press(m, [:right])
+    assert m.values["in_widget"] == "W-1"
+    {m, []} = press(m, [:left, :left])
+    assert m.values["in_widget"] == "W-2"
+    {m, []} = press(m, [:right])
+
+    assert {_,
+            [
+              {:send,
+               %{
+                 "endpoint" => "update",
+                 "params" => %{"key" => "P-1"},
+                 "values" => %{"title" => "Fix it", "in_widget" => "W-3"}
+               }}
+            ]} = press(m, [:ctrl_s])
+  end
+
   test "a long text wraps in its field instead of being cut" do
     long = String.duplicate("abcdefghij ", 12) |> String.trim()
     {m, _} = press(model(@form), Enum.map(String.graphemes(long), &{:char, &1}))
@@ -416,7 +592,6 @@ defmodule AtlasTuiTest do
 
   test "a multi-line input: enter starts a new line, arrows move, ctrl-s saves the lines" do
     {m, _} = press(model(@notes_form), [:down, :down])
-    assert screen(m) =~ "↵ new line"
 
     {m, effects} =
       press(
@@ -449,6 +624,23 @@ defmodule AtlasTuiTest do
     assert Model.focusable(Model.form(m2)) |> Enum.at(m2.focus) |> Map.get(:name) == "state"
     {m3, _} = press(m, [:tab])
     assert Enum.at(Model.focusable(Model.form(m3)), m3.focus) == :submit
+  end
+
+  test "a multi-line value: entering it starts on its first line; End goes to the end of the cursor's line" do
+    page =
+      put_in(
+        @notes_form,
+        ["blocks", Access.at(0), "props", "inputs", Access.at(2), "value"],
+        "First line\nSecond line"
+      )
+
+    {m, _} = press(model(page), [:down, :down])
+    {m, _} = press(m, type("Intro") ++ [:enter, :end] ++ type(" (and how)"))
+    assert m.values["notes"] == "Intro\nFirst line (and how)\nSecond line"
+
+    # Home and End stay on the cursor's line.
+    {m, _} = press(m, [:up, :end] ++ type(":") ++ [:down, :down, :home] ++ type("> "))
+    assert m.values["notes"] == "Intro:\nFirst line (and how)\n> Second line"
   end
 
   test "a long multi-line input scrolls to keep the cursor in sight" do
@@ -562,7 +754,6 @@ defmodule AtlasTuiTest do
     end
 
     m = model(page.([]))
-    assert screen(m) =~ "pgup/pgdn scroll"
     refute screen(m) =~ "No parts yet."
     {m, _} = press(m, [:page_down, :page_down, :page_down])
     assert screen(m) =~ "No parts yet."
@@ -692,20 +883,13 @@ defmodule AtlasTuiTest do
       ]
     }
 
-    test "a part is drawn as a box with its title, a section heads its own" do
-      lines = model(@marked) |> View.render(40, 20, 5) |> View.plain() |> String.split("\n")
-
-      assert Enum.slice(lines, 2, 9) == [
-               " ┌─ Content ──────────────────────────┐",
-               " │ Thing T-1: First                   │",
-               " │                                    │",
-               " │   Id              T-1              │",
-               " └────────────────────────────────────┘",
-               "",
-               " Parts ────────────────────────────────",
-               "",
-               " › Wheel                            P-1"
-             ]
+    test "Console content preserves part and section markup around row content" do
+      text = model(@marked) |> View.render(40, 30, 5) |> View.plain()
+      assert text =~ "┌─ Content"
+      assert text =~ "Thing T-1: First"
+      assert text =~ "Parts ─"
+      assert text =~ "› Wheel"
+      assert text =~ "P-1"
     end
 
     test "markup of an unknown kind is left out; the blocks still show" do
@@ -743,45 +927,27 @@ defmodule AtlasTuiTest do
 
       m = model(%{@marked | "markup" => crossing})
       assert m.markup == []
-      refute screen(m) =~ "┌"
+      refute screen(m) =~ "┌─ All"
       assert screen(m) =~ "Thing T-1: First"
       assert screen(m) =~ "Wheel"
     end
 
-    test "a page without ids or markup renders as before" do
+    test "Console assigns stable content ids when the page omits them" do
       assert %Model{ids: ["#0"], markup: []} = model(@list)
       assert screen(model(@list)) =~ "Things"
     end
   end
 
-  test "the header shows what waits for the user; a long detail goes under its row" do
-    long = "Test it · since 3 Nov 14:20 · all 12 parts are completed, and Melle can test it now"
-
-    page =
-      @list
-      |> Map.put("count", "2 assigned to you")
-      |> put_in(["blocks", Access.at(0), "props", "rows", Access.at(0), "detail"], long)
-
-    text = model(page) |> View.render(90, 20, 5) |> View.plain()
-    assert text =~ ~r/Atlas · test · 2 assigned to you\s+Things/
-    assert text =~ "all 12 parts are completed"
-    # Whole, under the row's label, not cut at the edge.
-    assert text =~ ~r/First\s*\n\s+Test it · since/
-  end
-
-  test "the legacy view knows every ordinary block and kind of markup" do
-    schema = AtlasBFFContract.Blocks.__schema__()
+  test "the Console renderer covers the complete presentation catalogue" do
+    schema = AtlasBFFContract.Contract.__schema__()
     known = View.known()
-    console = AtlasBFFContract.Console.presentation_names()
 
-    # Console is explicitly negotiated and rendered by its own client presentation.
-    # Keep full catalogue coverage for the ordinary, unnegotiated legacy view.
     for %{name: name} <- schema.blocks,
-        Atom.to_string(name) not in console.blocks,
-        do: assert(Atom.to_string(name) in known.blocks, "the TUI does not draw block #{name}")
+        do:
+          assert(Atom.to_string(name) in known.blocks, "the Console does not draw block #{name}")
 
     for %{name: name} <- schema.markup,
-        Atom.to_string(name) not in console.markup,
-        do: assert(Atom.to_string(name) in known.markup, "the TUI does not know markup #{name}")
+        do:
+          assert(Atom.to_string(name) in known.markup, "the Console does not know markup #{name}")
   end
 end

@@ -11,6 +11,11 @@ kill_timeout = "10s"
 [env]
   ATLAS_ENV = "test"
   ATLAS_ENV_FILE = "/app/fly/test/core.json"
+  # SSH-local release RPC for test fixtures; no distributed Erlang port is exposed.
+  RELEASE_DISTRIBUTION = "sname"
+  RELEASE_NODE = "atlas@localhost"
+  ERL_EPMD_ADDRESS = "127.0.0.1"
+  ERL_AFLAGS = "-kernel inet_dist_use_interface '{127,0,0,1}'"
 
 [mounts]
   source = "core_data"

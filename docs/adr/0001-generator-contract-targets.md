@@ -1,6 +1,6 @@
 # 0001: Control's spec as generator, contract and targets
 
-Status: accepted, 2026-11-03 (Melle: "look at prism repo to see how 3 layers are seperated: the generator, design (or contract), targets"; for Atlas the middle layer is the contract: "design is not something i would use for atlas")
+Status: accepted, 2026-11-03 (decision: "look at prism repo to see how 3 layers are seperated: the generator, design (or contract), targets"; for Atlas the middle layer is the contract: "design is not something i would use for atlas")
 
 ## Context
 
@@ -12,7 +12,7 @@ Prism (github.com/novasoftwarefoundation/prism) separates the same concerns into
 
 1. **Three parts under `bff/`.**
    - `bff/generator/` is its own Mix project (`atlas_bff`). It holds the DSL (`AtlasBFF.Schema`), the rules of markup (`AtlasBFF.Markup`), the header (`AtlasBFF.Header`), the targets and `mix atlas.gen`, and none of Atlas's values.
-   - `bff/contract/` is its own Mix project (`atlas_bff_contract`). It depends on the generator by path and holds only the catalogue, `AtlasBFFContract.Blocks`.
+   - `bff/contract/` is its own Mix project (`atlas_bff_contract`). It depends on the generator by path. `AtlasBFFContract.Contract` composes separate presentation, payload-model and Control/Runtime wire declarations.
    - Generated files go under `bff/targets/<target>/`.
 2. **One data function.** A contract compiles to `__schema__/0`, plain data documented in `AtlasBFF.Schema`. Targets read only that. A test fails when anything but the schema module calls into the DSL.
 3. **Elixir consumers read the contract at compile time.** Control and the TUI depend on the contract by path. `use AtlasBFF.Targets.Server` / `use AtlasBFF.Targets.Client` build their modules when they compile, as prism's Phoenix target does. No Elixir code is generated into files, and changing the contract recompiles them.
@@ -53,6 +53,8 @@ Left out, and why:
 
 ## Consequences
 
-- To change the contract, edit `bff/contract/lib/blocks.ex`, run `mix atlas.gen` there, and commit `bff/targets/`. Control and the TUI pick the change up when they compile.
+- To change the contract, edit the owning declaration under `bff/contract/lib/` (composed by `contract.ex`), run `mix atlas.gen` in `bff/contract`, and commit `bff/targets/`. Control and the TUI pick the change up when they compile.
 - The generator can be reused, or released, without Atlas's blocks.
 - `bff/README.md` keeps the view model, the wire format and the protocol.
+
+<sub>Written by an AI agent (omp · openai-codex/gpt-6-astra).</sub>

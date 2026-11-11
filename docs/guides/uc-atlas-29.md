@@ -1,6 +1,6 @@
 # Try UC-Atlas-29: Test a use case from My work: accept or reject
 
-This guide grows with the use case. IS-Atlas-56: the answers an owner can give come from the flow definition, as actions on the fact's page and in its footer, for its owner only. Accept is IS-Atlas-64's (UC-Atlas-32), reused. Reject asks only for a note. Each answer is a change with its cause, and Flow moves the fact on.
+This guide grows with the use case. IS-Atlas-56: the answers an owner can give come from the flow definition, as actions on the fact's page and in its `?` key legend, for its owner only. Accept is IS-Atlas-64's (UC-Atlas-32), reused. Reject asks only for a note. Each answer is a change with its cause, and Flow moves the fact on.
 
 ## Start
 
@@ -13,7 +13,7 @@ atlas tui --env test
 | Step | Keys / command | What you should see |
 |---|---|---|
 | A use case to test | on **Assigned to you**: a use case whose issues are all done (Flow made it yours: `Test it`) | Its row, with `Test it · since … · Flow test_and_accept: all under it is completed → melle`. |
-| Its page | `↵` on it | **What to do: Test it**, with **Answers** `a Accept   f Reject`. The footer has `a Accept` and `f Reject`. |
+| Its page | `↵` on it | **What to do: Test it**, with **Answers** `a Accept   f Reject`. The `?` key legend also lists Accept and Reject with their declared keys. |
 | Reject | `f`, a note (several lines if you like), `ctrl-s` | **Reject UC-Atlas-NN** asks only for the note. Stored: the use case is the coordinator's again, `Expected: Rework: <your note>`, and it leaves Assigned to you. Its answers are gone from its page, since it is no longer yours. |
 | Accept | on another one: `a`, `y` | `Done · … · accepted by melle`, and it leaves Assigned to you. Flow takes the owner off: nothing is expected of anyone. |
 | Not yours | a use case the coordinator owns | No `f Reject`; `a Accept` stays as IS-Atlas-64 has it (only a person accepts, as themself). |

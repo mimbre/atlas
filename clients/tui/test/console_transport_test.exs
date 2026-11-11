@@ -203,12 +203,14 @@ defmodule AtlasTui.ConsoleTransportTest do
     tmux(server, args)
     {:ok, socket} = :gen_tcp.accept(listener, 10_000)
     handshake(socket, "/k/widget")
+    see(server, "First widget")
     see(server, "▸ Widgets")
     tmux(server, ["send-keys", "-t", "console", "Down"])
     see(server, "› W2")
     tmux(server, ["send-keys", "-t", "console", "BTab"])
     assert %{"op" => "open", "to" => "/k/work"} = read(socket)
     send_message(socket, content("/k/work"))
+    see(server, "First widget")
     see(server, "▸ Open work")
     tmux(server, ["resize-window", "-t", "console", "-x", "20", "-y", "24"])
     narrow = see(server, "▸ Open work")
@@ -217,6 +219,7 @@ defmodule AtlasTui.ConsoleTransportTest do
     tmux(server, ["send-keys", "-t", "console", "Tab"])
     assert %{"op" => "open", "to" => "/k/widget"} = read(socket)
     send_message(socket, content("/k/widget"))
+    see(server, "First widget")
     wide = see(server, "▸ Widgets")
     tmux(server, ["send-keys", "-t", "console", "n"])
     assert %{"op" => "open", "to" => "/k/widget/new"} = read(socket)
@@ -245,5 +248,72 @@ defmodule AtlasTui.ConsoleTransportTest do
 
     tmux(server, ["send-keys", "-t", "console", "C-c"])
     :gen_tcp.close(reconnected)
+  end
+
+  test "tabs react before delayed replies and superseded content never replaces the selected tab" do
+    {:ok, listener} =
+      :gen_tcp.listen(0, [:binary, packet: :line, active: false, ip: {127, 0, 0, 1}])
+
+    {:ok, {_, port}} = :inet.sockname(listener)
+    server = "atlas-tabs-#{System.unique_integer([:positive])}"
+
+    on_exit(fn ->
+      :gen_tcp.close(listener)
+      System.cmd("tmux", ["-L", server, "kill-server"], stderr_to_stdout: true)
+    end)
+
+    settings = %{"control" => %{"host" => "127.0.0.1", "port" => port}, "reconcile_seconds" => 60}
+    expression = "AtlasTui.App.run(\"test\", #{inspect(settings)})"
+
+    tmux(server, [
+      "new-session",
+      "-d",
+      "-s",
+      "console",
+      "-x",
+      "90",
+      "-y",
+      "24",
+      "env ELIXIR_ERL_OPTIONS='+S 2:2' mix run -e '#{expression}'"
+    ])
+
+    {:ok, socket} = :gen_tcp.accept(listener, 10_000)
+    handshake(socket, "/k/widget")
+    see(server, "First widget")
+
+    tmux(server, ["send-keys", "-t", "console", "Tab"])
+    assert %{"op" => "open", "to" => "/k/part"} = read(socket)
+    pending = see(server, "Loading")
+    assert pending =~ "▸ Parts"
+    refute pending =~ "First widget"
+
+    tmux(server, ["send-keys", "-t", "console", "Tab"])
+    see(server, "▸ Open work")
+    tmux(server, ["send-keys", "-t", "console", "Tab"])
+    see(server, "▸ Widgets")
+    tmux(server, ["send-keys", "-t", "console", "BTab"])
+    see(server, "▸ Open work")
+    # The server has not answered: no intermediate opens are queued.
+    assert {:error, :timeout} = :gen_tcp.recv(socket, 0, 100)
+    send_message(socket, Map.put(content("/k/widget"), "reason", "hint"))
+    send_message(socket, content("/k/part"))
+    assert %{"op" => "open", "to" => "/k/work"} = read(socket)
+    superseded = see(server, "Loading")
+    assert superseded =~ "▸ Open work"
+    refute superseded =~ "First widget"
+    send_message(socket, Map.put(content("/k/part"), "reason", "reconcile"))
+    send_message(socket, content("/k/work"))
+    loaded = see(server, "First widget")
+    assert loaded =~ "▸ Open work"
+
+    if folder = System.get_env("ATLAS_CONSOLE_PROOF") do
+      File.mkdir_p!(folder)
+      File.write!(Path.join(folder, "tabs-pending.txt"), pending)
+      File.write!(Path.join(folder, "tabs-superseded.txt"), superseded)
+      File.write!(Path.join(folder, "tabs-loaded.txt"), loaded)
+    end
+
+    tmux(server, ["send-keys", "-t", "console", "C-c"])
+    :gen_tcp.close(socket)
   end
 end

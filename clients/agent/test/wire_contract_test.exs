@@ -24,7 +24,8 @@ defmodule AtlasAgent.WireContractTest do
        }, :refused, :view_model}
     ]
 
-    endpoint = Enum.find(AtlasBFFContract.Blocks.__schema__().endpoints, &(&1.name == :turn_end))
+    endpoint =
+      Enum.find(AtlasBFFContract.Contract.__schema__().endpoints, &(&1.name == :turn_end))
 
     {:ok, listener} = :gen_tcp.listen(0, [:binary, packet: :line, active: false])
     {:ok, {_, port}} = :inet.sockname(listener)

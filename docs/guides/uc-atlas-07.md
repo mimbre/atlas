@@ -48,7 +48,7 @@ Test and prod have no `runtime` yet, so Runtime there does nothing; IS-Atlas-18 
 - **BEAM:** `atlas_runtime`, in the release; `runtime` settings; the boundary test covers it.
 - **Control:** the kinds page says when a kind is not by hand. **Agent:** such kinds are no tools.
 - **The end-to-end test:** `e2e/scenarios/uc-atlas-07.exs`; the private instance runs Runtime with the stub agent `runner`.
-- **Prod at merge:** `atlas restart` (rela gets the turn kind). Runtime does nothing there until IS-Atlas-18 gives a machine its agents.
+- **Prod at merge:** `atlas-ops restart` (rela gets the turn kind). Runtime does nothing there until IS-Atlas-18 gives a machine its agents.
 
 ## IS-Atlas-18: Claude Code headless as a port
 
@@ -133,12 +133,12 @@ In the test environment, every browsing page (the start page, a list, a fact) ha
 |  | Put it back to work | activity again |
 | any page | Drop the next hint | a client showing the next change sees it at its reconcile (within 5 s), not by hint |
 |  | Take Control offline for 10 s | every client shows it is not connected, and comes back by itself |
-|  | Restart the node | `atlas restart`: clients lose Control and come back; the separate Runtime reconnects its Bus link and renews its turns; Flow starts every open fact's process again |
+|  | Restart the node | `atlas-ops restart`: clients lose Control and come back; the separate Runtime reconnects its Bus link and renews its turns; Flow starts every open fact's process again |
 
 - **Each opens a confirm** that says what will be seen; `y` causes it, and Control says what happened as a notice.
 - **The stand-in only:** an agent's modes are offered for agents whose port is `stub`, never for a real agent (`claude`).
 - **Melle can test:** in the TUI on a private test instance (or Fly test once Runtime runs agents there), press `!` on a page. The e2e scenario `uc-atlas-07-failures` walks every row of the table with a stand-in agent, `tester`.
-- **Not here:** what an owner that stops working leads to (a decision, IS-Atlas-22) and Melle offline as a fact (IS-Atlas-25). "Go offline" here is Control unreachable for a while.
+- **Not here:** what an owner that stops working leads to (a decision, IS-Atlas-22) and the operator offline as a fact (IS-Atlas-25). "Go offline" here is Control unreachable for a while.
 
 
 ## A separate Runtime machine (IS-Atlas-91)

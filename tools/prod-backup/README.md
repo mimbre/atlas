@@ -95,7 +95,7 @@ No rollback or live data replacement is automatic.
    extraction against held source manifests; repeat against retained bytes before
    actual restoration. Keep original archives immutable.
 4. Prefer roll-forward with latest data. For a chosen paired restore, run the
-   supported matching-source atlas move-to-fly --env prod --from <recovery>
+   supported matching-source atlas-ops move-to-fly --env prod --from <recovery>
    --dry-run. Only after coordinator's explicit recovery decision use
    --replace-live. Route existing app credentials through the reviewed transport,
    with no token values in argv/logs. Existing apply-move preserves displaced

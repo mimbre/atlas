@@ -18,7 +18,7 @@ In TUI 1, on a scene whose description says which use cases it needs (make one w
 
 | Step | Keys | What you should see |
 |---|---|---|
-| Ask | `:` | A request line at the bottom: `: ▏   ↵ ask the agent   esc close`. |
+| Ask | `:` | A request line at the bottom. Enter sends the request; Esc cancels. In this text editor, `?` is literal input. |
 | | type `propose use cases from this scene's description`, `enter` | `Planning…`, then `Proposed: N steps`: what you asked, who planned (`claude -p`), what it says, and per step `[✓] 1. Create use case in SC-Atlas-NN` with its title, description and why. TUI 2 shows no change. |
 | Drop | ↑/↓ to a step, `space` | `[ ]`: the step is dropped. `space` again keeps it. |
 | Edit | ↑/↓ to a step, `e` | `Step N: Create use case in SC-Atlas-NN`: the step's title and description in the form you know. Change them, `ctrl-s` keeps the edit (`esc` does not). The plan shows the new values. |

@@ -78,6 +78,45 @@ defmodule AtlasBusTest do
     end
   end
 
+  test "an addressed request and its answer bypass State and hints", c do
+    endpoint(c.store)
+    sender = endpoint(c.sender)
+    target = endpoint(c.other)
+    listener_name = c.other <> "-listener"
+    endpoint(listener_name, ["direct"])
+    request = %{Envelope.new("request", "direct") | address: c.other, sender: "forged"}
+    content = %{"operation" => "snapshot", "cursor" => nil}
+
+    assert "request" in AtlasBus.classes()
+    assert :ok = send_from(sender, request, content)
+    target_name = c.other
+    sender_name = c.sender
+    id = request.id
+
+    assert_receive {^target_name,
+                    %Envelope{
+                      class: "request",
+                      sender: ^sender_name,
+                      address: ^target_name,
+                      id: ^id,
+                      position: nil
+                    } = received, ^content}
+
+    assert :ok = send_from(target, Envelope.reply(received, "answer"), %{"events" => []})
+
+    assert_receive {^sender_name,
+                    %Envelope{
+                      class: "answer",
+                      sender: ^target_name,
+                      id: ^id,
+                      position: nil
+                    }, %{"events" => []}}
+
+    store_name = c.store
+    refute_receive {^store_name, _, _}, 50
+    refute_receive {^listener_name, _, _}, 50
+  end
+
   test "a listener gets only hints of the kinds it listens to", c do
     store = endpoint(c.store)
     sender = endpoint(c.sender)

@@ -211,6 +211,63 @@ defmodule AtlasTui.ConsoleTest do
     end
   end
 
+  test "rapid tab keys select immediately and coalesce pending requests without showing stale content" do
+    projected =
+      declared(page(), "browse", [
+        action("next", "Tab", "tab_next"),
+        action("previous", "Shift+Tab", "tab_previous"),
+        action("row", "Down", "move_next")
+      ])
+
+    {model, []} = Console.receive(ready(), projected)
+    {parts, [{:send, %{"to" => "/k/part"}}]} = Model.key(model, :tab)
+    assert parts.console.active == "parts"
+    assert screen(parts) =~ "▸ Parts"
+    assert screen(parts) =~ "Loading"
+    refute screen(parts) =~ "First"
+    assert Model.key(parts, :down) == {parts, []}
+
+    {work, []} = Model.key(parts, :tab)
+    assert work.console.active == "open"
+    assert screen(work) =~ "▸ Open work"
+    {widgets, []} = Model.key(work, :tab)
+    assert widgets.console.active == "widgets"
+    {work, []} = Model.key(widgets, :shift_tab)
+    assert work.console.active == "open"
+    assert Console.receive(work, page("/k/part", "hint")) == {work, []}
+
+    {pending, [{:send, %{"to" => "/k/work"}}]} =
+      Console.receive(work, page("/k/part"))
+
+    assert pending.console.active == "open"
+    assert screen(pending) =~ "Loading"
+    refute screen(pending) =~ "First"
+    assert Console.receive(pending, page("/k/part", "reconcile")) == {pending, []}
+    {loaded, []} = Console.receive(pending, page("/k/work"))
+    assert loaded.console.active == "open"
+    assert loaded.path == "/k/work"
+    assert loaded.console.expected == nil
+    assert screen(loaded) =~ "First"
+    assert Console.receive(loaded, page("/k/part", "hint")) == {loaded, []}
+  end
+
+  test "an unsuperseded open accepts a canonical redirect" do
+    {pending, [_]} = Console.navigate(ready(), "/k/widget/W1")
+    {redirected, []} = Console.receive(pending, page("/k/widget/W2"))
+    assert redirected.path == "/k/widget/W2"
+    assert redirected.console.expected == nil
+    assert redirected.console.in_flight == nil
+  end
+
+  test "an already pending boot reply cannot undo immediate tab selection" do
+    {model, [_]} = Console.refresh(ready())
+    {pending, [_]} = Console.cycle(model, 1)
+    {updated, []} = Console.receive(pending, boot())
+    assert updated.console.active == "parts"
+    assert updated.console.expected == "/k/part"
+    assert Console.refresh(updated) == {updated, []}
+  end
+
   test "deep links retain parent tab; tab return restores selected identity across reorder" do
     model = %{ready() | selected: 1}
     {other, [_]} = Console.cycle(model, 1)
@@ -298,8 +355,7 @@ defmodule AtlasTui.ConsoleTest do
     {model, []} = Console.receive(ready(), page)
     {down, []} = Model.key(model, :down)
     assert down.selected == 1
-    {next, [{:send, %{"to" => "/k/part"}}]} = Model.key(down, :tab)
-    assert Model.key(next, :tab) == {next, []}
+    assert {_, [{:send, %{"to" => "/k/part"}}]} = Model.key(down, :tab)
     {previous, [{:send, %{"to" => "/k/work"}}]} = Model.key(model, :shift_tab)
     assert previous.console.expected == "/k/work"
     # Changing BFF keys changes execution; there is no local Tab fallback.
@@ -374,6 +430,38 @@ defmodule AtlasTui.ConsoleTest do
     assert model.values["title"] == "?"
   end
 
+  test "worker overview boots as a tab and removal falls back without retargeting its detail" do
+    shell =
+      boot("/workers")
+      |> Map.put("tabs", [
+        %{"id" => "workers", "label" => "Workers", "to" => "/workers"} | boot()["tabs"]
+      ])
+      |> Map.put("active_tab", "workers")
+
+    {model, [{:send, %{"to" => "/workers"}}]} = Console.receive(handshake(), shell)
+    {model, []} = Console.receive(model, page("/workers"))
+    assert model.console.active == "workers"
+    {pending, [_]} = Console.refresh(model)
+    {fallback, [{:send, %{"to" => "/k/widget"}}]} = Console.receive(pending, boot())
+    assert fallback.console.expected == "/k/widget"
+
+    path = "/workers/box/W-1/R-1/attempt-1"
+    {detail, _history_read} = Console.receive(model, page(path))
+    {pending, [_]} = Console.refresh(detail)
+    {preserved, []} = Console.receive(pending, %{boot(path) | "active_tab" => nil})
+    assert preserved.path == path
+    assert preserved.console.active == nil
+
+    for invalid <- [path, path <> "/guidance"] do
+      {pending, [_]} = Console.refresh(model)
+
+      {rejected, []} =
+        Console.receive(pending, put_in(shell, ["tabs", Access.at(0), "to"], invalid))
+
+      assert rejected.console.stale
+    end
+  end
+
   test "removed index falls back on boot reconciliation without replacing a valid deep link" do
     model = ready()
 
@@ -390,6 +478,15 @@ defmodule AtlasTui.ConsoleTest do
       Console.receive(pending, %{shell | "initial_to" => detail.path, "active_tab" => nil})
 
     assert preserved.path == detail.path
+    assert preserved.console.active == nil
+  end
+
+  test "boot reconciliation preserves an overview opened outside configured tabs" do
+    {agents, []} = Console.receive(ready(), page("/k/agent"))
+    {pending, [_]} = Console.refresh(agents)
+    {preserved, []} = Console.receive(pending, boot())
+    assert preserved.path == "/k/agent"
+    assert preserved.console.expected == nil
     assert preserved.console.active == nil
   end
 

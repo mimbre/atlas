@@ -77,15 +77,54 @@ defmodule AtlasBFF.SchemaTest do
         Code.compile_string("defmodule NoVersion do use AtlasBFF.Schema end")
       end
     end
+
+    test "declaration fragments report the importing file and use line" do
+      for {declaration, message} <- [
+            {"defoperation :bad, %{channel: :test, direction: :invalid, replies: []}",
+             ~r/invalid wire direction/},
+            {"defmodel :bad do field :value, :unknown end", ~r/unknown type/},
+            {"defblock :bad do field :value, :unknown end", ~r/unknown type/},
+            {"defmarkup :bad do field :value, :unknown end", ~r/unknown type/},
+            {"defpage :Bad, \"/bad\"", ~r/not a snake_case atom/},
+            {"defendpoint :bad, call: :open, replies: [done: :view_model]",
+             ~r/call :open is for pages/}
+          ] do
+        fragment = Module.concat(__MODULE__, "Fragment#{System.unique_integer([:positive])}")
+
+        Code.compile_string(
+          """
+          defmodule #{inspect(fragment)} do
+            defmacro __using__(_) do
+              quote do
+                #{declaration}
+              end
+            end
+          end
+          """,
+          "declaration_fragment.ex"
+        )
+
+        error =
+          assert_raise CompileError, message, fn ->
+            spec("\n\nuse #{inspect(fragment)}", "importing_contract.ex")
+          end
+
+        assert error.file == "importing_contract.ex"
+        assert error.line == 6
+      end
+    end
   end
 
-  defp spec(body) do
-    Code.compile_string("""
-    defmodule Spec#{System.unique_integer([:positive])} do
-      use AtlasBFF.Schema
-      version "0"
-      #{body}
-    end
-    """)
+  defp spec(body, file \\ "nofile") do
+    Code.compile_string(
+      """
+      defmodule Spec#{System.unique_integer([:positive])} do
+        use AtlasBFF.Schema
+        version "0"
+        #{body}
+      end
+      """,
+      file
+    )
   end
 end

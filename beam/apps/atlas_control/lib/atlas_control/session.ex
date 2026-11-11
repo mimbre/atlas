@@ -48,6 +48,9 @@ defmodule AtlasControl.Session do
        route: :home,
        form: %{},
        pending: %{},
+       output: nil,
+       output_connection: false,
+       output_idle: nil,
        by: "agent",
        by_kind: nil,
        # What is assigned to the client, for the header of every page (`start.assigned`):
@@ -60,17 +63,30 @@ defmodule AtlasControl.Session do
 
   @impl true
   def handle_info(:go, state) do
-    :ok = :inet.setopts(state.socket, active: true)
+    :ok = :inet.setopts(state.socket, active: :once)
     {:noreply, state}
   end
 
   def handle_info({:tcp, _socket, line}, state) do
-    case JSON.decode(line) do
-      {:ok, %{"op" => op} = message} ->
-        handle_op(op, message, state)
+    result =
+      case JSON.decode(line) do
+        {:ok, %{"op" => op} = message} ->
+          handle_op(op, message, state)
 
-      _ ->
-        {:noreply, notice(state, "error", "Control could not read: #{String.slice(line, 0, 80)}")}
+        _ ->
+          {:noreply,
+           notice(state, "error", "Control could not read: #{String.slice(line, 0, 80)}")}
+      end
+
+    case result do
+      {:noreply, next} ->
+        case :inet.setopts(next.socket, active: :once) do
+          :ok -> {:noreply, next}
+          {:error, _} -> {:stop, :normal, next}
+        end
+
+      stopped ->
+        stopped
     end
   end
 
@@ -78,6 +94,17 @@ defmodule AtlasControl.Session do
 
   def handle_info({:tcp_closed, _}, state), do: {:stop, :normal, state}
   def handle_info({:tcp_error, _, _}, state), do: {:stop, :normal, state}
+
+  def handle_info({:output_idle, marker}, %{output_idle: {_, marker}} = state),
+    do: {:stop, :normal, state}
+
+  def handle_info({:output_idle, _}, state), do: {:noreply, state}
+
+  def handle_info(
+        {:atlas_bus, %Envelope{class: "stored"}, _},
+        %{output_connection: true} = state
+      ),
+      do: {:noreply, state}
 
   def handle_info({:atlas_bus, %Envelope{class: class, id: id} = envelope, content}, state)
       when is_map_key(state.pending, id) and class in ["stored", "refused"] do
@@ -169,6 +196,10 @@ defmodule AtlasControl.Session do
   # A client says which contract version it implements. One older than Control's cannot
   # render what Control sends now: it is told so and closed, rather than shown a page it
   # breaks on. A newer one shows what it knows, and the rest as fallbacks.
+  defp handle_op(op, _message, %{output_connection: true} = state)
+       when op not in ~w(worker_output_subscribe worker_output_next worker_output_unsubscribe),
+       do: bye(state, "This connection is reserved for worker output.")
+
   defp handle_op("hello", message, state) do
     environment = AtlasBus.environment()
     version = AtlasControl.Blocks.version()
@@ -231,6 +262,128 @@ defmodule AtlasControl.Session do
 
   defp handle_op(_op, _message, %{hello: false} = state),
     do: {:noreply, notice(state, "error", "Say hello first.")}
+
+  defp handle_op(op, message, state)
+       when op in ~w(worker_output_subscribe worker_output_next worker_output_unsubscribe) do
+    alias AtlasBFFContract.Wire.Control.Workers.Protocol, as: Wire
+
+    case Wire.decode_request(message) do
+      {:ok, name, request} ->
+        # Output reconciliation reads authority explicitly; State hints must not queue behind a slow viewer.
+        Enum.each(state.listening, &Registry.unregister(AtlasBus.Listeners, &1))
+
+        :ok =
+          :inet.setopts(state.socket,
+            send_timeout: 1_000,
+            send_timeout_close: true,
+            packet_size: 262_144
+          )
+
+        inspect = fn execution ->
+          worker_call(state, "worker_inspect", %{"execution" => execution})
+        end
+
+        {reply, output} =
+          case AtlasControl.Output.handle(op, request, state.output, inspect) do
+            {:ok, result, output} ->
+              props = result |> Map.put("id", request["id"]) |> compact_worker_reply()
+              {Wire.reply(name, :result, props), output}
+
+            {:error, reason, extra, output} ->
+              props =
+                Map.merge(extra, %{
+                  "id" => request["id"],
+                  "error" => %{
+                    "code" => reason,
+                    "message" => reason,
+                    "retryable" => reason in ~w(output_unavailable state_unavailable viewer_limit)
+                  }
+                })
+
+              {Wire.reply(name, :error, compact_worker_reply(props)), output}
+          end
+
+        if state.output_idle, do: Process.cancel_timer(elem(state.output_idle, 0))
+        marker = make_ref()
+
+        timer =
+          Process.send_after(self(), {:output_idle, marker}, AtlasControl.Output.idle_timeout())
+
+        send_client(state, reply)
+
+        {:noreply,
+         %{
+           state
+           | output: output,
+             output_connection: true,
+             output_idle: {timer, marker},
+             listening: MapSet.new()
+         }}
+
+      _ ->
+        send_client(state, %{
+          "op" => op <> "_error",
+          "channel" => "control",
+          "version" => "0.1.0",
+          "id" => if(is_binary(message["id"]), do: message["id"], else: ""),
+          "error" => %{
+            "code" => "invalid_request",
+            "message" => "Invalid output request",
+            "retryable" => false
+          }
+        })
+
+        {:noreply, state}
+    end
+  end
+
+  defp handle_op(op, message, state)
+       when op in ~w(worker_overview worker_inspect worker_submit worker_query worker_history worker_receipts) do
+    alias AtlasBFFContract.Wire.Control.Workers.Protocol, as: Wire
+
+    reply =
+      case Wire.decode_request(message) do
+        {:ok, name, request} ->
+          case worker_call(state, op, request) do
+            {:ok, result} ->
+              result =
+                if op == "worker_inspect" do
+                  update_in(result, ["view"], fn view ->
+                    Map.put(view, "output", AtlasControl.Output.capability(view["execution"]))
+                  end)
+                else
+                  result
+                end
+
+              props = result |> Map.put("id", request["id"]) |> compact_worker_reply()
+
+              try do
+                Wire.reply(name, :result, props)
+              rescue
+                ArgumentError -> worker_error(name, request["id"], "invalid_state_reply")
+              end
+
+            {:error, reason} ->
+              worker_error(name, request["id"], reason)
+          end
+
+        _ ->
+          %{
+            "op" => op <> "_error",
+            "channel" => "control",
+            "version" => "0.1.0",
+            "id" => if(is_binary(message["id"]), do: message["id"], else: ""),
+            "error" => %{
+              "code" => "invalid_request",
+              "message" => "Unsupported or malformed worker request",
+              "retryable" => false
+            }
+          }
+      end
+
+    send_client(state, reply)
+    {:noreply, state}
+  end
 
   defp handle_op("boot", message, state) do
     # A boot refresh is a read, even while editing: never redraw or reset a draft.
@@ -418,6 +571,31 @@ defmodule AtlasControl.Session do
   defp actor(_client, _as), do: "agent"
 
   # Writes
+
+  defp submit({:worker_page, :worker_guidance, params} = route, raw, state) do
+    request = %{"execution" => AtlasControl.WorkerPages.target(params), "guidance" => raw}
+
+    case worker_call(state, "worker_submit", request) do
+      {:ok, %{"interaction" => interaction}} ->
+        state
+        |> notice(
+          "ok",
+          "Guidance stored as #{interaction["key"]}; queued is not delivery or completion."
+        )
+        |> then(
+          &show(
+            %{&1 | form: %{}},
+            {:worker_page, :worker, params},
+            "stored",
+            interaction["recorded_position"]
+          )
+        )
+
+      {:error, reason} ->
+        form = Map.merge(state.form, %{values: raw, errors: [reason]})
+        show(%{state | form: form}, route, "refused", nil, [reason])
+    end
+  end
 
   defp submit({:new, kind} = route, raw, state), do: create(route, kind, raw, %{}, state)
 
@@ -792,30 +970,126 @@ defmodule AtlasControl.Session do
     end
   end
 
-  defp ask(kind, content), do: ask(kind, content, @read_attempts)
+  defp worker_call(state, operation, request) do
+    case ask(@description, %{}) do
+      %{"description" => description} ->
+        candidate = %{state | description: description}
+        actor = %{key: state.by, kind: actor_kind(candidate)}
 
-  defp ask(_kind, _content, 0), do: %{"error" => "State did not answer"}
+        AtlasControl.Workers.handle(
+          operation,
+          request,
+          description,
+          actor,
+          &ask/2,
+          &worker_fact/2
+        )
 
-  defp ask(kind, content, attempts) do
-    envelope = Envelope.new("read", kind)
+      _ ->
+        {:error, "state_unavailable"}
+    end
+  end
+
+  defp worker_fact(kind, content) do
+    envelope = Envelope.new("fact", kind)
+    :ok = AtlasBus.send(envelope, content)
+    id = envelope.id
+
+    receive do
+      {:atlas_bus, %Envelope{id: ^id, class: "stored"}, answer} -> {:stored, answer}
+      {:atlas_bus, %Envelope{id: ^id, class: "refused"}, answer} -> {:refused, answer}
+    after
+      read_timeout() -> {:error, :outcome_unknown}
+    end
+  end
+
+  defp worker_error(operation, id, reason) do
+    AtlasBFFContract.Wire.Control.Workers.Protocol.reply(operation, :error, %{
+      "id" => id,
+      "error" => %{
+        "code" => reason,
+        "message" => reason,
+        "retryable" => reason == "state_unavailable"
+      }
+    })
+  end
+
+  defp compact_worker_reply(value) when is_map(value),
+    do: Map.new(for {key, item} <- value, not is_nil(item), do: {key, compact_worker_reply(item)})
+
+  defp compact_worker_reply(value) when is_list(value),
+    do: Enum.map(value, &compact_worker_reply/1)
+
+  defp compact_worker_reply(value), do: value
+
+  defp ask(kind, content), do: ask(kind, content, @read_attempts, read_timeout())
+
+  defp ask(kind, content, attempts, timeout),
+    do: await_read(Envelope.new("read", kind), content, attempts, timeout)
+
+  defp await_read(_envelope, _content, 0, _timeout), do: %{"error" => "State did not answer"}
+
+  defp await_read(envelope, content, attempts, timeout) do
     :ok = AtlasBus.send(envelope, content)
     id = envelope.id
 
     receive do
       {:atlas_bus, %Envelope{id: ^id, class: "answer"}, answer} -> answer
     after
-      read_timeout() -> ask(kind, content, attempts - 1)
+      timeout -> await_read(envelope, content, attempts - 1, timeout)
     end
   end
 
   # How long a read waits for State's answer before it asks again (a setting for tests).
   defp read_timeout, do: Application.get_env(:atlas_control, :read_timeout_ms, 2_000)
 
+  defp page_answers(route, description) do
+    reads = Pages.reads(route, description)
+
+    open_work? =
+      case route do
+        {:list, kind} -> Pages.open_work?(description, kind)
+        _ -> false
+      end
+
+    if open_work? and reads != [] and Enum.all?(reads, fn {_, content} -> content == %{} end) do
+      kinds = Enum.map(reads, &elem(&1, 0))
+
+      # Keep the aggregate wait budget of the separate collection reads.
+      case ask("_page", %{"kinds" => kinds}, @read_attempts, read_timeout() * length(reads)) do
+        %{"answers" => answers} when is_list(answers) and length(answers) == length(reads) ->
+          answers
+
+        %{"error" => _} = error ->
+          List.duplicate(error, length(reads))
+
+        _ ->
+          List.duplicate(%{"error" => "State returned invalid page reads"}, length(reads))
+      end
+    else
+      Enum.map(reads, fn {kind, content} -> ask(kind, content) end)
+    end
+  end
+
   defp show(state, route, reason, position, refused \\ nil, welcome \\ nil) do
     route = start(route, state)
 
-    answers =
-      Enum.map(Pages.reads(route, state.description), fn {kind, content} -> ask(kind, content) end)
+    state =
+      case route do
+        {:worker_page, :worker_guidance, _} ->
+          %{
+            state
+            | form:
+                Map.put_new_lazy(state.form, :worker_client_key, fn ->
+                  :crypto.strong_rand_bytes(18) |> Base.url_encode64(padding: false)
+                end)
+          }
+
+        _ ->
+          state
+      end
+
+    answers = page_answers(route, state.description)
 
     state = count(state, route, answers)
 
@@ -823,6 +1097,23 @@ defmodule AtlasControl.Session do
 
     page =
       case route do
+        {:worker_page, _, _} = worker_route ->
+          case ask(@description, %{}) do
+            %{"description" => description} ->
+              actor = %{key: state.by, kind: actor_kind(%{state | description: description})}
+
+              AtlasControl.WorkerPages.render(
+                worker_route,
+                description,
+                actor,
+                &ask/2,
+                Map.put(state.form, :output_capability, &AtlasControl.Output.capability/1)
+              )
+
+            _ ->
+              AtlasControl.WorkerPages.error("state_unavailable", "/workers")
+          end
+
         {:faults, on} ->
           Faults.page(route, Faults.offers(on))
 
@@ -866,7 +1157,12 @@ defmodule AtlasControl.Session do
     projected =
       if state.surface == "console" do
         with {:ok, shell} <- AtlasControl.Shell.boot(state.description, state.by_kind),
-             {:ok, page} <- AtlasControl.Console.project(message, length(shell["tabs"])),
+             {:ok, page} <-
+               AtlasControl.Console.project(
+                 message,
+                 length(shell["tabs"]),
+                 Map.get(page, :console_actions, [])
+               ),
              do: {:ok, page}
       else
         {:ok, message}

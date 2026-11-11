@@ -1,0 +1,4 @@
+{
+  "read": {"actors": ["melle", "releaseviewer", "releasewriter"]},
+  "submit": {"actors": ["melle", "releasewriter"]}
+}

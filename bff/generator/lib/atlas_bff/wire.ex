@@ -11,120 +11,179 @@ defmodule AtlasBFF.Wire do
   No predicate, permission, replay or workflow policy is executable here.
   """
 
-  def validate!(schema) do
+  def validate!(schema, sources \\ %{}) do
     wires = Map.get(schema, :protocol, [])
     models = Map.new(Map.get(schema, :models, []), &{&1.name, &1.fields})
+    wire_sources = Map.get(sources, :wires, %{})
+    endpoint_sources = Map.get(sources, :endpoints, %{})
     names = Enum.map(wires, & &1.name)
     ensure!(length(names) == length(Enum.uniq(names)), "duplicate wire descriptor")
 
     for wire <- wires do
-      ensure!(identifier?(wire.name) and identifier?(wire.channel), "invalid wire name/channel")
+      at!(wire_sources[wire.name], fn -> validate_wire!(wire, models) end)
+    end
 
-      ensure!(
-        Map.keys(wire) -- [:name, :channel, :direction, :request, :replies, :cli] == [],
-        "unknown wire metadata"
-      )
-
-      ensure!(wire.direction in [:request, :push, :stream], "invalid wire direction")
-      ensure!(wire.replies != [], "wire replies are incomplete")
-
-      if wire.direction != :push do
-        ensure!(
-          Map.keys(wire.request) -- [:select, :required, :optional] == [],
-          "unknown request metadata"
-        )
-
-        envelope!(wire.request, models)
-      end
-
-      reply_names = Enum.map(wire.replies, & &1.name)
-      ensure!(length(reply_names) == length(Enum.uniq(reply_names)), "duplicate reply name")
-
-      for reply <- wire.replies do
-        ensure!(identifier?(reply.name), "invalid reply name")
-
-        ensure!(
-          Map.keys(reply) --
-            [:name, :select, :present, :absent, :required, :optional, :effect, :requires] == [],
-          "unknown reply metadata"
-        )
-
-        envelope!(reply, models)
-        ensure!(reply.effect in [:complete, :progress, :error, :terminal], "invalid reply effect")
-        ensure!(Map.get(reply, :requires, []) -- reply_names == [], "unknown required reply")
-
-        for prerequisite <- Map.get(reply, :requires, []) do
-          prior = Enum.find(wire.replies, &(&1.name == prerequisite))
-
-          ensure!(
-            prior.effect == :progress and Map.get(prior, :requires, []) == [],
-            "invalid reply prerequisite"
-          )
-        end
-
-        ensure!(reply.name not in Map.get(reply, :requires, []), "self-dependent reply")
-      end
-
-      if wire.direction == :request,
-        do: ensure!(Enum.any?(wire.replies, &(&1.effect == :complete)), "no completion reply")
-
-      if command = wire[:cli] do
-        ensure!(wire.direction == :request, "CLI binding requires a request")
-
-        ensure!(
-          is_list(command) and command != [] and
-            Enum.all?(command, &(is_binary(&1) and &1 != "")),
-          "invalid CLI binding"
-        )
-      end
-
-      disjoint!(wire.replies)
+    for wire <- wires, wire.direction != :push do
+      replies = Enum.map(wire.replies, &{&1, wire_sources[wire.name]})
 
       pushes =
-        for w <- wires, w.channel == wire.channel and w.direction == :push, r <- w.replies, do: r
+        for w <- wires,
+            w.channel == wire.channel and w.direction == :push,
+            r <- w.replies,
+            do: {r, wire_sources[w.name]}
 
-      if wire.direction != :push, do: disjoint!(Enum.uniq(wire.replies ++ pushes))
+      disjoint_at!(Enum.uniq_by(replies ++ pushes, &elem(&1, 0)))
     end
 
     for channel <- Enum.uniq(Enum.map(wires, & &1.channel)) do
-      disjoint!(
-        for w <- wires, w.channel == channel and w.direction == :push, r <- w.replies, do: r
-      )
-
-      commands = for w <- wires, w.channel == channel and w[:cli], do: w.cli
-      ensure!(length(commands) == length(Enum.uniq(commands)), "duplicate CLI binding")
-      disjoint!(for w <- wires, w.channel == channel and w.direction != :push, do: w.request)
+      validate_channel!(channel, wires, wire_sources)
     end
 
     if wires != [] do
       for endpoint <- schema.endpoints do
-        wire = Enum.find(wires, &(&1.name == endpoint[:wire]))
-        ensure!(wire != nil, "unclassified endpoint #{endpoint.name}")
-
-        selectors = if wire.direction == :push, do: wire.replies, else: [wire.request]
-
-        ensure!(
-          Enum.all?(selectors, &(&1.select["op"] == to_string(endpoint.call))),
-          "endpoint wire call mismatch"
-        )
-
-        available =
-          wire.replies ++
-            for w <- wires,
-                w.channel == wire.channel and w.direction == :push,
-                r <- w.replies,
-                do: r
-
-        for reply <- Map.get(endpoint, :replies, []) do
-          ensure!(
-            Enum.any?(available, &(&1.name == reply.name)),
-            "unclassified endpoint reply #{reply.name}"
-          )
-        end
+        at!(endpoint_sources[{endpoint.name, endpoint[:call]}], fn ->
+          validate_endpoint!(endpoint, wires)
+        end)
       end
     end
 
     :ok
+  end
+
+  defp validate_wire!(wire, models) do
+    ensure!(identifier?(wire.name) and identifier?(wire.channel), "invalid wire name/channel")
+
+    ensure!(
+      Map.keys(wire) -- [:name, :channel, :direction, :request, :replies, :cli] == [],
+      "unknown wire metadata"
+    )
+
+    ensure!(wire.direction in [:request, :push, :stream], "invalid wire direction")
+    ensure!(wire.replies != [], "wire replies are incomplete")
+
+    if wire.direction != :push do
+      ensure!(
+        Map.keys(wire.request) -- [:select, :required, :optional] == [],
+        "unknown request metadata"
+      )
+
+      envelope!(wire.request, models)
+    end
+
+    reply_names = Enum.map(wire.replies, & &1.name)
+    ensure!(length(reply_names) == length(Enum.uniq(reply_names)), "duplicate reply name")
+
+    for reply <- wire.replies do
+      ensure!(identifier?(reply.name), "invalid reply name")
+
+      ensure!(
+        Map.keys(reply) --
+          [:name, :select, :present, :absent, :required, :optional, :effect, :requires] == [],
+        "unknown reply metadata"
+      )
+
+      envelope!(reply, models)
+      ensure!(reply.effect in [:complete, :progress, :error, :terminal], "invalid reply effect")
+      ensure!(Map.get(reply, :requires, []) -- reply_names == [], "unknown required reply")
+
+      for prerequisite <- Map.get(reply, :requires, []) do
+        prior = Enum.find(wire.replies, &(&1.name == prerequisite))
+
+        ensure!(
+          prior.effect == :progress and Map.get(prior, :requires, []) == [],
+          "invalid reply prerequisite"
+        )
+      end
+
+      ensure!(reply.name not in Map.get(reply, :requires, []), "self-dependent reply")
+    end
+
+    if wire.direction == :request,
+      do: ensure!(Enum.any?(wire.replies, &(&1.effect == :complete)), "no completion reply")
+
+    if command = wire[:cli] do
+      ensure!(wire.direction == :request, "CLI binding requires a request")
+
+      ensure!(
+        is_list(command) and command != [] and
+          Enum.all?(command, &(is_binary(&1) and &1 != "")),
+        "invalid CLI binding"
+      )
+    end
+
+    disjoint!(wire.replies)
+  end
+
+  defp validate_channel!(channel, wires, sources) do
+    wires = Enum.filter(wires, &(&1.channel == channel))
+
+    disjoint_at!(
+      for wire <- wires,
+          wire.direction == :push,
+          reply <- wire.replies,
+          do: {reply, sources[wire.name]}
+    )
+
+    Enum.reduce(wires, MapSet.new(), fn wire, commands ->
+      if command = wire[:cli] do
+        at!(sources[wire.name], fn ->
+          ensure!(not MapSet.member?(commands, command), "duplicate CLI binding")
+        end)
+
+        MapSet.put(commands, command)
+      else
+        commands
+      end
+    end)
+
+    disjoint_at!(
+      for wire <- wires, wire.direction != :push, do: {wire.request, sources[wire.name]}
+    )
+  end
+
+  defp validate_endpoint!(endpoint, wires) do
+    wire = Enum.find(wires, &(&1.name == endpoint[:wire]))
+    ensure!(wire != nil, "unclassified endpoint #{endpoint.name}")
+
+    selectors = if wire.direction == :push, do: wire.replies, else: [wire.request]
+
+    ensure!(
+      Enum.all?(selectors, &(&1.select["op"] == to_string(endpoint.call))),
+      "endpoint wire call mismatch"
+    )
+
+    available =
+      wire.replies ++
+        for w <- wires,
+            w.channel == wire.channel and w.direction == :push,
+            r <- w.replies,
+            do: r
+
+    for reply <- Map.get(endpoint, :replies, []) do
+      ensure!(
+        Enum.any?(available, &(&1.name == reply.name)),
+        "unclassified endpoint reply #{reply.name}"
+      )
+    end
+  end
+
+  defp at!(nil, validate), do: validate.()
+
+  defp at!({file, line}, validate) do
+    validate.()
+  rescue
+    error in [ArgumentError, KeyError, BadMapError, Protocol.UndefinedError] ->
+      raise CompileError, file: file, line: line, description: Exception.message(error)
+  end
+
+  defp disjoint_at!([]), do: :ok
+
+  defp disjoint_at!([{head, _} | tail]) do
+    for {other, source} <- tail do
+      at!(source, fn -> ensure!(not overlap?(head, other), "overlapping reply selectors") end)
+    end
+
+    disjoint_at!(tail)
   end
 
   defp identifier?(value), do: is_atom(value) and value not in [nil, true, false]

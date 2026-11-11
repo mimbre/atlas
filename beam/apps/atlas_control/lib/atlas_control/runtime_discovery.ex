@@ -1,6 +1,6 @@
 defmodule AtlasControl.RuntimeDiscovery do
   @moduledoc "Exact-machine registry read. Hello actor attribution never grants this capability."
-  alias AtlasBFFContract.Runtime.DiscoveryProtocol, as: Wire
+  alias AtlasBFFContract.Wire.Control.DiscoveryProtocol, as: Wire
 
   def read(message, admitted?, registry \\ &AtlasBus.endpoints/0) do
     case Wire.decode_request(message) do

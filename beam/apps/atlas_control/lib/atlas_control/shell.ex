@@ -123,6 +123,7 @@ defmodule AtlasControl.Shell do
       case Pages.route(if(is_binary(to), do: to, else: "")) do
         :home -> tab["assigned"] == true and Pages.assigned_rule(description) != nil
         {:list, kind} -> known_kind?(kind, description) and text?(canonical_tab(to), 2_048)
+        {:worker_page, :workers, _} -> tab["assigned"] != true
         _ -> false
       end
   end
@@ -139,7 +140,9 @@ defmodule AtlasControl.Shell do
 
     with {:ok, canonical} <- canonical_target(route, description) do
       # A removed overview falls back; valid detail/form targets stay canonical.
-      index? = route == :home or match?({:list, _}, route)
+      index? =
+        route == :home or match?({:list, _}, route) or match?({:worker_page, :workers, _}, route)
+
       configured? = Enum.any?(tabs, &(&1["to"] == canonical))
       initial = if canonical && (not index? or configured?), do: canonical, else: hd(tabs)["to"]
 
@@ -171,6 +174,15 @@ defmodule AtlasControl.Shell do
   defp canonical_target({page, kind, key, relation} = route, description)
        when page in [:links, :set, :remove],
        do: target_path(route, kind, [kind, key, relation], description)
+
+  defp canonical_target({:worker_page, page, params} = route, _description)
+       when page in [:workers, :worker, :worker_guidance] do
+    keys = if page == :workers, do: [], else: [:machine, :worker, :turn, :attempt]
+
+    if Enum.all?(keys, &text?(params[&1], 2_048)),
+      do: {:ok, Pages.path(route)},
+      else: {:error, "Invalid worker execution route parameters"}
+  end
 
   defp canonical_target(_route, _description), do: {:ok, nil}
 

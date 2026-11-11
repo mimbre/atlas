@@ -1,0 +1,8 @@
+/* build.js emits Tailwind's reset before Prism so it cannot erase component styles. */
+@tailwind components;
+@tailwind utilities;
+
+.prism-btn:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}

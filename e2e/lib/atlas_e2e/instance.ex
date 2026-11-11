@@ -1,17 +1,19 @@
 defmodule AtlasE2E.Instance do
   @moduledoc """
   A private Atlas test instance for one run: a fresh, empty rela dataset on free ports,
-  and the core, both started with the `atlas` command through `ATLAS_ENV_FILE`, always
+  and the core, both started with the `atlas-ops` command through `ATLAS_ENV_FILE`, always
   with `--env test`, with a stand-in GitHub (`AtlasE2E.GitHub`). It never uses the ports or data of `env/test.json` or
-  `env/prod.json` (Melle's instances) or the live store.
+  `env/prod.json` (Melle's instances) or the live store. Its Runtime node runs through
+  `atlas-runtime node start|stop`, built from this tree into the run's folder.
 
   The TUIs open web addresses with a stand-in (`"browser"` in the settings) that only
   writes each address to `opened.txt` in the run's folder (`opened/1`), so a run never
   opens a browser.
 
-  rela's binaries are shared between runs (`ATLAS_E2E_RELA_BIN`, by default the test
-  instance's `~/.local/share/atlas/test/bin`); `rela/scripts/start-test.sh` downloads the
-  pinned version there when it is missing.
+  rela's binaries are shared between runs (`ATLAS_E2E_RELA_BIN`). `bin/atlas-dev e2e` sets it,
+  when unset, to a per-user cache it installs the pinned rela into; a bare `mix atlas.e2e`
+  falls back to the test instance's `~/.local/share/atlas/test/bin`, where
+  `rela/scripts/start-test.sh` downloads the pinned version when it is missing.
   """
 
   defstruct [:root, :dir, :file, :settings, :env]
@@ -110,7 +112,7 @@ defmodule AtlasE2E.Instance do
       dir: dir,
       file: file,
       settings: settings,
-      # The core runs as `atlas up` runs it, in Mix's dev environment.
+      # The core runs as `atlas-ops up` runs it, in Mix's dev environment.
       env: [
         {"ATLAS_ENV_FILE", file},
         {"ATLAS_NO_UPDATE", "1"},
@@ -121,17 +123,32 @@ defmodule AtlasE2E.Instance do
       ]
     }
 
-    # `atlas restart` starts rela when it does not answer, then the core, and waits for it.
-    :ok = atlas!(instance, ["restart", "--env", "test"])
+    # `atlas-ops restart` starts rela when it does not answer, then the core, and waits for it.
+    :ok = ops!(instance, ["restart", "--env", "test"])
+    :ok = build_runtime_cli(instance)
     :ok = start_runtime(instance)
     instance
   end
 
-  @doc "Stop the core, as `atlas stop` does."
-  def stop_core(instance), do: atlas!(instance, ["stop", "--env", "test"])
+  # The Runtime node runs through `atlas-runtime node`, built from this tree into the run's
+  # folder, as integration/worker_control.exs builds it: never an installed binary.
+  defp runtime_cli(instance), do: Path.join(instance.dir, "atlas-runtime")
 
-  @doc "Start the core again, as `atlas restart` does."
-  def start_core(instance), do: atlas!(instance, ["restart", "--env", "test"])
+  defp build_runtime_cli(instance) do
+    case System.cmd("go", ["-C", "tools/runtime", "build", "-o", runtime_cli(instance), "."],
+           cd: @root,
+           stderr_to_stdout: true
+         ) do
+      {_, 0} -> :ok
+      {out, status} -> raise "building atlas-runtime failed (#{status}):\n#{out}"
+    end
+  end
+
+  @doc "Stop the core, as `atlas-ops stop` does."
+  def stop_core(instance), do: ops!(instance, ["stop", "--env", "test"])
+
+  @doc "Start the core again, as `atlas-ops restart` does."
+  def start_core(instance), do: ops!(instance, ["restart", "--env", "test"])
 
   def start_runtime(instance) do
     runtime = %{
@@ -145,15 +162,14 @@ defmodule AtlasE2E.Instance do
           )
     }
 
-    atlas!(runtime, ["runtime", "--env", "test"])
+    node!(runtime, "start")
   end
 
-  def stop_runtime(instance), do: atlas!(instance, ["runtime-stop", "--env", "test"])
+  def stop_runtime(instance), do: node!(instance, "stop")
 
   def stop(instance) do
     stop_runtime(instance)
-    atlas(instance, ["stop", "--env", "test"])
-    atlas(instance, ["rela-stop", "--env", "test"])
+    run(instance, "bin/atlas-ops", ["stop", "--rela", "--env", "test"])
     :ok
   end
 
@@ -226,15 +242,23 @@ defmodule AtlasE2E.Instance do
     end
   end
 
-  defp atlas!(instance, args) do
-    case atlas(instance, args) do
-      {_, 0} -> :ok
-      {out, status} -> raise "atlas #{Enum.join(args, " ")} failed (#{status}):\n#{out}"
+  defp ops!(instance, args), do: run!(instance, "bin/atlas-ops", args)
+
+  defp node!(instance, op),
+    do: run!(instance, runtime_cli(instance), ["node", op, "--env", "test", "--checkout", @root])
+
+  defp run!(instance, command, args) do
+    case run(instance, command, args) do
+      {_, 0} ->
+        :ok
+
+      {out, status} ->
+        raise "#{Path.basename(command)} #{Enum.join(args, " ")} failed (#{status}):\n#{out}"
     end
   end
 
-  defp atlas(instance, args) do
-    System.cmd(Path.join(@root, "bin/atlas"), args,
+  defp run(instance, command, args) do
+    System.cmd(Path.expand(command, @root), args,
       env: instance.env,
       stderr_to_stdout: true
     )

@@ -20,6 +20,6 @@ defmodule AtlasE2E.RuntimeStatusTest do
       )
 
     assert code == 0, output
-    assert output =~ "Ran 8 tests"
+    assert output =~ "Ran 9 tests"
   end
 end

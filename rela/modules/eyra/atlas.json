@@ -79,7 +79,8 @@
           "description"
         ],
         "defaults": {
-          "status": "refine"
+          "status": "refine",
+          "design_status": "writing"
         }
       },
       "progress": {
@@ -99,6 +100,13 @@
         },
         "flux_id": {
           "set_by": "connector"
+        },
+        "design": {
+          "multiline": true,
+          "label": "Design"
+        },
+        "design_status": {
+          "label": "Design status"
         }
       }
     }

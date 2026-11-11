@@ -4,6 +4,7 @@ defmodule AtlasBFFContract.Console do
   @contexts ~w(browse form confirm ask plan_planning plan_proposed plan_running plan_done step_form legend)
   @tokens ~w(Tab Shift+Tab Up Down Left Right Home End PageUp PageDown Enter Esc Backspace Space Ctrl+C Ctrl+S)
   @local ~w(list_next list_previous open_selected scroll_up scroll_down submit cancel tab_next tab_previous move_next move_previous select_first select_last page_next page_previous part_next part_previous back refresh quit legend_open legend_close focus_next focus_previous submit_form cancel_form form_enter input_up input_down input_left input_right input_home input_end input_backspace ask_send ask_cancel plan_cancel plan_run plan_toggle plan_edit plan_previous plan_next plan_stop plan_close step_save step_cancel)
+  @worker ~w(worker_history worker_receipts worker_output_subscribe)
 
   defdelegate compile(page), to: AtlasBFFContract.Console.Projection
   defdelegate active(projection, current), to: AtlasBFFContract.Console.Projection
@@ -15,7 +16,7 @@ defmodule AtlasBFFContract.Console do
 
   def contexts, do: @contexts
   def named_keys, do: @tokens
-  def operations, do: @local ++ ~w(open open_url agent_ask)
+  def operations, do: @local ++ ~w(open open_url agent_ask) ++ @worker
 
   def key?(key) when is_binary(key),
     do:
@@ -24,6 +25,20 @@ defmodule AtlasBFFContract.Console do
            not String.match?(key, ~r/[\x00-\x1f\x7f]/))
 
   def key?(_), do: false
+
+  def operation?(%{"name" => name, "execution" => execution} = op) when name in @worker do
+    allowed =
+      if name == "worker_receipts",
+        do: ~w(name execution interaction_source),
+        else: ~w(name execution cursor)
+
+    Map.keys(op) -- allowed == [] and execution?(execution) and
+      if name == "worker_receipts" do
+        op["interaction_source"] == "selected_history"
+      else
+        not Map.has_key?(op, "cursor") or text?(op["cursor"], 2_048)
+      end
+  end
 
   def operation?(%{"name" => name} = op) do
     {required, optional} =
@@ -43,8 +58,18 @@ defmodule AtlasBFFContract.Console do
 
   def operation?(_), do: false
 
+  defp execution?(%{"worker" => worker, "turn" => turn, "attempt" => attempt} = execution)
+       when map_size(execution) == 3 and is_map(worker) and map_size(worker) == 3 do
+    Enum.all?(
+      [worker["environment"], worker["machine"], worker["worker"], turn, attempt],
+      &text?(&1, 2_048)
+    )
+  end
+
+  defp execution?(_), do: false
+
   defp destination?("open", op) do
-    schema = AtlasBFFContract.Blocks.__schema__()
+    schema = AtlasBFFContract.Contract.__schema__()
 
     if String.starts_with?(op["to"], "/") do
       case AtlasBFF.Paths.match(schema.pages, op["to"]) do

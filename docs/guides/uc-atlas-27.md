@@ -14,29 +14,15 @@ In prod, after the migration below, every fact has an owner:
 |---|---|---|
 | An owner | `atlas get UC-Atlas-01 --env prod` | `Assigned to: coordinator (since 3 Nov …, by migration: owner introduced)`, and under it the list **Assigned to** with `coordinator  Agent`. `--json` gives `origins["Assigned to"]`: `since`, `by` and `cause`. |
 | On its page | any scene, use case, issue or pull request in the TUI | **Assigned to** in the content, with since, by and cause, and in the references, the owner as a row. |
-| The owner's page | `enter` on that row, or `atlas get coordinator --env prod` | **Agent coordinator**, with what is assigned to it, one list per kind: **Assignments: Scenes**, **Assignments: Use cases**, … Melle's page (`atlas get melle`) the same for Melle. |
+| The owner's page | `enter` on that row, or `atlas get coordinator --env prod` | **Agent coordinator**, with what is assigned to it, one list per kind: **Assignments: Scenes**, **Assignments: Use cases**, … A person's page (`atlas get melle`) the same for that person. |
 | Change it | `atlas set UC-Atlas-01 assigned_to=melle --cause "all 12 issues completed" --env test`, or `u` on the page (**Assigned to**, a person or an agent, `ctrl-s`) | One owner, the new one, with its own since, by and cause. The earlier owner stays in the facts as history. |
 | Only who can own | `atlas set UC-Atlas-01 assigned_to=nobody --env test` | Refused: `nobody is not a person or agent`. |
 
 Try changes in test (`--env test`), not prod: prod is real data.
 
-### The prod data: `atlas migrate-owner`
+### The prod data
 
-Every fact that exists gets the coordinator as its owner, one fact each, with the cause "owner introduced". The coordinator runs it after the merge, once prod's rela has restarted on the new description:
-
-```sh
-atlas migrate-owner --env prod --dry-run   # prints every step; writes nothing
-atlas migrate-owner --env prod             # writes them through Control, as the migration
-atlas migrate-owner --env prod --dry-run   # again: 0 steps
-```
-
-What it does:
-1. It makes the agent `coordinator` (Coordinator) when there is none.
-2. It sets `assigned_to` coordinator on every fact of a kind in `assigned_to`'s `from` that has no owner yet. It reads that list from rela's description, so a kind added there is included.
-
-It reads rela read-only and writes only through Control. A fact that has an owner keeps it, so a second run does nothing.
-
-Tried on a private instance with prod's shape (prod's facts copied in with reads only): 147 steps (the agent, and 6 scenes, 34 use cases, 69 issues and 37 pull requests) in 49 s, then 0.
+The one-off `atlas migrate-owner` gave every fact that existed then the coordinator as its owner, with the cause "owner introduced"; it has since been removed.
 
 ### How it works
 
@@ -56,7 +42,6 @@ Tried on a private instance with prod's shape (prod's facts copied in with reads
 - **rela:** `agent`; `assigned_to`.
 - **State:** relations to several kinds; `link_kinds` in a fact's answer.
 - **Control:** lists per kind for a relation from several; rows and the links page for one to several; keys without a prefix.
-- **tools/plan:** `AtlasPlan.Owner` and `atlas migrate-owner`.
 - **The end-to-end test:** `e2e/scenarios/uc-atlas-27-owner.exs`.
 - **Prod:** restart rela (it reads `schema.yaml` when it starts) and the core, then run the migration.
 
@@ -117,33 +102,9 @@ What you can see: every scene, use case, issue and pull request page shows **Ass
 | Deleted together | `d` on the use case | The confirm says `…, with its Assignment AS-UC-Atlas-…`. Deleting the Assignment alone is refused: `AS-… goes with UC-…; delete that instead.` |
 | The owner's page | `enter` on the owner, `atlas get melle` | **Assignments**: one list, of Assignments, each named by its item. |
 
-### The prod data: `atlas migrate-assignment`
+### The prod data
 
-The coordinator runs it after the merge, after a backup, on the old core and rela. Do not `atlas restart` first; it refuses anyway, because the old `expected` values no longer fit the new description.
-
-```sh
-atlas migrate-assignment --env prod --dry-run   # prints every step; writes nothing
-atlas migrate-assignment --env prod             # the run, below
-atlas migrate-assignment --env prod --dry-run   # again: 0 steps
-```
-
-A real run:
-1. Reads, through the old Control, who set each item's owner (since, by, cause), and keeps that in `assignment-origins.json` beside rela's data.
-2. Stops the core, restarts rela on this build's description (its data kept), and starts the core on this build.
-3. Writes, through Control as the migration, for every item:
-   - `make`: its Assignment;
-   - `link`: the item to it;
-   - `assign`: the Assignment's owner, the item's old one, with the cause `assignment introduced (IS-Atlas-78); moved from UC-Atlas-01, set 2026-11-03T17:10:00Z by migration: owner introduced`;
-   - `unlink`: the item's old `assigned_to`. This one is done in rela itself, as rela's garbage collection does, because the new description no longer describes it.
-4. Stops rela, removes the old `expected` values (`rela migrate gc`), and starts it again.
-
-`expected` is not copied: Flow alone writes it, and writes it again on each Assignment within its first round. Each step checks whether it is done already, so a run that stopped halfway can be run again.
-
-Tried on a private instance with prod's shape (prod's 169 items copied in with reads only, run on the old build first):
-- 666 steps (169 make, 169 link, 164 assign, 164 unlink) in 2 min 19 s, restarts included;
-- the old values removed from 7 scenes and 32 use cases;
-- then 0 steps;
-- within a minute Flow had written `expected` on every Assignment, equal to what each item holds in prod today.
+The one-off `atlas migrate-assignment` gave every item that existed then its Assignment and moved its owner there; it has since been removed.
 
 ### How it works
 
@@ -173,13 +134,12 @@ Tried on a private instance with prod's shape (prod's 169 items copied in with r
 - **State:** components; Flow's check with `on`.
 - **Control:** a fact's page shows its components; associations go to them; the delete confirm says so.
 - **Flow:** `on`.
-- **tools/plan:** `AtlasPlan.Assignment` and `atlas migrate-assignment`.
 - **The end-to-end test:**
   - `e2e/scenarios/uc-atlas-27-assignment.exs` is new.
   - `uc-atlas-27.exs` checks Flow's last move on the Assignment's page.
   - `uc-atlas-27-owner.exs` reads the owner's list of Assignments.
   - `uc-atlas-20.exs` gives its first TUI 4 rows more, the room the Assignment's row in the references takes.
-- **Prod:** the migration above. It restarts rela and the core itself.
+- **Prod:** the migration above.
 
 ## IS-Atlas-75: Flow writes the owner
 
@@ -211,7 +171,7 @@ So a new scene, use case, issue or pull request gets its owner within moments of
 | Accept | `a`, `y` | No owner, nothing expected. |
 | Reopen | `a`, a note, `ctrl-s` | The coordinator, with `Rework: <the note>`. |
 
-`e2e/scenarios/uc-atlas-27.exs` follows these steps. `uc-atlas-27-owner.exs` checks that a new fact gets its owner from Flow, and that `atlas migrate-owner` leaves it alone.
+`e2e/scenarios/uc-atlas-27.exs` follows these steps. `uc-atlas-27-owner.exs` checks that a new fact gets its owner from Flow.
 
 ## IS-Atlas-88: a done fact has no owner (`atlas migrate-done-owner`)
 

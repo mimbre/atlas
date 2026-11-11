@@ -92,8 +92,6 @@ defmodule AtlasTui.Legend do
     scroll(model, direction * max(geometry.room - 1, 1))
   end
 
-  def resize(%{console: nil} = model, _width, _height), do: model
-
   def resize(model, width, height) do
     model = %{model | console: %{model.console | viewport: {width, height}}}
     if model.console.legend, do: scroll(model, 0), else: model

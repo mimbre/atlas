@@ -13,15 +13,15 @@ The BFF is in three parts, as in prism (ADR [0001](../docs/adr/0001-generator-co
 
 | Part | Where | What |
 |---|---|---|
-| Generator | `bff/generator/` (Mix app `atlas_bff`) | The DSL (`AtlasBFF.Schema`: `version`, `defblock`, `defmodel`, `defmarkup`, `defpage`, `field`) and its compile-time checks; the rules of markup (`AtlasBFF.Markup`) and of pages (`AtlasBFF.Paths`); the header (`AtlasBFF.Header`); the targets; `mix atlas.gen`. None of Atlas's values: it compiles and is tested without the contract, on a neutral example (`test/support/example.ex`). |
-| Contract | `bff/contract/` (Mix app `atlas_bff_contract`) | `lib/blocks.ex`, `AtlasBFFContract.Blocks`: the blocks, models and kinds of markup Control sends and every client renders. Only that. It depends on the generator by path. **Edit this.** |
+| Generator | `bff/generator/` (Mix app `atlas_bff`) | The DSL (`AtlasBFF.Schema`: `version`, `defblock`, `defmodel`, `defmarkup`, `defpage`, `defendpoint`, `defoperation`, `field`) and its compile-time checks; markup/page rules; targets and `mix atlas.gen`. No Atlas values: it is tested independently on neutral contracts. |
+| Contract | `bff/contract/` (Mix app `atlas_bff_contract`) | `lib/contract.ex`, `AtlasBFFContract.Contract`, composes presentation declarations, payload models and explicit Control/Runtime wire APIs. Edit the owning declaration file, not generated output. |
 | Targets | see below | What the contract becomes, for each consumer. |
 
 A contract compiles to one function, `__schema__/0`: plain data, documented in `AtlasBFF.Schema`. Every target reads only that (a test refuses a target that calls into the DSL).
 
 | Target | Kind | Gives |
 |---|---|---|
-| `AtlasBFF.Targets.Server` | compile time | `AtlasControl.Blocks` (`use AtlasBFF.Targets.Server, contract: AtlasBFFContract.Blocks`): a builder macro per block, model and kind of markup, and `view_model/2`. |
+| `AtlasBFF.Targets.Server` | compile time | `AtlasControl.Blocks` (`use AtlasBFF.Targets.Server, contract: AtlasBFFContract.Contract`): a builder macro per block, model and kind of markup, and `view_model/2`. |
 | `AtlasBFF.Targets.Client` | compile time | `AtlasTui.Blocks`: a struct per block, model and kind of markup, `decode/1` with a fallback, and `view_model/1`. |
 | `AtlasBFF.Targets.Json` | file | `bff/targets/json/blocks.json`, the contract as data for clients in other languages. Never edit it. |
 
@@ -48,6 +48,20 @@ Types are `:string`, `:integer`, `:boolean`, a model (`defmodel`), or `{:list, t
 Change the contract, run `cd bff/contract && mix atlas.gen`, commit the contract and `bff/targets/`. CI runs `mix atlas.gen --check`, which fails on a file that would change and on a generated file no target writes any more. Every generated file starts with a header that says so and names the contract file; `mix atlas.gen` never overwrites a file without it. Then check the TUI still knows every block and kind of markup (`AtlasTui.View.known/0`; its tests fail otherwise).
 
 The DSL is plain macros, not Spark: a contract of a few blocks, models and kinds of markup needs only entries, typed fields and a handful of checks, and plain macros keep it without a dependency.
+
+### Source ownership
+
+- `lib/contract.ex`: root composition and existing presentation version.
+- `lib/blocks.ex`: blocks and markup only; `lib/pages.ex` and `lib/endpoints.ex`: page paths and endpoint declarations.
+- `lib/models/{runtime,workers,presentation}.ex`: shared payload types. These describe transmitted values, not Rela's stored entities and relationships.
+- `lib/wire/control/{session,discovery,workers}.ex`: client–Server session/steer vocabulary, exact-machine discovery and worker operations.
+- `lib/wire/runtime.ex`: Runtime worker/machine/attachment control and Server–Runtime output reads. The existing on-wire `channel` strings do not change with source ownership.
+
+Declare each wire operation with `defoperation :name, descriptor`. Use `protocol_from(ContractModule)` to import an already compiled wire contract and `models_from(ContractModule)` for shared models. Blocks, pages and endpoints use ordinary Elixir declaration fragments; the root validates their combined references. There is still one generator and one root JSON target. Individual generated codecs keep their original operation subsets; a worker codec does not accept arbitrary session commands.
+
+This source split preserves wire versions, generated data and declaration order. Only the generated provenance header names the new root file.
+
+Direct declarations report their file and line. Imported wire/model contracts and presentation fragments report the importing call site, with the invalid operation, field or declaration named in the error.
 
 ## View model (contract 0.14.0)
 
@@ -189,4 +203,19 @@ client-before-server deployment is needed for this slice. Deployments still go
 through coordinator review. A later version bump must distribute compatible
 clients before advancing Control, since older versions are refused at hello.
 
+### Worker Control contract
+
+`contract/lib/wire/control/workers.ex` declares versioned worker inspection, exact-turn guidance,
+query, history and receipt messages on the Control channel. It reuses Runtime's
+execution identity; `Contract` composes the wire APIs and shared payload models. Existing
+list/item/form blocks implement the worker pages, so the block wire version remains
+0.14.0; typed worker messages independently require version 0.1.0.
+
+Generate with the same `mix atlas.gen` command. Named actor grants, durable outcome
+semantics, bounds, generic-page limits and the outstanding Runtime integration are
+documented in [the guidance contract](../docs/contracts/guidance.md#control-worker-access-and-guidance).
+
+
 <sub>Written by an AI agent (Codex · GPT-6 · herdr-projects atlas · t-0026).</sub>
+
+<sub>Written by an AI agent (omp · openai-codex/gpt-6-astra).</sub>

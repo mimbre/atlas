@@ -122,6 +122,21 @@ defmodule AtlasRuntime.GuidanceInboxTest do
     end
   end
 
+  # The barrier is sent only after the inbox's disk work (sync, binding checks), which a
+  # loaded machine can take far past assert_receive's 100ms. Wait for the event itself, and
+  # fail at once if the inbox stops before reaching it.
+  defp await_barrier(pid, phase) do
+    ref = Process.monitor(pid)
+
+    receive do
+      {:inbox_barrier, ^pid, ^phase, "interaction-a"} ->
+        Process.demonitor(ref, [:flush])
+
+      {:DOWN, ^ref, :process, ^pid, reason} ->
+        flunk("inbox stopped before #{phase}: #{inspect(reason)}")
+    end
+  end
+
   defp assert_crash_recovery(dir, phase) do
     {:ok, pid} = start(dir, initialize: true, barrier: {self(), phase})
 
@@ -143,7 +158,7 @@ defmodule AtlasRuntime.GuidanceInboxTest do
             end)
       end)
 
-    assert_receive {:inbox_barrier, ^pid, ^phase, "interaction-a"}
+    await_barrier(pid, phase)
     ref = Process.monitor(pid)
     Process.exit(pid, :kill)
     assert_receive {:DOWN, ^ref, :process, ^pid, :killed}
@@ -376,7 +391,7 @@ defmodule AtlasRuntime.GuidanceInboxTest do
           else: FakeInbox.consume(pid, @identity)
       end)
 
-    assert_receive {:inbox_barrier, ^pid, ^phase, "interaction-a"}
+    await_barrier(pid, phase)
     archive = move_binding(dir, "inbox.dets", :replace)
     send(pid, {:release, phase})
     assert Task.await(task) == {:error, :uncertain}, "synthetic evidence: #{dir}"

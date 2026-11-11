@@ -308,7 +308,7 @@ defmodule AtlasStateTest do
 
     older =
       "rela does not know ghost: its description is older than this build; " <>
-        "run atlas restart --env #{AtlasBus.environment()}"
+        "run atlas-ops restart --env #{AtlasBus.environment()}"
 
     assert %{"error" => ^older, "error_kind" => "answered"} = read("ghost")
     assert %{"error" => ^older} = read("ghost", %{"key" => "G-1"})
@@ -381,6 +381,26 @@ defmodule AtlasStateTest do
 
     assert %{"facts" => []} = read("part", %{"linked" => %{"of_widget" => "W-2"}})
     assert %{"incoming" => %{"of_widget" => ["P-1"]}} = read("widget", %{"key" => "W-1"})
+  end
+
+  test "a key made again under the same parent is the same fact; under another, refused", _ do
+    fact("create", "W-1", %{"title" => "One"})
+    fact("create", "W-2", %{"title" => "Two"})
+
+    part = fn widget ->
+      fact("create", "P-1", %{"title" => "Part"}, kind: "part", links: %{"of_widget" => [widget]})
+    end
+
+    assert {"stored", _, _} = part.("W-1")
+    assert {"stored", _, _} = part.("W-1")
+
+    assert %{"facts" => [%{"key" => "P-1"}]} =
+             read("part", %{"linked" => %{"of_widget" => "W-1"}})
+
+    assert {"refused", %{"reasons" => ["P-1 already exists"], "code" => "exists"}, nil} =
+             part.("W-2")
+
+    assert %{"fact" => %{"links" => %{"of_widget" => ["W-1"]}}} = read("part", %{"key" => "P-1"})
   end
 
   test "a read can filter on what the linked fact points at, one step on", _ do
@@ -461,6 +481,70 @@ defmodule AtlasStateTest do
 
     assert %{"fact" => %{"links" => %{"made_by" => ["M-2"]}, "origins" => %{}}} =
              read("widget", %{"key" => "W-1"})
+  end
+
+  # One owner (at most one link); a new one replaces the old,
+  # which stays in the link's history with the cause it was set with.
+  test "one owner: a new owner replaces the old; the old stays in the history, with its cause",
+       _ do
+    fact("create", "M-1", %{"title" => "Coordinator"}, kind: "maker")
+    fact("create", "M-2", %{"title" => "Ann"}, kind: "maker")
+    fact("create", "W-1", %{"title" => "One"})
+
+    fact("change", "W-1", %{},
+      links: %{"made_by" => ["M-1"]},
+      by: "agent",
+      cause: "owner introduced"
+    )
+
+    fact("change", "W-1", %{},
+      links: %{"made_by" => ["M-2"]},
+      by: "agent",
+      cause: "all its parts are done"
+    )
+
+    assert %{"fact" => fact, "history" => %{"made_by" => [first, second]}} =
+             read("widget", %{"key" => "W-1"})
+
+    assert fact["links"]["made_by"] == ["M-2"]
+    assert %{"keys" => ["M-2"], "cause" => "all its parts are done"} = fact["origins"]["made_by"]
+    assert %{"keys" => ["M-1"], "by" => "agent", "cause" => "owner introduced"} = first
+    assert %{"keys" => ["M-2"], "cause" => "all its parts are done"} = second
+  end
+
+  # Only facts of the kinds a relation points at can be linked: here a widget is owned by
+  # a maker or a part.
+  test "a link to one of several kinds: a key of none of them is refused, naming the kinds",
+       %{rela: rela, dir: dir} do
+    extra = Path.join(dir, "atlas.json")
+
+    File.write!(
+      extra,
+      ~s({"relations": {"owned_by": {"from": ["widget"], "to": ["maker", "part"], "max_outgoing": 1}}})
+    )
+
+    stop_supervised!(AtlasState.Server)
+
+    start_supervised!(
+      {AtlasState.Server, rela: {FakeRela, rela}, data_dir: dir, description_extra: extra}
+    )
+
+    fact("create", "M-1", %{"title" => "Coordinator"}, kind: "maker")
+    fact("create", "P-1", %{"title" => "Ann"}, kind: "part")
+    fact("create", "W-1", %{"title" => "One"})
+    fact("create", "W-2", %{"title" => "Two"})
+
+    assert {"stored", _, _} = fact("change", "W-1", %{}, links: %{"owned_by" => ["M-1"]})
+    assert {"stored", _, _} = fact("change", "W-1", %{}, links: %{"owned_by" => ["P-1"]})
+
+    assert {"refused", %{"reasons" => ["nobody is not a maker or part"]}, nil} =
+             fact("change", "W-1", %{}, links: %{"owned_by" => ["nobody"]})
+
+    # A fact of another kind is no owner either.
+    assert {"refused", %{"reasons" => ["W-2 is not a maker or part"]}, nil} =
+             fact("change", "W-1", %{}, links: %{"owned_by" => ["W-2"]})
+
+    assert %{"fact" => %{"links" => %{"owned_by" => ["P-1"]}}} = read("widget", %{"key" => "W-1"})
   end
 
   test "a change's links are checked like a create's", _ do
@@ -547,5 +631,109 @@ defmodule AtlasStateTest do
 
     assert_receive {:hint, %Envelope{class: "stored", kind: "widget", position: 1},
                     %{"key" => "W-1"}}
+  end
+
+  # A made-up kind's write rules: a dark or lit widget is never edited except to be lit, and a
+  # dark widget that replaces others lights them in the same write.
+  test "State refuses what a kind's rules forbid, and marks what a stored fact replaces", %{
+    rela: rela,
+    dir: dir
+  } do
+    extra = Path.join(dir, "atlas.json")
+
+    File.write!(
+      extra,
+      JSON.encode!(%{
+        "relations" => %{"replaces" => %{"from" => ["widget"], "to" => ["widget"]}},
+        "entities" => %{
+          "widget" => %{
+            "frozen" => %{
+              "when" => %{"shade" => ["dark", "light"]},
+              "only" => %{"shade" => ["light"]},
+              "error" => "{key} is {value}"
+            },
+            "replaces" => %{
+              "relation" => "replaces",
+              "when" => %{"shade" => ["dark"]},
+              "of" => %{"shade" => ["dark", "light"]},
+              "set" => %{"shade" => "light"},
+              "error" => "{key} is not dark"
+            }
+          }
+        }
+      })
+    )
+
+    stop_supervised!(AtlasState.Server)
+
+    start_supervised!(
+      {AtlasState.Server, rela: {FakeRela, rela}, data_dir: dir, description_extra: extra}
+    )
+
+    assert {"stored", _, _} = fact("create", "W-1", %{"title" => "One", "shade" => "dark"})
+
+    assert {"refused", %{"reasons" => ["W-1 is dark"]}, nil} =
+             fact("change", "W-1", %{"title" => "Edited"})
+
+    assert {"refused", %{"reasons" => ["W-1 is dark"]}, nil} = fact("delete", "W-1")
+
+    assert {"stored", _, _} = fact("create", "W-3", %{"title" => "Three"})
+
+    assert {"refused", %{"reasons" => ["W-3 is not dark"]}, nil} =
+             fact("create", "W-2", %{"title" => "Two", "shade" => "dark"},
+               links: %{"replaces" => ["W-3"]}
+             )
+
+    assert {"stored", _, _} =
+             fact("create", "W-2", %{"title" => "Two", "shade" => "dark"},
+               links: %{"replaces" => ["W-1"]}
+             )
+
+    assert %{"W-1" => {%{"title" => "One", "shade" => "light"}, _}} = FakeRela.facts(rela)
+    assert {"refused", _, nil} = fact("change", "W-1", %{"title" => "Edited"})
+    assert {"stored", _, _} = fact("change", "W-3", %{"title" => "Free"})
+  end
+
+  # A made-up decider: only the maker a widget names makes it dark, as that maker.
+  test "a write that decides is stored only from the one the fact names", %{rela: rela, dir: dir} do
+    extra = Path.join(dir, "atlas.json")
+
+    File.write!(
+      extra,
+      JSON.encode!(%{
+        "entities" => %{
+          "widget" => %{
+            "authority" => %{
+              "when" => %{"shade" => ["dark"]},
+              "by" => "made_by",
+              "kind" => "maker",
+              "writes" => %{"shade" => ["dark"]},
+              "error" => "needs its maker",
+              "writer_error" => "only its maker makes it dark"
+            }
+          }
+        }
+      })
+    )
+
+    stop_supervised!(AtlasState.Server)
+
+    start_supervised!(
+      {AtlasState.Server, rela: {FakeRela, rela}, data_dir: dir, description_extra: extra}
+    )
+
+    assert {"stored", _, _} = fact("create", "M-1", %{"title" => "Maker"}, kind: "maker")
+
+    assert {"stored", _, _} =
+             fact("create", "W-1", %{"title" => "One"}, links: %{"made_by" => ["M-1"]})
+
+    assert {"refused", %{"reasons" => ["only its maker makes it dark"]}, nil} =
+             fact("change", "W-1", %{"shade" => "dark"}, by: "someone")
+
+    assert {"refused", %{"reasons" => ["only its maker makes it dark"]}, nil} =
+             fact("change", "W-1", %{"shade" => "dark"})
+
+    assert {"stored", _, _} = fact("change", "W-1", %{"shade" => "dark"}, by: "M-1")
+    assert %{"W-1" => {%{"shade" => "dark"}, _}} = FakeRela.facts(rela)
   end
 end

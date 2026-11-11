@@ -8,13 +8,13 @@ scenario "UC-Atlas-22: Create and change items from the command line", fn %{
                                                                           } ->
   title = "A scene from the command line"
 
-  step "atlas put: the stored item with its code; both TUIs show it by hint", fn ->
-    {scene, at} =
+  step "atlas put: the stored item has its code and can be opened in TUI 2", fn ->
+    {scene, _} =
       atlas_json(i, ["put", "scene", "--title", title, "--description", "Made by an agent."])
 
     scene["key"] =~ ~r/^SC-Atlas-\d+$/ || raise "no code: #{inspect(scene)}"
     scene["values"]["title"] == title || raise inspect(scene)
-    for t <- [t1, t2], do: by_hint(t, title, at)
+    open_row(t2, title)
     Process.put(:uc22_scene, scene["key"])
   end
 

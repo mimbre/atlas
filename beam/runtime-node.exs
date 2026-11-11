@@ -9,7 +9,7 @@ boot =
     nil
   else
     {:ok, value} =
-      AtlasBFFContract.Runtime.MachineProtocol.options(:runtime_machine_boot, arguments)
+      AtlasBFFContract.Wire.Runtime.MachineProtocol.options(:runtime_machine_boot, arguments)
 
     unless value["environment"] == System.get_env("ATLAS_ENV") and
              value["machine"] == AtlasRuntime.Settings.get()[:machine] and
@@ -32,7 +32,7 @@ IO.puts("Runtime node ready: #{inspect(AtlasBus.endpoints())}; core layers remai
 
 if boot do
   receipt =
-    AtlasBFFContract.Runtime.MachineProtocol.model(:runtime_machine_boot_receipt, %{
+    AtlasBFFContract.Wire.Runtime.MachineProtocol.model(:runtime_machine_boot_receipt, %{
       target: %{environment: boot["environment"], machine: boot["machine"]},
       instance: boot["instance"],
       pid: String.to_integer(System.pid())

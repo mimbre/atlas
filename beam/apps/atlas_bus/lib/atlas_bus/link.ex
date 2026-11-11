@@ -12,6 +12,12 @@ defmodule AtlasBus.Link do
     `listen/1` and `send/2` keep their meaning, over the connection. While it is down, a
     send is dropped (delivery is not promised; a sender asks again), and once it is back,
     everything attached and listened to is attached and listened to again.
+  - Addressed requests cross only from Control (`control/<name>`) to the authenticated
+    machine's exact `runtime@<machine>/output` endpoint, with kind `runtime.output`.
+    That endpoint may answer Control with the same kind. Neither direction carries a
+    State position. Remote machines cannot send requests. Other read/fact/answer
+    permissions stay unchanged. The Bus preserves IDs and content; callers correlate
+    replies against the requested ID and exact Runtime sender.
 
   The wire, one JSON object per line: `hello`, `welcome`, `bye`, `attach`, `detach`,
   `listen`, `send` (machine to core), `deliver` (core to machine), `refused`.
@@ -32,6 +38,26 @@ defmodule AtlasBus.Link do
   end
 
   def allowed?(_name, _machine), do: false
+
+  @doc false
+  def send_allowed?(name, machine, %Envelope{kind: "runtime.output"} = envelope) do
+    envelope.class == "answer" and name == "runtime@" <> machine <> "/output" and
+      control?(envelope.address) and is_nil(envelope.position)
+  end
+
+  def send_allowed?(_name, _machine, %Envelope{class: class}), do: class in ~w(read fact answer)
+
+  @doc false
+  def deliver_allowed?(name, machine, %Envelope{class: "request"} = envelope) do
+    envelope.kind == "runtime.output" and name == "runtime@" <> machine <> "/output" and
+      envelope.address == name and control?(envelope.sender) and is_nil(envelope.position)
+  end
+
+  def deliver_allowed?(_name, _machine, %Envelope{kind: "runtime.output"}), do: false
+  def deliver_allowed?(_name, _machine, %Envelope{}), do: true
+
+  defp control?("control/" <> name), do: name != ""
+  defp control?(_name), do: false
 
   @doc false
   def encode(op, fields), do: [JSON.encode!(Map.put(fields, "op", op)), "\n"]

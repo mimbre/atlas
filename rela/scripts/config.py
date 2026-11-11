@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Selected native schema closure. Rela remains the semantic schema validator.
 
-Paths follow rela 26.10.14: every include is relative to the root schema directory.
+Paths follow rela 26.11.2: every include is relative to the root schema directory.
 Only configuration is copied; entities, relations and actor records are never written.
 """
 import argparse

@@ -44,9 +44,10 @@ defmodule AtlasBFF.Schema do
     literal segment first wins (`/k/:kind/new` over `/k/:kind/:key`), so the order they are
     written in does not matter (`AtlasBFF.Paths`). Each page is also an endpoint: the call
     that fetches it, so a client has one list of what it can call.
-  - `protocol`: explicit channel, direction, envelopes and reply selectors as plain data
-    (`AtlasBFF.Wire`). When present, every endpoint must name its `wire:` descriptor;
-    pages use `:open`.
+  - `defoperation`: a named wire descriptor with explicit channel, direction, envelopes
+    and reply selectors as plain data (`AtlasBFF.Wire`). When present, every endpoint
+    must name its `wire:` descriptor; pages use `:open`.
+  - `protocol_from`: import wire descriptors from a compiled contract, in order.
   - `defendpoint`: any other call, by name, an optional path and options: `call:` (the
     message it travels in, such as `:submit`; required), `takes:` (what it is sent: a
     model, or `:values`, a form's inputs by name) and `replies:` (`[reply: what it
@@ -87,7 +88,8 @@ defmodule AtlasBFF.Schema do
       import AtlasBFF.Schema,
         only: [
           version: 1,
-          protocol: 1,
+          defoperation: 2,
+          protocol_from: 1,
           models_from: 1,
           defblock: 2,
           defmodel: 2,
@@ -100,6 +102,7 @@ defmodule AtlasBFF.Schema do
         ]
 
       Module.register_attribute(__MODULE__, :spec_entries, accumulate: true)
+      Module.register_attribute(__MODULE__, :spec_protocol, accumulate: true)
       @before_compile AtlasBFF.Schema
     end
   end
@@ -108,17 +111,56 @@ defmodule AtlasBFF.Schema do
     quote do: @spec_version(unquote(version))
   end
 
-  @doc "Explicit wire descriptors as plain data; see `AtlasBFF.Wire`."
-  defmacro protocol(descriptors) do
+  @doc "Declare a named wire descriptor as plain data; see `AtlasBFF.Wire`."
+  defmacro defoperation(name, descriptor) do
+    file = __CALLER__.file
+    line = __CALLER__.line
+
     quote do
-      @spec_protocol (Module.get_attribute(__MODULE__, :spec_protocol) || []) ++
-                       unquote(descriptors)
+      @spec_protocol %{
+        descriptor:
+          AtlasBFF.Schema.__operation__(
+            unquote(name),
+            unquote(descriptor),
+            unquote(file),
+            unquote(line)
+          ),
+        file: unquote(file),
+        line: unquote(line)
+      }
+    end
+  end
+
+  @doc false
+  def __operation__(name, descriptor, _file, _line) when is_map(descriptor),
+    do: Map.put(descriptor, :name, name)
+
+  def __operation__(_name, _descriptor, file, line),
+    do: __fail__(file, line, "wire descriptor must be a map")
+
+  @doc "Import wire descriptors from a compiled contract; duplicates remain compile errors."
+  defmacro protocol_from(contract) do
+    contract = Macro.expand(contract, __CALLER__)
+    file = __CALLER__.file
+    line = __CALLER__.line
+
+    quote do
+      Code.ensure_compiled!(unquote(contract))
+
+      for descriptor <- unquote(contract).__schema__().protocol do
+        @spec_protocol %{
+          descriptor: descriptor,
+          file: unquote(file),
+          line: unquote(line)
+        }
+      end
     end
   end
 
   @doc "Reuse models from another compiled data contract; duplicates remain compile errors."
   defmacro models_from(contract) do
     contract = Macro.expand(contract, __CALLER__)
+    file = __CALLER__.file
     line = __CALLER__.line
 
     quote do
@@ -128,43 +170,52 @@ defmodule AtlasBFF.Schema do
         @spec_entries %{
           type: :model,
           name: model.name,
+          file: unquote(file),
           line: unquote(line),
-          fields: Enum.map(model.fields, &Map.put(&1, :line, unquote(line)))
+          fields:
+            Enum.map(model.fields, &Map.merge(&1, %{file: unquote(file), line: unquote(line)}))
         }
       end
     end
   end
 
-  defmacro defblock(name, do: body), do: entry(:block, name, body, __CALLER__.line)
-  defmacro defmodel(name, do: body), do: entry(:model, name, body, __CALLER__.line)
-  defmacro defmarkup(name, do: body), do: entry(:markup, name, body, __CALLER__.line)
+  defmacro defblock(name, do: body), do: entry(:block, name, body, __CALLER__)
+  defmacro defmodel(name, do: body), do: entry(:model, name, body, __CALLER__)
+  defmacro defmarkup(name, do: body), do: entry(:markup, name, body, __CALLER__)
 
   defmacro defpage(name, path) do
+    file = __CALLER__.file
     line = __CALLER__.line
 
     quote do
       if open = Module.get_attribute(__MODULE__, :spec_open) do
         AtlasBFF.Schema.__fail__(
-          __ENV__.file,
+          unquote(file),
           unquote(line),
           "page #{inspect(unquote(name))} inside #{inspect(open)}"
         )
       end
 
-      @spec_entries %{type: :page, name: unquote(name), path: unquote(path), line: unquote(line)}
+      @spec_entries %{
+        type: :page,
+        name: unquote(name),
+        path: unquote(path),
+        file: unquote(file),
+        line: unquote(line)
+      }
     end
   end
 
   defmacro defendpoint(name, opts) when is_list(opts),
-    do: endpoint_entry(name, nil, opts, __CALLER__.line)
+    do: endpoint_entry(name, nil, opts, __CALLER__)
 
-  defmacro defendpoint(name, path, opts), do: endpoint_entry(name, path, opts, __CALLER__.line)
+  defmacro defendpoint(name, path, opts), do: endpoint_entry(name, path, opts, __CALLER__)
 
-  defp endpoint_entry(name, path, opts, line) do
+  defp endpoint_entry(name, path, opts, %{file: file, line: line}) do
     quote do
       if open = Module.get_attribute(__MODULE__, :spec_open) do
         AtlasBFF.Schema.__fail__(
-          __ENV__.file,
+          unquote(file),
           unquote(line),
           "endpoint #{inspect(unquote(name))} inside #{inspect(open)}"
         )
@@ -175,16 +226,17 @@ defmodule AtlasBFF.Schema do
         name: unquote(name),
         path: unquote(path),
         opts: unquote(opts),
+        file: unquote(file),
         line: unquote(line)
       }
     end
   end
 
-  defp entry(type, name, body, line) do
+  defp entry(type, name, body, %{file: file, line: line}) do
     quote do
       if open = Module.get_attribute(__MODULE__, :spec_open) do
         AtlasBFF.Schema.__fail__(
-          __ENV__.file,
+          unquote(file),
           unquote(line),
           "#{inspect(unquote(name))} inside #{inspect(open)}"
         )
@@ -197,6 +249,7 @@ defmodule AtlasBFF.Schema do
       @spec_entries %{
         type: unquote(type),
         name: unquote(name),
+        file: unquote(file),
         line: unquote(line),
         fields: Enum.reverse(Module.get_attribute(__MODULE__, :spec_fields))
       }
@@ -207,6 +260,7 @@ defmodule AtlasBFF.Schema do
   end
 
   defmacro field(name, type, opts \\ []) do
+    file = __CALLER__.file
     line = __CALLER__.line
 
     unless Keyword.keyword?(opts) and Keyword.keys(opts) -- [:required] == [] and
@@ -221,7 +275,7 @@ defmodule AtlasBFF.Schema do
     quote do
       unless Module.get_attribute(__MODULE__, :spec_open) do
         AtlasBFF.Schema.__fail__(
-          __ENV__.file,
+          unquote(file),
           unquote(line),
           "field #{inspect(unquote(name))} outside a block, model or markup"
         )
@@ -231,6 +285,7 @@ defmodule AtlasBFF.Schema do
         name: unquote(name),
         type: unquote(type),
         required: unquote(Keyword.get(opts, :required, false)),
+        file: unquote(file),
         line: unquote(line)
       }
     end
@@ -249,21 +304,43 @@ defmodule AtlasBFF.Schema do
 
     {pages, entries} = Enum.split_with(entries, &(&1.type == :page))
     {endpoints, entries} = Enum.split_with(entries, &(&1.type == :endpoint))
-    validate!(entries, env.file)
-    pages = validate_pages!(pages, env.file)
+
+    page_sources = Map.new(pages, &{{&1.name, :open}, {&1.file, &1.line}})
+    validate!(entries)
+    pages = validate_pages!(pages)
 
     known = %{
       takes: [:values | for(%{type: :model, name: n} <- entries, do: n)],
       returns: [:view_model | for(%{type: t, name: n} <- entries, t in [:model, :block], do: n)]
     }
 
-    endpoints = validate_endpoints!(endpoints, known, env.file)
+    validated_endpoints = validate_endpoints!(endpoints, known)
+
+    endpoint_sources =
+      Map.merge(
+        page_sources,
+        Map.new(endpoints, &{{&1.name, &1.opts[:call]}, {&1.file, &1.line}})
+      )
 
     strip = fn entry ->
-      %{name: entry.name, fields: Enum.map(entry.fields, &Map.delete(&1, :line))}
+      %{name: entry.name, fields: Enum.map(entry.fields, &Map.drop(&1, [:file, :line]))}
     end
 
-    wires = Module.get_attribute(env.module, :spec_protocol) || []
+    operations = env.module |> Module.get_attribute(:spec_protocol) |> Enum.reverse()
+
+    wire_sources =
+      Enum.reduce(operations, %{}, fn operation, sources ->
+        wire = operation.descriptor
+        fail = &__fail__(operation.file, operation.line, &1)
+
+        unless is_map(wire) and Map.has_key?(wire, :name),
+          do: fail.("wire descriptor must be a map with a name")
+
+        if Map.has_key?(sources, wire.name), do: fail.("duplicate wire descriptor")
+        Map.put(sources, wire.name, {operation.file, operation.line})
+      end)
+
+    wires = Enum.map(operations, & &1.descriptor)
 
     spec = %{
       version: version,
@@ -286,10 +363,10 @@ defmodule AtlasBFF.Schema do
             wire: :open,
             replies: [%{name: :page, returns: :view_model}]
           }
-        ) ++ endpoints
+        ) ++ validated_endpoints
     }
 
-    AtlasBFF.Wire.validate!(spec)
+    AtlasBFF.Wire.validate!(spec, %{wires: wire_sources, endpoints: endpoint_sources})
 
     quote do
       @doc "The schema as plain data, for the targets (see `AtlasBFF.Schema`)."
@@ -297,12 +374,12 @@ defmodule AtlasBFF.Schema do
     end
   end
 
-  defp validate!(entries, file) do
+  defp validate!(entries) do
     names = fn type -> for %{type: ^type, name: name} <- entries, do: name end
     kinds = {names.(:model), names.(:block), names.(:markup)}
 
     Enum.reduce(entries, MapSet.new(), fn entry, seen ->
-      fail = &__fail__(file, entry.line, &1)
+      fail = &__fail__(entry.file, entry.line, &1)
       unless snake?(entry.name), do: fail.("#{inspect(entry.name)} is not a snake_case atom")
       if entry.name in seen, do: fail.("#{inspect(entry.name)} is defined twice")
 
@@ -310,7 +387,7 @@ defmodule AtlasBFF.Schema do
         do: fail.("#{inspect(entry.name)} clashes with a primitive type")
 
       Enum.reduce(entry.fields, MapSet.new(), fn field, names ->
-        fail = &__fail__(file, field.line, &1)
+        fail = &__fail__(field.file, field.line, &1)
 
         unless snake?(field.name),
           do: fail.("field #{inspect(field.name)} is not a snake_case atom")
@@ -328,10 +405,10 @@ defmodule AtlasBFF.Schema do
 
   # Endpoints are unique per call, by name and by the paths they match; `:open` is the
   # pages' call.
-  defp validate_endpoints!(endpoints, known, file) do
+  defp validate_endpoints!(endpoints, known) do
     {endpoints, _seen} =
       Enum.map_reduce(endpoints, %{}, fn endpoint, seen ->
-        fail = &__fail__(file, endpoint.line, &1)
+        fail = &__fail__(endpoint.file, endpoint.line, &1)
         opts = endpoint.opts
         name = endpoint.name
 
@@ -418,10 +495,10 @@ defmodule AtlasBFF.Schema do
   end
 
   # Pages are a namespace of their own: a page may share its name with a block.
-  defp validate_pages!(pages, file) do
+  defp validate_pages!(pages) do
     {pages, _seen} =
       Enum.map_reduce(pages, %{}, fn page, seen ->
-        fail = &__fail__(file, page.line, &1)
+        fail = &__fail__(page.file, page.line, &1)
         unless snake?(page.name), do: fail.("page #{inspect(page.name)} is not a snake_case atom")
         if Map.has_key?(seen, page.name), do: fail.("page #{inspect(page.name)} is defined twice")
 

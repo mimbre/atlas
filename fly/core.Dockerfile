@@ -27,5 +27,7 @@ COPY rela/compositions /app/rela/compositions
 COPY rela/scripts/verify.py /app/rela/scripts/verify.py
 RUN python3 /app/rela/scripts/verify.py /app/rela
 COPY fly /app/fly
+# Keep test access separate; production continues reading the canonical atlas.json.
+RUN python3 -c 'import json; d=json.load(open("/app/rela/atlas.json")); d["guidance"]["control"]=json.load(open("/app/fly/test/worker-access.json")); d["shell"]["tabs"].append({"id":"workers","label":"Workers","to":"/workers"}); open("/app/rela/atlas-test.json","w").write(json.dumps(d))'
 
 CMD ["/app/fly/core-run.sh"]

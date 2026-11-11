@@ -35,9 +35,22 @@ defmodule AtlasState.Server do
   require Logger
 
   alias AtlasBus.Envelope
-  alias AtlasState.{Components, Copies, Description, Flows, Late, Ledger, Links, Progress, Rela}
+
+  alias AtlasState.{
+    Components,
+    Copies,
+    Description,
+    Flows,
+    Guards,
+    Late,
+    Ledger,
+    Links,
+    Progress,
+    Rela
+  }
 
   @description "_description"
+  @page "_page"
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name))
 
@@ -75,6 +88,21 @@ defmodule AtlasState.Server do
   end
 
   def handle_info({:atlas_bus, _envelope, _content}, state), do: {:noreply, state}
+
+  defp dispatch(%Envelope{class: "read", kind: @page} = envelope, content, state) do
+    if String.starts_with?(envelope.sender || "", "control/") do
+      ordinary(envelope, content, state)
+    else
+      reply(
+        envelope,
+        "answer",
+        %{"error" => "page reads require Control", "code" => "forbidden"},
+        nil
+      )
+
+      {:noreply, state}
+    end
+  end
 
   defp dispatch(envelope, content, state) do
     case AtlasState.Guidance.role(state.description || %{}, envelope.kind) do
@@ -186,6 +214,17 @@ defmodule AtlasState.Server do
   # kinds to pre-validate: doing so would fetch the same backend schema twice.
   defp ensure_description(state, %Envelope{class: "read", kind: @description}),
     do: {:ok, state}
+
+  defp ensure_description(state, %Envelope{class: "read", kind: @page}) do
+    if state.description do
+      {:ok, state}
+    else
+      case describe(state) do
+        {:ok, description} -> {:ok, %{state | description: description}}
+        {:error, _} -> {:error, state}
+      end
+    end
+  end
 
   defp ensure_description(state, %Envelope{kind: kind}) do
     case kind_spec(state, kind) do
@@ -347,6 +386,42 @@ defmodule AtlasState.Server do
     end
   end
 
+  defp read(%{description: nil} = state, @page, _content),
+    do: {read_error(:unavailable), state}
+
+  defp read(state, @page, %{"kinds" => kinds} = content) when is_list(kinds) do
+    entities = state.description["entities"] || %{}
+
+    valid? =
+      map_size(content) == 1 and kinds != [] and length(kinds) <= map_size(entities) and
+        Enum.all?(kinds, fn kind ->
+          is_binary(kind) and is_binary(get_in(entities, [kind, "plural"])) and
+            AtlasState.Guidance.role(state.description, kind) == nil
+        end)
+
+    if valid? do
+      key = make_ref()
+      Process.put(key, %{})
+
+      try do
+        {answers, state} =
+          Enum.map_reduce(kinds, Map.put(state, :page_lists, key), fn kind, state ->
+            {answer, state} = read(state, kind, %{})
+            {Map.put(answer, "position", Ledger.position(state.ledger)), state}
+          end)
+
+        {%{"answers" => answers}, Map.delete(state, :page_lists)}
+      after
+        Process.delete(key)
+      end
+    else
+      {answered("invalid ordinary page collection reads"), state}
+    end
+  end
+
+  defp read(state, @page, _content),
+    do: {answered("page reads require a bounded list of ordinary kinds"), state}
+
   defp read(state, kind, content) do
     with {:ok, spec, state} <- kind_spec(state, kind) do
       case content do
@@ -385,7 +460,7 @@ defmodule AtlasState.Server do
   # `progress?` false (a plain read): the facts and their links only, no progress.
   defp read_all(state, kind, spec, linked, progress?) do
     with {:ok, linked} <- linked_keys(state, linked),
-         {:ok, facts} <- Rela.list(state.rela, spec["plural"]),
+         {:ok, facts} <- collection(state, spec["plural"]),
          facts =
            Enum.filter(facts, fn fact ->
              Enum.all?(linked, fn {rel, keys} ->
@@ -491,9 +566,31 @@ defmodule AtlasState.Server do
   # How far each fact is, from the facts under it, as the description's rule says.
   defp with_progress(state, kind, facts) do
     Progress.annotate(state.description, kind, facts, fn of ->
-      Rela.list(state.rela, get_in(state.description, ["entities", of, "plural"]))
+      collection(state, get_in(state.description, ["entities", of, "plural"]))
     end)
   end
+
+  # Only successful raw lists are shared inside this synchronous page request.
+  defp collection(%{page_lists: key} = state, plural) do
+    lists = Process.get(key)
+
+    case Map.fetch(lists, plural) do
+      {:ok, facts} ->
+        {:ok, facts}
+
+      :error ->
+        case Rela.list(state.rela, plural) do
+          {:ok, facts} = result ->
+            Process.put(key, Map.put(lists, plural, facts))
+            result
+
+          error ->
+            error
+        end
+    end
+  end
+
+  defp collection(state, plural), do: Rela.list(state.rela, plural)
 
   defp wire(state, kind, fact) do
     links = fact[:links] || %{}
@@ -528,10 +625,15 @@ defmodule AtlasState.Server do
             {:ok, targets} ->
               with {:ok, targets} <- target_kinds(state, op, targets),
                    :ok <- targets_exist(state, op, targets),
-                   :ok <- not_a_part(state, kind, op, key) do
+                   :ok <- not_a_part(state, kind, op, key),
+                   rules = Guards.of(state.description, kind),
+                   :ok <- guarded(state, spec, rules, op, key, values, targets, content["by"]) do
                 parts = Components.of(state.description, kind, key)
                 was = content["was"]
-                write(state, spec, op, key, values, content["version"], targets, was, parts)
+
+                state
+                |> write(spec, op, key, values, content["version"], targets, was, parts)
+                |> replace(state, spec, rules, op, key)
               end
 
             {:error, problems} ->
@@ -549,6 +651,86 @@ defmodule AtlasState.Server do
   end
 
   defp store(state, _kind, _content), do: {{:refused, ["a fact needs an op and a key"]}, state}
+
+  # The kind's write rules (`AtlasState.Guards`), on the fact as it is stored now.
+  defp guarded(_state, _spec, rules, _op, _key, _values, _targets, _writer) when rules == %{},
+    do: :ok
+
+  # `writer`: who sent the write, as Control says (`by`).
+  defp guarded(state, spec, rules, op, key, values, targets, writer) do
+    with {:ok, current} <- current(state, spec, op, key) do
+      values = Map.new(values, fn {k, v} -> {k, if(v == "", do: nil, else: v)} end)
+      links = Map.new(targets, fn {relation, {_kind, keys}} -> {relation, keys} end)
+
+      Guards.check(rules, op, key, current, values, links, %{
+        "writer" => writer,
+        "kind_of" => &linked_kind(state, &1, &2),
+        "fetch" => fn old ->
+          case Rela.get(state.rela, spec["plural"], old) do
+            {:ok, fact} -> fact.properties
+            _ -> nil
+          end
+        end,
+        "incoming" => fn relation ->
+          case Rela.incoming(state.rela, spec["plural"], key, relation) do
+            {:ok, keys} -> keys
+            _ -> []
+          end
+        end
+      })
+    end
+  end
+
+  defp current(_state, _spec, "create", _key), do: {:ok, nil}
+
+  defp current(state, spec, _op, key) do
+    case Rela.get(state.rela, spec["plural"], key) do
+      {:ok, fact} -> {:ok, %{"values" => fact.properties, "links" => fact[:links] || %{}}}
+      {:error, :not_found} -> {:ok, nil}
+      error -> failure(error)
+    end
+  end
+
+  defp linked_kind(state, relation, key) do
+    kinds = get_in(state.description, ["relations", relation, "to"]) || []
+    Enum.find(kinds, &kind_has?(state, &1, key))
+  end
+
+  # A stored fact that replaces others marks them in the same write (`replaces.set`). When
+  # one cannot be marked, the write is not recorded, so sending it again finishes it.
+  defp replace(:stored, state, spec, %{"replaces" => %{"set" => set}} = rules, op, key)
+       when op in ["create", "change"] do
+    fetch = fn old ->
+      case Rela.get(state.rela, spec["plural"], old) do
+        {:ok, fact} -> fact
+        _ -> nil
+      end
+    end
+
+    case fetch.(key) do
+      %{} = fact ->
+        stored = %{"values" => fact.properties, "links" => fact[:links] || %{}}
+
+        rules
+        |> Guards.replaced(stored, &(fetch.(&1) && fetch.(&1).properties))
+        |> Enum.reduce_while(:stored, fn old, :stored ->
+          case Rela.change(state.rela, spec["plural"], old, set, nil, %{}) do
+            {:ok, []} ->
+              {:cont, :stored}
+
+            other ->
+              {:halt,
+               {:unavailable,
+                "#{key} is stored, but #{old} is not marked yet (#{inspect(other)}); send it again"}}
+          end
+        end)
+
+      nil ->
+        {:unavailable, "#{key} is stored, but could not be read again; send it again"}
+    end
+  end
+
+  defp replace(result, _state, _spec, _rules, _op, _key), do: result
 
   defp write(state, spec, op, key, values, version, targets, was, []) do
     if op == "delete",
@@ -923,7 +1105,7 @@ defmodule AtlasState.Server do
 
   defp older(kind) do
     "rela does not know #{kind}: its description is older than this build; " <>
-      "run atlas restart --env #{AtlasBus.environment()}"
+      "run atlas-ops restart --env #{AtlasBus.environment()}"
   end
 
   defp content_op(%{"op" => op}) when is_binary(op), do: op

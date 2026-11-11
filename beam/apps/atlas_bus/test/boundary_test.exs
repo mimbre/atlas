@@ -27,6 +27,16 @@ defmodule AtlasBus.BoundaryTest do
   # Names of the entities rela describes today. Extend it when rela describes more.
   @entities ~r/\b(scenes?|use[ _-]?cases?|issues?|pull[ _-]?requests?|persons?|people)\b/i
 
+  # GitHub's own words in Runtime's coordinator handoff protocol, not rela's entities: the
+  # fixed handoff kind `pull_request` declares a GitHub pull request URL for a worker's branch,
+  # and a GitHub issues URL is refused as one (tools/runtime/README.md, "Explicit completion
+  # and PR handoff"). Runtime keeps the record in its own home; it never becomes a fact.
+  @protocol_names %{
+    "beam/apps/atlas_runtime/lib/atlas_runtime/handoffs/handoff_records.ex" => ["pull_request"],
+    "beam/apps/atlas_runtime/test/handoff_records_test.exs" => ["pull_request", "issues"],
+    "beam/apps/atlas_runtime/test/handoff_service_test.exs" => ["pull_request"]
+  }
+
   # Checks, as functions of source text, so they can be tested on purpose-made violations.
 
   @doc "Other layers' namespaces that `source` of layer `own` names."
@@ -142,11 +152,16 @@ defmodule AtlasBus.BoundaryTest do
       assert length(files) > 20
 
       for file <- files do
-        names = entity_names(File.read!(file))
+        relative = Path.relative_to(file, @root)
+        names = entity_names(File.read!(file)) -- Map.get(@protocol_names, relative, [])
 
         assert names == [],
-               "#{Path.relative_to(file, @root)} names #{inspect(names)}; entities belong in rela's description"
+               "#{relative} names #{inspect(names)}; entities belong in rela's description"
       end
+
+      for {relative, _} <- @protocol_names,
+          do:
+            assert(Path.join(@root, relative) in files, "#{relative} is gone; drop its exemption")
     end
   end
 

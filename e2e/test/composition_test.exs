@@ -57,8 +57,7 @@ defmodule AtlasE2E.CompositionTest do
     ctx = %{dir: dir, env: env}
 
     on_exit(fn ->
-      atlas(ctx, ["stop"])
-      atlas(ctx, ["rela-stop"])
+      ops(ctx, ["stop", "--rela"])
       if Process.whereis(AtlasE2E.GitHub), do: Agent.stop(AtlasE2E.GitHub)
       File.rm_rf!(dir)
     end)
@@ -66,8 +65,11 @@ defmodule AtlasE2E.CompositionTest do
     ctx
   end
 
-  defp atlas(ctx, args) do
-    System.cmd(Path.join(ctx.dir, "bin/atlas"), args ++ ["--env", "test"],
+  defp atlas(ctx, args), do: run(ctx, "bin/atlas", args)
+  defp ops(ctx, args), do: run(ctx, "bin/atlas-ops", args)
+
+  defp run(ctx, command, args) do
+    System.cmd(Path.join(ctx.dir, command), args ++ ["--env", "test"],
       env: ctx.env,
       stderr_to_stdout: true
     )
@@ -104,7 +106,7 @@ defmodule AtlasE2E.CompositionTest do
 
     assert status == 0, out
     File.cp_r!(Path.join(@root, "rela/scripts"), Path.join(ctx.dir, "rela/scripts"))
-    {out, status} = atlas(ctx, ["restart"])
+    {out, status} = ops(ctx, ["restart"])
     assert status == 0, out
   end
 
@@ -121,7 +123,7 @@ defmodule AtlasE2E.CompositionTest do
     kinds = command(ctx, ["help"]) |> Enum.map(& &1["kind"])
 
     assert Enum.sort(kinds) ==
-             ~w(agent assignment interaction interaction_receipt person turn worker_execution)
+             ~w(agent assignment decision interaction interaction_receipt person turn worker_execution)
 
     tools = command(ctx, ["tools"]) |> JSON.encode!()
 

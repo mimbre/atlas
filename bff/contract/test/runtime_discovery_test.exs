@@ -1,6 +1,6 @@
 defmodule AtlasBFFContract.RuntimeDiscoveryTest do
   use ExUnit.Case, async: true
-  alias AtlasBFFContract.Runtime.DiscoveryProtocol, as: Wire
+  alias AtlasBFFContract.Wire.Control.DiscoveryProtocol, as: Wire
 
   test "literal discovery command, exact machine identity and typed replies round trip" do
     target = %{"environment" => "test", "machine" => "synthetic"}
@@ -11,8 +11,8 @@ defmodule AtlasBFFContract.RuntimeDiscoveryTest do
     assert {:ok, :runtime_machine_discover, ^request} =
              Wire.decode_request_json(JSON.encode!(request))
 
-    assert {:invalid, _} = AtlasBFFContract.Runtime.MachineProtocol.decode_request(request)
-    assert {:invalid, _} = AtlasBFFContract.Runtime.Protocol.decode_request(request)
+    assert {:invalid, _} = AtlasBFFContract.Wire.Runtime.MachineProtocol.decode_request(request)
+    assert {:invalid, _} = AtlasBFFContract.Wire.Runtime.Protocol.decode_request(request)
 
     assert {:ok, %{"machine" => "synthetic"}} =
              Wire.options(:runtime_discovery_options, ["--machine", "synthetic"])

@@ -81,8 +81,7 @@ defmodule AtlasE2E.PythonDiscoveryTest do
 
     on_exit(fn ->
       AtlasE2E.Tui.kill_server(socket)
-      atlas(ctx, ["stop"])
-      atlas(ctx, ["rela-stop"])
+      ops(ctx, ["stop", "--rela"])
       File.rm_rf!(dir)
     end)
 
@@ -102,8 +101,8 @@ defmodule AtlasE2E.PythonDiscoveryTest do
     File.chmod!(path, 0o755)
   end
 
-  defp atlas(ctx, args) do
-    System.cmd(Path.join(ctx.dir, "bin/atlas"), args ++ ["--env", "test"],
+  defp ops(ctx, args) do
+    System.cmd(Path.join(ctx.dir, "bin/atlas-ops"), args ++ ["--env", "test"],
       cd: System.tmp_dir!(),
       env: ctx.env,
       stderr_to_stdout: true
@@ -111,7 +110,7 @@ defmodule AtlasE2E.PythonDiscoveryTest do
   end
 
   defp status!(ctx) do
-    {out, code} = atlas(ctx, ["status"])
+    {out, code} = ops(ctx, ["status"])
     assert code == 0, out
     assert out =~ "description: this build's", out
   end
@@ -122,7 +121,7 @@ defmodule AtlasE2E.PythonDiscoveryTest do
     File.chmod!(ctx.system, 0o755)
     status!(ctx)
     assert File.read!(ctx.marker) =~ "local"
-    {out, code} = atlas(ctx, ["restart"])
+    {out, code} = ops(ctx, ["restart"])
     assert code == 0, out
     assert out =~ "core ready"
     status!(ctx)

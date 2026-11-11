@@ -2,9 +2,9 @@ defmodule Mix.Tasks.Atlas.E2e do
   @shortdoc "The end-to-end test: a private rela, the core and two TUIs"
   @moduledoc """
       mix atlas.e2e                 # every scenario in e2e/scenarios, in order
-      mix atlas.e2e uc-atlas-02     # only the scenarios whose file name has this
+      mix atlas.e2e uc-atlas-22     # only the scenarios whose file name has this
 
-  Also `bin/atlas e2e`. Starts a private instance (fresh rela data, free ports; see
+  Also `bin/atlas-dev e2e`. Starts a private instance (fresh rela data, free ports; see
   `AtlasE2E.Instance`), the core, and two TUIs in tmux, then runs the scenarios. When a
   step fails it saves both screens and the logs in `e2e/artifacts/` (or
   `ATLAS_E2E_ARTIFACTS`) and exits with an error. Needs tmux.
@@ -47,7 +47,7 @@ defmodule Mix.Tasks.Atlas.E2e do
         t2 = Tui.start(instance, socket, "tui2", "TUI 2")
 
         for t <- [t1, t2], do: AtlasE2E.Scenario.ready(t, 120_000)
-        for t <- [t1, t2], do: AtlasE2E.Scenario.see(t, "Atlas · test")
+        for t <- [t1, t2], do: AtlasE2E.Scenario.see(t, "Atlas Console · test")
         settle_disk()
 
         Enum.reduce_while(scenarios, :ok, fn {file, scenario}, :ok ->
@@ -106,7 +106,7 @@ defmodule Mix.Tasks.Atlas.E2e do
 
   # Compile first, so starting the core or a TUI never waits for a compile.
   defp compile do
-    for dir <- ["beam", "clients/tui", "clients/agent", "tools/plan"] do
+    for dir <- ["beam", "clients/tui", "clients/agent"] do
       {out, status} =
         System.cmd("mix", ["compile"],
           cd: Path.join(Instance.root(), dir),

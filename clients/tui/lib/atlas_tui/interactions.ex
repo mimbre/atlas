@@ -65,15 +65,40 @@ defmodule AtlasTui.Interactions do
 
   def active_for(model, context) do
     case Contract.active(model.console.projection, %{current(model) | context: context}) do
-      {:ok, actions} -> actions
-      _ -> []
+      {:ok, actions} ->
+        Enum.map(actions, fn action ->
+          if action["props"]["available"] and
+               not AtlasTui.WorkerConversation.action_available?(
+                 model,
+                 action["props"]["operation"]
+               ) do
+            action
+            |> put_in(["props", "available"], false)
+            |> put_in(
+              ["props", "reason"],
+              "No eligible loaded selection or page; a read may be in progress"
+            )
+          else
+            action
+          end
+        end)
+
+      _ ->
+        []
     end
   end
 
   def capture(model, key) do
     case Contract.capture(model.console.projection, token(key), current(model)) do
       {:ok, event} ->
-        Map.merge(event, %{focus: focus(model), shell_revision: shell_revision(model)})
+        case Contract.resolve(model.console.projection, event, current(model)) do
+          {:ok, action} ->
+            if AtlasTui.WorkerConversation.action_available?(model, action["props"]["operation"]),
+              do: Map.merge(event, %{focus: focus(model), shell_revision: shell_revision(model)})
+
+          _ ->
+            nil
+        end
 
       _ ->
         nil
@@ -83,9 +108,7 @@ defmodule AtlasTui.Interactions do
   def dispatch(model, nil), do: {model, []}
 
   def dispatch(model, event) do
-    valid =
-      is_nil(model.console.expected) &&
-        event[:focus] == focus(model) && event[:shell_revision] == shell_revision(model)
+    valid = event[:focus] == focus(model) && event[:shell_revision] == shell_revision(model)
 
     resolved = if valid, do: Contract.resolve(model.console.projection, event, current(model))
 
@@ -98,9 +121,14 @@ defmodule AtlasTui.Interactions do
             (model.console.legend != nil and
                operation["name"] in ~w(legend_close scroll_up scroll_down page_previous page_next))
 
-        if local || (model.connected && model.console.phase == :ready),
-          do: execute(model, operation, action["props"]["label"]),
-          else: {model, []}
+        pending_allowed =
+          is_nil(model.console.expected) or
+            operation["name"] in ["tab_next", "tab_previous", "quit"]
+
+        if pending_allowed && AtlasTui.WorkerConversation.action_available?(model, operation) &&
+             (local || (model.connected && model.console.phase == :ready)),
+           do: execute(model, operation, action["props"]["label"]),
+           else: {model, []}
 
       _ ->
         {model, []}
@@ -109,8 +137,13 @@ defmodule AtlasTui.Interactions do
 
   def key(model, key) do
     case capture(model, key) do
-      nil -> if(model.console.legend, do: {model, []}, else: Model.literal(model, key))
-      event -> dispatch(model, event)
+      nil ->
+        if model.console.legend || model.console.expected,
+          do: {model, []},
+          else: Model.literal(model, key)
+
+      event ->
+        dispatch(model, event)
     end
   end
 
@@ -140,6 +173,10 @@ defmodule AtlasTui.Interactions do
 
   defp execute(model, %{"name" => "agent_ask"} = operation, label),
     do: Model.agent_action(model, label, operation["intent"])
+
+  defp execute(model, %{"name" => name} = operation, _label)
+       when name in ["worker_history", "worker_receipts", "worker_output_subscribe"],
+       do: AtlasTui.WorkerConversation.action(model, operation)
 
   defp execute(model, %{"name" => name}, _label), do: Model.operation(model, name)
 

@@ -6,15 +6,20 @@ defmodule AtlasControl.Console do
   @max_actions 256
   @max_bytes 3_000_000
 
-  def project(page, tab_count) do
+  def project(page, tab_count, declared_actions \\ []) do
     revision = Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
     native = page["blocks"]
 
     with true <- is_list(native) and length(native) <= 256,
-         true <- byte_size(JSON.encode!(page)) <= @max_bytes do
+         true <- byte_size(JSON.encode!(page)) <= @max_bytes,
+         :ok <-
+           if(Enum.all?(declared_actions, &Contract.operation?(&1.operation)),
+             do: :ok,
+             else: :invalid_operations
+           ) do
       groups = [
         {"browse", "Navigation", browsing(page, tab_count)},
-        {"browse", "Active view", view_actions(native)},
+        {"browse", "Active view", view_actions(native) ++ declared_actions},
         {"form", "Editing", editing(native, "form")},
         {"confirm", "Confirmation", confirmation(native)},
         {"ask", "Agent request",
@@ -111,6 +116,7 @@ defmodule AtlasControl.Console do
         {:error, "Console projection exceeds action limit"}
       end
     else
+      :invalid_operations -> {:error, "Invalid declared Console operation"}
       _ -> {:error, "Console projection exceeds page budget"}
     end
   end
@@ -151,7 +157,30 @@ defmodule AtlasControl.Console do
       command("Quit", ["q", "Ctrl+C"], "quit"),
       command("Scroll up", ["PageUp"], "scroll_up"),
       command("Scroll down", ["PageDown"], "scroll_down")
-    ]
+    ] ++
+      if complete_panes?(page) do
+        [
+          command("Previous pane", ["["], "part_previous"),
+          command("Next pane", ["]"], "part_next")
+        ]
+      else
+        []
+      end
+  end
+
+  defp complete_panes?(page) do
+    ids = Enum.map(page["blocks"], & &1["id"])
+
+    case AtlasBFF.Markup.tree(ids, page["markup"] || []) do
+      [_, _ | _] = nodes ->
+        Enum.all?(nodes, &match?({:markup, %{"kind" => "part"}, _}, &1))
+
+      _ ->
+        false
+    end
+  rescue
+    # Invalid native markup is rejected by project/2's final validation.
+    ArgumentError -> false
   end
 
   defp view_actions(blocks) do

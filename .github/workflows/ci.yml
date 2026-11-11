@@ -48,6 +48,14 @@ jobs:
       # Fails when a file in bff/targets differs from what the contract generates, or is left over.
       - run: mix atlas.gen --check
       - run: mix test
+      # tools/tests build atlas-runtime from tools/runtime for its node commands.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: false
+      # tools/tests read the contract compiled above (bff/contract/_build).
+      - run: python3 -m unittest discover -s tools/tests -v
+        working-directory: .
 
   beam:
     name: Bus, State, Control
@@ -63,10 +71,15 @@ jobs:
         with:
           otp-version: "28"
           elixir-version: "1.18"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: false
+      - run: go -C ../tools/runtime test ./...
       - run: python3 -m pip install -r ../rela/scripts/requirements.txt
       - run: mix compile --warnings-as-errors
       - run: mix format --check-formatted
-      - run: mix test
+      - run: mix test --include integration
 
   tui:
     name: TUI
@@ -87,7 +100,7 @@ jobs:
       - run: mix test
 
   agent:
-    name: Agents' command line and plan loader
+    name: Agents' command line and migration
     runs-on: ubuntu-latest
     env:
       MIX_ENV: test
@@ -99,7 +112,7 @@ jobs:
           elixir-version: "1.18"
       - run: mix compile --warnings-as-errors && mix format --check-formatted && mix test
         working-directory: clients/agent
-      # The loader compiles the client too; its tests read SCENES.md's layout.
+      # The one-off migration (atlas migrate-done-owner) compiles the client too.
       - run: mix compile --warnings-as-errors && mix format --check-formatted && mix test
         working-directory: tools/plan
 
@@ -115,6 +128,11 @@ jobs:
         with:
           otp-version: "28"
           elixir-version: "1.18"
+      # integration/worker_control.exs builds the atlas-runtime native host from tools/runtime.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: false
       - run: python3 -m pip install -r rela/scripts/requirements.txt
       - run: ATLAS_RELA_BIN="$ATLAS_E2E_RELA_BIN" rela/scripts/start-test.sh install
       - run: python3 rela/scripts/assemble.py --check
@@ -123,19 +141,19 @@ jobs:
         working-directory: beam
         env:
           MIX_ENV: test
-        run: mix test apps/atlas_state/test/guidance_native_test.exs
+        run: mix test --include integration apps/atlas_state/test/guidance_native_test.exs
       - run: sudo apt-get update && sudo apt-get install -y tmux lsof netcat-openbsd jq
       # rela-server, pinned in rela/scripts/start-test.sh; it downloads it when missing.
       - uses: actions/cache@v4
         with:
           path: .rela-bin
-          key: rela-26.10.14-linux_amd64
+          key: rela-26.11.2-linux_amd64
       - run: mix compile --warnings-as-errors && mix format --check-formatted
         working-directory: e2e
-      # bin/atlas itself: prod by default, test only when asked, e2e never on prod.
+      # bin/atlas itself: prod by default, test only when asked; bin/atlas-dev e2e never on prod.
       - run: mix test
         working-directory: e2e
-      - run: bin/atlas e2e --env test
+      - run: bin/atlas-dev e2e --env test
       - if: failure()
         uses: actions/upload-artifact@v4
         with:
@@ -150,7 +168,7 @@ jobs:
   deploy-test:
     name: Deploy test on Fly, and a smoke check
     if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
-    needs: [generator, contract, beam, tui, agent, e2e]
+    needs: [generator, contract, beam, tui, agent]
     runs-on: ubuntu-latest
     env:
       ATLAS_RELA_BIN: ${{ github.workspace }}/.rela-bin

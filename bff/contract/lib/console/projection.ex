@@ -113,7 +113,8 @@ defmodule AtlasBFFContract.Console.Projection do
       Console.operation?(p["operation"]) and is_map(scope) and
       Map.keys(scope) -- ~w(page revision context on row) == [] and
       scope["page"] == page["path"] and scope["revision"] == page["actions_revision"] and
-      scope["context"] in Console.contexts() and reference?(scope, native)
+      scope["context"] in Console.contexts() and reference?(scope, native) and
+      (p["operation"]["name"] != "worker_receipts" or scope["on"] == "guidance-history")
   end
 
   defp reference?(scope, native) do

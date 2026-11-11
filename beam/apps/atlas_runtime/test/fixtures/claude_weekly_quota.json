@@ -1,0 +1,17 @@
+{
+  "type": "rate_limit_event",
+  "rate_limit_info": {
+    "status": "rejected",
+    "resetsAt": 1794052800,
+    "rateLimitType": "seven_day",
+    "overageStatus": "rejected",
+    "overageDisabledReason": "out_of_credits",
+    "isUsingOverage": false,
+    "unifiedWindows": {
+      "seven_day": {
+        "utilization": 1,
+        "resetsAt": 1794052800
+      }
+    }
+  }
+}

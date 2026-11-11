@@ -4,7 +4,7 @@ What you can do: an issue is one change, so it has at most one pull request that
 
 ## Start
 
-The rule counts a pull request by its state, which State's GitHub connector reads. Test has no connector (d-0003), so a pull request linked in test has no state and never counts there. Try it in prod on a real issue, or in the end-to-end test (`bin/atlas e2e --env test uc-atlas-26`), which runs a stand-in GitHub.
+The rule counts a pull request by its state, which State's GitHub connector reads. Test has no connector (d-0003), so a pull request linked in test has no state and never counts there. Try it in prod on a real issue, or in the end-to-end test (`bin/atlas-dev e2e --env test uc-atlas-26`), which runs a stand-in GitHub.
 
 ## Try
 

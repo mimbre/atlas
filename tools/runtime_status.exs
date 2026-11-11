@@ -1,6 +1,6 @@
 defmodule AtlasRuntimeStatusCLI do
   @moduledoc false
-  alias AtlasBFFContract.Runtime.MachineProtocol, as: Wire
+  alias AtlasBFFContract.Wire.Runtime.MachineProtocol, as: Wire
 
   def run([root, environment, settings, "--operation", command, client | argv]) do
     execute(root, environment, settings, client, command, argv)

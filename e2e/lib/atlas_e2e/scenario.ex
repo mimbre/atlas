@@ -234,41 +234,148 @@ defmodule AtlasE2E.Scenario do
 
   # Moving around
 
-  @doc """
-  Back to the start page: escape until there is nothing to go back to. An agent's plan
-  counts as something to leave (`↵ close` when it is over, `esc stop` while it runs), so
-  a key that closed a plan but has not been drawn yet does not look like the start page.
-  """
+  @doc "Return to the root page, then open Scenes through its declared action."
   def home(tui) do
-    Enum.reduce_while(1..8, nil, fn _, _ ->
-      screen = settled(tui)
+    start_page(tui)
+    actions = legend(tui)
 
-      if screen =~ ~r/esc (back|cancel|stop)|y confirm|↵ (back|close)/ do
-        Tui.keys(tui, [if(screen =~ "y confirm", do: "n", else: "Escape")])
-        wait(tui, @page_wait, &(&1 != screen), "change page")
-        {:cont, nil}
-      else
-        {:halt, nil}
-      end
-    end)
-
-    screen = see(tui, @first_page)
-
-    # The user is a person: the start page is what is assigned to them (IS-Atlas-55), and
-    # the scenes are one key away. Scenarios go on from the scenes, as before.
-    if screen =~ "s Scenes" do
-      Tui.keys(tui, ["s"])
-      see(tui, ~r/Atlas · test.*\sScenes$/m)
+    if actions =~ ~r/│\s+s\s+Scenes\s*│/ do
+      press(tui, "s")
+      see_list(tui, "Scenes")
     else
-      screen
+      see_list(tui, "Scenes")
     end
   end
 
+  @doc "Return through Console's declared Back/Cancel actions to the user's start page."
+  def start_page(tui) do
+    Enum.reduce_while(1..20, nil, fn _, _ ->
+      screen = ready(tui)
+
+      if screen =~ "? Keys" do
+        actions = legend(tui)
+
+        if actions =~ ~r/Back · unavailable/ do
+          {:halt, screen}
+        else
+          before = settled(tui) |> String.split("\n") |> Enum.drop(-4)
+          press(tui, "Escape")
+
+          wait(
+            tui,
+            @page_wait,
+            &(String.split(&1, "\n") |> Enum.drop(-4) != before),
+            "leave the current page"
+          )
+
+          {:cont, nil}
+        end
+      else
+        press(tui, "Escape")
+        wait(tui, @page_wait, &(&1 != screen), "close the current editor")
+        {:cont, nil}
+      end
+    end)
+    |> case do
+      nil -> fail(tui, "did not return to the start page", settled(tui))
+      screen -> screen
+    end
+  end
+
+  @doc "Reveal and check a Console list heading, moving up if restored selection scrolled it away."
+  def see_list(tui, title, within \\ @page_wait) do
+    pattern = ~r/│ #{Regex.escape(title)} · \d+\s*│/
+    see_list_heading(tui, pattern, now() + within)
+  end
+
+  defp see_list_heading(tui, pattern, deadline) do
+    screen = ready(tui, max(deadline - now(), 1))
+
+    cond do
+      screen =~ pattern ->
+        screen
+
+      now() >= deadline ->
+        fail(tui, "did not reveal #{inspect(pattern)}", screen)
+
+      screen =~ ~r/› / ->
+        press(tui, "k")
+        wait(tui, max(deadline - now(), 1), &(&1 != screen), "move toward the list heading")
+        see_list_heading(tui, pattern, deadline)
+
+      true ->
+        see(tui, pattern, max(deadline - now(), 1))
+    end
+  end
+
+  @doc "Read every page of the real contextual Keys legend, then close it."
+  def legend(tui) do
+    press(tui, "?")
+    see(tui, "Close keys")
+
+    pages =
+      Enum.reduce_while(1..100, [], fn _, pages ->
+        screen = settled(tui)
+
+        if screen =~ ~r/↓ \d+ below/ do
+          press(tui, "NPage")
+          wait(tui, @page_wait, &(&1 != screen), "scroll the Keys legend")
+          {:cont, [screen | pages]}
+        else
+          {:halt, [screen | pages]}
+        end
+      end)
+
+    press(tui, "Escape")
+    gone(tui, "Close keys")
+    pages |> Enum.reverse() |> Enum.join("\n")
+  end
+
+  @doc "Check an available action in the real Console legend."
+  def see_action(tui, key, label, within \\ @page_wait) do
+    deadline = now() + within
+    see_action_until(tui, key, label, deadline)
+  end
+
+  defp see_action_until(tui, key, label, deadline) do
+    actions = legend(tui)
+    pattern = ~r/│\s+#{Regex.escape(key)}\s+#{Regex.escape(label)}\s*│/
+
+    cond do
+      actions =~ pattern -> actions
+      now() >= deadline -> fail(tui, "has no available #{key} #{label} action", actions)
+      true -> see_action_until(tui, key, label, deadline)
+    end
+  end
+
+  def refute_action(tui, key, label) do
+    actions = legend(tui)
+
+    if actions =~ ~r/│\s+#{Regex.escape(key)}\s+#{Regex.escape(label)}(?:\s| ·)/,
+      do: fail(tui, "unexpectedly declares #{key} #{label}", actions)
+
+    actions
+  end
+
   @doc """
-  Connected, and the first page is on screen. "● connected" alone shows as soon as
-  Control welcomes the TUI, before its first page; a key pressed then has nothing to act on.
+  Connected Console content is on screen, not just a welcome or a pending navigation.
   """
-  def ready(tui, within \\ @page_wait), do: see(tui, @first_page, within)
+  def ready(tui, within \\ @page_wait),
+    do:
+      wait(
+        tui,
+        within,
+        fn screen ->
+          screen =~ @first_page and
+            not Enum.any?(
+              ["Loading…", "Waiting for Control…", "Waiting for Console boot…"],
+              fn text ->
+                screen =~ text
+              end
+            )
+        end,
+        "show connected Console content"
+      )
 
   @doc "Select the row of a list that shows `text`, and open it."
   def open_row(tui, text) do
@@ -278,7 +385,7 @@ defmodule AtlasE2E.Scenario do
     wait(
       tui,
       @page_wait,
-      &(&1 =~ text or &1 =~ "pgup/pgdn scroll"),
+      &(&1 =~ text or &1 =~ ~r/› /),
       "show #{inspect(text)}"
     )
 

@@ -2,15 +2,18 @@
 
 Runtime can run on a separate machine without Erlang distribution. Its Bus connects
 through a private TCP link, forwarding envelopes and replaying endpoints and listeners
-after reconnect. The node starts only Runtime and Bus. Every endpoint is named
-`runtime@<machine>` or `runtime@<machine>/<turn>`; Control discovers machine endpoints
-for failure actions. A core with no configured agents starts no Runtime engine.
+after reconnect. The node starts only Runtime and Bus. Runtime endpoints include
+`runtime@<machine>`, `runtime@<machine>/<turn>` and `runtime@<machine>/output`;
+Control discovers exact machine endpoints for failure actions. A node with no
+configured agents starts no Runtime engine, but still starts its output endpoint.
 
-The deployed test and prod settings intentionally have no `bus_link`. Activating the
-listener on Fly, installing its secret, and running agents on the user's test data
-require approval. No real model turns are part of this verification.
+Tracked test core settings enable the private Bus listener on `::`, port `7694`;
+the Fly configuration declares no public service for it. Production remains opt-in.
+The coordinator must install the test machine-token secret before deploying this
+configuration: missing or malformed `ATLAS_BUS_LINK_TOKEN` prevents core startup.
+Connecting a node does not start a worker or authorize model turns.
 
-For an approved activation, the core settings gain (with no public Fly service):
+The test core configuration is:
 
 ```json
 {"bus_link": {"host": "::", "port": 7694}}
@@ -30,16 +33,43 @@ Create `~/.local/share/atlas/test-runtime/runtime.json` locally:
   "env": "test",
   "bus_link": {"mode": "client", "host": "127.0.0.1", "port": 7695,
                "remote_port": 7694, "machine": "macbook"},
-  "runtime": {"machine": "macbook", "agents": {"stand-in": {"port": "stub"}}}
+  "runtime": {"machine": "macbook", "agents": {}}
 }
 ```
 
-`atlas runtime --env test` starts the tunnel and node in the background;
-`atlas runtime-status --env test` reports its process and log;
-`atlas runtime-stop --env test` stops that node and its tunnel. A started process can be
-waiting to reconnect; consult its log and the turn's lease in Control for progress.
+This connection-only example uses local tunnel port `7695` to test's private Bus
+port `7694`, with a token bound to `macbook`. With `agents: {}`, it connects without
+creating workers: after Bus authentication it registers `runtime@macbook/output`,
+but no engine registers `runtime@macbook`. Configuring agents or assigning work
+requires separate authorization; an authenticated connection is not a running worker.
+
+`atlas-runtime node start --env test` starts the tunnel and node in the background;
+`atlas-runtime node status --env test` reports its process and log;
+`atlas-runtime node stop --env test` stops that node and its tunnel. A started process can be
+waiting to reconnect; process status proves neither authenticated remote registration
+nor a running worker. Consult its log for link progress and, when work is running,
+the turn's lease in Control.
+`atlas-runtime node` only launches the node lifecycle in an Atlas checkout
+(`tools/runtime.py`); it holds no Fly or keychain logic. The checkout is `--checkout <path>`,
+else `ATLAS_ROOT`, else a `"checkout": "<path>"` field in this `runtime.json`; with none of
+them it exits 2. The checkout resolves the environment as `atlas` does: `ATLAS_ENV_FILE`,
+else its `env/<env>.json`, prod by default, and `--env` must agree with the file's `"env"`.
+The node is this machine as part of an Atlas environment; the rest of `atlas-runtime` is
+the standalone service below.
 The token is removed from Runtime's process environment before agent ports start.
 Agents' CLI calls still use the ordinary environment file and reach Control.
+
+The separate standalone `atlas-runtime` CLI runs native workers through a local Runtime
+service and Unix socket ([service guide](../../tools/runtime/README.md)). By default it
+has no Atlas Server connection. Optional `server.json` configuration reports allowlisted
+workers' lifecycle to Server for Console visibility. It also serves those turns' live public
+output: the existing bounded output ring, keyed by each turn's exact persisted Server
+identity and attempt, is read through `runtime@<machine>/output` for the configured
+machine only, so Console uses the same exact-attempt output route as a connected node.
+Output is recorded locally and never waits for Server; a lost ring or link never affects
+the native turn. Server does not gain orchestration or worker controls through this
+connection. Local `status` and `output` remain usable without Server and do not establish
+registration of the connected `atlas-runtime node` described here.
 
 Private test instances use `ATLAS_RUNTIME_FILE` and `ATLAS_RUNTIME_HOME` pointing inside
 their temporary directory, a loopback link, and an ephemeral `ATLAS_BUS_LINK_TOKEN` in
@@ -47,9 +77,9 @@ the launching environment. They need no keychain or Fly. The e2e runner uses thi
 UC-07's turns run in a separate OS process; restarting the core cuts the link and
 registrations return. Restarting Runtime ends orphaned turns and starts new ones.
 
-Readonly machine status (IS135): `atlas runtime status --env test
---machine macbook --json` inspects the selected local node. The existing
-`runtime-status` alias derives an omitted machine from Runtime configuration.
+Readonly machine status (IS135): `atlas-runtime node status --env test
+--machine macbook --json` inspects the selected local node. An omitted
+`--machine` is derived from Runtime configuration.
 Missing identity fails explicitly. The shared DSL generates options, machine DTO,
 codecs and validators; exact worker identity remains separate.
 
@@ -61,9 +91,8 @@ exact target, evidence basis and optional PID/log. A live legacy PID is unverifi
 because PID existence cannot establish Runtime role/instance/start ownership or
 health. Wrong environment/machine is explicit; no worker identity is invented.
 
-Verified local lifecycle (IS136) uses `atlas runtime start|stop --env test
---machine macbook --json` through the same generated machine contract. Bare
-`atlas runtime` remains the start alias; `runtime-stop` remains the stop alias.
+Verified local lifecycle (IS136) uses `atlas-runtime node start|stop --env test
+--machine macbook --json` through the same generated machine contract.
 These are explicit same-user local operations. Machine lifecycle never attaches a
 viewer or selects a worker. Remote status remains unsupported; IS127 stays open
 for authorized availability through existing Control. Self-reported client identity
@@ -97,7 +126,7 @@ or model is added. Successful diagnostic exit means a report was produced, not
 that Runtime is ready. Contract codecs must be built explicitly before any CLI
 operation; start uses the existing Mix node boot, which can compile that checkout.
 
-Authorized discovery (remaining IS127): `atlas runtime discover --env test
+Authorized discovery (remaining IS127): `atlas discover --env test
 --machine macbook --json` uses the ordinary generated agent client and existing
 Control listener. It never opens/manages a proxy, starts a service or signals a
 process. Supply already-authorized Control connectivity. A missing connection,
@@ -122,8 +151,10 @@ names deny before lookup, preserving the session without logging the bearer. Thi
 not authenticated human sign-in or a new role engine. No live defaults change.
 
 The reply contains only the requested exact machine's `registered` flag and
-`bus_endpoint_registry` basis. An exact `runtime@machine` entry counts; a turn
-endpoint alone does not. This is a point-in-time endpoint observation, not a probe
+`bus_endpoint_registry` basis. An exact `runtime@machine` entry counts; neither a
+turn endpoint nor `runtime@machine/output` alone counts. Thus a connection-only
+node with `agents: {}` can be authenticated and connected while discovery returns
+`registered: false`. This is a point-in-time endpoint observation, not a probe
 of link responsiveness, worker lifecycle, models or leases. There is no global
 machine enumeration. Typed refusals, registry failure and transport/malformed or
 identity-mismatched replies are distinct from a successful unregistered result.
@@ -139,6 +170,14 @@ their child environments.
 Delivery remains the Bus's best effort contract: reads/facts retry and reconcile from
 State. Machine leases and Flow failover across machines remain follow-up work; this
 link does not end a sleeping machine's turns on another machine's behalf.
+
+Control keeps one read envelope/ID across its three attempts, so a late answer from
+an earlier attempt still satisfies the current logical read. Ordinary reads retain
+three two-second waits; Open work scales each wait by its collection count.
+Unrelated answers do not reset those waits. A later logical read gets a new ID and
+reads current data. Retries remain necessary because delivery is not guaranteed;
+State may still execute queued duplicate reads. This does not add read deduplication
+or concurrency, and durable fact replay is unchanged.
 
 <sub>Written by an AI agent (Codex · GPT-6, herdr-projects atlas · t-0015).</sub>
 

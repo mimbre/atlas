@@ -56,7 +56,7 @@ defmodule AtlasControl.SessionTest do
     do: page["blocks"] |> hd() |> get_in(["props", "rows"]) |> Enum.map(& &1["label"])
 
   defmodule Protocol do
-    use AtlasBFF.Targets.Protocol, contract: AtlasBFFContract.Blocks, channel: :control
+    use AtlasBFF.Targets.Protocol, contract: AtlasBFFContract.Contract, channel: :control
   end
 
   test "actual session envelopes match the declared reply classifiers", %{port: port} do
@@ -292,6 +292,57 @@ defmodule AtlasControl.SessionTest do
 
     assert form["errors"] == ["title is required"]
     assert form["errors"] != []
+  end
+
+  test "a refused create keeps what was typed in every field", %{port: port} do
+    a = client(port)
+    next(a, "page")
+    put(a, %{"op" => "open", "to" => "/k/widget/new"})
+    next(a, "page")
+
+    put(a, %{
+      "op" => "submit",
+      "to" => "/k/widget/new",
+      "values" => %{"title" => "", "notes" => "Two lines\nof notes"}
+    })
+
+    assert %{"reason" => "refused", "blocks" => [%{"type" => "form", "props" => form}]} =
+             next(a, "page")
+
+    assert form["errors"] == ["title is required"]
+
+    assert %{"value" => "Two lines\nof notes"} =
+             Enum.find(form["inputs"], &(&1["name"] == "notes"))
+
+    assert FakeStore.sent() |> Enum.map(& &1["op"]) == ["create"]
+  end
+
+  test "new facts under one parent get the next numbers, with the create defaults",
+       %{port: port} do
+    FakeStore.put("W-1", %{"title" => "One"})
+    a = client(port)
+    next(a, "page")
+
+    for {title, key} <- [{"Wheel", "P-01"}, {"Axle", "P-02"}] do
+      put(a, %{
+        "op" => "submit",
+        "to" => "/k/part/new/of_widget/W-1",
+        "values" => %{"title" => title}
+      })
+
+      assert %{"path" => "/k/part/" <> ^key, "reason" => "stored"} = next(a, "page")
+    end
+
+    # The next number after the highest of its kind (W-1 is number 1).
+    put(a, %{"op" => "submit", "to" => "/k/widget/new", "values" => %{"title" => "Two"}})
+    assert %{"path" => "/k/widget/W-02", "reason" => "stored"} = next(a, "page")
+
+    # Nobody types a key; what create does not ask comes from its defaults.
+    assert %{
+             "key" => "W-02",
+             "values" => %{"title" => "Two", "shade" => "light", "done" => false}
+           } =
+             FakeStore.last_fact()
   end
 
   test "change and delete name the version they were made from", %{port: port} do
@@ -623,6 +674,117 @@ defmodule AtlasControl.SessionTest do
     assert %{"tone" => "ok"} = next(a, "notice")
   end
 
+  describe "read retry correlation" do
+    setup do
+      Application.put_env(:atlas_control, :read_timeout_ms, 100)
+      on_exit(fn -> Application.delete_env(:atlas_control, :read_timeout_ms) end)
+      :ok
+    end
+
+    defp intercept_reads do
+      endpoint = "read-proxy-#{System.unique_integer([:positive])}"
+      :ok = AtlasBus.attach(endpoint)
+      Application.put_env(:atlas_bus, :store, endpoint)
+      endpoint
+    end
+
+    defp store_answer(envelope, content, proxy) do
+      send(Process.whereis(FakeStore), {:atlas_bus, %{envelope | sender: proxy}, content})
+      id = envelope.id
+      assert_receive {:atlas_bus, %AtlasBus.Envelope{id: ^id, class: "answer"}, answer}
+      answer
+    end
+
+    defp answer_read(envelope, answer) do
+      :ok = AtlasBus.send(AtlasBus.Envelope.reply(envelope, "answer"), answer)
+    end
+
+    test "a late first answer succeeds and a later logical read gets fresh data", %{port: port} do
+      FakeStore.put("W-1", %{"title" => "Before"})
+      a = client(port)
+      next(a, "page")
+      proxy = intercept_reads()
+      put(a, %{"op" => "open", "to" => "/k/widget"})
+      assert_receive {:atlas_bus, first, content}
+      answer = store_answer(first, content, proxy)
+      assert_receive {:atlas_bus, retry, ^content}, 500
+      assert retry.id == first.id
+      answer_read(first, answer)
+      assert rows(next(a, "page")) == ["Before"]
+
+      FakeStore.put("W-1", %{"title" => "Fresh"})
+      put(a, %{"op" => "open", "to" => "/k/widget"})
+      assert_receive {:atlas_bus, fresh, content}
+      refute fresh.id == first.id
+      answer_read(fresh, store_answer(fresh, content, proxy))
+      assert rows(next(a, "page")) == ["Fresh"]
+    end
+
+    test "lost first requests and lost first answers recover on the same-id retry", %{port: port} do
+      FakeStore.put("W-1", %{"title" => "Recovered"})
+      a = client(port)
+      next(a, "page")
+      proxy = intercept_reads()
+
+      for loss <- [:request, :answer] do
+        put(a, %{"op" => "open", "to" => "/k/widget"})
+        assert_receive {:atlas_bus, first, content}
+        if loss == :answer, do: store_answer(first, content, proxy)
+        assert_receive {:atlas_bus, retry, ^content}, 500
+        assert retry.id == first.id
+        answer_read(retry, store_answer(retry, content, proxy))
+        assert rows(next(a, "page")) == ["Recovered"]
+      end
+    end
+
+    test "unrelated answers do not extend the three-attempt silence budget", %{port: port} do
+      a = client(port)
+      next(a, "page")
+      intercept_reads()
+      started = System.monotonic_time(:millisecond)
+      put(a, %{"op" => "open", "to" => "/k/widget"})
+      assert_receive {:atlas_bus, first, content}
+
+      for _ <- 1..2 do
+        assert_receive {:atlas_bus, retry, ^content}, 500
+        assert retry.id == first.id
+
+        answer_read(%{retry | id: "unrelated-#{System.unique_integer([:positive])}"}, %{
+          "facts" => []
+        })
+      end
+
+      assert %{"title" => "State did not answer"} = next(a, "page", 200)
+      elapsed = System.monotonic_time(:millisecond) - started
+      assert elapsed >= 300 and elapsed < 500
+      refute_receive {:atlas_bus, _, _}, 120
+    end
+
+    test "Open work retains the collection-scaled wait budget", %{port: port} do
+      description =
+        Map.put(FakeStore.description(), "start", %{
+          "assigned" => %{"relation" => "checked_by", "title" => "Assigned"},
+          "open" => %{"title" => "Open work", "empty" => "Nothing open"}
+        })
+
+      FakeStore.describe(description)
+      a = client(port)
+      next(a, "page")
+      intercept_reads()
+      started = System.monotonic_time(:millisecond)
+      put(a, %{"op" => "open", "to" => "/k/widget"})
+      assert_receive {:atlas_bus, first, %{"kinds" => kinds} = content}
+      assert first.kind == "_page"
+      assert kinds == ["widget", "part"]
+      assert_receive {:atlas_bus, retry, ^content}, 500
+      assert retry.id == first.id
+      assert System.monotonic_time(:millisecond) - started >= 200
+      Process.sleep(110)
+      answer_read(first, %{"answers" => [%{"facts" => []}, %{"facts" => []}]})
+      assert %{"title" => "Open work"} = next(a, "page")
+    end
+  end
+
   describe "a State that does not answer" do
     setup do
       # A read waits this long for each of its tries, so the tests need not wait 6 s.
@@ -893,6 +1055,29 @@ defmodule AtlasControl.SessionTest do
              next(a, "page")
 
     assert why == "W-1 is approved; withdraw it first, or put this under another widget"
+    assert FakeStore.sent() == sent
+  end
+
+  test "nothing is moved under an approved fact", %{port: port} do
+    FakeStore.put("W-1", %{"title" => "One"})
+    FakeStore.put("W-2", %{"title" => "Two"}, "widget", %{"approved_by" => ["ada"]})
+    FakeStore.link("P-1", "W-1")
+    a = client(port)
+    next(a, "page")
+    put(a, %{"op" => "open", "to" => "/k/part/P-1/edit"})
+    next(a, "page")
+    sent = FakeStore.sent()
+
+    put(a, %{
+      "op" => "submit",
+      "to" => "/k/part/P-1/edit",
+      "values" => %{"title" => "P-1", "of_widget" => "W-2"}
+    })
+
+    assert %{"reason" => "refused", "blocks" => [%{"props" => %{"errors" => [why]}}]} =
+             next(a, "page")
+
+    assert why == "W-2 is approved; withdraw it first, or put this under another widget"
     assert FakeStore.sent() == sent
   end
 end

@@ -40,7 +40,7 @@ def observe_status(root, environment, request, inspect_process=None, client_file
             return dict(status, state='unverified', basis='missing_configuration', message='retained PID has no matching machine configuration; ownership unknown')
     except (OSError, ValueError):
         return dict(status, basis='unreadable_configuration', message='local Runtime configuration is unavailable or malformed')
-    if (base/'runtime.processes.json').exists() or (isinstance(settings, dict) and settings.get('bus_link', {}).get('mode') == 'client' and settings.get('runtime', {}).get('agents')):
+    if (base/'runtime.processes.json').exists() or (isinstance(settings, dict) and settings.get('bus_link', {}).get('mode') == 'client'):
         try:
             controller = load_lifecycle(root, environment, target['machine'], client_file)
             controller.configuration_data()
@@ -64,7 +64,7 @@ def observe_status(root, environment, request, inspect_process=None, client_file
     status['capabilities']['local_start'] = False
     # Reuse the shared pure PID parser before invoking any inspector. Its native
     # boundary independently checks pid_t bounds too; no stop path is used here.
-    spec = importlib.util.spec_from_file_location('atlas_process_identity', Path(root)/'tools/runtime-playground/launch.py')
+    spec = importlib.util.spec_from_file_location('atlas_process_identity', Path(root)/'tools/process_identity.py')
     inspector = importlib.util.module_from_spec(spec)
     previous = sys.dont_write_bytecode
     try:
@@ -100,7 +100,7 @@ def status_cli(root, environment, options, operation="status", client_file="unus
     # Use already-built shared codecs. A status invocation never compiles, installs,
     # creates a Runtime directory, resolves credentials or opens a proxy.
     candidates = [Path(root)/part/'_build'/mode/'lib' for part in ('bff/contract', 'beam') for mode in ('dev', 'test', 'prod')]
-    build = next((path for path in candidates if (path/'atlas_bff_contract/ebin/Elixir.AtlasBFFContract.Runtime.MachineProtocol.beam').is_file()), None)
+    build = next((path for path in candidates if (path/'atlas_bff_contract/ebin/Elixir.AtlasBFFContract.Wire.Runtime.MachineProtocol.beam').is_file()), None)
     if build is None:
         print('Runtime status: unsupported (machine status codec not built; build bff/contract first)', file=sys.stderr)
         return 2
@@ -149,11 +149,43 @@ def operate(root, client_file, environment, request):
         return dict(report, message='local Runtime lifecycle refused: '+str(error))
 
 
+def resolve_client(root, environment):
+    """The environment's settings file and name, by the rule bin/atlas follows: ATLAS_ENV_FILE
+    (a private instance whose environment is the file's "env"), else env/<env>.json with prod
+    by default. A given environment and the file's "env" must agree."""
+    private = os.environ.get('ATLAS_ENV_FILE', '')
+    if private:
+        settings = Path(private).expanduser()
+    else:
+        environment = environment or 'prod'
+        settings = Path(root)/'env'/(environment+'.json')
+    if not settings.is_file():
+        raise ValueError("no environment '%s' (no %s)" % (environment, settings))
+    settings = settings.resolve()
+    try:
+        named = json.loads(settings.read_text()).get('env')
+    except (OSError, ValueError, AttributeError):
+        raise ValueError('%s is not an environment file' % settings)
+    environment = environment or named
+    if environment not in ('test', 'prod'):
+        raise ValueError("no environment '%s'; use --env test or --env prod" % environment)
+    if named != environment:
+        raise ValueError('%s is for %s, not %s' % (settings, named, environment))
+    return str(settings), environment
+
+
 def main():
-    command, root, client_file, environment, *options = sys.argv[1:]
-    if command in ('runtime-status', 'runtime', 'runtime-stop', 'runtime-start'):
-        action = {'runtime-status': 'status', 'runtime': 'start', 'runtime-start': 'start', 'runtime-stop': 'stop'}[command]
-        return status_cli(root, environment, options, action, client_file)
+    command, root, *rest = sys.argv[1:]
+    # The node operations, as atlas-runtime node launches them: <root> <env or ''> [options].
+    if command in ('runtime-status', 'runtime-start', 'runtime-stop'):
+        environment, *options = rest
+        try:
+            client_file, environment = resolve_client(root, environment)
+        except ValueError as error:
+            print('atlas-runtime node: '+str(error), file=sys.stderr)
+            return 1
+        return status_cli(root, environment, options, command[len('runtime-'):], client_file)
+    client_file, environment, *options = rest
     if command == '_runtime-status-observe':
         print(json.dumps(observe_status(root, environment, json.loads(options[0]), client_file=client_file)))
         return 0

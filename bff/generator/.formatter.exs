@@ -1,6 +1,7 @@
 # The schema DSL reads without parentheses, in a contract and in tests.
 schema_dsl = [
   version: 1,
+  defoperation: 2,
   defblock: 2,
   defmodel: 2,
   defmarkup: 2,

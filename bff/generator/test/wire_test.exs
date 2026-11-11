@@ -152,12 +152,137 @@ defmodule AtlasBFF.WireTest do
         defmodule unquote(module) do
           use AtlasBFF.Schema
           version "1"
-          protocol(unquote(Macro.escape(Contract.__schema__().protocol)))
+          protocol_from(Contract)
           defendpoint :probe, call: :probe, wire: :probe, replies: [done: :view_model]
         end
       end
     )
 
     assert module.__schema__().protocol == Contract.__schema__().protocol
+  end
+
+  test "individual operations and imports preserve plain descriptors and declaration order" do
+    [probe, stop, local] = Contract.__schema__().protocol
+    imported = compile_spec(operation(stop))
+
+    module =
+      compile_spec("""
+      descriptor = #{inspect(Map.delete(probe, :name), limit: :infinity)}
+      defoperation :probe, descriptor
+      protocol_from(#{inspect(imported)})
+      #{operation(local)}
+      """)
+
+    assert module.__schema__().protocol == Contract.__schema__().protocol
+  end
+
+  test "invalid declarations report the declaration file and line" do
+    [probe | _] = Contract.__schema__().protocol
+
+    for {body, message} <- [
+          {operation(%{probe | name: "probe"}), ~r/invalid wire name/},
+          {operation(%{probe | direction: :other}), ~r/invalid wire direction/},
+          {operation(Map.put(probe, :extra, true)), ~r/unknown wire metadata/},
+          {operation(Map.delete(probe, :channel)), ~r/channel/},
+          {operation(%{probe | replies: nil}), ~r/Enumerable/},
+          {"defoperation :probe, []", ~r/wire descriptor must be a map/}
+        ] do
+      error = assert_raise CompileError, message, fn -> compile_spec(body) end
+      assert error.file == "wire_contract.ex"
+      assert error.line == 4
+    end
+  end
+
+  test "duplicate operations point to the later declaration or import" do
+    [probe | _] = Contract.__schema__().protocol
+    declaration = operation(probe)
+    import = "protocol_from(#{inspect(Contract)})"
+
+    for body <- [
+          "#{declaration}\n#{declaration}",
+          "#{declaration}\n#{import}",
+          "#{import}\n#{declaration}"
+        ] do
+      error =
+        assert_raise CompileError, ~r/duplicate wire descriptor/, fn -> compile_spec(body) end
+
+      assert error.file == "wire_contract.ex"
+      assert error.line == 5
+    end
+  end
+
+  test "imported descriptors are checked against the importing contract models" do
+    [probe | _] = Contract.__schema__().protocol
+    probe = put_in(probe.request.required, %{"payload" => :payload})
+
+    imported =
+      compile_spec("""
+      defmodel :payload do
+        field :value, :string
+      end
+      #{operation(probe)}
+      """)
+
+    error =
+      assert_raise CompileError, ~r/invalid envelope field/, fn ->
+        compile_spec("protocol_from(#{inspect(imported)})")
+      end
+
+    assert error.file == "wire_contract.ex"
+    assert error.line == 4
+
+    module =
+      compile_spec("""
+      models_from(#{inspect(imported)})
+      protocol_from(#{inspect(imported)})
+      """)
+
+    assert module.__schema__().protocol == [probe]
+    assert module.__schema__().models == imported.__schema__().models
+  end
+
+  test "wire conflicts and endpoint mismatches keep their declaration locations" do
+    [probe | _] = Contract.__schema__().protocol
+    other = %{probe | name: :other}
+
+    error =
+      assert_raise CompileError, ~r/overlapping/, fn ->
+        compile_spec("#{operation(probe)}\n#{operation(other)}")
+      end
+
+    assert error.file == "wire_contract.ex"
+    assert error.line == 5
+
+    error =
+      assert_raise CompileError, ~r/call mismatch/, fn ->
+        compile_spec("""
+        #{operation(probe)}
+        defendpoint :probe, call: :other, wire: :probe, replies: [done: :view_model]
+        """)
+      end
+
+    assert error.file == "wire_contract.ex"
+    assert error.line == 5
+  end
+
+  defp operation(wire) do
+    "defoperation #{inspect(wire.name)}, #{inspect(Map.delete(wire, :name), limit: :infinity)}"
+  end
+
+  defp compile_spec(body) do
+    module = Module.concat(__MODULE__, "Fixture#{System.unique_integer([:positive])}")
+
+    Code.compile_string(
+      """
+      defmodule #{inspect(module)} do
+        use AtlasBFF.Schema
+        version "1"
+        #{body}
+      end
+      """,
+      "wire_contract.ex"
+    )
+
+    module
   end
 end

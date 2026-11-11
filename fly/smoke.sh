@@ -28,8 +28,8 @@ dir="$(mktemp -d)"
 port="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
 jq --arg dir "$dir" --argjson port "$port" \
   '.fly.in_use = true | .fly.local = $dir | .control.port = $port' "$root/env/$env.json" >"$dir/$env.json"
-atlas() { ATLAS_ENV_FILE="$dir/$env.json" ATLAS_NO_UPDATE=1 "$root/bin/atlas" "$@" --env "$env"; }
-trap 'atlas stop >/dev/null 2>&1 || true; rm -rf "$dir"' EXIT
+ops() { ATLAS_ENV_FILE="$dir/$env.json" ATLAS_NO_UPDATE=1 "$root/bin/atlas-ops" "$@" --env "$env"; }
+trap 'ops tunnel close >/dev/null 2>&1 || true; rm -rf "$dir"' EXIT
 
 if [ -n "$label" ]; then
   running="$("$fly" status -a "$app" --json | jq -r '.Machines[0].image_ref.tag')"

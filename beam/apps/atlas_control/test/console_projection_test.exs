@@ -36,6 +36,65 @@ defmodule AtlasControl.ConsoleProjectionTest do
   defp current,
     do: %{path: "/k/widget", context: "browse", generation: 1, on: "items", row: "one"}
 
+  test "declared worker operations share normal action scope, availability and validation" do
+    execution = %{
+      "worker" => %{"environment" => "test", "machine" => "machine", "worker" => "worker"},
+      "turn" => "turn",
+      "attempt" => "1"
+    }
+
+    declaration = %{
+      label: "Connect or retry output",
+      keys: ["o"],
+      operation: %{
+        "name" => "worker_output_subscribe",
+        "execution" => execution,
+        "cursor" => "accepted-output-cursor"
+      },
+      on: "items",
+      row: nil,
+      available: false,
+      reason: "Output unavailable"
+    }
+
+    page = put_in(native(), ["blocks", Access.at(0), "props", "rows"], [])
+    assert {:ok, projected} = AtlasControl.Console.project(page, 1, [declaration])
+    assert {:ok, projection} = Console.compile(projected)
+    action = Enum.find(projection.actions, &(&1["props"]["label"] == declaration.label))
+    assert action["props"]["operation"] == declaration.operation
+    assert action["props"]["scope"]["on"] == "items"
+    refute action["props"]["available"]
+    assert {:error, :unavailable_binding} = Console.capture(projection, "o", current())
+
+    enabled = %{declaration | available: true, reason: nil}
+    assert {:ok, projected} = AtlasControl.Console.project(page, 1, [enabled])
+    assert {:ok, projection} = Console.compile(projected)
+    assert {:ok, event} = Console.capture(projection, "o", current())
+    assert {:ok, action} = Console.resolve(projection, event, current())
+    assert action["props"]["operation"] == declaration.operation
+
+    assert {:error, :stale_or_unavailable_action} =
+             Console.resolve(projection, event, %{current() | path: "/workers"})
+
+    for operation <- [
+          Map.put(declaration.operation, "interaction", "wrong-cursor-domain"),
+          Map.put(declaration.operation, "execution", %{"turn" => "turn"}),
+          %{
+            "name" => "worker_output_next",
+            "subscription" => "viewer-token",
+            "cursor" => "cursor"
+          },
+          %{
+            "name" => "worker_receipts",
+            "execution" => execution,
+            "interaction_source" => "arbitrary"
+          }
+        ] do
+      assert {:error, _} =
+               AtlasControl.Console.project(page, 1, [%{enabled | operation: operation}])
+    end
+  end
+
   test "bindings and legend consume the same scoped action objects" do
     assert {:ok, page} = AtlasControl.Console.project(native(), 2)
     assert {:ok, projection} = Console.compile(page)
@@ -123,6 +182,73 @@ defmodule AtlasControl.ConsoleProjectionTest do
     refute Console.operation?(%{"name" => "quit", "to" => "/"})
     refute Console.key?("\n")
     refute Console.key?("\e")
+  end
+
+  defp panes do
+    page = native()
+    content = %{"id" => "content", "type" => "item", "props" => %{"title" => "Content"}}
+
+    %{
+      page
+      | "blocks" => [content | page["blocks"]],
+        "markup" => [
+          %{
+            "kind" => "part",
+            "start" => "content",
+            "end" => "content",
+            "props" => %{"role" => "main", "title" => "Content"}
+          },
+          %{
+            "kind" => "part",
+            "start" => "items",
+            "end" => "items",
+            "props" => %{"role" => "related", "title" => "References"}
+          }
+        ]
+    }
+  end
+
+  test "complete panes expose browse-only focus bindings without replacing tab navigation" do
+    {:ok, page} = AtlasControl.Console.project(panes(), 2)
+    {:ok, projection} = Console.compile(page)
+    {:ok, bindings} = Console.bindings(projection, current())
+    assert bindings["["]["props"]["operation"]["name"] == "part_previous"
+    assert bindings["]"]["props"]["operation"]["name"] == "part_next"
+    assert bindings["Tab"]["props"]["operation"]["name"] == "tab_next"
+    assert bindings["Shift+Tab"]["props"]["operation"]["name"] == "tab_previous"
+
+    for context <- ["form", "ask", "step_form"] do
+      {:ok, editing} = Console.bindings(projection, %{current() | context: context})
+      refute Map.has_key?(editing, "[")
+      refute Map.has_key?(editing, "]")
+    end
+  end
+
+  test "absent single nested and incomplete panes do not offer focus cycling" do
+    page = panes()
+    [content, references] = page["markup"]
+    whole = %{content | "end" => "items"}
+
+    for markup <- [[], [whole], [content], [whole, content, references]] do
+      {:ok, projected} = AtlasControl.Console.project(%{page | "markup" => markup}, 2)
+      {:ok, projection} = Console.compile(projected)
+      {:ok, bindings} = Console.bindings(projection, current())
+      refute Map.has_key?(bindings, "[")
+      refute Map.has_key?(bindings, "]")
+    end
+  end
+
+  test "native view bindings retain precedence over pane aliases" do
+    page =
+      put_in(panes(), ["blocks", Access.at(0), "props", "actions"], [
+        %{"key" => "]", "label" => "Open", "to" => "/k/widget/one"}
+      ])
+
+    {:ok, projected} = AtlasControl.Console.project(page, 2)
+    {:ok, projection} = Console.compile(projected)
+    {:ok, bindings} = Console.bindings(projection, current())
+    assert bindings["]"]["props"]["operation"] == %{"name" => "open", "to" => "/k/widget/one"}
+    assert bindings["["]["props"]["operation"]["name"] == "part_previous"
   end
 
   test "projection expansion is bounded before materializing row actions" do

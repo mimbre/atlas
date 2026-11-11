@@ -1,6 +1,6 @@
 defmodule AtlasBFFContract.RuntimeTest do
   use ExUnit.Case, async: true
-  alias AtlasBFFContract.Runtime.Protocol, as: Wire
+  alias AtlasBFFContract.Wire.Runtime.Protocol, as: Wire
 
   @target %{"environment" => "private", "machine" => "local", "worker" => "stub"}
   @status %{
@@ -86,10 +86,10 @@ defmodule AtlasBFFContract.RuntimeTest do
   end
 
   test "shared imported models, generated structs and unfenced execution remain honest" do
-    own = AtlasBFFContract.Runtime.__schema__().models
-    shared = AtlasBFFContract.Blocks.__schema__().models
+    own = AtlasBFFContract.Models.Runtime.__schema__().models
+    shared = AtlasBFFContract.Contract.__schema__().models
     assert Enum.all?(own, fn model -> Enum.any?(shared, &(&1 == model)) end)
-    assert %AtlasBFFContract.Runtime.Types.RuntimeWorker{worker: "stub"}.worker == "stub"
+    assert %AtlasBFFContract.Wire.Runtime.Types.RuntimeWorker{worker: "stub"}.worker == "stub"
     execution = Wire.model(:runtime_execution, %{worker: @target, turn: "private-turn"})
     refute Map.has_key?(execution, "attempt")
     assert Wire.model(:runtime_status, @status) == @status

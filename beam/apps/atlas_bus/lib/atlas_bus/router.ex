@@ -7,7 +7,7 @@ defmodule AtlasBus.Router do
   alias AtlasBus.Envelope
 
   @to_store ~w(fact read)
-  @to_address ~w(refused answer)
+  @to_address ~w(request refused answer)
   # A failure to offer or cause (IS-Atlas-23): addressed to a layer, test only.
   @faults ~w(fault)
   @acknowledged_and_hinted ~w(stored)

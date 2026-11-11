@@ -1,6 +1,6 @@
 # Try UC-Atlas-06: Hand a scene to an agent
 
-This guide grows with the use case, one section per issue. In the end Melle can see the agents, hand a scene to one (with or without a deadline), see the scene with that agent as owner and what it is expected to do ("Break it down into use cases and issues"), and see every open item with its owner, what is expected and whether it is late.
+This guide grows with the use case, one section per issue. In the end the operator can see the agents, hand a scene to one (with or without a deadline), see the scene with that agent as owner and what it is expected to do ("Break it down into use cases and issues"), and see every open item with its owner, what is expected and whether it is late.
 
 ## IS-Atlas-17: the agents, each with what is assigned to it
 
@@ -41,7 +41,7 @@ It is description, plus one general rule in State and Control:
 - **State:** it answers `late` with every fact of a kind with a late rule, plain reads too, and refuses a deadline that is not a date and time. rela itself would store one with only a warning.
 - **Control:**
   - a page shows `Deadline  2026-11-04 17:00 UTC · late`;
-  - a list row shows `Late · deadline 2026-11-04 17:00`, with late first so a narrow column never cuts it off;
+  - a list row supplies `Late · deadline 2026-11-04 17:00`, with late first; the TUI clips the date to fit its compact summary column;
   - a form takes `2026-11-04 17:00` (UTC) or any RFC 3339 time.
 
 ### Try
@@ -50,8 +50,8 @@ In test, with the scene from IS-Atlas-17 assigned to Ada:
 
 | Step | Keys / command | What you should see |
 |---|---|---|
-| A deadline that has passed | `atlas set AS-SC-Atlas-NN deadline="2020-01-02 12:00" --env test` | On Ada's page (`g`, `enter` on Ada) the row says `Late · deadline 2020-01-02 12:00`. `atlas get SC-Atlas-NN` says `Deadline: 2020-01-02 12:00 UTC · late`. |
-| One still to come | `atlas set AS-SC-Atlas-NN deadline=2099-01-02T12:00:00Z --env test` | `Deadline 2099-01-02 12:00`, not late |
+| A deadline that has passed | `atlas set AS-SC-Atlas-NN deadline="2020-01-02 12:00" --env test` | On Ada's page (`g`, `enter` on Ada) the Assignment row starts with `Late · deadline`; the date may end in `…`. `atlas get SC-Atlas-NN --env test` says `Deadline: 2020-01-02 12:00 UTC · late`. |
+| One still to come | `atlas set AS-SC-Atlas-NN deadline=2099-01-02T12:00:00Z --env test` | The Assignment row starts with `Deadline 2099`, not late; its detail page shows the full deadline. |
 | No time | `atlas set AS-SC-Atlas-NN deadline=tomorrow --env test` | Refused: `deadline must be a date and time, e.g. 2026-11-04T17:00:00Z` |
 | By hand in the TUI | `enter` on the Assignment, `u` | **Update AS-SC-Atlas-NN** with **Deadline** (`2026-11-04 17:00`, UTC). Empty removes it. No `d`: an Assignment goes with its fact. |
 | Done | accept the scene | Not late any more: nothing is expected once it is done. |
@@ -136,6 +136,10 @@ It is description, plus Control's list of the kind the start's relation starts a
 - **Control:**
   - the list of the Assignment kind (`/k/assignment`, no new page in the contract) is Open work. It reads every Assignment and every fact they belong to, and shows the open ones.
   - `atlas list assignment` gives the same rows, one per open fact, by the fact's key.
+
+Control gathers Open work's unfiltered collection reads in one internal State request. Within that request, State reuses successful raw collection results when progress or completion needs the same collection again; pagination, enrichment and the complete page output stay unchanged. The data is discarded when the request ends, failed reads are not cached, and every later page request reads fresh data. This does not introduce a public protocol operation or a cross-request cache.
+
+If any required collection fails, Open work shows the existing unavailable page with the read error instead of a partial list or the empty-state message. Successful collections do not make the result complete. A later successful request restores the current rows; only a fully successful read can report that nothing is open.
 
 ### Try
 

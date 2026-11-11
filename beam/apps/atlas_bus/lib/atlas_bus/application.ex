@@ -13,7 +13,7 @@ defmodule AtlasBus.Application do
     link =
       case AtlasBus.Link.settings() do
         %{"mode" => "server"} = settings -> [{AtlasBus.Link.Server, settings}]
-        %{"mode" => "client"} = settings -> [{AtlasBus.Link.Client, settings}]
+        %{"mode" => "client"} -> [AtlasBus.Link.Client]
         _ -> []
       end
 
