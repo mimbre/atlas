@@ -105,7 +105,7 @@ defmodule AtlasFacts.PageReadTest do
     answer
   end
 
-  defp batch, do: read("_page", %{"kinds" => ["box", "jar"]})["answers"]
+  defp batch, do: read("_page", %{"reads" => [["box", %{}], ["jar", %{}]]})["answers"]
 
   test "complete enriched results match ordinary reads and immediately observe outside writes",
        c do
@@ -184,10 +184,19 @@ defmodule AtlasFacts.PageReadTest do
   end
 
   test "batch entry cannot bypass restricted reads or accept another query context" do
+    # A guidance record in a page is read as it is alone: by Guidance's rules, never as
+    # an ordinary fact.
+    assert read("_page", %{"reads" => [["execution", %{}]]})["answers"] == [
+             Map.put(read("execution"), "position", read("box")["position"])
+           ]
+
     for content <- [
-          %{"kinds" => ["execution"]},
-          %{"kinds" => ["box"], "linked" => %{}},
-          %{"kinds" => []}
+          %{"reads" => [["box", %{}]], "linked" => %{}},
+          %{"reads" => [["box", %{"consistency" => "transition"}]]},
+          %{"reads" => [["box"]]},
+          %{"reads" => [["nothing", %{}]]},
+          %{"reads" => []},
+          %{"kinds" => ["box"]}
         ] do
       assert %{"error" => _} = read("_page", content)
     end
@@ -197,7 +206,7 @@ defmodule AtlasFacts.PageReadTest do
     result =
       Task.async(fn ->
         :ok = AtlasBus.attach("other/page-#{System.unique_integer([:positive])}")
-        read("_page", %{"kinds" => ["box"]})
+        read("_page", %{"reads" => [["box", %{}]]})
       end)
       |> Task.await()
 

@@ -7,6 +7,7 @@ defmodule AtlasControl.SessionTest do
     Application.put_env(:atlas_bus, :store, "store-#{System.unique_integer([:positive])}")
     AtlasBus.drop_hints(0)
     start_supervised!(FakeStore)
+    start_supervised!(AtlasControl.FakeFlow)
     start_supervised!({AtlasControl.Gateway, port: 0, name: :gateway, model: AtlasControl.Shop})
 
     # A session waiting on a read sees its client close only after its tries (6 s); stopped
@@ -49,12 +50,44 @@ defmodule AtlasControl.SessionTest do
     AtlasControl.Gateway.port(name)
   end
 
-  # The next message with this op, skipping others; nil when none comes.
+  # The next message with this op, skipping others; nil when none comes. A page pushed
+  # for a recent path off screen (a hint for another path than the last page) is skipped
+  # too, as a client does that keeps no pages of other paths (`pushed/3` takes them).
   defp next(socket, op, timeout \\ 1_000) do
     case :gen_tcp.recv(socket, 0, timeout) do
       {:ok, line} ->
         message = JSON.decode!(line)
-        if message["op"] == op, do: message, else: next(socket, op, timeout)
+
+        cond do
+          message["op"] != op ->
+            next(socket, op, timeout)
+
+          op == "page" and push?(socket, message) ->
+            next(socket, op, timeout)
+
+          true ->
+            if op == "page", do: Process.put({:on_screen, socket}, message["path"])
+            message
+        end
+
+      {:error, :timeout} ->
+        nil
+    end
+  end
+
+  defp push?(socket, %{"reason" => "hint", "path" => path}),
+    do: Process.get({:on_screen, socket}) not in [nil, path]
+
+  defp push?(_socket, _page), do: false
+
+  # The next page pushed for `path` off screen, skipping other messages; nil when none.
+  defp pushed(socket, path, timeout \\ 1_000) do
+    case :gen_tcp.recv(socket, 0, timeout) do
+      {:ok, line} ->
+        case JSON.decode!(line) do
+          %{"op" => "page", "reason" => "hint", "path" => ^path} = page -> page
+          _ -> pushed(socket, path, timeout)
+        end
 
       {:error, :timeout} ->
         nil
@@ -835,9 +868,9 @@ defmodule AtlasControl.SessionTest do
       next(a, "page")
       intercept_reads()
       put(a, %{"op" => "open", "to" => "/k/widget"})
-      assert_receive {:atlas_bus, first, %{"kinds" => kinds} = content}, @arrives
+      assert_receive {:atlas_bus, first, %{"reads" => reads} = content}, @arrives
       assert first.kind == "_page"
-      assert kinds == ["widget", "part"]
+      assert reads == [["widget", %{}], ["part", %{}]]
       # One read for two collections waits as long as their two reads would.
       assert {_, _, 200} = wait = try_wait(first.id)
       run_out(wait)
@@ -1262,5 +1295,331 @@ defmodule AtlasControl.SessionTest do
     put(a, %{"op" => "submit", "to" => "/k/widget/W-1/delete", "values" => %{}})
     assert %{"reason" => "refused"} = next(a, "page")
     assert FakeStore.sent() == sent
+  end
+
+  describe "page freshness (docs/design/page-freshness.md §5)" do
+    alias AtlasControl.FakeFlow
+    import ExUnit.CaptureLog
+
+    # What a `stored` says a write changed, for one fact.
+    defp changed(kind, key, fields, links \\ %{}, relinked \\ []),
+      do: %{
+        "kind" => kind,
+        "key" => key,
+        "op" => "change",
+        "fields" => fields,
+        "relinked" => relinked,
+        "links" => links
+      }
+
+    # Every message up to the session's answer to a request it does not know: what it
+    # sent before, in order. The session handles messages one by one, so whatever it was
+    # given before is done by then.
+    defp sync(socket) do
+      put(socket, %{"op" => "sync"})
+      collect(socket, [])
+    end
+
+    defp collect(socket, seen) do
+      {:ok, line} = :gen_tcp.recv(socket, 0, @arrives)
+
+      case JSON.decode!(line) do
+        %{"op" => "notice", "text" => "Unknown op \"sync\""} -> Enum.reverse(seen)
+        message -> collect(socket, [message | seen])
+      end
+    end
+
+    defp pages(messages), do: for(%{"op" => "page"} = page <- messages, do: page)
+
+    # The reads Facts was sent since `before` (`FakeStore.reads/0` earlier).
+    defp reads_since(before), do: Enum.drop(FakeStore.reads(), length(before))
+
+    # The session's next wait for hints to be handled; the test runs it out.
+    defp flush_wait, do: held_wait(:flush)
+
+    defp create(socket, title) do
+      put(socket, %{"op" => "open", "to" => "/k/widget/new"})
+      assert %{"title" => "Create widget"} = next(socket, "page")
+      put(socket, %{"op" => "submit", "to" => "/k/widget/new", "values" => %{"title" => title}})
+      assert %{"tone" => "pending"} = next(socket, "notice")
+    end
+
+    test "a submit waits for Flow to settle, then reads its page once; a recent page it changed is pushed",
+         %{port: port} do
+      FakeFlow.hold()
+      FakeFlow.tell(self())
+      a = client(port)
+      assert %{"path" => "/"} = next(a, "page")
+      create(a, "One")
+
+      # Stored, but Flow is not done: nothing shows yet.
+      assert_receive {:settled_asked, 1}, @arrives
+      before = FakeStore.reads()
+      assert pages(sync(a)) == []
+      refute_received {:settled_asked, _}
+
+      FakeFlow.settle(1)
+      assert %{"tone" => "ok", "text" => "Stored as W-01 (position 1)."} = next(a, "notice")
+
+      assert %{"path" => "/k/widget/W-01", "reason" => "stored", "position" => 1} =
+               next(a, "page")
+
+      # The list it was made from was viewed before, and lists it now.
+      assert rows(pushed(a, "/")) == ["One"]
+      assert reads_since(before) == ["_page", "_page"]
+      refute_received {:settled_asked, _}
+    end
+
+    test "a settle timeout sends the page as Facts has it, logs one line, and says nothing more",
+         %{port: port} do
+      hold_clock()
+      FakeFlow.hold()
+      a = client(port)
+      next(a, "page")
+      create(a, "One")
+      assert {_, _, 1_000} = wait = held_wait({:settle_timeout, _})
+
+      log =
+        capture_log(fn ->
+          run_out(wait)
+
+          assert [
+                   %{"op" => "notice", "tone" => "ok"},
+                   %{"op" => "page", "reason" => "stored", "path" => "/k/widget/W-01"} | rest
+                 ] = sync(a)
+
+          # The rest: the list it was made from, pushed; no notice.
+          assert [%{"path" => "/", "reason" => "hint"}] = rest
+        end)
+
+      assert log =~
+               "control: settle timeout position=1 budget_ms=1000 settled=none marked_keys=1"
+
+      assert length(String.split(log, "settle timeout")) == 2
+      # The wait is over: a late answer from Flow changes nothing.
+      FakeFlow.settle(1)
+      assert pages(sync(a)) == []
+    end
+
+    test "an open while the write settles: its notice comes, its page does not",
+         %{port: port} do
+      FakeFlow.hold()
+      FakeFlow.tell(self())
+      a = client(port)
+      next(a, "page")
+      create(a, "One")
+      assert_receive {:settled_asked, 1}, @arrives
+      put(a, %{"op" => "open", "to" => "/k/part"})
+      assert %{"path" => "/k/part", "reason" => "open"} = next(a, "page")
+
+      FakeFlow.settle(1)
+      assert %{"tone" => "ok"} = next(a, "notice")
+      refute Enum.any?(pages(sync(a)), &(&1["reason"] == "stored"))
+    end
+
+    test "50 hints and one flush give one read; a hint of something not shown gives none",
+         %{port: port} do
+      FakeStore.put("W-1", %{"title" => "One"})
+      hold_clock()
+      a = client(port)
+      assert %{"path" => "/"} = next(a, "page")
+      before = FakeStore.reads()
+
+      # Flow's writes: no wait for Flow to settle.
+      for _ <- 1..50,
+          do: FakeStore.hint("widget", "W-1", [changed("widget", "W-1", ["title"])], "flow")
+
+      {pid, _, _} = flush_wait()
+      send(pid, :flush)
+      assert [%{"reason" => "hint", "path" => "/", "position" => 50}] = pages(sync(a))
+      assert reads_since(before) == ["_page"]
+
+      before = FakeStore.reads()
+      FakeStore.hint("part", "P-9", [changed("part", "P-9", ["title"])], "flow")
+      {pid, _, _} = flush_wait()
+      send(pid, :flush)
+      assert pages(sync(a)) == []
+      assert reads_since(before) == []
+    end
+
+    test "others' writes: the flush waits briefly for Flow to settle past them, then reads once",
+         %{port: port} do
+      FakeStore.put("W-1", %{"title" => "One"})
+      hold_clock()
+      FakeFlow.hold()
+      FakeFlow.tell(self())
+      a = client(port)
+      next(a, "page")
+      before = FakeStore.reads()
+
+      FakeStore.hint("widget", "W-1", [changed("widget", "W-1", ["title"])], "ada")
+      {pid, _, _} = flush_wait()
+      send(pid, :flush)
+      assert_receive {:settled_asked, 1}, @arrives
+      assert {_, _, 250} = held_wait({:settle_timeout, _})
+      assert pages(sync(a)) == []
+      assert reads_since(before) == []
+
+      FakeFlow.settle(1)
+      assert %{"reason" => "hint", "position" => 1} = next(a, "page")
+      assert reads_since(before) == ["_page"]
+    end
+
+    test "at most 3 recent pages are pushed per flush, the most recently viewed first; the rest are forgotten",
+         %{port: port} do
+      for n <- 1..4, do: FakeStore.put("W-#{n}", %{"title" => "#{n}"})
+      hold_clock()
+      a = client(port)
+      next(a, "page")
+
+      for n <- 1..4 do
+        put(a, %{"op" => "open", "to" => "/k/widget/W-#{n}"})
+        assert %{"path" => "/k/widget/W-" <> _} = next(a, "page")
+      end
+
+      put(a, %{"op" => "open", "to" => "/k/part"})
+      assert %{"path" => "/k/part"} = next(a, "page")
+      before = FakeStore.reads()
+
+      every = for n <- 1..4, do: changed("widget", "W-#{n}", ["title"])
+      FakeStore.hint("widget", "W-1", every, "flow")
+      {pid, _, _} = flush_wait()
+      send(pid, :flush)
+
+      # The page on screen lists parts: not sent again.
+      assert for(p <- pages(sync(a)), do: {p["path"], p["reason"]}) == [
+               {"/k/widget/W-4", "hint"},
+               {"/k/widget/W-3", "hint"},
+               {"/k/widget/W-2", "hint"}
+             ]
+
+      assert reads_since(before) == ["_page", "_page", "_page"]
+
+      # W-1 and the start page were forgotten: read again only when opened again.
+      before = FakeStore.reads()
+      FakeStore.hint("widget", "W-1", [changed("widget", "W-1", ["title"])], "flow")
+      {pid, _, _} = flush_wait()
+      send(pid, :flush)
+      assert pages(sync(a)) == []
+      assert reads_since(before) == []
+    end
+
+    test "a form gets a notice only when what it was read from changed, and is never redrawn",
+         %{port: port} do
+      FakeStore.put("W-1", %{"title" => "One"})
+      FakeStore.put("W-2", %{"title" => "Two"})
+      hold_clock()
+      a = client(port)
+      next(a, "page")
+      put(a, %{"op" => "open", "to" => "/k/widget/W-1/edit"})
+      assert %{"blocks" => [%{"type" => "form"}]} = next(a, "page")
+
+      # Another widget: no notice. The start page, off screen, lists it: pushed.
+      FakeStore.hint("widget", "W-2", [changed("widget", "W-2", ["title"])], "flow")
+      {pid, _, _} = flush_wait()
+      send(pid, :flush)
+      assert [%{"op" => "page", "path" => "/", "reason" => "hint"}] = sync(a)
+
+      FakeStore.hint("widget", "W-1", [changed("widget", "W-1", ["title"])], "flow")
+      {pid, _, _} = flush_wait()
+      send(pid, :flush)
+
+      assert [%{"op" => "notice", "tone" => "info", "text" => text} | rest] = sync(a)
+      assert text == "W-1 was changed elsewhere (position 2)."
+      assert for(p <- pages(rest), do: p["path"]) == ["/"]
+    end
+
+    test "a submit that changes what is counted: its stored page carries the new count, once" do
+      port = gateway(Shop.Assigning)
+      FakeStore.put("K-1", %{"title" => "Kay"}, "keeper")
+      FakeStore.put("W-1", %{"title" => "One"}, "widget", %{"kept_by" => ["K-1"]})
+      FakeStore.put("W-2", %{"title" => "Two"})
+      Application.put_env(:atlas_control, :tui_user, "K-1")
+      on_exit(fn -> Application.delete_env(:atlas_control, :tui_user) end)
+
+      {:ok, tui} = :gen_tcp.connect(~c"127.0.0.1", port, [:binary, packet: :line, active: false])
+
+      put(tui, %{
+        "op" => "hello",
+        "env" => "test",
+        "client" => "tui",
+        "spec" => AtlasControl.Blocks.version()
+      })
+
+      assert %{"count" => "1 kept by you"} = next(tui, "page")
+      put(tui, %{"op" => "open", "to" => "/k/widget/W-2/links/kept_by"})
+      assert %{"blocks" => [%{"type" => "form"}]} = next(tui, "page")
+
+      put(tui, %{
+        "op" => "submit",
+        "to" => "/k/widget/W-2/links/kept_by",
+        "values" => %{"to" => "K-1"}
+      })
+
+      assert %{"path" => "/k/widget/W-2", "reason" => "stored", "count" => "2 kept by you"} =
+               next(tui, "page")
+
+      # What is kept by the client, viewed before, is pushed; the page on screen is not sent
+      # again.
+      assert [%{"path" => "/", "reason" => "hint", "count" => "2 kept by you"}] = pages(sync(tui))
+    end
+
+    test "the header's count is read again only when what it was read from changed",
+         %{port: _port} do
+      port = gateway(Shop.Assigning)
+      FakeStore.put("K-1", %{"title" => "Kay"}, "keeper")
+      FakeStore.put("W-1", %{"title" => "One"}, "widget", %{"kept_by" => ["K-1"]})
+      FakeStore.put("W-2", %{"title" => "Two"})
+      Application.put_env(:atlas_control, :tui_user, "K-1")
+      on_exit(fn -> Application.delete_env(:atlas_control, :tui_user) end)
+      hold_clock()
+
+      {:ok, tui} = :gen_tcp.connect(~c"127.0.0.1", port, [:binary, packet: :line, active: false])
+
+      put(tui, %{
+        "op" => "hello",
+        "env" => "test",
+        "client" => "tui",
+        "spec" => AtlasControl.Blocks.version()
+      })
+
+      assert %{"title" => "Kept by you", "count" => "1 kept by you"} = next(tui, "page")
+
+      # Another page reuses the count: one read, for the page.
+      before = FakeStore.reads()
+      put(tui, %{"op" => "open", "to" => "/k/part"})
+      assert %{"path" => "/k/part", "count" => "1 kept by you"} = next(tui, "page")
+      assert reads_since(before) == ["_page"]
+
+      # A widget not kept by the client changed: nothing it counts.
+      before = FakeStore.reads()
+      FakeStore.hint("widget", "W-2", [changed("widget", "W-2", ["title"])], "flow")
+      {pid, _, _} = flush_wait()
+      send(pid, :flush)
+      assert pages(sync(tui)) == []
+      assert reads_since(before) == []
+
+      # It is kept by the client now: the count is read again, with the page it heads.
+      FakeStore.put("W-2", %{"title" => "Two"}, "widget", %{"kept_by" => ["K-1"]})
+
+      FakeStore.hint(
+        "widget",
+        "W-2",
+        [changed("widget", "W-2", [], %{"kept_by" => ["K-1"]}, ["kept_by"])],
+        "flow"
+      )
+
+      {pid, _, _} = flush_wait()
+      send(pid, :flush)
+
+      # The page on screen with its count, then what is kept by the client, pushed.
+      assert [
+               %{"path" => "/k/part", "reason" => "hint", "count" => "2 kept by you"},
+               %{"path" => "/", "reason" => "hint", "title" => "Kept by you"} = kept
+             ] = pages(sync(tui))
+
+      assert rows(kept) == ["One", "Two"] or rows(kept) == ["Two", "One"]
+      assert reads_since(before) == ["_page", "_page", "_page"]
+    end
   end
 end

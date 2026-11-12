@@ -39,34 +39,57 @@ defmodule AtlasControl.PageReadsTest do
 
   @description AtlasControl.Model.catalog(Model)
 
-  test "assigned page and header use the same batch as Open work, then select the owner" do
+  test "a page asks its reads in one _page read, and takes the answers in order" do
     mine = %{"key" => "T-1", "links" => %{"held_by" => ["K-1"]}}
     other = %{"key" => "T-2", "links" => %{"held_by" => ["K-2"]}}
     box = %{"key" => "B-1", "links" => %{"tagged" => ["T-1"]}}
 
     ask = fn kind, content, budget ->
       assert kind == "_page"
-      assert content == %{"kinds" => ["tag", "box"]}
-      assert budget == 2
-      send(self(), :batch)
-      %{"answers" => [%{"facts" => [mine, other]}, %{"facts" => [box]}]}
+      send(self(), {:page, content, budget})
+
+      case content["reads"] do
+        [["tag", %{"linked" => %{"held_by" => "K-1"}}], ["box", %{}]] ->
+          %{
+            "answers" => [
+              %{"facts" => [mine], "position" => 4},
+              %{"facts" => [box], "position" => 4}
+            ]
+          }
+
+        [["tag", %{}], ["box", %{}]] ->
+          %{"answers" => [%{"facts" => [mine, other]}, %{"facts" => [box]}]}
+      end
     end
 
     assigned = PageReads.answers({:assigned, "K-1"}, @description, ask)
-    assert_receive :batch
-    refute_received :batch
-    assert assigned == [%{"facts" => [mine]}, %{"facts" => [box]}]
+    # One read for two: it waits as long as the two would.
+    assert_receive {:page, _, 2}
+    refute_received {:page, _, _}
     assert Pages.assigned_facts(@description, assigned) == [{"box", box, mine}]
     assert Pages.assigned_count(@description, assigned) == "1"
 
     assert PageReads.answers({:list, "tag"}, @description, ask) ==
              [%{"facts" => [mine, other]}, %{"facts" => [box]}]
+
+    # The Assignments are the rows; their owners only resolve them.
+    assert PageReads.roles({:assigned, "K-1"}, @description) == [{"tag", :rows}, {"box", :lookup}]
+    assert PageReads.roles({:list, "box"}, @description) == [{"box", :rows}]
   end
 
-  test "batch errors occupy every planned answer" do
+  test "a page without reads asks nothing" do
+    assert PageReads.answers({:new, "box"}, @description, fn _, _, _ -> flunk("asked") end) == []
+  end
+
+  test "a failed page read is the answer of each of its reads" do
     assert PageReads.answers({:assigned, "K-1"}, @description, fn _, _, _ ->
              %{"error" => "down"}
            end) ==
              [%{"error" => "down"}, %{"error" => "down"}]
+
+    assert PageReads.answers({:assigned, "K-1"}, @description, fn _, _, _ ->
+             %{"answers" => [%{"facts" => []}]}
+           end) ==
+             List.duplicate(%{"error" => "Facts returned invalid page reads"}, 2)
   end
 end

@@ -77,12 +77,17 @@ defmodule AtlasFacts.CollectionReadsTest do
   test "the owner header's collection plan costs at most six backend calls cold", c do
     # The same ordinary collections as Control's assigned plan: tags and the
     # three owner kinds. Progress adds the stamp collection; schema is one call.
-    assert %{"answers" => answers} = read("_page", %{"kinds" => ["tag", "box", "jar", "bead"]})
+    assert %{"answers" => answers} =
+             read("_page", %{"reads" => [["tag", %{}], ["box", %{}], ["jar", %{}], ["bead", %{}]]})
+
     assert length(answers) == 4
     assert Enum.all?(answers, &is_list(&1["facts"]))
     assert Enum.sum(Map.values(CountingRela.calls(c.backend))) <= 6
     CountingRela.reset(c.backend)
-    assert %{"answers" => ^answers} = read("_page", %{"kinds" => ["tag", "box", "jar", "bead"]})
+
+    assert %{"answers" => ^answers} =
+             read("_page", %{"reads" => [["tag", %{}], ["box", %{}], ["jar", %{}], ["bead", %{}]]})
+
     assert CountingRela.calls(c.backend) == %{}
   end
 

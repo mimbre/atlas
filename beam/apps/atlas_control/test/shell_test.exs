@@ -17,6 +17,7 @@ defmodule AtlasControl.ShellTest do
     Application.put_env(:atlas_bus, :store, "shell-#{System.unique_integer([:positive])}")
     AtlasBus.drop_hints(0)
     start_supervised!({FakeStore, model: Shop.Shelled})
+    start_supervised!(AtlasControl.FakeFlow)
     start_supervised!({AtlasControl.Gateway, port: 0, name: :shell_gateway, model: Shop.Shelled})
     old_timeout = Application.get_env(:atlas_control, :read_timeout_ms)
     Application.put_env(:atlas_control, :read_timeout_ms, 20)

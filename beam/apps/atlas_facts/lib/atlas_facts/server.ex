@@ -18,7 +18,9 @@ defmodule AtlasFacts.Server do
     fact that set each: since, by, cause; `AtlasFacts.Links`), and what the model works
     out for them (`derived/3`: `progress`, why they are `completion`, `review`, `late`):
     worked out on every read, never stored. One fact also carries the `history` of its
-    links. A read of facts (each answer of a `_page` too) says what it depended on
+    links. A `_page` read (Control's only) asks for several reads at once (`"reads" =>
+    [[kind, content]]`) and answers them in order from one snapshot, at one position.
+    A read of facts (each answer of a `_page` too) says what it depended on
     (`deps`) and, when a value in it changes by time alone, when (`until`;
     `AtlasFacts.Freshness.Deps`).
 
@@ -48,6 +50,9 @@ defmodule AtlasFacts.Server do
 
   @description "_description"
   @page "_page"
+  # How many reads one page may ask for, and what each may say (no other query context).
+  @page_reads 64
+  @page_read_keys ~w(key linked plain incoming)
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name))
 
@@ -632,14 +637,20 @@ defmodule AtlasFacts.Server do
   defp read(%{description: nil} = state, @page, _content),
     do: {read_error(:unavailable), state}
 
-  defp read(state, @page, %{"kinds" => kinds} = content) when is_list(kinds) do
+  # A page's reads (`"reads" => [[kind, content]]`), each answered as that read alone
+  # would be, in order, from one snapshot: one position, and lists read once per page.
+  defp read(state, @page, %{"reads" => reads} = content) when is_list(reads) do
     entities = state.description["entities"] || %{}
 
     valid? =
-      map_size(content) == 1 and kinds != [] and length(kinds) <= map_size(entities) and
-        Enum.all?(kinds, fn kind ->
-          is_binary(kind) and is_binary(get_in(entities, [kind, "plural"])) and
-            AtlasFacts.Guidance.role(context(state), kind) == nil
+      map_size(content) == 1 and reads != [] and length(reads) <= @page_reads and
+        Enum.all?(reads, fn
+          [kind, read] when is_binary(kind) and is_map(read) ->
+            is_binary(get_in(entities, [kind, "plural"])) and
+              Enum.all?(Map.keys(read), &(&1 in @page_read_keys))
+
+          _ ->
+            false
         end)
 
     if valid? do
@@ -648,8 +659,8 @@ defmodule AtlasFacts.Server do
 
       try do
         {answers, state} =
-          Enum.map_reduce(kinds, Map.put(state, :page_lists, key), fn kind, state ->
-            {answer, state} = answered_read(state, kind, %{})
+          Enum.map_reduce(reads, Map.put(state, :page_lists, key), fn [kind, read], state ->
+            {answer, state} = page_answer(state, kind, read)
             {Map.put(answer, "position", Ledger.position(state.ledger)), state}
           end)
 
@@ -658,12 +669,12 @@ defmodule AtlasFacts.Server do
         Process.delete(key)
       end
     else
-      {answered("invalid ordinary page collection reads"), state}
+      {answered("invalid page reads"), state}
     end
   end
 
   defp read(state, @page, _content),
-    do: {answered("page reads require a bounded list of ordinary kinds"), state}
+    do: {answered("page reads require a bounded list of reads of described kinds"), state}
 
   defp read(state, kind, content) do
     with {:ok, spec, state} <- kind_spec(state, kind) do
@@ -683,6 +694,26 @@ defmodule AtlasFacts.Server do
     else
       {:error, :unavailable, state} -> {read_error(:unavailable), state}
       {:error, reason, state} -> {%{"error" => reason, "error_kind" => "answered"}, state}
+    end
+  end
+
+  # A read in a page is answered as it would be alone: a guidance record by Guidance (with
+  # its own rules for what may be read), any other fact as an ordinary read.
+  defp page_answer(state, kind, read) do
+    case AtlasFacts.Guidance.role(context(state), kind) do
+      nil ->
+        answered_read(state, kind, read)
+
+      role ->
+        rela = AtlasFacts.Collections.uncached(state.rela)
+
+        case AtlasFacts.Guidance.read(rela, context(state), role, read) do
+          {:ok, answer} ->
+            {answer, state}
+
+          {:error, reason} ->
+            {%{"error" => inspect(reason), "code" => guidance_code(reason)}, state}
+        end
     end
   end
 

@@ -322,48 +322,6 @@ defmodule AtlasControl.Pages do
   def kind_of(:kinds), do: nil
   def kind_of(route), do: elem(route, 1)
 
-  @doc """
-  Whether a hint of `kind` can change what `route` shows: a fact of the kind on screen,
-  of a kind listed under it, or of a kind whose facts change their progress.
-  """
-  def shows?(:home, _m, _kind), do: true
-  def shows?({:assigned, _by}, _m, _kind), do: true
-
-  def shows?({:worker_page, _, _}, m, kind),
-    do:
-      kind == get_in(m.turn || %{}, ["kind"]) or
-        kind in Enum.map(
-          ~w(execution interaction receipt),
-          &get_in(m.guidance || %{}, [&1, "kind"])
-        )
-
-  def shows?({page, of, _key} = route, m, kind) when page in [:item, :delete] do
-    listed = Enum.map(child_relations(m, of), &elem(&1, 1))
-
-    kind == kind_of(route) or kind in listed or
-      Enum.any?(listed, &(kind in progress_from(m, &1))) or
-      kind in Enum.map(cause_fields(m), &elem(&1, 0)) or
-      kind in for({_relation, part_kind, _component} <- components(m, of), do: part_kind)
-  end
-
-  def shows?({:list, of} = route, m, kind),
-    do:
-      open_work?(m, of) or kind == kind_of(route) or kind in progress_from(m, of) or
-        kind in for(c <- counts(m, of), do: c.from)
-
-  def shows?(route, _m, kind), do: kind == kind_of(route)
-
-  @doc """
-  The kinds whose facts change the progress of `kind` (the facts it rolls up, at any
-  depth), or whether it is completed (the kinds whose facts it looks at).
-  """
-  def progress_from(m, kind) do
-    case kind(m, kind) do
-      %{} = k -> k.progress_from
-      _ -> []
-    end
-  end
-
   def form?({:worker_page, :worker_guidance, _}), do: true
   def form?(route), do: elem_match?(route, [:new, :edit, :links, :remove, :answer])
 
@@ -461,6 +419,37 @@ defmodule AtlasControl.Pages do
 
   def reads(:unknown, _), do: []
   def reads(:kinds, _), do: []
+
+  @doc """
+  The role of each of `reads(route, m)`, in the same order (`AtlasControl.Freshness.ReadSet`):
+  `:rows` when its facts are the page's rows, `:lookup` when it only resolves facts that
+  the rows point at or that point at them: on what is assigned and in Open work, the
+  facts the Assignments are components of.
+  """
+  def read_roles(:home, m) do
+    case top_kinds(m) do
+      [kind] -> read_roles({:list, kind}, m)
+      _ -> []
+    end
+  end
+
+  def read_roles(route, m) do
+    lookups =
+      case route do
+        {:assigned, _} -> owner_reads(m)
+        {:list, kind} when is_binary(kind) -> if open_work?(m, kind), do: owner_reads(m), else: 0
+        _ -> 0
+      end
+
+    n = length(reads(route, m))
+    List.duplicate(:rows, n - lookups) ++ List.duplicate(:lookup, lookups)
+  end
+
+  # How many reads of the owners of the Assignments a page of them ends with.
+  defp owner_reads(m) do
+    froms = (rel(m, assigned_rule(m).relation) || %{from: []}).from
+    length(owner_kinds(m, froms))
+  end
 
   # A kind whose rows count what points at it (`counts`) also reads, plainly, every fact of
   # each kind those relations start at.

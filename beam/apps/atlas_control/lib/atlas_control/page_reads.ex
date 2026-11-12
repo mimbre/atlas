@@ -1,53 +1,41 @@
 defmodule AtlasControl.PageReads do
-  @moduledoc "Collection reads for a page and its assignment count, sharing one Facts snapshot."
+  @moduledoc """
+  A page's reads (`AtlasControl.Pages.reads/2`), asked of Facts as one `_page` read:
+  answered in order, from one snapshot, at one position, each with what it depended on
+  (docs/design/page-freshness.md §1.1). A page without reads asks nothing.
+  """
   alias AtlasControl.Pages
 
+  @doc """
+  The answers to `route`'s reads, in order. `ask.(kind, content, budget)` reads once,
+  waiting `budget` times a read's wait: a page waits as long as its reads would have,
+  one by one. When the page read fails, each read has its error.
+  """
   def answers(route, m, ask) do
-    reads = Pages.reads(route, m)
+    case Pages.reads(route, m) do
+      [] ->
+        []
 
-    batch? =
-      case route do
-        {:assigned, _} -> true
-        {:list, kind} -> Pages.open_work?(m, kind)
-        _ -> false
-      end
+      reads ->
+        content = %{"reads" => Enum.map(reads, fn {kind, read} -> [kind, read] end)}
 
-    if batch? and reads != [] do
-      kinds = reads |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
+        case ask.("_page", content, length(reads)) do
+          %{"answers" => answers} when is_list(answers) and length(answers) == length(reads) ->
+            answers
 
-      # Keep the aggregate wait budget of the separate collection reads.
-      case ask.("_page", %{"kinds" => kinds}, length(reads)) do
-        %{"answers" => answers} when is_list(answers) and length(answers) == length(kinds) ->
-          by_kind = Map.new(Enum.zip(kinds, answers))
+          %{"error" => _} = error ->
+            List.duplicate(error, length(reads))
 
-          Enum.map(reads, fn {kind, content} ->
-            answer = Map.fetch!(by_kind, kind)
-
-            case {content, answer} do
-              {%{"linked" => linked}, %{"facts" => facts}} ->
-                Map.put(
-                  answer,
-                  "facts",
-                  Enum.filter(facts, fn fact ->
-                    Enum.all?(linked, fn {relation, key} ->
-                      key in (get_in(fact, ["links", relation]) || [])
-                    end)
-                  end)
-                )
-
-              _ ->
-                answer
-            end
-          end)
-
-        %{"error" => _} = error ->
-          List.duplicate(error, length(reads))
-
-        _ ->
-          List.duplicate(%{"error" => "Facts returned invalid page reads"}, length(reads))
-      end
-    else
-      Enum.map(reads, fn {kind, content} -> ask.(kind, content, 1) end)
+          _ ->
+            List.duplicate(%{"error" => "Facts returned invalid page reads"}, length(reads))
+        end
     end
+  end
+
+  @doc "The reads of `route` as `AtlasControl.Freshness.ReadSet.of/3` takes them: `[{kind, role}]`."
+  def roles(route, m) do
+    Enum.zip_with(Pages.reads(route, m), Pages.read_roles(route, m), fn {kind, _}, role ->
+      {kind, role}
+    end)
   end
 end

@@ -39,7 +39,7 @@ defmodule AtlasControl.Model do
 
   @doc """
   Every kind, sorted by name: `%{name, label, plural, about, top, newest_first, primary,
-  id, fields, relations, counts, progress, shows_progress, progress_from, done_label,
+  id, fields, relations, counts, progress, shows_progress, done_label,
   late, start, agent, delete_error, hidden, expected}`. `id` is `%{prefix, digits,
   first, from, template, prefixes}`; `fields` are in the order pages show them, each
   `%{name, label, type, values, labels, required, hint, settable, set_by, multiline,

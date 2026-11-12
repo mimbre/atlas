@@ -404,13 +404,6 @@ defmodule AtlasControl.PagesTest do
     assert second["empty"] == "No spares yet. Press s to create one."
   end
 
-  test "a hint of a child kind refreshes its parent's page" do
-    assert Pages.shows?({:item, "widget", "W-1"}, @d, "part")
-    assert Pages.shows?({:item, "widget", "W-1"}, @d, "widget")
-    refute Pages.shows?({:list, "widget"}, @d, "part")
-    refute Pages.shows?({:item, "part", "P-1"}, @d, "gadget")
-  end
-
   # Widgets roll up their parts, parts their tags; a widget's shade is shown as "Look".
   @rolled AtlasControl.Model.catalog(Shop.Rolled)
 
@@ -463,23 +456,8 @@ defmodule AtlasControl.PagesTest do
     assert "Look" in Enum.map(form["inputs"], & &1["label"])
   end
 
-  test "a hint of a kind under the listed ones refreshes the list, when progress rolls it up" do
-    assert Pages.progress_from(@rolled, "widget") == ["part", "tag"]
-    assert Pages.shows?({:list, "widget"}, @rolled, "part")
-    assert Pages.shows?({:list, "widget"}, @rolled, "tag")
-    # A widget's page lists its parts, whose progress comes from their tags.
-    assert Pages.shows?({:item, "widget", "W-1"}, @rolled, "tag")
-    refute Pages.shows?({:item, "widget", "W-1"}, @d, "tag")
-    refute Pages.shows?({:list, "part"}, @d, "tag")
-  end
-
   describe "completion: done only when the fact itself is completed" do
     @completing AtlasControl.Model.catalog(Shop.Completing)
-
-    test "a hint of a kind completion looks at refreshes what shows it" do
-      assert "tag" in Pages.progress_from(@completing, "part")
-      assert Pages.shows?({:item, "widget", "W-1"}, @completing, "tag")
-    end
 
     test "the page says how far it is and why it is done, with the fact that did it" do
       origin = %{"since" => "2026-11-03T14:10:00Z", "by" => "ada", "cause" => "tested"}
@@ -553,8 +531,6 @@ defmodule AtlasControl.PagesTest do
 
       assert %{"value" => "Fine · T-a-1 open"} =
                Enum.find(item["fields"], &(&1["label"] == "Progress"))
-
-      assert "part" in Pages.progress_from(shop(While), "widget")
     end
 
     test "not done, without children: its own field says it; no Progress line" do
@@ -892,9 +868,8 @@ defmodule AtlasControl.PagesTest do
     assert [ada, _] = list["rows"]
     refute Map.has_key?(ada, "detail")
 
-    # A hint of a kind it counts refreshes the list.
-    assert Pages.shows?({:list, "helper"}, @counted, "log")
-    refute Pages.shows?({:list, "log"}, @counted, "helper")
+    # Every read of the list stands for its rows: which facts it counts matters.
+    assert Pages.read_roles({:list, "helper"}, @counted) == [:rows, :rows, :rows]
   end
 
   # Tasks are made and deleted with something else, changed by hand only; each has an
@@ -1031,7 +1006,7 @@ defmodule AtlasControl.PagesTest do
     assert [%{"id" => "E-01"}] = entry_list["rows"]
   end
 
-  test "an item page lists the facts whose cause field names it; a hint of them refreshes it" do
+  test "an item page lists the facts whose cause field names it" do
     # Every kind with a cause field (entries name what they changed; logs what they redo).
     assert Pages.reads({:item, "widget", "W-1"}, @logged) == [
              {"widget", %{"key" => "W-1"}},
@@ -1073,8 +1048,6 @@ defmodule AtlasControl.PagesTest do
       ])
 
     refute Enum.any?(page.blocks, &String.starts_with?(&1["id"], "cause:"))
-
-    assert Pages.shows?({:item, "widget", "W-1"}, @logged, "entry")
   end
 
   # A widget has a card, made and deleted with it (a made-up component, as the Assignment).
@@ -1119,10 +1092,6 @@ defmodule AtlasControl.PagesTest do
     answers = List.replace_at(answers, -1, %{"fact" => nil})
     %{blocks: [item | _]} = Pages.render({:item, "widget", "W-1"}, @carded, answers)
     refute Enum.any?(item["props"]["fields"], &(&1["label"] in ["Todo", "Held by"]))
-
-    # A hint about a card refreshes its fact's page.
-    assert Pages.shows?({:item, "widget", "W-1"}, @carded, "card")
-    refute Pages.shows?({:item, "widget", "W-1"}, @d, "card")
   end
 
   test "the kinds page says which kinds are not made by hand" do
@@ -1365,7 +1334,8 @@ defmodule AtlasControl.PagesTest do
     refute Pages.open_work?(@open, "widget")
     refute Pages.open_work?(@carded_start, "card")
     assert Pages.reads({:list, "card"}, @open) == [{"card", %{}}, {"widget", %{}}]
-    assert Pages.shows?({:list, "card"}, @open, "widget")
+    # The cards are the rows; the widgets only resolve whose card each is.
+    assert Pages.read_roles({:list, "card"}, @open) == [:rows, :lookup]
 
     card = fn key, by, values, since ->
       fact(key, Map.merge(%{"of" => String.replace_prefix(key, "C-", "")}, values))
