@@ -8,36 +8,44 @@ defmodule AtlasRuntime.ServerLifecycleTest do
   alias AtlasBFFContract.Wire.Runtime.OutputProtocol, as: Wire
 
   @moduletag capture_log: true
-  @talk [talk: [tries: 1, wait: 300]]
+  @talk [talk: [tries: 1, wait: 300], model: __MODULE__.Model]
+
+  # The model the reporter is given: the turn's kind and fields and the execution records,
+  # under the names the Store below keeps.
+  defmodule Model do
+    @behaviour AtlasRuntime.Model
+
+    @impl true
+    def turn,
+      do: %{
+        "kind" => "turn",
+        "key" => "TU-{on}-{n}",
+        "on" => "turn_on",
+        "by" => "turn_by",
+        "state" => "state",
+        "running" => "running",
+        "ended" => "ended",
+        "machine" => "machine",
+        "lease" => "lease_until",
+        "activity" => "activity",
+        "why" => "why",
+        "ended_at" => "ended_at",
+        "outcome" => "outcome",
+        "attempt" => "attempt"
+      }
+
+    @impl true
+    def agent, do: nil
+    @impl true
+    def guidance, do: %{"execution" => %{"kind" => "worker_execution"}}
+    @impl true
+    def read_first(_fact, _lookup), do: nil
+  end
 
   # Facts as the isolated proof showed it, for these kinds only: the sender must be the
   # turn's machine's Runtime; an execution must match its running turn's exact attempt.
   defmodule Store do
     use GenServer
-
-    def description do
-      %{
-        "runtime" => %{
-          "turn" => %{
-            "kind" => "turn",
-            "key" => "TU-{on}-{n}",
-            "on" => "turn_on",
-            "by" => "turn_by",
-            "state" => "state",
-            "running" => "running",
-            "ended" => "ended",
-            "machine" => "machine",
-            "lease" => "lease_until",
-            "activity" => "activity",
-            "why" => "why",
-            "ended_at" => "ended_at",
-            "outcome" => "outcome",
-            "attempt" => "attempt"
-          }
-        },
-        "guidance" => %{"execution" => %{"kind" => "worker_execution"}}
-      }
-    end
 
     def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
     def facts(store), do: GenServer.call(store, :facts)
@@ -61,9 +69,6 @@ defmodule AtlasRuntime.ServerLifecycleTest do
     def handle_info({:atlas_bus, %Envelope{class: "read"} = e, content}, s) do
       answer =
         case {e.kind, content} do
-          {"_description", _} ->
-            %{"description" => description()}
-
           {"turn", %{"key" => key}} ->
             %{"fact" => s.turns[key]}
 

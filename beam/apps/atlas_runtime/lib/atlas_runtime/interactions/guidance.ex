@@ -7,6 +7,9 @@ defmodule AtlasRuntime.Guidance do
   Eligibility is a fresh snapshot, not a distributed transaction with an external port.
   Enabled ports must enforce the supplied deadline and serialize close against admission.
   Real ports remain unsupported pending their native durable evidence contracts.
+
+  The records it reads and writes are the model's guidance records (`AtlasRuntime.Model`),
+  given in the turn as `guidance_mapping`; nil when the model keeps none.
   """
   alias AtlasRuntime.{Agent, Talk}
 
@@ -73,9 +76,9 @@ defmodule AtlasRuntime.Guidance do
          do: {:ok, %{execution: fact, cursor: 0, supported: supported}},
          else: {:error, :execution_not_confirmed}
     else
-      if Map.has_key?(turn[:description] || %{}, "guidance"),
-        do: {:error, :invalid_guidance_mapping},
-        else: {:ok, nil}
+      if turn[:guidance_mapping] in [nil, %{}],
+        do: {:ok, nil},
+        else: {:error, :invalid_guidance_mapping}
     end
   end
 
@@ -329,6 +332,6 @@ defmodule AtlasRuntime.Guidance do
   end
 
   defp read(turn, role, query), do: Talk.read(kind(turn, role), query, talk_opts(turn))
-  defp kind(turn, role), do: get_in(turn[:description] || %{}, ["guidance", role, "kind"])
+  defp kind(turn, role), do: get_in(turn[:guidance_mapping] || %{}, [role, "kind"])
   defp talk_opts(turn), do: turn[:talk_opts] || []
 end

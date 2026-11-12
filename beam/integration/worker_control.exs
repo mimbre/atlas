@@ -363,7 +363,8 @@ defmodule WorkerControlTest do
              leave_grace: 0,
              guidance_every: :manual,
              ownership: %{"owner_relation" => "owner"},
-             description: description()
+             # The guidance records, as a model gives them to the engine's turns.
+             guidance_mapping: Map.take(description()["guidance"], ~w(execution interaction receipt))
            }},
           restart: :temporary
         )

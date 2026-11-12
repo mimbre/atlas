@@ -8,57 +8,9 @@ defmodule AtlasRuntime.RuntimeGuidanceTest do
   alias AtlasRuntime.Agent.FakeInbox
   alias AtlasFacts.{GuidanceStore, Rela}
   @moduletag :tmp_dir
-  defp description do
-    roles = %{
-      "execution" =>
-        ~w(environment worker turn attempt machine harness harness_version configured_model reported_model capability_version queued_input durable_accept_query consumption_evidence recorded_at recorded_position),
-      "interaction" =>
-        ~w(environment actor client_key body body_digest worker turn attempt mode execution cause recorded_at recorded_position),
-      "receipt" =>
-        ~w(environment interaction worker turn attempt execution stage evidence_id admission_id consumption_id reason writer cause recorded_at recorded_position)
-    }
-
-    mapping =
-      Map.new(roles, fn {role, fields} ->
-        {role,
-         %{"kind" => "synthetic_" <> role, "fields" => Map.new(fields, &{&1, "slot_" <> &1})}}
-      end)
-
-    entities =
-      Map.new(mapping, fn {role, spec} ->
-        props =
-          Map.new(spec["fields"], fn {slot, field} ->
-            {field,
-             %{
-               "type" =>
-                 if(slot in ~w(queued_input durable_accept_query consumption_evidence),
-                   do: "boolean",
-                   else: if(slot == "recorded_position", do: "integer", else: "string")
-                 )
-             }}
-          end)
-
-        {spec["kind"], %{"plural" => role <> "s", "properties" => props}}
-      end)
-
-    d = AtlasRuntime.FakeFacts.description()
-    props = fn fields -> Map.new(fields, &{&1, %{"type" => "string"}}) end
-    entities = Map.merge(d["entities"], entities)
-
-    entities =
-      put_in(
-        entities,
-        ["run", "properties"],
-        props.(~w(host fence status until last reason done_at result))
-      )
-
-    entities = put_in(entities, ["card", "properties"], props.(~w(step later)))
-
-    d
-    |> Map.put("entities", entities)
-    |> Map.put("guidance", mapping)
-    |> put_in(["runtime", "turn", "attempt"], "fence")
-  end
+  # Runtime runs the neutral guided model; Facts is given that model's description.
+  @model AtlasRuntime.TestModel.Guided
+  defp description, do: AtlasRuntime.FakeFacts.description_of(@model)
 
   setup %{tmp_dir: dir} do
     :ets.new(GuidancePort, [:named_table, :public])
@@ -93,7 +45,8 @@ defmodule AtlasRuntime.RuntimeGuidanceTest do
       max: 300_000,
       lease: 60_000,
       crash_pause: 10,
-      leave_grace: 10
+      leave_grace: 10,
+      model: @model
     ]
 
     on_exit(fn ->

@@ -16,12 +16,13 @@ defmodule AtlasRuntime.Engine do
      unless that agent is in a turn already (it then waits behind it, W1), or crashed a
      moment ago (it waits a pause that doubles with each crash in a row), or crashed 3 times
      in 10 minutes on this machine: it then cannot run here, and Runtime says so on the
-     agent (`runtime.agent.cannot_run`), until that is no longer so (architecture v4,
+     agent (the agent's `cannot_run`), until that is no longer so (architecture v4,
      section 10.2). All of it is read from the turns in Facts, nothing is remembered.
 
-  What it reads is the description's: the facts a flow writes on (its `on`, or its kinds),
-  owned through the flow's `owner_relation`, open while its `state_field` has a value; and
-  the turn's kind and fields (`runtime.turn` in `rela/atlas.json`). It names no kind.
+  What it runs is the model's (`AtlasRuntime.Model`, given as `model:` or configured): the
+  turn's kind and fields, the facts a turn works on (owned through their
+  `owner_relation`, open while their `state_field` has a value), the agent's kind and the
+  guidance records. It names no kind.
 
   It reaches Facts only over the Bus, as the endpoint `runtime`.
   """
@@ -39,12 +40,17 @@ defmodule AtlasRuntime.Engine do
 
   @impl true
   def init(opts) do
+    model = Keyword.get_lazy(opts, :model, &AtlasRuntime.Model.configured!/0)
+    model = AtlasRuntime.Model.check!(model)
     :ok = AtlasBus.attach("runtime@" <> Keyword.fetch!(opts, :machine))
     send(self(), :round)
 
     {:ok,
      %{
        opts: opts,
+       turn: model.turn(),
+       agent: model.agent(),
+       guidance: model.guidance(),
        every: Keyword.get(opts, :every, 60_000),
        kinds: MapSet.new(),
        timer: nil,
@@ -99,26 +105,17 @@ defmodule AtlasRuntime.Engine do
   defp round_now(state) do
     if state.timer, do: Process.cancel_timer(state.timer)
 
-    state =
-      case Talk.read("_description", %{}) do
-        %{"description" => description} ->
-          reconcile(description, state)
-
-        other ->
-          Logger.warning("runtime: description unavailable: #{inspect(other)}")
-          state
-      end
-
+    state = reconcile(state)
     %{state | timer: Process.send_after(self(), :round, state.every)}
   end
 
-  defp reconcile(description, state) do
+  defp reconcile(state) do
     agents = Keyword.get(state.opts, :agents, %{})
 
-    with %{"kind" => _} = names <- get_in(description, ["runtime", "turn"]),
+    with %{"kind" => _} = turn <- state.turn,
          true <- agents != %{} do
-      names = atomize(names)
-      kinds = written(description)
+      names = atomize(turn)
+      kinds = Enum.map(turn["items"] || [], &{&1["kind"], &1})
 
       for {kind, _flow} <- kinds, do: AtlasBus.listen(kind)
       AtlasBus.listen(names.kind)
@@ -183,7 +180,7 @@ defmodule AtlasRuntime.Engine do
           |> Enum.frequencies()
 
         opts = Keyword.put(state.opts, :turns_here, turns_here)
-        able = able(description, names, mine_ended(turns, names, machine), agents, opts)
+        able = able(state.agent, mine_ended(turns, names, machine), agents, opts)
 
         owned
         |> Enum.reject(
@@ -192,10 +189,10 @@ defmodule AtlasRuntime.Engine do
         |> Enum.filter(&(&1.startable? and &1.agent in able))
         |> Enum.uniq_by(& &1.agent)
         |> Enum.each(
-          &start(&1, names, turns, agents, Keyword.put(state.opts, :description, description))
+          &start(&1, names, turns, agents, Keyword.put(state.opts, :guidance, state.guidance))
         )
 
-        state = history(state, description, names, turns, local, agents, kinds)
+        state = history(state, turn["on_kinds"] || [], names, turns, local, agents, kinds)
         %{state | kinds: MapSet.new([names.kind | Enum.map(kinds, &elem(&1, 0))])}
       else
         _ -> state
@@ -203,19 +200,6 @@ defmodule AtlasRuntime.Engine do
     else
       _ -> state
     end
-  end
-
-  # The kinds flows write on, with their definition: `[{kind, flow}]`.
-  defp written(description) do
-    for {_name, %{"owner_relation" => relation} = flow} <- Enum.sort(description["flows"] || %{}),
-        is_binary(relation),
-        kind <-
-          (case flow["on"] && get_in(description, ["relations", flow["on"], "to"]) do
-             [to] -> [to]
-             _ -> flow["kinds"] || []
-           end),
-        uniq: true,
-        do: {kind, flow}
   end
 
   # Ownership still includes a held item, so its current turn may finish normally.
@@ -285,7 +269,7 @@ defmodule AtlasRuntime.Engine do
           port: port,
           port_opts: port_opts(agents[owned.agent], opts),
           guidance_every: Keyword.get(opts, :guidance_every, Keyword.fetch!(opts, :lease)),
-          description: Keyword.get(opts, :description, %{}),
+          guidance_mapping: Keyword.get(opts, :guidance),
           ownership: owned.ownership,
           talk_opts: Keyword.get(opts, :talk_opts, []),
           names: names,
@@ -328,7 +312,7 @@ defmodule AtlasRuntime.Engine do
 
   # One historical turn/page per round, no model restart and no successor resolution.
   # The bounded cursor is an optimization; Facts and native history remain authoritative.
-  defp history(state, d, n, turns, local, agents, kinds) do
+  defp history(state, on_kinds, n, turns, local, agents, kinds) do
     machine = Keyword.fetch!(state.opts, :machine)
 
     candidates =
@@ -349,12 +333,9 @@ defmodule AtlasRuntime.Engine do
          [item] <- t["links"][n.on],
          %{} = settings <- agents[agent],
          port when not is_nil(port) <- port(settings, state.opts),
-         {kind, flow} <-
-           Enum.find(kinds, fn {kind, _} ->
-             kind in (get_in(d, ["relations", n.on, "to"]) || [])
-           end),
+         {kind, flow} <- Enum.find(kinds, fn {kind, _} -> kind in on_kinds end),
          execution_kind when is_binary(execution_kind) <-
-           get_in(d, ["guidance", "execution", "kind"]),
+           get_in(state.guidance || %{}, ["execution", "kind"]),
          %{"fact" => ex} <-
            Talk.read(execution_kind, %{"turn" => t["key"], "attempt" => t["values"][n.attempt]}) do
       turn = %{
@@ -367,7 +348,7 @@ defmodule AtlasRuntime.Engine do
         ownership: flow,
         names: n,
         turn_kind: n.kind,
-        description: d,
+        guidance_mapping: state.guidance,
         port: port,
         port_opts: port_opts(settings, state.opts),
         talk_opts: Keyword.get(state.opts, :talk_opts, [])
@@ -451,7 +432,7 @@ defmodule AtlasRuntime.Engine do
 
   # The agents that may start a turn now: not 3 crashes in 10 minutes here, and past the
   # pause after the crashes in a row they ended with. Says so on the agent when it changes.
-  defp able(description, names, ended, agents, opts) do
+  defp able(agent_spec, ended, agents, opts) do
     now = System.system_time(:millisecond)
     machine = Keyword.fetch!(opts, :machine)
 
@@ -459,7 +440,7 @@ defmodule AtlasRuntime.Engine do
       theirs = for {^agent, at, crashed?} <- ended, do: {at, crashed?}
       recent = for {at, true} <- theirs, now - at < @window, do: at
       cannot? = length(recent) >= @crashes
-      :ok = cannot_run(description, names, agent, machine, cannot? && List.last(recent))
+      :ok = cannot_run(agent_spec, agent, machine, cannot? && List.last(recent))
       in_a_row = theirs |> Enum.take_while(&elem(&1, 1)) |> length()
 
       paused? =
@@ -479,11 +460,11 @@ defmodule AtlasRuntime.Engine do
 
   defp under_limit?(_settings, _agent, _turns_here), do: true
 
-  # The agent's field that says it cannot run here (`runtime.agent.cannot_run`): set when it
-  # crashed 3 times in 10 minutes on this machine, cleared once that is no longer so.
-  defp cannot_run(description, names, agent, machine, since) do
-    with field when is_binary(field) <- get_in(description, ["runtime", "agent", "cannot_run"]),
-         [kind] <- get_in(description, ["relations", names.by, "to"]),
+  # The agent's field that says it cannot run here (the model's agent `cannot_run`): set when
+  # it crashed 3 times in 10 minutes on this machine, cleared once that is no longer so.
+  defp cannot_run(agent_spec, agent, machine, since) do
+    with %{"cannot_run" => field, "kind" => kind} when is_binary(field) and is_binary(kind) <-
+           agent_spec,
          %{"fact" => %{} = fact} <- Talk.read(kind, %{"key" => agent, "plain" => true}) do
       was = to_string(fact["values"][field])
       here? = String.starts_with?(was, "on #{machine} ")

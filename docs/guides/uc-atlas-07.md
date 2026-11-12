@@ -35,7 +35,7 @@ Test and prod have no `runtime` yet, so Runtime there does nothing; IS-Atlas-18 
 - **rela:** a `turn` kind:
   - `state` (running or ended), `machine`, `lease_until`, `activity` and `why`;
   - `turn_on` to the Assignment (the fact Flow writes on) and `turn_by` to the agent.
-- **rela/atlas.json:** `runtime.turn` names the kind, its fields and relations, and its key (`TU-{on}-{n}`). Runtime names no kind. The kind is not by hand: no keys to make one, and the agent's tools leave it out.
+- **The model:** `runtime turn:` (`model/contract/foundation/turn.ex`) names the kind, its fields and relations, and its key (`TU-{on}-{n}`). Runtime gets it compiled, with the facts a turn works on and the guidance records (`AtlasRuntime.Model`, wired by `config :atlas, model:`), and names no kind. The kind is not by hand: no keys to make one, and the agent's tools leave it out.
 - **Runtime (`atlas_runtime`):**
   - The **engine** reconciles every round and at once on a hint. A turn running in Facts on this machine without a process is ended; a turn whose fact is no longer its agent's (or no longer open: Flow has no state for it) is ended; an owned open fact without a turn gets one, one turn per agent at a time.
   - Each **turn** is a process: it starts the agent through its port, writes the turn, renews the lease while there is activity, and writes its end.
