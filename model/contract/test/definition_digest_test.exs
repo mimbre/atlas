@@ -9,12 +9,16 @@ defmodule Model.DefinitionDigestTest do
       |> JSON.decode!()
       |> get_in(["flow_runtime", "selection", "decide", "migrations"])
 
-    for {target, env, old, new} <- [
+    # Per environment: the term digest, the canonical digest before owner answers, and the
+    # digest with owner answers and deadline (#109) that slice 7 re-keys.
+    for {target, env, old, new, answered} <- [
           {"atlas", "prod", "118c1cf31028979df064344d708a59f8ee19ad97493b47d66ac2d66cbb8dbb00",
-           "d9aadf74d08e0fb4ee4ada4d17980c10aafd4424f251061779cbd61b1c01c7aa"},
+           "d9aadf74d08e0fb4ee4ada4d17980c10aafd4424f251061779cbd61b1c01c7aa",
+           "bfd535ea5c570cc586c606825745a7f767bf138a5f5289093f629a99e06fb042"},
           {"test/atlas", "test",
            "77f00aa4ea2f8ec4ff3620b590794b6aabeedd8ce435a9e4a635e909d7d40b93",
-           "e2d4c41b758cb858aa40b2835c703f2c42f60039471f855fa7e2df0dbf171b4b"}
+           "e2d4c41b758cb858aa40b2835c703f2c42f60039471f855fa7e2df0dbf171b4b",
+           "b4a73029ce91d1bb1727498feb0c4b277315956c8b1ac547f15d1454eb5ccae8"}
         ] do
       flow =
         File.read!("../targets/#{target}/flows.json")
@@ -30,11 +34,26 @@ defmodule Model.DefinitionDigestTest do
                  Map.drop(old_flow["states"][state], ["owner", "present"])
       end
 
-      migration =
-        Enum.find(migrations, &(&1["from"] == new and &1["to"] == DefinitionDigest.of(flow)))
+      same = Map.new(flow["states"], fn {s, _} -> {s, s} end)
+      answers = Enum.find(migrations, &(&1["from"] == new and &1["to"] == answered))
+      assert answers["preserve_entry"] == true
+      assert answers["states"] == same
 
-      assert migration["preserve_entry"] == true
-      assert migration["states"] == Map.new(flow["states"], fn {s, _} -> {s, s} end)
+      # Slice 7: the person waits name the configured decider; a re-key keeps every state.
+      decider =
+        Enum.find(migrations, &(&1["from"] == answered and &1["to"] == DefinitionDigest.of(flow)))
+
+      assert decider["rekey"] == true
+      assert decider["states"] == same
+
+      for state <- ~w(for_person for_person_always),
+          do:
+            assert(
+              flow["states"][state]["owner"]["default"] == %{
+                "kind" => "person",
+                "config" => "decider"
+              }
+            )
 
       assert Base.encode16(:crypto.hash(:sha256, :erlang.term_to_binary(old_flow)), case: :lower) ==
                old
@@ -62,14 +81,21 @@ defmodule Model.DefinitionDigestTest do
     end
   end
 
-  test "the compiled decide keeps the live digests" do
+  test "the compiled decide has the slice 7 digests, each declared from the live one" do
     decide = fn env -> Enum.find(Model.AtlasEyra.subflows(env), &(&1.name() == "decide")) end
+    migrations = Model.AtlasEyra.selection("decide")["migrations"]
 
-    assert decide.(:prod).digest() ==
-             "bfd535ea5c570cc586c606825745a7f767bf138a5f5289093f629a99e06fb042"
+    for {env, live, now} <- [
+          {:prod, "bfd535ea5c570cc586c606825745a7f767bf138a5f5289093f629a99e06fb042",
+           "06d957cd558f2e2957c4b0542bbef040876a5d426b245537eeedcf4aaa1a04b6"},
+          {:test, "b4a73029ce91d1bb1727498feb0c4b277315956c8b1ac547f15d1454eb5ccae8",
+           "ab9c1bdf9b947e32b98bd41dd0ddf3341101f2b4aeab76a3960d0a5ebd5104ae"}
+        ] do
+      assert decide.(env).digest() == now
 
-    assert decide.(:test).digest() ==
-             "b4a73029ce91d1bb1727498feb0c4b277315956c8b1ac547f15d1454eb5ccae8"
+      assert [%{"rekey" => true}] =
+               Enum.filter(migrations, &(&1["from"] == live and &1["to"] == now))
+    end
   end
 
   test "the compiled legacy flows are the committed description's flows" do

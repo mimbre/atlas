@@ -908,8 +908,8 @@ defmodule RelaDSL.Description.Check do
 
   defp owner(ctx, flow, state, allowed, path) do
     case state["owner"] do
-      %{"kind" => kind, "key" => key} = o when is_binary(kind) and is_binary(key) and key != "" ->
-        keys(o, ~w(kind key), path) ++
+      %{"kind" => kind} = o when is_binary(kind) ->
+        named(o, state, path) ++
           entity(ctx, kind, path) ++
           if(flow["owner_relation"] == nil or kind in allowed,
             do: [],
@@ -921,8 +921,30 @@ defmodule RelaDSL.Description.Check do
           )
 
       _ ->
-        p(path, "#{state["name"]}: its owner names no kind and key (owner: {kind, key})")
+        p(
+          path,
+          "#{state["name"]}: its owner names no kind and key " <>
+            "(owner: {kind, key}, or {kind, config: role})"
+        )
     end
+  end
+
+  # An owner names a key, or the role of an actor the environment configures (`config`),
+  # and nothing else.
+  defp named(o, state, path) do
+    {name, shape} =
+      if Map.has_key?(o, "config"),
+        do: {o["config"], ~w(kind config)},
+        else: {o["key"], ~w(kind key)}
+
+    if is_binary(name) and name != "",
+      do: keys(o, shape, path),
+      else:
+        p(
+          path,
+          "#{state["name"]}: its owner names no kind and key " <>
+            "(owner: {kind, key}, or {kind, config: role})"
+        )
   end
 
   defp open(%{"done" => true}, _by_name, _path), do: []

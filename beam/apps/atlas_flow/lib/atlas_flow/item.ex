@@ -125,8 +125,8 @@ defmodule AtlasFlow.Item do
   # What the fact's owner is to do now, as `%{"name", "done", "owner", "why", "expected",
   # "every", …}`, or nil when it is in no state: the legacy flow's state, or the state of
   # the selected subflow's run.
-  defp projection(_state, nil, flow, fact, children, parents, pointing),
-    do: legacy(flow, fact, children, parents, pointing)
+  defp projection(state, nil, flow, fact, children, parents, pointing),
+    do: legacy(state, flow, fact, children, parents, pointing)
 
   defp projection(state, {name, selection}, flow, fact, children, parents, pointing) do
     %{config: config, flows: flows, refusal: refusal} = state.runner
@@ -144,7 +144,7 @@ defmodule AtlasFlow.Item do
       cond do
         run["status"] == "completed" and follow != nil and run["state"] == follow["state"] and
             Run.holds?(follow["when"], fact["values"] || %{}) ->
-          legacy(flow, fact, children, parents, pointing)
+          legacy(state, flow, fact, children, parents, pointing)
 
         run["status"] == "completed" ->
           %{"name" => run["state"], "done" => true}
@@ -162,7 +162,7 @@ defmodule AtlasFlow.Item do
           Map.merge(present, %{
             "name" => run["state"],
             "expected" => present["expected"] || "",
-            "owner" => binding["default"],
+            "owner" => owner(state, binding["default"]),
             "preserve_kind" => binding["preserve_kind"],
             "deadline" => deadline
           })
@@ -175,7 +175,7 @@ defmodule AtlasFlow.Item do
     end
   end
 
-  defp legacy(flow, fact, children, parents, pointing) do
+  defp legacy(state, flow, fact, children, parents, pointing) do
     case flow.state(fact, children, parents, pointing) do
       {nil, _vars} ->
         nil
@@ -184,13 +184,18 @@ defmodule AtlasFlow.Item do
         %{
           "name" => name,
           "done" => flow.done?(name),
-          "owner" => flow.owner(name),
+          "owner" => owner(state, flow.owner(name)),
           "why" => flow.why(name),
           "expected" => flow.expected(name, vars),
           "every" => flow.every(name)
         }
     end
   end
+
+  # Who the state names, with a configured actor (`config`) as the environment's settings
+  # fill it (`AtlasFlow.Model.owner/2`).
+  defp owner(_state, nil), do: nil
+  defp owner(state, owner), do: AtlasFlow.Model.owner(owner, state.runner.actors)
 
   # Store what differs: what is expected, and the owner, in one change with its cause, on
   # the fact the definition writes on: its own, or the one its `on` relation points at.

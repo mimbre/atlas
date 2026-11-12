@@ -154,7 +154,7 @@
           "label": "Waiting for a person",
           "owner": {
             "default": {
-              "key": "melle",
+              "config": "decider",
               "kind": "person"
             },
             "preserve_kind": "person",
@@ -224,7 +224,7 @@
           "label": "A person decides",
           "owner": {
             "default": {
-              "key": "melle",
+              "config": "decider",
               "kind": "person"
             },
             "preserve_kind": "person",

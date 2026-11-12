@@ -82,8 +82,9 @@ defmodule AtlasControl.Model do
   @callback answer(kind :: String.t(), name :: String.t(), item :: map, viewer) ::
               {:write, map} | {:refuse, String.t()}
 
-  # The callbacks of the component that runs turns that Control calls too.
-  @shared [turn: 0, guidance: 0, read_first: 2]
+  # The callbacks of the component that runs turns that Control calls too, and the
+  # configured actors the model's owners name (the flow runner's `actors/0`).
+  @shared [turn: 0, guidance: 0, read_first: 2, actors: 0]
 
   @doc "The model Control is wired to, checked: raises when it is missing or wrong."
   def configured!, do: check!(Application.fetch_env!(:atlas, :model))
@@ -102,6 +103,18 @@ defmodule AtlasControl.Model do
       do: raise(ArgumentError, "the model #{inspect(model)} lacks #{Enum.join(missing, ", ")}")
 
     model
+  end
+
+  @doc """
+  The actors `model`'s owners name, as `configured` (`%{role => key}`, the environment's
+  settings) fills them (`AtlasBus.Actors.resolve/2`). Raises when it does not fill one:
+  Control does not start without it.
+  """
+  def actors!(model, configured \\ AtlasBus.Actors.configured()) do
+    case AtlasBus.Actors.resolve(check!(model).actors(), configured) do
+      {:ok, actors} -> actors
+      {:error, why} -> raise ArgumentError, "Control does not start: " <> why
+    end
   end
 
   @doc """

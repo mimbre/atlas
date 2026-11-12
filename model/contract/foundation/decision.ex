@@ -320,7 +320,7 @@ defmodule Model.Decision do
     state :for_person_always, label: "A person decides" do
       owner via: :assignment,
             relation: :assigned_to,
-            default: {:person, :melle},
+            default: {:person, config: :decider},
             preserve_kind: :person
 
       wait_for [:principle_authority, :decider],
@@ -353,7 +353,7 @@ defmodule Model.Decision do
     state :for_person, label: "Waiting for a person" do
       owner via: :assignment,
             relation: :assigned_to,
-            default: {:person, :melle},
+            default: {:person, config: :decider},
             preserve_kind: :person
 
       wait_for :decider, on: :status, reset: false, accepted: :accepted, rejected: :rejected
@@ -446,6 +446,40 @@ defmodule Model.Decision do
 
   # The approved migrations of the runs of decide, oldest last; each from is a digest the
   # base branch recorded (RelaDSL.RunIdentity).
+  # Slice 7: the deciding person is the environment's configured decider, no longer a
+  # name in the model. Only the owner data changes, so live runs keep their state, entry
+  # and deadlines (rekey).
+  migrate(:decide,
+    from: "bfd535ea5c570cc586c606825745a7f767bf138a5f5289093f629a99e06fb042",
+    to: "06d957cd558f2e2957c4b0542bbef040876a5d426b245537eeedcf4aaa1a04b6",
+    rekey: true,
+    states: :same,
+    reason: "The person deciding is the configured decider; unchanged prod subflow behaviour"
+  )
+
+  migrate(:decide,
+    from: "b4a73029ce91d1bb1727498feb0c4b277315956c8b1ac547f15d1454eb5ccae8",
+    to: "ab9c1bdf9b947e32b98bd41dd0ddf3341101f2b4aeab76a3960d0a5ebd5104ae",
+    rekey: true,
+    states: :same,
+    reason: "The person deciding is the configured decider; unchanged test subflow behaviour"
+  )
+
+  # Imported final runs keep slice 1's digest: they stay evidence under the new one.
+  migrate(:decide,
+    from: "8ca16b332a083209e6e44ffc3feeca0f152c632caa4d5206ab24fe540ab3770c",
+    reason: "Slice 1 to slice 7: enter the decider gate once; preserve final history",
+    states: [accepted: :accepted, proposed: :deciding, rejected: :rejected],
+    to: "06d957cd558f2e2957c4b0542bbef040876a5d426b245537eeedcf4aaa1a04b6"
+  )
+
+  migrate(:decide,
+    from: "8ca16b332a083209e6e44ffc3feeca0f152c632caa4d5206ab24fe540ab3770c",
+    reason: "Slice 1 to slice 7: enter the decider gate once; preserve final history",
+    states: [accepted: :accepted, proposed: :deciding, rejected: :rejected],
+    to: "ab9c1bdf9b947e32b98bd41dd0ddf3341101f2b4aeab76a3960d0a5ebd5104ae"
+  )
+
   migrate(:decide,
     from: "e2d4c41b758cb858aa40b2835c703f2c42f60039471f855fa7e2df0dbf171b4b",
     to: "b4a73029ce91d1bb1727498feb0c4b277315956c8b1ac547f15d1454eb5ccae8",

@@ -40,6 +40,22 @@ defmodule AtlasFlow.Packs do
   end
 end
 
+defmodule AtlasFlow.Packs.Checked do
+  @moduledoc "Checked by the actor the environment configures as its checker (`config`)."
+  use RelaDSL.Flow.Legacy,
+    name: :pack,
+    behaviour: AtlasFlow.Legacy,
+    flow:
+      Keyword.update!(AtlasFlow.Packs.pack(), :states, fn states ->
+        for state <- states,
+            do:
+              if(state[:name] == :check,
+                do: Keyword.put(state, :owner, kind: :clerk, config: :checker),
+                else: state
+              )
+      end)
+end
+
 defmodule AtlasFlow.Packs.Later do
   @moduledoc "Defers a handover while the owner's turn runs (`handover_field`)."
   use RelaDSL.Flow.Legacy,

@@ -193,6 +193,8 @@ defmodule AtlasE2E.AtlasCommandTest do
 
     settings = %{
       "env" => "test",
+      # Who decides what a person decides (the model names only the role).
+      "actors" => %{"decider" => "melle"},
       "control" => %{"host" => "127.0.0.1", "port" => 1},
       "rela" => %{
         "url" => "http://127.0.0.1:2/api/v1",

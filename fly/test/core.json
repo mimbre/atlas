@@ -1,6 +1,7 @@
 {
   "env": "test",
   "tui_user": "melle",
+  "actors": { "decider": "melle" },
   "control": {
     "host": "::",
     "port": 7691,

@@ -3,8 +3,20 @@
   "subflows": {
     "decide": {
       "prod": {
-        "digest": "bfd535ea5c570cc586c606825745a7f767bf138a5f5289093f629a99e06fb042",
+        "digest": "06d957cd558f2e2957c4b0542bbef040876a5d426b245537eeedcf4aaa1a04b6",
         "history": [
+          {
+            "digest": "06d957cd558f2e2957c4b0542bbef040876a5d426b245537eeedcf4aaa1a04b6",
+            "states": [
+              "accepted",
+              "deciding",
+              "for_agent",
+              "for_agent_unverified",
+              "for_person",
+              "for_person_always",
+              "rejected"
+            ]
+          },
           {
             "digest": "118c1cf31028979df064344d708a59f8ee19ad97493b47d66ac2d66cbb8dbb00",
             "states": [
@@ -61,7 +73,7 @@
         ]
       },
       "test": {
-        "digest": "b4a73029ce91d1bb1727498feb0c4b277315956c8b1ac547f15d1454eb5ccae8",
+        "digest": "ab9c1bdf9b947e32b98bd41dd0ddf3341101f2b4aeab76a3960d0a5ebd5104ae",
         "history": [
           {
             "digest": "77f00aa4ea2f8ec4ff3620b590794b6aabeedd8ce435a9e4a635e909d7d40b93",
@@ -80,6 +92,18 @@
             "states": [
               "accepted",
               "proposed",
+              "rejected"
+            ]
+          },
+          {
+            "digest": "ab9c1bdf9b947e32b98bd41dd0ddf3341101f2b4aeab76a3960d0a5ebd5104ae",
+            "states": [
+              "accepted",
+              "deciding",
+              "for_agent",
+              "for_agent_unverified",
+              "for_person",
+              "for_person_always",
               "rejected"
             ]
           },

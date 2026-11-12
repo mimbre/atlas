@@ -13,7 +13,10 @@ defmodule RelaDSL.Flow.Model do
     * `selection(subflow)`: how the runs of a subflow are selected, imported and
       projected (`select`), with its approved `migrations`; nil when it is not selected;
     * `migrations/0`: every approved migration, with its `subflow`;
-    * `actors/0`: the configured actors the model needs;
+    * `actors/0`: the configured actors the model needs, `[{role, kind}]` sorted by role:
+      every role an owner names as its default (`default: {kind, config: role}` of a
+      subflow or a state, `owner: [kind:, config: role]` of a legacy flow's state), with
+      the kind of fact its actor is; each environment's settings say who it is;
     * `relations/0`: every relation, by name, as the store describes it with the model's
       additions (`parent`, `component`, ...): what a runner walks from a fact to the
       facts above and under it;
@@ -53,6 +56,7 @@ defmodule RelaDSL.Flow.Model do
          Legacy.body(name, flow, legacy_behaviour)}
       end
 
+    actors = actors(flows, extension["flows"] || %{})
     runtime = if flow_runtime, do: Plain.unorder(flow_runtime)["flow_runtime"]
     selection = (runtime && runtime["selection"]) || %{}
 
@@ -124,8 +128,8 @@ defmodule RelaDSL.Flow.Model do
       @doc "Every approved run migration, with its subflow."
       def migrations, do: unquote(Macro.escape(migrations))
 
-      @doc "The configured actors the model needs."
-      def actors, do: []
+      @doc "The configured actors the model needs: `[{role, kind}]`."
+      def actors, do: unquote(actors)
 
       @doc "Every relation, by name, with the model's additions."
       def relations, do: unquote(Macro.escape(described["relations"] || %{}))
@@ -136,6 +140,33 @@ defmodule RelaDSL.Flow.Model do
       @doc "How the key of a fact of each kind is made: `prefix`, `digits`, `prefixes`."
       def ids, do: unquote(Macro.escape(ids))
     end
+  end
+
+  @doc """
+  The configured actors that `flows` (the subflows) and `legacy` (the legacy flows, by
+  name) name as owners: `[{role, kind}]`, sorted by role. A role names one kind of fact;
+  raises when two owners give it two.
+  """
+  def actors(flows, legacy) do
+    subflows =
+      for f <- flows,
+          %{default: %{config: role, kind: kind}} <- [f.owner | Enum.map(f.states, & &1.owner)],
+          do: {role, to_string(kind)}
+
+    legacies =
+      for {_name, %{"states" => states}} <- legacy,
+          %{"owner" => %{"config" => role, "kind" => kind}} <- states,
+          do: {String.to_atom(role), kind}
+
+    named = Enum.sort(Enum.uniq(subflows ++ legacies))
+
+    for {role, [_, _ | _] = kinds} <- Enum.group_by(named, &elem(&1, 0), &elem(&1, 1)) do
+      raise ArgumentError,
+            "the configured actor #{role} is named as a #{Enum.join(kinds, " and as a ")}; " <>
+              "a role is one kind of fact"
+    end
+
+    named
   end
 
   defp camel(env), do: env |> to_string() |> Macro.camelize()

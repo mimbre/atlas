@@ -74,7 +74,10 @@ defmodule RelaDSL.Schema do
 
   Every open item has exactly one owner. `owner` names it: the assignee, through
   `via:` the type that assigns it and `relation:` to the assignee, and
-  `default: {kind, key}`, who owns it while no one is assigned. Every subflow names an
+  `default: {kind, key}`, who owns it while no one is assigned. A default may name a
+  configured actor instead of a key, `default: {kind, config: role}`: each environment's
+  settings say who that is (`actors`), so the model names nobody; the role is one of
+  the composition's `actors/0`. Every subflow names an
   owner, and every state that is not final resolves to exactly one: its own (`owner`
   inside the state, with the same options) or the subflow's. Waiting is not a status:
   `wait_for` names the roles that decide, and the owner still answers for the item.
@@ -162,7 +165,7 @@ defmodule RelaDSL.Schema do
     * every subflow has an owner, and every state that is not final has exactly one
       (its own or the subflow's; given twice is ambiguous, and a final state has none);
       an owner names `relation:` or `default:`, `via:` comes with `relation:`, and a
-      default is `{kind, key}`;
+      default is `{kind, key}` or `{kind, config: role}`;
     * a state presents at most once, a final state not at all; `expected` is a text,
       a section is `[field:, heading:]`, and each answer has a key of its own, a
       label, and sets or removes one relation.
@@ -253,7 +256,8 @@ defmodule RelaDSL.Schema do
 
   @doc """
   Who owns the subject: `via:` the type that assigns it and the `relation:` to the
-  assignee, and `default: {kind, key}`, who owns it while no one is assigned.
+  assignee, and `default: {kind, key}` (or `{kind, config: role}`, the actor the
+  environment configures for `role`), who owns it while no one is assigned.
   `preserve_kind:` keeps an assignee of that kind; other assignees take the default.
   """
   defmacro owner(opts) do
@@ -835,11 +839,13 @@ defmodule RelaDSL.Schema do
     {flow, problems ++ owned ++ fixed_timers}
   end
 
-  # The default owner as `%{kind:, key:}`, as an assignee is named.
+  # The default owner as `%{kind:, key:}`, as an assignee is named, or `%{kind:, config:}`
+  # for the actor the environment configures for a role.
   defp owner_of(nil), do: nil
 
   defp owner_of(opts) when is_list(opts) do
     case Map.new(opts) do
+      %{default: {kind, [config: role]}} = o -> %{o | default: %{kind: kind, config: role}}
       %{default: {kind, key}} = o -> %{o | default: %{kind: kind, key: key}}
       o -> o
     end
@@ -877,14 +883,24 @@ defmodule RelaDSL.Schema do
 
   defp default_problems(:none, _pre), do: []
 
-  defp default_problems({kind, key}, pre) do
+  defp default_problems({kind, [config: role]}, pre) do
+    for {what, v} <- [kind: kind, role: role],
+        not valid_name?(v),
+        do: pre <> "default's #{what} #{inspect(v)} is not a valid name"
+  end
+
+  defp default_problems({kind, key}, pre) when not is_list(key) do
     for {what, v} <- [kind: kind, key: key],
         not valid_name?(v),
         do: pre <> "default's #{what} #{inspect(v)} is not a valid name"
   end
 
   defp default_problems(other, pre),
-    do: [pre <> "default must be {kind, key}, such as {:team, :desk}; got #{inspect(other)}"]
+    do: [
+      pre <>
+        "default must be {kind, key} or {kind, config: role}, such as {:team, :desk}; " <>
+        "got #{inspect(other)}"
+    ]
 
   defp valid_period?({:gate_limit, name}, gates),
     do: Enum.any?(gates, &(&1.name == name and is_list(&1[:answer_within])))

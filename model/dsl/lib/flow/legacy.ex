@@ -25,7 +25,8 @@ defmodule RelaDSL.Flow.Legacy do
   `state_field`, `handover_field`, `owner_relation`, as given), `empties/0` (the
   relations its `empty` conditions name), `state(fact, children, parents, pointing)`
   (`{state, vars}`: the vars are the fact's own plain values and a condition's `note`),
-  `done?(state)`, `owner(state)` (`%{"kind", "key"}` or nil), `expected(state, vars)`
+  `done?(state)`, `owner(state)` (`%{"kind", "key"}`, `%{"kind", "config"}` for the
+  actor the environment configures for a role, or nil), `expected(state, vars)`
   (filled, nil when done), `why(state)` and `every(state)` (ms, or nil).
   """
 
@@ -169,6 +170,10 @@ defmodule RelaDSL.Flow.Legacy do
 
   defp owner(%{"done" => true}), do: nil
   defp owner(%{"owner" => %{"key" => key} = o}), do: %{"kind" => o["kind"], "key" => key}
+
+  defp owner(%{"owner" => %{"config" => role} = o}),
+    do: %{"kind" => o["kind"], "config" => role}
+
   defp owner(%{"owner" => key}) when is_binary(key), do: %{"kind" => nil, "key" => key}
   defp owner(_), do: nil
 

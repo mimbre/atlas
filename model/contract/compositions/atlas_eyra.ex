@@ -196,7 +196,7 @@ defmodule Model.AtlasEyra do
       [
         name: :to_test,
         when: [progress: :to_test],
-        owner: [kind: :person, key: "melle"],
+        owner: [kind: :person, config: :decider],
         expected: "Test it",
         why: "all under it is completed",
         next: [:done, :rework],
@@ -283,7 +283,7 @@ defmodule Model.AtlasEyra do
       [
         name: :to_test,
         when: [progress: :to_test],
-        owner: [kind: :person, key: "melle"],
+        owner: [kind: :person, config: :decider],
         expected: "Test it",
         why: "all under it is completed",
         next: [:done, :rework],

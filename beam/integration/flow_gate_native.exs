@@ -51,6 +51,8 @@ try do
   # Facts, Flow and Gates run the model, compiled for the test environment (its answer
   # limits); Facts starts once rela serves the schema the model was built with.
   Application.put_env(:atlas, :model, Model.AtlasEyra)
+  # Who decides what a person decides (`actors`): the person made below, as on test and prod.
+  Application.put_env(:atlas, :actors, %{"decider" => "tester"})
   {:ok, facts} = AtlasFacts.Server.start_link(facts_opts)
   {:ok, gates} = AtlasGates.Endpoint.start_link(now: fn -> ManualClock.now(clock) end)
   :ok = AtlasBus.attach("control/session-gate-proof")

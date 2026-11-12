@@ -926,7 +926,7 @@
             "rework"
           ],
           "owner": {
-            "key": "melle",
+            "config": "decider",
             "kind": "person"
           },
           "todo": {
@@ -1077,7 +1077,7 @@
             "rework"
           ],
           "owner": {
-            "key": "melle",
+            "config": "decider",
             "kind": "person"
           },
           "todo": {

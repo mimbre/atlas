@@ -72,6 +72,7 @@ def settings(folder, binary):
     file = folder / "test.json"
     file.write_text(json.dumps({
         "env": "test", "tui_user": "rehearsal",
+        "actors": {"decider": "rehearsal"},
         "control": {"host": "127.0.0.1", "port": control_port},
         "rela": {"url": f"http://127.0.0.1:{rela_port}/api/v1",
                  "port": rela_port, "data": str(folder / "rela"),

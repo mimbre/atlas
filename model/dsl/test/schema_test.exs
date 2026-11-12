@@ -810,6 +810,30 @@ defmodule RelaDSL.SchemaTest do
       )
     end
 
+    test "an owner default may name a configured actor's role instead of a key" do
+      module =
+        compile!(
+          owned(
+            "owner relation: :held_by, default: {:clerk, config: :approver}, preserve_kind: :clerk"
+          )
+        )
+
+      [flow] = module.__flows__()
+      assert flow.owner.default == %{kind: :clerk, config: :approver}
+
+      refused(
+        owned(~s|owner default: {:team, config: "Front Desk"}|),
+        2,
+        ~s|default's role "Front Desk" is not a valid name|
+      )
+
+      refused(
+        owned("owner default: {:team, config: :desk, key: :desk}"),
+        2,
+        "owner default must be {kind, key} or {kind, config: role}"
+      )
+    end
+
     test "preserving an assignee kind needs a matching fallback" do
       module =
         compile!(
