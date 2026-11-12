@@ -22,6 +22,110 @@ case System.cmd("go", ["-C", "tools/runtime", "build", "-o", executable, "."],
   {output, _} -> raise("Building the Runtime CLI failed:\n#{output}")
 end
 
+# The model Control serves the synthetic kinds with: the same kinds, turn, guidance
+# records and flow as the description Facts' stand-in stores them by (below).
+defmodule WorkerControlModel.Kinds do
+  @moduledoc false
+  use RelaDSL
+
+  @roles %{
+    synthetic_execution:
+      ~w(environment worker turn attempt machine harness harness_version configured_model reported_model capability_version queued_input durable_accept_query consumption_evidence recorded_at recorded_position)a,
+    synthetic_interaction:
+      ~w(environment actor client_key body body_digest worker turn attempt mode execution cause recorded_at recorded_position)a,
+    synthetic_receipt:
+      ~w(environment interaction worker turn attempt execution stage evidence_id admission_id consumption_id reason writer cause recorded_at recorded_position)a
+  }
+
+  entity :reader, label: "Reader", plural: "readers", id_type: :manual, id_prefix: "H-" do
+    field(:name, :string)
+  end
+
+  entity :operator, label: "Operator", plural: "operators", id_type: :manual, id_prefix: "W-" do
+    field(:name, :string)
+  end
+
+  entity :run, label: "Run", plural: "runs", id_type: :manual, id_prefix: "R-" do
+    for f <- ~w(host fence state activity lease outcome why ended_at)a, do: field(f, :string)
+  end
+
+  entity :ticket, label: "Ticket", plural: "tickets", id_type: :manual, id_prefix: "T-" do
+    for f <- ~w(title step handover)a, do: field(f, :string)
+  end
+
+  for {kind, fields} <- @roles do
+    entity kind, label: to_string(kind), plural: "#{kind}s", id_type: :manual do
+      for f <- fields, do: field(f, :string)
+      top(false)
+      by_hand(false)
+    end
+  end
+
+  relation(:performer, label: "performer", from: [:run], to: [:operator])
+  relation(:task, label: "task", from: [:run], to: [:ticket])
+  relation(:owner, label: "owner", from: [:ticket], to: [:operator])
+
+  runtime(
+    turn: [
+      kind: :run,
+      key: "R-{on}-{n}",
+      machine: :host,
+      attempt: :fence,
+      by: :performer,
+      on: :task,
+      state: :state,
+      running: :running,
+      ended: :ended,
+      lease: :lease,
+      activity: :activity,
+      why: :why,
+      ended_at: :ended_at,
+      outcome: :outcome
+    ],
+    agent: [cannot_run: :name]
+  )
+
+  guidance(
+    for {role, kind} <- [
+          execution: :synthetic_execution,
+          interaction: :synthetic_interaction,
+          receipt: :synthetic_receipt
+        ],
+        do: {role, [kind: kind, fields: for(f <- @roles[kind], do: {f, f})]}
+  )
+end
+
+defmodule WorkerControlModel.Room do
+  @moduledoc false
+  use RelaDSL.Module, path: "modules/workers/schema.yaml", concepts: [WorkerControlModel.Kinds]
+end
+
+defmodule WorkerControlModel do
+  @moduledoc false
+  use RelaDSL.Composition, name: "worker-control"
+  @behaviour AtlasControl.Model
+
+  schema(version: "1.0", namespace: "https://example.invalid/workers#", comment: "Workers.")
+  modules([WorkerControlModel.Room])
+  shell(title: "Private workers", tabs: [[id: "tickets", label: "Tickets", to: "/k/ticket"]])
+
+  legacy_flow(:work,
+    kinds: [:ticket],
+    state_field: :step,
+    handover_field: :handover,
+    owner_relation: :owner,
+    field: :title,
+    states: [
+      [name: :done, when: [completed: true], done: true],
+      [name: :work, owner: [kind: :operator, key: "W-1"], expected: "work", next: [:done]]
+    ]
+  )
+
+  defcomposition :workers do
+    subflows([])
+  end
+end
+
 defmodule WorkerControlTest do
   use ExUnit.Case, async: false
   alias AtlasBus.Envelope
@@ -85,20 +189,12 @@ defmodule WorkerControlTest do
 
     %{
       "entities" => entities,
-      "shell" => %{
-        "title" => "Private workers",
-        "tabs" => [%{"id" => "workers", "label" => "Workers", "to" => "/workers"}]
-      },
       "relations" => %{
         "performer" => %{"from" => ["run"], "to" => ["operator"]},
         "task" => %{"from" => ["run"], "to" => ["ticket"]},
         "owner" => %{"from" => ["ticket"], "to" => ["operator"]}
       },
-      "guidance" =>
-        Map.put(mapping, "control", %{
-          "read" => %{"actors" => ["H-1", "H-2"]},
-          "submit" => %{"actors" => ["H-1"]}
-        }),
+      "guidance" => mapping,
       "runtime" => %{
         "turn" => %{
           "kind" => "run",
@@ -180,7 +276,17 @@ defmodule WorkerControlTest do
         }
       })
 
-    start_supervised!({AtlasControl.Gateway, port: 0, name: :worker_proof_gateway})
+    # The environment adds the Workers tab and admits the readers (`control` in its settings).
+    start_supervised!(
+      {AtlasControl.Gateway,
+       port: 0,
+       name: :worker_proof_gateway,
+       model: WorkerControlModel,
+       settings: %{
+         "tabs" => [%{"id" => "workers", "label" => "Workers", "to" => "/workers"}],
+         "workers" => %{"read" => %{"actors" => ["H-1", "H-2"]}, "submit" => %{"actors" => ["H-1"]}}
+       }}
+    )
     port = AtlasControl.Gateway.port(:worker_proof_gateway)
 
     on_exit(fn ->

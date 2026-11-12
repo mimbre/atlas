@@ -3,7 +3,7 @@
 Native shell metadata is an ordinary typed endpoint: see
 [native shell boot](../docs/adr/0004-native-shell-boot.md) (IS-Atlas-119).
 
-Control is a spec-driven backend for frontend (architecture, section 14). The spec says which blocks Control sends and every client renders. Clients know blocks, never entities: what a block shows comes from rela's description through Control.
+Control is a spec-driven backend for frontend (architecture, section 14). The spec says which blocks Control sends and every client renders. Clients know blocks, never entities: what a block shows comes from the model Control is wired to (`AtlasControl.Model`, compiled from `model/contract`) and the facts Facts answers.
 
 mica-bff (`~/projects/nova/mica-bff`) was the inspiration for the format. Atlas shares no code, catalogue or package with it (d-0009).
 
@@ -81,7 +81,7 @@ Models that blocks hold: `action` (label, key, to), `link` (label, key, url), `r
 
 A row starts with its id, in a column of its own (IS-Atlas-57): a client lines the ids of a list up, as wide as the longest, then the labels, then the details. The detail does not repeat the id.
 
-An action opens a page of Control's (`to`), except one whose `to` is `agent:<intent>`: that one asks the agent about the page it is on, as `:` does, with that intent (`x Overrule` on a step the agent took: `agent:overrule`). The description adds such actions per kind (`actions` in `rela/atlas.json`). A link opens a web address outside the client, in a browser (`url`); an `item` has links, and so does a `row`, for while it is selected. A client opens only http and https addresses. Control gives a fact a link when the description marks the type of one of its fields as a web address (`types.<name>.format: "url"` in `rela/atlas.json`).
+An action opens a page of Control's (`to`), except one whose `to` is `agent:<intent>`: that one asks the agent about the page it is on, as `:` does, with that intent (`x Overrule` on a step the agent took: `agent:overrule`). The model adds such actions per kind (`action` in the Rela DSL). A link opens a web address outside the client, in a browser (`url`); an `item` has links, and so does a `row`, for while it is selected. A client opens only http and https addresses. Control gives a fact a link when the model marks the type of one of its fields as a web address (`type …, format: :url`).
 
 On the wire a block is `{"id": "item", "type": "list", "props": {...}}`. An optional prop without a value is left out. A client ignores unknown keys, and shows an unknown or broken block as a fallback while the rest of the page still renders.
 
@@ -129,7 +129,7 @@ Control to client:
 | Message | Meaning |
 |---|---|
 | `{"op":"welcome","env":"test","spec":"0.14.0"}` | Answer to hello, with Control's contract version. |
-| `{"op":"page","path","title","back","blocks","markup","reason","position","at"}` | A page: a view model (`blocks` and `markup`) with its path, title and `back`: the page it belongs under (its owner, or its kind's list). Console's Back (`esc`, Left, `b`) does not follow `back`: it is always declared, and a client returns to the page its user came from, in its own history (the TUI keeps the selected row and scroll of each). `reason` is `open`, `hint` (a change stored by anyone), `reconcile`, `stored` (your change) or `refused`. `position` is Facts' position the page is as of. On a page without a form, a `refused` page also has `refused`: Facts' reasons. When the client's user has a start page of assignments, every page has `count`: what waits for them, in the description's words, for the header. |
+| `{"op":"page","path","title","back","blocks","markup","reason","position","at"}` | A page: a view model (`blocks` and `markup`) with its path, title and `back`: the page it belongs under (its owner, or its kind's list). Console's Back (`esc`, Left, `b`) does not follow `back`: it is always declared, and a client returns to the page its user came from, in its own history (the TUI keeps the selected row and scroll of each). `reason` is `open`, `hint` (a change stored by anyone), `reconcile`, `stored` (your change) or `refused`. `position` is Facts' position the page is as of. On a page without a form, a `refused` page also has `refused`: Facts' reasons. When the client's user has a start page of assignments, every page has `count`: what waits for them, in the model's words, for the header. |
 | `{"op":"notice","tone":"pending\|ok\|error\|info","text","at"}` | A line for the status bar. `pending` until Facts answers. |
 | `{"op":"bye","text"}` | Control closes the connection. |
 | `{"op":"turn","key":"<turn>","on":"<item>"}` | Current turn context; errors have `error` instead of the keys. An outcome is acknowledged with a stored page. |
@@ -138,7 +138,7 @@ Every message here is an endpoint of the contract (`defendpoint`, its call the m
 
 Paths are the contract's pages (`defpage`, ADR [0002](../docs/adr/0002-pages-and-endpoints.md)): `/`, `/_kinds`, `/k/:kind`, `/k/:kind/new`, `/k/:kind/new/:relation/:parent`, `/k/:kind/:key` and its `/edit`, `/delete`, `/links/:relation`, `/set/:relation`, `/answer/:answer`, `/remove/:relation`; in the test environment only, the failure pages `/faults`, `/k/:kind/:key/faults`, `/fault/:fault` and `/k/:kind/:key/fault/:fault` (IS-Atlas-23: what can be made to fail there, and the confirm that causes it). Control serves those and nothing else (a path outside them gets "No such page"); `blocks.json` lists them, and the targets give every Elixir consumer `pages/0`, `match/1` and `path/2` (`AtlasBFF.Paths`). A client with a screen only follows them.
 
-A client without a screen, such as the agents' command line (`clients/agent`), knows only codes. Three paths are for such a client, and Control works out the rest from rela's description:
+A client without a screen, such as the agents' command line (`clients/agent`), knows only codes. Three paths are for such a client, and Control works out the rest from the model:
 
 - `/k/_/<key>` (and `/edit`, `/delete`): the fact with that key. Its kind is the one whose id prefix the key has.
 - `/k/<kind>/new/_parent/<key>`: the create form under the fact with that key, through the kind's one at-most-one relation.

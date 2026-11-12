@@ -4,7 +4,11 @@ defmodule AtlasControl.RuntimeDiscoveryTest do
   setup do
     Application.put_env(:atlas_bus, :store, "discovery-#{System.unique_integer([:positive])}")
     start_supervised!(AtlasControl.FakeStore)
-    start_supervised!({AtlasControl.Gateway, port: 0, name: :discovery_gateway})
+
+    start_supervised!(
+      {AtlasControl.Gateway, port: 0, name: :discovery_gateway, model: AtlasControl.Shop}
+    )
+
     prior = Application.get_env(:atlas_control, :runtime_read_token_env)
     Application.put_env(:atlas_control, :runtime_read_token_env, "ATLAS_PRIVATE_DISCOVERY_TEST")
 
