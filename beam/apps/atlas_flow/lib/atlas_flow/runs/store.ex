@@ -8,51 +8,43 @@ defmodule AtlasFlow.Runs.Store do
 
   @structured ~w(deadlines pending last_input)
 
-  def activate(description, target, yaml_path) do
-    config = description["flow_runtime"]
+  @doc """
+  What the runs of `model` are kept and selected by, for its compiled subflows `flows`
+  (by name): `{config, refusal}`. `config` is nil when no subflow is selected; a
+  refusal (a selected subflow this runner cannot run) runs none of them.
+  """
+  def activate(model, flows) do
+    selection =
+      for {name, _} <- flows, s = model.selection(name), s != nil, into: %{}, do: {name, s}
 
-    if config == nil or config["selection"] == %{} do
-      {:ok, nil}
-    else
-      with :ok <- target.check_rela_flows(read_yaml(yaml_path, target.rela_flows_sha256())),
-           :ok <- validate_selection(config, target.flows()) do
-        {:ok, config}
-      end
-    end
-  rescue
-    error -> {:error, Exception.message(error)}
-  end
+    case model.runs() do
+      runs when is_map(runs) and selection != %{} ->
+        config = Map.put(runs, "selection", selection)
+        {config, validate_selection(config, flows)}
 
-  defp read_yaml(path, expected) do
-    case File.read(path || "") do
-      {:ok, bytes} ->
-        bytes
-
-      {:error, reason} ->
-        raise "cannot read deployed flows.yaml #{inspect(path)}: #{inspect(reason)}; expected sha256 #{expected}, actual unavailable"
+      _ ->
+        {nil, nil}
     end
   end
 
   defp validate_selection(config, flows) do
-    Enum.reduce_while(config["selection"], :ok, fn {name, selection}, :ok ->
+    Enum.find_value(Enum.sort(config["selection"]), fn {name, selection} ->
       flow = flows[name]
 
       valid_imports =
-        is_map(flow) and flow["subject"] == selection["subject"] and
-          Enum.all?(
-            selection["imports"],
-            &(get_in(flow, ["states", &1["state"], "final"]) == true)
-          )
+        flow != nil and flow.subject() == selection["subject"] and
+          Enum.all?(selection["imports"], &flow.final?(&1["state"]))
 
-      case valid_imports && Run.validate(flow) do
-        :ok -> {:cont, :ok}
-        _ -> {:halt, {:error, {:unsupported_definition, name}}}
-      end
+      if not valid_imports or Run.validate(flow) != :ok,
+        do: {:unsupported_definition, name}
     end)
   end
 
-  def selected(description, kind, fact) do
-    Enum.find((description["flow_runtime"] || %{})["selection"] || %{}, fn {_name, selection} ->
+  @doc "The selected subflow that runs `fact` of `kind`: `{name, selection}`, or nil."
+  def selected(nil, _kind, _fact), do: nil
+
+  def selected(config, kind, fact) do
+    Enum.find(config["selection"], fn {_name, selection} ->
       kind == selection["subject"] and Run.holds?(selection["admission"], fact["values"] || %{})
     end)
   end
@@ -128,7 +120,7 @@ defmodule AtlasFlow.Runs.Store do
     existing = Enum.find(restored, &(&1["flow"] == name and &1["subject_key"] == subject["key"]))
 
     key =
-      if existing, do: existing["key"], else: Run.key(name, flow["subject"], subject["key"], 1)
+      if existing, do: existing["key"], else: Run.key(name, flow.subject(), subject["key"], 1)
 
     with {:ok, fact} <- fetch(config, key) do
       if fact == nil do
@@ -154,7 +146,7 @@ defmodule AtlasFlow.Runs.Store do
   defp drain(config, key, flow, now, remaining) do
     with {:ok, %{} = fact} <- fetch(config, key),
          {:ok, run} <- decode(config, fact) do
-      if run["definition_sha256"] != Run.digest(flow) do
+      if run["definition_sha256"] != flow.digest() do
         migrations = config["selection"][run["flow"]]["migrations"] || []
 
         case Run.migrate(run, flow, migrations, now) do
@@ -214,26 +206,21 @@ defmodule AtlasFlow.Runs.Store do
   end
 
   defp next(config, run, flow, subject, now, inputs) do
-    state = flow["states"][run["state"]]
+    mechanism = if run["status"] == "active", do: flow.mechanism(run["state"])
     review = config["selection"][run["flow"]]["verification"]
     verdict = run["pending"]["verdict"]
 
     cond do
-      state != nil and state["kind"] == "pass" and run["status"] == "active" ->
-        pass_next(run, flow, subject, now, state["spec"])
+      match?({:pass, _}, mechanism) ->
+        pass_next(run, flow, subject, now, elem(mechanism, 1))
 
-      state != nil and state["kind"] == "effect" and run["status"] == "active" ->
-        effect_next(run, flow, subject, now, state["spec"])
+      match?({:effect, _}, mechanism) ->
+        effect_next(run, flow, subject, now, elem(mechanism, 1))
 
-      state != nil and state["kind"] == "gate" and run["status"] == "active" ->
-        gate_next(run, flow, subject, now, state["spec"])
+      match?({:gate, _}, mechanism) ->
+        gate_next(run, flow, subject, now, elem(mechanism, 1))
 
-      state != nil and
-          Enum.any?(inputs, fn i ->
-            Enum.any?(state["branches"], fn b ->
-              (b["roles"] || []) != [] and AtlasFlow.Runs.Inputs.eligible?(i, run, subject, b)
-            end)
-          end) ->
+      Enum.any?(inputs, &(AtlasFlow.Runs.Inputs.choice(&1, run, subject, flow) != nil)) ->
         Run.step(run, flow, subject, now, inputs)
 
       run["status"] == "active" and verdict != nil and
@@ -275,7 +262,7 @@ defmodule AtlasFlow.Runs.Store do
   end
 
   defp pass_next(run, flow, subject, now, spec) do
-    with {:ok, assignment, owner} <- pass_owner(flow["owner"], subject) do
+    with {:ok, assignment, owner} <- pass_owner(flow.owner(), subject) do
       intent = run["pending"]["pass"]
 
       cond do

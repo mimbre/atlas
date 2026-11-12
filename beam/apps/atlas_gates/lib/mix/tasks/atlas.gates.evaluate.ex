@@ -4,12 +4,15 @@ defmodule Mix.Tasks.Atlas.Gates.Evaluate do
   Evaluates a gate on an evidence file, records the verdict through Control and prints it
   with its key. The coordinator runs it where it used to record a verdict by hand:
 
-      cd beam/apps/atlas_gates && mix atlas.gates.evaluate --gate NAME --subject KEY \\
+      cd beam && mix atlas.gates.evaluate --gate NAME --subject KEY \\
         --fingerprint FPR --evidence-file /abs/evidence.json --env test \\
         [--allowed a,b] [--link about=KEY] [--link follows=KEY] [--atlas EXECUTABLE] [--json] [--no-record]
 
   Use `--gate NAME --from-subject KEY --env test` to derive evidence and fingerprint
   from stored facts. This also links the verdict about its subject and to its predecessor.
+
+  The gates are those of the model the umbrella's configuration wires (`config :atlas,
+  model:`), so run it from `beam/`, where the model is compiled.
 
   The evidence file is one JSON object of named fields; its digest (`sha256:` of the file
   as it is) is recorded with it, so keep the file. `--env` (`test` or `prod`) is the

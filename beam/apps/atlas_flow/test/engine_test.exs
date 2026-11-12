@@ -2,7 +2,12 @@ defmodule AtlasFlow.EngineTest do
   # The engine's own rules, apart from what a process does with its fact (atlas_flow_test).
   use ExUnit.Case, async: false
 
-  alias AtlasFlow.{Engine, FakeFacts}
+  alias AtlasFlow.{Engine, FakeFacts, TestModel}
+
+  # A selected subflow this runner cannot run (an effect no service is enabled for).
+  defmodule Unrunnable do
+    use AtlasFlow.TestModel, subflows: [AtlasFlow.Sorts.Unbound]
+  end
 
   setup do
     Application.put_env(:atlas_bus, :store, "state-#{System.unique_integer([:positive])}")
@@ -47,7 +52,7 @@ defmodule AtlasFlow.EngineTest do
   test "a failure (IS-Atlas-23): a fact's process killed comes back, and reads Facts again" do
     alias AtlasFlow.Faults
     FakeFacts.put("box", %{"key" => "B-1", "progress" => %{"value" => "check"}})
-    engine = start_supervised!({Engine, every: 3_600_000})
+    engine = start_supervised!({Engine, every: 3_600_000, model: AtlasFlow.Depot})
     # Its round started the process; the process's first look is sent in its init.
     Engine.round(engine)
     [{old, _}] = Registry.lookup(AtlasFlow.Items, {"box", "B-1"})
@@ -76,7 +81,7 @@ defmodule AtlasFlow.EngineTest do
     FakeFacts.put("box", %{"key" => "B-1", "progress" => %{"value" => "check"}})
     FakeFacts.put("crate", %{"key" => "C-1", "links" => %{"in_box" => ["B-1"]}})
     # No round comes within the test: only a hint can move B-1.
-    start_supervised!({Engine, every: 3_600_000})
+    start_supervised!({Engine, every: 3_600_000, model: AtlasFlow.Depot})
     :ok = AtlasBus.attach("tester-#{System.unique_integer([:positive])}")
 
     eventually(fn -> todo("B-1") == "Check it" end)
@@ -110,24 +115,13 @@ defmodule AtlasFlow.EngineTest do
     _, _ -> :ok
   end
 
-  @tag :tmp_dir
-  test "generated and legacy projections have one writer, with disjoint phases and restart deadlines",
-       %{tmp_dir: dir} do
-    alias AtlasFlow.{FixtureTarget, ManualClock}
+  test "generated and legacy projections have one writer, with disjoint phases and restart deadlines" do
+    alias AtlasFlow.ManualClock
     alias AtlasFlow.Runs.{Run, Store}
-    FakeFacts.set_description(FakeFacts.run_description())
     FakeFacts.put("box", %{"key" => "B-1", "values" => %{"phase" => "first"}})
     FakeFacts.put("box", %{"key" => "B-2", "values" => %{"phase" => "second"}})
-    yaml = Path.join(dir, "flows.yaml")
-    File.write!(yaml, "fixture\n")
     clock = start_supervised!({ManualClock, ~U[2026-11-12 00:00:00Z]})
-
-    opts = [
-      every: 3_600_000,
-      clock: {ManualClock, clock},
-      target: FixtureTarget,
-      deployed_yaml: yaml
-    ]
+    opts = [every: 3_600_000, clock: {ManualClock, clock}, model: AtlasFlow.Depot]
 
     engine = start_supervised!({Engine, opts})
     Engine.round(engine)
@@ -136,7 +130,7 @@ defmodule AtlasFlow.EngineTest do
     assert todo("B-2") == "Pack it"
     assert [{_, _}] = Registry.lookup(AtlasFlow.Items, {"box", "B-1"})
     key = Run.key("sort", "box", "B-1", 1)
-    config = FakeFacts.run_description()["flow_runtime"]
+    config = TestModel.config()
     {:ok, first} = Store.decode(config, FakeFacts.get("cursor", key))
     assert first["entry"] == 1
     ManualClock.advance(clock, 299_999)
@@ -177,28 +171,24 @@ defmodule AtlasFlow.EngineTest do
     assert {:ok, ^completed} = Store.decode(config, FakeFacts.get("cursor", key))
   end
 
-  @tag :tmp_dir
-  test "a mismatched or missing deployment refuses selected execution with zero writes", %{
-    tmp_dir: dir
-  } do
-    alias AtlasFlow.{FixtureTarget, ManualClock}
-    FakeFacts.set_description(FakeFacts.run_description())
+  test "a selected subflow the runner cannot run refuses selected execution with zero writes" do
+    alias AtlasFlow.ManualClock
     FakeFacts.put("box", %{"key" => "B-1", "values" => %{"phase" => "first"}})
-    yaml = Path.join(dir, "flows.yaml")
-    File.write!(yaml, "wrong bytes")
     clock = start_supervised!({ManualClock, ~U[2026-11-12 00:00:00Z]})
-
-    engine =
-      start_supervised!(
-        {Engine, clock: {ManualClock, clock}, target: FixtureTarget, deployed_yaml: yaml}
-      )
+    engine = start_supervised!({Engine, clock: {ManualClock, clock}, model: Unrunnable})
 
     Engine.round(engine)
     assert FakeFacts.sent() == []
     assert Registry.lookup(AtlasFlow.Items, {"box", "B-1"}) == []
-    File.rm!(yaml)
     Engine.round(engine)
     assert FakeFacts.sent() == []
+  end
+
+  test "Flow does not start without a model, or with a module that is no model" do
+    Application.delete_env(:atlas, :model)
+    assert_raise ArgumentError, fn -> AtlasFlow.Model.configured!() end
+    assert_raise ArgumentError, ~r/lacks/, fn -> AtlasFlow.Model.check!(FakeFacts) end
+    assert AtlasFlow.Model.check!(AtlasFlow.Depot) == AtlasFlow.Depot
   end
 
   defp flush_items do

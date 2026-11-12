@@ -53,7 +53,7 @@ defmodule AtlasGates.RulesTest do
     assert {"error", _} = Rules.evaluate(Map.delete(gate, "rule"), Fixtures.evidence())
   end
 
-  describe "the generated definitions" do
+  describe "the definitions of the model Gates is wired to" do
     test "every rule gate is one the evaluator applies, with a safe verdict" do
       rule_gates =
         for {name, %{"flavor" => "rule"} = g} <- AtlasGates.Definitions.gates(), do: {name, g}

@@ -1,5 +1,8 @@
 ExUnit.start()
 
+# Gates evaluates the gates of the model it is wired to: here the neutral one.
+Application.put_env(:atlas, :model, AtlasGates.Neutral)
+
 defmodule AtlasGates.Fixtures do
   @moduledoc """
   Made-up gates for Gates' tests, written as the generated definitions are: a rule gate

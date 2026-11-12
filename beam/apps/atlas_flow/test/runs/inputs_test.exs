@@ -1,19 +1,14 @@
 defmodule AtlasFlow.Runs.InputsTest do
   use ExUnit.Case, async: false
-  alias AtlasFlow.{FakeFacts, FixtureTarget, ManualClock}
+  alias AtlasFlow.{FakeFacts, ManualClock, Sorts, TestModel}
   alias AtlasFlow.Runs.{Run, Store}
   @now ~U[2026-11-12 00:00:00Z]
 
   defp subject(values \\ %{}),
     do: %{"key" => "B-1", "version" => "v2", "values" => Map.merge(%{"phase" => "first"}, values)}
 
-  defp flow do
-    FixtureTarget.flow()
-    |> put_in(["states", "waiting", "set"], [%{"field" => "choice", "value" => "none"}])
-    |> put_in(["states", "waiting", "branches"], [
-      %{"when" => "entity.choice == 'yes'", "roles" => ["clerk"], "to" => "done"}
-    ])
-  end
+  # A clerk chooses yes (a branch only the clerk's input takes); entering resets the choice.
+  defp flow, do: Sorts.Chosen
 
   defp run(f), do: Run.new("sort", f, subject(), [], @now) |> put_in(["pending", "writes"], [])
 
@@ -68,7 +63,7 @@ defmodule AtlasFlow.Runs.InputsTest do
   end
 
   test "since is frozen from the persisted field; invalid time blocks before effects" do
-    f = put_in(flow(), ["states", "waiting", "timers", Access.at(0), "since"], "opened_at")
+    f = Sorts.Since
 
     for value <- [nil, "invalid"] do
       blocked = Run.new("sort", f, subject(%{"opened_at" => value}), [], @now)
@@ -82,7 +77,7 @@ defmodule AtlasFlow.Runs.InputsTest do
 
   setup do
     Application.put_env(:atlas_bus, :store, "inputs-#{System.unique_integer([:positive])}")
-    start_supervised!({FakeFacts, description: FakeFacts.run_description()})
+    start_supervised!(FakeFacts)
     :ok = AtlasBus.attach("flow")
     clock = start_supervised!({ManualClock, @now})
     FakeFacts.put("box", subject())
@@ -92,14 +87,9 @@ defmodule AtlasFlow.Runs.InputsTest do
   test "entry resets and creates replay once; keys include entry and output index", %{
     clock: clock
   } do
-    f =
-      flow()
-      |> put_in(["states", "waiting", "creates"], [
-        %{"type" => "slip", "properties" => %{"title" => "One"}, "relate" => "of_box"},
-        %{"type" => "slip", "properties" => %{"title" => "Two"}, "relate" => "of_box"}
-      ])
-
-    config = FakeFacts.run_description()["flow_runtime"]
+    # It also makes two slips on entry.
+    f = flow()
+    config = TestModel.config()
     FakeFacts.lose_ack("slip")
     assert {:error, {:pending, _}} = Store.reconcile(config, %{"sort" => f}, @now)
     assert {:ok, [first]} = Store.reconcile(config, %{"sort" => f}, @now)
@@ -119,11 +109,8 @@ defmodule AtlasFlow.Runs.InputsTest do
   end
 
   test "predicate edge is persisted while false, consumed once, and survives reconciliation restart" do
-    f =
-      FixtureTarget.flow()
-      |> put_in(["start"], [%{"on" => "predicate", "when" => "entity.ready == true"}])
-
-    config = FakeFacts.run_description()["flow_runtime"]
+    f = Sorts.Ready
+    config = TestModel.config()
 
     assert {:ok, [%{"status" => "idle", "entry" => 0}]} =
              Store.reconcile(config, %{"sort" => f}, @now)

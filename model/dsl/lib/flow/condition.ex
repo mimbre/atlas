@@ -1,6 +1,15 @@
-defmodule AtlasFlow.Runs.Conditions do
-  @moduledoc "Closed grammar: comparisons before conjunction before disjunction."
+defmodule RelaDSL.Flow.Condition do
+  @moduledoc """
+  The closed grammar of a subflow's conditions (a branch's `when:`, a predicate start),
+  compiled when the model compiles: comparisons of `entity.<field>` with a literal, then
+  `and`, then `or`, and parentheses. A text outside the grammar does not compile.
 
+  `quoted/2` gives the Elixir code that evaluates a condition on a map of values, so a
+  running subflow never parses a condition. A field that is missing makes a comparison
+  unknown: unknown is no match, `false and unknown` is false and `true or unknown` true.
+  """
+
+  @doc "The condition as a tree: `{:ok, tree}` or `{:error, :unsupported_condition}`."
   def compile(text) when is_binary(text) and byte_size(text) <= 4096 do
     with {:ok, tokens} <- tokens(text, []),
          {:ok, tree, []} <- expression(tokens, 0) do
@@ -12,40 +21,27 @@ defmodule AtlasFlow.Runs.Conditions do
 
   def compile(_), do: {:error, :unsupported_condition}
 
+  @doc "The fields a condition reads."
   def fields({:field, field}), do: [field]
   def fields({_, left, right}), do: Enum.uniq(fields(left) ++ fields(right))
   def fields(_), do: []
 
-  def matches?(text, values) do
-    case compile(text) do
-      {:ok, tree} -> evaluate(tree, values) == true
-      _ -> false
-    end
-  end
+  @doc "Code that is `true` when the condition holds on `values` (a quoted variable)."
+  def quoted(tree, values),
+    do: quote(do: unquote(value(tree, values)) == true)
 
-  def evaluate({:field, field}, values), do: Map.get(values, field, :missing)
-  def evaluate({:literal, value}, _), do: value
+  defp value({:field, field}, values),
+    do: quote(do: Map.get(unquote(values), unquote(field), :missing))
 
-  def evaluate({op, left, right}, values) do
-    a = evaluate(left, values)
-    b = evaluate(right, values)
+  defp value({:literal, literal}, _values), do: Macro.escape(literal)
 
-    case {op, a, b} do
-      {"and", false, _} -> false
-      {"and", _, false} -> false
-      {"or", true, _} -> true
-      {"or", _, true} -> true
-      {_, :missing, _} -> :missing
-      {_, _, :missing} -> :missing
-      {"and", a, b} when is_boolean(a) and is_boolean(b) -> a and b
-      {"or", a, b} when is_boolean(a) and is_boolean(b) -> a or b
-      {"==", a, b} -> a == b
-      {"!=", a, b} -> a != b
-      {">", a, b} when is_number(a) and is_number(b) -> a > b
-      {">=", a, b} when is_number(a) and is_number(b) -> a >= b
-      {"<", a, b} when is_number(a) and is_number(b) -> a < b
-      {"<=", a, b} when is_number(a) and is_number(b) -> a <= b
-      _ -> :missing
+  defp value({op, left, right}, values) do
+    quote do
+      RelaDSL.Flow.Code.op(
+        unquote(op),
+        unquote(value(left, values)),
+        unquote(value(right, values))
+      )
     end
   end
 

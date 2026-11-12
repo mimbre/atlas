@@ -4,7 +4,8 @@ defmodule Model.MixProject do
   # Atlas's model: the domain, by module and concept (D-0083). Each concept holds its
   # kind, its relations, its subflows and gates; a module groups concepts into one Rela
   # file; the composition selects modules and runs the subflows. The DSL and its checks
-  # belong to model/dsl. The profiles are private compositions for tests (MIX_ENV=test).
+  # belong to model/dsl. The profiles are private compositions for tests and private
+  # instances (every MIX_ENV but prod).
   def project do
     [
       app: :model,
@@ -12,13 +13,26 @@ defmodule Model.MixProject do
       elixir: "~> 1.18",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: false,
-      deps: [{:rela_dsl, path: "../dsl"}]
+      deps: deps()
     ]
   end
 
   def application, do: [extra_applications: [:logger]]
 
+  # The DSL it is written in, and the platform's behaviours it implements (D-0083):
+  # Flow's (AtlasFlow.Model, AtlasFlow.Subflow, AtlasFlow.Legacy) and Gates'
+  # (AtlasGates.Model), at compile time only: the model starts no platform app. The
+  # platform never depends on the model; it is wired by configuration
+  # (`config :atlas, model: Model.AtlasEyra`).
+  defp deps,
+    do: [
+      {:rela_dsl, path: "../dsl"},
+      {:atlas_flow, path: "../../beam/apps/atlas_flow", runtime: false, env: Mix.env()},
+      {:atlas_gates, path: "../../beam/apps/atlas_gates", runtime: false, env: Mix.env()}
+    ]
+
+  # The profiles are compiled everywhere but in prod: a private instance (e2e) runs one.
   @model ["foundation", "software", "eyra", "compositions"]
-  defp elixirc_paths(:test), do: @model ++ ["profiles"]
-  defp elixirc_paths(_), do: @model
+  defp elixirc_paths(:prod), do: @model
+  defp elixirc_paths(_), do: @model ++ ["profiles"]
 end

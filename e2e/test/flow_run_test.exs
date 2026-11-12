@@ -66,11 +66,8 @@ defmodule AtlasE2E.FlowRunTest do
     end
   end
   """)
-  yaml = RelaDSL.Rela.flows_yaml(PrivateChoiceContract.__flows__())
-  File.write!(Path.join(dir, "flows.yaml"), yaml)
-  json = RelaDSL.Atlas.flows_json(PrivateChoiceContract.__flows__(), [], RelaDSL.Atlas.sha256(yaml))
-  File.write!(Path.join(dir, "flows.json"), json)
-  Code.compile_string("defmodule PrivateChoiceTarget do\nuse RelaDSL.Runtime, target: #{inspect(Path.join(dir, "flows.json"))}\nend")
+  # Compiled as a model compiles it: Flow runs the module, nothing is read from a file.
+  Code.compile_string("defmodule PrivateChoiceRun do\nuse RelaDSL.Flow.Subflow, from: PrivateChoiceContract, subflow: :sort, behaviour: AtlasFlow.Subflow\nend")
   {:ok, socket} = :gen_tcp.listen(0, [:binary, ip: {127, 0, 0, 1}])
   {:ok, port} = :inet.port(socket)
   :gen_tcp.close(socket)
@@ -103,7 +100,9 @@ defmodule AtlasE2E.FlowRunTest do
       await.(await, "")
     end
     description = await_facts.()
-    assert {:ok, ^config} = Store.activate(description, PrivateChoiceTarget, Path.join(dir, "flows.yaml"))
+    # Facts serves the run configuration it checks inputs by; Flow runs the compiled subflow.
+    assert description["flow_runtime"] == config
+    assert Run.validate(PrivateChoiceRun) == :ok
     {:stored, _} = Talk.put("clerk", %{"op" => "create", "key" => "ada", "values" => %{"name" => "Ada"}})
     {:stored, _} = Talk.put("box", %{"op" => "create", "key" => "B-1", "values" => %{}, "links" => %{"chosen_by" => ["ada"]}})
     {:ok, clock} = ManualClock.start_link(~U[2026-11-12 00:00:00Z])
@@ -114,7 +113,7 @@ defmodule AtlasE2E.FlowRunTest do
         try do action.() after Registry.unregister(AtlasBus.Endpoints, "flow") end
       end) |> Task.await()
     end
-    reconcile = fn -> as_flow.(fn -> Store.reconcile(config, PrivateChoiceTarget.flows(), ManualClock.now(clock)) end) end
+    reconcile = fn -> as_flow.(fn -> Store.reconcile(config, %{"sort" => PrivateChoiceRun}, ManualClock.now(clock)) end) end
     assert {:ok, [waiting]} = reconcile.()
     %{"fact" => subject} = Talk.transition_read("box", %{"key" => "B-1", "plain" => true})
     values = %{"entry" => waiting["entry"], "request_id" => "proof-choice", "run" => waiting["key"], "source_version" => subject["version"], "changed_fields" => %{"choice" => "yes"}}

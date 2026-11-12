@@ -44,4 +44,61 @@ defmodule Model.DefinitionDigestTest do
       assert mapping["states"] == Map.new(flow["states"], fn {s, _} -> {s, s} end)
     end
   end
+
+  # What Flow runs is the compiled model: each subflow's digest/0 is the identity of the
+  # committed flows.<env>.json entry, so live runs keep theirs (no migration, no re-key).
+  test "each compiled subflow's digest is that of its committed entry, per environment" do
+    for {env, target} <- [prod: "atlas", test: "test/atlas"] do
+      committed = JSON.decode!(File.read!("../targets/#{target}/flows.json"))["flows"]
+      compiled = Model.AtlasEyra.subflows(env)
+      assert Enum.map(compiled, & &1.name()) == Enum.sort(Map.keys(committed))
+
+      for subflow <- compiled do
+        definition = committed[subflow.name()]
+        assert subflow.digest() == DefinitionDigest.of(definition), "#{env} #{subflow.name()}"
+        assert subflow.states() == Enum.sort(Map.keys(definition["states"]))
+        assert subflow.subject() == definition["subject"]
+      end
+    end
+  end
+
+  test "the compiled decide keeps the live digests" do
+    decide = fn env -> Enum.find(Model.AtlasEyra.subflows(env), &(&1.name() == "decide")) end
+
+    assert decide.(:prod).digest() ==
+             "bfd535ea5c570cc586c606825745a7f767bf138a5f5289093f629a99e06fb042"
+
+    assert decide.(:test).digest() ==
+             "b4a73029ce91d1bb1727498feb0c4b277315956c8b1ac547f15d1454eb5ccae8"
+  end
+
+  test "the compiled legacy flows are the committed description's flows" do
+    committed = JSON.decode!(File.read!("../../rela/atlas.json"))["flows"]
+    assert Enum.map(Model.AtlasEyra.legacy(), & &1.name()) == Enum.sort(Map.keys(committed))
+
+    for flow <- Model.AtlasEyra.legacy() do
+      definition = committed[flow.name()]
+      assert flow.kinds() == definition["kinds"]
+
+      assert flow.writes() ==
+               Map.take(definition, ~w(on field state_field handover_field owner_relation))
+
+      for state <- definition["states"] do
+        assert flow.done?(state["name"]) == (state["done"] == true)
+        assert flow.why(state["name"]) == state["why"]
+      end
+    end
+  end
+
+  test "the compiled run selection and migrations are the committed flow-runtime.json's" do
+    committed = JSON.decode!(File.read!("../../rela/flow-runtime.json"))["flow_runtime"]
+
+    for {name, selection} <- committed["selection"],
+        do: assert(Model.AtlasEyra.selection(name) == selection, name)
+
+    assert Model.AtlasEyra.runs() == Map.take(committed, ~w(kind fields writer inputs))
+
+    assert Model.AtlasEyra.gates() ==
+             JSON.decode!(File.read!("../targets/atlas/flows.json"))["gates"]
+  end
 end

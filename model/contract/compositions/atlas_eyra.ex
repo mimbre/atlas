@@ -16,7 +16,14 @@ defmodule Model.AtlasEyra do
 
   `mix model.gen` generates the Rela project (`rela/`) and the targets from this module.
   """
-  use RelaDSL.Composition, name: "atlas-eyra"
+  use RelaDSL.Composition,
+    name: "atlas-eyra",
+    subflow_behaviour: AtlasFlow.Subflow,
+    legacy_behaviour: AtlasFlow.Legacy
+
+  # The model Flow and Gates are wired to (config :atlas, model: …).
+  @behaviour AtlasFlow.Model
+  @behaviour AtlasGates.Model
 
   alias Model.{Decision, Issue, PrReview, PrTest, PullRequest, Scene, UseCase}
 

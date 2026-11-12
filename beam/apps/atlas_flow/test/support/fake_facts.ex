@@ -3,74 +3,18 @@ defmodule AtlasFlow.FakeFacts do
   A stand-in for Facts on the Bus, for Flow's tests: answers reads with facts as Facts
   wires them (values, links, origins, progress, completion), stores changes in memory,
   and answers each fact with stored and a position (the Bus hints it to listeners). Its
-  kinds are made up on purpose: a box holds crates, a clerk signs a box off.
+  kinds are the neutral depot's (`AtlasFlow.Depot`): a box holds crates, a clerk signs a
+  box off.
   """
   use GenServer
 
   alias AtlasBus.Envelope
 
-  @flow %{
-    "kinds" => ["box"],
-    "field" => "todo",
-    "owner_relation" => "owned_by",
-    "states" => [
-      %{"name" => "done", "when" => %{"completed" => true}, "done" => true},
-      %{
-        "name" => "again",
-        "when" => %{"reopened" => "signed_by"},
-        "owner" => %{"kind" => "clerk", "key" => "bob"},
-        "expected" => "Again: {note}",
-        "why" => "taken back",
-        "next" => ["packing", "done"]
-      },
-      %{
-        "name" => "check",
-        "when" => %{"progress" => "check"},
-        "owner" => %{"kind" => "clerk", "key" => "ada"},
-        "expected" => "Check it",
-        "why" => "all in it is packed",
-        "next" => ["done"]
-      },
-      %{
-        "name" => "packing",
-        "owner" => %{"kind" => "clerk", "key" => "bob"},
-        "expected" => "Pack it",
-        "why" => "not all in it is packed",
-        "next" => ["check"]
-      }
-    ]
-  }
-
-  def flow, do: @flow
-
-  def run_description do
-    fields =
-      ~w(flow subject_kind subject_key generation definition_sha256 state entry entered_at status deadlines pending input_cursor last_input blocked_reason)
-
-    config = %{
-      "version" => 1,
-      "kind" => "cursor",
-      "fields" => Map.new(fields, &{&1, &1}),
-      "writer" => %{"sender" => "flow", "by" => "flow"},
-      "selection" => %{
-        "sort" => %{
-          "subject" => "box",
-          "legacy" => "pack",
-          "projection" => Map.take(@flow, ~w(on field state_field handover_field owner_relation)),
-          "admission" => %{"phase" => ["first"]},
-          "follow_through" => nil,
-          "imports" => [
-            %{"when" => %{"result" => ["ok", "old"]}, "state" => "done"},
-            %{"when" => %{"result" => ["no"]}, "state" => "discarded"}
-          ]
-        }
-      }
-    }
-
-    Map.put(description(), "flow_runtime", config)
-  end
-
-  def description(flow \\ @flow, problems \\ []) do
+  @doc """
+  What Facts describes: the kinds and relations (the depot's flows are the model's,
+  `AtlasFlow.Depot`, never the description's), and the problems Facts found in a flow.
+  """
+  def description(problems \\ []) do
     %{
       "entities" => %{
         "box" => %{"plural" => "boxes"},
@@ -82,7 +26,6 @@ defmodule AtlasFlow.FakeFacts do
         "signed_by" => %{"from" => ["box"], "to" => ["clerk"], "max_outgoing" => 1},
         "owned_by" => %{"from" => ["box"], "to" => ["clerk"], "max_outgoing" => 1}
       },
-      "flows" => %{"pack" => flow},
       "flow_problems" => %{"pack" => problems}
     }
   end
@@ -149,7 +92,6 @@ defmodule AtlasFlow.FakeFacts do
   @impl true
   def handle_info({:atlas_bus, %Envelope{class: "read"} = e, content}, s) do
     s = if flow?(e.sender), do: %{s | reads: count(s.reads, content)}, else: s
-    input_kind = get_in(s.description, ["flow_runtime", "inputs", "kind"])
 
     answer =
       case {e.kind, content} do
@@ -169,7 +111,8 @@ defmodule AtlasFlow.FakeFacts do
 
           %{"facts" => facts}
 
-        {^input_kind, _} when not is_nil(input_kind) ->
+        # The inputs of a run: none was given.
+        {_kind, %{"run" => _}} ->
           %{"inputs" => []}
 
         {kind, _} ->
@@ -251,52 +194,4 @@ defmodule AtlasFlow.FakeFacts do
 
   defp count({all, plain}, content),
     do: {all + 1, plain + if(content["plain"] == true, do: 1, else: 0)}
-end
-
-defmodule AtlasFlow.FixtureTarget do
-  @moduledoc "A neutral, three-state target for the bounded runner."
-  def rela_flows_sha256, do: RelaDSL.Atlas.sha256("fixture\n")
-
-  def check_rela_flows(bytes),
-    do:
-      RelaDSL.Runtime.check_rela_flows(
-        RelaDSL.Atlas.sha256("fixture\n"),
-        bytes
-      )
-
-  def flows, do: %{"sort" => flow()}
-
-  def flow do
-    empty = %{
-      "final" => false,
-      "set" => [],
-      "branches" => [],
-      "timers" => [],
-      "creates" => [],
-      "awaits" => [],
-      "waiting_for" => []
-    }
-
-    %{
-      "subject" => "box",
-      "per_subject" => "one",
-      "start" => [%{"on" => "create"}],
-      "initial" => "waiting",
-      "owner" => %{"default" => %{"kind" => "clerk", "key" => "ada"}},
-      "states" => %{
-        "waiting" =>
-          Map.merge(empty, %{
-            "present" => %{"expected" => "Sort it"},
-            "set" => [%{"field" => "mark", "value" => "entered"}],
-            "branches" => [
-              %{"to" => "done", "roles" => [], "when" => "entity.result == 'ok'"},
-              %{"to" => "discarded", "roles" => [], "when" => "entity.result == 'no'"}
-            ],
-            "timers" => [%{"name" => "retry", "period" => "5m", "to" => "waiting"}]
-          }),
-        "done" => Map.put(empty, "final", true),
-        "discarded" => Map.put(empty, "final", true)
-      }
-    }
-  end
 end

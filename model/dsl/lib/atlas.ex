@@ -55,6 +55,10 @@ defmodule RelaDSL.Atlas do
   def definitions(flows, gates),
     do: JSON.decode!(flows_json(flows, gates, String.duplicate("0", 64)))["flows"]
 
+  @doc "Every gate as `flows.json` holds it and Gates reads it: string keys, by name."
+  def gate_data(gates),
+    do: JSON.decode!(flows_json([], gates, String.duplicate("0", 64)))["gates"]
+
   @doc "SHA-256 of `bytes`, lower case hex, as `rela_flows_sha256` holds it."
   def sha256(bytes), do: :crypto.hash(:sha256, bytes) |> Base.encode16(case: :lower)
 

@@ -7,7 +7,14 @@ defmodule Model.Profiles.Foundation do
 
       MIX_ENV=test mix model.gen --contract Model.Profiles.Foundation --out DIR
   """
-  use RelaDSL.Composition, name: "foundation"
+  use RelaDSL.Composition,
+    name: "foundation",
+    subflow_behaviour: AtlasFlow.Subflow,
+    legacy_behaviour: AtlasFlow.Legacy
+
+  # The model Flow and Gates are wired to (config :atlas, model: …).
+  @behaviour AtlasFlow.Model
+  @behaviour AtlasGates.Model
 
   schema(
     version: "1.0",
@@ -15,6 +22,8 @@ defmodule Model.Profiles.Foundation do
     description: "Private dependency fixture"
   )
 
+  # Compiled for both environments, so a private instance of either can run it.
+  environments([:prod, :test])
   modules([Model.Foundation])
 
   relation(:about,

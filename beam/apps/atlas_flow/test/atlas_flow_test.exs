@@ -1,7 +1,26 @@
 defmodule AtlasFlowTest do
   use ExUnit.Case, async: false
 
-  alias AtlasFlow.{Definition, Engine, FakeFacts}
+  alias AtlasFlow.{Engine, FakeFacts, Legacy, Packs}
+
+  # The depot's legacy flow, as the model compiled it.
+  @pack AtlasFlow.Depot.Legacy.Pack
+
+  defmodule Later do
+    use AtlasFlow.TestModel, legacy: [AtlasFlow.Packs.Later]
+  end
+
+  defmodule Carded do
+    use AtlasFlow.TestModel, legacy: [AtlasFlow.Packs.Carded]
+  end
+
+  defmodule Stepped do
+    use AtlasFlow.TestModel, legacy: [AtlasFlow.Packs.Stepped]
+  end
+
+  defmodule Labelled do
+    use AtlasFlow.TestModel, legacy: [AtlasFlow.Packs.Labelled]
+  end
 
   setup do
     Application.put_env(:atlas_bus, :store, "state-#{System.unique_integer([:positive])}")
@@ -27,7 +46,8 @@ defmodule AtlasFlowTest do
     :ok
   end
 
-  defp engine, do: start_supervised!({Engine, every: 3_600_000})
+  defp engine(model \\ AtlasFlow.Depot),
+    do: start_supervised!({Engine, every: 3_600_000, model: model})
 
   defp alive(key), do: Registry.lookup(AtlasFlow.Items, {"box", key}) != []
 
@@ -40,8 +60,7 @@ defmodule AtlasFlowTest do
   end
 
   defp deferred_setup do
-    flow = Map.put(FakeFacts.flow(), "handover_field", "later")
-    description = FakeFacts.description(flow)
+    description = FakeFacts.description()
     description = put_in(description, ["entities", "run"], %{})
 
     description =
@@ -74,7 +93,7 @@ defmodule AtlasFlowTest do
       "links" => %{"work" => ["B-1"], "worker" => ["bob"]}
     })
 
-    pid = engine()
+    pid = engine(Later)
     AtlasBus.attach("observer-#{System.unique_integer([:positive])}")
     eventually(fn -> FakeFacts.get("box", "B-1")["values"]["later"] != nil end)
     pid
@@ -143,8 +162,7 @@ defmodule AtlasFlowTest do
   end
 
   test "a component hint does not restart completed work to remove a historical owner" do
-    flow = Map.put(FakeFacts.flow(), "on", "card")
-    description = FakeFacts.description(flow)
+    description = FakeFacts.description()
 
     description =
       put_in(description, ["relations", "card"], %{
@@ -167,7 +185,7 @@ defmodule AtlasFlowTest do
       "origins" => %{"owned_by" => %{"by" => "migration"}}
     })
 
-    server = engine()
+    server = engine(Carded)
     Engine.round(server)
     AtlasBus.attach("observer-#{System.unique_integer([:positive])}")
     {reads, _} = FakeFacts.reads()
@@ -180,14 +198,9 @@ defmodule AtlasFlowTest do
     refute Enum.any?(FakeFacts.sent(), &(&1["by"] == "flow"))
   end
 
-  describe "the state a fact is in" do
-    @flow FakeFacts.flow()
-
+  describe "the state a fact is in (the compiled legacy flow)" do
     test "the first state that holds; the last when none other does" do
-      name = fn fact, children ->
-        {state, _} = Definition.state_of(@flow, fact, children, ["in_box"])
-        state["name"]
-      end
+      name = fn fact, children -> elem(@pack.state(fact, children, ["in_box"], []), 0) end
 
       assert name.(%{"completion" => %{"done" => true}}, []) == "done"
       assert name.(%{"progress" => %{"value" => "check"}}, []) == "check"
@@ -204,32 +217,19 @@ defmodule AtlasFlowTest do
       older = %{"origins" => %{"in_box" => %{"position" => 12}}}
       newer = %{"origins" => %{"in_box" => %{"position" => 41}}}
 
-      assert {%{"name" => "again"} = state, vars} =
-               Definition.state_of(@flow, fact, [older], ["in_box"])
-
-      assert Definition.expected(state, vars) == "Again: a crack"
-      assert Definition.owner(state) == "bob"
+      assert {"again", vars} = @pack.state(fact, [older], ["in_box"], [])
+      assert @pack.expected("again", vars) == "Again: a crack"
+      assert @pack.owner("again") == %{"kind" => "clerk", "key" => "bob"}
 
       # A crate came under it since: the work goes on as usual.
-      assert {%{"name" => "check"}, _} =
-               Definition.state_of(@flow, fact, [older, newer], ["in_box"])
+      assert {"check", _} = @pack.state(fact, [older, newer], ["in_box"], [])
 
       signed = put_in(fact, ["origins", "signed_by"], %{"keys" => ["ada"], "position" => 40})
-      assert {%{"name" => "check"}, _} = Definition.state_of(@flow, signed, [], ["in_box"])
+      assert {"check", _} = @pack.state(signed, [], ["in_box"], [])
     end
 
     test "empty: nothing under it through a relation its kind has things under through" do
-      flow = %{
-        "states" => [
-          %{"name" => "split", "when" => %{"empty" => "in_box"}},
-          %{"name" => "packing"}
-        ]
-      }
-
-      name = fn children, parents ->
-        {state, _} = Definition.state_of(flow, %{}, children, parents)
-        state["name"]
-      end
+      name = fn children, parents -> elem(Packs.Split.state(%{}, children, parents, []), 0) end
 
       assert name.([], ["in_box"]) == "split"
       assert name.([%{"links" => %{"in_box" => ["B-1"]}}], ["in_box"]) == "packing"
@@ -238,37 +238,22 @@ defmodule AtlasFlowTest do
     end
 
     test "done: nobody owns it and nothing is expected" do
-      done = hd(@flow["states"])
-      assert Definition.owner(done) == nil
-      assert Definition.expected(done, %{}) == nil
-      assert Definition.expected(%{"expected" => "Again: {note}"}, %{"note" => ""}) == "Again"
+      assert @pack.done?("done")
+      assert @pack.owner("done") == nil
+      assert @pack.expected("done", %{}) == nil
+      assert @pack.expected("again", %{"note" => ""}) == "Again"
     end
 
-    test "a definition Facts found problems in is not run" do
-      assert Definition.kinds(FakeFacts.description()) == ["box"]
-      assert Definition.kinds(FakeFacts.description(FakeFacts.flow(), ["x has no owner"])) == []
+    test "a flow Facts found problems in is not run" do
+      flows = AtlasFlow.Depot.legacy()
+      assert Legacy.kinds(Legacy.runnable(flows, FakeFacts.description())) == ["box"]
+      assert Legacy.runnable(flows, FakeFacts.description(["x has no owner"])) == []
     end
 
     test "briefed by the empty state until something is under it, then by the next" do
-      flow = %{
-        "states" => [
-          %{
-            "name" => "fill",
-            "when" => %{"empty" => "in_box"},
-            "owner" => %{"kind" => "clerk", "key" => "ada"},
-            "expected" => "Fill it with crates"
-          },
-          %{
-            "name" => "packing",
-            "owner" => %{"kind" => "clerk", "key" => "ada"},
-            "expected" => "Pack it"
-          }
-        ]
-      }
-
       briefing = fn children ->
-        {state, vars} = Definition.state_of(flow, %{}, children, ["in_box"])
-        {state["name"], Definition.expected(state, vars), Definition.owner(state)}
+        {state, vars} = Packs.Filled.state(%{}, children, ["in_box"], [])
+        {state, Packs.Filled.expected(state, vars), Packs.Filled.owner(state)["key"]}
       end
 
       assert briefing.([]) == {"fill", "Fill it with crates", "ada"}
@@ -277,22 +262,10 @@ defmodule AtlasFlowTest do
 
     test "empty through an association that ends at its kind: nothing points at it yet" do
       # A tag labels a box (an association, not a parent relation).
-      flow = %{
-        "states" => [
-          %{
-            "name" => "wait",
-            "when" => %{"values" => %{"sealed" => [true]}, "empty" => "labels"}
-          },
-          %{"name" => "done", "when" => %{"values" => %{"sealed" => [true]}}, "done" => true},
-          %{"name" => "packing"}
-        ]
-      }
-
       sealed = %{"values" => %{"sealed" => true}}
 
       name = fn children, pointing ->
-        {state, _} = Definition.state_of(flow, sealed, children, [], pointing)
-        state["name"]
+        elem(Packs.Labelled.state(sealed, children, [], pointing), 0)
       end
 
       assert name.([], ["labels"]) == "wait"
@@ -307,29 +280,29 @@ defmodule AtlasFlowTest do
         }
       }
 
-      assert Definition.pointing(description, flow, "box") == ["labels"]
-      assert Definition.pointing(description, flow, "tag") == []
+      assert Legacy.pointing(Packs.Labelled, description, "box") == ["labels"]
+      assert Legacy.pointing(Packs.Labelled, description, "tag") == []
     end
 
     test "what is expected may name the fact's own fields; a condition's note wins" do
-      state = %{"expected" => "Label it: {notes} ({note})"}
       fact = %{"values" => %{"notes" => "fragile", "note" => "own"}}
-      {_, vars} = Definition.state_of(%{"states" => [state]}, fact, [], [])
-      assert Definition.expected(state, vars) == "Label it: fragile (own)"
+      {state, vars} = Packs.Noted.state(fact, [], [], [])
+      assert Packs.Noted.expected(state, vars) == "Label it: fragile (own)"
 
-      {_, vars} =
-        Definition.state_of(
-          %{"states" => [Map.put(state, "when", %{"reopened" => "signed_by"})]},
-          put_in(fact, ["origins"], %{
-            "signed_by" => %{"keys" => [], "position" => 3, "cause" => "torn"}
-          }),
-          [],
-          []
-        )
+      reopened =
+        put_in(fact, ["origins"], %{
+          "signed_by" => %{"keys" => [], "position" => 3, "cause" => "torn"}
+        })
 
-      assert Definition.expected(state, vars) == "Label it: fragile (torn)"
-      # Without the field, its place is empty and a trailing colon goes.
-      assert Definition.expected(%{"expected" => "Label it: {notes}"}, %{}) =~ "Label it"
+      {state, vars} = Packs.Reopened.state(reopened, [], [], [])
+      assert Packs.Reopened.expected(state, vars) == "Label it: fragile (torn)"
+    end
+
+    test "a field the text names that the fact does not have leaves its place empty" do
+      # Its place is empty and a trailing colon goes; the name in braces never shows.
+      {state, vars} = Packs.Labelled.state(%{"values" => %{"sealed" => true}}, [], [], ["labels"])
+      assert state == "wait"
+      assert Packs.Labelled.expected(state, vars) == "Label it"
     end
   end
 
@@ -453,10 +426,6 @@ defmodule AtlasFlowTest do
     end
 
     test "with a state field, the state's name is written; alone it moves no owner" do
-      FakeFacts.set_description(
-        FakeFacts.description(Map.put(FakeFacts.flow(), "state_field", "step"))
-      )
-
       FakeFacts.put("clerk", %{"key" => "cy"})
 
       FakeFacts.put("box", %{
@@ -466,7 +435,7 @@ defmodule AtlasFlowTest do
         "origins" => %{"owned_by" => %{"keys" => ["cy"], "by" => "ada", "cause" => "cy packs"}}
       })
 
-      engine()
+      engine(Stepped)
       eventually(fn -> FakeFacts.get("box", "B-1")["values"]["step"] == "packing" end)
       # Only the name: what is expected was right, and cy, whom ada chose, stays.
       assert [%{"values" => %{"step" => "packing"}} = sent] = FakeFacts.sent()
@@ -569,31 +538,8 @@ defmodule AtlasFlowTest do
     end
 
     test "a fact that waits until something points at it through an association" do
-      flow = %{
-        "kinds" => ["box"],
-        "field" => "todo",
-        "owner_relation" => "owned_by",
-        "states" => [
-          %{
-            "name" => "wait",
-            "when" => %{"values" => %{"sealed" => [true]}, "empty" => "labels"},
-            "owner" => %{"kind" => "clerk", "key" => "ada"},
-            "expected" => "Label it: {notes}",
-            "why" => "nothing labels it yet",
-            "next" => ["done"]
-          },
-          %{"name" => "done", "when" => %{"values" => %{"sealed" => [true]}}, "done" => true},
-          %{
-            "name" => "packing",
-            "owner" => %{"kind" => "clerk", "key" => "bob"},
-            "expected" => "Pack it",
-            "next" => ["wait"]
-          }
-        ]
-      }
-
       description =
-        FakeFacts.description(flow)
+        FakeFacts.description()
         |> put_in(["entities", "tag"], %{"plural" => "tags"})
         |> put_in(["relations", "labels"], %{"from" => ["tag"], "to" => ["box"]})
 
@@ -605,7 +551,7 @@ defmodule AtlasFlowTest do
         "values" => %{"sealed" => true, "notes" => "fragile"}
       })
 
-      engine()
+      engine(Labelled)
       eventually(fn -> FakeFacts.get("box", "B-1")["values"]["todo"] == "Label it: fragile" end)
       assert FakeFacts.get("box", "B-1")["links"]["owned_by"] == ["ada"]
 

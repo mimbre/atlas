@@ -24,13 +24,13 @@ Facts keeps it as a record (`sealed` on the gate verdict in `model/contract/foun
 Gates (`beam/apps/atlas_gates`) evaluates a gate and records its verdict; nobody writes a verdict by hand. Until Flow asks Gates itself, the coordinator asks it for today's rule gate, integrate (green CI on the integrated head and a matching fingerprint), once per decision:
 
 ```sh
-cd beam/apps/atlas_gates && mix atlas.gates.evaluate --gate integrate --subject PR-12 \
+cd beam && mix atlas.gates.evaluate --gate integrate --subject PR-12 \
   --fingerprint "$fingerprint" --evidence-file /abs/evidence.json --env test \
   --link about=PR-12 --link follows=GV-0006            # [--allowed integrate,refuse] [--json]
 atlas set GV-0007 rework_after="CI failed on main after integrating (run 4711)"   # later, once
 ```
 
-The evidence file is one JSON object of named fields, as the coordinator collects them (`ci_conclusion`, `ci_head`, `integration_head`, `review_fingerprint`, `integration_fingerprint`, …); keep it, its `sha256:` digest is recorded. Gates applies the gate's definition from `model/targets/atlas/flows.json` (its rule, decide map and version: data, not code), records the verdict through Control with the `atlas` client, and prints it with its key:
+The evidence file is one JSON object of named fields, as the coordinator collects them (`ci_conclusion`, `ci_head`, `integration_head`, `review_fingerprint`, `integration_fingerprint`, …); keep it, its `sha256:` digest is recorded. Gates applies the gate's definition from the model it is wired to (`model/contract`, compiled into the umbrella; its rule, decide map and version: data, not code), records the verdict through Control with the `atlas` client, and prints it with its key:
 
 ```
 integrate: GV-0007 recorded now

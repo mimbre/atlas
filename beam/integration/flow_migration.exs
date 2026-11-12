@@ -48,18 +48,23 @@ defmodule FlowMigrationBootTest do
   use ExUnit.Case, async: false
   alias AtlasFlow.{Engine, FakeFacts, ManualClock}
   alias AtlasFlow.Runs.{Run, Store}
-  @root Path.expand("../..", __DIR__)
   @now ~U[2026-11-12 00:00:00Z]
   # Slice 1's deployed definition digest, retained in the sidecar migration table.
   @old "8ca16b332a083209e6e44ffc3feeca0f152c632caa4d5206ab24fe540ab3770c"
 
-  defmodule Target do
-    use RelaDSL.Runtime, target: "../../model/targets/test/atlas/flows.json"
+  # The model Flow runs (its compiled decide and its runs), without its legacy flows: only
+  # the runs boot here.
+  defmodule Runs do
+    @behaviour AtlasFlow.Model
+    defdelegate subflows(env), to: Model.AtlasEyra
+    defdelegate runs(), to: Model.AtlasEyra
+    defdelegate selection(name), to: Model.AtlasEyra
+    defdelegate migrations(), to: Model.AtlasEyra
+    defdelegate actors(), to: Model.AtlasEyra
+    def legacy, do: []
   end
 
-  defmodule ProdTarget do
-    use RelaDSL.Runtime, target: "../../model/targets/atlas/flows.json"
-  end
+  defp decide(env), do: AtlasFlow.Model.load(Runs, env).flows["decide"]
 
   # The canonical decide digests deployed before owner answers (test, prod).
   @answerless %{
@@ -72,12 +77,11 @@ defmodule FlowMigrationBootTest do
     File.mkdir_p!(dir)
     on_exit(fn -> File.rm_rf!(dir) end)
     Application.put_env(:atlas_bus, :store, "migration-boot")
-    config = JSON.decode!(File.read!(Path.join(@root, "rela/flow-runtime.json")))["flow_runtime"]
-    description = %{"entities" => %{}, "flows" => %{}, "flow_runtime" => config}
-    start_supervised!({FakeFacts, description: description})
+    config = AtlasFlow.Model.load(Runs, :test).config
+    start_supervised!({FakeFacts, description: %{"entities" => %{}}})
     start_supervised!(MigrationGate)
     clock = start_supervised!({ManualClock, @now})
-    flow = Target.flows()["decide"]
+    flow = decide(:test)
 
     originals =
       for {key, state, import?} <- [
@@ -123,9 +127,7 @@ defmodule FlowMigrationBootTest do
     for key <- ~w(D-0073 D-0074),
         do: FakeFacts.put("decision", %{"key" => key, "values" => %{"status" => "proposed"}})
 
-    yaml = Path.join(dir, "flows.yaml")
-    File.write!(yaml, File.read!(Path.join(@root, "model/targets/test/rela/flows.yaml")))
-    opts = [clock: {ManualClock, clock}, target: Target, deployed_yaml: yaml]
+    opts = [clock: {ManualClock, clock}, model: Runs, environment: :test]
     # Stop after the new entry commits and its first write loses its answer.
     FakeFacts.lose_ack("decision")
     engine = start_supervised!({Engine, opts})
@@ -153,10 +155,10 @@ defmodule FlowMigrationBootTest do
     active = read.("D-active")
     assert active["state"] == "for_person" and active["entry"] == 9, inspect(active)
     assert [audit] = active["pending"]["migrations"]
-    assert audit["from"] == @old and audit["to"] == Run.digest(flow)
+    assert audit["from"] == @old and audit["to"] == flow.digest()
     assert audit["entry"] == 7 and audit["state"] == "proposed"
     assert audit["reason"] =~ "Slice 1 to slice 3"
-    assert active["definition_sha256"] == Run.digest(flow)
+    assert active["definition_sha256"] == flow.digest()
 
     for key <- ~w(D-final-a D-final-r) do
       final = read.(key)
@@ -189,29 +191,20 @@ defmodule FlowMigrationBootTest do
   end
 
   test "live person waits from the deployed definitions keep state, entry and deadline across restart" do
-    for {env, target, yaml} <- [
-          {"test", Target, "model/targets/test/rela/flows.yaml"},
-          {"prod", ProdTarget, "rela/flows.yaml"}
-        ] do
-      dir = Path.join(System.tmp_dir!(), "flow-answers-#{System.unique_integer([:positive])}")
-      File.mkdir_p!(dir)
-
+    for env <- ["test", "prod"] do
       Application.put_env(
         :atlas_bus,
         :store,
         "answers-#{env}-#{System.unique_integer([:positive])}"
       )
 
-      config =
-        JSON.decode!(File.read!(Path.join(@root, "rela/flow-runtime.json")))["flow_runtime"]
-
-      description = %{"entities" => %{}, "flows" => %{}, "flow_runtime" => config}
-      start_supervised!({FakeFacts, description: description})
+      config = AtlasFlow.Model.load(Runs, String.to_atom(env)).config
+      start_supervised!({FakeFacts, description: %{"entities" => %{}}})
       start_supervised!(MigrationGate)
       clock = start_supervised!({ManualClock, @now})
-      flow = target.flows()["decide"]
+      flow = decide(String.to_atom(env))
       old = @answerless[env]
-      assert Run.digest(flow) != old
+      assert flow.digest() != old
 
       timers = fn entry ->
         [
@@ -250,9 +243,7 @@ defmodule FlowMigrationBootTest do
           {key, run}
         end
 
-      deployed = Path.join(dir, "flows.yaml")
-      File.write!(deployed, File.read!(Path.join(@root, yaml)))
-      opts = [clock: {ManualClock, clock}, target: target, deployed_yaml: deployed]
+      opts = [clock: {ManualClock, clock}, model: Runs, environment: String.to_atom(env)]
 
       read = fn key ->
         {:ok, run} =
@@ -268,7 +259,7 @@ defmodule FlowMigrationBootTest do
       migrated =
         for {key, old_run} <- originals, into: %{} do
           run = read.(key)
-          assert run["definition_sha256"] == Run.digest(flow), "#{env} #{key}"
+          assert run["definition_sha256"] == flow.digest(), "#{env} #{key}"
 
           assert Map.take(run, ~w(state entry entered_at status deadlines last_input)) ==
                    Map.take(old_run, ~w(state entry entered_at status deadlines last_input))
@@ -290,7 +281,6 @@ defmodule FlowMigrationBootTest do
       stop_supervised!(MigrationGate)
       stop_supervised!(ManualClock)
       stop_supervised!(FakeFacts)
-      File.rm_rf!(dir)
     end
 
     IO.puts(
