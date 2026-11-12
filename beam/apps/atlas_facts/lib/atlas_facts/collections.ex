@@ -55,6 +55,9 @@ defmodule AtlasFacts.Collections do
   # list reads. Writes invalidate the same table through either view.
   def uncached({__MODULE__, c}), do: {__MODULE__, Map.put(c, :reads, :backend)}
 
+  @doc "The same copies over `wrap.(backend)`: a store that notes what is written through it."
+  def through({__MODULE__, c}, wrap), do: {__MODULE__, %{c | backend: wrap.(c.backend)}}
+
   @impl true
   def get(%{reads: :backend} = c, plural, key), do: Rela.get(c.backend, plural, key)
 

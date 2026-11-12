@@ -51,7 +51,8 @@ defmodule AtlasFacts.Model do
 
   @doc """
   What is worked out for each of `facts` on a read, in order: `%{"progress", "completion",
-  "review", "late"}` with only what applies; or the error `lookup["list"]` gave. Without
+  "review", "late", "until"}` with only what applies (`until`: the first instant a value
+  of it changes by time alone, ISO 8601); or the error `lookup["list"]` gave. Without
   `"list"` in `lookup`, only what needs no other fact.
   """
   @callback derived(kind :: String.t(), facts :: [map], lookup) ::

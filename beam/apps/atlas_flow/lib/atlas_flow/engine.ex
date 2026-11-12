@@ -17,6 +17,11 @@ defmodule AtlasFlow.Engine do
 
   It reaches Facts only over the Bus, as the endpoint `flow`.
 
+  It keeps Flow's settled position (`AtlasFlow.Settled`): each hint it pokes processes for
+  is a ticket they answer after their next look, and a request `_settled` (`{"position":
+  P}`) is answered `{"settled": S}` once `S ≥ P`, at once when it is. A waiter left when
+  the engine restarts is lost; whoever asked waits no longer than it chose to.
+
   The actors the model's owners name must be filled by the environment's settings, or
   Flow does not start (`AtlasFlow.Model.load/3`). One whose fact does not exist yet is
   an owner like any other: the fact it owns waits for it, and says so
@@ -28,7 +33,7 @@ defmodule AtlasFlow.Engine do
   require Logger
 
   alias AtlasBus.Envelope
-  alias AtlasFlow.{Item, Legacy, Talk}
+  alias AtlasFlow.{Item, Legacy, Settled, Talk}
   alias AtlasFlow.Runs.{Clock, Store}
 
   # How far up a hint looks for facts whose state it may change.
@@ -59,7 +64,10 @@ defmodule AtlasFlow.Engine do
        kinds: [],
        owners: [],
        listening: MapSet.new(),
-       timer: nil
+       timer: nil,
+       settled: Settled.new(),
+       # The processes that hold a ticket, watched so one that is gone holds none.
+       watched: %{}
      }}
   end
 
@@ -72,32 +80,59 @@ defmodule AtlasFlow.Engine do
   @impl true
   def handle_info(:round, state), do: {:noreply, look_all(state)}
 
-  def handle_info({:atlas_bus, %Envelope{class: "stored", kind: kind}, content}, state) do
+  def handle_info({:atlas_bus, %Envelope{class: "stored", kind: kind} = hint, content}, state) do
     state = if content["by"] != "flow", do: look_all(state), else: state
     # A delete: what was above it can no longer be read. A new owner (a fact of a kind a
     # flow assigns to): a fact whose owner waited for it can have it now.
     all? = content["op"] == "delete" or (content["op"] == "create" and kind in state.owners)
 
-    case content do
-      # Its own write changes nothing any state depends on.
-      %{"by" => "flow"} ->
-        :ok
+    poked =
+      case content do
+        # Its own write changes nothing any state depends on.
+        %{"by" => "flow"} ->
+          []
 
-      _ when all? ->
-        for {_, pid, _, _} <- DynamicSupervisor.which_children(AtlasFlow.Supervisor),
-            is_pid(pid),
-            do: Item.poke(pid)
+        _ when all? ->
+          for {_, pid, _, _} <- DynamicSupervisor.which_children(AtlasFlow.Supervisor),
+              is_pid(pid),
+              do: pid
 
-      %{"key" => key} when is_binary(key) ->
-        for {kind, key} <- up(state.flows, state.runner, kind, key, @depth),
-            kind in state.kinds,
-            pid = ensure(kind, key, state),
-            is_pid(pid),
-            do: Item.poke(pid)
+        %{"key" => key} when is_binary(key) ->
+          for {kind, key} <- up(state.flows, state.runner, kind, key, @depth),
+              kind in state.kinds,
+              pid = ensure(kind, key, state),
+              is_pid(pid),
+              uniq: true,
+              do: pid
 
-      _ ->
-        :ok
-    end
+        _ ->
+          []
+      end
+
+    {:noreply, poke(state, hint.position, poked)}
+  end
+
+  # A process looked after its pokes up to `ticket`, and wrote up to `wrote`.
+  def handle_info({:looked, pid, ticket, opts}, state),
+    do: {:noreply, settle(state, Settled.looked(state.settled, pid, ticket, opts[:wrote]))}
+
+  def handle_info({:DOWN, ref, :process, pid, _why}, %{watched: watched} = state)
+      when is_map_key(watched, pid) and :erlang.map_get(pid, watched) == ref,
+      do: {:noreply, settle(state, Settled.down(state.settled, pid))}
+
+  # How far Flow has settled, once it has reached the position asked for.
+  def handle_info(
+        {:atlas_bus, %Envelope{class: "request", kind: "_settled"} = request,
+         %{"position" => position}},
+        state
+      )
+      when is_integer(position) and position >= 0,
+      do: {:noreply, settle(state, Settled.wait(state.settled, position, request))}
+
+  def handle_info({:atlas_bus, %Envelope{class: "request", kind: "_settled"} = request, _}, state) do
+    AtlasBus.send(Envelope.reply(request, "answer"), %{
+      "error" => "_settled needs a position, a whole number"
+    })
 
     {:noreply, state}
   end
@@ -125,6 +160,35 @@ defmodule AtlasFlow.Engine do
 
   # Answers that came after their wait, and anything else.
   def handle_info(_message, state), do: {:noreply, state}
+
+  # Each process poked for the hint at `position` holds it as a ticket until it looked.
+  defp poke(state, position, pids) when is_integer(position) do
+    watched =
+      Enum.reduce(pids, state.watched, fn pid, watched ->
+        Map.put_new_lazy(watched, pid, fn -> Process.monitor(pid) end)
+      end)
+
+    for pid <- pids, do: Item.poke(pid, position)
+    settle(%{state | watched: watched}, Settled.hint(state.settled, position, pids))
+  end
+
+  # A hint without a position: no ticket to wait for.
+  defp poke(state, _position, pids) do
+    for pid <- pids, do: Item.poke(pid, 0)
+    state
+  end
+
+  # Answer the waiters `settled` has reached, and stop watching who holds no ticket.
+  defp settle(state, {answered, settled}) do
+    for {request, value} <- answered,
+        do: AtlasBus.send(Envelope.reply(request, "answer"), %{"settled" => value})
+
+    {holding, done} =
+      Enum.split_with(state.watched, fn {pid, _} -> Settled.holds?(settled, pid) end)
+
+    for {_, ref} <- done, do: Process.demonitor(ref, [:flush])
+    %{state | settled: settled, watched: Map.new(holding)}
+  end
 
   defp look_all(state) do
     Clock.cancel(state.clock, state.timer)

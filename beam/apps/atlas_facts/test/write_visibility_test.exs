@@ -153,7 +153,8 @@ defmodule AtlasFacts.WriteVisibilityTest do
     read("clerk")
     CountingRela.reset(c.backend)
     refute write("jar", "change", "jar-1", %{"phase" => "sealed"})["reasons"]
-    assert CountingRela.calls(c.backend) == %{change: 1}
+    # One read of the fact as it was, for what the hint says changed (its links too).
+    assert CountingRela.calls(c.backend) == %{get: 1, change: 1}
     assert hd(read("jar"))["values"]["phase"] == "sealed"
     read("clerk")
     assert CountingRela.calls(c.backend)[{:list, "clerks"}] == 1

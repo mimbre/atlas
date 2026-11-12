@@ -54,7 +54,7 @@ defmodule AtlasFlow.ItemTest do
   end
 
   test "after a poke it hibernates too, holding no description", %{pid: pid, clock: clock} do
-    Item.poke(pid)
+    Item.poke(pid, 1)
     # Not idle yet: a look is due once the burst of hints settles.
     await(pid, &match?({:return_from, {Item, :handle_info, 2}, {:noreply, %{soon: true}}}, &1))
     ManualClock.advance(clock, 50)

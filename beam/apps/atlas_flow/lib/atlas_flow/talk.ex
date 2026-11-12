@@ -9,6 +9,32 @@ defmodule AtlasFlow.Talk do
 
   @wait 2_000
   @tries 3
+  @wrote {__MODULE__, :wrote}
+
+  @doc """
+  Run `fun`: `{its result, the highest position a fact put while it ran was stored at}`
+  (nil: none).
+  """
+  def writing(fun) do
+    Process.put(@wrote, nil)
+
+    try do
+      result = fun.()
+      {result, Process.get(@wrote)}
+    after
+      Process.delete(@wrote)
+    end
+  end
+
+  defp wrote(position) when is_integer(position) do
+    case Process.get(@wrote, :none) do
+      :none -> :ok
+      nil -> Process.put(@wrote, position)
+      highest -> Process.put(@wrote, max(highest, position))
+    end
+  end
+
+  defp wrote(_position), do: :ok
 
   def gate(operation, intent) do
     envelope = %{
@@ -61,6 +87,7 @@ defmodule AtlasFlow.Talk do
 
     receive do
       {:atlas_bus, %Envelope{id: ^id, class: "stored"} = stored, _} ->
+        wrote(stored.position)
         {:stored, stored.position}
 
       {:atlas_bus, %Envelope{id: ^id, class: "refused"}, refusal} ->
