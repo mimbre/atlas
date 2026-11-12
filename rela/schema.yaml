@@ -1,12 +1,9 @@
 # Selected Atlas Eyra composition. Definitions use native rela includes.
 version: '1.0'
 namespace: https://eyra.co/ontology/atlas#
-description: 'The product plan of Atlas: scenes, their use cases, their issues and
-  the
-
+description: |
+  The product plan of Atlas: scenes, their use cases, their issues and the
   pull requests of those issues, and the people who accept them.
-
-  '
 includes:
 - modules/foundation/schema.yaml
 - modules/foundation/audit/schema.yaml

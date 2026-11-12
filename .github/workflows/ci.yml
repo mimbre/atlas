@@ -57,33 +57,33 @@ jobs:
       - run: python3 -m unittest discover -s tools/tests -v
         working-directory: .
 
-  flow-generator:
-    name: Flow generator on its own
+  model-dsl:
+    name: Rela DSL on its own
     runs-on: ubuntu-latest
     env:
       MIX_ENV: test
     defaults:
       run:
-        working-directory: flow/generator
+        working-directory: model/dsl
     steps:
       - uses: actions/checkout@v4
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "28"
           elixir-version: "1.18"
-      - name: The generator holds none of Atlas's flows
+      - name: The DSL holds none of Atlas's flows
         run: |
-          if grep -rniE 'AtlasFlowContract|\.\./contract|flow/contract|\bissue\b|pull_request|pr_review|pr_test|use_case|\bscene\b|\bdecision\b|delivery_evidence' lib test mix.exs; then
-            echo "::error::flow/generator mentions Atlas's flows. Keep them in flow/contract."
+          if grep -rnE '(^|[^.[:alnum:]_])Model\.[A-Z{]|:model\b' lib test mix.exs || grep -rniE '\.\./contract|model/contract|\bissue\b|pull_request|pr_review|pr_test|use_case|\bscene\b|\bdecision\b|delivery_evidence' lib test mix.exs; then
+            echo "::error::model/dsl mentions Atlas's flows. Keep them in model/contract."
             exit 1
           fi
-      # Compiled and tested without flow/contract, on a neutral example contract.
+      # Compiled and tested without model/contract, on a neutral example contract.
       - run: mix compile --warnings-as-errors
       - run: mix format --check-formatted
       - run: mix test --warnings-as-errors
 
-  flow-contract:
-    name: Flows and their file targets
+  model-contract:
+    name: The model and its file targets
     runs-on: ubuntu-latest
     env:
       # The pinned rela: --check validates flows.yaml with it and redraws the diagrams,
@@ -91,7 +91,7 @@ jobs:
       ATLAS_RELA_BIN: ${{ github.workspace }}/.rela-bin
     defaults:
       run:
-        working-directory: flow/contract
+        working-directory: model/contract
     steps:
       - uses: actions/checkout@v4
       - uses: erlef/setup-beam@v1
@@ -107,11 +107,11 @@ jobs:
         working-directory: .
       - run: mix compile --warnings-as-errors
       - run: mix format --check-formatted
-      # Fails when a file in flow/targets differs from what the contract generates, is
+      # Fails when a file in model/targets differs from what the contract generates, is
       # missing or left over, or when rela refuses the generated flows.yaml.
-      - run: mix atlas.flow.gen --check
+      - run: mix model.gen --check
       - run: mix test
-      # Fails when rela/flows.yaml is not a byte-identical copy of flow/targets/rela/flows.yaml.
+      # Fails when rela/flows.yaml is not a byte-identical copy of model/targets/rela/flows.yaml.
       - run: python3 -m pip install -r rela/scripts/requirements.txt
         working-directory: .
       - run: python3 rela/scripts/assemble.py --check
@@ -228,7 +228,7 @@ jobs:
   deploy-test:
     name: Deploy test on Fly, and a smoke check
     if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
-    needs: [generator, contract, flow-generator, flow-contract, beam, tui, agent]
+    needs: [generator, contract, model-dsl, model-contract, beam, tui, agent]
     runs-on: ubuntu-latest
     env:
       ATLAS_RELA_BIN: ${{ github.workspace }}/.rela-bin
@@ -261,7 +261,7 @@ jobs:
   deploy-prod:
     name: Deploy prod on Fly, and a smoke check
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-    needs: [generator, contract, flow-generator, flow-contract, beam, tui, agent, e2e]
+    needs: [generator, contract, model-dsl, model-contract, beam, tui, agent, e2e]
     runs-on: ubuntu-latest
     env:
       ATLAS_RELA_BIN: ${{ github.workspace }}/.rela-bin

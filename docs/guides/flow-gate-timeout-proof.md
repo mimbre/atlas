@@ -11,8 +11,8 @@ Use the pinned, already installed Rela 26.11.2 and a Python with `rela/scripts/r
 ```sh
 export ATLAS_RELA_BIN="$PWD/.rela-bin"
 export ATLAS_E2E_RELA_BIN="$ATLAS_RELA_BIN"
-(cd flow/generator && MIX_ENV=test mix test --warnings-as-errors)
-(cd flow/contract && mix atlas.flow.gen --check && mix test)
+(cd model/dsl && MIX_ENV=test mix test --warnings-as-errors)
+(cd model/contract && mix model.gen --check && mix test)
 python3 rela/scripts/assemble.py --check
 python3 -m unittest discover -s rela/tests -v
 (cd beam && mix test apps/atlas_bus/test/boundary_test.exs \
@@ -26,7 +26,7 @@ python3 -m unittest discover -s rela/tests -v
 
 The last command owns a private Rela process, Facts, Gates and a manual clock. It restarts Facts before the deadline, advances from 299,999 ms to 300,000 ms, checks the second verdict and `follows`, accepts through Facts' trusted input path, checks both review flags, confirms, supersedes, and checks that the fixed-rule wait has no timer. It stops its server on success and failure. It also retains the neutral trusted-input persistence proof. No test sleeps until a deadline.
 
-The manual-clock Bus proof uses a memory store; it proves the Flow/Gates boundary and recovery, not Rela persistence or schema validation. Native checks must run before claiming the latter. On the development sandbox used for this change, the pinned binary was unavailable: native validation and native e2e execution were not performed. The updated decision diagram/version was reconstructed from the YAML serialization and diagram conventions of the committed fixtures; `mix atlas.flow.gen --check` with the pinned binary remains the authoritative check.
+The manual-clock Bus proof uses a memory store; it proves the Flow/Gates boundary and recovery, not Rela persistence or schema validation. Native checks must run before claiming the latter. On the development sandbox used for this change, the pinned binary was unavailable: native validation and native e2e execution were not performed. The updated decision diagram/version was reconstructed from the YAML serialization and diagram conventions of the committed fixtures; `mix model.gen --check` with the pinned binary remains the authoritative check.
 
 ## Real behaviour on the deployed test environment
 
@@ -153,23 +153,23 @@ Paths are relative to the repository root.
 - `beam/mix.exs`
 - `docs/guides/flow-gate-timeout-proof.md`
 - `e2e/test/flow_run_test.exs`
-- `flow/contract/config/config.exs`
-- `flow/contract/lib/decision.ex`
-- `flow/contract/lib/gates.ex`
-- `flow/contract/test/decider_test.exs`
-- `flow/contract/test/golden/decision.flows.yaml`
-- `flow/contract/test/golden_test.exs`
-- `flow/contract/test/presentation_test.exs`
-- `flow/generator/lib/limits.ex`
-- `flow/generator/lib/mix/tasks/atlas.flow.gen.ex`
-- `flow/generator/lib/rela.ex`
-- `flow/generator/lib/schema.ex`
-- `flow/generator/test/limits_test.exs`
-- `flow/targets/atlas/flows.json`
-- `flow/targets/diagrams/decide.md`
-- `flow/targets/rela/flows.yaml`
-- `flow/targets/test/atlas/flows.json`
-- `flow/targets/test/rela/flows.yaml`
+- `model/contract/config/config.exs`
+- `model/contract/lib/decision.ex`
+- `model/contract/lib/gates.ex`
+- `model/contract/test/decider_test.exs`
+- `model/contract/test/golden/decision.flows.yaml`
+- `model/contract/test/golden_test.exs`
+- `model/contract/test/presentation_test.exs`
+- `model/dsl/lib/limits.ex`
+- `model/dsl/lib/mix/tasks/model.gen.ex`
+- `model/dsl/lib/rela.ex`
+- `model/dsl/lib/schema.ex`
+- `model/dsl/test/limits_test.exs`
+- `model/targets/atlas/flows.json`
+- `model/targets/diagrams/decide.md`
+- `model/targets/rela/flows.yaml`
+- `model/targets/test/atlas/flows.json`
+- `model/targets/test/rela/flows.yaml`
 - `fly/core.Dockerfile`
 - `rela/atlas.json`
 - `rela/atlas.manifest.json`

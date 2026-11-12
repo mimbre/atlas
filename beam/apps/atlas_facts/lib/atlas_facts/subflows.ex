@@ -1,7 +1,7 @@
 defmodule AtlasFacts.Subflows do
   @moduledoc """
   The subflows Atlas runs, as the Flow DSL generated them (`flows` of
-  `flow/targets/atlas/flows.json`, read when Facts compiles): per subflow the kind it
+  `model/targets/atlas/flows.json`, read when Facts compiles): per subflow the kind it
   runs on (`subject`), its `owner` (`via` the relation to the fact that is assigned,
   `relation` to the assignee, and `default`, `{kind, key}`, who owns it while no one
   is assigned), and per state what its owner sees (`present`: `expected`, `why` and
@@ -13,11 +13,11 @@ defmodule AtlasFacts.Subflows do
   can. Knows no kind by name.
   """
   defmodule Prod do
-    use AtlasFlowGenerator.Runtime, target: "../../../../../flow/targets/atlas/flows.json"
+    use RelaDSL.Runtime, target: "../../../../../model/targets/atlas/flows.json"
   end
 
   defmodule Test do
-    use AtlasFlowGenerator.Runtime, target: "../../../../../flow/targets/test/atlas/flows.json"
+    use RelaDSL.Runtime, target: "../../../../../model/targets/test/atlas/flows.json"
   end
 
   defp target, do: if(AtlasBus.environment() == "test", do: Test, else: Prod)

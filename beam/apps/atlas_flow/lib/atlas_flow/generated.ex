@@ -1,11 +1,11 @@
 defmodule AtlasFlow.Generated do
   @moduledoc "The executable target, embedded with the release."
   defmodule Prod do
-    use AtlasFlowGenerator.Runtime, target: "../../../../../flow/targets/atlas/flows.json"
+    use RelaDSL.Runtime, target: "../../../../../model/targets/atlas/flows.json"
   end
 
   defmodule Test do
-    use AtlasFlowGenerator.Runtime, target: "../../../../../flow/targets/test/atlas/flows.json"
+    use RelaDSL.Runtime, target: "../../../../../model/targets/test/atlas/flows.json"
   end
 
   defp target, do: if(AtlasBus.environment() == "test", do: Test, else: Prod)

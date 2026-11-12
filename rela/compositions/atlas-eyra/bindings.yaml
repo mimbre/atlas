@@ -2,8 +2,7 @@
 relations:
   assignment:
     label: assignment
-    description: What belongs to being assigned, for one fact; made and deleted with
-      it.
+    description: What belongs to being assigned, for one fact; made and deleted with it.
     from:
     - scene
     - use_case

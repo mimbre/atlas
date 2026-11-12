@@ -255,12 +255,12 @@ end
 
 defmodule AtlasFlow.FixtureTarget do
   @moduledoc "A neutral, three-state target for the bounded runner."
-  def rela_flows_sha256, do: AtlasFlowGenerator.Atlas.sha256("fixture\n")
+  def rela_flows_sha256, do: RelaDSL.Atlas.sha256("fixture\n")
 
   def check_rela_flows(bytes),
     do:
-      AtlasFlowGenerator.Runtime.check_rela_flows(
-        AtlasFlowGenerator.Atlas.sha256("fixture\n"),
+      RelaDSL.Runtime.check_rela_flows(
+        RelaDSL.Atlas.sha256("fixture\n"),
         bytes
       )
 

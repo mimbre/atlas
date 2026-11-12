@@ -4,7 +4,7 @@ defmodule AtlasFacts.SubflowsTest do
   alias AtlasFacts.Subflows
 
   test "Facts describes the same concrete environment pair that the runner selects" do
-    root = Path.expand("../../../../flow/targets", __DIR__)
+    root = Path.expand("../../../../model/targets", __DIR__)
     test_yaml = File.read!(Path.join(root, "test/rela/flows.yaml"))
     prod_yaml = File.read!(Path.join(root, "rela/flows.yaml"))
     assert Subflows.Test.check_rela_flows(test_yaml) == :ok

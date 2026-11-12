@@ -31,11 +31,9 @@ entities:
     - is
     id_type: manual
     id_prefix: IS-
-    description: 'Small, independently testable work, normally one pull request (Flux''s
-
+    description: |
+      Small, independently testable work, normally one pull request (Flux's
       meaning). The id is its Atlas code, e.g. IS-Atlas-01.
-
-      '
     properties:
       title:
         type: string
@@ -74,13 +72,10 @@ entities:
     - pr
     id_type: manual
     id_prefix: PR-
-    description: 'A GitHub pull request for an issue. Linked by URL; a GitHub connector
-
+    description: |
+      A GitHub pull request for an issue. Linked by URL; a GitHub connector
       fills title and state later. The id is derived from the URL,
-
       PR-<owner>-<repo>-<number>, so linking the same URL twice is one record.
-
-      '
     properties:
       url:
         type: github_pull_url
@@ -114,11 +109,9 @@ entities:
     plural: pr_reviews
     id_type: short
     id_prefix: PRR-
-    description: 'The review of one pull request by a person, created by the pull request''s
-
+    description: |
+      The review of one pull request by a person, created by the pull request's
       flow. Its outcome is reported back to the pull request.
-
-      '
     properties:
       title:
         type: string
@@ -136,11 +129,9 @@ entities:
     plural: pr_tests
     id_type: short
     id_prefix: PRT-
-    description: 'The test of one pull request by a person, created by the pull request''s
-
+    description: |
+      The test of one pull request by a person, created by the pull request's
       flow. Its outcome is reported back to the pull request.
-
-      '
     properties:
       title:
         type: string

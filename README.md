@@ -23,6 +23,7 @@ The BEAM side runs the system. rela describes it. Entities, schemas, flows and t
 | `beam/` | The BEAM umbrella: one application per layer (`atlas_bus`, `atlas_facts`, `atlas_flow`, `atlas_control`, `atlas_runtime`, `atlas_code`). |
 | `bff/` | Control's contract: the generator, the contract itself, and the generated targets. See [bff/README.md](bff/README.md). |
 | `rela/` | rela's description of every entity Atlas knows. See [rela/README.md](rela/README.md). |
+| `model/` | The model: the Rela DSL (`dsl/`), Atlas's subflows and gates written in it (`contract/`), and the files generated from them (`targets/`). |
 | `clients/` | The Console (`tui/`), the agents' command line (`agent/`) and the Runtime viewer (`viewer/`, see [its README](clients/viewer/README.md)). |
 | `env/` | One settings file per environment. |
 | `fly/` | Images and deploy scripts for the hosted environments. |
@@ -45,6 +46,8 @@ cd clients/tui && mix test       # the Console
 cd clients/agent && mix test     # the agents' command line
 cd bff/generator && mix test     # the contract generator
 cd bff/contract && mix atlas.gen # after changing the contract: regenerate bff/targets/
+cd model/dsl && mix test         # the Rela DSL
+cd model/contract && mix model.gen # after changing the model: regenerate model/targets/
 cd e2e && mix test               # the atlas launcher's own rules
 bin/atlas-dev e2e --env test     # the end-to-end test, on a private instance
 ```

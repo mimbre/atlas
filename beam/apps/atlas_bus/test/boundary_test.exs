@@ -9,6 +9,8 @@ defmodule AtlasBus.BoundaryTest do
   2. Nothing outside rela's description knows an entity: no source of the Bus, Facts,
      Control or a client (the TUI, the agents' command line) names one. Entities live in
      `rela/schema.yaml` only.
+  3. The platform never depends on the model (`model/contract`, app `:model`): no app's
+     mix.exs names it, and no app's source names a `Model.` module.
   """
   use ExUnit.Case, async: true
 
@@ -53,6 +55,12 @@ defmodule AtlasBus.BoundaryTest do
         Regex.match?(~r/\b#{namespace}\b/, code_only(source)),
         do: namespace
   end
+
+  @doc "Whether a mix.exs `source` depends on the model app."
+  def depends_on_model?(source), do: Regex.match?(~r/\{:model\b/, source)
+
+  @doc "Whether `source` names a module of the model (`Model.…`, not `AtlasFlow.Model`)."
+  def names_model?(source), do: Regex.match?(~r/(?<![\w.])Model\.[A-Z{]/, code_only(source))
 
   @doc "Entity names in `source`."
   def entity_names(source),
@@ -104,6 +112,15 @@ defmodule AtlasBus.BoundaryTest do
 
       assert entity_names("a kind of fact") == []
     end
+
+    test "a platform app that depends on or names the model" do
+      assert depends_on_model?(~s|deps: [{:model, path: "../../../model/contract"}]|)
+      refute depends_on_model?(~s|deps: [{:rela_dsl, path: "../../../model/dsl"}]|)
+      assert names_model?("Model.Gates.__gates__()")
+      assert names_model?("alias Model.{Gates, Software}")
+      refute names_model?("AtlasFlow.Model.subflows(:prod)")
+      refute names_model?("# Model.Gates is the model's")
+    end
   end
 
   describe "the platform keeps them" do
@@ -115,6 +132,22 @@ defmodule AtlasBus.BoundaryTest do
 
         assert deps == expected,
                "#{app} depends on #{inspect(deps)}; layers may depend on the Bus only"
+      end
+    end
+
+    test "no platform app depends on the model or names it" do
+      mixes = Path.wildcard(Path.join([@root, "beam/apps", "*", "mix.exs"]))
+      assert length(mixes) >= length(Map.keys(@layers))
+
+      for mix <- mixes do
+        refute depends_on_model?(File.read!(mix)),
+               "#{Path.relative_to(mix, @root)} depends on the model; it is wired by configuration"
+      end
+
+      for file <- Path.wildcard(Path.join([@root, "beam/apps/*/{lib,test}/**/*.{ex,exs}"])),
+          file != __ENV__.file do
+        refute names_model?(File.read!(file)),
+               "#{Path.relative_to(file, @root)} names a Model. module; the platform never does"
       end
     end
 
