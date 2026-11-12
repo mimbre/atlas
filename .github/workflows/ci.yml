@@ -94,6 +94,9 @@ jobs:
         working-directory: model/contract
     steps:
       - uses: actions/checkout@v4
+        with:
+          # --base reads the base branch's digests.json.
+          fetch-depth: 0
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "28"
@@ -107,15 +110,12 @@ jobs:
         working-directory: .
       - run: mix compile --warnings-as-errors
       - run: mix format --check-formatted
-      # Fails when a file in model/targets differs from what the contract generates, is
-      # missing or left over, or when rela refuses the generated flows.yaml.
-      - run: mix model.gen --check
+      # Fails when a file of the Rela project (rela/) or of model/targets differs from what
+      # the model generates, is missing or left over, or when rela refuses the generated
+      # description; and when a subflow's run identity changed without a migration the
+      # base branch can approve (its digests.json).
+      - run: mix model.gen --check --base origin/${{ github.base_ref || 'develop' }}
       - run: mix test
-      # Fails when rela/flows.yaml is not a byte-identical copy of model/targets/rela/flows.yaml.
-      - run: python3 -m pip install -r rela/scripts/requirements.txt
-        working-directory: .
-      - run: python3 rela/scripts/assemble.py --check
-        working-directory: .
 
   beam:
     name: Bus, Facts, Control
@@ -195,7 +195,6 @@ jobs:
           cache: false
       - run: python3 -m pip install -r rela/scripts/requirements.txt
       - run: ATLAS_RELA_BIN="$ATLAS_E2E_RELA_BIN" rela/scripts/start-test.sh install
-      - run: python3 rela/scripts/assemble.py --check
       - run: python3 -m unittest discover -s rela/tests -v
       - name: Guidance against the pinned private HTTP store
         working-directory: beam

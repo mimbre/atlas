@@ -54,7 +54,7 @@ decisions, Flow owns this field, so a deadline set by hand does not stay.
 
 ## How it works
 
-- **Flow contract** (`model/contract/lib/decision.ex`): the person states declare
+- **Flow contract** (`model/contract/foundation/decision.ex`): the person states declare
   `owner … default: {:person, :melle}, preserve_kind: :person`, and
   `present(answers: …)`. Each answer is `change: %{self: :decided_by, values: …}`
   (`"$now"` is filled when it is sent). Reject has `note: true`. `for_person`
@@ -62,10 +62,11 @@ decisions, Flow owns this field, so a deadline set by hand does not stay.
 - **Control:** an answer is `/k/:kind/:key/answer/:answer`. It is a confirm, or
   a note form when the answer needs a note. Submitting it reads the fact again
   and checks that you are still its owner in that state.
-- **Facts:** a kind with `delete_error` (here `decision`, in
-  `rela/modules/foundation/atlas.json`) refuses every delete with that sentence.
+- **Facts:** a kind with `delete_error` (here `decision`, declared in
+  `model/contract/foundation/decision.ex` and generated into `rela/atlas.json`) refuses every delete with that sentence.
   Control then offers no `d`.
-- **Migration:** `rela/flow-runtime.json` maps the previous canonical digests
+- **Migration:** the `migrate` declarations beside the subflow (generated into
+  `rela/flow-runtime.json`) map the previous canonical digests
   (test `e2d4c41b…`, prod `d9aadf74…`) to the new ones with `preserve_entry`.
   State, entry, deadlines and pending work stay. Flow then reprojects the owner
   and the deadline.

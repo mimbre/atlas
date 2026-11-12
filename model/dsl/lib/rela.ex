@@ -292,7 +292,13 @@ defmodule RelaDSL.Rela do
         {:error, "no Rela description at #{project} (no schema.yaml)"}
 
       true ->
-        in_project(flows_yaml, flows, project, &validate_and_show(binary, &1, flows, project))
+        in_project(
+          flows_yaml,
+          flows,
+          project,
+          opts[:files] || [],
+          &validate_and_show(binary, &1, flows, project)
+        )
     end
   end
 
@@ -303,7 +309,7 @@ defmodule RelaDSL.Rela do
     e in ErlangError -> "an error: #{inspect(e.original)}"
   end
 
-  defp in_project(flows_yaml, flows, project, fun) do
+  defp in_project(flows_yaml, flows, project, extra, fun) do
     dir = Path.join(System.tmp_dir!(), "atlas-flow-check-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
 
@@ -311,12 +317,15 @@ defmodule RelaDSL.Rela do
       files =
         if project do
           File.cp_r!(project, dir)
-          [{"flows.yaml", flows_yaml}]
+          extra ++ [{"flows.yaml", flows_yaml}]
         else
           [{"flows.yaml", flows_yaml} | check_project(flows)]
         end
 
-      for {file, body} <- files, do: File.write!(Path.join(dir, file), body)
+      for {file, body} <- files do
+        File.mkdir_p!(Path.dirname(Path.join(dir, file)))
+        File.write!(Path.join(dir, file), body)
+      end
 
       fun.(dir)
     after

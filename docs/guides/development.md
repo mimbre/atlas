@@ -5,7 +5,7 @@ How to build and run the tests: see the Develop section of the [README](../../RE
 ## Rules the tests check
 
 - Layers talk only over the Bus: no layer depends on, calls or names another (`beam/apps/atlas_bus/test/boundary_test.exs`).
-- Nothing on the BEAM side, in the TUI or in the agents' command line names an entity; entities live in `rela/schema.yaml` only (same test).
+- Nothing on the BEAM side, in the TUI or in the agents' command line names an entity; entities live in the model (`model/contract`) and the description it generates (`rela/`) only (same test).
 - The generated files match the contract, and none is left over (`mix atlas.gen --check` in `bff/contract`).
 - The generator holds none of Atlas's values and compiles without the contract; its targets read only `__schema__/0`.
 

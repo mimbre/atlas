@@ -2,7 +2,7 @@
 
 Run from the repository root after merge. Use test throughout. Production's generated pair contains `48h`; test's separate pair contains `5m`. Both carry the digest of their own YAML. Flow reads the selected pair without rewriting YAML. The explicit migration in `rela/flow-runtime.json` admits only the exact previous status-bridge definition, with no pending writes or deadlines. Historical final runs keep their cursor; a waiting bridge run enters `deciding` once. Back up the environment before deployment, as for other durable-run changes. Any other definition drift still refuses execution.
 
-The additional `based_on` review entry and the decision's own red flag live in the runtime sidecar and are applied by Facts after assembly. This keeps the assembler unchanged. The confirmation relation and immutable-field exception live in foundation schema and metadata.
+The additional `based_on` review entry and the decision's own red flag live in the runtime sidecar (`rela/flow-runtime.json`, generated from the model since Rela DSL slice 2) and are applied by Facts after the description is loaded. The confirmation relation and immutable-field exception live in foundation schema and metadata.
 
 ## Local checks and private native proof
 
@@ -13,7 +13,6 @@ export ATLAS_RELA_BIN="$PWD/.rela-bin"
 export ATLAS_E2E_RELA_BIN="$ATLAS_RELA_BIN"
 (cd model/dsl && MIX_ENV=test mix test --warnings-as-errors)
 (cd model/contract && mix model.gen --check && mix test)
-python3 rela/scripts/assemble.py --check
 python3 -m unittest discover -s rela/tests -v
 (cd beam && mix test apps/atlas_bus/test/boundary_test.exs \
   apps/atlas_flow/test/runs apps/atlas_flow/test/activities \

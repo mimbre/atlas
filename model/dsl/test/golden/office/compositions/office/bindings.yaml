@@ -1,0 +1,13 @@
+# What the office binds.
+relations:
+  desk:
+    label: desk
+    description: The desk of a letter; made and deleted with it.
+    from:
+    - letter
+    to:
+    - desk
+    max_outgoing: 1
+    inverse:
+      id: desk_of
+      label: desk of

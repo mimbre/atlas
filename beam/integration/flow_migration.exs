@@ -191,7 +191,7 @@ defmodule FlowMigrationBootTest do
   test "live person waits from the deployed definitions keep state, entry and deadline across restart" do
     for {env, target, yaml} <- [
           {"test", Target, "model/targets/test/rela/flows.yaml"},
-          {"prod", ProdTarget, "model/targets/rela/flows.yaml"}
+          {"prod", ProdTarget, "rela/flows.yaml"}
         ] do
       dir = Path.join(System.tmp_dir!(), "flow-answers-#{System.unique_integer([:positive])}")
       File.mkdir_p!(dir)

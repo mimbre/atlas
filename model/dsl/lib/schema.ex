@@ -211,6 +211,9 @@ defmodule RelaDSL.Schema do
     defgate: 2
   ]
 
+  @doc false
+  def __macros__, do: @macros
+
   @doc "Makes the module a flow definition. `gates:` names the module whose gates its subflows use."
   defmacro __using__(opts) do
     quote do

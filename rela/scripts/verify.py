@@ -14,9 +14,9 @@ def verify(root):
         if not path.resolve().is_relative_to(root):
             raise ValueError(f'unsafe provenance path: {name}')
         if hashlib.sha256(path.read_bytes()).hexdigest() != expected:
-            raise ValueError(f'stale description input: {name}; run assemble.py')
+            raise ValueError(f'stale description input: {name}; run mix model.gen in model/contract')
     if hashlib.sha256((root / 'atlas.json').read_bytes()).hexdigest() != provenance['output_sha256']:
-        raise ValueError('stale generated atlas.json; run assemble.py')
+        raise ValueError('stale generated atlas.json; run mix model.gen in model/contract')
     return provenance
 
 

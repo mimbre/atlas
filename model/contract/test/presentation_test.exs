@@ -6,9 +6,9 @@ defmodule Model.PresentationTest do
     use RelaDSL.Runtime, target: "../../targets/atlas/flows.json"
   end
 
-  # The v1 flows of the composition fragment (design, section 9). Each type's entry is
+  # The v1 flows of the description (design, section 9), as the committed atlas.json holds them. Each type's entry is
   # deleted at its cutover; until then its text must reach the Atlas target unchanged.
-  @v1 "../../rela/compositions/atlas-eyra/atlas.json"
+  @v1 "../../rela/atlas.json"
   @external_resource @v1
 
   # Where each v1 state went: {v1 flow, v1 state} => [{subflow, state}]. A v1 state that
