@@ -149,6 +149,7 @@ defmodule AtlasFlow.FakeFacts do
   @impl true
   def handle_info({:atlas_bus, %Envelope{class: "read"} = e, content}, s) do
     s = if flow?(e.sender), do: %{s | reads: count(s.reads, content)}, else: s
+    input_kind = get_in(s.description, ["flow_runtime", "inputs", "kind"])
 
     answer =
       case {e.kind, content} do
@@ -167,6 +168,9 @@ defmodule AtlasFlow.FakeFacts do
                 do: fact
 
           %{"facts" => facts}
+
+        {^input_kind, _} when not is_nil(input_kind) ->
+          %{"inputs" => []}
 
         {kind, _} ->
           %{"facts" => for({{^kind, _}, fact} <- s.facts, do: fact)}

@@ -102,7 +102,9 @@ defmodule AtlasFlowContract.Gates do
       rollback_automated: {:constant, false},
       overrule_rate: {:history, :overruled, window: 50, same: [:category]},
       verdicts_seen: {:history, :count, window: 50, same: [:category]},
-      timed_out: {:flow, :timed_out, default: false}
+      timed_out: {:flow, :timed_out, default: false},
+      waited_from: {:flow, :waited_from, default: nil},
+      due: {:flow, :due, default: nil}
     ],
     rule: [
       first: [

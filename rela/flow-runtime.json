@@ -1,6 +1,12 @@
 {
   "flow_runtime": {
     "version": 1,
+    "flags": {
+      "decision": {"field": "unverified", "value": true, "label": "🔴 Unverified decision"}
+    },
+    "reviews": {
+      "based_on": [{"field": "unverified", "value": true, "label": "Based on unverified decisions"}]
+    },
     "kind": "flow_run",
     "writer": {
       "sender": "flow",
@@ -24,6 +30,12 @@
     },
     "selection": {
       "decide": {
+        "choices": ["status"],
+        "choice_states": ["for_person_always", "for_person", "for_agent", "for_agent_unverified"],
+        "migrations": [
+          {"from": "8ca16b332a083209e6e44ffc3feeca0f152c632caa4d5206ab24fe540ab3770c", "to": "118c1cf31028979df064344d708a59f8ee19ad97493b47d66ac2d66cbb8dbb00", "reason": "Slice 1 to slice 3: enter the decider gate once; preserve final history", "states": {"proposed": "deciding", "accepted": "accepted", "rejected": "rejected"}},
+          {"from": "8ca16b332a083209e6e44ffc3feeca0f152c632caa4d5206ab24fe540ab3770c", "to": "77f00aa4ea2f8ec4ff3620b590794b6aabeedd8ce435a9e4a635e909d7d40b93", "reason": "Slice 1 to slice 3: enter the decider gate once; preserve final history", "states": {"proposed": "deciding", "accepted": "accepted", "rejected": "rejected"}}
+        ],
         "subject": "decision",
         "legacy": "decide",
         "projection": {
@@ -74,6 +86,14 @@
               "accepted"
             ]
           }
+        },
+        "verification": {
+          "kind": "gate_verdict",
+          "field": "unverified",
+          "relations": [
+            "reviewed_by",
+            "overruled_by"
+          ]
         }
       }
     },
@@ -92,6 +112,7 @@
         "actor": "actor",
         "roles": "roles",
         "changed_fields": "changed_fields",
+        "links": "links",
         "payload_digest": "payload_digest",
         "status": "status",
         "position": "position",
@@ -99,8 +120,26 @@
         "applied_at": "applied_at"
       },
       "acl": {
+        "decider": {
+          "update": [
+            "decision"
+          ]
+        },
+        "principle_authority": {
+          "update": [
+            "decision"
+          ]
+        },
+        "delegate": {
+          "update": [
+            "decision"
+          ]
+        }
       },
       "roles": {
+        "decider": "decided_by",
+        "principle_authority": "decided_by",
+        "delegate": "decided_by"
       }
     }
   }

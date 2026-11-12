@@ -67,6 +67,11 @@
         ]
       }
     },
+    "reviewed_by": {
+      "only_target": {
+        "error": "only the person who confirms a verdict sets reviewed_by, to themselves"
+      }
+    },
     "overruled_by": {
       "only_target": {
         "error": "only the person who overrules a verdict sets overruled_by, to themselves",
@@ -334,6 +339,18 @@
         "decided_at": {
           "label": "Decided at"
         },
+        "unverified": {
+          "label": "Unverified",
+          "set_by": [
+            "flow"
+          ]
+        },
+        "gate_result": {
+          "label": "Gate result",
+          "set_by": [
+            "flow"
+          ]
+        },
         "no_work": {
           "label": "No work needed"
         }
@@ -395,6 +412,9 @@
           ]
         },
         "only": {
+          "unverified": [
+            false
+          ],
           "status": [
             "superseded"
           ],
@@ -442,6 +462,8 @@
         "ask": [
           "gate",
           "gate_version",
+          "activity_id",
+          "activity_digest",
           "flavor",
           "purpose",
           "subject",

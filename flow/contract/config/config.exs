@@ -7,6 +7,7 @@ import Config
 config :atlas_flow_generator,
   contract: AtlasFlowContract.Software,
   gates: AtlasFlowContract.Gates,
+  environment_targets: [test: [rela: "../targets/test/rela", atlas: "../targets/test/atlas"]],
   targets: [rela: "../targets/rela", atlas: "../targets/atlas", diagrams: "../targets/diagrams"],
   rela_project: "../../rela",
   # Headers name the contract file from the repository's root.

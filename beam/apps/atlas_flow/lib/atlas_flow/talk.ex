@@ -10,6 +10,23 @@ defmodule AtlasFlow.Talk do
   @wait 2_000
   @tries 3
 
+  def gate(operation, intent) do
+    envelope = %{
+      Envelope.new("request", "gate_activity", id: intent["id"] <> "." <> operation)
+      | address: "gates"
+    }
+
+    with :ok <- AtlasBus.send(envelope, Map.put(intent, "operation", operation)) do
+      receive do
+        {:atlas_bus, %Envelope{id: id, class: "answer", sender: "gates"}, answer}
+        when id == envelope.id ->
+          {:ok, answer}
+      after
+        @wait -> {:error, :gate_unavailable}
+      end
+    end
+  end
+
   @doc "Read: Facts' answer, or `%{\"error\" => …}`."
   def transition_read(kind, content),
     do: read(kind, Map.put(content, "consistency", "transition"))

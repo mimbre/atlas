@@ -49,7 +49,7 @@ defmodule AtlasGates.Facts.Bus do
     content =
       if key, do: %{"key" => key, "plain" => true}, else: %{"plain" => true, "linked" => %{}}
 
-    case read(state, kind, content) do
+    case read(state, kind, Map.put(content, "consistency", "transition")) do
       %{"fact" => fact} -> {:ok, fact}
       %{"facts" => facts} -> {:ok, facts}
       other -> {:error, "Facts answered #{inspect(other)}"}
@@ -126,6 +126,8 @@ defmodule AtlasGates.Facts.Bus do
 
   # Links are set right after the verdict is made, in one change, as Control does: Facts
   # makes a fact with the links of its parent only.
+  def ensure_links(state, kind, id, key, links), do: link(state, kind, id, key, links)
+
   defp link(_state, _kind, _id, key, links) when links == %{}, do: {:ok, key}
 
   defp link(state, kind, id, key, links) do

@@ -55,6 +55,7 @@ defmodule Mix.Tasks.Atlas.Flow.Gen do
     contract = contract!()
     flows = contract.__flows__()
     gates = Application.get_env(:atlas_flow_generator, :gates, contract).__gates__()
+    flows = AtlasFlowGenerator.Limits.resolve(flows, gates, :prod)
     root = Path.expand(Application.get_env(:atlas_flow_generator, :root, "."))
 
     # A composition is the root of what was generated, so its file is named first.
@@ -81,8 +82,27 @@ defmodule Mix.Tasks.Atlas.Flow.Gen do
         atlas_json!(flows, gates, Atlas.sha256(yaml))
       )
 
+    pairs =
+      for {environment, dirs} <-
+            Application.get_env(:atlas_flow_generator, :environment_targets, []),
+          resolved = AtlasFlowGenerator.Limits.resolve(contract.__flows__(), gates, environment),
+          pair_yaml = Header.put(".yaml", flows_source, Rela.flows_yaml(resolved)),
+          :ok = validate_pair!(pair_yaml, resolved),
+          pair_json =
+            Header.put(
+              ".json",
+              source.(resolved ++ gates),
+              atlas_json!(resolved, gates, Atlas.sha256(pair_yaml))
+            ),
+          {dir, file, body} <- [
+            {dirs[:rela], "flows.yaml", pair_yaml},
+            {dirs[:atlas], "flows.json", pair_json}
+          ],
+          do: {Path.join(dir, file), body}
+
     always =
-      for(dir <- List.wrap(targets[:rela]), do: {Path.join(dir, "flows.yaml"), yaml}) ++
+      pairs ++
+        for(dir <- List.wrap(targets[:rela]), do: {Path.join(dir, "flows.yaml"), yaml}) ++
         for dir <- List.wrap(targets[:atlas]), do: {Path.join(dir, "flows.json"), json}
 
     diagram_dir = targets[:diagrams]
@@ -114,7 +134,14 @@ defmodule Mix.Tasks.Atlas.Flow.Gen do
     files = always ++ if(diagrams == :not_drawn, do: [], else: diagrams)
     stale = for {path, body} <- files, File.read(path) != {:ok, body}, do: path
     missing = if diagrams == :not_drawn, do: Enum.reject(diagram_paths, &File.exists?/1), else: []
-    leftovers = leftovers(targets, Enum.map(always, &elem(&1, 0)) ++ diagram_paths)
+
+    pair_dirs =
+      Enum.flat_map(
+        Application.get_env(:atlas_flow_generator, :environment_targets, []),
+        &elem(&1, 1)
+      )
+
+    leftovers = leftovers(targets ++ pair_dirs, Enum.map(always, &elem(&1, 0)) ++ diagram_paths)
     note = fn -> if rela_note, do: Mix.shell().error(rela_note) end
 
     cond do
@@ -161,6 +188,19 @@ defmodule Mix.Tasks.Atlas.Flow.Gen do
     Atlas.flows_json(flows, gates, sha)
   rescue
     e in ArgumentError -> Mix.raise("flows.json: " <> Exception.message(e))
+  end
+
+  defp validate_pair!(yaml, flows) do
+    case rela_binary!() do
+      nil ->
+        :ok
+
+      binary ->
+        case Rela.check(binary, yaml, flows, project: rela_project()) do
+          {:ok, _} -> :ok
+          {:error, message} -> Mix.raise(message)
+        end
+    end
   end
 
   # Files with the header, in a target's folder, that the task does not write now.

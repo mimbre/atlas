@@ -12,32 +12,108 @@ for file <- ~w(conditions inputs run) do
   Code.require_file("../../../beam/apps/atlas_flow/lib/atlas_flow/runs/#{file}.ex", __DIR__)
 end
 
+Code.require_file("../../../beam/apps/atlas_flow/lib/atlas_flow/activities/gate.ex", __DIR__)
+
 defmodule AtlasFlowContract.DeciderTest do
   use ExUnit.Case, async: true
   alias AtlasGates.{Definitions, Request, Rules, Verdict}
   alias AtlasBus.Digest
 
-  test "the status bridge observes authorized status without resetting or deciding it" do
+  test "slice-1 cursors migrate against both deployed definition digests" do
+    alias AtlasFlow.Runs.Run
+    now = ~U[2026-11-12 00:00:00Z]
+    old_digest = "8ca16b332a083209e6e44ffc3feeca0f152c632caa4d5206ab24fe540ab3770c"
+    config = JSON.decode!(File.read!("../../rela/flow-runtime.json"))["flow_runtime"]
+    selection = config["selection"]["decide"]
+    # Captured from the deployed slice-1 runs in both environments, rather than
+    # inferred from a reconstruction of the old declaration.
+    assert Enum.map(selection["migrations"], & &1["from"]) == [old_digest, old_digest]
+
+    for path <- ["../targets/atlas/flows.json", "../targets/test/atlas/flows.json"] do
+      definition = JSON.decode!(File.read!(path))["flows"]["decide"]
+
+      assert Enum.count(
+               selection["migrations"],
+               &(&1["from"] == old_digest and &1["to"] == Run.digest(definition))
+             ) == 1
+
+      for state <- ~w(proposed accepted rejected) do
+        subject = %{"key" => "D-old", "values" => %{"status" => state}}
+        old = Run.new("decide", definition, subject, selection["imports"], now)
+
+        old =
+          Map.merge(old, %{
+            "definition_sha256" => old_digest,
+            "state" => state,
+            "pending" => %{"version" => 1, "writes" => []}
+          })
+
+        assert {:ok, migrated} = Run.migrate(old, definition, selection["migrations"], now)
+
+        if state == "proposed" do
+          assert migrated["state"] == "deciding"
+          assert migrated["entry"] == old["entry"] + 1
+          assert migrated["definition_sha256"] == Run.digest(definition)
+          assert migrated["pending"]["gate"] == nil
+          assert length(migrated["pending"]["migrations"]) == 1
+
+          assert {:ok, ^migrated} =
+                   Run.migrate(migrated, definition, selection["migrations"], now)
+
+          # The first slice-3 deploy already blocked the old cursor. Installing
+          # the corrected mapping must recover it without a manual store edit.
+          blocked = Run.block_definition(old, definition)
+          assert blocked["status"] == "blocked"
+
+          assert {:ok, ^migrated} =
+                   Run.migrate(blocked, definition, selection["migrations"], now)
+        else
+          assert migrated == old
+        end
+      end
+    end
+  end
+
+  test "the executable decider uses recorded gate results and trusted choices with environment limits" do
     [flow] = AtlasFlowContract.Decision.__flows__()
-    json = AtlasFlowGenerator.Atlas.flows_json([flow], [], "test") |> JSON.decode!()
+    gates = AtlasFlowContract.Gates.__gates__()
+    [resolved] = AtlasFlowGenerator.Limits.resolve([flow], gates, :test)
+    json = AtlasFlowGenerator.Atlas.flows_json([resolved], gates, "test") |> JSON.decode!()
     definition = json["flows"]["decide"]
     assert AtlasFlow.Runs.Run.validate(definition) == :ok
 
-    assert definition["states"]["proposed"]["branches"] == [
-             %{"to" => "accepted", "roles" => [], "when" => "entity.status == 'accepted'"},
-             %{"to" => "rejected", "roles" => [], "when" => "entity.status == 'rejected'"}
+    assert definition["initial"] == "deciding"
+    assert definition["states"]["deciding"]["kind"] == "gate"
+
+    assert definition["states"]["for_person"]["timers"] == [
+             %{"name" => "no_answer", "period" => "5m", "to" => "deciding"}
            ]
 
-    for {_name, state} <- definition["states"] do
-      assert state["set"] == []
-      assert state["waiting_for"] == []
-    end
+    assert definition["states"]["for_person_always"]["timers"] == []
+
+    assert definition["states"]["for_agent_unverified"]["set"] == [
+             %{"field" => "unverified", "value" => true}
+           ]
+
+    for state <- ~w(for_person for_person_always for_agent for_agent_unverified),
+        branch <- definition["states"][state]["branches"],
+        do: assert(branch["roles"] != [])
+
+    [prod] = AtlasFlowGenerator.Limits.resolve([flow], gates, :prod)
+
+    assert Enum.find(prod.states, &(&1.name == :for_person)).timers |> hd() |> Map.fetch!(:period) ==
+             "48h"
 
     config = File.read!("../../rela/flow-runtime.json") |> JSON.decode!()
     assert Map.keys(config["flow_runtime"]["selection"]) == ["decide"]
-    assert config["flow_runtime"]["inputs"]["roles"] == %{}
+    assert config["flow_runtime"]["inputs"]["roles"]["decider"] == "decided_by"
     selection = config["flow_runtime"]["selection"]["decide"]
     assert selection["subject"] == definition["subject"]
+
+    assert Enum.any?(
+             selection["migrations"],
+             &(&1["to"] == AtlasFlow.Runs.Run.digest(definition))
+           )
 
     for status <- ~w(accepted rejected superseded) do
       subject = %{"key" => "D-history", "values" => %{"status" => status}}
@@ -55,6 +131,63 @@ defmodule AtlasFlowContract.DeciderTest do
       assert run["pending"]["writes"] == []
       assert run["state"] == if(status == "rejected", do: "rejected", else: "accepted")
     end
+  end
+
+  test "the frozen rule only permits clearing the unverified flag, and only Flow writes it" do
+    extra = JSON.decode!(File.read!("../../rela/atlas.json"))
+    extra = Map.merge(extra, JSON.decode!(File.read!("../../rela/flow-runtime.json")))
+    rules = AtlasFacts.Guards.of(extra, "decision")
+
+    current = %{
+      "values" => %{"status" => "accepted", "unverified" => true},
+      "links" => %{"decided_by" => ["a"]}
+    }
+
+    env = %{"writer" => "flow", "sender" => "flow", "kind_of" => fn _, _ -> "person" end}
+
+    assert :ok =
+             AtlasFacts.Guards.check(
+               rules,
+               "change",
+               "D-test",
+               current,
+               %{"unverified" => false},
+               %{},
+               env
+             )
+
+    assert {:refused, _} =
+             AtlasFacts.Guards.check(
+               rules,
+               "change",
+               "D-test",
+               put_in(current, ["values", "unverified"], false),
+               %{"unverified" => true},
+               %{},
+               env
+             )
+
+    assert {:refused, _} =
+             AtlasFacts.Guards.check(
+               rules,
+               "change",
+               "D-test",
+               current,
+               %{"unverified" => false},
+               %{},
+               %{env | "sender" => "control/session-1"}
+             )
+
+    assert {:refused, _} =
+             AtlasFacts.Guards.check(
+               rules,
+               "change",
+               "D-test",
+               current,
+               %{"title" => "edited"},
+               %{},
+               env
+             )
   end
 
   defp evidence(changes \\ %{}) do

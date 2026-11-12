@@ -30,13 +30,12 @@ defmodule AtlasFlowContract.PresentationTest do
     {"design_and_accept", "building"} => [{"test_and_accept_use_case", "building"}],
     # v1's one manual state became passes, gates and the publish effect; it begins with the author pass.
     {"build_and_merge", "building"} => [{"issue", "author"}],
-    {"review_and_merge", "open"} => [{"pull_request", "checking"}],
-    {"decide", "proposed"} => [{"decide", "proposed"}]
+    {"review_and_merge", "open"} => [{"pull_request", "checking"}]
   }
 
   # Open v1 states with no state in the subflows yet: `decide` ends when it is accepted,
   # so "carry it out" has no state to be presented in. Named, so it is not lost silently.
-  @not_moved [{"decide", "waiting"}]
+  @not_moved [{"decide", "waiting"}, {"decide", "proposed"}]
 
   defp v1, do: JSON.decode!(File.read!(@v1))["flows"]
 

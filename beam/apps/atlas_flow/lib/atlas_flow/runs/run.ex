@@ -2,11 +2,91 @@ defmodule AtlasFlow.Runs.Run do
   @moduledoc "The bounded transition machine. No IO; the cursor is always explicit."
 
   alias AtlasFlow.Runs.{Conditions, Inputs}
+  alias AtlasFlow.Activities.Gate
 
   def digest(term),
     do: :crypto.hash(:sha256, :erlang.term_to_binary(term)) |> Base.encode16(case: :lower)
 
   def key(flow, kind, key, generation), do: digest({flow, kind, key, generation})
+
+  def migrate(run, flow, migrations, now) do
+    if run["definition_sha256"] == digest(flow) do
+      {:ok, run}
+    else
+      migrate_changed(run, flow, migrations, now)
+    end
+  end
+
+  defp migrate_changed(run, flow, migrations, now) do
+    mapping =
+      Enum.find(
+        migrations,
+        &(&1["from"] == run["definition_sha256"] and &1["to"] == digest(flow))
+      )
+
+    state = mapping && mapping["states"][run["state"]]
+
+    safe =
+      state != nil and Map.has_key?(flow["states"], state) and run["pending"]["writes"] == [] and
+        run["pending"]["gate"] == nil and run["deadlines"]["timers"] == []
+
+    original = run
+
+    run =
+      if run["pending"]["definition_block"] do
+        run
+        |> Map.put("status", run["pending"]["definition_block"]["status"])
+        |> Map.put("blocked_reason", "")
+        |> update_in(["pending"], &Map.delete(&1, "definition_block"))
+      else
+        run
+      end
+
+    migration = %{
+      "from" => original["definition_sha256"],
+      "to" => digest(flow),
+      "state" => original["state"],
+      "entry" => original["entry"],
+      "at" => DateTime.to_iso8601(now),
+      "reason" => (mapping && mapping["reason"]) || "explicit state migration"
+    }
+
+    migrated =
+      run
+      |> Map.put("definition_sha256", digest(flow))
+      |> update_in(["pending"], fn pending ->
+        Map.update(pending, "migrations", [migration], &(&1 ++ [migration]))
+      end)
+
+    cond do
+      not safe ->
+        {:error, :definition_changed}
+
+      run["status"] == "completed" and flow["states"][state]["final"] == true ->
+        # Historical imports are evidence, not executable entries.
+        if run["last_input"]["import"],
+          do: {:ok, run},
+          else: {:ok, Map.put(migrated, "state", state)}
+
+      run["status"] == "active" ->
+        {:ok, enter(migrated, flow, state, now, true)}
+
+      true ->
+        {:error, :definition_changed}
+    end
+  end
+
+  def block_definition(run, flow) do
+    run
+    |> Map.put("status", "blocked")
+    |> Map.put(
+      "blocked_reason",
+      "definition_changed: #{run["definition_sha256"]} -> #{digest(flow)}; no safe state migration"
+    )
+    |> update_in(["pending"], fn pending ->
+      Map.put_new(pending, "definition_block", %{"status" => run["status"]})
+    end)
+  end
 
   def validate(flow) do
     states = flow["states"] || %{}
@@ -15,7 +95,7 @@ defmodule AtlasFlow.Runs.Run do
       valid_starts?(flow["start"]) and
         flow["per_subject"] == "one" and Map.has_key?(states, flow["initial"]) and
         Enum.all?(states, fn {_name, s} ->
-          not Map.has_key?(s, "kind") and valid_creates?(s["creates"] || []) and
+          valid_activity?(s) and valid_creates?(s["creates"] || []) and
             is_list(s["set"]) and
             Enum.all?(s["set"], fn
               %{"field" => field, "value" => value} ->
@@ -37,6 +117,73 @@ defmodule AtlasFlow.Runs.Run do
 
     if supported, do: :ok, else: {:error, :unsupported_definition}
   end
+
+  defp valid_activity?(%{"kind" => "gate", "spec" => %{"gate" => g, "version" => v}}),
+    do: is_binary(g) and is_integer(v)
+
+  defp valid_activity?(s), do: not Map.has_key?(s, "kind")
+
+  def gate_result(run, flow, subject, now, answer) do
+    with {:ok, result} <- Gate.result(run["pending"]["gate"], answer),
+         true <-
+           AtlasBus.SubjectFingerprint.of(subject, result["fingerprint_definition"]) ==
+             result["fingerprint"],
+         branch when not is_nil(branch) <-
+           Enum.find(
+             flow["states"][run["state"]]["branches"],
+             &Conditions.matches?(&1["when"], %{"gate_result" => result["outcome"]})
+           ) do
+      updated = enter(run, flow, branch["to"], now, true, subject)
+
+      output = %{
+        "id" => digest({run["key"], run["entry"], "gate-result"}),
+        "kind" => run["subject_kind"],
+        "content" => %{
+          "op" => "change",
+          "key" => run["subject_key"],
+          "by" => "flow",
+          "values" => %{"gate_result" => result["outcome"]}
+        }
+      }
+
+      {:ok,
+       updated
+       |> put_in(["pending", "verdict"], result)
+       |> update_in(["pending", "writes"], &[output | &1])}
+    else
+      _ -> {:error, :invalid_gate_result}
+    end
+  end
+
+  def refresh_gate(run, flow, subject, now) do
+    result = run["pending"]["verdict"]
+
+    state =
+      Enum.find(flow["states"], fn {_, s} ->
+        s["kind"] == "gate" and s["spec"]["gate"] == result["gate"]
+      end)
+
+    case state do
+      {name, _} ->
+        {:ok,
+         enter(Map.put(run, "last_input", %{"version" => 1}), flow, name, now, true, subject)}
+
+      _ ->
+        {:error, :missing_gate_activity}
+    end
+  end
+
+  def restart_gate(run, flow, subject, now),
+    do:
+      {:ok,
+       enter(
+         Map.put(run, "last_input", %{"version" => 1}),
+         flow,
+         run["state"],
+         now,
+         true,
+         subject
+       )}
 
   defp valid_starts?(starts) when is_list(starts) and starts != [] do
     Enum.all?(starts, fn
@@ -148,7 +295,7 @@ defmodule AtlasFlow.Runs.Run do
       run["status"] != "active" ->
         {:ok, run}
 
-      run["pending"]["writes"] != [] ->
+      run["pending"]["writes"] != [] or flow["states"][run["state"]]["kind"] == "gate" ->
         {:ok, run}
 
       true ->
@@ -215,7 +362,14 @@ defmodule AtlasFlow.Runs.Run do
           timer ->
             {:ok,
              enter(run, flow, timer["to"], now, true, subject)
-             |> input(subject, Map.take(timer, ["name", "entry", "due"]))}
+             |> input(
+               subject,
+               Map.put(
+                 Map.take(timer, ["name", "entry", "due"]),
+                 "waited_from",
+                 run["entered_at"]
+               )
+             )}
 
           true ->
             {:ok, run}
@@ -290,7 +444,11 @@ defmodule AtlasFlow.Runs.Run do
       "entry" => entry,
       "entered_at" => DateTime.to_iso8601(now),
       "status" => if(state["final"], do: "completed", else: "active"),
-      "pending" => %{"version" => 1, "writes" => writes ++ creates},
+      "pending" =>
+        Map.merge(Map.take(run["pending"] || %{}, ["verdict", "migrations"]), %{
+          "version" => 1,
+          "writes" => writes ++ creates
+        }),
       "deadlines" => %{"version" => 1, "timers" => timers}
     })
   rescue

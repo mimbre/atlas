@@ -395,17 +395,58 @@ flows:
   decide:
     label: Decide
     subject: decision
+    run_as: system:atlas-flow
     per_subject: one
     start:
       - on: create
-    initial: proposed
+    initial: deciding
     states:
-      proposed:
-        label: Proposed
+      deciding:
+        label: Who decides
+        outputs:
+          - set: { properties: { gate_result: none } }
         on:
           change:
-            - { to: accepted, when: "entity.status == 'accepted'" }
-            - { to: rejected, when: "entity.status == 'rejected'" }
+            - { to: for_person_always, roles: [atlas-flow], when: "entity.gate_result == 'person_always'" }
+            - { to: for_person, roles: [atlas-flow], when: "entity.gate_result == 'person'" }
+            - { to: for_agent, roles: [atlas-flow], when: "entity.gate_result == 'agent'" }
+            - { to: for_agent_unverified, roles: [atlas-flow], when: "entity.gate_result == 'agent_unverified'" }
+      for_person_always:
+        label: A person decides
+        status: input_required
+        waiting_for: [principle_authority, decider]
+        on:
+          change:
+            - { to: accepted, roles: [principle_authority, decider], when: "entity.status == 'accepted'" }
+            - { to: rejected, roles: [principle_authority, decider], when: "entity.status == 'rejected'" }
+      for_person:
+        label: Waiting for a person
+        status: input_required
+        waiting_for: [decider]
+        on:
+          change:
+            - { to: accepted, roles: [decider], when: "entity.status == 'accepted'" }
+            - { to: rejected, roles: [decider], when: "entity.status == 'rejected'" }
+        after:
+          no_answer: { period: 48h, to: deciding }
+      for_agent:
+        label: An agent may decide
+        status: input_required
+        waiting_for: [delegate, decider]
+        on:
+          change:
+            - { to: accepted, roles: [delegate, decider], when: "entity.status == 'accepted'" }
+            - { to: rejected, roles: [delegate, decider], when: "entity.status == 'rejected'" }
+      for_agent_unverified:
+        label: Unverified agent decision
+        status: input_required
+        waiting_for: [delegate, decider]
+        outputs:
+          - set: { properties: { unverified: true } }
+        on:
+          change:
+            - { to: accepted, roles: [delegate, decider], when: "entity.status == 'accepted'" }
+            - { to: rejected, roles: [delegate, decider], when: "entity.status == 'rejected'" }
       accepted:
         label: Accepted
         final: true

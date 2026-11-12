@@ -18,7 +18,7 @@ def without_ledger(schema):
     schema = copy.deepcopy(schema)
     schema['entities'].pop('decision')
     schema['entities'].pop('gate_verdict')
-    for name in ('decided_by', 'delegated_by', 'supersedes', 'follows_from', 'based_on', 'follows', 'overruled_by', 'about'):
+    for name in ('decided_by', 'delegated_by', 'supersedes', 'follows_from', 'based_on', 'follows', 'overruled_by', 'reviewed_by', 'about'):
         schema['relations'].pop(name)
     schema['relations']['assignment']['from'].remove('decision')
     for name in ('decision_category', 'decision_scope', 'decision_reversibility', 'decision_force', 'decision_status', 'design_status', 'gate_flavor', 'gate_purpose', 'gate_unsettled'):
@@ -53,7 +53,7 @@ class SchemaTest(unittest.TestCase):
         baseline = yaml.load((ROOT / 'tests/fixtures/baseline-schema.yaml').read_text(), Loader=config.StrictLoader)
         _, resolved = config.closure(self.root)
         self.assertEqual(list(resolved['entities']['flow_run']['properties']), 'flow subject_kind subject_key generation definition_sha256 state entry entered_at status deadlines pending input_cursor last_input blocked_reason'.split())
-        self.assertEqual(list(resolved['entities']['flow_input']['properties']), 'request_id run flow subject_kind subject_key generation entry source_version subject_version actor roles changed_fields payload_digest status position prepared_at applied_at'.split())
+        self.assertEqual(list(resolved['entities']['flow_input']['properties']), 'request_id run flow subject_kind subject_key generation entry source_version subject_version actor roles changed_fields links payload_digest status position prepared_at applied_at'.split())
         prior = without_ledger(resolved)
         for kind in ('worker_execution', 'interaction', 'interaction_receipt'):
             self.assertIn(kind, prior['entities'])

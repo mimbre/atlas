@@ -24,6 +24,7 @@ defmodule AtlasGates.Record do
   def record(%Request{} = request, %Verdict{} = verdict, {module, state}, opts \\ []) do
     kind = Keyword.get_lazy(opts, :kind, &kind/0)
     now = Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
+    now = if is_function(now, 0), do: now.(), else: now
 
     result =
       case module.find(state, kind, Request.identity(request)) do
@@ -41,8 +42,19 @@ defmodule AtlasGates.Record do
       end
 
     case result do
-      {:ok, key, how} -> {:ok, %{verdict | recorded: key, recorded_as: how}}
-      {:error, why} -> {:error, Verdict.unrecorded(verdict, request, why), why}
+      {:ok, key, how} ->
+        repaired =
+          if function_exported?(module, :ensure_links, 5),
+            do: module.ensure_links(state, kind, request.id, key, request.links),
+            else: {:ok, key}
+
+        case repaired do
+          {:ok, ^key} -> {:ok, %{verdict | recorded: key, recorded_as: how}}
+          {:error, why} -> {:error, Verdict.unrecorded(verdict, request, why), why}
+        end
+
+      {:error, why} ->
+        {:error, Verdict.unrecorded(verdict, request, why), why}
     end
   end
 
@@ -52,6 +64,8 @@ defmodule AtlasGates.Record do
 
     %{
       "gate" => request.gate,
+      "activity_id" => request.activity_id,
+      "activity_digest" => request.activity_digest,
       "gate_version" => request.gate_version,
       "flavor" => gate["flavor"],
       "purpose" => gate["purpose"],

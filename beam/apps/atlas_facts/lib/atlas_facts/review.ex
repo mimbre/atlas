@@ -17,22 +17,20 @@ defmodule AtlasFacts.Review do
   first relation (by name) that starts at `kind` and has a review rule.
   """
   def rule(description, kind) do
-    Enum.find_value(Enum.sort(description["relations"] || %{}), fn
-      {relation, %{"review" => %{"field" => field, "value" => _} = rule} = spec}
-      when is_binary(field) ->
-        if kind in (spec["from"] || []), do: Map.put(rule, "through", relation)
+    List.first(rules(description, kind))
+  end
 
-      _ ->
-        nil
-    end)
+  defp rules(description, kind) do
+    for {relation, spec} <- Enum.sort(description["relations"] || %{}),
+        kind in (spec["from"] || []),
+        rule <- List.wrap(spec["review"]),
+        is_map(rule) and is_binary(rule["field"]),
+        do: Map.put(rule, "through", relation)
   end
 
   @doc "The kinds whose facts the rule of `kind` reads."
   def needs(description, kind) do
-    case rule(description, kind) do
-      nil -> []
-      rule -> Completion.needs_of(description, [rule])
-    end
+    Completion.needs_of(description, rules(description, kind))
   end
 
   @doc """
@@ -41,12 +39,20 @@ defmodule AtlasFacts.Review do
   names, as rela gives them.
   """
   def of(description, lists, kind, fact) do
-    with %{} = rule <- rule(description, kind),
-         %{} = why <- Completion.matches(description, lists, rule, fact) do
-      why |> Map.delete("done") |> Map.put("label", rule["label"] || "review")
-    else
-      _ -> nil
-    end
+    own(description, kind, fact) ||
+      Enum.find_value(rules(description, kind), fn rule ->
+        case Completion.matches(description, lists, rule, fact) do
+          %{} = why -> why |> Map.delete("done") |> Map.put("label", rule["label"] || "review")
+          _ -> nil
+        end
+      end)
+  end
+
+  defp own(description, kind, fact) do
+    rule = get_in(description, ["flow_runtime", "flags", kind])
+
+    if rule && fact.properties[rule["field"]] == rule["value"],
+      do: Map.put(rule, "key", fact.key)
   end
 
   @doc """
@@ -54,8 +60,8 @@ defmodule AtlasFacts.Review do
   be reviewed). `list.(kind)` reads every fact of a kind; an error is returned as it is.
   """
   def annotate(description, kind, facts, list) do
-    case rule(description, kind) do
-      nil ->
+    case {rules(description, kind), get_in(description, ["flow_runtime", "flags", kind])} do
+      {[], nil} ->
         {:ok, facts}
 
       _rule ->

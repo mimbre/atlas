@@ -40,6 +40,9 @@ defmodule AtlasFlowGenerator.Rela do
   @doc "The subflows as the body of `flows.yaml` (without the generated header)."
   def flows_yaml(flows), do: "flows:\n" <> Enum.map_join(flows, "", &flow/1)
 
+  def flows_yaml(flows, gates, environment),
+    do: flows_yaml(AtlasFlowGenerator.Limits.resolve(flows, gates, environment))
+
   defp flow(f) do
     "  #{f.name}:\n" <>
       opt("    label", f.label) <>

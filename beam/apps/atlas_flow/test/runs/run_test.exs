@@ -17,6 +17,20 @@ defmodule AtlasFlow.Runs.RunTest do
       do: put_in(AtlasFlow.FixtureTarget.flows(), ["sort", "states", "waiting", "kind"], "gate")
   end
 
+  defmodule AbsentTarget do
+    def rela_flows_sha256, do: raise("no environment pair")
+    def flows, do: raise("no generated flows")
+    def gates, do: raise("no gates or answer limits")
+    def check_rela_flows(_), do: raise("no deployed YAML")
+  end
+
+  test "an unselected composition needs no environment pair, gates or limits" do
+    description = put_in(FakeFacts.run_description(), ["flow_runtime", "selection"], %{})
+    assert {:ok, nil} = Store.activate(description, AbsentTarget, nil)
+    assert {:ok, []} = Store.reconcile(nil, %{}, @now)
+    assert FakeFacts.sent() == []
+  end
+
   @tag :tmp_dir
   test "activation refuses unsupported selected data with zero writes", %{tmp_dir: dir} do
     yaml = Path.join(dir, "flows.yaml")
@@ -70,6 +84,37 @@ defmodule AtlasFlow.Runs.RunTest do
       assert imported["pending"]["writes"] == []
       assert imported["last_input"]["import"]
     end
+  end
+
+  test "only an exact reviewed mapping migrates a quiescent run, preserving historical finals" do
+    flow = FixtureTarget.flow()
+    run = new() |> put_in(["pending", "writes"], []) |> put_in(["deadlines", "timers"], [])
+    old = Map.put(run, "definition_sha256", "old")
+
+    mapping = %{
+      "from" => "old",
+      "to" => Run.digest(flow),
+      "states" => %{"waiting" => "waiting", "done" => "done"}
+    }
+
+    assert {:error, :definition_changed} = Run.migrate(old, flow, [], @now)
+
+    assert {:error, :definition_changed} =
+             Run.migrate(old, flow, [put_in(mapping, ["states", "waiting"], "missing")], @now)
+
+    assert {:ok, migrated} = Run.migrate(old, flow, [mapping], @now)
+    assert migrated["entry"] == old["entry"] + 1
+    assert migrated["key"] == old["key"]
+    assert migrated["definition_sha256"] == Run.digest(flow)
+
+    assert {:error, _} =
+             Run.migrate(put_in(old, ["deadlines", "timers"], [%{}]), flow, [mapping], @now)
+
+    completed = old |> Map.put("status", "completed") |> Map.put("state", "done")
+    assert {:ok, historical} = Run.migrate(completed, flow, [mapping], @now)
+    assert historical["entry"] == completed["entry"]
+    assert historical["pending"]["writes"] == []
+    assert historical["status"] == "completed"
   end
 
   test "refuses every unsupported executable feature before activation" do
@@ -139,7 +184,8 @@ defmodule AtlasFlow.Runs.RunTest do
              "version" => 1,
              "entry" => 1,
              "name" => "retry",
-             "due" => "2026-11-12T00:05:00.000Z"
+             "due" => "2026-11-12T00:05:00.000Z",
+             "waited_from" => "2026-11-12T00:00:00Z"
            }
 
     # A duplicate or cancelled old-entry notification only rereads the new cursor.
@@ -183,11 +229,10 @@ defmodule AtlasFlow.Runs.RunTest do
     ManualClock.advance(clock, 300_001)
     assert {:ok, [^final]} = reconcile(clock)
     changed = put_in(FixtureTarget.flows(), ["sort", "states", "waiting", "label"], "Changed")
-    before = FakeFacts.sent()
-
-    assert {:error, {:definition_changed, _}} =
-             Store.reconcile(config(), changed, ManualClock.now(clock))
-
-    assert FakeFacts.sent() == before
+    assert {:ok, [blocked]} = Store.reconcile(config(), changed, ManualClock.now(clock))
+    assert blocked["status"] == "blocked"
+    assert blocked["blocked_reason"] =~ "definition_changed"
+    assert blocked["entry"] == final["entry"]
+    assert blocked["pending"]["writes"] == []
   end
 end

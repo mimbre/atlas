@@ -46,6 +46,7 @@ class AssemblyTest(unittest.TestCase):
             'also': ['migration']}})
         self.assertEqual(set(prior['entities'].pop('gate_verdict')), {'top', 'primary', 'order', 'create', 'properties', 'requires', 'sealed'})
         self.assertIn('only_target', prior['relations'].pop('overruled_by'))
+        self.assertIn('only_target', prior['relations'].pop('reviewed_by'))
         self.assertEqual(prior['flows'].pop('decide')['kinds'], ['decision'])
         # Decisions as anchors: what a turn reads first, and the review of work based on one.
         self.assertEqual(prior.pop('read_first')['through'], 'based_on')

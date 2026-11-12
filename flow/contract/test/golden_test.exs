@@ -22,13 +22,16 @@ defmodule AtlasFlowContract.GoldenTest do
     {"use_case",
      [design_and_accept: "0971d09c2b1a34ad", test_and_accept_use_case: "a207d811b03394f4"]},
     {"scene", [test_and_accept_scene: "8dc48c7180394ded"]},
-    {"decision", [decide: "cb97f2f2854e9ea1"]}
+    {"decision", [decide: "e2ad1048cd8a4748"]}
   ]
 
   defp below_header(text),
     do: text |> String.split("\n") |> Enum.drop_while(&(&1 =~ ~r/^#/)) |> Enum.join("\n")
 
-  defp generated, do: Rela.flows_yaml(Software.__flows__())
+  defp resolved,
+    do: AtlasFlowGenerator.Limits.resolve(Software.__flows__(), Gates.__gates__(), :prod)
+
+  defp generated, do: Rela.flows_yaml(resolved())
 
   # The approved files, each below its comment header, as one flows.yaml in the
   # composition's order; blank lines between flows carry no meaning.
@@ -74,7 +77,7 @@ defmodule AtlasFlowContract.GoldenTest do
 
     assert Enum.join([open | rest], "\n") ==
              Atlas.flows_json(
-               Software.__flows__(),
+               resolved(),
                Gates.__gates__(),
                Committed.rela_flows_sha256()
              )
@@ -119,7 +122,7 @@ defmodule AtlasFlowContract.GoldenTest do
     yaml = File.read!("../targets/rela/flows.yaml")
 
     assert {:ok, shown} =
-             Rela.check(bin, yaml, Software.__flows__(), project: Path.expand("../../rela"))
+             Rela.check(bin, yaml, resolved(), project: Path.expand("../../rela"))
 
     assert Enum.map(shown, &{String.to_atom(&1["name"]), &1["version"]}) ==
              Enum.flat_map(@versions, &elem(&1, 1))

@@ -15,10 +15,8 @@ defmodule AtlasGates.MixProject do
     ]
   end
 
-  # No application callback and no store: a caller asks Gates for a verdict, Gates evaluates
-  # it and records it through Facts, from the caller's process.
   def application do
-    [extra_applications: [:logger, :crypto]]
+    [mod: {AtlasGates.Application, []}, extra_applications: [:logger, :crypto]]
   end
 
   # Gates reaches the other layers only over the Bus. The gate definitions are data,

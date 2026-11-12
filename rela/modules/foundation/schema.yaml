@@ -366,6 +366,12 @@ entities:
       no_work:
         type: boolean
         description: True when carrying it out needs no work; it then waits for none
+      unverified:
+        type: boolean
+        description: An agent decided after the person answer limit; cleared by review
+      gate_result:
+        type: string
+        description: 'Flow: gate activity result; the durable run holds its trusted source'
       verdict:
         type: string
         description: 'Flow: the verdict of whoever may decide it (none, accept, reject)'
@@ -390,6 +396,12 @@ entities:
         type: string
         required: true
         description: The version of the gate's definition that decided
+      activity_id:
+        type: string
+        description: Durable caller activity identity, when asked by Flow
+      activity_digest:
+        type: string
+        description: Frozen activity payload digest; reuse with another payload is refused
       flavor:
         type: gate_flavor
         required: true
@@ -529,6 +541,8 @@ entities:
         type: string
       changed_fields:
         type: string
+      links:
+        type: string
       payload_digest:
         type: string
       status:
@@ -640,3 +654,14 @@ relations:
     inverse:
       id: overruled
       label: overruled
+  reviewed_by:
+    label: confirmed by
+    description: The person who confirms an unverified verdict; set once to themselves.
+    from:
+    - gate_verdict
+    to:
+    - person
+    max_outgoing: 1
+    inverse:
+      id: reviewed_verdicts
+      label: confirmed verdicts
