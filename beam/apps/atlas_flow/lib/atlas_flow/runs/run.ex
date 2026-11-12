@@ -4,6 +4,11 @@ defmodule AtlasFlow.Runs.Run do
   alias AtlasFlow.Runs.{Conditions, Inputs}
   alias AtlasFlow.Activities.Gate
 
+  # Definitions are published JSON data; stable internal request identities retain
+  # their existing term encoding so pending writes keep their idempotency keys.
+  def digest(definition) when is_map(definition),
+    do: AtlasFlowGenerator.DefinitionDigest.of(definition)
+
   def digest(term),
     do: :crypto.hash(:sha256, :erlang.term_to_binary(term)) |> Base.encode16(case: :lower)
 
@@ -59,6 +64,13 @@ defmodule AtlasFlow.Runs.Run do
       end)
 
     cond do
+      mapping && mapping["rekey"] == true ->
+        # An explicitly reviewed encoding change carries the exact same definition.
+        # Keep entry, deadlines, frozen requests and outbox IDs intact, even mid-entry.
+        if state != nil and state == run["state"] and Map.has_key?(flow["states"], state),
+          do: {:ok, migrated},
+          else: {:error, :definition_changed}
+
       not safe ->
         {:error, :definition_changed}
 

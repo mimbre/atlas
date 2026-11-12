@@ -27,7 +27,8 @@ defmodule AtlasFlowContract.DeciderTest do
     selection = config["selection"]["decide"]
     # Captured from the deployed slice-1 runs in both environments, rather than
     # inferred from a reconstruction of the old declaration.
-    assert Enum.map(selection["migrations"], & &1["from"]) == [old_digest, old_digest]
+    assert Enum.count(selection["migrations"], &(&1["from"] == old_digest)) == 2
+    assert length(selection["migrations"]) == 4
 
     for path <- ["../targets/atlas/flows.json", "../targets/test/atlas/flows.json"] do
       definition = JSON.decode!(File.read!(path))["flows"]["decide"]

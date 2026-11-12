@@ -99,6 +99,35 @@ defmodule AtlasFacts.FlowRuntimeTest do
     end
   end
 
+  test "encoding migrations require an explicit true marker and identity state mappings" do
+    {description, config} = fixture()
+
+    row = %{
+      "from" => String.duplicate("a", 64),
+      "to" => String.duplicate("b", 64),
+      "rekey" => true,
+      "states" => %{"waiting" => "waiting"}
+    }
+
+    assert :ok =
+             FlowRuntime.validate(
+               description,
+               put_in(config, ["selection", "sort", "migrations"], [row])
+             )
+
+    for bad <- [
+          Map.put(row, "rekey", false),
+          Map.put(row, "rekey", "true"),
+          put_in(row, ["states", "waiting"], "checking")
+        ] do
+      assert {:error, _} =
+               FlowRuntime.validate(
+                 description,
+                 put_in(config, ["selection", "sort", "migrations"], [bad])
+               )
+    end
+  end
+
   test "presentation templates apply only to targets the composition declares" do
     {description, config} = fixture()
 
