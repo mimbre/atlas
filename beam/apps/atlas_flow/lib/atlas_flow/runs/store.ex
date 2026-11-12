@@ -61,6 +61,61 @@ defmodule AtlasFlow.Runs.Store do
     end
   end
 
+  @doc """
+  Reconcile only the runs of `subjects` (`[{kind, key}]`, the facts a hint is about), as
+  `reconcile/3` does for each: its run as `known` holds it (the latest generation, from
+  the last reconcile) is drained; a subject the selection admits that has none gets one.
+  `{:ok, runs}`: the runs it reconciled.
+  """
+  def reconcile_subjects(nil, _flows, _now, _known, _subjects), do: {:ok, []}
+
+  def reconcile_subjects(config, flows, now, known, subjects) do
+    pairs =
+      for {name, selection} <- Enum.sort(config["selection"]),
+          {kind, key} <- subjects,
+          kind == selection["subject"],
+          do: {name, selection, kind, key}
+
+    Enum.reduce_while(pairs, {:ok, []}, fn {name, selection, kind, key}, {:ok, acc} ->
+      existing =
+        Enum.find(known, fn run ->
+          run["flow"] == name and run["subject_kind"] == kind and run["subject_key"] == key
+        end)
+
+      result =
+        if existing do
+          drain(config, existing["key"], flows[name], now, 32)
+        else
+          admitted(config, name, flows[name], selection, kind, key, now)
+        end
+
+      case result do
+        {:ok, nil} -> {:cont, {:ok, acc}}
+        {:ok, run} -> {:cont, {:ok, [run | acc]}}
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  # A subject with no run known: one is made when the selection admits it, as a scan does.
+  defp admitted(config, name, flow, selection, kind, key, now) do
+    # Read as a scan reads it (with what Facts derives), so admission is decided alike.
+    case Talk.transition_read(kind, %{"key" => key}) do
+      %{"fact" => %{} = subject} = answer ->
+        subject = Map.put(subject, "position", answer["position"] || subject["position"] || 0)
+
+        if Run.holds?(selection["admission"], subject["values"] || %{}),
+          do: reconcile_subject(config, name, flow, selection, subject, now, []),
+          else: {:ok, nil}
+
+      %{"fact" => nil} ->
+        {:ok, nil}
+
+      other ->
+        {:error, {:unavailable, other}}
+    end
+  end
+
   defp restore(config, flows, now) do
     with %{"facts" => facts} <- Talk.transition_read(config["kind"], %{}),
          decoded = Enum.map(facts, &decode(config, &1)),

@@ -50,6 +50,9 @@ defmodule AtlasFlow.FakeFacts do
   """
   def reads, do: GenServer.call(__MODULE__, :reads)
 
+  @doc "How many facts its answers to Flow's reads held so far (a list counts each fact)."
+  def facts_read, do: GenServer.call(__MODULE__, :facts_read)
+
   @impl true
   def init(opts) do
     :ok = AtlasBus.attach(AtlasBus.store())
@@ -61,6 +64,7 @@ defmodule AtlasFlow.FakeFacts do
        ledger: %{},
        lose_ack: nil,
        reads: {0, 0},
+       facts_read: 0,
        position: 0,
        busy: MapSet.new(),
        description: Keyword.get(opts, :description, description())
@@ -78,6 +82,7 @@ defmodule AtlasFlow.FakeFacts do
   def handle_call(:sent, _from, s), do: {:reply, Enum.reverse(s.sent), s}
   def handle_call({:description, d}, _from, s), do: {:reply, :ok, %{s | description: d}}
   def handle_call(:reads, _from, s), do: {:reply, s.reads, s}
+  def handle_call(:facts_read, _from, s), do: {:reply, s.facts_read, s}
 
   def handle_call({:drop, kind, key}, _from, s),
     do: {:reply, :ok, %{s | facts: Map.delete(s.facts, {kind, key})}}
@@ -119,6 +124,11 @@ defmodule AtlasFlow.FakeFacts do
           %{"facts" => for({{^kind, _}, fact} <- s.facts, do: fact)}
       end
 
+    s =
+      if flow?(e.sender),
+        do: %{s | facts_read: s.facts_read + length(List.wrap(answer["facts"] || answer["fact"]))},
+        else: s
+
     :ok = AtlasBus.send(Envelope.reply(e, "answer"), answer)
     {:noreply, s}
   end
@@ -159,21 +169,34 @@ defmodule AtlasFlow.FakeFacts do
           Map.merge(fact["values"], c["values"] || %{})
           |> Map.reject(fn {_, v} -> v in [nil, ""] end)
 
+        links = Map.merge(fact["links"], c["links"] || %{})
+
         fact =
           Map.merge(fact, %{
             "values" => values,
-            "links" => Map.merge(fact["links"], c["links"] || %{}),
+            "links" => links,
             "version" => position,
             "position" => position
           })
 
-        answer = Map.take(c, ["op", "key", "by"])
+        # What changed, as Facts says it: the fact, with its links before and after.
+        both =
+          Map.merge(fact_links(old), links, fn _, a, b -> Enum.uniq(a ++ b) end)
+          |> Map.reject(fn {_, keys} -> keys == [] end)
+
+        change = %{"kind" => e.kind, "key" => key, "op" => c["op"], "links" => both}
+        answer = Map.put(Map.take(c, ["op", "key", "by"]), "changes", [change])
+
+        facts =
+          if c["op"] == "delete",
+            do: Map.delete(s.facts, {e.kind, key}),
+            else: Map.put(s.facts, {e.kind, key}, fact)
 
         s = %{
           s
           | sent: [c | s.sent],
             position: position,
-            facts: Map.put(s.facts, {e.kind, key}, fact),
+            facts: facts,
             ledger: Map.put(s.ledger, e.id, {"stored", answer, position})
         }
 
@@ -189,6 +212,9 @@ defmodule AtlasFlow.FakeFacts do
   end
 
   def handle_info(_message, s), do: {:noreply, s}
+
+  defp fact_links(nil), do: %{}
+  defp fact_links(fact), do: fact["links"] || %{}
 
   defp flow?(sender), do: sender == "flow" or String.starts_with?(sender || "", "flow/")
 
