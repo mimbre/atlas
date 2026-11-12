@@ -1044,31 +1044,9 @@ defmodule AtlasControl.Session do
   defp read_timeout, do: Application.get_env(:atlas_control, :read_timeout_ms, 2_000)
 
   defp page_answers(route, description) do
-    reads = Pages.reads(route, description)
-
-    open_work? =
-      case route do
-        {:list, kind} -> Pages.open_work?(description, kind)
-        _ -> false
-      end
-
-    if open_work? and reads != [] and Enum.all?(reads, fn {_, content} -> content == %{} end) do
-      kinds = Enum.map(reads, &elem(&1, 0))
-
-      # Keep the aggregate wait budget of the separate collection reads.
-      case ask("_page", %{"kinds" => kinds}, @read_attempts, read_timeout() * length(reads)) do
-        %{"answers" => answers} when is_list(answers) and length(answers) == length(reads) ->
-          answers
-
-        %{"error" => _} = error ->
-          List.duplicate(error, length(reads))
-
-        _ ->
-          List.duplicate(%{"error" => "Facts returned invalid page reads"}, length(reads))
-      end
-    else
-      Enum.map(reads, fn {kind, content} -> ask(kind, content) end)
-    end
+    AtlasControl.PageReads.answers(route, description, fn kind, content, budget ->
+      ask(kind, content, @read_attempts, read_timeout() * budget)
+    end)
   end
 
   defp show(state, route, reason, position, refused \\ nil, welcome \\ nil) do
@@ -1200,10 +1178,7 @@ defmodule AtlasControl.Session do
     if Pages.assigned_start?(state.description, state.by_kind) do
       route = {:assigned, state.by}
 
-      answers =
-        Enum.map(Pages.reads(route, state.description), fn {kind, content} ->
-          ask(kind, content)
-        end)
+      answers = page_answers(route, state.description)
 
       count(state, route, answers)
     else

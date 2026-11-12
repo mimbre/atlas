@@ -322,6 +322,9 @@ func admission(root string, argv []string) {
 		emit(map[string]any{"type": "thread.started", "thread_id": session})
 	}
 	waitWhile(true, filepath.Join(root, "hold"))
+	if goal == "plain:fail" {
+		exit(1)
+	}
 	if backend == "claude" {
 		emit(map[string]any{"type": "result", "subtype": "success", "is_error": false, "session_id": session, "result": "done"})
 		return

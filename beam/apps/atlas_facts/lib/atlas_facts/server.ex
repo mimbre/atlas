@@ -56,6 +56,15 @@ defmodule AtlasFacts.Server do
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name))
 
+  @doc "Flush copies after direct backend writes in private fixtures. Not a Bus operation."
+  def flush_collections(server), do: GenServer.call(server, :flush_collections)
+
+  @impl true
+  def handle_call(:flush_collections, _from, state) do
+    :ok = AtlasFacts.Collections.clear(state.rela)
+    {:reply, :ok, state}
+  end
+
   @impl true
   def init(opts) do
     :ok = AtlasBus.attach(AtlasBus.store())
@@ -63,7 +72,7 @@ defmodule AtlasFacts.Server do
 
     {:ok,
      %{
-       rela: Keyword.fetch!(opts, :rela),
+       rela: AtlasFacts.Collections.open(Keyword.fetch!(opts, :rela), opts),
        ledger: Ledger.open(dir),
        links: Links.open(dir),
        description: nil,
@@ -84,9 +93,22 @@ defmodule AtlasFacts.Server do
 
     binding = Ledger.request_identity(envelope, content)
 
-    if class == "fact" and not Ledger.matches_request?(state.ledger, envelope.id, binding),
-      do: refusal(envelope, :request_conflict, state),
-      else: dispatch(envelope, content, state)
+    if class == "fact" do
+      AtlasFacts.Collections.mutation(state.rela, fn ->
+        if Ledger.matches_request?(state.ledger, envelope.id, binding) do
+          rela = state.rela
+
+          {:noreply, state} =
+            dispatch(envelope, content, %{state | rela: AtlasFacts.Collections.uncached(rela)})
+
+          {:noreply, %{state | rela: rela}}
+        else
+          refusal(envelope, :request_conflict, state)
+        end
+      end)
+    else
+      dispatch(envelope, content, state)
+    end
   end
 
   def handle_info({:atlas_bus, _envelope, _content}, state), do: {:noreply, state}
@@ -236,13 +258,15 @@ defmodule AtlasFacts.Server do
   end
 
   defp guidance(envelope, content, role, state) do
+    rela = AtlasFacts.Collections.uncached(state.rela)
+
     result =
       if envelope.class == "fact",
         do:
-          AtlasFacts.Guidance.write(state.rela, state.description, role, envelope, content, fn ->
+          AtlasFacts.Guidance.write(rela, state.description, role, envelope, content, fn ->
             Ledger.reserve(state.ledger)
           end),
-        else: AtlasFacts.Guidance.read(state.rela, state.description, role, content)
+        else: AtlasFacts.Guidance.read(rela, state.description, role, content)
 
     case result do
       {:ok, answer} when envelope.class == "fact" ->
@@ -491,7 +515,7 @@ defmodule AtlasFacts.Server do
         with [to] <- get_in(state.description, ["relations", relation, "to"]),
              plural when is_binary(plural) <-
                get_in(state.description, ["entities", to, "plural"]),
-             {:ok, facts} <- Rela.list(state.rela, plural) do
+             {:ok, facts} <- collection(state, plural) do
           keys =
             for fact <- facts,
                 Enum.all?(inner, fn {rel, key} -> key in (fact.links[rel] || []) end),
@@ -511,7 +535,7 @@ defmodule AtlasFacts.Server do
   # Only the fact, as rela has it, with its links: one call to rela, for a reader that
   # needs no progress, completion or what points at it (Flow walking up to the parents).
   defp read_plain(state, kind, spec, key) do
-    case Rela.get(state.rela, spec["plural"], key) do
+    case Rela.get(AtlasFacts.Collections.uncached(state.rela), spec["plural"], key) do
       {:ok, fact} -> %{"fact" => wire(state, kind, fact)}
       {:error, :not_found} -> %{"fact" => nil}
       {:error, reason} -> read_error(reason)
@@ -531,7 +555,8 @@ defmodule AtlasFacts.Server do
   end
 
   defp read_one(state, kind, spec, key, true) do
-    with {:ok, fact} <- Rela.get(state.rela, spec["plural"], key),
+    with {:ok, fact} <-
+           Rela.get(AtlasFacts.Collections.uncached(state.rela), spec["plural"], key),
          {:ok, [fact]} <- with_progress(state, kind, [fact]),
          {:ok, incoming} <- incoming(state, kind, spec, key) do
       wired = wire(state, kind, fact)
