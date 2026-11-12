@@ -28,6 +28,9 @@ defmodule AtlasControl.FakeStore do
   @doc "Leave reads unanswered: `true` for every kind, a list for those kinds, `false` for none."
   def silent_reads(kinds), do: GenServer.call(__MODULE__, {:silent_reads, kinds})
 
+  @doc "Tell `pid` `{:unanswered, id}` of each read it leaves unanswered, as it leaves it."
+  def tell_unanswered(pid), do: GenServer.call(__MODULE__, {:tell_unanswered, pid})
+
   @doc "The content of the last fact it was sent."
   def last_fact, do: GenServer.call(__MODULE__, :last_fact)
 
@@ -48,6 +51,7 @@ defmodule AtlasControl.FakeStore do
        position: 0,
        silent: false,
        silent_reads: %{},
+       tell_unanswered: nil,
        reserved: MapSet.new(),
        last: nil,
        refusing: %{},
@@ -73,6 +77,9 @@ defmodule AtlasControl.FakeStore do
     {:reply, :ok, %{s | silent_reads: silent}}
   end
 
+  def handle_call({:tell_unanswered, pid}, _from, s),
+    do: {:reply, :ok, %{s | tell_unanswered: pid}}
+
   def handle_call(:last_fact, _from, s), do: {:reply, s.last, s}
 
   def handle_call({:origin, kind, key, relation, origin}, _from, s),
@@ -87,9 +94,11 @@ defmodule AtlasControl.FakeStore do
     do: {:reply, :ok, %{s | reserved: MapSet.put(s.reserved, key)}}
 
   @impl true
-  def handle_info({:atlas_bus, %Envelope{class: "read", kind: kind}, _content}, s)
-      when s.silent_reads == :all or is_map_key(s.silent_reads, kind),
-      do: {:noreply, s}
+  def handle_info({:atlas_bus, %Envelope{class: "read", kind: kind} = e, _content}, s)
+      when s.silent_reads == :all or is_map_key(s.silent_reads, kind) do
+    if s.tell_unanswered, do: send(s.tell_unanswered, {:unanswered, e.id})
+    {:noreply, s}
+  end
 
   def handle_info({:atlas_bus, %Envelope{class: "read"} = e, content}, s) do
     answer =

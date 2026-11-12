@@ -4,25 +4,29 @@ defmodule AtlasFacts.WriteVisibilityTest do
   alias AtlasFacts.CountingRela
   @moduletag :tmp_dir
 
+  defmodule Replacing do
+    @moduledoc "The counting kinds, where a sealed stamp replaces the open stamps it supersedes."
+    use AtlasFacts.TestModel,
+      description:
+        AtlasFacts.CountingRela.schema()
+        |> put_in(["entities", "stamp", "replaces"], %{
+          "relation" => "supersedes",
+          "when" => %{"status" => ["sealed"]},
+          "of" => %{"status" => ["open"]},
+          "set" => %{"status" => "replaced"}
+        })
+        |> put_in(["relations", "supersedes"], %{"from" => ["stamp"], "to" => ["stamp"]})
+  end
+
   setup %{tmp_dir: dir} do
     Application.put_env(:atlas_bus, :store, "visibility-#{System.unique_integer([:positive])}")
-
-    schema =
-      CountingRela.schema()
-      |> put_in(["entities", "stamp", "replaces"], %{
-        "relation" => "supersedes",
-        "when" => %{"status" => ["sealed"]},
-        "of" => %{"status" => ["open"]},
-        "set" => %{"status" => "replaced"}
-      })
-      |> put_in(["relations", "supersedes"], %{"from" => ["stamp"], "to" => ["stamp"]})
-
-    {:ok, backend} = CountingRela.start_link(12, schema: schema)
+    {:ok, backend} = CountingRela.start_link(12, schema: Replacing.rela_schema())
 
     server =
       start_supervised!(
         {AtlasFacts.Server,
          rela: {CountingRela, backend},
+         model: Replacing,
          data_dir: dir,
          collection_clock: fn -> CountingRela.clock(backend) end}
       )

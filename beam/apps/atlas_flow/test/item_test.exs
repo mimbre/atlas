@@ -13,7 +13,7 @@ defmodule AtlasFlow.ItemTest do
 
   setup do
     Application.put_env(:atlas_bus, :store, "state-#{System.unique_integer([:positive])}")
-    # A description as large as a real one: many small terms, all on the process's heap.
+    # A description as large as a real one: many small terms. A process never holds it.
     big = Map.put(FakeFacts.description(), "notes", Enum.map(1..20_000, &%{"n" => &1}))
     start_supervised!({FakeFacts, description: big})
     for key <- ["ada", "bob"], do: FakeFacts.put("clerk", %{"key" => key})
@@ -53,12 +53,8 @@ defmodule AtlasFlow.ItemTest do
     assert words < 5_000
   end
 
-  test "after a poke it hibernates too, without the engine's copy of the description", %{
-    pid: pid,
-    clock: clock,
-    description: big
-  } do
-    Item.poke(pid, big)
+  test "after a poke it hibernates too, holding no description", %{pid: pid, clock: clock} do
+    Item.poke(pid)
     # Not idle yet: a look is due once the burst of hints settles.
     await(pid, &match?({:return_from, {Item, :handle_info, 2}, {:noreply, %{soon: true}}}, &1))
     ManualClock.advance(clock, 50)
@@ -67,7 +63,10 @@ defmodule AtlasFlow.ItemTest do
     assert current(pid) in @hibernated
     assert {:total_heap_size, words} = Process.info(pid, :total_heap_size)
     assert words < 5_000
-    assert %{description: nil, soon: false} = :sys.get_state(pid)
+    state = :sys.get_state(pid)
+    assert %{soon: false} = state
+    # What it walks (the model's relations) is the runner's, read once at boot.
+    refute Map.has_key?(state, :description)
   end
 
   test "a late answer leaves an idle process hibernated", %{pid: pid} do

@@ -64,6 +64,26 @@ defmodule AtlasControl.SessionTest do
   defp rows(page),
     do: page["blocks"] |> hd() |> get_in(["props", "rows"]) |> Enum.map(& &1["label"])
 
+  # How long a message may take to arrive: an upper bound for delivery under load, never a
+  # duration under test. Every wait under test is held (`hold_clock/0`) and run out here.
+  @arrives 5_000
+
+  # The test decides when each of Control's waits runs out (`AtlasControl.Clock`).
+  defp hold_clock(holder \\ self()) do
+    AtlasControl.Clock.hold(holder)
+    on_exit(&AtlasControl.Clock.release/0)
+  end
+
+  # The wait a process started for `message`, as the held clock is told of it.
+  defmacrop held_wait(message) do
+    quote do
+      assert_receive {:clock, pid, unquote(message) = message, ms}, @arrives
+      {pid, message, ms}
+    end
+  end
+
+  defp run_out({pid, message, _ms}), do: send(pid, message)
+
   defmodule Protocol do
     use AtlasBFF.Targets.Protocol, contract: AtlasBFFContract.Contract, channel: :control
   end
@@ -291,17 +311,21 @@ defmodule AtlasControl.SessionTest do
 
   test "failures: Control offline closes every client and takes none, for a while",
        %{port: port} do
+    hold_clock()
     a = client(port)
     next(a, "page")
     :ok = AtlasControl.Gateway.offline(400, :gateway)
-    assert {:error, :closed} = :gen_tcp.recv(a, 0, 1_000)
+    assert {:error, :closed} = :gen_tcp.recv(a, 0, @arrives)
+    assert {gateway, {:online, _}, 400} = while = held_wait({:online, _})
 
     # A client that connects meanwhile is closed at once; after the while, served again.
     c = client(port)
-    assert {:error, :closed} = :gen_tcp.recv(c, 0, 1_000)
-    Process.sleep(400)
+    assert {:error, :closed} = :gen_tcp.recv(c, 0, @arrives)
+    run_out(while)
+    # Its while is over before it is asked anything after.
+    AtlasControl.Gateway.port(gateway)
     d = client(port)
-    assert %{"op" => "page"} = next(d, "page")
+    assert %{"op" => "page"} = next(d, "page", @arrives)
   end
 
   test "a refused change shows the form again, with what was typed and why", %{port: port} do
@@ -492,23 +516,21 @@ defmodule AtlasControl.SessionTest do
     refute Map.has_key?(FakeStore.last_fact(), "links")
   end
 
-  test "a limited relation: a create or a move to a full parent is refused, never sent",
+  # How many facts a parent takes (a relation's `limit`) is the model's rule, and Facts
+  # enforces it (AtlasFacts.RelationRulesTest): Control sends the create and the move, and
+  # shows what Facts says.
+  test "a create or a move under a limited parent is sent; Facts says when it is full",
        %{port: port} do
     FakeStore.link("P-1", "W-1")
-    FakeStore.link("P-2", "W-1")
     FakeStore.put("T-a-1", %{"name" => "#a/1", "note" => "live"}, "tag", %{"on_part" => ["P-1"]})
-    FakeStore.put("T-b-1", %{"name" => "#b/1", "note" => "live"}, "tag", %{"on_part" => ["P-2"]})
+    FakeStore.put("T-b-1", %{"name" => "#b/1", "note" => "live"}, "tag")
+    FakeStore.refuse("T-b-1", "P-1 already has T-a-1 (live); one tag per part")
     a = client(port)
     next(a, "page")
 
     put(a, %{"op" => "submit", "to" => "/k/tag/new/on_part/P-1", "values" => %{"name" => "#c/1"}})
-    assert %{"tone" => "error", "text" => "Not sent: the form says why."} = next(a, "notice")
-
-    assert %{"reason" => "refused", "blocks" => [%{"props" => %{"errors" => [error]}}]} =
-             next(a, "page")
-
-    assert error == "P-1 already has T-a-1 (live); one tag per part"
-    assert FakeStore.last_fact() == nil
+    assert %{"path" => "/k/tag/T-c-1", "reason" => "stored"} = next(a, "page")
+    assert %{"op" => "create", "links" => %{"on_part" => ["P-1"]}} = FakeStore.last_fact()
 
     put(a, %{"op" => "open", "to" => "/k/tag/T-b-1/edit"})
     next(a, "page")
@@ -519,16 +541,12 @@ defmodule AtlasControl.SessionTest do
       "values" => %{"name" => "#b/1", "on_part" => "P-1"}
     })
 
-    assert %{"reason" => "refused", "blocks" => [%{"props" => %{"errors" => [^error]}}]} =
+    assert %{"reason" => "refused", "blocks" => [%{"props" => %{"errors" => errors}}]} =
              next(a, "page")
 
-    # Once the one there no longer counts, the same create goes through.
-    FakeStore.put("T-a-1", %{"name" => "#a/1", "note" => "dropped"}, "tag", %{
-      "on_part" => ["P-1"]
-    })
+    assert errors == ["P-1 already has T-a-1 (live); one tag per part"]
 
-    put(a, %{"op" => "submit", "to" => "/k/tag/new/on_part/P-1", "values" => %{"name" => "#c/1"}})
-    assert %{"path" => "/k/tag/T-c-1", "reason" => "stored"} = next(a, "page")
+    assert %{"op" => "change", "links" => %{"on_part" => ["P-1"]}} = FakeStore.last_fact()
   end
 
   test "a submit to anything but a submit endpoint of the contract is refused, unsent",
@@ -685,8 +703,8 @@ defmodule AtlasControl.SessionTest do
     assert text =~ "This is Control prod; it does not serve \"test\""
   end
 
-  @tag timeout: 15_000
   test "a fact without an answer is sent again with the same id", %{port: port} do
+    hold_clock()
     a = client(port)
     next(a, "page")
     FakeStore.silent(true)
@@ -697,20 +715,25 @@ defmodule AtlasControl.SessionTest do
       "values" => %{"title" => "One"}
     })
 
-    assert %{"tone" => "pending"} = next(a, "notice")
+    assert %{"tone" => "pending"} = next(a, "notice", @arrives)
+    assert {_, {:resend, id}, 5_000} = first = held_wait({:resend, _})
     FakeStore.silent(false)
+    run_out(first)
 
     assert %{"tone" => "pending", "text" => "No answer from Facts yet; sent again."} =
-             next(a, "notice", 7_000)
+             next(a, "notice", @arrives)
 
-    assert %{"tone" => "ok"} = next(a, "notice")
+    # Sent again, it waits twice as long for its answer; it comes.
+    assert {_, _, 10_000} = held_wait({:resend, ^id})
+    assert %{"tone" => "ok"} = next(a, "notice", @arrives)
   end
 
   describe "read retry correlation" do
     setup do
+      # Each try of a read is told to the held clock as this long.
       Application.put_env(:atlas_control, :read_timeout_ms, 100)
       on_exit(fn -> Application.delete_env(:atlas_control, :read_timeout_ms) end)
-      :ok
+      hold_clock()
     end
 
     defp intercept_reads do
@@ -723,7 +746,7 @@ defmodule AtlasControl.SessionTest do
     defp store_answer(envelope, content, proxy) do
       send(Process.whereis(FakeStore), {:atlas_bus, %{envelope | sender: proxy}, content})
       id = envelope.id
-      assert_receive {:atlas_bus, %AtlasBus.Envelope{id: ^id, class: "answer"}, answer}
+      assert_receive {:atlas_bus, %AtlasBus.Envelope{id: ^id, class: "answer"}, answer}, @arrives
       answer
     end
 
@@ -731,25 +754,29 @@ defmodule AtlasControl.SessionTest do
       :ok = AtlasBus.send(AtlasBus.Envelope.reply(envelope, "answer"), answer)
     end
 
+    # The wait of a read's try; it runs out when the test says (`run_out/1`).
+    defp try_wait(id), do: held_wait({:read_expired, ^id, _})
+
     test "a late first answer succeeds and a later logical read gets fresh data", %{port: port} do
       FakeStore.put("W-1", %{"title" => "Before"})
       a = client(port)
       next(a, "page")
       proxy = intercept_reads()
       put(a, %{"op" => "open", "to" => "/k/widget"})
-      assert_receive {:atlas_bus, first, content}
+      assert_receive {:atlas_bus, first, content}, @arrives
       answer = store_answer(first, content, proxy)
-      assert_receive {:atlas_bus, retry, ^content}, 500
+      run_out(try_wait(first.id))
+      assert_receive {:atlas_bus, retry, ^content}, @arrives
       assert retry.id == first.id
       answer_read(first, answer)
-      assert rows(next(a, "page")) == ["Before"]
+      assert rows(next(a, "page", @arrives)) == ["Before"]
 
       FakeStore.put("W-1", %{"title" => "Fresh"})
       put(a, %{"op" => "open", "to" => "/k/widget"})
-      assert_receive {:atlas_bus, fresh, content}
+      assert_receive {:atlas_bus, fresh, content}, @arrives
       refute fresh.id == first.id
       answer_read(fresh, store_answer(fresh, content, proxy))
-      assert rows(next(a, "page")) == ["Fresh"]
+      assert rows(next(a, "page", @arrives)) == ["Fresh"]
     end
 
     test "lost first requests and lost first answers recover on the same-id retry", %{port: port} do
@@ -760,12 +787,13 @@ defmodule AtlasControl.SessionTest do
 
       for loss <- [:request, :answer] do
         put(a, %{"op" => "open", "to" => "/k/widget"})
-        assert_receive {:atlas_bus, first, content}
+        assert_receive {:atlas_bus, first, content}, @arrives
         if loss == :answer, do: store_answer(first, content, proxy)
-        assert_receive {:atlas_bus, retry, ^content}, 500
+        run_out(try_wait(first.id))
+        assert_receive {:atlas_bus, retry, ^content}, @arrives
         assert retry.id == first.id
         answer_read(retry, store_answer(retry, content, proxy))
-        assert rows(next(a, "page")) == ["Recovered"]
+        assert rows(next(a, "page", @arrives)) == ["Recovered"]
       end
     end
 
@@ -773,23 +801,31 @@ defmodule AtlasControl.SessionTest do
       a = client(port)
       next(a, "page")
       intercept_reads()
-      started = System.monotonic_time(:millisecond)
       put(a, %{"op" => "open", "to" => "/k/widget"})
-      assert_receive {:atlas_bus, first, content}
+      assert_receive {:atlas_bus, first, content}, @arrives
 
-      for _ <- 1..2 do
-        assert_receive {:atlas_bus, retry, ^content}, 500
-        assert retry.id == first.id
+      # Each try waits once, its full wait; an answer to another read, come meanwhile,
+      # neither ends that wait nor starts another.
+      for try <- 1..3 do
+        assert {_, _, 100} = wait = try_wait(first.id)
 
-        answer_read(%{retry | id: "unrelated-#{System.unique_integer([:positive])}"}, %{
+        answer_read(%{first | id: "unrelated-#{System.unique_integer([:positive])}"}, %{
           "facts" => []
         })
+
+        run_out(wait)
+
+        if try < 3 do
+          assert_receive {:atlas_bus, retry, ^content}, @arrives
+          assert retry.id == first.id
+        end
       end
 
-      assert %{"title" => "Facts did not answer"} = next(a, "page", 200)
-      elapsed = System.monotonic_time(:millisecond) - started
-      assert elapsed >= 300 and elapsed < 500
-      refute_receive {:atlas_bus, _, _}, 120
+      assert %{"title" => "Facts did not answer"} = next(a, "page", @arrives)
+      # Its reads and waits come before its page: three of each, no more.
+      refute_received {:atlas_bus, _, _}
+      id = first.id
+      refute_received {:clock, _, {:read_expired, ^id, _}, _}
     end
 
     test "Open work retains the collection-scaled wait budget" do
@@ -798,25 +834,55 @@ defmodule AtlasControl.SessionTest do
       a = client(port)
       next(a, "page")
       intercept_reads()
-      started = System.monotonic_time(:millisecond)
       put(a, %{"op" => "open", "to" => "/k/widget"})
-      assert_receive {:atlas_bus, first, %{"kinds" => kinds} = content}
+      assert_receive {:atlas_bus, first, %{"kinds" => kinds} = content}, @arrives
       assert first.kind == "_page"
       assert kinds == ["widget", "part"]
-      assert_receive {:atlas_bus, retry, ^content}, 500
+      # One read for two collections waits as long as their two reads would.
+      assert {_, _, 200} = wait = try_wait(first.id)
+      run_out(wait)
+      assert_receive {:atlas_bus, retry, ^content}, @arrives
       assert retry.id == first.id
-      assert System.monotonic_time(:millisecond) - started >= 200
-      Process.sleep(110)
+      # The first try's answer, come during the second, is the read's answer.
       answer_read(first, %{"answers" => [%{"facts" => []}, %{"facts" => []}]})
-      assert %{"title" => "Open work"} = next(a, "page")
+      assert %{"title" => "Open work"} = next(a, "page", @arrives)
     end
   end
 
   describe "when Facts does not answer" do
     setup do
-      # A read waits this long for each of its tries, so the tests need not wait 6 s.
-      Application.put_env(:atlas_control, :read_timeout_ms, 50)
-      on_exit(fn -> Application.delete_env(:atlas_control, :read_timeout_ms) end)
+      # A read's try runs out as soon as Facts has left it unanswered, never before; no
+      # other wait runs out. So the tests need not wait 6 s, nor race an answer.
+      clock = spawn_link(fn -> run_out_unanswered(%{}, %{}) end)
+      FakeStore.tell_unanswered(clock)
+      hold_clock(clock)
+    end
+
+    # Pairs each try's wait with Facts leaving that try unanswered (one of each per try,
+    # in order), and runs the wait out then.
+    defp run_out_unanswered(waits, unanswered) do
+      {waits, unanswered} =
+        receive do
+          {:clock, pid, {:read_expired, id, _} = message, _ms} ->
+            {Map.update(waits, id, [{pid, message}], &(&1 ++ [{pid, message}])), unanswered}
+
+          {:clock, _pid, _message, _ms} ->
+            {waits, unanswered}
+
+          {:unanswered, id} ->
+            {waits, Map.update(unanswered, id, 1, &(&1 + 1))}
+        end
+
+      paired = for {id, [_ | _]} <- waits, Map.get(unanswered, id, 0) > 0, do: id
+
+      {waits, unanswered} =
+        Enum.reduce(paired, {waits, unanswered}, fn id, {waits, unanswered} ->
+          [{pid, message} | rest] = waits[id]
+          send(pid, message)
+          {Map.put(waits, id, rest), Map.update!(unanswered, id, &(&1 - 1))}
+        end)
+
+      run_out_unanswered(waits, unanswered)
     end
 
     test "a page says Facts did not answer; No such page only where Control has no page",
@@ -825,33 +891,33 @@ defmodule AtlasControl.SessionTest do
       FakeStore.silent_reads(true)
       # Its hello asks Facts who the client is, and gets no answer.
       a = client(port)
-      next(a, "page")
+      next(a, "page", @arrives)
 
       put(a, %{"op" => "open", "to" => "/nowhere"})
-      assert %{"title" => "No such page"} = next(a, "page")
+      assert %{"title" => "No such page"} = next(a, "page", @arrives)
 
       # The model says which kind the key is; the fact's own read gets no answer.
       put(a, %{"op" => "open", "to" => "/k/_/W-1"})
 
       assert %{"title" => "Facts did not answer", "path" => "/k/widget/W-1", "blocks" => [block]} =
-               next(a, "page")
+               next(a, "page", @arrives)
 
       assert block["props"]["text"] =~ "Facts did not answer"
 
       # Facts answers again: a refresh works the page out.
       FakeStore.silent_reads(false)
       put(a, %{"op" => "refresh"})
-      assert %{"path" => "/k/widget/W-1", "reason" => "reconcile"} = next(a, "page")
+      assert %{"path" => "/k/widget/W-1", "reason" => "reconcile"} = next(a, "page", @arrives)
     end
 
     test "a page whose own read gets no answer says so", %{port: port} do
       FakeStore.put("W-1", %{"title" => "One"})
       a = client(port)
-      next(a, "page")
+      next(a, "page", @arrives)
       FakeStore.silent_reads(["widget"])
 
       put(a, %{"op" => "open", "to" => "/k/_/W-1"})
-      assert %{"title" => "Facts did not answer"} = next(a, "page")
+      assert %{"title" => "Facts did not answer"} = next(a, "page", @arrives)
     end
   end
 
@@ -960,11 +1026,15 @@ defmodule AtlasControl.SessionTest do
     assert was == %{"title" => "One"}
   end
 
-  test "a link only a migration sets is never sent", %{port: port} do
+  # Who sets a link (`set_by`, `only_target`) is the model's rule, and Facts enforces it:
+  # Control sends the link as the client, and shows what Facts says.
+  test "a link only a migration sets is sent as the client; Facts refuses anyone else",
+       %{port: port} do
     FakeStore.put("W-1", %{"title" => "One"})
+    FakeStore.put("T-1", %{"name" => "#t/1"}, "tag")
     a = client(port)
     next(a, "page")
-    sent = FakeStore.sent()
+    FakeStore.refuse("W-1", "only a migration sets seen_in")
 
     put(a, %{
       "op" => "submit",
@@ -972,11 +1042,12 @@ defmodule AtlasControl.SessionTest do
       "values" => %{"to" => "T-1"}
     })
 
-    assert %{"reason" => "refused", "blocks" => [%{"type" => "confirm"}]} = next(a, "page")
-    assert FakeStore.sent() == sent
+    assert %{"reason" => "refused"} = next(a, "page")
 
-    # A client that says it is the migration may.
-    FakeStore.put("T-1", %{"name" => "#t/1"}, "tag")
+    assert %{"links" => %{"seen_in" => ["T-1"]}, "by" => "agent"} = FakeStore.last_fact()
+
+    # A client that says it is the migration sends it as the migration.
+    FakeStore.put("W-2", %{"title" => "Two"})
     {:ok, m} = :gen_tcp.connect(~c"127.0.0.1", port, [:binary, packet: :line, active: false])
 
     put(m, %{
@@ -990,13 +1061,13 @@ defmodule AtlasControl.SessionTest do
 
     put(m, %{
       "op" => "submit",
-      "to" => "/k/widget/W-1/links/seen_in",
+      "to" => "/k/widget/W-2/links/seen_in",
       "values" => %{"to" => "T-1"}
     })
 
     assert %{"reason" => "stored"} = next(m, "page")
 
-    assert %{"links" => %{"seen_in" => ["T-1"]}, "by" => "migration"} =
+    assert %{"key" => "W-2", "links" => %{"seen_in" => ["T-1"]}, "by" => "migration"} =
              List.last(FakeStore.sent())
   end
 
@@ -1049,13 +1120,10 @@ defmodule AtlasControl.SessionTest do
     assert %{"links" => %{"approved_by" => []}, "cause" => "found a bug"} =
              List.last(FakeStore.sent())
 
-    # An agent is refused, and nothing is sent.
+    # An agent's link goes to Facts as the agent's; Facts refuses it (only_target).
     a = client(port)
     next(a, "page")
-    sent = FakeStore.sent()
-    put(a, %{"op" => "submit", "to" => "/k/widget/W-1/set/approved_by", "values" => %{}})
-    assert %{"text" => text} = next(a, "notice")
-    assert text =~ "only a member approves"
+    FakeStore.refuse("W-1", "only a member approves, as themselves")
 
     put(a, %{
       "op" => "submit",
@@ -1064,37 +1132,22 @@ defmodule AtlasControl.SessionTest do
     })
 
     assert %{"reason" => "refused"} = next(a, "page")
-    assert FakeStore.sent() == sent
+
+    assert %{"links" => %{"approved_by" => ["ada"]}, "by" => "agent"} = FakeStore.last_fact()
   end
 
-  test "nothing new is created under an approved fact", %{port: port} do
-    FakeStore.put("W-1", %{"title" => "One"}, "widget", %{"approved_by" => ["ada"]})
-    a = client(port)
-    next(a, "page")
-    sent = FakeStore.sent()
-
-    put(a, %{
-      "op" => "submit",
-      "to" => "/k/part/new/of_widget/W-1",
-      "values" => %{"title" => "Wheel"}
-    })
-
-    assert %{"reason" => "refused", "blocks" => [%{"props" => %{"errors" => [why]}}]} =
-             next(a, "page")
-
-    assert why == "W-1 is approved; withdraw it first, or put this under another widget"
-    assert FakeStore.sent() == sent
-  end
-
-  test "nothing is moved under an approved fact", %{port: port} do
+  # A parent closed by a link (`closes_parent`) is the model's rule, and Facts enforces it.
+  test "a create or a move under an approved fact is sent; Facts says it is closed",
+       %{port: port} do
+    closed = "W-2 is approved; withdraw it first, or put this under another widget"
     FakeStore.put("W-1", %{"title" => "One"})
     FakeStore.put("W-2", %{"title" => "Two"}, "widget", %{"approved_by" => ["ada"]})
     FakeStore.link("P-1", "W-1")
+    FakeStore.refuse("P-1", closed)
     a = client(port)
     next(a, "page")
     put(a, %{"op" => "open", "to" => "/k/part/P-1/edit"})
     next(a, "page")
-    sent = FakeStore.sent()
 
     put(a, %{
       "op" => "submit",
@@ -1102,11 +1155,8 @@ defmodule AtlasControl.SessionTest do
       "values" => %{"title" => "P-1", "of_widget" => "W-2"}
     })
 
-    assert %{"reason" => "refused", "blocks" => [%{"props" => %{"errors" => [why]}}]} =
-             next(a, "page")
-
-    assert why == "W-2 is approved; withdraw it first, or put this under another widget"
-    assert FakeStore.sent() == sent
+    assert %{"reason" => "refused"} = next(a, "page")
+    assert %{"op" => "change", "links" => %{"of_widget" => ["W-2"]}} = FakeStore.last_fact()
   end
 
   test "a declared answer submits one self change, requires its note, and rechecks a stale owner" do
@@ -1165,7 +1215,7 @@ defmodule AtlasControl.SessionTest do
     assert FakeStore.sent() == sent
   end
 
-  test "an update that decides names the client as decider; a kind never deleted refuses unsent" do
+  test "an update that decides goes as the client's, with what it read; a kind never deleted refuses unsent" do
     # Who checked a widget decides its dark shade; a widget is never deleted (`Shop.Kept`).
     port = gateway(Shop.Kept)
     FakeStore.put("W-1", %{"title" => "One", "shade" => "light"})
@@ -1188,15 +1238,17 @@ defmodule AtlasControl.SessionTest do
 
     assert %{"reason" => "stored"} = next(a, "page")
 
-    # The client here is the agent: it decides as itself, and Facts checks it may.
-    assert %{
-             "by" => "agent",
-             "values" => %{"shade" => "dark"},
-             "links" => %{"checked_by" => ["agent"]},
-             "was" => %{"shade" => "light", "checked_by" => []}
-           } = List.last(FakeStore.sent())
+    # The client here is the agent: it decides as itself. Facts links it as the one who
+    # decides (the model's rule) and checks it may; Control sends what the form read of
+    # the links, so Facts can tell when they changed meanwhile.
+    sent = List.last(FakeStore.sent())
 
-    # A change that decides nothing names nobody.
+    assert %{"by" => "agent", "values" => %{"shade" => "dark"}, "was" => %{"shade" => "light"}} =
+             sent
+
+    refute Map.has_key?(sent, "links")
+
+    # A change that decides nothing is sent the same way.
     put(a, %{"op" => "open", "to" => "/k/widget/W-1/edit"})
     next(a, "page")
     put(a, %{"op" => "submit", "to" => "/k/widget/W-1/edit", "values" => %{"title" => "Uno"}})

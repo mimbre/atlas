@@ -187,7 +187,7 @@ defmodule AtlasControl.Session do
       pending ->
         :ok = AtlasBus.send(pending.envelope, pending.content)
         wait = min(pending.wait * 2, @last_resend)
-        timer = Process.send_after(self(), {:resend, id}, wait)
+        timer = AtlasControl.Clock.after_ms({:resend, id}, wait)
         state = put_in(state.pending[id], %{pending | wait: wait, timer: timer})
         {:noreply, notice(state, "pending", "No answer from Facts yet; sent again.")}
     end
@@ -627,8 +627,7 @@ defmodule AtlasControl.Session do
     state = %{state | route: route, form: Map.put(state.form, :values, raw)}
     was = state.form[:parents] || %{}
 
-    with {:ok, links} <- moves(parents, was),
-         [] <- over_limits(state, kind, key, links) do
+    with {:ok, links} <- moves(parents, was) do
       # Only what was edited is sent, with what the form was read with for it: Facts then
       # refuses an old version only when one of these changed meanwhile, never because
       # other fields did, and a save never puts back an old value of a field left alone.
@@ -640,17 +639,17 @@ defmodule AtlasControl.Session do
             into: %{},
             do: {name, value}
 
-      # Setting a value that decides (the change form's `decides`) decides as oneself: the
-      # one who decides is the client, in the same change, as an answer does.
+      # The links the form was read with go along as well: a change that decides gets
+      # its writer as the one who decides from Facts (the model's rule), in the same
+      # change, and Facts compares that link with what the client read too.
       linked = state.form[:links] || %{}
-      decider = Pages.decider_link(state.model, kind, values, linked, state.by)
 
       seen =
         Map.merge(
           Map.new(values, fn {name, _} -> {name, read[name]} end),
           Map.merge(
-            Map.new(links, fn {relation, _} -> {relation, List.wrap(was[relation])} end),
-            Map.new(decider, fn {relation, _} -> {relation, linked[relation] || []} end)
+            Map.new(linked, fn {relation, keys} -> {relation, List.wrap(keys)} end),
+            Map.new(links, fn {relation, _} -> {relation, List.wrap(was[relation])} end)
           )
         )
 
@@ -667,15 +666,9 @@ defmodule AtlasControl.Session do
           do: content,
           else: Map.merge(content, %{"links" => links, "cause" => moved(links, was)})
 
-      content =
-        if decider == %{},
-          do: content,
-          else: Map.put(content, "links", Map.merge(content["links"] || %{}, decider))
-
       put_fact(state, kind, content, {:item, kind, key})
     else
       {:error, reasons} -> not_sent(state, route, reasons)
-      reasons when is_list(reasons) -> not_sent(state, route, reasons)
     end
   end
 
@@ -699,30 +692,26 @@ defmodule AtlasControl.Session do
     end
   end
 
-  # The links of one association: exactly the keys named, none removes them.
+  # The links of one association: exactly the keys named, none removes them. Who may set
+  # them (`only_target`, `set_by`) Facts checks, by the model's rules.
   defp submit({:links, kind, key, relation} = route, raw, state) do
     state = %{state | route: route, form: Map.put(state.form, :values, raw)}
 
     keys = Pages.link_keys(raw["to"])
+    note = String.trim(raw["note"] || "")
+    change = Pages.change_action(state.model, relation)
 
-    if Pages.may_link_to?(state.model, relation, state.by, state.by_kind, keys) do
-      note = String.trim(raw["note"] || "")
-      change = Pages.change_action(state.model, relation)
+    state =
+      case Pages.change_cause(change || %{}, keys, state.by, note) do
+        nil -> state
+        cause -> %{state | cause: cause}
+      end
 
-      state =
-        case Pages.change_cause(change || %{}, keys, state.by, note) do
-          nil -> state
-          cause -> %{state | cause: cause}
-        end
-
-      # What the change also asks (`with`) goes in the same change as the link.
-      with_fields = if change, do: change.with, else: []
-      values = Pages.values_for(Pages.kind_view(state.model, kind), Map.take(raw, with_fields))
-      content = %{link(key, relation, keys) | "values" => values}
-      put_fact(state, kind, content, {:item, kind, key})
-    else
-      show(state, route, "refused", nil)
-    end
+    # What the change also asks (`with`) goes in the same change as the link.
+    with_fields = if change, do: change.with, else: []
+    values = Pages.values_for(Pages.kind_view(state.model, kind), Map.take(raw, with_fields))
+    content = %{link(key, relation, keys) | "values" => values}
+    put_fact(state, kind, content, {:item, kind, key})
   end
 
   defp submit({:answer, kind, key, name} = route, raw, state) do
@@ -745,7 +734,7 @@ defmodule AtlasControl.Session do
   defp submit({:set, kind, key, relation} = route, _raw, state) do
     answers = Enum.map(Pages.reads(route, state.model), fn {k, c} -> ask(k, c) end)
 
-    case Pages.set_problem(state.model, route, answers, state.by, state.by_kind) do
+    case Pages.set_problem(state.model, route, answers) do
       nil ->
         put_fact(
           %{state | route: route},
@@ -766,9 +755,6 @@ defmodule AtlasControl.Session do
     note = String.trim(raw["note"] || "")
 
     cond do
-      not Pages.may_link?(state.model, relation, state.by, state.by_kind) ->
-        show(state, route, "refused", nil)
-
       note == "" ->
         not_sent(state, route, ["a note is required: why"])
 
@@ -832,24 +818,17 @@ defmodule AtlasControl.Session do
   defp create_made(route, kind, raw, links, state) do
     state = %{state | route: route, form: %{values: raw}}
 
-    with {:ok, key} <- state.model.module.key(kind, raw),
-         [] <- over_limits(state, kind, key, links) do
-      content = new_fact(state, kind, key, raw, links)
-      put_fact(state, kind, content, {:item, kind, key})
-    else
-      {:error, reason} -> not_sent(state, route, [reason])
-      reasons when is_list(reasons) -> not_sent(state, route, reasons)
+    case state.model.module.key(kind, raw) do
+      {:ok, key} ->
+        content = new_fact(state, kind, key, raw, links)
+        put_fact(state, kind, content, {:item, kind, key})
+
+      {:error, reason} ->
+        not_sent(state, route, [reason])
     end
   end
 
   defp create_numbered(route, kind, k, raw, links, state) do
-    case over_limits(state, kind, nil, links) do
-      [] -> create_numbered_free(route, kind, k, raw, links, state)
-      reasons -> not_sent(%{state | route: route, form: %{values: raw}}, route, reasons)
-    end
-  end
-
-  defp create_numbered_free(route, kind, k, raw, links, state) do
     keys =
       case ask(kind, %{}) do
         %{"facts" => facts} -> Enum.map(facts, & &1["key"])
@@ -860,40 +839,6 @@ defmodule AtlasControl.Session do
     content = new_fact(state, kind, key, raw, links)
     state = %{state | route: route, form: %{values: raw}}
     put_fact(state, kind, content, {:item, kind, key}, %{number: number, tries: 1, skipped: []})
-  end
-
-  # A link the model limits (a relation's `limit`) is refused before Facts sees
-  # it while its parent already has as many counted facts as allowed. Links that are
-  # there already stay; only a new one (a create, or a move) is checked.
-  defp over_limits(state, kind, key, links) do
-    closed(state, kind, links) ++
-      for {relation, parent} <- Pages.limited(state.model, links),
-          problem = limit_problem(state, relation, kind, key, parent),
-          problem != nil,
-          do: problem
-  end
-
-  # A new fact under a parent that is closed to it (accepted: `closes_parent`), by a create
-  # or a move, is refused with why.
-  defp closed(state, kind, links) do
-    for {relation, parents} <- links,
-        relation in Pages.parent_relations(state.model, kind),
-        [parent_kind] <- [state.model.relations[relation].to],
-        parent <- parents,
-        %{"fact" => %{} = fact} <- [ask(parent_kind, %{"key" => parent})],
-        problem = Pages.closed_problem(state.model, kind, parent_kind, fact),
-        problem != nil,
-        do: problem
-  end
-
-  defp limit_problem(state, relation, kind, key, parent) do
-    case ask(kind, %{"linked" => %{relation => parent}}) do
-      %{"facts" => children} ->
-        Pages.over_limit(state.model, relation, kind, key, parent, children)
-
-      %{"error" => error} ->
-        "#{error}; could not check how many #{parent} has"
-    end
   end
 
   defp delete(route, kind, key, state) do
@@ -950,7 +895,7 @@ defmodule AtlasControl.Session do
     content = if state.cause, do: Map.put(content, "cause", state.cause), else: content
     envelope = Envelope.new("fact", kind)
     :ok = AtlasBus.send(envelope, content)
-    timer = Process.send_after(self(), {:resend, envelope.id}, @first_resend)
+    timer = AtlasControl.Clock.after_ms({:resend, envelope.id}, @first_resend)
 
     pending = %{
       envelope: envelope,
@@ -1061,14 +1006,25 @@ defmodule AtlasControl.Session do
 
   defp await_read(_envelope, _content, 0, _timeout), do: %{"error" => "Facts did not answer"}
 
+  # Each try waits `timeout` from its send (`AtlasControl.Clock`); answers to other reads do
+  # not stretch it. An answer cancels the try's timer, and drops its message if it came.
   defp await_read(envelope, content, attempts, timeout) do
     :ok = AtlasBus.send(envelope, content)
     id = envelope.id
+    timer = AtlasControl.Clock.after_ms({:read_expired, id, attempts}, timeout)
 
     receive do
-      {:atlas_bus, %Envelope{id: ^id, class: "answer"}, answer} -> answer
-    after
-      timeout -> await_read(envelope, content, attempts - 1, timeout)
+      {:atlas_bus, %Envelope{id: ^id, class: "answer"}, answer} ->
+        Process.cancel_timer(timer)
+
+        receive do
+          {:read_expired, ^id, ^attempts} -> answer
+        after
+          0 -> answer
+        end
+
+      {:read_expired, ^id, ^attempts} ->
+        await_read(envelope, content, attempts - 1, timeout)
     end
   end
 

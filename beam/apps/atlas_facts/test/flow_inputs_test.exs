@@ -4,8 +4,74 @@ defmodule AtlasFacts.FlowInputsTest do
   alias AtlasFacts.{FlowInputs, Rela}
   @now ~U[2026-11-12 00:00:00Z]
 
+  defmodule Description do
+    @moduledoc false
+    def of do
+      fields =
+        Map.new(
+          ~w(flow subject_kind subject_key generation definition_sha256 state entry entered_at status deadlines pending input_cursor last_input blocked_reason),
+          &{&1, &1}
+        )
+
+      props =
+        Map.new(fields, fn {slot, field} ->
+          {field,
+           %{
+             "type" =>
+               if(slot in ~w(entry generation input_cursor), do: "integer", else: "string")
+           }}
+        end)
+
+      d = %{"entities" => %{"cursor" => %{"properties" => props}}}
+
+      config = %{
+        "version" => 1,
+        "kind" => "cursor",
+        "fields" => fields,
+        "writer" => %{"sender" => "flow", "by" => "flow"},
+        "selection" => %{}
+      }
+
+      config =
+        config
+        |> Map.put("selection", %{})
+        |> Map.put("inputs", %{
+          "kind" => "choice",
+          "fields" => Map.new(AtlasFacts.FlowInputs.fields(), &{&1, &1}),
+          "acl" => %{"clerk" => %{"update" => ["box"]}},
+          "roles" => %{"clerk" => "chosen_by"}
+        })
+
+      props =
+        Map.new(
+          AtlasFacts.FlowInputs.fields(),
+          &{&1,
+           %{"type" => if(&1 in ~w(entry generation position), do: "integer", else: "string")}}
+        )
+
+      d
+      |> put_in(["entities", "cursor", "plural"], "cursors")
+      |> put_in(["entities", "choice"], %{"plural" => "choices", "properties" => props})
+      |> put_in(["entities", "box"], %{
+        "plural" => "boxes",
+        "properties" => %{"choice" => %{"type" => "string"}, "phase" => %{"type" => "string"}}
+      })
+      |> put_in(["entities", "clerk"], %{"plural" => "clerks", "properties" => %{}})
+      |> Map.put("relations", %{"chosen_by" => %{"from" => ["box"], "to" => ["clerk"]}})
+      |> Map.put("flows", %{})
+      |> Map.put("flow_runtime", config)
+    end
+  end
+
+  defmodule Inputs do
+    @moduledoc "Boxes a clerk chooses on, with the runs (cursors) and choices Facts keeps."
+    use AtlasFacts.TestModel, description: AtlasFacts.FlowInputsTest.Description.of()
+  end
+
+  def description, do: Description.of()
+
   defmodule Backend do
-    def description(_), do: {:ok, AtlasFacts.FlowInputsTest.description()}
+    def description(_), do: {:ok, AtlasFacts.FlowInputsTest.Inputs.rela_schema()}
 
     def get(pid, plural, key) do
       with {:ok, fact} <- AtlasFacts.FakeRela.get(pid, plural, key),
@@ -29,60 +95,11 @@ defmodule AtlasFacts.FlowInputsTest do
     defdelegate delete(pid, plural, key, version), to: AtlasFacts.FakeRela
   end
 
-  def description do
-    fields = Map.new(AtlasFacts.FlowRuntime.fields(), &{&1, &1})
-
-    props =
-      Map.new(fields, fn {slot, field} ->
-        {field,
-         %{"type" => if(slot in ~w(entry generation input_cursor), do: "integer", else: "string")}}
-      end)
-
-    d = %{"entities" => %{"cursor" => %{"properties" => props}}}
-
-    config = %{
-      "version" => 1,
-      "kind" => "cursor",
-      "fields" => fields,
-      "writer" => %{"sender" => "flow", "by" => "flow"},
-      "selection" => %{}
-    }
-
-    config =
-      config
-      |> Map.put("selection", %{})
-      |> Map.put("inputs", %{
-        "kind" => "choice",
-        "fields" => Map.new(FlowInputs.fields(), &{&1, &1}),
-        "acl" => %{"clerk" => %{"update" => ["box"]}},
-        "roles" => %{"clerk" => "chosen_by"}
-      })
-
-    props =
-      Map.new(
-        FlowInputs.fields(),
-        &{&1, %{"type" => if(&1 in ~w(entry generation position), do: "integer", else: "string")}}
-      )
-
-    d
-    |> put_in(["entities", "cursor", "plural"], "cursors")
-    |> put_in(["entities", "choice"], %{"plural" => "choices", "properties" => props})
-    |> put_in(["entities", "box"], %{
-      "plural" => "boxes",
-      "properties" => %{"choice" => %{"type" => "string"}, "phase" => %{"type" => "string"}}
-    })
-    |> put_in(["entities", "clerk"], %{"plural" => "clerks", "properties" => %{}})
-    |> Map.put("relations", %{"chosen_by" => %{"from" => ["box"], "to" => ["clerk"]}})
-    |> Map.put("flows", %{})
-    |> Map.put("flow_runtime", config)
-  end
-
   setup do
     pid = AtlasFacts.FakeRela.start()
     on_exit(fn -> if Process.alive?(pid), do: Agent.stop(pid) end)
     rela = {Backend, pid}
     d = description()
-    :ok = FlowInputs.validate(d, d["flow_runtime"]["inputs"])
     {:ok, []} = Rela.create(rela, "clerks", "ada", %{}, %{})
 
     {:ok, []} =
@@ -418,16 +435,11 @@ defmodule AtlasFacts.FlowInputsTest do
   @tag :tmp_dir
   test "Control can list and get input records without recovering or consuming them", c do
     Application.put_env(:atlas_bus, :store, "input-browse-#{System.unique_integer([:positive])}")
-    fragment = Path.join(c.tmp_dir, "flow-runtime.json")
-    File.write!(fragment, JSON.encode!(Map.take(c.d, ["flow_runtime"])))
 
     facts =
       start_supervised!(
         {AtlasFacts.Server,
-         rela: c.rela,
-         data_dir: c.tmp_dir,
-         flow_runtime: fragment,
-         flow_input_clock: fn -> @now end}
+         rela: c.rela, data_dir: c.tmp_dir, model: Inputs, flow_input_clock: fn -> @now end}
       )
 
     :ok = AtlasBus.attach("control/session-browse")
@@ -473,12 +485,10 @@ defmodule AtlasFacts.FlowInputsTest do
   @tag :tmp_dir
   test "transition reads bypass a primed collection and return the current version", c do
     Application.put_env(:atlas_bus, :store, "input-reads-#{System.unique_integer([:positive])}")
-    fragment = Path.join(c.tmp_dir, "flow-runtime.json")
-    File.write!(fragment, JSON.encode!(Map.take(c.d, ["flow_runtime"])))
 
     start_supervised!(
       {AtlasFacts.Server,
-       rela: c.rela, data_dir: c.tmp_dir, flow_runtime: fragment, flow_input_clock: fn -> @now end}
+       rela: c.rela, data_dir: c.tmp_dir, model: Inputs, flow_input_clock: fn -> @now end}
     )
 
     :ok = AtlasBus.attach("flow")
@@ -517,12 +527,9 @@ defmodule AtlasFacts.FlowInputsTest do
       "input-authority-#{System.unique_integer([:positive])}"
     )
 
-    fragment = Path.join(c.tmp_dir, "flow-runtime.json")
-    File.write!(fragment, JSON.encode!(Map.take(c.d, ["flow_runtime"])))
-
     start_supervised!(
       {AtlasFacts.Server,
-       rela: c.rela, data_dir: c.tmp_dir, flow_runtime: fragment, flow_input_clock: fn -> @now end}
+       rela: c.rela, data_dir: c.tmp_dir, model: Inputs, flow_input_clock: fn -> @now end}
     )
 
     :ok = AtlasBus.attach("client")

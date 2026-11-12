@@ -47,17 +47,13 @@ defmodule AtlasControl.Gateway do
 
     gateway = self()
     acceptor = spawn_link(fn -> accept(listen, gateway, catalog) end)
-    {:ok, %{listen: listen, port: port, acceptor: acceptor, offline_until: nil}}
+    {:ok, %{listen: listen, port: port, acceptor: acceptor, offline: nil}}
   end
 
   @impl true
   def handle_call(:port, _from, state), do: {:reply, state.port, state}
 
-  # Monotonic time can be below zero: no time at all is online.
-  def handle_call(:online?, _from, %{offline_until: nil} = state), do: {:reply, true, state}
-
-  def handle_call(:online?, _from, state),
-    do: {:reply, System.monotonic_time(:millisecond) >= state.offline_until, state}
+  def handle_call(:online?, _from, state), do: {:reply, state.offline == nil, state}
 
   def handle_call({:offline, ms}, _from, state) do
     if AtlasBus.environment() == "prod" do
@@ -69,9 +65,18 @@ defmodule AtlasControl.Gateway do
           is_pid(pid),
           do: DynamicSupervisor.terminate_child(AtlasControl.Sessions, pid)
 
-      {:reply, :ok, %{state | offline_until: System.monotonic_time(:millisecond) + ms}}
+      # Its own while: one that ran out of an earlier offline does not end this one.
+      while = make_ref()
+      AtlasControl.Clock.after_ms({:online, while}, ms)
+      {:reply, :ok, %{state | offline: while}}
     end
   end
+
+  @impl true
+  def handle_info({:online, while}, %{offline: while} = state),
+    do: {:noreply, %{state | offline: nil}}
+
+  def handle_info({:online, _}, state), do: {:noreply, state}
 
   defp accept(listen, gateway, catalog) do
     {:ok, socket} = :gen_tcp.accept(listen)

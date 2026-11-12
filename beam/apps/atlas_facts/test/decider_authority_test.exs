@@ -4,46 +4,50 @@ defmodule AtlasFacts.DeciderAuthorityTest do
   alias AtlasFacts.CountingRela, as: Store
   @moduletag :tmp_dir
 
-  setup %{tmp_dir: dir} do
-    fingerprint = %{"fields" => ["phase"], "relations" => []}
-    schema = Store.schema()
+  @fingerprint %{"fields" => ["phase"], "relations" => []}
 
-    schema =
-      put_in(schema, ["entities", "bead", "authority"], %{
-        "when" => %{"status" => ["sealed"]},
-        "writes" => %{"status" => ["sealed"]},
-        "by" => "ruled_by",
-        "kind" => "clerk",
-        "agent_kind" => "stamp",
-        "decider" => %{
-          "gate" => "allocate",
-          "kind" => "jar",
-          "relation" => "about",
-          "fingerprint" => fingerprint
-        }
-      })
-
-    schema =
-      put_in(schema, ["relations", "ruled_by"], %{"from" => ["bead"], "to" => ["clerk", "stamp"]})
-
-    schema = put_in(schema, ["relations", "about"], %{"from" => ["jar"], "to" => ["bead"]})
-
-    schema =
-      update_in(schema, ["entities", "jar", "properties"], fn props ->
-        Map.merge(
-          props,
-          Map.new(
-            ~w(gate subject purpose verdict fingerprint decided_at),
-            &{&1, %{"type" => "string"}}
+  defmodule Decided do
+    @moduledoc """
+    The counting kinds, where a clerk seals a bead, or a stamp under a fresh verdict of
+    the allocate gate (a jar about the bead).
+    """
+    use AtlasFacts.TestModel,
+      description:
+        AtlasFacts.CountingRela.schema()
+        |> put_in(["entities", "bead", "authority"], %{
+          "when" => %{"status" => ["sealed"]},
+          "writes" => %{"status" => ["sealed"]},
+          "by" => "ruled_by",
+          "kind" => "clerk",
+          "agent_kind" => "stamp",
+          "decider" => %{
+            "gate" => "allocate",
+            "kind" => "jar",
+            "relation" => "about",
+            "fingerprint" => %{"fields" => ["phase"], "relations" => []}
+          }
+        })
+        |> put_in(["relations", "ruled_by"], %{"from" => ["bead"], "to" => ["clerk", "stamp"]})
+        |> put_in(["relations", "about"], %{"from" => ["jar"], "to" => ["bead"]})
+        |> update_in(["entities", "jar", "properties"], fn props ->
+          Map.merge(
+            props,
+            Map.new(
+              ~w(gate subject purpose verdict fingerprint decided_at),
+              &{&1, %{"type" => "string"}}
+            )
           )
-        )
-      end)
+        end)
+  end
 
-    {:ok, store} = Store.start_link(0, schema: schema)
+  setup %{tmp_dir: dir} do
+    fingerprint = @fingerprint
+    {:ok, store} = Store.start_link(0, schema: Decided.rela_schema())
     Application.put_env(:atlas_bus, :store, "store-#{System.unique_integer([:positive])}")
 
     start_supervised!(
-      {AtlasFacts.Server, rela: {Store, store}, data_dir: dir, collection_freshness_ms: 60_000}
+      {AtlasFacts.Server,
+       rela: {Store, store}, model: Decided, data_dir: dir, collection_freshness_ms: 60_000}
     )
 
     :ok = AtlasBus.attach("authority-#{System.unique_integer([:positive])}")

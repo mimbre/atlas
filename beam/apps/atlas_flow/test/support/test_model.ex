@@ -1,8 +1,9 @@
 defmodule AtlasFlow.TestModel do
   @moduledoc """
   A model for one test: the depot's (`AtlasFlow.Depot`), with some of its parts given
-  instead: `legacy:`, `subflows:` (every environment), `runs:`, or `selection:` (by
-  subflow name; nil deselects it).
+  instead: `legacy:`, `subflows:` (every environment), `runs:`, `selection:` (by
+  subflow name; nil deselects it), `relations:` (the depot's, with the model's
+  additions) or `turn:` (nil: the depot runs no turns).
 
       defmodule Later do
         use AtlasFlow.TestModel, legacy: [AtlasFlow.Packs.Later]
@@ -32,6 +33,10 @@ defmodule AtlasFlow.TestModel do
       def migrations, do: []
       @impl true
       def actors, do: []
+      @impl true
+      def relations, do: Map.get_lazy(@parts, :relations, &AtlasFlow.Depot.relations/0)
+
+      def turn, do: Map.get_lazy(@parts, :turn, &AtlasFlow.Depot.turn/0)
     end
   end
 

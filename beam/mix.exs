@@ -33,8 +33,8 @@ defmodule Atlas.MixProject do
     ]
   end
 
-  # The model Flow, Gates, Runtime and Control run (D-0083): the domain, written in the Rela
-  # DSL and compiled into the release. No platform app depends on it; config :atlas, model:
+  # The model Facts, Flow, Gates, Runtime and Control run (D-0083): the domain, written in
+  # the Rela DSL and compiled into the release. No platform app depends on it; config :atlas, model:
   # wires it at boot. Outside prod it is compiled with its private profiles, which a private
   # instance can be wired to instead (its settings' "model").
   defp deps,

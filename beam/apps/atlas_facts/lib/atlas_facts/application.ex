@@ -18,8 +18,7 @@ defmodule AtlasFacts.Application do
         [
           {AtlasFacts.Server,
            rela: {AtlasFacts.Rela.Http, Application.fetch_env!(:atlas_facts, :rela_url)},
-           data_dir: data_dir,
-           description_extra: Application.get_env(:atlas_facts, :description_extra)}
+           data_dir: data_dir}
         ] ++ connectors(data_dir)
       else
         []

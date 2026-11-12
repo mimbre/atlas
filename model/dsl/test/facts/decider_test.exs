@@ -1,7 +1,6 @@
-defmodule AtlasFacts.DeciderTest do
+defmodule RelaDSL.Facts.DeciderTest do
   use ExUnit.Case, async: true
-  alias AtlasBus.SubjectFingerprint
-  alias AtlasFacts.{Decider, Guards}
+  alias RelaDSL.Facts.Writes
 
   @fingerprint %{"fields" => ["title", "weight"], "relations" => ["overturns"]}
   @config %{
@@ -19,6 +18,15 @@ defmodule AtlasFacts.DeciderTest do
     "decider" => @config
   }
 
+  # A subject's fingerprint, as a store gives the rules one: its deciding fields and
+  # relation keys, digested.
+  defp fingerprint(fact, spec) do
+    :erlang.phash2({
+      Map.new(spec["fields"] || [], &{&1, get_in(fact, ["values", &1])}),
+      Map.new(spec["relations"] || [], &{&1, Enum.sort(List.wrap(get_in(fact, ["links", &1])))})
+    })
+  end
+
   defp check(outcome, actor, changes, opts \\ []) do
     current = %{
       "values" => %{"title" => "A", "weight" => "light", "state" => "draft"},
@@ -27,15 +35,16 @@ defmodule AtlasFacts.DeciderTest do
 
     verdict =
       if outcome,
-        do: %{"verdict" => outcome, "fingerprint" => SubjectFingerprint.of(current, @fingerprint)}
+        do: %{"verdict" => outcome, "fingerprint" => fingerprint(current, @fingerprint)}
 
     env = %{
       "writer" => Keyword.get(opts, :writer, actor),
       "kind_of" => fn _, key -> if(key == "J", do: "judge", else: "clerk") end,
-      "verdict" => fn "allocate", "R-1" -> verdict end
+      "verdict" => fn "allocate", "R-1" -> verdict end,
+      "fingerprint" => &fingerprint/2
     }
 
-    Guards.check(
+    Writes.check_rules(
       %{"authority" => @authority},
       "change",
       "R-1",
@@ -97,12 +106,12 @@ defmodule AtlasFacts.DeciderTest do
       row.("V-6", %{}, %{})
     ]
 
-    assert Decider.newest([valid, newest | irrelevant], "allocate", "R-1", "about") ==
+    assert Writes.newest([valid, newest | irrelevant], "allocate", "R-1", "about") ==
              newest.properties
 
-    assert Decider.newest(irrelevant, "allocate", "R-1", "about") == nil
+    assert Writes.newest(irrelevant, "allocate", "R-1", "about") == nil
 
-    assert Decider.newest(
+    assert Writes.newest(
              [valid, row.("V-3", %{"fingerprint" => "stale"}, about)],
              "allocate",
              "R-1",

@@ -11,10 +11,11 @@ defmodule AtlasFlow.FakeFacts do
   alias AtlasBus.Envelope
 
   @doc """
-  What Facts describes: the kinds and relations (the depot's flows are the model's,
-  `AtlasFlow.Depot`, never the description's), and the problems Facts found in a flow.
+  What Facts describes: rela's kinds and relations. What the model adds to them (parent
+  relations, components, the turn) and its flows are the model's (`AtlasFlow.Depot`),
+  never the description's.
   """
-  def description(problems \\ []) do
+  def description do
     %{
       "entities" => %{
         "box" => %{"plural" => "boxes"},
@@ -22,11 +23,10 @@ defmodule AtlasFlow.FakeFacts do
         "clerk" => %{"plural" => "clerks"}
       },
       "relations" => %{
-        "in_box" => %{"from" => ["crate"], "to" => ["box"], "parent" => true, "max_outgoing" => 1},
+        "in_box" => %{"from" => ["crate"], "to" => ["box"], "max_outgoing" => 1},
         "signed_by" => %{"from" => ["box"], "to" => ["clerk"], "max_outgoing" => 1},
         "owned_by" => %{"from" => ["box"], "to" => ["clerk"], "max_outgoing" => 1}
-      },
-      "flow_problems" => %{"pack" => problems}
+      }
     }
   end
 

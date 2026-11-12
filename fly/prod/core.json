@@ -4,8 +4,7 @@
   "control": { "host": "::", "port": 7591 },
   "rela": {
     "url": "http://eyra-atlas-rela.internal:7590/api/v1",
-    "ipv6": true,
-    "extra": "rela/atlas.json"
+    "ipv6": true
   },
   "facts": { "data": "/data/beam" },
   "connectors": {

@@ -2,6 +2,10 @@ defmodule AtlasFacts.CountingRela do
   @moduledoc false
   @behaviour AtlasFacts.Rela
 
+  @doc """
+  The description of its made-up kinds: rela's schema with a model's additions
+  (`AtlasFacts.Counting` is the model; the store serves its `rela_schema/0`).
+  """
   def schema do
     %{
       "entities" => %{
@@ -94,7 +98,7 @@ defmodule AtlasFacts.CountingRela do
         calls: %{},
         now: 0,
         down: false,
-        schema: Keyword.get(opts, :schema, schema())
+        schema: Keyword.get_lazy(opts, :schema, fn -> AtlasFacts.Counting.rela_schema() end)
       }
     end)
   end

@@ -36,35 +36,30 @@ defmodule AtlasFlow.Legacy do
   @doc "How often a fact in `state` is looked at again, in ms; nil for Flow's default."
   @callback every(state) :: nil | pos_integer
 
-  @doc "The flows that may run: those Facts found no problems in (`flow_problems`)."
-  def runnable(flows, description) do
-    problems = description["flow_problems"] || %{}
-    Enum.filter(flows, &((problems[&1.name()] || []) == []))
-  end
-
   @doc "The flow that runs on `kind`, or nil."
   def for_kind(flows, kind), do: Enum.find(flows, &(kind in &1.kinds()))
 
   @doc "Every kind a flow runs on."
   def kinds(flows), do: flows |> Enum.flat_map(& &1.kinds()) |> Enum.uniq()
 
-  @doc "The kinds the flows assign to: what their owner relations point at."
-  def owner_kinds(flows, description) do
+  @doc "The kinds the flows assign to: what their owner relations (of `relations`) point at."
+  def owner_kinds(flows, relations) do
     for flow <- flows,
         relation = flow.writes()["owner_relation"],
         is_binary(relation),
-        kind <- get_in(description, ["relations", relation, "to"]) || [],
+        kind <- get_in(relations, [relation, "to"]) || [],
         uniq: true,
         do: kind
   end
 
   @doc """
   The associations (not parent relations) that the flow's `empty` conditions name and
-  that end at `kind`: Flow reads what points at a fact through them.
+  that end at `kind` (of `relations`, the model's): Flow reads what points at a fact
+  through them.
   """
-  def pointing(flow, description, kind) do
+  def pointing(flow, relations, kind) do
     for relation <- flow.empties(),
-        spec = get_in(description, ["relations", relation]),
+        spec = relations[relation],
         is_map(spec) and spec["parent"] != true and kind in (spec["to"] || []),
         uniq: true,
         do: relation
