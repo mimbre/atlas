@@ -28,7 +28,7 @@ defmodule AtlasFlowContract.DeciderTest do
     # Captured from the deployed slice-1 runs in both environments, rather than
     # inferred from a reconstruction of the old declaration.
     assert Enum.count(selection["migrations"], &(&1["from"] == old_digest)) == 2
-    assert length(selection["migrations"]) == 4
+    assert length(selection["migrations"]) == 6
 
     for path <- ["../targets/atlas/flows.json", "../targets/test/atlas/flows.json"] do
       definition = JSON.decode!(File.read!(path))["flows"]["decide"]
@@ -73,6 +73,46 @@ defmodule AtlasFlowContract.DeciderTest do
         end
       end
     end
+  end
+
+  test "only person waits declare person ownership and owner answers" do
+    definition = JSON.decode!(File.read!("../targets/atlas/flows.json"))["flows"]["decide"]
+
+    for state <- ~w(for_person for_person_always) do
+      assert definition["states"][state]["owner"] == %{
+               "via" => "assignment",
+               "relation" => "assigned_to",
+               "default" => %{"kind" => "person", "key" => "melle"},
+               "preserve_kind" => "person"
+             }
+
+      assert [
+               %{
+                 "key" => "a",
+                 "change" => %{
+                   "self" => "decided_by",
+                   "values" => %{"status" => "accepted", "decided_at" => "$now"}
+                 }
+               },
+               %{
+                 "key" => "f",
+                 "note" => true,
+                 "change" => %{
+                   "self" => "decided_by",
+                   "values" => %{"status" => "rejected", "decided_at" => "$now"}
+                 }
+               }
+             ] =
+               get_in(definition, ["states", state, "present", "todo", "answers"])
+    end
+
+    for state <- ~w(for_agent for_agent_unverified accepted rejected) do
+      assert definition["states"][state]["owner"] == nil
+      assert get_in(definition, ["states", state, "present", "todo", "answers"]) == nil
+    end
+
+    assert definition["states"]["for_person"]["present"]["deadline"] == "no_answer"
+    refute definition["states"]["for_person_always"]["present"]["deadline"]
   end
 
   test "the executable decider uses recorded gate results and trusted choices with environment limits" do

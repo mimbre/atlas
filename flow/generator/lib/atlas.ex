@@ -122,7 +122,7 @@ defmodule AtlasFlowGenerator.Atlas do
       %{instructions: p.instructions, section: p.section, answers: nonempty(p.answers)}
       |> Map.reject(fn {_, v} -> v == nil end)
 
-    %{expected: p.expected, why: p.why, todo: if(todo != %{}, do: todo)}
+    %{expected: p.expected, why: p.why, deadline: p[:deadline], todo: if(todo != %{}, do: todo)}
   end
 
   defp nonempty([]), do: nil

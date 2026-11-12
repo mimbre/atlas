@@ -152,9 +152,44 @@
           "creates": [],
           "final": false,
           "label": "Waiting for a person",
+          "owner": {
+            "default": {
+              "key": "melle",
+              "kind": "person"
+            },
+            "preserve_kind": "person",
+            "relation": "assigned_to",
+            "via": "assignment"
+          },
           "present": {
+            "deadline": "no_answer",
             "expected": "Have a person decide",
             "todo": {
+              "answers": [
+                {
+                  "change": {
+                    "self": "decided_by",
+                    "values": {
+                      "decided_at": "$now",
+                      "status": "accepted"
+                    }
+                  },
+                  "key": "a",
+                  "label": "Accept"
+                },
+                {
+                  "change": {
+                    "self": "decided_by",
+                    "values": {
+                      "decided_at": "$now",
+                      "status": "rejected"
+                    }
+                  },
+                  "key": "f",
+                  "label": "Reject",
+                  "note": true
+                }
+              ],
               "instructions": "Accept or reject with decided_by and decided_at. After the answer limit Flow asks the gate again."
             },
             "why": "the decider gate requires a person"
@@ -187,9 +222,43 @@
           "creates": [],
           "final": false,
           "label": "A person decides",
+          "owner": {
+            "default": {
+              "key": "melle",
+              "kind": "person"
+            },
+            "preserve_kind": "person",
+            "relation": "assigned_to",
+            "via": "assignment"
+          },
           "present": {
             "expected": "Have a person decide",
             "todo": {
+              "answers": [
+                {
+                  "change": {
+                    "self": "decided_by",
+                    "values": {
+                      "decided_at": "$now",
+                      "status": "accepted"
+                    }
+                  },
+                  "key": "a",
+                  "label": "Accept"
+                },
+                {
+                  "change": {
+                    "self": "decided_by",
+                    "values": {
+                      "decided_at": "$now",
+                      "status": "rejected"
+                    }
+                  },
+                  "key": "f",
+                  "label": "Reject",
+                  "note": true
+                }
+              ],
               "instructions": "A person accepts or rejects with decided_by and decided_at. A principle names enforced_by. This wait never times out."
             },
             "why": "a fixed person rule holds"

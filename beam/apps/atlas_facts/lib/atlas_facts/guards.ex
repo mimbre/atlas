@@ -43,7 +43,17 @@ defmodule AtlasFacts.Guards do
   @doc "The rules of `kind` in the description; an empty map when it has none."
   def of(description, kind) do
     spec = get_in(description, ["entities", kind]) || %{}
-    rules = Map.take(spec, ["requires", "authority", "frozen", "replaces", "layering", "sealed"])
+
+    rules =
+      Map.take(spec, [
+        "requires",
+        "authority",
+        "frozen",
+        "replaces",
+        "layering",
+        "sealed",
+        "delete_error"
+      ])
 
     machine = get_in(description, ["flow_runtime", "writer"])
 
@@ -106,7 +116,8 @@ defmodule AtlasFacts.Guards do
 
     fetch = env["fetch"] || fn _ -> nil end
 
-    with :ok <- field_writers(rules["field_writers"] || %{}, values, env),
+    with :ok <- deletable(rules["delete_error"], op),
+         :ok <- field_writers(rules["field_writers"] || %{}, values, env),
          :ok <- machine_writer(rules["machine_writer"], env),
          :ok <- sealed(rules["sealed"], op, key, current, values, links),
          :ok <- frozen(rules["frozen"], op, key, current, values, links) do
@@ -127,6 +138,9 @@ defmodule AtlasFacts.Guards do
       end
     end
   end
+
+  defp deletable(message, "delete") when is_binary(message), do: {:refused, [message]}
+  defp deletable(_, _), do: :ok
 
   defp field_writers(writers, values, env) do
     refused =

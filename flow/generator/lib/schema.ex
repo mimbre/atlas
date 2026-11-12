@@ -82,7 +82,8 @@ defmodule AtlasFlowGenerator.Schema do
 
   `present` is what the owner sees in a state: what they are `expected` to do, `why`
   it came to them, `instructions`, the `section` of a field to show, and the
-  `answers` they can give (each sets or removes one relation). It goes to the Atlas
+  `answers` they can give (a relation set/removal, or a declared change).
+  `deadline:` names the state timer whose due time is presented. It goes to the Atlas
   target only; Rela never sees it.
 
   ## Gates
@@ -177,8 +178,8 @@ defmodule AtlasFlowGenerator.Schema do
   @max_timers 8
   @name ~r/^[a-z][a-z0-9_-]{0,63}$/
   @once [:run_as, :per_subject, :owner, :channel, :initial]
-  @owner_keys [:via, :relation, :default]
-  @present_keys [:expected, :why, :instructions, :section, :answers]
+  @owner_keys [:via, :relation, :default, :preserve_kind]
+  @present_keys [:expected, :why, :instructions, :section, :answers, :deadline]
 
   @macros [
     subflow: 2,
@@ -250,6 +251,7 @@ defmodule AtlasFlowGenerator.Schema do
   @doc """
   Who owns the subject: `via:` the type that assigns it and the `relation:` to the
   assignee, and `default: {kind, key}`, who owns it while no one is assigned.
+  `preserve_kind:` keeps an assignee of that kind; other assignees take the default.
   """
   defmacro owner(opts) do
     quote do
@@ -857,7 +859,12 @@ defmodule AtlasFlowGenerator.Schema do
           pre <>
             "needs relation: (the assignee) or default: (who owns it while no one is assigned)",
         (opts[:via] != nil and opts[:relation] == nil) &&
-          pre <> "via: #{opts[:via]} needs relation: the relation to the assignee"
+          pre <> "via: #{opts[:via]} needs relation: the relation to the assignee",
+        (opts[:preserve_kind] != nil and
+           not (is_atom(opts[:preserve_kind]) and opts[:relation] != nil and
+                  is_tuple(opts[:default]) and tuple_size(opts[:default]) == 2 and
+                  elem(opts[:default], 0) == opts[:preserve_kind])) &&
+          pre <> "preserve_kind needs a relation and a default of that kind"
       ] ++ default_problems(Keyword.get(opts, :default, :none), pre)
     else
       [pre <> "takes via:, relation: and default:"]
@@ -1023,6 +1030,9 @@ defmodule AtlasFlowGenerator.Schema do
           answers: for(a <- List.wrap(opts[:answers]), do: Map.new(List.wrap(a)))
         }
 
+        present =
+          if opts[:deadline], do: Map.put(present, :deadline, opts[:deadline]), else: present
+
         {%{s | present: present}, Enum.filter(present_problems(opts, present), & &1)}
     end
   end
@@ -1079,6 +1089,13 @@ defmodule AtlasFlowGenerator.Schema do
           do:
             "present's answer #{inspect(Map.to_list(a))} must be [key:, label:, " <>
               "and set: or remove: a relation]"
+  end
+
+  defp answer?(%{change: change} = a, text?) do
+    text?.(a[:key]) and text?.(a[:label]) and is_map(change) and
+      is_map(change[:values]) and is_atom(change[:self]) and change[:self] != nil and
+      Map.keys(change) -- [:values, :self] == [] and
+      a[:note] in [nil, true] and Map.keys(a) -- [:key, :label, :change, :note] == []
   end
 
   defp answer?(a, text?) do

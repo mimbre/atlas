@@ -950,4 +950,58 @@ defmodule AtlasTuiTest do
         do:
           assert(Atom.to_string(name) in known.markup, "the Console does not know markup #{name}")
   end
+
+  # As Control sends it to the one a proposed item is assigned to, in a state whose owner
+  # answers (IS-Atlas-56): what to do with its answers, then the item with them first among
+  # its actions, beside Update and Hand to, and no Delete.
+  test "a proposed item assigned to its decider shows its answers, on the page and under ?" do
+    page = %{
+      "op" => "page",
+      "path" => "/k/thing/T-1",
+      "title" => "T-1",
+      "back" => "/",
+      "blocks" => [
+        %{
+          "type" => "item",
+          "props" => %{
+            "title" => "What to do: Decide it",
+            "fields" => [
+              %{"label" => "Why", "value" => "the gate asks you"},
+              %{"label" => "Answers", "value" => "a Accept   f Reject"}
+            ]
+          }
+        },
+        %{
+          "type" => "item",
+          "props" => %{
+            "title" => "Thing T-1: One",
+            "fields" => [
+              %{"label" => "Status", "value" => "Proposed"},
+              %{"label" => "Assigned to", "value" => "ada"},
+              %{"label" => "Deadline", "value" => "2026-11-14T09:00:00Z"}
+            ],
+            "actions" => [
+              %{"label" => "Accept", "key" => "a", "to" => "/k/thing/T-1/answer/a"},
+              %{"label" => "Reject", "key" => "f", "to" => "/k/thing/T-1/answer/f"},
+              %{"label" => "Update", "key" => "u", "to" => "/k/thing/T-1/edit"},
+              %{"label" => "Hand to…", "key" => "h", "to" => "/k/thing/T-1/links/assigned_to"}
+            ]
+          }
+        }
+      ]
+    }
+
+    m = model(page)
+    assert tall(m) =~ "a Accept   f Reject"
+    assert tall(m) =~ "2026-11-14T09:00:00Z"
+
+    {opened, []} = Model.key(m, {:char, "?"})
+    legend = opened |> AtlasTui.Legend.groups() |> Enum.flat_map(& &1.actions)
+    labels = Enum.map(legend, & &1["props"]["label"])
+    assert "Accept" in labels and "Reject" in labels and "Update" in labels
+    refute "Delete" in labels
+
+    {_, effects} = press(m, [{:char, "f"}])
+    assert Enum.any?(effects, fn effect -> inspect(effect) =~ "/k/thing/T-1/answer/f" end)
+  end
 end

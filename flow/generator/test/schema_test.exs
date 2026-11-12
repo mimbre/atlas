@@ -810,6 +810,22 @@ defmodule AtlasFlowGenerator.SchemaTest do
       )
     end
 
+    test "preserving an assignee kind needs a matching fallback" do
+      module =
+        compile!(
+          owned("owner relation: :held_by, default: {:clerk, :ada}, preserve_kind: :clerk")
+        )
+
+      [flow] = module.__flows__()
+      assert flow.owner.preserve_kind == :clerk
+
+      refused(
+        owned("owner relation: :held_by, default: {:team, :desk}, preserve_kind: :clerk"),
+        2,
+        "preserve_kind needs a relation and a default of that kind"
+      )
+    end
+
     test "an owner with a key it does not know" do
       refused(owned("owner relation: :held_by, fallback: :desk"), 2, "owner knows no fallback")
     end
@@ -859,6 +875,20 @@ defmodule AtlasFlowGenerator.SchemaTest do
 
     test "a state's own owner is checked as the subflow's is" do
       refused(presented("owner via: :desk"), 5, "state a: owner needs relation:")
+    end
+
+    test "a change answer carries a self relation, values and an optional required note" do
+      module =
+        compile!(
+          presented(
+            ~s|present expected: "Review", answers: [[key: "f", label: "Reject", note: true, change: %{self: :signed_by, values: %{phase: :dropped, at: "$now"}}]]|
+          )
+        )
+
+      [flow] = module.__flows__()
+
+      assert [%{key: "f", note: true, change: %{self: :signed_by}}] =
+               hd(flow.states).present.answers
     end
 
     test "a final state that has an owner" do

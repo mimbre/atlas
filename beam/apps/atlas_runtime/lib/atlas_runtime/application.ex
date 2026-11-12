@@ -18,9 +18,18 @@ defmodule AtlasRuntime.Application do
           Application.get_env(:atlas_runtime, :server_lifecycle, false),
           AtlasRuntime.Settings.get()
         ) ++
-        [{DynamicSupervisor, name: AtlasRuntime.Supervisor, strategy: :one_for_one}] ++ engine
+        [{DynamicSupervisor, name: AtlasRuntime.Supervisor, strategy: :one_for_one}] ++
+        flow_passes() ++ engine
 
     Supervisor.start_link(children, strategy: :one_for_one, name: AtlasRuntime.Root)
+  end
+
+  # Explicit opt-in: the directory must be the native Service's durable home.
+  defp flow_passes do
+    case Application.get_env(:atlas_runtime, :flow_passes) do
+      nil -> []
+      opts -> [{AtlasRuntime.FlowPasses, opts}]
+    end
   end
 
   # Standalone turns' public output, read only through read.sock; the Bus endpoint below

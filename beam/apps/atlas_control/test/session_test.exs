@@ -1103,4 +1103,139 @@ defmodule AtlasControl.SessionTest do
     assert why == "W-2 is approved; withdraw it first, or put this under another widget"
     assert FakeStore.sent() == sent
   end
+
+  test "a declared answer submits one self change, requires its note, and rechecks a stale owner",
+       %{port: port} do
+    answers = [
+      %{
+        "key" => "a",
+        "label" => "Accept",
+        "change" => %{"self" => "checked_by", "values" => %{"done" => true}}
+      },
+      %{
+        "key" => "f",
+        "label" => "Reject",
+        "note" => true,
+        "change" => %{"self" => "checked_by", "values" => %{"done" => false}}
+      }
+    ]
+
+    description =
+      FakeStore.description()
+      |> Map.put("flows", %{
+        "review" => %{
+          "kinds" => ["widget"],
+          "owner_relation" => "checked_by",
+          "state_field" => "step",
+          "states" => [%{"name" => "waiting", "todo" => %{"answers" => answers}}]
+        }
+      })
+
+    FakeStore.describe(description)
+
+    FakeStore.put("W-1", %{"title" => "One", "step" => "waiting"}, "widget", %{
+      "checked_by" => ["ada"]
+    })
+
+    FakeStore.put("ada", %{"name" => "Ada"}, "member")
+    Application.put_env(:atlas_control, :tui_user, "ada")
+    on_exit(fn -> Application.delete_env(:atlas_control, :tui_user) end)
+    {:ok, tui} = :gen_tcp.connect(~c"127.0.0.1", port, [:binary, packet: :line, active: false])
+    on_exit(fn -> :gen_tcp.close(tui) end)
+
+    put(tui, %{
+      "op" => "hello",
+      "env" => "test",
+      "client" => "tui",
+      "spec" => AtlasControl.Blocks.version()
+    })
+
+    next(tui, "page")
+    put(tui, %{"op" => "submit", "to" => "/k/widget/W-1/answer/f", "values" => %{"note" => " "}})
+    assert %{"reason" => "refused"} = next(tui, "page")
+    assert FakeStore.sent() == []
+
+    put(tui, %{
+      "op" => "submit",
+      "to" => "/k/widget/W-1/answer/f",
+      "values" => %{"note" => "Needs work"}
+    })
+
+    assert %{"reason" => "stored"} = next(tui, "page")
+
+    assert %{
+             "by" => "ada",
+             "cause" => "Needs work",
+             "links" => %{"checked_by" => ["ada"]},
+             "values" => %{"done" => false}
+           } = List.last(FakeStore.sent())
+
+    put(tui, %{"op" => "submit", "to" => "/k/widget/W-1/answer/a", "values" => %{}})
+    assert %{"reason" => "stored"} = next(tui, "page")
+    assert List.last(FakeStore.sent())["values"] == %{"done" => true}
+    sent = FakeStore.sent()
+
+    FakeStore.put("W-1", %{"title" => "One", "step" => "waiting"}, "widget", %{
+      "checked_by" => ["bob"]
+    })
+
+    put(tui, %{"op" => "submit", "to" => "/k/widget/W-1/answer/a", "values" => %{}})
+    assert %{"reason" => "refused"} = next(tui, "page")
+    assert FakeStore.sent() == sent
+  end
+
+  test "an update that decides names the client as decider; a kind never deleted refuses unsent",
+       %{port: port} do
+    description =
+      FakeStore.description()
+      |> put_in(["entities", "widget", "authority"], %{
+        "by" => "checked_by",
+        "writes" => %{"shade" => ["dark"]}
+      })
+      |> put_in(["entities", "widget", "delete_error"], "Widgets are kept; record another.")
+
+    FakeStore.describe(description)
+    FakeStore.put("W-1", %{"title" => "One", "shade" => "light"})
+    a = client(port)
+    next(a, "page")
+
+    put(a, %{"op" => "open", "to" => "/k/widget/W-1"})
+    %{"blocks" => [%{"props" => %{"actions" => actions}} | _]} = next(a, "page")
+    assert Enum.any?(actions, &(&1["to"] == "/k/widget/W-1/edit"))
+    refute Enum.any?(actions, &(&1["to"] == "/k/widget/W-1/delete"))
+
+    put(a, %{"op" => "open", "to" => "/k/widget/W-1/edit"})
+    next(a, "page")
+
+    put(a, %{
+      "op" => "submit",
+      "to" => "/k/widget/W-1/edit",
+      "values" => %{"title" => "One", "shade" => "dark"}
+    })
+
+    assert %{"reason" => "stored"} = next(a, "page")
+
+    # The client here is the agent: it decides as itself, and Facts checks it may.
+    assert %{
+             "by" => "agent",
+             "values" => %{"shade" => "dark"},
+             "links" => %{"checked_by" => ["agent"]},
+             "was" => %{"shade" => "light", "checked_by" => []}
+           } = List.last(FakeStore.sent())
+
+    # A change that decides nothing names nobody.
+    put(a, %{"op" => "open", "to" => "/k/widget/W-1/edit"})
+    next(a, "page")
+    put(a, %{"op" => "submit", "to" => "/k/widget/W-1/edit", "values" => %{"title" => "Uno"}})
+    assert %{"reason" => "stored"} = next(a, "page")
+    refute Map.has_key?(List.last(FakeStore.sent()), "links")
+    sent = FakeStore.sent()
+
+    put(a, %{"op" => "open", "to" => "/k/widget/W-1/delete"})
+    assert %{"blocks" => [%{"props" => props}]} = next(a, "page")
+    assert inspect(props) =~ "Widgets are kept; record another."
+    put(a, %{"op" => "submit", "to" => "/k/widget/W-1/delete", "values" => %{}})
+    assert %{"reason" => "refused"} = next(a, "page")
+    assert FakeStore.sent() == sent
+  end
 end

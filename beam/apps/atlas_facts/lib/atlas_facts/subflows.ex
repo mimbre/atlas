@@ -126,7 +126,7 @@ defmodule AtlasFacts.Subflows do
 
   defp answers(description, present) do
     for answer <- get_in(present, ["todo", "answers"]) || [],
-        rel = answer["set"] || answer["remove"],
+        rel = answer["set"] || answer["remove"] || get_in(answer, ["change", "self"]),
         relation(description, rel) == nil,
         do: "its answer #{answer["key"]} names #{rel}, which is not described"
   end

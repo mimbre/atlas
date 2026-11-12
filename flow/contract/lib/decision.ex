@@ -18,6 +18,11 @@ defmodule AtlasFlowContract.Decision do
     end
 
     state :for_person_always, label: "A person decides" do
+      owner via: :assignment,
+            relation: :assigned_to,
+            default: {:person, :melle},
+            preserve_kind: :person
+
       wait_for [:principle_authority, :decider],
         on: :status,
         reset: false,
@@ -26,6 +31,19 @@ defmodule AtlasFlowContract.Decision do
 
       present(
         expected: "Have a person decide",
+        answers: [
+          [
+            key: "a",
+            label: "Accept",
+            change: %{self: :decided_by, values: %{status: :accepted, decided_at: "$now"}}
+          ],
+          [
+            key: "f",
+            label: "Reject",
+            note: true,
+            change: %{self: :decided_by, values: %{status: :rejected, decided_at: "$now"}}
+          ]
+        ],
         why: "a fixed person rule holds",
         instructions:
           "A person accepts or rejects with decided_by and decided_at. A principle names enforced_by. This wait never times out."
@@ -33,11 +51,30 @@ defmodule AtlasFlowContract.Decision do
     end
 
     state :for_person, label: "Waiting for a person" do
+      owner via: :assignment,
+            relation: :assigned_to,
+            default: {:person, :melle},
+            preserve_kind: :person
+
       wait_for :decider, on: :status, reset: false, accepted: :accepted, rejected: :rejected
       timer :no_answer, {:gate_limit, :accept_decision}, to: :deciding
 
       present(
         expected: "Have a person decide",
+        deadline: :no_answer,
+        answers: [
+          [
+            key: "a",
+            label: "Accept",
+            change: %{self: :decided_by, values: %{status: :accepted, decided_at: "$now"}}
+          ],
+          [
+            key: "f",
+            label: "Reject",
+            note: true,
+            change: %{self: :decided_by, values: %{status: :rejected, decided_at: "$now"}}
+          ]
+        ],
         why: "the decider gate requires a person",
         instructions:
           "Accept or reject with decided_by and decided_at. After the answer limit Flow asks the gate again."

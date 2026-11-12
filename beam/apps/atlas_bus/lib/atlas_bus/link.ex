@@ -40,6 +40,11 @@ defmodule AtlasBus.Link do
   def allowed?(_name, _machine), do: false
 
   @doc false
+  def send_allowed?(name, machine, %Envelope{kind: "flow_pass"} = e) do
+    e.class == "answer" and name == "runtime@" <> machine <> "/passes" and
+      e.address == "flow/passes" and is_nil(e.position)
+  end
+
   def send_allowed?(name, machine, %Envelope{kind: "runtime.output"} = envelope) do
     envelope.class == "answer" and name == "runtime@" <> machine <> "/output" and
       control?(envelope.address) and is_nil(envelope.position)
@@ -48,6 +53,11 @@ defmodule AtlasBus.Link do
   def send_allowed?(_name, _machine, %Envelope{class: class}), do: class in ~w(read fact answer)
 
   @doc false
+  def deliver_allowed?(name, machine, %Envelope{kind: "flow_pass"} = e) do
+    e.class == "request" and name == "runtime@" <> machine <> "/passes" and
+      e.address == name and e.sender == "flow/passes" and is_nil(e.position)
+  end
+
   def deliver_allowed?(name, machine, %Envelope{class: "request"} = envelope) do
     envelope.kind == "runtime.output" and name == "runtime@" <> machine <> "/output" and
       envelope.address == name and control?(envelope.sender) and is_nil(envelope.position)

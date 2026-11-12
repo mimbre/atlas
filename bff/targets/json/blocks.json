@@ -378,6 +378,21 @@
     },
     {
       "call": "open",
+      "name": "answer",
+      "page": "answer",
+      "params": [
+        "kind",
+        "key",
+        "answer"
+      ],
+      "path": "/k/:kind/:key/answer/:answer",
+      "replies": {
+        "page": "view model"
+      },
+      "wire": "open"
+    },
+    {
+      "call": "open",
       "name": "remove",
       "page": "remove",
       "params": [
@@ -546,6 +561,22 @@
         "relation"
       ],
       "path": "/k/:kind/:key/set/:relation",
+      "replies": {
+        "refused": "view model",
+        "stored": "view model"
+      },
+      "takes": "values",
+      "wire": "submit"
+    },
+    {
+      "call": "submit",
+      "name": "answer",
+      "params": [
+        "kind",
+        "key",
+        "answer"
+      ],
+      "path": "/k/:kind/:key/answer/:answer",
       "replies": {
         "refused": "view model",
         "stored": "view model"
@@ -2345,6 +2376,16 @@
         "relation"
       ],
       "path": "/k/:kind/:key/set/:relation",
+      "returns": "view model"
+    },
+    {
+      "name": "answer",
+      "params": [
+        "kind",
+        "key",
+        "answer"
+      ],
+      "path": "/k/:kind/:key/answer/:answer",
       "returns": "view model"
     },
     {

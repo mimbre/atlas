@@ -57,6 +57,16 @@ defmodule FlowMigrationBootTest do
     use AtlasFlowGenerator.Runtime, target: "../../flow/targets/test/atlas/flows.json"
   end
 
+  defmodule ProdTarget do
+    use AtlasFlowGenerator.Runtime, target: "../../flow/targets/atlas/flows.json"
+  end
+
+  # The canonical decide digests deployed before owner answers (test, prod).
+  @answerless %{
+    "test" => "e2d4c41b758cb858aa40b2835c703f2c42f60039471f855fa7e2df0dbf171b4b",
+    "prod" => "d9aadf74d08e0fb4ee4ada4d17980c10aafd4424f251061779cbd61b1c01c7aa"
+  }
+
   test "deploy boot migrates old cursors, preserves finals, and admits missed starts" do
     dir = Path.join(System.tmp_dir!(), "flow-migration-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
@@ -175,6 +185,116 @@ defmodule FlowMigrationBootTest do
 
     IO.puts(
       "flow migration boot proof: old store, gate once, finals, blocked isolation, restart ok"
+    )
+  end
+
+  test "live person waits from the deployed definitions keep state, entry and deadline across restart" do
+    for {env, target, yaml} <- [
+          {"test", Target, "flow/targets/test/rela/flows.yaml"},
+          {"prod", ProdTarget, "flow/targets/rela/flows.yaml"}
+        ] do
+      dir = Path.join(System.tmp_dir!(), "flow-answers-#{System.unique_integer([:positive])}")
+      File.mkdir_p!(dir)
+
+      Application.put_env(
+        :atlas_bus,
+        :store,
+        "answers-#{env}-#{System.unique_integer([:positive])}"
+      )
+
+      config =
+        JSON.decode!(File.read!(Path.join(@root, "rela/flow-runtime.json")))["flow_runtime"]
+
+      description = %{"entities" => %{}, "flows" => %{}, "flow_runtime" => config}
+      start_supervised!({FakeFacts, description: description})
+      start_supervised!(MigrationGate)
+      clock = start_supervised!({ManualClock, @now})
+      flow = target.flows()["decide"]
+      old = @answerless[env]
+      assert Run.digest(flow) != old
+
+      timers = fn entry ->
+        [
+          %{
+            "name" => "no_answer",
+            "entry" => entry,
+            "to" => "deciding",
+            "due" => "2026-11-14T00:00:00Z"
+          }
+        ]
+      end
+
+      originals =
+        for {key, state, entry, due} <- [
+              {"D-person", "for_person", 4, timers.(4)},
+              {"D-always", "for_person_always", 2, []}
+            ],
+            into: %{} do
+          subject = %{"key" => key, "values" => %{"status" => "proposed"}}
+          FakeFacts.put("decision", subject)
+
+          run =
+            Run.new("decide", flow, subject, config["selection"]["decide"]["imports"], @now)
+            |> Map.merge(%{
+              "definition_sha256" => old,
+              "state" => state,
+              "entry" => entry,
+              "status" => "active",
+              "blocked_reason" => nil,
+              "pending" => %{"version" => 1, "writes" => []},
+              "deadlines" => %{"version" => 1, "timers" => due},
+              "last_input" => %{"version" => 1}
+            })
+
+          FakeFacts.put("flow_run", %{"key" => run["key"], "values" => Store.encode(config, run)})
+          {key, run}
+        end
+
+      deployed = Path.join(dir, "flows.yaml")
+      File.write!(deployed, File.read!(Path.join(@root, yaml)))
+      opts = [clock: {ManualClock, clock}, target: target, deployed_yaml: deployed]
+
+      read = fn key ->
+        {:ok, run} =
+          Store.decode(config, FakeFacts.get("flow_run", Run.key("decide", "decision", key, 1)))
+
+        run
+      end
+
+      engine = start_supervised!({Engine, opts})
+      Engine.round(engine)
+      assert :sys.get_state(engine).refusal == nil
+
+      migrated =
+        for {key, old_run} <- originals, into: %{} do
+          run = read.(key)
+          assert run["definition_sha256"] == Run.digest(flow), "#{env} #{key}"
+
+          assert Map.take(run, ~w(state entry entered_at status deadlines last_input)) ==
+                   Map.take(old_run, ~w(state entry entered_at status deadlines last_input))
+
+          assert [%{"from" => ^old, "state" => state}] = run["pending"]["migrations"]
+          assert state == old_run["state"]
+          {key, run}
+        end
+
+      # No gate is asked again: the wait goes on where it was.
+      assert GenServer.call(MigrationGate, :calls) == []
+      before = FakeFacts.sent()
+      stop_supervised!(Engine)
+      restarted = start_supervised!({Engine, opts})
+      Engine.round(restarted)
+      for {key, run} <- migrated, do: assert(read.(key) == run)
+      assert FakeFacts.sent() == before
+      stop_supervised!(Engine)
+      stop_supervised!(MigrationGate)
+      stop_supervised!(ManualClock)
+      stop_supervised!(FakeFacts)
+      File.rm_rf!(dir)
+    end
+
+    IO.puts(
+      "flow migration answers proof: test and prod person waits kept their entry and deadline"
     )
   end
 end
