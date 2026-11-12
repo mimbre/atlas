@@ -7,7 +7,13 @@ defmodule AtlasFlow.Application do
     engine =
       if Application.get_env(:atlas_flow, :start, true) do
         every = Application.get_env(:atlas_flow, :tick_seconds, 60) * 1000
-        [{AtlasFlow.Engine, every: every, name: AtlasFlow.Engine}]
+
+        [
+          {AtlasFlow.Engine,
+           every: every,
+           name: AtlasFlow.Engine,
+           deployed_yaml: Application.get_env(:atlas_flow, :deployed_yaml)}
+        ]
       else
         []
       end

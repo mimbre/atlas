@@ -43,6 +43,33 @@ defmodule AtlasFlow.FakeFacts do
 
   def flow, do: @flow
 
+  def run_description do
+    fields =
+      ~w(flow subject_kind subject_key generation definition_sha256 state entry entered_at status deadlines pending input_cursor last_input blocked_reason)
+
+    config = %{
+      "version" => 1,
+      "kind" => "cursor",
+      "fields" => Map.new(fields, &{&1, &1}),
+      "writer" => %{"sender" => "flow", "by" => "flow"},
+      "selection" => %{
+        "sort" => %{
+          "subject" => "box",
+          "legacy" => "pack",
+          "projection" => Map.take(@flow, ~w(on field state_field handover_field owner_relation)),
+          "admission" => %{"phase" => ["first"]},
+          "follow_through" => nil,
+          "imports" => [
+            %{"when" => %{"result" => ["ok", "old"]}, "state" => "done"},
+            %{"when" => %{"result" => ["no"]}, "state" => "discarded"}
+          ]
+        }
+      }
+    }
+
+    Map.put(description(), "flow_runtime", config)
+  end
+
   def description(flow \\ @flow, problems \\ []) do
     %{
       "entities" => %{
@@ -65,6 +92,7 @@ defmodule AtlasFlow.FakeFacts do
   @doc "Put a fact as Facts would answer it: `%{\"key\", \"values\", \"links\", …}`."
   def put(kind, fact), do: GenServer.call(__MODULE__, {:put, kind, fact})
 
+  def lose_ack(kind), do: GenServer.call(__MODULE__, {:lose_ack, kind})
   def get(kind, key), do: GenServer.call(__MODULE__, {:get, kind, key})
 
   @doc "Every fact content Flow sent, oldest first."
@@ -87,6 +115,8 @@ defmodule AtlasFlow.FakeFacts do
      %{
        facts: %{},
        sent: [],
+       ledger: %{},
+       lose_ack: nil,
        reads: {0, 0},
        position: 0,
        busy: MapSet.new(),
@@ -100,6 +130,7 @@ defmodule AtlasFlow.FakeFacts do
     {:reply, :ok, put_in(s.facts[{kind, fact["key"]}], fact)}
   end
 
+  def handle_call({:lose_ack, kind}, _from, s), do: {:reply, :ok, %{s | lose_ack: kind}}
   def handle_call({:get, kind, key}, _from, s), do: {:reply, s.facts[{kind, key}], s}
   def handle_call(:sent, _from, s), do: {:reply, Enum.reverse(s.sent), s}
   def handle_call({:description, d}, _from, s), do: {:reply, :ok, %{s | description: d}}
@@ -146,25 +177,68 @@ defmodule AtlasFlow.FakeFacts do
   end
 
   def handle_info({:atlas_bus, %Envelope{class: "fact"} = e, %{"key" => key} = c}, s) do
-    s = %{s | sent: [c | s.sent], position: s.position + 1}
+    old = s.facts[{e.kind, key}]
+    replay = s.ledger[e.id]
 
-    facts =
-      Map.update(s.facts, {e.kind, key}, nil, fn fact ->
+    conflict =
+      old != nil and c["op"] == "change" and c["version"] != nil and
+        c["version"] != old["version"] and
+        not Enum.all?(c["was"] || %{}, fn {field, value} -> old["values"][field] == value end)
+
+    cond do
+      replay ->
+        {class, answer, position} = replay
+        AtlasBus.send(Envelope.reply(e, class, position: position), answer)
+        {:noreply, s}
+
+      old != nil and c["op"] == "create" and
+          Enum.all?(c["values"] || %{}, fn {f, v} -> old["values"][f] == v end) ->
+        AtlasBus.send(
+          Envelope.reply(e, "stored", position: s.position),
+          Map.take(c, ["op", "key", "by"])
+        )
+
+        {:noreply, s}
+
+      conflict or (old != nil and c["op"] == "create") ->
+        AtlasBus.send(Envelope.reply(e, "refused"), %{"reasons" => ["conflict"]})
+        {:noreply, s}
+
+      true ->
+        position = s.position + 1
+        fact = old || %{"key" => key, "values" => %{}, "links" => %{}, "origins" => %{}}
+
         values =
-          (fact["values"] || %{})
-          |> Map.merge(c["values"] || %{})
+          Map.merge(fact["values"], c["values"] || %{})
           |> Map.reject(fn {_, v} -> v in [nil, ""] end)
 
-        %{fact | "values" => values, "links" => Map.merge(fact["links"], c["links"] || %{})}
-      end)
+        fact =
+          Map.merge(fact, %{
+            "values" => values,
+            "links" => Map.merge(fact["links"], c["links"] || %{}),
+            "version" => position,
+            "position" => position
+          })
 
-    :ok =
-      AtlasBus.send(
-        Envelope.reply(e, "stored", position: s.position),
-        Map.take(c, ["op", "key", "by"])
-      )
+        answer = Map.take(c, ["op", "key", "by"])
 
-    {:noreply, %{s | facts: facts}}
+        s = %{
+          s
+          | sent: [c | s.sent],
+            position: position,
+            facts: Map.put(s.facts, {e.kind, key}, fact),
+            ledger: Map.put(s.ledger, e.id, {"stored", answer, position})
+        }
+
+        if s.lose_ack == e.kind do
+          # Commit, then lose the answer. Immediate transport failure avoids timer waits.
+          AtlasBus.send(Envelope.reply(e, "refused"), %{"reasons" => ["answer lost"]})
+          {:noreply, %{s | lose_ack: nil}}
+        else
+          AtlasBus.send(Envelope.reply(e, "stored", position: position), answer)
+          {:noreply, s}
+        end
+    end
   end
 
   def handle_info(_message, s), do: {:noreply, s}
@@ -173,4 +247,52 @@ defmodule AtlasFlow.FakeFacts do
 
   defp count({all, plain}, content),
     do: {all + 1, plain + if(content["plain"] == true, do: 1, else: 0)}
+end
+
+defmodule AtlasFlow.FixtureTarget do
+  @moduledoc "A neutral, three-state target for the bounded runner."
+  def rela_flows_sha256, do: AtlasFlowGenerator.Atlas.sha256("fixture\n")
+
+  def check_rela_flows(bytes),
+    do:
+      AtlasFlowGenerator.Runtime.check_rela_flows(
+        AtlasFlowGenerator.Atlas.sha256("fixture\n"),
+        bytes
+      )
+
+  def flows, do: %{"sort" => flow()}
+
+  def flow do
+    empty = %{
+      "final" => false,
+      "set" => [],
+      "branches" => [],
+      "timers" => [],
+      "creates" => [],
+      "awaits" => [],
+      "waiting_for" => []
+    }
+
+    %{
+      "subject" => "box",
+      "per_subject" => "one",
+      "start" => [%{"on" => "create"}],
+      "initial" => "waiting",
+      "owner" => %{"default" => %{"kind" => "clerk", "key" => "ada"}},
+      "states" => %{
+        "waiting" =>
+          Map.merge(empty, %{
+            "present" => %{"expected" => "Sort it"},
+            "set" => [%{"field" => "mark", "value" => "entered"}],
+            "branches" => [
+              %{"to" => "done", "roles" => [], "when" => "entity.result == 'ok'"},
+              %{"to" => "discarded", "roles" => [], "when" => "entity.result == 'no'"}
+            ],
+            "timers" => [%{"name" => "retry", "period" => "5m", "to" => "waiting"}]
+          }),
+        "done" => Map.put(empty, "final", true),
+        "discarded" => Map.put(empty, "final", true)
+      }
+    }
+  end
 end

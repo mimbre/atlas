@@ -1,0 +1,81 @@
+{
+  "flow_runtime": {
+    "version": 1,
+    "kind": "flow_run",
+    "writer": {
+      "sender": "flow",
+      "by": "flow"
+    },
+    "fields": {
+      "flow": "flow",
+      "subject_kind": "subject_kind",
+      "subject_key": "subject_key",
+      "generation": "generation",
+      "definition_sha256": "definition_sha256",
+      "state": "state",
+      "entry": "entry",
+      "entered_at": "entered_at",
+      "status": "status",
+      "deadlines": "deadlines",
+      "pending": "pending",
+      "input_cursor": "input_cursor",
+      "last_input": "last_input",
+      "blocked_reason": "blocked_reason"
+    },
+    "selection": {
+      "decide": {
+        "subject": "decision",
+        "legacy": "decide",
+        "projection": {
+          "on": "assignment",
+          "state_field": "flow_state",
+          "handover_field": "handover",
+          "owner_relation": "assigned_to",
+          "field": "expected"
+        },
+        "admission": {
+          "status": [
+            "proposed",
+            "accepted",
+            "rejected",
+            "superseded"
+          ]
+        },
+        "imports": [
+          {
+            "when": {
+              "status": [
+                "accepted"
+              ]
+            },
+            "state": "accepted"
+          },
+          {
+            "when": {
+              "status": [
+                "rejected"
+              ]
+            },
+            "state": "rejected"
+          },
+          {
+            "when": {
+              "status": [
+                "superseded"
+              ]
+            },
+            "state": "accepted"
+          }
+        ],
+        "follow_through": {
+          "state": "accepted",
+          "when": {
+            "status": [
+              "accepted"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

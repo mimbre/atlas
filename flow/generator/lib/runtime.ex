@@ -20,7 +20,7 @@ defmodule AtlasFlowGenerator.Runtime do
   or one that is not JSON, fails the compile.
   """
 
-  @format 1
+  @format 2
   @writer "system:atlas-flow"
 
   defmacro __using__(opts) do

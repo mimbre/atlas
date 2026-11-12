@@ -22,7 +22,7 @@ defmodule AtlasFlowContract.GoldenTest do
     {"use_case",
      [design_and_accept: "0971d09c2b1a34ad", test_and_accept_use_case: "a207d811b03394f4"]},
     {"scene", [test_and_accept_scene: "8dc48c7180394ded"]},
-    {"decision", [decide: "0fc2e693ffa26675"]}
+    {"decision", [decide: "cb97f2f2854e9ea1"]}
   ]
 
   defp below_header(text),
@@ -89,7 +89,11 @@ defmodule AtlasFlowContract.GoldenTest do
     flows = Committed.flows()
     states = flows["issue"]["states"]
     assert states["delivery_gate"]["spec"] == %{"gate" => "delivery_evidence", "version" => 1}
-    assert states["in_pr"] == %{"final" => false, "label" => "In pull request"}
+
+    assert Map.take(states["in_pr"], ~w(final label)) == %{
+             "final" => false,
+             "label" => "In pull request"
+           }
 
     assert flows["design_and_accept"]["states"]["design_gate"]["spec"] ==
              %{"gate" => "design", "version" => 1}

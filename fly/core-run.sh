@@ -13,5 +13,6 @@ if [ -e /data/hold ]; then
   exec sleep infinity
 fi
 
+test -r /app/rela/flow-runtime.json
 python3 /app/rela/scripts/verify.py /app/rela
 exec /app/release/bin/atlas start

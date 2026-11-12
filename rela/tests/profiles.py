@@ -34,6 +34,9 @@ def make(profile, dest):
             shutil.copy(ROOT / 'modules' / group / name, folder / name)
         sources.append(f'modules/{group}/atlas.json')
         includes.append(f'modules/{group}/schema.yaml')
+    runtime = json.loads((ROOT / 'flow-runtime.json').read_text())
+    runtime['flow_runtime']['selection'] = {}
+    write(dest / 'flow-runtime.json', runtime)
     shutil.copy(ROOT / 'data-entry.yaml', dest / 'data-entry.yaml')
     selected = {'version': '1.0', 'namespace': 'https://example.invalid/fixture#', 'description': 'Private dependency fixture', 'includes': includes}
     extension = {'start': {'assigned': {'empty': 'Nothing is assigned to you.'}}}

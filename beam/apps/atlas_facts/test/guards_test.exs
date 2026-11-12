@@ -363,4 +363,29 @@ defmodule AtlasFacts.GuardsTest do
     assert {:refused, [_]} =
              Guards.check(rules, "change", "M-1", bare, %{"meter" => "b"}, %{}, %{})
   end
+
+  test "machine records require both the configured Bus sender and writer, for all operations" do
+    description = %{
+      "entities" => %{"cursor" => %{}},
+      "flow_runtime" => %{"kind" => "cursor", "writer" => %{"sender" => "flow", "by" => "flow"}}
+    }
+
+    rules = AtlasFacts.Guards.of(description, "cursor")
+
+    for op <- ["create", "change", "delete"] do
+      for env <- [
+            %{"writer" => "flow", "sender" => "client"},
+            %{"writer" => "client", "sender" => "flow"},
+            %{}
+          ] do
+        assert {:refused, _} = AtlasFacts.Guards.check(rules, op, "C-1", nil, %{}, %{}, env)
+      end
+
+      assert :ok =
+               AtlasFacts.Guards.check(rules, op, "C-1", nil, %{}, %{}, %{
+                 "writer" => "flow",
+                 "sender" => "flow"
+               })
+    end
+  end
 end

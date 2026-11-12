@@ -554,6 +554,10 @@
         "once_error": "{key}: {field} is set once and never changed"
       }
     },
+    "flow_run": {
+      "top": false,
+      "by_hand": false
+    },
     "agent_request": {
       "agent": "request",
       "top": false,

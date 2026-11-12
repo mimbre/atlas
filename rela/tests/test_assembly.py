@@ -32,6 +32,7 @@ class AssemblyTest(unittest.TestCase):
         self.assertEqual(set(prior.pop('guidance')), {'execution', 'interaction', 'receipt'})
         for kind in ('worker_execution', 'interaction', 'interaction_receipt'):
             self.assertEqual(prior['entities'].pop(kind), {'top': False, 'by_hand': False})
+        self.assertEqual(prior['entities']['flow_run'], {'top': False, 'by_hand': False})
         prior['runtime']['turn'].pop('attempt')
         prior['entities']['turn']['properties'].pop('attempt')
         # The decision ledger and the use case design phase, added since the baseline.

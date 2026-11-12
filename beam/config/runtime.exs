@@ -39,6 +39,7 @@ if config_env() != :test do
     end
 
     config :atlas_facts,
+      flow_runtime: Path.join(root, "rela/flow-runtime.json"),
       rela_url: settings["rela"]["url"],
       # On Fly rela has an IPv6 address on the private network only.
       rela_ipv6: settings["rela"]["ipv6"] == true,
@@ -58,7 +59,9 @@ if config_env() != :test do
       runtime_read_token_env: settings["control"]["runtime_read_token_env"]
 
     # Flow looks at each open fact again this often, and at once on a hint.
-    config :atlas_flow, tick_seconds: get_in(settings, ["flow", "tick_seconds"]) || 60
+    config :atlas_flow,
+      deployed_yaml: Path.join(root, "rela/flows.yaml"),
+      tick_seconds: get_in(settings, ["flow", "tick_seconds"]) || 60
   end
 
   if role == "runtime", do: System.delete_env("ATLAS_BUS_LINK_TOKEN")

@@ -14,14 +14,31 @@ defmodule AtlasFlowGenerator.AtlasTest do
     data = JSON.decode!(json())
     states = data["flows"]["letter"]["states"]
 
-    assert states["proofread"] == %{
+    assert Map.take(states["proofread"], ~w(final kind spec)) == %{
              "final" => false,
              "kind" => "gate",
              "spec" => %{"gate" => "proofread", "version" => 2}
            }
 
     assert %{"kind" => "pass", "spec" => %{"profile" => "writer"}} = states["draft"]
-    assert states["dropped"] == %{"final" => true}
+    assert states["dropped"]["final"] == true
+    assert states["dropped"]["branches"] == []
+    assert states["dropped"]["set"] == []
+
+    assert states["draft"]["timers"] == [
+             %{
+               "name" => "slow",
+               "period" => "1d",
+               "to" => "stuck",
+               "label" => "The writer did not finish"
+             }
+           ]
+
+    assert data["flows"]["letter"]["start"] == [
+             %{"on" => "create"},
+             %{"on" => "predicate", "when" => "entity.kind == 'reply'"}
+           ]
+
     assert data["flows"]["letter"]["initial"] == "draft"
 
     # size_limit is named by no subflow; it is written all the same, rule included.
@@ -32,7 +49,7 @@ defmodule AtlasFlowGenerator.AtlasTest do
     assert data["gates"]["size_limit"]["decide"]["uncertain"] == "person"
     assert data["gates"]["proofread"]["policy"] == %{"max_rounds" => 2}
     assert data["rela_flows_sha256"] == Atlas.sha256(Rela.flows_yaml(Example.__flows__()))
-    assert {data["format"], data["writer"]} == {1, "system:atlas-flow"}
+    assert {data["format"], data["writer"]} == {2, "system:atlas-flow"}
   end
 
   test "a state presents to its owner as expected, why and todo; the owner has a default" do
@@ -80,6 +97,36 @@ defmodule AtlasFlowGenerator.AtlasTest do
     assert_raise ArgumentError, ~r/names gate proofread version 2/, fn ->
       json(Example.__flows__(), [%{smart | version: 3}, rule])
     end
+  end
+
+  test "format 2 carries every execution list and no source positions" do
+    letter = JSON.decode!(json())["flows"]["letter"]
+    assert letter["run_as"] == "system:post"
+    assert letter["per_subject"] == "one"
+
+    for {_name, state} <- letter["states"] do
+      for field <- ~w(waiting_for awaits set creates branches timers),
+          do: assert(is_list(state[field]))
+
+      refute Map.has_key?(state, "line")
+    end
+
+    assert letter["states"]["answered"]["set"] == [%{"field" => "archived", "value" => true}]
+    assert letter["states"]["sent"]["awaits"] == ["reply"]
+
+    assert letter["states"]["post"]["creates"] == [
+             %{
+               "type" => "receipt",
+               "properties" => %{"title" => "Receipt"},
+               "relate" => "receipt_of"
+             }
+           ]
+
+    assert Enum.map(letter["states"]["sent"]["branches"], & &1["to"]) == [
+             "answered",
+             "answered",
+             "stuck"
+           ]
   end
 
   # Small maps with atom keys iterate in atom-table order (OTP 26+), which differs

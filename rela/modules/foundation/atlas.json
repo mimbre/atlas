@@ -41,7 +41,7 @@
     "assigned_to": {
       "actions": {
         "change": {
-          "label": "Hand to\u2026",
+          "label": "Hand to…",
           "key": "h",
           "with": [
             "deadline"
@@ -478,6 +478,10 @@
         "error": "{key} is a gate verdict and is never edited ({field}); record a new verdict that follows it",
         "once_error": "{key}: {field} is set once and never changed"
       }
+    },
+    "flow_run": {
+      "top": false,
+      "by_hand": false
     }
   },
   "guidance": {

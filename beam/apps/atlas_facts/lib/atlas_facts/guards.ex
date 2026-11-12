@@ -41,6 +41,12 @@ defmodule AtlasFacts.Guards do
     spec = get_in(description, ["entities", kind]) || %{}
     rules = Map.take(spec, ["requires", "authority", "frozen", "replaces", "layering", "sealed"])
 
+    rules =
+      case description["flow_runtime"] do
+        %{"kind" => ^kind, "writer" => writer} -> Map.put(rules, "machine_writer", writer)
+        _ -> rules
+      end
+
     only_target =
       for {name, relation} <- description["relations"] || %{},
           kind in List.wrap(relation["from"]),
@@ -65,7 +71,8 @@ defmodule AtlasFacts.Guards do
     kind_of = env["kind_of"] || fn _, _ -> nil end
     fetch = env["fetch"] || fn _ -> nil end
 
-    with :ok <- sealed(rules["sealed"], op, key, current, values, links),
+    with :ok <- machine_writer(rules["machine_writer"], env),
+         :ok <- sealed(rules["sealed"], op, key, current, values, links),
          :ok <- frozen(rules["frozen"], op, key, current, values, links) do
       if op == "delete" do
         :ok
@@ -103,6 +110,14 @@ defmodule AtlasFacts.Guards do
   end
 
   def replaced(_rules, _fact, _fetch), do: []
+
+  defp machine_writer(nil, _env), do: :ok
+
+  defp machine_writer(rule, env) do
+    if env["writer"] == rule["by"] and env["sender"] == rule["sender"],
+      do: :ok,
+      else: {:refused, ["only the configured machine writer may write this kind"]}
+  end
 
   defp only_target(rules, current, links, writer) do
     for {relation, rule} <- rules || %{},

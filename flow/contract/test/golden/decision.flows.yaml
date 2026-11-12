@@ -1,12 +1,8 @@
-# Software: decision ledger, decide. Who may accept follows the
-# ledger design's table: a person for product, security, one_way and
-# principle; a delegated agent only for two_way decisions of other categories.
-# The flow writes status; people and agents write verdict.
+# Status bridge: Facts authorizes status; Flow only observes it.
 flows:
   decide:
     label: Decide
     subject: decision
-    run_as: system:sf-flow
     per_subject: one
     start:
       - on: create
@@ -14,24 +10,13 @@ flows:
     states:
       proposed:
         label: Proposed
-        status: input_required
-        waiting_for: [decider]
-        outputs:
-          - set: { properties: { status: proposed, verdict: none } }
         on:
           change:
-            - { to: accepted, roles: [principle_authority], when: "entity.verdict == 'accept' and entity.force == 'principle'" }
-            - { to: accepted, roles: [decider], when: "entity.verdict == 'accept' and entity.force ~= 'principle'" }
-            - { to: accepted, roles: [delegate], when: "entity.verdict == 'accept' and entity.force ~= 'principle' and entity.reversibility == 'two_way' and entity.category ~= 'product' and entity.category ~= 'security'" }
-            - { to: rejected, roles: [decider, principle_authority], when: "entity.verdict == 'reject'" }
-            - { to: rejected, roles: [delegate], when: "entity.verdict == 'reject' and entity.reversibility == 'two_way' and entity.category ~= 'product' and entity.category ~= 'security'" }
+            - { to: accepted, when: "entity.status == 'accepted'" }
+            - { to: rejected, when: "entity.status == 'rejected'" }
       accepted:
         label: Accepted
         final: true
-        outputs:
-          - set: { properties: { status: accepted } }
       rejected:
         label: Rejected
         final: true
-        outputs:
-          - set: { properties: { status: rejected } }

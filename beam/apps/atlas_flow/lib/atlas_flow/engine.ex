@@ -22,6 +22,7 @@ defmodule AtlasFlow.Engine do
 
   alias AtlasBus.Envelope
   alias AtlasFlow.{Definition, Item, Talk}
+  alias AtlasFlow.Runs.{Clock, Store}
 
   # How far up a hint looks for facts whose state it may change.
   @depth 8
@@ -39,6 +40,11 @@ defmodule AtlasFlow.Engine do
     {:ok,
      %{
        every: Keyword.get(opts, :every, 60_000),
+       clock: Keyword.get(opts, :clock, {Clock, nil}),
+       target: Keyword.get(opts, :target, AtlasFlow.Generated),
+       yaml: Keyword.get(opts, :deployed_yaml),
+       runs: [],
+       refusal: nil,
        kinds: [],
        owners: [],
        description: %{},
@@ -51,9 +57,13 @@ defmodule AtlasFlow.Engine do
   def handle_call(:round, _from, state), do: {:reply, :ok, look_all(state)}
 
   @impl true
+  def terminate(_reason, state), do: Clock.cancel(state.clock, state.timer)
+
+  @impl true
   def handle_info(:round, state), do: {:noreply, look_all(state)}
 
   def handle_info({:atlas_bus, %Envelope{class: "stored", kind: kind}, content}, state) do
+    state = if content["by"] != "flow", do: look_all(state), else: state
     # A delete: what was above it can no longer be read. A new owner (a fact of a kind a
     # flow assigns to): a fact whose owner waited for it can have it now.
     all? = content["op"] == "delete" or (content["op"] == "create" and kind in state.owners)
@@ -107,11 +117,13 @@ defmodule AtlasFlow.Engine do
   def handle_info(_message, state), do: {:noreply, state}
 
   defp look_all(state) do
-    if state.timer, do: Process.cancel_timer(state.timer)
+    Clock.cancel(state.clock, state.timer)
 
     state =
       case Talk.read("_description", %{}) do
         %{"description" => description} ->
+          state = %{state | description: description} |> reconcile()
+          description = state.description
           report(description)
           kinds = Definition.kinds(description)
 
@@ -126,7 +138,9 @@ defmodule AtlasFlow.Engine do
             case Talk.read(kind, %{}) do
               %{"facts" => facts} ->
                 for fact <- facts,
-                    open?(description, kind, flow, fact),
+                    runnable?(state, kind, fact) and
+                      (Store.selected(description, kind, fact) != nil or
+                         open?(description, kind, flow, fact)),
                     do: ensure(kind, fact["key"], state)
 
               other ->
@@ -147,7 +161,45 @@ defmodule AtlasFlow.Engine do
           state
       end
 
-    %{state | timer: Process.send_after(self(), :round, state.every)}
+    delay =
+      Enum.reduce(state.runs, state.every, fn run, delay ->
+        Enum.reduce(run["deadlines"]["timers"], delay, fn t, d ->
+          min(
+            d,
+            max(
+              0,
+              DateTime.diff(
+                AtlasFlow.Runs.Run.parse!(t["due"]),
+                Clock.now(state.clock),
+                :millisecond
+              )
+            )
+          )
+        end)
+      end)
+
+    %{state | timer: Clock.schedule(state.clock, self(), :round, delay)}
+  end
+
+  defp runnable?(state, kind, fact),
+    do: state.refusal == nil or Store.selected(state.description, kind, fact) == nil
+
+  defp reconcile(state) do
+    case Store.activate(state.description, state.target, state.yaml) do
+      {:ok, config} ->
+        case Store.reconcile(config, state.target.flows(), Clock.now(state.clock)) do
+          {:ok, runs} ->
+            %{state | runs: runs, refusal: nil}
+
+          {:error, why} ->
+            Logger.error("generated runner refused: #{inspect(why)}")
+            %{state | runs: [], refusal: why}
+        end
+
+      {:error, why} ->
+        Logger.error("generated runner refused: #{inspect(why)}")
+        %{state | runs: [], refusal: why}
+    end
   end
 
   # The fact and every fact above it, through the parent relations the description marks.
@@ -238,7 +290,10 @@ defmodule AtlasFlow.Engine do
   end
 
   defp start(kind, key, state) do
-    spec = {Item, {kind, key, every: state.every}}
+    spec =
+      {Item,
+       {kind, key,
+        every: state.every, clock: state.clock, target: state.target, deployed_yaml: state.yaml}}
 
     case DynamicSupervisor.start_child(AtlasFlow.Supervisor, spec) do
       {:ok, pid} -> pid

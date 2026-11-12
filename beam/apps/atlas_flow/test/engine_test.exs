@@ -94,4 +94,112 @@ defmodule AtlasFlow.EngineTest do
   catch
     _, _ -> :ok
   end
+
+  @tag :tmp_dir
+  test "generated and legacy projections have one writer, with disjoint phases and restart deadlines",
+       %{tmp_dir: dir} do
+    alias AtlasFlow.{FixtureTarget, ManualClock}
+    alias AtlasFlow.Runs.{Run, Store}
+    FakeFacts.set_description(FakeFacts.run_description())
+    FakeFacts.put("box", %{"key" => "B-1", "values" => %{"phase" => "first"}})
+    FakeFacts.put("box", %{"key" => "B-2", "values" => %{"phase" => "second"}})
+    yaml = Path.join(dir, "flows.yaml")
+    File.write!(yaml, "fixture\n")
+    clock = start_supervised!({ManualClock, ~U[2026-11-12 00:00:00Z]})
+
+    opts = [
+      every: 3_600_000,
+      clock: {ManualClock, clock},
+      target: FixtureTarget,
+      deployed_yaml: yaml
+    ]
+
+    engine = start_supervised!({Engine, opts})
+    Engine.round(engine)
+    flush_items()
+    assert todo("B-1") == "Sort it"
+    assert todo("B-2") == "Pack it"
+    assert [{_, _}] = Registry.lookup(AtlasFlow.Items, {"box", "B-1"})
+    key = Run.key("sort", "box", "B-1", 1)
+    config = FakeFacts.run_description()["flow_runtime"]
+    {:ok, first} = Store.decode(config, FakeFacts.get("cursor", key))
+    assert first["entry"] == 1
+    ManualClock.advance(clock, 299_999)
+    Engine.round(engine)
+    stop_supervised!(Engine)
+    stop_items()
+    restarted = start_supervised!({Engine, opts})
+    Engine.round(restarted)
+    {:ok, waiting} = Store.decode(config, FakeFacts.get("cursor", key))
+    assert waiting == first
+    ManualClock.advance(clock, 2)
+    Engine.round(restarted)
+    {:ok, second} = Store.decode(config, FakeFacts.get("cursor", key))
+    assert second["entry"] == 2
+    assert second["last_input"]["due"] == "2026-11-12T00:05:00.000Z"
+    send(restarted, :round)
+    Engine.round(restarted)
+    assert {:ok, ^second} = Store.decode(config, FakeFacts.get("cursor", key))
+    stop_supervised!(Engine)
+    stop_items()
+    again = start_supervised!({Engine, opts})
+    Engine.round(again)
+    assert {:ok, ^second} = Store.decode(config, FakeFacts.get("cursor", key))
+    FakeFacts.put("box", %{"key" => "B-1", "values" => %{"phase" => "first", "result" => "ok"}})
+    Engine.round(again)
+    {:ok, completed} = Store.decode(config, FakeFacts.get("cursor", key))
+    assert completed["status"] == "completed"
+    stop_supervised!(Engine)
+    stop_items()
+    final_engine = start_supervised!({Engine, opts})
+    Engine.round(final_engine)
+    assert {:ok, ^completed} = Store.decode(config, FakeFacts.get("cursor", key))
+    # The generated phase releases presentation to a distinct legacy phase.
+    FakeFacts.put("box", %{"key" => "B-1", "values" => %{"phase" => "second"}})
+    Engine.round(final_engine)
+    flush_items()
+    assert todo("B-1") == "Pack it"
+    assert {:ok, ^completed} = Store.decode(config, FakeFacts.get("cursor", key))
+  end
+
+  @tag :tmp_dir
+  test "a mismatched or missing deployment refuses selected execution with zero writes", %{
+    tmp_dir: dir
+  } do
+    alias AtlasFlow.{FixtureTarget, ManualClock}
+    FakeFacts.set_description(FakeFacts.run_description())
+    FakeFacts.put("box", %{"key" => "B-1", "values" => %{"phase" => "first"}})
+    yaml = Path.join(dir, "flows.yaml")
+    File.write!(yaml, "wrong bytes")
+    clock = start_supervised!({ManualClock, ~U[2026-11-12 00:00:00Z]})
+
+    engine =
+      start_supervised!(
+        {Engine, clock: {ManualClock, clock}, target: FixtureTarget, deployed_yaml: yaml}
+      )
+
+    Engine.round(engine)
+    assert FakeFacts.sent() == []
+    assert Registry.lookup(AtlasFlow.Items, {"box", "B-1"}) == []
+    File.rm!(yaml)
+    Engine.round(engine)
+    assert FakeFacts.sent() == []
+  end
+
+  defp flush_items do
+    for {_, pid, _, _} <- DynamicSupervisor.which_children(AtlasFlow.Supervisor) do
+      send(pid, :look)
+
+      try do
+        :sys.get_state(pid)
+      catch
+        :exit, _ -> :ok
+      end
+    end
+  end
+
+  defp stop_items do
+    for {_, pid, _, _} <- DynamicSupervisor.which_children(AtlasFlow.Supervisor),
+        do: DynamicSupervisor.terminate_child(AtlasFlow.Supervisor, pid)
+  end
 end
