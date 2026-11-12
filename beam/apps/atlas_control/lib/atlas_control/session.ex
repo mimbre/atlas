@@ -263,6 +263,50 @@ defmodule AtlasControl.Session do
   defp handle_op(_op, _message, %{hello: false} = state),
     do: {:noreply, notice(state, "error", "Say hello first.")}
 
+  defp handle_op("facts_read", message, state) do
+    alias AtlasBFFContract.Wire.Control.Session.Protocol, as: Wire
+
+    reply =
+      case Wire.decode_request(message) do
+        {:ok, :facts_read, request} ->
+          kind =
+            if request["kind"] == "_" and is_binary(request["key"]) do
+              case Pages.resolve({:item, "_", request["key"]}, state.description) do
+                {:item, kind, _} ->
+                  kind
+
+                _ ->
+                  case kind_holding(request["key"], state) do
+                    {:ok, kind} -> kind
+                    _ -> nil
+                  end
+              end
+            else
+              request["kind"]
+            end
+
+          if is_binary(kind) and Map.has_key?(state.description["entities"], kind) do
+            content =
+              if request["key"],
+                do: %{"key" => request["key"], "plain" => true},
+                else: %{"plain" => true, "linked" => %{}}
+
+            case ask(kind, content) do
+              %{"error" => why} -> Wire.reply(:facts_read, :error, %{error: why})
+              data -> Wire.reply(:facts_read, :result, %{data: data})
+            end
+          else
+            Wire.reply(:facts_read, :error, %{error: "unknown kind or subject"})
+          end
+
+        _ ->
+          Wire.reply(:facts_read, :error, %{error: "invalid facts read"})
+      end
+
+    send_client(state, reply)
+    {:noreply, state}
+  end
+
   defp handle_op(op, message, state)
        when op in ~w(worker_output_subscribe worker_output_next worker_output_unsubscribe) do
     alias AtlasBFFContract.Wire.Control.Workers.Protocol, as: Wire

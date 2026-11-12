@@ -4,6 +4,25 @@ defmodule AtlasGates.FactsControlTest do
 
   alias AtlasGates.Fixtures
 
+  test "fetch uses exact stored facts rather than page labels or editable fields" do
+    row = %{
+      "key" => "C-7",
+      "values" => %{"weight" => "heavy"},
+      "links" => %{"replaces" => ["C-6"]}
+    }
+
+    {module, state} =
+      AtlasGates.Facts.Control.new("test",
+        client: fn
+          ["facts", "_", "C-7", "--env", "test", "--json"] -> {:ok, %{"fact" => row}}
+          ["facts", "ruling", "--env", "test", "--json"] -> {:ok, %{"facts" => [row]}}
+        end
+      )
+
+    assert {:ok, ^row} = module.fetch(state, nil, "C-7")
+    assert {:ok, [^row]} = module.fetch(state, "ruling", nil)
+  end
+
   # Answers as the client would and reports each call; `recorded` are the verdicts Control
   # lists, newest first, as `{key, field values}`.
   defp client(recorded, pid \\ self()) do

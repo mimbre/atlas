@@ -13,7 +13,7 @@ defmodule AtlasFlowContract.Decision do
         expected: "Have it decided",
         why: "it is proposed",
         instructions:
-          "Have it accepted or rejected, with decided_by and decided_at. A person accepts a product, security, one-way or principle decision; any other a person, or an agent under delegated_by. A principle names its enforced_by."
+          "Ask accept_decision from the subject before accepting or rejecting, with decided_by and decided_at. Its fresh decider verdict determines whether an agent may decide; without one a person must decide. A principle names its enforced_by."
       )
 
       branch to: :accepted, when: "entity.status == 'accepted'"

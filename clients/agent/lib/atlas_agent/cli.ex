@@ -8,6 +8,7 @@ defmodule AtlasAgent.CLI do
                  <association>=<key>                       link (empty: remove the link)
                  --cause <text>                            why (put and set), kept with it
       atlas get  <key>                                     one item, with what hangs under it
+      atlas facts <kind|_> [<key>]                         exact stored values and links for gate evidence
       atlas list <kind> [--in <key>]                       the items of a kind (under <key>)
       atlas delete <key>                                   delete; refused while anything hangs under it
       atlas turn                                          its running turn, original item and instructions
@@ -60,6 +61,9 @@ defmodule AtlasAgent.CLI do
       {:invalid, why} -> {:error, why}
     end
   end
+
+  defp parse(["facts", kind]), do: {:ok, {:facts, kind, nil}}
+  defp parse(["facts", kind, key]), do: {:ok, {:facts, kind, key}}
 
   defp parse(["help" | rest]), do: {:ok, {:help, List.first(rest), false}}
 
@@ -146,6 +150,9 @@ defmodule AtlasAgent.CLI do
 
   defp run({:set, key, values, cause}, client),
     do: client |> AtlasAgent.set(key, values, cause) |> then_get(client)
+
+  defp run({:facts, kind, key}, client),
+    do: client |> AtlasAgent.Client.facts(kind, key) |> as(:facts)
 
   defp run({:get, key}, client), do: client |> AtlasAgent.get(key) |> as(:item)
 
@@ -237,6 +244,8 @@ defmodule AtlasAgent.CLI do
 
   defp show({:outcome, outcome}, false),
     do: IO.puts("Outcome stored for #{outcome["turn"]}: #{outcome["outcome"]}") && 0
+
+  defp show({:facts, data}, _json), do: json(data, 0)
 
   defp show({:item, item}, true), do: json(item, 0)
   defp show({:list, rows}, true), do: json(rows, 0)

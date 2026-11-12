@@ -53,15 +53,15 @@ end
 
 check = fn ok?, what -> unless ok?, do: raise("not so: #{what}") end
 
-first = ask.(evidence, AtlasGates.Digest.of_bytes(bytes), %{})
+first = ask.(evidence, AtlasBus.Digest.of_bytes(bytes), %{})
 check.(first.recorded_as == :new, "the first verdict is recorded now")
 
-again = ask.(evidence, AtlasGates.Digest.of_bytes(bytes), %{})
+again = ask.(evidence, AtlasBus.Digest.of_bytes(bytes), %{})
 check.(again.recorded == first.recorded and again.recorded_as == :again, "a repeat records nothing")
 
 [field | _] = AtlasGates.Definitions.gates()[gate]["evidence"]
 less = Map.delete(evidence, field)
-uncertain = ask.(less, AtlasGates.Digest.of_term(less), %{"follows" => first.recorded})
+uncertain = ask.(less, AtlasBus.Digest.of_term(less), %{"follows" => first.recorded})
 check.(uncertain.unsettled == "uncertain" and uncertain.recorded_as == :new, "missing evidence is uncertain")
 
 for key <- [first.recorded, uncertain.recorded] do

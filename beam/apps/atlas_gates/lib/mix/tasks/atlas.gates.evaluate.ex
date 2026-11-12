@@ -8,26 +8,32 @@ defmodule Mix.Tasks.Atlas.Gates.Evaluate do
         --fingerprint FPR --evidence-file /abs/evidence.json --env test \\
         [--allowed a,b] [--link about=KEY] [--link follows=KEY] [--atlas EXECUTABLE] [--json] [--no-record]
 
+  Use `--gate NAME --from-subject KEY --env test` to derive evidence and fingerprint
+  from stored facts. This also links the verdict about its subject and to its predecessor.
+
   The evidence file is one JSON object of named fields; its digest (`sha256:` of the file
   as it is) is recorded with it, so keep the file. `--env` (`test` or `prod`) is the
   environment whose Control the `atlas` client writes to. Asking the same again (same
   gate, subject, fingerprint and evidence) prints the verdict recorded the first time and
   records nothing.
 
-  With `--no-record`, evaluates and settles locally without contacting Control or Facts.
-  No `--env` is needed and the printed `recorded` and `recorded_as` values are null.
+  With `--no-record`, evaluates and settles without writing a verdict. File evidence
+  needs no environment or connection; `--from-subject` still reads through Control and
+  needs `--env`. The printed `recorded` and `recorded_as` values are null.
 
   Exit status 0 when the verdict is recorded (or evaluated with `--no-record`); 2 when it could not be evaluated or recorded:
   then the printed verdict is the gate's safe one, and nothing may act as if it passed.
   """
   use Mix.Task
 
-  alias AtlasGates.{Digest, Request, Verdict}
+  alias AtlasGates.{Request, Verdict}
+  alias AtlasBus.Digest
 
   @switches [
     gate: :string,
     gate_version: :string,
     subject: :string,
+    from_subject: :string,
     fingerprint: :string,
     evidence_file: :string,
     allowed: :string,
@@ -47,36 +53,32 @@ defmodule Mix.Tasks.Atlas.Gates.Evaluate do
 
     env = opts[:env]
 
-    if opts[:no_record] != true and env not in ["test", "prod"],
-      do: Mix.raise("Give --env test or --env prod")
+    if (opts[:no_record] != true or is_binary(opts[:from_subject])) and
+         env not in ["test", "prod"],
+       do: Mix.raise("Give --env test or --env prod")
 
-    file = opts[:evidence_file] || Mix.raise("Give --evidence-file PATH")
-    bytes = File.read!(Path.expand(file))
-
-    evidence =
-      case JSON.decode(bytes) do
-        {:ok, %{} = map} -> map
-        _ -> Mix.raise("#{file} is not one JSON object of named fields")
-      end
-
-    # Not app.start: the umbrella's runtime.exs belongs to the core and Runtime nodes.
+    # No app.start: the umbrella runtime config belongs to deployed nodes.
     Mix.Task.run("loadconfig")
     Mix.Task.run("compile")
-
-    attrs = %{
-      "subject" => opts[:subject],
-      "fingerprint" => opts[:fingerprint],
-      "gate_version" => opts[:gate_version],
-      "evidence" => evidence,
-      "evidence_digest" => Digest.of_bytes(bytes),
-      "allowed_outcomes" => opts[:allowed] && String.split(opts[:allowed], ",", trim: true),
-      "links" => links(Keyword.get_values(opts, :link))
-    }
+    facts = AtlasGates.Facts.Control.new(env || "test", executable: opts[:atlas] || "atlas")
 
     request =
-      case Request.new(opts[:gate], attrs) do
-        {:ok, request} -> request
-        {:error, why} -> Mix.raise("No verdict: #{why}")
+      if opts[:from_subject] do
+        if Enum.any?(
+             [:subject, :fingerprint, :evidence_file, :link, :allowed, :gate_version],
+             &Keyword.has_key?(opts, &1)
+           ),
+           do:
+             Mix.raise(
+               "--from-subject builds the request; do not supply evidence, fingerprint, links or version"
+             )
+
+        case AtlasGates.Decider.request(opts[:gate], opts[:from_subject], facts) do
+          {:ok, request} -> request
+          {:error, why} -> Mix.raise("No verdict: #{why}")
+        end
+      else
+        manual_request(opts)
       end
 
     {status, verdict} =
@@ -103,6 +105,35 @@ defmodule Mix.Tasks.Atlas.Gates.Evaluate do
       else: IO.puts(text(verdict, request))
 
     if status != 0, do: exit({:shutdown, status})
+  end
+
+  defp manual_request(opts) do
+    file = opts[:evidence_file] || Mix.raise("Give --evidence-file PATH")
+    bytes = File.read!(Path.expand(file))
+
+    evidence =
+      case JSON.decode(bytes) do
+        {:ok, %{} = map} -> map
+        _ -> Mix.raise("#{file} is not one JSON object of named fields")
+      end
+
+    attrs = %{
+      "subject" => opts[:subject],
+      "fingerprint" => opts[:fingerprint],
+      "gate_version" => opts[:gate_version],
+      "evidence" => evidence,
+      "evidence_digest" => Digest.of_bytes(bytes),
+      "allowed_outcomes" => opts[:allowed] && String.split(opts[:allowed], ",", trim: true),
+      "links" => links(Keyword.get_values(opts, :link))
+    }
+
+    request =
+      case Request.new(opts[:gate], attrs) do
+        {:ok, request} -> request
+        {:error, why} -> Mix.raise("No verdict: #{why}")
+      end
+
+    request
   end
 
   defp links(pairs) do

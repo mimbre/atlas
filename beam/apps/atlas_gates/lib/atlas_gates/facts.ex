@@ -11,6 +11,10 @@ defmodule AtlasGates.Facts do
       fact over the Bus to Facts under the same rules.
   """
 
+  @doc "Fetch a raw fact by key (kind may be nil), or all facts of kind when key is nil."
+  @callback fetch(state, String.t() | nil, String.t() | nil) ::
+              {:ok, map() | [map()] | nil} | {:error, String.t()}
+
   @typedoc "Whatever the module needs: an endpoint, a client, an environment."
   @type state :: term()
 

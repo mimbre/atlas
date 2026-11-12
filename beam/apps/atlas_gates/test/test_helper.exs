@@ -53,7 +53,7 @@ defmodule AtlasGates.Fixtures do
   def evidence(changes \\ %{}),
     do: Map.merge(%{"seal" => "intact", "packed_hash" => "h-1", "loaded_hash" => "h-1"}, changes)
 
-  def digest(evidence), do: AtlasGates.Digest.of_bytes(JSON.encode!(evidence))
+  def digest(evidence), do: AtlasBus.Digest.of_bytes(JSON.encode!(evidence))
 
   @doc "A request for `gate` on `evidence`, about crate C-7 at fingerprint f-1."
   def request(gate \\ "dispatch", evidence \\ evidence(), attrs \\ %{}) do
@@ -88,7 +88,27 @@ defmodule AtlasGates.FakeFacts do
     {__MODULE__, pid}
   end
 
-  def facts({__MODULE__, pid}), do: Agent.get(pid, &Enum.reverse(&1.facts))
+  @impl true
+  def fetch(pid, kind, key) do
+    Agent.get(pid, fn s ->
+      facts =
+        Enum.map(s.facts, fn f ->
+          %{
+            "key" => f.key,
+            "values" => f.values,
+            "links" => Map.new(f.links, fn {r, k} -> {r, List.wrap(k)} end),
+            "kind" => f.kind
+          }
+        end)
+
+      if key,
+        do: {:ok, Enum.find(facts, &(&1["key"] == key))},
+        else: {:ok, Enum.filter(facts, &(&1["kind"] == kind))}
+    end)
+  end
+
+  def facts({__MODULE__, pid}),
+    do: Agent.get(pid, &Enum.reverse(&1.facts))
 
   @impl true
   def find(pid, kind, identity) do

@@ -23,6 +23,58 @@ defmodule AtlasGates.Facts.Bus do
   end
 
   @impl true
+  def fetch(state, nil, key) when is_binary(key) do
+    case read(state, "_description", %{}) do
+      %{"description" => description} ->
+        candidates =
+          for {kind, spec} <- description["entities"],
+              prefix <- [
+                get_in(spec, ["create", "id", "prefix"]) || spec["id_prefix"]
+                | spec["id_prefixes"] || []
+              ],
+              is_binary(prefix) and prefix != "" and String.starts_with?(key, prefix),
+              do: {byte_size(prefix), kind}
+
+        case Enum.sort(candidates, :desc) do
+          [{_, kind} | _] -> fetch(state, kind, key)
+          [] -> fetch_unprefixed(state, description, key)
+        end
+
+      other ->
+        {:error, "Facts answered #{inspect(other)}"}
+    end
+  end
+
+  def fetch(state, kind, key) do
+    content =
+      if key, do: %{"key" => key, "plain" => true}, else: %{"plain" => true, "linked" => %{}}
+
+    case read(state, kind, content) do
+      %{"fact" => fact} -> {:ok, fact}
+      %{"facts" => facts} -> {:ok, facts}
+      other -> {:error, "Facts answered #{inspect(other)}"}
+    end
+  end
+
+  defp fetch_unprefixed(state, description, key) do
+    Enum.reduce_while(description["entities"], {:ok, nil}, fn {kind, spec}, acc ->
+      prefixes = [
+        get_in(spec, ["create", "id", "prefix"]) || spec["id_prefix"] | spec["id_prefixes"] || []
+      ]
+
+      if Enum.any?(prefixes, &(is_binary(&1) and &1 != "")) do
+        {:cont, acc}
+      else
+        case fetch(state, kind, key) do
+          {:ok, nil} -> {:cont, acc}
+          result -> {:halt, result}
+        end
+      end
+    end)
+  end
+
+  @impl true
+
   def find(state, kind, identity) do
     with {:ok, facts} <- facts(state, kind) do
       found =

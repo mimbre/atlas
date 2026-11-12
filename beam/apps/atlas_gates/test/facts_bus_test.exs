@@ -43,6 +43,14 @@ defmodule AtlasGates.FactsBusTest do
       {:noreply, s}
     end
 
+    def handle_info(
+          {:atlas_bus, %Envelope{class: "read"} = e, %{"key" => key, "plain" => true}},
+          s
+        ) do
+      :ok = AtlasBus.send(Envelope.reply(e, "answer"), %{"fact" => s.facts[key]})
+      {:noreply, s}
+    end
+
     def handle_info({:atlas_bus, %Envelope{class: "read"} = e, _}, s) do
       :ok = AtlasBus.send(Envelope.reply(e, "answer"), %{"facts" => Map.values(s.facts)})
       {:noreply, s}
@@ -106,6 +114,21 @@ defmodule AtlasGates.FactsBusTest do
 
   defp decide(request, facts),
     do: AtlasGates.decide(request, facts, kind: "ruling", now: Fixtures.now())
+
+  test "fetch resolves a subject key and retains exact values and links", %{
+    facts: {module, state}
+  } do
+    row = %{
+      "key" => "RU-001",
+      "values" => %{"weight" => "heavy"},
+      "links" => %{"about" => ["C-7"]}
+    }
+
+    start_supervised!({Store, facts: [row]})
+    assert {:ok, ^row} = module.fetch(state, nil, "RU-001")
+    assert {:ok, [^row]} = module.fetch(state, "ruling", nil)
+    assert {:ok, nil} = module.fetch(state, "ruling", "missing")
+  end
 
   test "a verdict is recorded with the next key, and a repeat finds it", %{facts: facts} do
     store = start_supervised!({Store, facts: [%{"key" => "RU-009", "values" => %{}}]})

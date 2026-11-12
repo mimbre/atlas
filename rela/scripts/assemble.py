@@ -235,14 +235,33 @@ def validate(extra, schema, actors=None):
                 field(kind, name)
         if 'authority' in spec:
             rule = spec['authority']
-            keys(rule, 'when by kind only_kind_when delegated_by error writes writer_error also', kind + '.authority')
+            keys(rule, 'when by kind agent_kind decider only_kind_when delegated_by error writes writer_error also', kind + '.authority')
             values(kind, rule.get('writes', {}))
             values(kind, rule.get('when', {}))
             if rule['kind'] not in relation(rule['by'], kind)['to']:
                 raise ConfigError(f'{kind}.authority: {rule["by"]} does not point at {rule["kind"]}')
             for condition_values in rule.get('only_kind_when', []):
                 values(kind, condition_values)
+            if 'agent_kind' in rule:
+                if rule['agent_kind'] not in relation(rule['by'], kind)['to']:
+                    raise ConfigError(f'{kind}.authority: invalid agent kind')
+            if 'decider' in rule:
+                decider = rule['decider']
+                keys(decider, 'gate relation kind fingerprint', kind + '.authority.decider')
+                if not isinstance(decider['gate'], str) or not decider['gate']:
+                    raise ConfigError('decider needs a gate')
+                rel = relation(decider['relation'], kind, 'to')
+                entity(decider['kind'])
+                if decider['kind'] not in rel['from']:
+                    raise ConfigError('decider relation must come from its verdict kind')
+                fingerprint = decider['fingerprint']
+                keys(fingerprint, 'fields relations', 'decider.fingerprint')
+                for name in fingerprint['fields']:
+                    field(kind, name)
+                for name in fingerprint['relations']:
+                    relation(name, kind)
             if 'delegated_by' in rule:
+
                 relation(rule['delegated_by'], kind)
         if 'layering' in spec:
             rule = spec['layering']

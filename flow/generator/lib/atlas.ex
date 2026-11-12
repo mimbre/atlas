@@ -60,6 +60,7 @@ defmodule AtlasFlowGenerator.Atlas do
       :fixed,
       :fixed_rules,
       :answer_within,
+      :fingerprint,
       :version,
       :flavor,
       :purpose,

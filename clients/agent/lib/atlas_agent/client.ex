@@ -78,7 +78,15 @@ defmodule AtlasAgent.Client do
     AtlasAgent.Protocol.message(:hello, :hello, props)
   end
 
-  @doc "The page at `path`."
+  def facts(client, kind, key) do
+    request = AtlasAgent.Protocol.request(:facts_read, kind: kind, key: key)
+
+    with {:ok, reply} <- exchange(client, :facts_read, request, @page_wait),
+         do: {:ok, reply["data"]}
+  end
+
+  @doc "The page at
+ `path`."
   def open(client, path) do
     exchange(client, :open, AtlasAgent.Protocol.request(:open, to: path), @page_wait)
   end

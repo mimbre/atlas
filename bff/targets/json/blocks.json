@@ -3997,6 +3997,50 @@
     {
       "channel": "control",
       "direction": "request",
+      "name": "facts_read",
+      "replies": [
+        {
+          "absent": [
+            "error"
+          ],
+          "effect": "complete",
+          "name": "result",
+          "required": {
+            "data": "map"
+          },
+          "select": {
+            "op": "facts_read"
+          }
+        },
+        {
+          "effect": "error",
+          "name": "error",
+          "present": [
+            "error"
+          ],
+          "required": {
+            "error": "string"
+          },
+          "select": {
+            "op": "facts_read"
+          }
+        }
+      ],
+      "request": {
+        "optional": {
+          "key": "string"
+        },
+        "required": {
+          "kind": "string"
+        },
+        "select": {
+          "op": "facts_read"
+        }
+      }
+    },
+    {
+      "channel": "control",
+      "direction": "request",
       "name": "open",
       "replies": [
         {

@@ -50,7 +50,7 @@
           "present": {
             "expected": "Have it decided",
             "todo": {
-              "instructions": "Have it accepted or rejected, with decided_by and decided_at. A person accepts a product, security, one-way or principle decision; any other a person, or an agent under delegated_by. A principle names its enforced_by."
+              "instructions": "Ask accept_decision from the subject before accepting or rejecting, with decided_by and decided_at. Its fresh decider verdict determines whether an agent may decide; without one a person must decide. A principle names its enforced_by."
             },
             "why": "it is proposed"
           },
@@ -1584,6 +1584,10 @@
             "window": 50
           }
         ]
+      },
+      "fingerprint": {
+        "fields": ["title", "decision", "category", "scope", "reversibility", "force"],
+        "relations": ["supersedes"]
       },
       "fixed": "person_always",
       "fixed_rules": [

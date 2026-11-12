@@ -284,33 +284,33 @@
         },
         "by": "decided_by",
         "kind": "person",
-        "only_kind_when": [
-          {
-            "category": [
-              "product",
-              "security"
-            ]
-          },
-          {
-            "reversibility": [
-              "one_way"
-            ]
-          },
-          {
-            "force": [
-              "principle"
-            ]
-          }
-        ],
-        "delegated_by": "delegated_by",
-        "error": "a product, security, one-way or principle decision is accepted by a person; any other by a person, or by an agent with delegated_by",
+        "error": "a person decides unless a fresh accept_decision verdict permits an agent",
         "writes": {
           "status": [
             "accepted",
             "rejected"
           ]
         },
-        "writer_error": "only the one decided_by names accepts or rejects it, as themselves; an agent only under delegated_by, and never a product, security, one-way or principle decision"
+        "writer_error": "only the one decided_by names accepts or rejects it, as themselves and under a fresh decider verdict",
+        "agent_kind": "agent",
+        "decider": {
+          "gate": "accept_decision",
+          "relation": "about",
+          "kind": "gate_verdict",
+          "fingerprint": {
+            "fields": [
+              "title",
+              "decision",
+              "category",
+              "scope",
+              "reversibility",
+              "force"
+            ],
+            "relations": [
+              "supersedes"
+            ]
+          }
+        }
       },
       "frozen": {
         "when": {

@@ -40,15 +40,20 @@ def make(profile, dest):
     shutil.copy(ROOT / 'data-entry.yaml', dest / 'data-entry.yaml')
     selected = {'version': '1.0', 'namespace': 'https://example.invalid/fixture#', 'description': 'Private dependency fixture', 'includes': includes}
     extension = {'start': {'assigned': {'empty': 'Nothing is assigned to you.'}}}
+    # Each composition binds verdict subjects, including the foundation acceptance gate.
+    about = {'label': 'about', 'from': ['gate_verdict'], 'to': ['decision'],
+             'max_outgoing': 1, 'inverse': {'id': 'gate_verdicts', 'label': 'gate verdicts'}}
+    binding = {'relations': {'about': about}}
+    includes.append('bindings.yaml')
     if profile == 'incident':
         current = assemble.read(ROOT / 'compositions/atlas-eyra/atlas.json')
-        binding = {'relations': {'assignment': {'label': 'assignment', 'from': ['incident', 'issue', 'pull_request'], 'to': ['assignment'], 'max_outgoing': 1, 'inverse': {'id': 'assignment_of', 'label': 'assignment of'}}}}
+        binding['relations']['assignment'] = {'label': 'assignment', 'from': ['incident', 'issue', 'pull_request'], 'to': ['assignment'], 'max_outgoing': 1, 'inverse': {'id': 'assignment_of', 'label': 'assignment of'}}
+        about['to'] += ['incident', 'issue', 'pull_request']
         workflow = {'entities': {'incident': {'label': 'Incident', 'plural': 'incidents', 'id_type': 'manual', 'id_prefix': 'INC-', 'properties': {'title': {'type': 'string', 'required': True}, 'description': {'type': 'string'}}}}, 'relations': {
           'in_incident': {'label': 'in incident', 'from': ['issue'], 'to': ['incident'], 'max_outgoing': 1, 'inverse': {'id': 'issues', 'label': 'issues'}},
           'resolved_by': {'label': 'resolved by', 'from': ['incident'], 'to': ['person'], 'max_outgoing': 1, 'inverse': {'id': 'resolved_incidents', 'label': 'resolved incidents'}}}}
         (dest / 'incident.yaml').write_text(yaml.safe_dump(workflow, sort_keys=False))
-        (dest / 'bindings.yaml').write_text(yaml.safe_dump(binding, sort_keys=False))
-        includes += ['incident.yaml', 'bindings.yaml']
+        includes.append('incident.yaml')
         extension['relations'] = {
             'assignment': copy.deepcopy(current['relations']['assignment']),
             'in_incident': {'parent': True},
@@ -61,6 +66,7 @@ def make(profile, dest):
         extension['flows']['restore_service'] = {
             'kinds': ['incident'], 'on': 'assignment', 'field': 'expected', 'state_field': 'flow_state', 'handover_field': 'handover', 'owner_relation': 'assigned_to',
             'states': [{'name': 'done', 'when': {'completed': True}, 'done': True}, {'name': 'restore', 'owner': {'kind': 'agent', 'key': 'coordinator'}, 'expected': 'Restore service and record resolution', 'next': ['done']}]}
+    (dest / 'bindings.yaml').write_text(yaml.safe_dump(binding, sort_keys=False))
     (dest / 'schema.yaml').write_text(yaml.safe_dump(selected, sort_keys=False))
     write(dest / 'fixture.json', extension)
     sources.append('fixture.json')
