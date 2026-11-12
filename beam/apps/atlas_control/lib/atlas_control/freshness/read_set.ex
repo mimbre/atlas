@@ -20,6 +20,8 @@ defmodule AtlasControl.Freshness.ReadSet do
   say) depends on every fact of the kind it read.
   """
 
+  alias AtlasControl.Freshness.RowKey
+
   defstruct deps: [], as_of: nil, until: nil, row_keys: %{}
 
   @type dep :: list
@@ -127,17 +129,10 @@ defmodule AtlasControl.Freshness.ReadSet do
 
     for %{"to" => to} <- rows(blocks),
         is_binary(to),
-        key = opened(to),
+        key = RowKey.of(to),
         key != nil,
         into: %{},
         do: {to, Enum.uniq([key | Enum.sort(Map.get(partners, key, []))])}
-  end
-
-  defp opened(to) do
-    case AtlasControl.Pages.route(to) do
-      {:item, _kind, key} -> key
-      _ -> nil
-    end
   end
 
   @doc "Every row of a view model's blocks, wherever a block holds them."

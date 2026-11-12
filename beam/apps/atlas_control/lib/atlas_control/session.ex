@@ -33,7 +33,7 @@ defmodule AtlasControl.Session do
 
   alias AtlasBus.Envelope
   alias AtlasControl.{Faults, PageReads, Pages}
-  alias AtlasControl.Freshness.{Affected, Batch, ReadSet, Recent}
+  alias AtlasControl.Freshness.{Affected, Batch, ReadSet, Recent, RowKey}
 
   @read_attempts 3
   @first_resend 5_000
@@ -1259,7 +1259,7 @@ defmodule AtlasControl.Session do
       "path" => current_path(route),
       "title" => page.title,
       "back" => page.back,
-      "blocks" => page.blocks,
+      "blocks" => RowKey.put(page.blocks),
       "markup" => page.markup,
       "reason" => reason,
       "position" => position,

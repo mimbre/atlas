@@ -6,7 +6,7 @@ defmodule AtlasBFFContract.MixProject do
   def project do
     [
       app: :atlas_bff_contract,
-      version: "0.14.0",
+      version: "0.15.0",
       elixir: "~> 1.18",
       start_permanent: false,
       deps: [{:atlas_bff, path: "../generator"}]

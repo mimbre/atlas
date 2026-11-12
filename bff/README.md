@@ -63,7 +63,7 @@ This source split preserves wire versions, generated data and declaration order.
 
 Direct declarations report their file and line. Imported wire/model contracts and presentation fragments report the importing call site, with the invalid operation, field or declaration named in the error.
 
-## View model (contract 0.14.0)
+## View model (contract 0.15.0)
 
 Control sends a view model, not a data model: its **content**, a flat list of blocks, and its **markup**, entries that cover a stretch of those blocks. Every block has an id, stable for as long as the page shows the same thing; markup points at ids, never at positions, so inserting, deleting or moving a block (or a hint that changes one) never shifts other markup.
 
@@ -77,9 +77,11 @@ Control sends a view model, not a data model: its **content**, a flat list of bl
 | `confirm` | a question, or without `confirm_to` only why something cannot be done | confirm or go back |
 | `plan` | what an agent proposes for a request, and then does: the request, who planned, what it says, its steps; a `title` that says how far it is; `before`, what became of the previous plan after a refusal | keep, edit or drop each proposed step, run the kept ones, cancel, stop a run |
 
-Models that blocks hold: `action` (label, key, to), `link` (label, key, url), `row` (id, label, detail, to, links), `pair`, `input`, `choice`, `step` (n, label: the title of the form it fills, state, why, detail, inputs: that form's inputs with the step's values). No block holds another block; grouping is markup.
+Models that blocks hold: `action` (label, key, to), `link` (label, key, url), `row` (id, label, detail, to, links, key, pending), `pair`, `input`, `choice`, `step` (n, label: the title of the form it fills, state, why, detail, inputs: that form's inputs with the step's values). No block holds another block; grouping is markup.
 
 A row starts with its id, in a column of its own (IS-Atlas-57): a client lines the ids of a list up, as wide as the longest, then the labels, then the details. The detail does not repeat the id.
+
+A row also says which fact it opens: `key`, which Control takes from `to` (none for a row that opens no fact). A client uses it only as an opaque identity, to keep the selection when a page replaces the list (docs/design/page-freshness.md §3.1), and compares it with nothing a write said. `pending: true`, set only by Control, means a write to that fact is stored and Flow has not yet settled it; a client shows it beside the label (the TUI: `⋯ being processed`), never hides or reorders the row, and never sets or clears it. Control fills `key` from contract 0.15.0 on; it sets `pending` once the pending marker lands.
 
 An action opens a page of Control's (`to`), except one whose `to` is `agent:<intent>`: that one asks the agent about the page it is on, as `:` does, with that intent (`x Overrule` on a step the agent took: `agent:overrule`). The model adds such actions per kind (`action` in the Rela DSL). A link opens a web address outside the client, in a browser (`url`); an `item` has links, and so does a `row`, for while it is selected. A client opens only http and https addresses. Control gives a fact a link when the model marks the type of one of its fields as a web address (`type …, format: :url`).
 
@@ -117,7 +119,7 @@ Client to Control:
 
 | Message | Meaning |
 |---|---|
-| `{"op":"hello","env":"test","client":"tui","spec":"0.14.0"}` | First message, with the contract version the client implements; an agent may add `"as"`: the key of the fact it is (`coordinator`), so it is the owner of what is assigned to it (IS-Atlas-54; `ATLAS_AS` for `atlas`). Control of another environment answers `bye` and closes; so does Control on a newer contract than the client's (or when the client says none): `This client implements contract 0.10.0; Control test speaks 0.11.0. It is too old: …`. A newer client is welcomed: it shows what it knows, the rest as fallbacks. |
+| `{"op":"hello","env":"test","client":"tui","spec":"0.15.0"}` | First message, with the contract version the client implements; an agent may add `"as"`: the key of the fact it is (`coordinator`), so it is the owner of what is assigned to it (IS-Atlas-54; `ATLAS_AS` for `atlas`). Control of another environment answers `bye` and closes; so does Control on a newer contract than the client's (or when the client says none): `This client implements contract 0.10.0; Control test speaks 0.11.0. It is too old: …`. A newer client is welcomed: it shows what it knows, the rest as fallbacks. |
 | `{"op":"open","to":"/k/<kind>/<key>"}` | Show the page at this path. |
 | `{"op":"submit","endpoint":"update","params":{"kind":"issue","key":"IS-Atlas-01"},"values":{...}}` | Submit a form or a confirm: the endpoint and params its `submit_to` or `confirm_to` (a `call`) names, one of the contract's submit endpoints (create, create_under, update, delete, link, accept, reopen); values travel as text. A client that knows only paths may send `"to"` with the endpoint's path instead. Anything else is refused, unsent. |
 | `{"op":"turn"}` | Read the agent's single running turn and its original item, using `runtime.turn`. |
@@ -128,13 +130,13 @@ Control to client:
 
 | Message | Meaning |
 |---|---|
-| `{"op":"welcome","env":"test","spec":"0.14.0"}` | Answer to hello, with Control's contract version. |
-| `{"op":"page","path","title","back","blocks","markup","reason","position","at"}` | A page: a view model (`blocks` and `markup`) with its path, title and `back`: the page it belongs under (its owner, or its kind's list). Console's Back (`esc`, Left, `b`) does not follow `back`: it is always declared, and a client returns to the page its user came from, in its own history (the TUI keeps the selected row and scroll of each). `reason` is `open`, `hint` (a change stored by anyone), `reconcile`, `stored` (your change) or `refused`. `position` is Facts' position the page is as of. On a page without a form, a `refused` page also has `refused`: Facts' reasons. When the client's user has a start page of assignments, every page has `count`: what waits for them, in the model's words, for the header. |
+| `{"op":"welcome","env":"test","spec":"0.15.0"}` | Answer to hello, with Control's contract version. |
+| `{"op":"page","path","title","back","blocks","markup","reason","position","at"}` | A page: a view model (`blocks` and `markup`) with its path, title and `back`: the page it belongs under (its owner, or its kind's list). Console's Back (`esc`, Left, `b`) does not follow `back`: it is always declared, and a client returns to the page its user came from, in its own history (the TUI keeps the selected row and scroll of each). `reason` is `open`, `hint` (a change stored by anyone), `pending` (the same page with rows marked pending), `reconcile`, `stored` (your change) or `refused`. `position` is Facts' position the page is as of: the page's version for its path. A `hint` page is for the path on screen or for one of the paths the client viewed recently (the last 8; at most 3 are pushed per batch of changes). A client keeps the newest page per path (a page replaces the kept one unless both have a `position` and its own is lower), draws it only if its path is on screen, and on back or a tab switch shows the kept page at once while it asks for the page again (`open`). On a page without a form, a `refused` page also has `refused`: Facts' reasons. When the client's user has a start page of assignments, every page has `count`: what waits for them, in the model's words, for the header. |
 | `{"op":"notice","tone":"pending\|ok\|error\|info","text","at"}` | A line for the status bar. `pending` until Facts answers. |
 | `{"op":"bye","text"}` | Control closes the connection. |
 | `{"op":"turn","key":"<turn>","on":"<item>"}` | Current turn context; errors have `error` instead of the keys. An outcome is acknowledged with a stored page. |
 
-Every message here is an endpoint of the contract (`defendpoint`, its call the message's `op`; ADR 0002), with what it takes and what it replies, and `blocks.json` lists them: hello, refresh, the pages' `open`, the submits, what Control sends unasked (`page` by hint, `notice`, `bye`), and the agent's `ask`, `run`, `cancel` and `stop`.
+Every message here is an endpoint of the contract (`defendpoint`, its call the message's `op`; ADR 0002), with what it takes and what it replies, and `blocks.json` lists them: hello, refresh, the pages' `open`, the submits, what Control sends unasked (`page` by hint, `notice`, `bye`), and the agent's `ask`, `run`, `cancel` and `stop`. Unasked pages are the pushes `hint` and `pending`.
 
 Paths are the contract's pages (`defpage`, ADR [0002](../docs/adr/0002-pages-and-endpoints.md)): `/`, `/_kinds`, `/k/:kind`, `/k/:kind/new`, `/k/:kind/new/:relation/:parent`, `/k/:kind/:key` and its `/edit`, `/delete`, `/links/:relation`, `/set/:relation`, `/answer/:answer`, `/remove/:relation`; in the test environment only, the failure pages `/faults`, `/k/:kind/:key/faults`, `/fault/:fault` and `/k/:kind/:key/fault/:fault` (IS-Atlas-23: what can be made to fail there, and the confirm that causes it). Control serves those and nothing else (a path outside them gets "No such page"); `blocks.json` lists them, and the targets give every Elixir consumer `pages/0`, `match/1` and `path/2` (`AtlasBFF.Paths`). A client with a screen only follows them.
 
@@ -203,13 +205,18 @@ client-before-server deployment is needed for this slice. Deployments still go
 through coordinator review. A later version bump must distribute compatible
 clients before advancing Control, since older versions are refused at hello.
 
+0.15.0 (page freshness, docs/design/page-freshness.md §3) is such a bump: the row fields
+`key` and `pending`, `hint` pages for recently viewed paths and `pending` overlays. Control
+on 0.15.0 refuses a 0.14.0 client at hello (`bye`, "too old"); a 0.15.0 TUI refuses a
+Control that welcomes it with another version. There is no dual-protocol mode.
+
 ### Worker Control contract
 
 `contract/lib/wire/control/workers.ex` declares versioned worker inspection, exact-turn guidance,
 query, history and receipt messages on the Control channel. It reuses Runtime's
 execution identity; `Contract` composes the wire APIs and shared payload models. Existing
-list/item/form blocks implement the worker pages, so the block wire version remains
-0.14.0; typed worker messages independently require version 0.1.0.
+list/item/form blocks implement the worker pages, so they follow the block wire version
+(0.15.0); typed worker messages independently require version 0.1.0.
 
 Generate with the same `mix atlas.gen` command. Named actor grants, durable outcome
 semantics, bounds, generic-page limits and the outstanding Runtime integration are

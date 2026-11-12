@@ -5,10 +5,15 @@ defmodule AtlasTui.Console do
   replaces the last good navigation. Effects use the ordinary Control endpoints.
 
   Back is the user's own way here, not the parent a page names: `open/2` remembers
-  the page left (its selected row and scroll) in `history`, `back/1` returns to the
+  the page left (its selection and scroll) in `history`, `back/1` returns to the
   newest one. Switching tabs, or a boot that reopens the start, starts afresh.
+
+  Every page Control sends is kept, the newest per path (`AtlasTui.PageCache`), also
+  for paths not on screen; only the path on screen is drawn. Back and a tab switch show
+  the cached page at once and still ask for it; whenever a page replaces the list on
+  screen, `AtlasTui.Selection` says which row stays selected.
   """
-  alias AtlasTui.{Blocks, Model, Protocol, WorkerConversation}
+  alias AtlasTui.{Blocks, Model, PageCache, Protocol, Selection, WorkerConversation}
 
   defstruct shell: nil,
             stale: true,
@@ -20,11 +25,15 @@ defmodule AtlasTui.Console do
             in_flight: nil,
             restoring: false,
             active: nil,
+            # The selection each tab was left with: `%{path => {identity, index}}`.
             selections: %{},
-            # The pages the user came from, newest first: `%{path, row, scroll, scrolls, part}`.
+            # The pages the user came from, newest first:
+            # `%{path, selection: {identity, index}, scroll, scrolls, part}`.
             history: [],
             # The page `back/1` is on its way to, restored as it was left when it arrives.
             returning: nil,
+            # The newest page Control sent per path.
+            cache: PageCache.new(),
             projection: nil,
             legend: nil,
             viewport: {100, 30},
@@ -65,6 +74,8 @@ defmodule AtlasTui.Console do
     }
   end
 
+  def receive(model, %{"op" => "page"} = message), do: page(cache(model, message), message)
+
   def receive(model, %{"op" => "welcome"} = message) do
     if model.console.phase == :welcome and message["surface"] == "console" and
          message["env"] == model.env and message["spec"] == Protocol.version() do
@@ -87,10 +98,6 @@ defmodule AtlasTui.Console do
            }
        }, []}
     end
-  end
-
-  def receive(%{console: %{phase: :compatibility}} = model, %{"op" => "page"}) do
-    refresh(%{model | console: %{model.console | phase: :boot}})
   end
 
   def receive(model, %{"op" => "boot"} = message) do
@@ -138,29 +145,45 @@ defmodule AtlasTui.Console do
     end
   end
 
-  def receive(%{console: %{phase: phase}} = model, %{"op" => "page"})
-      when phase in [:welcome, :boot, :unsupported],
-      do: {model, []}
+  def receive(model, %{"op" => "bye"} = message) do
+    {Model.message(disconnected(model), message), []}
+  end
+
+  def receive(model, message),
+    do: WorkerConversation.receive(Model.message(model, message), message)
+
+  # A page is kept for its path first, whatever happens to it here.
+  defp cache(%{console: %{phase: :unsupported}} = model, _message), do: model
+  defp cache(model, message), do: update_in(model.console.cache, &PageCache.put(&1, message))
+
+  defp page(%{console: %{phase: :compatibility}} = model, %{"op" => "page"}) do
+    refresh(%{model | console: %{model.console | phase: :boot}})
+  end
+
+  defp page(%{console: %{phase: phase}} = model, %{"op" => "page"})
+       when phase in [:welcome, :boot, :unsupported],
+       do: {model, []}
 
   # Open replies have no request ID and may redirect. Keep only one open on the
   # wire; rapid tab presses change the desired target without queuing old views.
-  def receive(
-        %{console: %{phase: :ready, in_flight: sent, expected: desired}} = model,
-        %{"op" => "page", "reason" => "open"}
-      )
-      when sent != nil and sent != desired do
+  defp page(
+         %{console: %{phase: :ready, in_flight: sent, expected: desired}} = model,
+         %{"op" => "page", "reason" => "open"}
+       )
+       when sent != nil and sent != desired do
     navigate(%{model | console: %{model.console | in_flight: nil}}, desired)
   end
 
-  def receive(%{console: %{expected: target}} = model, %{"op" => "page", "reason" => reason})
-      when target != nil and reason != "open",
-      do: {model, []}
+  defp page(%{console: %{expected: target}} = model, %{"op" => "page", "reason" => reason})
+       when target != nil and reason != "open",
+       do: {model, []}
 
-  def receive(model, %{"op" => "page", "path" => path, "reason" => reason})
-      when reason in ["hint", "reconcile", "refresh"] and path != model.path,
-      do: {model, []}
+  # An unasked page for a path not on screen is only kept (above), not drawn.
+  defp page(model, %{"op" => "page", "path" => path, "reason" => reason})
+       when reason in ["hint", "pending", "reconcile", "refresh"] and path != model.path,
+       do: {model, []}
 
-  def receive(model, %{"op" => "page"} = message) do
+  defp page(model, %{"op" => "page"} = message) do
     console = model.console
     redirected = WorkerConversation.redirected?(model, message)
 
@@ -208,7 +231,7 @@ defmodule AtlasTui.Console do
            }), []}
 
         draft?(model) and message["path"] == model.path and
-            message["reason"] in ["hint", "reconcile"] ->
+            message["reason"] in ["hint", "pending", "reconcile"] ->
           {model, message} = AtlasTui.Interactions.install(model, message)
           updated = Model.message(model, message)
 
@@ -224,10 +247,8 @@ defmodule AtlasTui.Console do
           {model, message} = AtlasTui.Interactions.install(model, message)
           updated = Model.message(model, message)
 
-          updated =
-            if message["path"] != model.path,
-              do: arrive(updated),
-              else: %{updated | selected: stable_selection(model, updated)}
+          # The same path keeps its selection by `Model.message/2` (the selection rule).
+          updated = if message["path"] != model.path, do: arrive(updated), else: updated
 
           updated = %{
             updated
@@ -251,13 +272,6 @@ defmodule AtlasTui.Console do
 
     {AtlasTui.Legend.reconcile(updated), effects ++ worker_effects}
   end
-
-  def receive(model, %{"op" => "bye"} = message) do
-    {Model.message(disconnected(model), message), []}
-  end
-
-  def receive(model, message),
-    do: WorkerConversation.receive(Model.message(model, message), message)
 
   def refresh(%{connected: false} = model), do: {model, []}
   def refresh(%{console: %{boot_pending: true}} = model), do: {model, []}
@@ -289,8 +303,9 @@ defmodule AtlasTui.Console do
          !draft?(model) do
       tabs = console.shell["tabs"]
       index = Enum.find_index(tabs, &(&1["id"] == console.active)) || 0
-      target = Enum.at(tabs, Integer.mod(index + step, length(tabs)))
-      navigate(afresh(model), target["to"])
+      target = Enum.at(tabs, Integer.mod(index + step, length(tabs)))["to"]
+      {model, effects} = navigate(afresh(model), target)
+      reopen(model, effects, target, model.console.selections[target], %{})
     else
       {model, []}
     end
@@ -325,13 +340,45 @@ defmodule AtlasTui.Console do
   end
 
   @doc "Back to the page the user came from, in their own history; at its root, nothing."
-  def back(%{console: %{history: [entry | rest]} = console} = model),
-    do: navigate(%{model | console: %{console | history: rest, returning: entry}}, entry.path)
+  def back(%{console: %{history: [entry | rest]} = console} = model) do
+    {model, effects} =
+      navigate(%{model | console: %{console | history: rest, returning: entry}}, entry.path)
+
+    reopen(
+      model,
+      effects,
+      entry.path,
+      entry.selection,
+      Map.take(entry, [:scroll, :scrolls, :part])
+    )
+  end
 
   def back(model), do: {model, []}
 
   @doc "Whether `back/1` has a page to return to."
   def back?(model), do: model.console.history != []
+
+  # Back or a tab switch to `path`: its cached page at once, with the selection `before`
+  # and `layout` it was left with, while the open just sent brings it fresh (that copy
+  # then keeps the selection by the same rule). Without a cached page, or when the open
+  # was not sent, the page waits for Control as before.
+  defp reopen(model, effects, path, before, layout) do
+    case model.console.expected == path && PageCache.get(model.console.cache, path) do
+      %{} = cached ->
+        {installed, message} =
+          AtlasTui.Interactions.install(model, Map.put(cached, "reason", "cache"))
+
+        shown = Model.message(installed, message)
+        selected = Selection.after_replace(before, Model.rows(shown)) || 0
+        shown = Map.merge(%{shown | selected: selected}, layout)
+        shown = %{shown | console: %{shown.console | returning: nil}}
+        {shown, worker_effects} = WorkerConversation.install(shown, model)
+        {AtlasTui.Legend.reconcile(shown), effects ++ worker_effects}
+
+      _ ->
+        {model, effects}
+    end
+  end
 
   defp afresh(model), do: %{model | console: %{model.console | history: [], returning: nil}}
 
@@ -339,7 +386,7 @@ defmodule AtlasTui.Console do
   defp remember(model) do
     entry = %{
       path: model.path,
-      row: row_identity(Enum.at(Model.rows(model), model.selected)),
+      selection: Selection.of(Model.rows(model), model.selected),
       scroll: model.scroll,
       scrolls: model.scrolls,
       part: model.part
@@ -370,7 +417,7 @@ defmodule AtlasTui.Console do
   end
 
   defp restore(model, entry) do
-    selected = Enum.find_index(Model.rows(model), &(row_identity(&1) == entry.row)) || 0
+    selected = Selection.after_replace(entry.selection, Model.rows(model)) || 0
     %{model | selected: selected, scroll: entry.scroll, scrolls: entry.scrolls, part: entry.part}
   end
 
@@ -388,14 +435,11 @@ defmodule AtlasTui.Console do
     %{model | console: %{model.console | active: active && active["id"]}}
   end
 
-  defp row_identity(nil), do: nil
-  defp row_identity(row), do: row.to || row.id
-
   defp remember_selection(model) do
     tabs = if model.console.shell, do: model.console.shell["tabs"], else: []
 
     if Enum.any?(tabs, &(&1["to"] == model.path)) do
-      selected = row_identity(Enum.at(Model.rows(model), model.selected))
+      selected = Selection.of(Model.rows(model), model.selected)
 
       selections =
         model.console.selections
@@ -408,17 +452,8 @@ defmodule AtlasTui.Console do
     end
   end
 
-  defp restored_selection(model) do
-    identity = model.console.selections[model.path]
-    Enum.find_index(Model.rows(model), &(row_identity(&1) == identity)) || 0
-  end
-
-  defp stable_selection(before, after_model) do
-    identity = row_identity(Enum.at(Model.rows(before), before.selected))
-
-    Enum.find_index(Model.rows(after_model), &(row_identity(&1) == identity)) ||
-      after_model.selected
-  end
+  defp restored_selection(model),
+    do: Selection.after_replace(model.console.selections[model.path], Model.rows(model)) || 0
 
   defp validate_shell(%{"error" => error}, _env) when is_binary(error),
     do: {:error, error |> String.slice(0, 512) |> String.replace(~r/[\x00-\x1f\x7f]/, " ")}

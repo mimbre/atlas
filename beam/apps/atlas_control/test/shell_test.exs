@@ -51,7 +51,7 @@ defmodule AtlasControl.ShellTest do
     send_message(
       s,
       Map.merge(
-        Protocol.message(:hello, :hello, env: "test", client: "test", spec: "0.14.0"),
+        Protocol.message(:hello, :hello, env: "test", client: "test", spec: "0.15.0"),
         overrides
       )
     )
@@ -60,7 +60,7 @@ defmodule AtlasControl.ShellTest do
   defp connected(port) do
     s = socket(port)
     hello(s)
-    assert %{"op" => "welcome", "spec" => "0.14.0"} = receive_message(s)
+    assert %{"op" => "welcome", "spec" => "0.15.0"} = receive_message(s)
     assert %{"op" => "page"} = receive_message(s)
     s
   end

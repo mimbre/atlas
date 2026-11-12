@@ -126,8 +126,9 @@ defmodule AtlasTui.Interactions do
             (model.console.legend != nil and
                operation["name"] in ~w(legend_close scroll_up scroll_down page_previous page_next))
 
+        # While a page is asked for, only the page kept for it (back, a tab) takes actions.
         pending_allowed =
-          is_nil(model.console.expected) or
+          model.console.expected in [nil, model.path] or
             operation["name"] in ["tab_next", "tab_previous", "quit"]
 
         if pending_allowed && AtlasTui.WorkerConversation.action_available?(model, operation) &&

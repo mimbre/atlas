@@ -23,7 +23,11 @@ defmodule AtlasBFFContract.Contract do
   # 0.13.0: failure pages, in the test environment only (IS-Atlas-23): what can be made
   # to fail on a page, and a confirm that causes one.
   # 0.14.0: the current turn and its outcome, through Control (IS-Atlas-19).
-  version "0.14.0"
+  # 0.15.0: page freshness (docs/design/page-freshness.md §3): a row says the fact it
+  # opens (`key`) and whether a write to it is still being processed (`pending`); Control
+  # pushes pages for recently viewed paths too (`hint`), and marker overlays (`pending`);
+  # `position` is the page's version per path, which a client caches pages by.
+  version "0.15.0"
 
   use AtlasBFFContract.Blocks
   use AtlasBFFContract.Pages
