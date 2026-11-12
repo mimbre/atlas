@@ -59,15 +59,24 @@ defmodule AtlasFlow.Runs.Store do
   def reconcile(config, flows, now) do
     with {:ok, restored} <- restore(config, flows, now),
          {:ok, runs} <- scan(config, flows, now, restored) do
-      {:ok, runs |> Map.new(&{&1["key"], &1}) |> Map.values()}
+      {:ok,
+       runs
+       |> Enum.group_by(&{&1["flow"], &1["subject_key"]})
+       |> Enum.map(fn {_, group} -> Enum.max_by(group, & &1["generation"]) end)}
     end
   end
 
   defp restore(config, flows, now) do
-    with %{"facts" => facts} <- Talk.read(config["kind"], %{}),
+    with %{"facts" => facts} <- Talk.transition_read(config["kind"], %{}),
          decoded = Enum.map(facts, &decode(config, &1)),
          true <- Enum.all?(decoded, &match?({:ok, _}, &1)) do
       runs = for {:ok, run} <- decoded, Map.has_key?(config["selection"], run["flow"]), do: run
+
+      runs =
+        runs
+        |> Enum.group_by(&{&1["flow"], &1["subject_kind"], &1["subject_key"]})
+        |> Enum.map(fn {_, group} -> Enum.max_by(group, & &1["generation"]) end)
+
       drifted = Enum.find(runs, &(&1["definition_sha256"] != Run.digest(flows[&1["flow"]])))
 
       if drifted do
@@ -87,7 +96,7 @@ defmodule AtlasFlow.Runs.Store do
 
   defp scan(config, flows, now, restored) do
     Enum.reduce_while(config["selection"], {:ok, restored}, fn {name, selection}, {:ok, runs} ->
-      case Talk.read(selection["subject"], %{}) do
+      case Talk.transition_read(selection["subject"], %{}) do
         %{"facts" => subjects} = answer ->
           subjects =
             Enum.map(
@@ -98,7 +107,7 @@ defmodule AtlasFlow.Runs.Store do
           result =
             Enum.reduce_while(subjects, {:ok, runs}, fn subject, {:ok, acc} ->
               if Run.holds?(selection["admission"], subject["values"] || %{}) do
-                case reconcile_subject(config, name, flows[name], selection, subject, now) do
+                case reconcile_subject(config, name, flows[name], selection, subject, now, acc) do
                   {:ok, run} -> {:cont, {:ok, [run | acc]}}
                   error -> {:halt, error}
                 end
@@ -118,8 +127,11 @@ defmodule AtlasFlow.Runs.Store do
     end)
   end
 
-  defp reconcile_subject(config, name, flow, selection, subject, now) do
-    key = Run.key(name, flow["subject"], subject["key"], 1)
+  defp reconcile_subject(config, name, flow, selection, subject, now, restored) do
+    existing = Enum.find(restored, &(&1["flow"] == name and &1["subject_key"] == subject["key"]))
+
+    key =
+      if existing, do: existing["key"], else: Run.key(name, flow["subject"], subject["key"], 1)
 
     with {:ok, fact} <- fetch(config, key) do
       if fact == nil do
@@ -158,20 +170,26 @@ defmodule AtlasFlow.Runs.Store do
           end
 
         [] ->
-          # Fresh Facts snapshot immediately before considering a timeout.
-          case Talk.read(run["subject_kind"], %{"key" => run["subject_key"], "plain" => true}) do
-            %{"fact" => %{} = subject} = answer ->
-              subject =
-                Map.put(subject, "position", answer["position"] || subject["position"] || 0)
+          with :ok <- consume_input(config["inputs"], run),
+               {:ok, inputs} <- read_inputs(config["inputs"], run) do
+            # Recover prepared writes first, then fetch the subject's current ETag.
+            case Talk.transition_read(run["subject_kind"], %{
+                   "key" => run["subject_key"],
+                   "plain" => true
+                 }) do
+              %{"fact" => %{} = subject} = answer ->
+                subject =
+                  Map.put(subject, "position", answer["position"] || subject["position"] || 0)
 
-              with {:ok, updated} <- Run.step(run, flow, subject, now) do
-                if updated == run,
-                  do: {:ok, run},
-                  else: advance(config, fact, run, updated, flow, now, remaining)
-              end
+                with {:ok, updated} <- Run.step(run, flow, subject, now, inputs) do
+                  if updated == run,
+                    do: {:ok, run},
+                    else: advance(config, fact, run, updated, flow, now, remaining)
+                end
 
-            other ->
-              {:error, {:subject_unavailable, other}}
+              other ->
+                {:error, {:subject_unavailable, other}}
+            end
           end
       end
     else
@@ -181,6 +199,22 @@ defmodule AtlasFlow.Runs.Store do
   end
 
   defp advance(config, fact, old, updated, flow, now, remaining) do
+    if old["key"] != updated["key"] do
+      content = %{
+        "op" => "create",
+        "key" => updated["key"],
+        "values" => encode(config, updated),
+        "by" => config["writer"]["by"]
+      }
+
+      Talk.put(config["kind"], content, Run.digest({updated["key"], "create"}))
+      drain(config, updated["key"], flow, now, remaining - 1)
+    else
+      advance_same(config, fact, old, updated, flow, now, remaining)
+    end
+  end
+
+  defp advance_same(config, fact, old, updated, flow, now, remaining) do
     values = encode(config, updated)
 
     content = %{
@@ -198,9 +232,37 @@ defmodule AtlasFlow.Runs.Store do
   end
 
   defp fetch(config, key) do
-    case Talk.read(config["kind"], %{"key" => key, "plain" => true}) do
+    case Talk.transition_read(config["kind"], %{"key" => key, "plain" => true}) do
       %{"fact" => fact} -> {:ok, fact}
       other -> {:error, other}
+    end
+  end
+
+  defp read_inputs(nil, _run), do: {:ok, []}
+
+  defp read_inputs(config, run) do
+    case Talk.read(config["kind"], %{"run" => run["key"]}) do
+      %{"inputs" => inputs} -> {:ok, inputs}
+      other -> {:error, {:inputs_unavailable, other}}
+    end
+  end
+
+  defp consume_input(nil, _run), do: :ok
+
+  defp consume_input(config, run) do
+    case run["last_input"]["input"] do
+      nil ->
+        :ok
+
+      key ->
+        case Talk.put(
+               config["kind"],
+               %{"op" => "consume", "key" => key, "run" => run["key"]},
+               AtlasBus.Digest.of_term([key, "consume"])
+             ) do
+          {:stored, _} -> :ok
+          other -> {:error, {:consume, other}}
+        end
     end
   end
 

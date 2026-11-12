@@ -76,6 +76,7 @@ defmodule AtlasFacts.Server do
        ledger: Ledger.open(dir),
        links: Links.open(dir),
        description: nil,
+       input_clock: Keyword.get(opts, :flow_input_clock, fn -> DateTime.utc_now() end),
        extra: Keyword.get(opts, :description_extra),
        flow_runtime:
          Keyword.get(opts, :flow_runtime, Application.get_env(:atlas_facts, :flow_runtime))
@@ -131,6 +132,103 @@ defmodule AtlasFacts.Server do
   end
 
   defp dispatch(envelope, content, state) do
+    input_protocol? = envelope.class == "fact" or match?(%{"run" => _}, content)
+
+    if AtlasFacts.FlowInputs.kind?(state.description || %{}, envelope.kind) and input_protocol? do
+      flow_input(envelope, content, state)
+    else
+      dispatch_ordinary(envelope, content, state)
+    end
+  end
+
+  defp flow_input(envelope, content, state) do
+    rela = AtlasFacts.Collections.uncached(state.rela)
+
+    write = fn kind, content, request_id ->
+      id = AtlasBus.Digest.of_term(["input-subject-write", request_id])
+
+      proof = %{
+        "request_id" => request_id,
+        "payload_digest" => AtlasBus.Digest.of_term([kind, content])
+      }
+
+      case Ledger.answer(state.ledger, id) do
+        {"stored", ^proof, _position} ->
+          :ok
+
+        nil ->
+          {result, _} =
+            store(Map.put(%{state | rela: rela}, :sender, envelope.sender), kind, content)
+
+          case result do
+            :stored ->
+              Ledger.stored(state.ledger, id, proof)
+              :ok
+
+            other ->
+              {:error, {:subject_write, other}}
+          end
+
+        _ ->
+          {:error, :request_conflict}
+      end
+    end
+
+    authorize = fn kind, content, _request_id ->
+      {result, _} =
+        store(
+          %{state | rela: rela}
+          |> Map.put(:sender, envelope.sender)
+          |> Map.put(:validate_only, true),
+          kind,
+          content
+        )
+
+      case result do
+        :stored -> :ok
+        other -> {:error, {:subject_authority, other}}
+      end
+    end
+
+    args = [
+      rela,
+      state.description,
+      envelope,
+      content,
+      state.input_clock,
+      fn -> Ledger.reserve(state.ledger) end,
+      %{authorize: authorize, apply: write}
+    ]
+
+    result =
+      try do
+        apply(AtlasFacts.FlowInputs, if(envelope.class == "read", do: :read, else: :write), args)
+      rescue
+        _ -> {:error, :invalid_input_record}
+      end
+
+    case result do
+      {:ok, value} ->
+        reply(
+          envelope,
+          if(envelope.class == "read", do: "answer", else: "stored"),
+          value,
+          value["position"]
+        )
+
+      {:error, reason} ->
+        reply(
+          envelope,
+          if(envelope.class == "read", do: "answer", else: "refused"),
+          %{"error" => inspect(reason), "reasons" => [inspect(reason)]},
+          nil
+        )
+    end
+
+    {:noreply, state}
+  end
+
+  defp dispatch_ordinary(envelope, content, state) do
     case AtlasFacts.Guidance.role(state.description || %{}, envelope.kind) do
       nil ->
         if envelope.class == "fact" do
@@ -310,7 +408,16 @@ defmodule AtlasFacts.Server do
   end
 
   defp ordinary(%Envelope{class: "read"} = envelope, content, state) do
+    original = state.rela
+
+    state =
+      if content["consistency"] == "transition",
+        do: %{state | rela: AtlasFacts.Collections.uncached(original)},
+        else: state
+
     {answer, state} = read(state, envelope.kind, content || %{})
+    state = %{state | rela: original}
+
     reply(envelope, "answer", Map.put(answer, "position", Ledger.position(state.ledger)), nil)
     {:noreply, state}
   end
@@ -676,13 +783,22 @@ defmodule AtlasFacts.Server do
                    :ok <- targets_exist(state, op, targets),
                    :ok <- not_a_part(state, kind, op, key),
                    rules = Guards.of(state.description, kind),
-                   :ok <- guarded(state, spec, rules, op, key, values, targets, content["by"]) do
+                   :ok <- guarded(state, spec, rules, op, key, values, targets, content["by"]),
+                   :ok <-
+                     AtlasFacts.FlowInputs.fence(state.rela, state.description, kind, key, values) do
                 parts = Components.of(state.description, kind, key)
                 was = content["was"]
 
-                state
-                |> write(spec, op, key, values, content["version"], targets, was, parts)
-                |> replace(state, spec, rules, op, key)
+                if state[:validate_only] do
+                  case Description.check(spec, values, :change) do
+                    :ok -> :stored
+                    {:error, problems} -> {:refused, problems}
+                  end
+                else
+                  state
+                  |> write(spec, op, key, values, content["version"], targets, was, parts)
+                  |> replace(state, spec, rules, op, key)
+                end
               end
 
             {:error, problems} ->

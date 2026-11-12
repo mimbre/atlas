@@ -76,6 +76,32 @@
           }
         }
       }
+    },
+    "inputs": {
+      "kind": "flow_input",
+      "fields": {
+        "request_id": "request_id",
+        "run": "run",
+        "flow": "flow",
+        "subject_kind": "subject_kind",
+        "subject_key": "subject_key",
+        "generation": "generation",
+        "entry": "entry",
+        "source_version": "source_version",
+        "subject_version": "subject_version",
+        "actor": "actor",
+        "roles": "roles",
+        "changed_fields": "changed_fields",
+        "payload_digest": "payload_digest",
+        "status": "status",
+        "position": "position",
+        "prepared_at": "prepared_at",
+        "applied_at": "applied_at"
+      },
+      "acl": {
+      },
+      "roles": {
+      }
     }
   }
 }

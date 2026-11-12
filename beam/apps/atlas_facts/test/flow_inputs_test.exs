@@ -1,0 +1,420 @@
+defmodule AtlasFacts.FlowInputsTest do
+  use ExUnit.Case, async: false
+  alias AtlasBus.Envelope
+  alias AtlasFacts.{FlowInputs, Rela}
+  @now ~U[2026-11-12 00:00:00Z]
+
+  defmodule Backend do
+    def description(_), do: {:ok, AtlasFacts.FlowInputsTest.description()}
+
+    def get(pid, plural, key) do
+      with {:ok, fact} <- AtlasFacts.FakeRela.get(pid, plural, key),
+           do: {:ok, %{fact | properties: Map.delete(fact.properties, "title")}}
+    end
+
+    def list(pid, plural) do
+      with {:ok, facts} <- AtlasFacts.FakeRela.list(pid, plural) do
+        {:ok, for(f <- facts, {:ok, own} <- [get(pid, plural, f.key)], do: own)}
+      end
+    end
+
+    def create(pid, plural, key, values, links),
+      do: AtlasFacts.FakeRela.create(pid, plural, key, Map.put(values, "title", "Record"), links)
+
+    def change(pid, plural, key, values, version, links),
+      do: AtlasFacts.FakeRela.change(pid, plural, key, values, version, links)
+
+    def check_create(_, _, _, _, _), do: {:ok, []}
+    defdelegate incoming(pid, plural, key, relation), to: AtlasFacts.FakeRela
+    defdelegate delete(pid, plural, key, version), to: AtlasFacts.FakeRela
+  end
+
+  def description do
+    fields = Map.new(AtlasFacts.FlowRuntime.fields(), &{&1, &1})
+
+    props =
+      Map.new(fields, fn {slot, field} ->
+        {field,
+         %{"type" => if(slot in ~w(entry generation input_cursor), do: "integer", else: "string")}}
+      end)
+
+    d = %{"entities" => %{"cursor" => %{"properties" => props}}}
+
+    config = %{
+      "version" => 1,
+      "kind" => "cursor",
+      "fields" => fields,
+      "writer" => %{"sender" => "flow", "by" => "flow"},
+      "selection" => %{}
+    }
+
+    config =
+      config
+      |> Map.put("selection", %{})
+      |> Map.put("inputs", %{
+        "kind" => "choice",
+        "fields" => Map.new(FlowInputs.fields(), &{&1, &1}),
+        "acl" => %{"clerk" => %{"update" => ["box"]}},
+        "roles" => %{"clerk" => "chosen_by"}
+      })
+
+    props =
+      Map.new(
+        FlowInputs.fields(),
+        &{&1, %{"type" => if(&1 in ~w(entry generation position), do: "integer", else: "string")}}
+      )
+
+    d
+    |> put_in(["entities", "cursor", "plural"], "cursors")
+    |> put_in(["entities", "choice"], %{"plural" => "choices", "properties" => props})
+    |> put_in(["entities", "box"], %{
+      "plural" => "boxes",
+      "properties" => %{"choice" => %{"type" => "string"}, "phase" => %{"type" => "string"}}
+    })
+    |> put_in(["entities", "clerk"], %{"plural" => "clerks", "properties" => %{}})
+    |> Map.put("relations", %{"chosen_by" => %{"from" => ["box"], "to" => ["clerk"]}})
+    |> Map.put("flows", %{})
+    |> Map.put("flow_runtime", config)
+  end
+
+  setup do
+    pid = AtlasFacts.FakeRela.start()
+    on_exit(fn -> if Process.alive?(pid), do: Agent.stop(pid) end)
+    rela = {Backend, pid}
+    d = description()
+    :ok = FlowInputs.validate(d, d["flow_runtime"]["inputs"])
+    {:ok, []} = Rela.create(rela, "clerks", "ada", %{}, %{})
+
+    {:ok, []} =
+      Rela.create(rela, "boxes", "B-1", %{"choice" => "none"}, %{
+        "chosen_by" => {"clerk", ["ada"]}
+      })
+
+    {:ok, subject} = Rela.get(rela, "boxes", "B-1")
+
+    run = %{
+      "flow" => "sort",
+      "subject_kind" => "box",
+      "subject_key" => "B-1",
+      "generation" => 1,
+      "entry" => 1,
+      "status" => "active",
+      "pending" => JSON.encode!(%{"version" => 1, "writes" => []}),
+      "last_input" => JSON.encode!(%{"version" => 1}),
+      "input_cursor" => 0
+    }
+
+    {:ok, []} = Rela.create(rela, "cursors", "R-1", run, %{})
+    counter = start_supervised!({Agent, fn -> 0 end})
+    position = fn -> Agent.get_and_update(counter, &{&1 + 1, &1 + 1}) end
+
+    write = fn "box", c, _ ->
+      case Rela.change(rela, "boxes", c["key"], c["values"], c["version"], %{}) do
+        {:ok, []} -> :ok
+        other -> other
+      end
+    end
+
+    v = %{
+      "entry" => 1,
+      "request_id" => "choice-1",
+      "run" => "R-1",
+      "source_version" => subject.version,
+      "changed_fields" => %{"choice" => "yes"}
+    }
+
+    %{
+      rela: rela,
+      d: d,
+      v: v,
+      position: position,
+      write: %{authorize: fn _, _, _ -> :ok end, apply: write}
+    }
+  end
+
+  defp submit(c, v \\ nil, actor \\ "ada", sender \\ "control/session-test", write \\ nil) do
+    FlowInputs.write(
+      c.rela,
+      c.d,
+      %{Envelope.new("fact", "choice") | sender: sender},
+      %{"op" => "submit", "by" => actor, "values" => v || c.v},
+      fn -> @now end,
+      c.position,
+      if(write, do: %{c.write | apply: write}, else: c.write)
+    )
+  end
+
+  test "only trusted Control and relation-derived roles under selected ACL authorize inputs", c do
+    assert {:error, :input_authority} = submit(c, nil, "ada", "client")
+    assert {:error, :input_authority} = submit(c, Map.put(c.v, "roles", ["clerk"]))
+    assert {:error, :stale_or_unauthorized_input} = submit(c, nil, "stranger")
+    empty_acl = put_in(c.d, ["flow_runtime", "inputs", "acl", "clerk", "update"], [])
+    assert {:error, :stale_or_unauthorized_input} = submit(%{c | d: empty_acl})
+    assert {:ok, accepted} = submit(c)
+    assert accepted["roles"] == ["clerk"]
+    assert accepted["actor"] == "ada"
+    assert accepted["status"] == "applied"
+    assert {:ok, subject} = Rela.get(c.rela, "boxes", "B-1")
+    assert subject.properties["choice"] == "yes"
+    assert accepted["subject_version"] == subject.version
+  end
+
+  test "replay returns original operation and changed payload or stale version refuses", c do
+    assert {:ok, first} = submit(c)
+    assert {:ok, ^first} = submit(c)
+    {:ok, current} = Rela.get(c.rela, "cursors", "R-1")
+    {:ok, []} = Rela.change(c.rela, "cursors", "R-1", %{"entry" => 2}, current.version, %{})
+    assert {:ok, ^first} = submit(c)
+
+    assert {:error, :request_conflict} =
+             submit(c, put_in(c.v, ["changed_fields", "choice"], "no"))
+
+    assert {:error, :stale_or_unauthorized_input} =
+             submit(c, c.v |> Map.put("request_id", "choice-2") |> Map.put("entry", 2))
+  end
+
+  test "restart recovers a persisted prepare and refuses ambiguous recovery", c do
+    assert {:error, :interrupted} =
+             submit(c, nil, "ada", "control/session-test", fn _, _, _ ->
+               {:error, :interrupted}
+             end)
+
+    assert {:ok, [prepared]} = Rela.list(c.rela, "choices")
+    assert prepared.properties["status"] == "prepared"
+    assert {:ok, recovered} = submit(c)
+    assert recovered["status"] == "applied"
+    assert recovered["request_id"] == "choice-1"
+    assert recovered["position"] == prepared.properties["position"]
+  end
+
+  test "commit before acknowledgement recovers matching prepared request and values", c do
+    assert {:error, :lost_ack} =
+             submit(c, nil, "ada", "control/session-test", fn kind, content, id ->
+               :ok = c.write.apply.(kind, content, id)
+               {:error, :lost_ack}
+             end)
+
+    assert {:ok, applied} =
+             submit(c, nil, "ada", "control/session-test", fn _, _, _ ->
+               assert {:ok, subject} = Rela.get(c.rela, "boxes", "B-1")
+               assert subject.properties["choice"] == "yes"
+               :ok
+             end)
+
+    assert applied["status"] == "applied"
+  end
+
+  test "consume requires the committed run cursor; applied choices survive a reader restart", c do
+    {:ok, applied} = submit(c)
+    flow = %{Envelope.new("read", "choice") | sender: "flow"}
+
+    assert {:ok, %{"inputs" => [^applied]}} =
+             FlowInputs.read(
+               c.rela,
+               c.d,
+               flow,
+               %{"run" => "R-1"},
+               fn -> @now end,
+               c.position,
+               c.write
+             )
+
+    content = %{"op" => "consume", "key" => applied["key"], "run" => "R-1"}
+
+    assert {:error, :input_authority} =
+             FlowInputs.write(c.rela, c.d, flow, content, fn -> @now end, c.position, c.write)
+
+    {:ok, run} = Rela.get(c.rela, "cursors", "R-1")
+
+    {:ok, []} =
+      Rela.change(
+        c.rela,
+        "cursors",
+        "R-1",
+        %{
+          "last_input" => JSON.encode!(%{"version" => 1, "input" => applied["key"]}),
+          "input_cursor" => applied["position"]
+        },
+        run.version,
+        %{}
+      )
+
+    assert {:ok, %{"status" => "consumed"}} =
+             FlowInputs.write(c.rela, c.d, flow, content, fn -> @now end, c.position, c.write)
+  end
+
+  test "a timeout claim is fenced by an earlier prepared input, including after a restart", c do
+    assert {:error, :interrupted} =
+             submit(c, nil, "ada", "control/session-test", fn _, _, _ ->
+               {:error, :interrupted}
+             end)
+
+    claim = %{
+      "last_input" =>
+        JSON.encode!(%{
+          "version" => 1,
+          "entry" => 1,
+          "name" => "due",
+          "due" => "2026-11-12T00:05:00Z"
+        })
+    }
+
+    assert {:refused, _} = FlowInputs.fence(c.rela, c.d, "cursor", "R-1", claim)
+    {:ok, input} = submit(c)
+    assert {:refused, _} = FlowInputs.fence(c.rela, c.d, "cursor", "R-1", claim)
+    {:ok, current} = Rela.get(c.rela, "cursors", "R-1")
+
+    {:ok, []} =
+      Rela.change(
+        c.rela,
+        "cursors",
+        "R-1",
+        %{"input_cursor" => input["position"]},
+        current.version,
+        %{}
+      )
+
+    assert :ok = FlowInputs.fence(c.rela, c.d, "cursor", "R-1", claim)
+  end
+
+  test "inputs name the exact entry, and refused subject authority leaves no prepare", c do
+    assert {:error, :stale_or_unauthorized_input} = submit(c, Map.put(c.v, "entry", 0))
+    callbacks = %{c.write | authorize: fn _, _, _ -> {:error, :subject_authority} end}
+    assert {:error, :subject_authority} = submit(%{c | write: callbacks})
+    assert {:ok, []} = Rela.list(c.rela, "choices")
+  end
+
+  @tag :tmp_dir
+  test "Control can list and get input records without recovering or consuming them", c do
+    Application.put_env(:atlas_bus, :store, "input-browse-#{System.unique_integer([:positive])}")
+    fragment = Path.join(c.tmp_dir, "flow-runtime.json")
+    File.write!(fragment, JSON.encode!(Map.take(c.d, ["flow_runtime"])))
+
+    facts =
+      start_supervised!(
+        {AtlasFacts.Server,
+         rela: c.rela,
+         data_dir: c.tmp_dir,
+         flow_runtime: fragment,
+         flow_input_clock: fn -> @now end}
+      )
+
+    :ok = AtlasBus.attach("control/session-browse")
+
+    request = fn class, content ->
+      envelope = Envelope.new(class, c.d["flow_runtime"]["inputs"]["kind"])
+      id = envelope.id
+      :ok = AtlasBus.send(envelope, content)
+      assert_receive {:atlas_bus, %Envelope{id: ^id, class: reply}, answer}
+      {reply, answer}
+    end
+
+    assert {"answer", %{"facts" => []}} = request.("read", %{})
+
+    assert {:error, :interrupted} =
+             submit(c, nil, "ada", "control/session-test", fn _, _, _ ->
+               {:error, :interrupted}
+             end)
+
+    # The private fixture wrote directly to the backend, outside Facts' invalidation.
+    :ok = AtlasFacts.Server.flush_collections(facts)
+
+    assert {"answer", %{"facts" => [record]}} = request.("read", %{})
+    assert record["values"]["status"] == "prepared"
+
+    assert {"answer", %{"fact" => ^record}} =
+             request.("read", %{"key" => record["key"], "plain" => true})
+
+    assert {"answer", %{"fact" => %{"key" => key, "values" => values}}} =
+             request.("read", %{"key" => record["key"]})
+
+    assert key == record["key"] and values["status"] == "prepared"
+    assert {:ok, subject} = Rela.get(c.rela, "boxes", "B-1")
+    assert subject.properties["choice"] == "none"
+    assert {"answer", %{"error" => ":input_authority"}} = request.("read", %{"run" => "R-1"})
+
+    for op <- ~w(create change delete) do
+      assert {"refused", _} =
+               request.("fact", %{"op" => op, "key" => record["key"], "values" => %{}})
+    end
+  end
+
+  @tag :tmp_dir
+  test "transition reads bypass a primed collection and return the current version", c do
+    Application.put_env(:atlas_bus, :store, "input-reads-#{System.unique_integer([:positive])}")
+    fragment = Path.join(c.tmp_dir, "flow-runtime.json")
+    File.write!(fragment, JSON.encode!(Map.take(c.d, ["flow_runtime"])))
+
+    start_supervised!(
+      {AtlasFacts.Server,
+       rela: c.rela, data_dir: c.tmp_dir, flow_runtime: fragment, flow_input_clock: fn -> @now end}
+    )
+
+    :ok = AtlasBus.attach("flow")
+
+    read = fn kind, content ->
+      e = Envelope.new("read", kind)
+      id = e.id
+      :ok = AtlasBus.send(e, content)
+      assert_receive {:atlas_bus, %Envelope{id: ^id, class: "answer"}, answer}
+      answer
+    end
+
+    assert %{"facts" => [_]} = read.("cursor", %{})
+    {:ok, old} = Rela.get(c.rela, "cursors", "R-1")
+    {:ok, []} = Rela.change(c.rela, "cursors", "R-1", %{"state" => "fresh"}, old.version, %{})
+
+    assert %{"fact" => %{"version" => stale}} =
+             read.("cursor", %{"key" => "R-1", "incoming" => false})
+
+    assert stale == old.version
+
+    assert %{"fact" => %{"version" => fresh, "values" => %{"state" => "fresh"}}} =
+             read.("cursor", %{"key" => "R-1", "plain" => true, "consistency" => "transition"})
+
+    assert fresh != stale
+    assert {:ok, accepted} = submit(c)
+    assert %{"inputs" => [^accepted]} = read.("choice", %{"run" => "R-1"})
+  end
+
+  @tag :tmp_dir
+  test "Facts endpoint refuses forged roles and ordinary writes; authorized submit passes real guards",
+       c do
+    Application.put_env(
+      :atlas_bus,
+      :store,
+      "input-authority-#{System.unique_integer([:positive])}"
+    )
+
+    fragment = Path.join(c.tmp_dir, "flow-runtime.json")
+    File.write!(fragment, JSON.encode!(Map.take(c.d, ["flow_runtime"])))
+
+    start_supervised!(
+      {AtlasFacts.Server,
+       rela: c.rela, data_dir: c.tmp_dir, flow_runtime: fragment, flow_input_clock: fn -> @now end}
+    )
+
+    :ok = AtlasBus.attach("client")
+
+    for content <- [
+          %{"op" => "create", "key" => "fake", "values" => %{"roles" => "[\"clerk\"]"}},
+          %{"op" => "submit", "by" => "ada", "values" => Map.put(c.v, "roles", ["clerk"])},
+          %{"op" => "submit", "by" => "ada", "values" => c.v}
+        ] do
+      e = Envelope.new("fact", "choice")
+      id = e.id
+      :ok = AtlasBus.send(e, content)
+      assert_receive {:atlas_bus, %Envelope{id: ^id, class: "refused"}, _}
+    end
+
+    Registry.unregister(AtlasBus.Endpoints, "client")
+    :ok = AtlasBus.attach("control/session-proof")
+
+    for {actor, class} <- [{"stranger", "refused"}, {"ada", "stored"}] do
+      e = Envelope.new("fact", "choice")
+      id = e.id
+      :ok = AtlasBus.send(e, %{"op" => "submit", "by" => actor, "values" => c.v})
+      assert_receive {:atlas_bus, %Envelope{id: ^id, class: ^class}, _}
+    end
+  end
+end

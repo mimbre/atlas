@@ -558,6 +558,10 @@
       "top": false,
       "by_hand": false
     },
+    "flow_input": {
+      "top": false,
+      "by_hand": false
+    },
     "agent_request": {
       "agent": "request",
       "top": false,

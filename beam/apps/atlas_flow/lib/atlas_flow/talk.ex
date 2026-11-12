@@ -11,6 +11,9 @@ defmodule AtlasFlow.Talk do
   @tries 3
 
   @doc "Read: Facts' answer, or `%{\"error\" => …}`."
+  def transition_read(kind, content),
+    do: read(kind, Map.put(content, "consistency", "transition"))
+
   def read(kind, content), do: read(kind, content, @tries)
 
   defp read(_kind, _content, 0), do: %{"error" => "Facts did not answer"}

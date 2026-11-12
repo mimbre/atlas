@@ -129,6 +129,33 @@ defmodule AtlasFlowGenerator.AtlasTest do
            ]
   end
 
+  test "typed choices stay distinct from snapshot branches; starts and resets survive generation" do
+    letter = JSON.decode!(json())["flows"]["letter"]
+
+    assert letter["start"] == [
+             %{"on" => "create"},
+             %{"on" => "predicate", "when" => "entity.kind == 'reply'"}
+           ]
+
+    assert letter["states"]["stuck"]["waiting_for"] == ["editor"]
+    assert letter["states"]["stuck"]["set"] == [%{"field" => "choice", "value" => "none"}]
+    assert Enum.any?(letter["states"]["stuck"]["branches"], &(&1["roles"] == ["editor"]))
+    assert letter["states"]["answered"]["set"] == [%{"field" => "archived", "value" => true}]
+    [flow] = Example.__flows__()
+    [first | rest] = flow.states
+
+    first = %{
+      first
+      | timers: [%{name: :due, period: "5m", to: :stuck, since: :opened_at, label: nil}]
+    }
+
+    generated = JSON.decode!(json([%{flow | states: [first | rest]}]))
+
+    assert generated["flows"]["letter"]["states"]["draft"]["timers"] == [
+             %{"name" => "due", "period" => "5m", "to" => "stuck", "since" => "opened_at"}
+           ]
+  end
+
   # Small maps with atom keys iterate in atom-table order (OTP 26+), which differs
   # between two VMs that created their atoms in another order. A second VM creates
   # every word of the file first, in reverse order, then writes the file again.
