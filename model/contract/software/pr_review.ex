@@ -18,8 +18,8 @@ defmodule Model.PrReview do
     * no pass yet: a pass with the person needs Flow to resolve the reviewer's Runtime
       and a materialized revision, which it cannot; a pass it cannot run would refuse
       every selected subflow;
-    * `superseded` is taken as it is written (no role): nothing writes it as Atlas yet
-      (the pull request's own run, slice 8, will).
+    * `superseded` is taken as it is written (no role): nothing writes it as Atlas; a
+      run cannot write a field on its child, so it is set by hand.
   """
   use RelaDSL
 

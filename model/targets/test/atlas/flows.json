@@ -1251,28 +1251,6 @@
         }
       ],
       "states": {
-        "blocked": {
-          "awaits": [],
-          "branches": [
-            {
-              "roles": ["maintainer"],
-              "to": "integrating",
-              "when": "entity.integration == 'retry'"
-            },
-            {
-              "roles": ["maintainer"],
-              "to": "closed",
-              "when": "entity.state == 'closed'"
-            }
-          ],
-          "creates": [],
-          "final": false,
-          "label": "Integration needs a person",
-          "set": [],
-          "status": "input_required",
-          "timers": [],
-          "waiting_for": ["maintainer"]
-        },
         "changes_requested": {
           "awaits": [],
           "branches": [
@@ -1282,7 +1260,12 @@
               "when": "entity.state == 'closed'"
             },
             {
-              "roles": ["atlas-flow"],
+              "roles": [],
+              "to": "integrated",
+              "when": "entity.state == 'merged'"
+            },
+            {
+              "roles": [],
               "to": "checking",
               "when": "entity.update == 'updated'"
             }
@@ -1290,6 +1273,13 @@
           "creates": [],
           "final": false,
           "label": "Changes requested",
+          "present": {
+            "expected": "Make the changes asked for",
+            "todo": {
+              "instructions": "Push a revision that makes them, set revision to its head commit and update to updated; its review and test start again."
+            },
+            "why": "its review requested changes or its test failed"
+          },
           "set": [],
           "timers": [],
           "waiting_for": []
@@ -1301,6 +1291,11 @@
               "roles": [],
               "to": "closed",
               "when": "entity.state == 'closed'"
+            },
+            {
+              "roles": [],
+              "to": "integrated",
+              "when": "entity.state == 'merged'"
             },
             {
               "roles": ["atlas-flow"],
@@ -1318,22 +1313,7 @@
               "when": "entity.review_outcome == 'approved' and entity.test_outcome == 'passed'"
             }
           ],
-          "creates": [
-            {
-              "properties": {
-                "title": "Review of {{subject.id}}"
-              },
-              "relate": "review_of",
-              "type": "pr_review"
-            },
-            {
-              "properties": {
-                "title": "Test of {{subject.id}}"
-              },
-              "relate": "test_of",
-              "type": "pr_test"
-            }
-          ],
+          "creates": [],
           "final": false,
           "label": "Review and test",
           "present": {
@@ -1385,42 +1365,28 @@
           "awaits": [],
           "branches": [
             {
-              "roles": ["atlas-flow"],
+              "roles": [],
               "to": "integrated",
-              "when": "entity.integration == 'done'"
+              "when": "entity.state == 'merged'"
             },
             {
-              "roles": ["atlas-flow"],
-              "to": "blocked",
-              "when": "entity.integration == 'refused'"
+              "roles": [],
+              "to": "closed",
+              "when": "entity.state == 'closed'"
             }
           ],
           "creates": [],
           "final": false,
-          "kind": "effect",
           "label": "Integrate",
-          "set": [
-            {
-              "field": "integration",
-              "value": "none"
-            }
-          ],
-          "spec": {
-            "action": "integrate",
-            "field": "integration",
-            "fingerprint": ["current_change", true],
-            "gate": "integrate",
-            "service": "code",
-            "target": ["resolve", true]
+          "present": {
+            "expected": "Merge it",
+            "todo": {
+              "instructions": "Merge the reviewed and tested revision, or close it."
+            },
+            "why": "its review approved and its test passed"
           },
-          "timers": [
-            {
-              "label": "Code did not answer within an hour",
-              "name": "no_effect",
-              "period": "1h",
-              "to": "blocked"
-            }
-          ],
+          "set": [],
+          "timers": [],
           "waiting_for": []
         }
       },
@@ -2025,6 +1991,6 @@
       "version": 1
     }
   },
-  "rela_flows_sha256": "05022753c203adc0e45a926d36b15cce1c13367581e5f3d5bccb32860b639278",
+  "rela_flows_sha256": "32c4b69623b573de08b69a3f983b6a018be047b0554c9172a597fa0412b6110c",
   "writer": "system:atlas-flow"
 }

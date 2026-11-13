@@ -401,7 +401,7 @@
     },
     "pull_request": {
       "prod": {
-        "digest": "0d65d9a4aa1cdf916e022547e3f4a1974505cd94c349e9809f1a441f13cd8335",
+        "digest": "e183d55ea7eb411d29dd812053dff89078b4ef131068a3223d40c22617bffbd0",
         "history": [
           {
             "digest": "0d65d9a4aa1cdf916e022547e3f4a1974505cd94c349e9809f1a441f13cd8335",
@@ -413,10 +413,19 @@
               "integrated",
               "integrating"
             ]
+          },
+          {
+            "digest": "e183d55ea7eb411d29dd812053dff89078b4ef131068a3223d40c22617bffbd0",
+            "states": [
+              "changes_requested",
+              "checking",
+              "closed",
+              "integrated",
+              "integrating"
+            ]
           }
         ],
         "states": [
-          "blocked",
           "changes_requested",
           "checking",
           "closed",
@@ -425,7 +434,7 @@
         ]
       },
       "test": {
-        "digest": "0d65d9a4aa1cdf916e022547e3f4a1974505cd94c349e9809f1a441f13cd8335",
+        "digest": "e183d55ea7eb411d29dd812053dff89078b4ef131068a3223d40c22617bffbd0",
         "history": [
           {
             "digest": "0d65d9a4aa1cdf916e022547e3f4a1974505cd94c349e9809f1a441f13cd8335",
@@ -437,10 +446,19 @@
               "integrated",
               "integrating"
             ]
+          },
+          {
+            "digest": "e183d55ea7eb411d29dd812053dff89078b4ef131068a3223d40c22617bffbd0",
+            "states": [
+              "changes_requested",
+              "checking",
+              "closed",
+              "integrated",
+              "integrating"
+            ]
           }
         ],
         "states": [
-          "blocked",
           "changes_requested",
           "checking",
           "closed",

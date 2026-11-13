@@ -1,7 +1,7 @@
-# Software: pull request. Starts when State records the PR that the
-# Issue's publish effect created. Creates its linked review and test subjects
-# (downward link, native). Their outcomes come back as review_outcome and
-# test_outcome (upward link, Atlas layer).
+# Software: pull request. Starts when a pull request is recorded. Its review and
+# test subjects are created by whoever asks for them, for its current revision;
+# their outcomes come back as review_outcome and test_outcome (upward link, Atlas
+# layer). Slice 8: no integrate effect and no creates yet; merged or closed ends it.
 flows:
   pull_request:
     label: Pull request
@@ -16,17 +16,10 @@ flows:
         label: Review and test
         outputs:
           - set: { properties: { review_outcome: none, test_outcome: none, update: none } }
-          - create:
-              type: pr_review
-              properties: { title: "Review of {{subject.id}}" }
-              relate: { type: review_of }
-          - create:
-              type: pr_test
-              properties: { title: "Test of {{subject.id}}" }
-              relate: { type: test_of }
         on:
           change:
             - { to: closed, when: "entity.state == 'closed'" }
+            - { to: integrated, when: "entity.state == 'merged'" }
             - { to: changes_requested, roles: [atlas-flow], when: "entity.review_outcome == 'changes_requested'" }
             - { to: changes_requested, roles: [atlas-flow], when: "entity.test_outcome == 'failed'" }
             - { to: integrating, roles: [atlas-flow], when: "entity.review_outcome == 'approved' and entity.test_outcome == 'passed'" }
@@ -35,25 +28,14 @@ flows:
         on:
           change:
             - { to: closed, when: "entity.state == 'closed'" }
-            - { to: checking, roles: [atlas-flow], when: "entity.update == 'updated'" }
+            - { to: integrated, when: "entity.state == 'merged'" }
+            - { to: checking, when: "entity.update == 'updated'" }
       integrating:
         label: Integrate
-        outputs:
-          - set: { properties: { integration: none } }
         on:
           change:
-            - { to: integrated, roles: [atlas-flow], when: "entity.integration == 'done'" }
-            - { to: blocked, roles: [atlas-flow], when: "entity.integration == 'refused'" }
-        after:
-          no_effect: { period: 1h, to: blocked, label: Code did not answer within an hour }
-      blocked:
-        label: Integration needs a person
-        status: input_required
-        waiting_for: [maintainer]
-        on:
-          change:
-            - { to: integrating, roles: [maintainer], when: "entity.integration == 'retry'" }
-            - { to: closed, roles: [maintainer], when: "entity.state == 'closed'" }
+            - { to: integrated, when: "entity.state == 'merged'" }
+            - { to: closed, when: "entity.state == 'closed'" }
       integrated:
         label: Integrated
         final: true
