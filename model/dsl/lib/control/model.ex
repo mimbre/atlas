@@ -538,8 +538,8 @@ defmodule RelaDSL.Control.Model do
 
   # Per kind a flow runs on (the first by name): where it writes on (the fact, or the one
   # component its `on` relation points at), the fields it writes, and what each state
-  # shows its owner: the generated subflow's presentation when one is selected for the
-  # flow, else the flow's own state.
+  # shows its owner: the presentation of the generated subflows selected for the flow,
+  # else the flow's own state.
   defp flows(d, flow_runtime, definitions) do
     selection = (flow_runtime && get_in(flow_runtime, ["flow_runtime", "selection"])) || %{}
     words = d["todo"] || %{}
@@ -554,19 +554,15 @@ defmodule RelaDSL.Control.Model do
         into: %{} do
       legacy = Map.new(flow["states"] || [], &{&1["name"], &1})
 
+      # Every selected subflow that takes the kind's facts from the flow (one per phase,
+      # each admitting its own): a state's name is its run's, so each presents its own.
       presented =
-        case Enum.find(Enum.sort(selection), fn {_, s} ->
-               s["subject"] == kind and s["legacy"] == name
-             end) do
-          {subflow, _} ->
-            for {state, %{"present" => %{} = present}} <-
-                  get_in(definitions, [subflow, "states"]) || %{},
-                into: %{},
-                do: {state, Map.put(present, "name", state)}
-
-          _ ->
-            %{}
-        end
+        for {subflow, s} <- Enum.sort(selection),
+            s["subject"] == kind and s["legacy"] == name,
+            {state, %{"present" => %{} = present}} <-
+              get_in(definitions, [subflow, "states"]) || %{},
+            into: %{},
+            do: {state, Map.put(present, "name", state)}
 
       on_kind =
         case flow["on"] && get_in(d, ["relations", flow["on"], "to"]) do

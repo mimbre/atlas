@@ -64,12 +64,44 @@ defmodule Model.PresentationTest do
              Enum.sort(Map.keys(@moved) ++ @not_moved)
   end
 
+  # v1 states whose answers keep their keys and labels but write a change the run moves
+  # on (slice 11): the use case's Accept and Reject write its verdict, Accept still with
+  # accepted_by set to the one who answers, Reject with its note.
+  @answers_write %{
+    {"design_and_accept", "to_test"} => [
+      %{
+        "key" => "a",
+        "label" => "Accept",
+        "change" => %{"self" => "accepted_by", "values" => %{"verdict" => "accept"}}
+      },
+      %{
+        "key" => "f",
+        "label" => "Reject",
+        "note" => true,
+        "change" => %{"values" => %{"verdict" => "reject"}}
+      }
+    ]
+  }
+
+  defp keys_and_labels(present),
+    do:
+      update_in(present, ["todo", "answers"], fn answers ->
+        Enum.map(answers, &Map.take(&1, ["key", "label"]))
+      end)
+
   test "the v1 expected, why and todo of each state appear unchanged in the Atlas target" do
     for {at, s} <- open_states(), {subflow, state} <- Map.get(@moved, at, []) do
       present = get_in(Committed.flows(), [subflow, "states", state, "present"])
+      v1 = Map.take(s, ["expected", "why", "todo"])
 
-      assert present == Map.take(s, ["expected", "why", "todo"]),
-             "#{inspect(at)} -> #{subflow}.#{state}: #{inspect(present)}"
+      case @answers_write[at] do
+        nil ->
+          assert present == v1, "#{inspect(at)} -> #{subflow}.#{state}: #{inspect(present)}"
+
+        answers ->
+          assert present["todo"]["answers"] == answers
+          assert keys_and_labels(present) == keys_and_labels(v1), inspect(at)
+      end
     end
   end
 

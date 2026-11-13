@@ -297,8 +297,10 @@ defmodule Model.AtlasEyra do
         ]
       ],
       # Its building phase, from the design's acceptance on: the review's `approved`, as
-      # before slice 10, or the `accepted` the subflow design_and_accept writes as it ends
-      # (that subflow presents the design phase, by its admission).
+      # before slice 10, or the `accepted` the subflow design_and_accept writes as it ends.
+      # Since slice 11 this flow drives no use case: the subflows design_and_accept and
+      # test_and_accept_use_case admit every one between them; it stays defined, the states
+      # they take over named by it, until slice 14 removes the old flows.
       [
         name: :break_down,
         when: [values: [design_status: [:approved, :accepted]], empty: "in_use_case"],

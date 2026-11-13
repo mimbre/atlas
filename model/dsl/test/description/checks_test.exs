@@ -212,6 +212,51 @@ defmodule RelaDSL.Description.ChecksTest do
                composition: @acl,
                flows: true
              )
+
+    # nil among a field's values allows no value (the field empty); any other value must
+    # be the field's. An import row may also say whether the fact is completed.
+    assert [_ | _] =
+             compiles(
+               concept:
+                 @subflow <>
+                   "\nselect :thing, admission: [state: [:done, nil]], imports: [[completed: true, state: :closed], [when: [state: [nil]], state: :open]]",
+               composition: @acl,
+               flows: true
+             )
+
+    refused(
+      [
+        concept: @subflow <> "\nselect :thing, admission: [state: [:gone, nil]]",
+        composition: @acl,
+        flows: true
+      ],
+      "has no value among"
+    )
+
+    refused(
+      [
+        concept: @subflow <> "\nselect :thing, imports: [[completed: :yes, state: :closed]]",
+        composition: @acl,
+        flows: true
+      ],
+      "completed is true or false"
+    )
+  end
+
+  test "a select's reopening policy is an explicit restart or a new generation" do
+    for policy <- [:explicit, :new_generation] do
+      assert [_ | _] =
+               compiles(
+                 concept: @subflow <> "\nselect :thing, reopen: #{inspect(policy)}",
+                 composition: @acl,
+                 flows: true
+               )
+    end
+
+    refused(
+      [concept: @subflow <> "\nselect :thing, reopen: :always", composition: @acl, flows: true],
+      "reopen: :always is neither :explicit nor :new_generation"
+    )
   end
 
   test "a migration leads to a current digest and maps states it knows" do

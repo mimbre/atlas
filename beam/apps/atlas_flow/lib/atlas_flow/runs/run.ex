@@ -250,12 +250,25 @@ defmodule AtlasFlow.Runs.Run do
 
   def duration(_), do: :error
 
+  @doc """
+  Whether `values` hold `condition` (`%{field => allowed}`): each field has one of its
+  allowed values. A `nil` among them allows no value: the field absent, nil or empty.
+  """
   def holds?(condition, values),
     do:
       Enum.all?(condition, fn {field, allowed} ->
-        Map.has_key?(values, field) and values[field] in List.wrap(allowed)
+        case values[field] do
+          blank when blank in [nil, ""] -> nil in List.wrap(allowed)
+          value -> value in List.wrap(allowed)
+        end
       end)
 
+  @doc """
+  A new run of `name` on `subject`, of `generation`. The first of `imports` that holds
+  gives its entry: a final state is completed history, any other a wait it joins. A row
+  holds on the subject's values (`when`) and, when it names `completed`, on whether the
+  subject is completed (its `completion`, which a full read of Facts derives).
+  """
   def new(name, flow, subject, imports, now, generation \\ 1) do
     kind = flow.subject()
 
@@ -272,7 +285,7 @@ defmodule AtlasFlow.Runs.Run do
     }
 
     run = Map.put(run, "key", key(name, kind, subject["key"], generation))
-    import = Enum.find(imports, &holds?(&1["when"], subject["values"] || %{}))
+    import = Enum.find(imports, &imports?(&1, subject))
 
     cond do
       import && flow.final?(import["state"]) ->
@@ -294,6 +307,23 @@ defmodule AtlasFlow.Runs.Run do
           else: idle(run, now)
     end
   end
+
+  defp imports?(row, subject),
+    do:
+      holds?(row["when"] || %{}, subject["values"] || %{}) and
+        (not Map.has_key?(row, "completed") or
+           subject["completion"] not in [nil, false] == row["completed"])
+
+  @doc """
+  An explicit restart: the next generation of a completed run, started as a new run of
+  its subflow on `subject`, without imports. Reopened work gets one only so, unless
+  its selection declares `reopen: "new_generation"` (`step/6`). `{:error, :not_completed}`
+  for a run that is not completed.
+  """
+  def restart(%{"status" => "completed"} = run, flow, subject, now),
+    do: {:ok, new(run["flow"], flow, subject, [], now, run["generation"] + 1)}
+
+  def restart(_run, _flow, _subject, _now), do: {:error, :not_completed}
 
   @doc """
   Whether an import row may lead to `state` of `flow`: a final state (completed history),
@@ -319,7 +349,13 @@ defmodule AtlasFlow.Runs.Run do
         "last_input" => %{"version" => 1, "start_edge" => false}
       })
 
-  def step(run, flow, subject, now, inputs \\ []) do
+  @doc """
+  The run after what `subject` and `inputs` say now: `{:ok, run}`. An idle run starts on
+  its predicate. A completed one stays completed: reopened work (its start predicate false,
+  then true again) starts a new generation only when the selection says so, `reopen:
+  "new_generation"` in `opts`; by default only an explicit restart (`restart/4`) does.
+  """
+  def step(run, flow, subject, now, inputs \\ [], opts \\ []) do
     cond do
       run["definition_sha256"] != flow.digest() ->
         {:error, :definition_changed}
@@ -327,12 +363,13 @@ defmodule AtlasFlow.Runs.Run do
       run["status"] == "idle" and starts?(flow, subject) ->
         {:ok, enter(run, flow, flow.initial(), now, true, subject)}
 
-      run["status"] == "completed" and not flow.start?(:create, subject) ->
+      run["status"] == "completed" and opts[:reopen] == "new_generation" and
+          not flow.start?(:create, subject) ->
         edge = starts?(flow, subject)
         previous = Map.get(run["last_input"], "start_edge", true)
 
         if edge and not previous do
-          {:ok, new(run["flow"], flow, subject, [], now, run["generation"] + 1)}
+          restart(run, flow, subject, now)
         else
           {:ok, put_in(run, ["last_input", "start_edge"], edge)}
         end

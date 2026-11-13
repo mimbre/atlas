@@ -662,6 +662,8 @@ defmodule AtlasFlow.Runs.Store do
     mechanism = if run["status"] == "active", do: flow.mechanism(run["state"])
     review = config["selection"][run["flow"]]["verification"]
     verdict = run["pending"]["verdict"]
+    # Reopened work starts a new generation only when the selection declares it.
+    opts = [reopen: config["selection"][run["flow"]]["reopen"]]
 
     cond do
       match?({:pass, _}, mechanism) ->
@@ -674,7 +676,7 @@ defmodule AtlasFlow.Runs.Store do
         gate_next(run, flow, subject, now, elem(mechanism, 1))
 
       Enum.any?(inputs, &(AtlasFlow.Runs.Inputs.choice(&1, run, subject, flow) != nil)) ->
-        Run.step(run, flow, subject, now, inputs)
+        Run.step(run, flow, subject, now, inputs, opts)
 
       run["status"] == "active" and verdict != nil and
         is_map(verdict["fingerprint_definition"]) and
@@ -702,7 +704,7 @@ defmodule AtlasFlow.Runs.Store do
 
               {:ok, put_in(run, ["pending", "writes"], [write])}
             else
-              Run.step(run, flow, subject, now, inputs)
+              Run.step(run, flow, subject, now, inputs, opts)
             end
 
           other ->
@@ -710,7 +712,7 @@ defmodule AtlasFlow.Runs.Store do
         end
 
       true ->
-        Run.step(run, flow, subject, now, inputs)
+        Run.step(run, flow, subject, now, inputs, opts)
     end
   end
 

@@ -17,7 +17,7 @@ defmodule RelaDSL.Description do
   | `relation name, label:, description:, from:, to:, max_outgoing:, inverse: {id, label}` and `parent:, add:, component:, set_by:, limit:, actions:, only_target:, requires_completed_children:, closes_parent:, review:` | a relation | schema; the rest to `atlas.json` `relations` |
   | inside `entity`: `top`, `primary`, `start`, `create`, `completion`, `progress`, `connector`, `agent`, `order`, `by_hand`, `late`, `action`, `counts`, `requires`, `authority`, `frozen`, `replaces`, `layering`, `sealed`, `delete_error` | one rule of the kind each | `atlas.json` `entities` |
   | inside `entity`: `flag field, value:, label:` | the kind's flag | `flow-runtime.json` `flags` |
-  | `select subflow, legacy:, choices:, roles:, projection:, admission:, imports:, follow_through:, verification:` | how a subflow's runs are selected | `flow-runtime.json` `selection` |
+  | `select subflow, legacy:, choices:, roles:, projection:, admission:, imports:, follow_through:, verification:, reopen:` | how a subflow's runs are selected (`nil` among allowed values: no value; an import row may also say `completed:`; `reopen: :new_generation` restarts reopened work, else only an explicit restart does) | `flow-runtime.json` `selection` |
   | `migrate subflow, from:, to:, states:, rekey:, preserve_entry:, reason:` | an approved run migration | `flow-runtime.json`, `digests.json` |
 
   `action`, `counts` and `requires` add one item each to the kind's list; the others

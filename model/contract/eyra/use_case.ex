@@ -47,10 +47,33 @@ defmodule Model.UseCase do
   `test_and_accept_use_case`:
 
     * The use case is broken down into issues (`children`), built until none is open
-      (`open_children`), then tested by an acceptor. `children` and `open_children`
-      are the composition's count of the issues in the use case.
-    * A rejection goes to a rework pass; a new open issue sends it back to building,
-      and a rework that ends either way returns to the acceptor.
+      (`open_children`), then tested by the configured decider. `children` and
+      `open_children` are the composition's count of the issues in the use case.
+    * A rejection sends it to its rework; a new open issue sends it back to building.
+
+  Slice 11 runs it on Flow's durable runs (`select`) for the building phase of the legacy
+  flow `design_and_accept`, which then drives no use case at all: its design run owns a
+  use case while the design is written or reviewed, its build run from the design's
+  acceptance on, and for a use case with no design phase. The parity fixes keep it to
+  what runs today:
+
+    * no passes (break it down, rework): their specs are no pass contract a runner
+      accepts (`AtlasFlow.Activities.Pass.valid?/1`), for the reasons the design's
+      passes wait (slice 10); a definition a runner refuses would refuse every selected
+      subflow. The coordinator breaks it down and reworks it by hand, as today;
+    * `to_test` is the configured decider's (`{:person, config: :decider}`), as the
+      legacy flow's `to_test` is, and moves on `verdict`, which its two answers write,
+      no longer on an acceptor's typed choice: Facts takes a choice only from one a
+      relation of the use case names, and none names who rejects (`accepted_by` names
+      the one who accepted, and naming oneself there accepts and completes the use case).
+      Accept writes `verdict: accept` with `accepted_by` set to the one who answers, in one
+      change, so Facts' rules on `accepted_by` (only a person, only themselves, nothing
+      under it open) guard it as today; Reject writes `verdict: reject` with a note. Its
+      entry resets `verdict` to `none`, so an older verdict moves nothing;
+    * a new open issue sends it back from `to_test` to building, and a use case with no
+      design phase is not broken down while nothing is under it, nor tested: the legacy
+      flow builds it (`building`) until something under it is; with issues it is tested
+      once all are completed, as the legacy flow's `progress: to_test` says.
   """
   use RelaDSL
 
@@ -243,7 +266,6 @@ defmodule Model.UseCase do
           "Add the issues under it; Flow hands it on to build once something is under it."
       )
 
-      pass :architect, mode: :author, writes: :none
       branch to: :building, by: :atlas, when: "entity.children > 0"
     end
 
@@ -255,23 +277,36 @@ defmodule Model.UseCase do
           "Build what is under it; Flow hands it on for testing once all of it is completed."
       )
 
-      branch to: :break_down, by: :atlas, when: "entity.children == 0"
-      branch to: :to_test, by: :atlas, when: "entity.open_children == 0"
+      branch to: :break_down,
+             by: :atlas,
+             when:
+               "entity.children == 0 and (entity.design_status == 'approved' or entity.design_status == 'accepted')"
+
+      branch to: :to_test, by: :atlas, when: "entity.children > 0 and entity.open_children == 0"
     end
 
     state :to_test, label: "Test it" do
+      owner via: :assignment, relation: :assigned_to, default: {:person, config: :decider}
+      set verdict: :none
+
       present(
         expected: "Test it",
         why: "all under it is completed",
         instructions: "Try the test below, then accept it, or reject it with a note.",
         section: [field: :description, heading: "Melle can test"],
         answers: [
-          [key: "a", label: "Accept", set: :accepted_by],
-          [key: "f", label: "Reject", remove: :accepted_by]
+          [
+            key: "a",
+            label: "Accept",
+            change: %{self: :accepted_by, values: %{verdict: :accept}}
+          ],
+          [key: "f", label: "Reject", note: true, change: %{values: %{verdict: :reject}}]
         ]
       )
 
-      wait_for [:acceptor], on: :verdict, accept: :accepted, reject: :rework
+      branch to: :accepted, when: "entity.verdict == 'accept'"
+      branch to: :rework, when: "entity.verdict == 'reject'"
+      branch to: :building, by: :atlas, when: "entity.open_children > 0"
     end
 
     state :rework, label: "Rework it" do
@@ -283,11 +318,6 @@ defmodule Model.UseCase do
       )
 
       branch to: :building, by: :atlas, when: "entity.open_children > 0"
-
-      pass :architect,
-        mode: :rework,
-        input: {:channel, :newest_since_last_pass},
-        on: [delivered: :to_test, failed: {:to_test, "Rework failed; the acceptor decides"}]
     end
 
     final :accepted, label: "Accepted"
@@ -296,11 +326,10 @@ defmodule Model.UseCase do
   # How the runs of design_and_accept are selected, imported from the use case as it was
   # before the subflow ran, and presented: on its Assignment, as the legacy flow
   # design_and_accept did. One writer presents a use case at any moment, by its
-  # `design_status` (disjoint phase admission): the run while the design is written or
-  # reviewed, the legacy flow, which keeps the building phase, from its acceptance on
-  # (`approved`, or `accepted`, which the run writes as it ends), and for a use case with
-  # no design phase (no `design_status`). Such a use case never starts a run: none is
-  # imported, and nothing is written or rerun for it.
+  # `design_status` (disjoint phase admission): this run while the design is written or
+  # reviewed, the build run (test_and_accept_use_case) from its acceptance on (`approved`,
+  # or `accepted`, which this run writes as it ends), and for a use case with no design
+  # phase (no `design_status`). Such a use case never starts a design run.
   #
   # The first row that holds gives the entry of an admitted use case: one in review joins
   # the review, one whose review asked for changes the rework, each writing nothing. Any
@@ -309,8 +338,9 @@ defmodule Model.UseCase do
   # stay. No pass, gate or acceptance ran on one, so there is nothing else to carry.
   #
   # A completed run whose use case is put back in its design phase (a design reopened by
-  # hand) is not started again (a new generation is an explicit restart, design 5.2): the
-  # legacy flow presents it, as it does today (`follow_through`).
+  # hand) is not started again, and nothing presents it until it is restarted: reopened
+  # work starts a new generation only by an explicit restart (`reopen`, the design's
+  # default, 5.2). No legacy flow takes it back: slice 11 ends its follow-through.
   select(:design_and_accept,
     legacy: :design_and_accept,
     choices: [],
@@ -326,10 +356,7 @@ defmodule Model.UseCase do
       [when: [design_status: [:in_review]], state: :design_review],
       [when: [design_status: [:changes_requested]], state: :redesign]
     ],
-    follow_through: [
-      state: :accepted,
-      when: [design_status: [:writing, :in_review, :changes_requested]]
-    ]
+    reopen: :explicit
   )
 
   # The approved migration of its runs, from the digest the base branch recorded
@@ -355,5 +382,65 @@ defmodule Model.UseCase do
       to_accept: :design_review
     ],
     reason: "Slice 10: selected without its passes, design gate and acceptor; designed by hand"
+  )
+
+  # How the runs of test_and_accept_use_case are selected, imported from the use case as
+  # it was before the subflow ran, and presented: on its Assignment, where the legacy flow
+  # design_and_accept presented its building phase, which no longer drives a use case. It
+  # admits a use case from its design's acceptance on (`approved`, `accepted`) and one with
+  # no design phase (nil: no `design_status`): every one the design run does not, so each
+  # use case has one writer at any moment, and none is left to the legacy flow.
+  #
+  # The first row that holds gives the entry, writing nothing and rerunning nothing:
+  #
+  #   * a completed use case (accepted, `completion` as Facts derives it) is completed
+  #     history, `accepted`;
+  #   * an approved one (prod: 5 "Build it" and 3 "Break it down into issues", for the
+  #     coordinator), approved before this subflow ran, joins `building`; the count of its
+  #     issues, given to the run on its first entry, moves one with none under it to
+  #     `break_down`, and one whose issues are all completed to `to_test`, as the legacy
+  #     flow presents them;
+  #   * one with no design phase (test: 2 "Build it", for the coordinator) joins
+  #     `building`, where it stays while nothing is under it, as in the legacy flow.
+  #
+  # Any other matches no row: one whose design run accepted it (`accepted`) starts on its
+  # predicate, in `break_down`, once. Its design run's cursor is its own; the two share
+  # only the use case's count of its issues, which the composition gives both.
+  #
+  # A completed run is not started again when its use case is reopened (`accepted_by`
+  # removed, its design put back and accepted again): only an explicit restart makes a new
+  # generation (`reopen: :explicit`, the design's default, 5.2). Until one, nothing
+  # presents a reopened use case.
+  select(:test_and_accept_use_case,
+    legacy: :design_and_accept,
+    choices: [],
+    projection: [
+      on: :assignment,
+      state_field: :flow_state,
+      handover_field: :handover,
+      owner_relation: :assigned_to,
+      field: :expected
+    ],
+    admission: [design_status: [:approved, :accepted, nil]],
+    imports: [
+      [completed: true, state: :accepted],
+      [when: [design_status: [:approved]], state: :building],
+      [when: [design_status: [nil]], state: :building]
+    ],
+    reopen: :explicit
+  )
+
+  # The approved migration of its runs, from the digest the base branch recorded
+  # (RelaDSL.RunIdentity); the same in prod and test, and the only one it ever had. No run
+  # had that digest: the subflow was never selected before slice 11. A run that did would
+  # move along it as a state migration (re-entering its state, then moving on the counts
+  # and the verdict it finds), never as a re-key: its states are the same, but its passes
+  # went, and the acceptor's choice became the decider's verdict. One with a frozen pass
+  # is not quiescent and blocks.
+  migrate(:test_and_accept_use_case,
+    from: "439466529c0f51d0f91d8ace07c9f5fa6ca2cfb04bfcc4557b6ba57342b2e0f1",
+    to: "d4222657ad88e5d0310136893bd47f89e9a447874ede4d0c21067622728d1b04",
+    states: :same,
+    reason: "Slice 11: selected without its passes; the decider's verdict ends to_test"
   )
 end

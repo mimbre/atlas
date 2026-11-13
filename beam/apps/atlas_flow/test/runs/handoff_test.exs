@@ -1,10 +1,12 @@
 defmodule AtlasFlow.Runs.HandoffTest do
   @moduledoc """
   Disjoint phase admission on one kind: a selected subflow presents a fact while the
-  fact is in the phase its selection admits, the legacy flow on the kind presents it in
-  every other, and the run's own last write moves the fact from one phase to the other.
-  At every moment exactly one of them writes the fact's presentation: through a lost
-  acknowledgement of that write, a restart before it reached Facts, and a restart after.
+  fact is in the phase its selection admits, the legacy flow on the kind (or a second
+  selected subflow, for the next phase) presents it in every other, and the run's own
+  last write moves the fact from one phase to the other. At every moment exactly one of
+  them writes the fact's presentation: through a lost acknowledgement of that write, a
+  restart before it reached Facts, and a restart after; the second subflow's run starts
+  once, on its own cursor, even across a restart before it was made.
   """
   use ExUnit.Case, async: false
 
@@ -41,6 +43,65 @@ defmodule AtlasFlow.Runs.HandoffTest do
             "follow_through"
           )
       }
+  end
+
+  defmodule Written do
+    @moduledoc false
+
+    defmodule Stacking do
+      @moduledoc """
+      The box's second phase as a subflow of its own: it starts when the first phase's run
+      moved the box on (a predicate), or joins its wait for a box that never had a phase.
+      """
+      use RelaDSL.Schema
+
+      subflow :stack, label: "Stack", subject: :box do
+        run_as("system:depot")
+        owner(default: {:clerk, :bob})
+        start(:predicate, when: "entity.phase == 'second'")
+        initial(:stacking)
+
+        state :stacking, label: "Stack it" do
+          branch(to: :stacked, when: "entity.mark == 'stacked'")
+          present(expected: "Stack it")
+        end
+
+        final(:stacked, label: "Stacked")
+      end
+    end
+  end
+
+  defmodule Stacking do
+    use AtlasFlow.Sorts, from: Written.Stacking, subflow: :stack
+  end
+
+  @projection %{"field" => "todo", "owner_relation" => "owned_by"}
+
+  # Two subflows on one kind, one per phase: together they admit every box, so the
+  # legacy flow on the kind presents none, and no follow-through is needed.
+  @phases %{
+    "sort" => %{
+      "subject" => "box",
+      "legacy" => "pack",
+      "projection" => @projection,
+      "admission" => %{"phase" => ["first"]},
+      "imports" => [],
+      "migrations" => []
+    },
+    "stack" => %{
+      "subject" => "box",
+      "legacy" => "pack",
+      "projection" => @projection,
+      "admission" => %{"phase" => ["second", nil]},
+      "imports" => [%{"when" => %{"phase" => [nil]}, "state" => "stacking"}],
+      "migrations" => []
+    }
+  }
+
+  defmodule Phased do
+    use AtlasFlow.TestModel,
+      subflows: [AtlasFlow.Sorts.Handing, AtlasFlow.Runs.HandoffTest.Stacking],
+      selection: Module.get_attribute(AtlasFlow.Runs.HandoffTest, :phases)
   end
 
   setup do
@@ -194,6 +255,130 @@ defmodule AtlasFlow.Runs.HandoffTest do
     # its owner is left.
     assert presented("B-2") == {nil, []}
     assert_receive {:DOWN, ^ref, :process, _, :normal}
+  end
+
+  defp stack(model, key, generation \\ 1) do
+    case FakeFacts.get("cursor", Run.key("stack", "box", key, generation)) do
+      nil -> nil
+      fact -> elem(Store.decode(config(model), fact), 1)
+    end
+  end
+
+  defp blank({todo, owners}), do: {if(todo in [nil, ""], do: nil, else: todo), owners || []}
+
+  test "two subflows on one fact: the first's last write starts the second once; one writer throughout",
+       %{clock: clock} do
+    FakeFacts.put("box", %{"key" => "B-1", "values" => %{"phase" => "first"}})
+    engine = start_supervised!({Engine, every: 3_600_000, clock: clock, model: Phased})
+    Engine.round(engine)
+    flush_items()
+
+    # The first phase: its run presents it; the second has no run yet.
+    assert presented("B-1") == {"Sort it", ["ada"]}
+    assert stack(Phased, "B-1") == nil
+
+    # It ends, moves the box on, and the second starts on its predicate in the same round:
+    # its own run, its own cursor; it presents the box, and only it.
+    FakeFacts.put("box", put_in(box("B-1"), ["values", "result"], "ok"))
+    Engine.round(engine)
+    flush_items()
+    assert {:ok, %{"state" => "done", "status" => "completed"}} = run(Phased, "B-1")
+    second = stack(Phased, "B-1")
+    assert {second["state"], second["status"], second["entry"]} == {"stacking", "active", 1}
+    refute Map.has_key?(second["last_input"], "import")
+    assert presented("B-1") == {"Stack it", ["bob"]}
+    assert [{_, _}] = items("B-1")
+
+    # It ends too: nothing presents the box, and no legacy flow takes it.
+    FakeFacts.put("box", put_in(box("B-1"), ["values", "mark"], "stacked"))
+    Engine.round(engine)
+    flush_items()
+    assert %{"state" => "stacked", "status" => "completed"} = done = stack(Phased, "B-1")
+    assert blank(presented("B-1")) == {nil, []}
+
+    # Reopened (put back in its first phase, then moved on again): neither run starts again
+    # and no new generation is made, as no selection declares one: only an explicit restart.
+    for phase <- ["first", "second"] do
+      FakeFacts.put("box", put_in(box("B-1"), ["values", "phase"], phase))
+      Engine.round(engine)
+      flush_items()
+      assert stack(Phased, "B-1") == done
+      assert stack(Phased, "B-1", 2) == nil
+      assert FakeFacts.get("cursor", Run.key("sort", "box", "B-1", 2)) == nil
+      assert blank(presented("B-1")) == {nil, []}
+    end
+  end
+
+  test "restarted between the first's end and the second's creation: exactly one second run",
+       %{clock: clock} do
+    # The first phase's run ended and its last write reached Facts; Flow stopped before it
+    # made the second's run.
+    FakeFacts.put("box", %{
+      "key" => "B-3",
+      "values" => %{"phase" => "second", "result" => "ok", "todo" => "Sort it"},
+      "links" => %{"owned_by" => ["ada"]},
+      "origins" => %{"owned_by" => %{"by" => "flow"}}
+    })
+
+    subject = %{"key" => "B-3", "version" => 1, "values" => %{"phase" => "first"}}
+
+    waiting =
+      Run.new("sort", Sorts.Handing, subject, [], @now) |> put_in(["pending", "writes"], [])
+
+    {:ok, ended} =
+      Run.step(waiting, Sorts.Handing, %{subject | "values" => box("B-3")["values"]}, @now)
+
+    ended = put_in(ended, ["pending", "writes"], [])
+
+    FakeFacts.put("cursor", %{
+      "key" => ended["key"],
+      "values" => Store.encode(config(Phased), ended)
+    })
+
+    # Restarted, the second's creation is stored and its answer lost: the next round finds
+    # the stored run by its stable key and makes no other; restarted again, the same.
+    FakeFacts.lose_ack("cursor")
+    opts = [every: 3_600_000, clock: clock, model: Phased]
+    engine = start_supervised!({Engine, opts})
+    Engine.round(engine)
+    Engine.round(engine)
+    flush_items()
+    second = stack(Phased, "B-3")
+    assert {second["state"], second["status"], second["entry"]} == {"stacking", "active", 1}
+    assert presented("B-3") == {"Stack it", ["bob"]}
+
+    stop_supervised!(Engine)
+    stop_items()
+    engine = start_supervised!({Engine, opts})
+    Engine.round(engine)
+    flush_items()
+    assert stack(Phased, "B-3") == second
+    assert stack(Phased, "B-3", 2) == nil
+
+    creates =
+      for %{"op" => "create", "key" => key} <- FakeFacts.sent(),
+          key == Run.key("stack", "box", "B-3", 1),
+          do: key
+
+    assert creates == [Run.key("stack", "box", "B-3", 1)]
+    assert presented("B-3") == {"Stack it", ["bob"]}
+    assert [{_, _}] = items("B-3")
+  end
+
+  test "a fact with no phase is the second subflow's from the start, imported into its wait",
+       %{clock: clock} do
+    FakeFacts.put("box", %{"key" => "B-4", "values" => %{}})
+    engine = start_supervised!({Engine, every: 3_600_000, clock: clock, model: Phased})
+    Engine.round(engine)
+    flush_items()
+
+    assert FakeFacts.get("cursor", run_key("B-4")) == nil
+    imported = stack(Phased, "B-4")
+
+    assert {imported["state"], imported["last_input"]} ==
+             {"stacking", %{"version" => 1, "import" => true}}
+
+    assert presented("B-4") == {"Stack it", ["bob"]}
   end
 
   defp flush_items do

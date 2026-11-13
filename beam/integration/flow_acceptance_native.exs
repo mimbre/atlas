@@ -1,21 +1,23 @@
-# Native proof of slice 10: the design of a use case on Flow's durable runs
-# (design_and_accept), for the design phase of the legacy flow design_and_accept, which
-# keeps the building phase, against a private Rela and real Facts, with the model compiled
-# for the test environment, Flow's engine and its processes, and a manual clock. Owns and
-# stops its private Rela and Facts.
+# Native proof of slices 10 and 11: a use case on Flow's durable runs, its design on
+# design_and_accept and its building, testing and acceptance on test_and_accept_use_case,
+# together taking every use case from the legacy flow design_and_accept, against a private
+# Rela and real Facts, with the model compiled for the test environment, Flow's engine and
+# its processes, and a manual clock. Owns and stops its private Rela and Facts.
 # MIX_ENV=test mix run integration/flow_acceptance_native.exs PRIVATE_DIR RELA_BIN_DIR
 #
-# It proves, on the use cases as test and prod hold them (written, approved with and
-# without issues, without a design phase; in review and sent back for the import rows):
-# the cutover keeps what each presents and its owner; a run starts, as the table says, only
-# for a design being written or reviewed, writing nothing; approved and phase-less use cases
-# never get one; restart while waiting moves nothing; changes requested send the design
-# back and in review returns it; the review's approval accepts it once, across a restart of
-# Flow after the run ended and before its accepted write reached Facts (the legacy building
-# phase presents it all along, one writer at every step); a replayed write is stored once;
-# the building phase goes on on the legacy flow; the build subflow is not run.
+# It proves, on the use cases as test and prod hold them (written; approved with and
+# without issues; without a design phase, with and without issues; accepted; in review and
+# sent back for the design's import rows): the cutover keeps what each presents and its
+# owner, and leaves none to the legacy flow; the build run imports approved, phase-less and
+# accepted use cases as its table says, writing nothing but their count of issues; restart
+# while waiting moves nothing; changes requested send the design back and in review returns
+# it; the review's approval accepts it once; Flow restarted after the design's accepted
+# write reached Facts and before it made the build run makes exactly one, which starts on
+# its predicate, on its own cursor; issues under it are built and their completion hands it
+# to the decider, across a restart; the decider's accept ends it; reopening it starts no
+# new generation.
 import ExUnit.Assertions
-alias AtlasFlow.{Engine, Item, ManualClock, Talk}
+alias AtlasFlow.{Engine, ManualClock, Talk}
 alias AtlasFlow.Runs.{Run, Store}
 [dir, bin] = System.argv()
 root = Path.expand("../..", __DIR__)
@@ -51,8 +53,9 @@ server =
   ])
 
 {:os_pid, os_pid} = Port.info(server, :os_pid)
+rela = {AtlasFacts.Rela.Http, "http://127.0.0.1:#{port}/api/v1"}
 
-# The composition as Flow ran it before slice 10: the same, with the design not selected.
+# The composition as Flow ran it before slice 11: the same, with the build not selected.
 defmodule AcceptanceProof.Before do
   @moduledoc false
   @behaviour AtlasFlow.Model
@@ -64,7 +67,7 @@ defmodule AcceptanceProof.Before do
   defdelegate actors(), to: Model.AtlasEyra
   defdelegate relations(), to: Model.AtlasEyra
   defdelegate turn(), to: Model.AtlasEyra
-  def selection("design_and_accept"), do: nil
+  def selection("test_and_accept_use_case"), do: nil
   def selection(name), do: Model.AtlasEyra.selection(name)
 end
 
@@ -73,7 +76,7 @@ try do
   {:ok, clock} = ManualClock.start_link(now)
 
   facts_opts = [
-    rela: {AtlasFacts.Rela.Http, "http://127.0.0.1:#{port}/api/v1"},
+    rela: rela,
     data_dir: Path.join(dir, "facts"),
     flow_input_clock: fn -> ManualClock.now(clock) end
   ]
@@ -101,7 +104,7 @@ try do
   %{config: config, refusal: nil} = runner
 
   assert Enum.sort(Map.keys(config["selection"])) ==
-           ~w(decide design_and_accept issue pr_review pr_test pull_request)
+           ~w(decide design_and_accept issue pr_review pr_test pull_request test_and_accept_use_case)
 
   restart = fn facts ->
     GenServer.stop(facts)
@@ -157,9 +160,37 @@ try do
     engine
   end
 
+  # The bus name `flow` is the engine's: it is released once the Registry saw the engine
+  # go, and checked for (a bounded number of times, no timer) before anything else takes it.
+  released = fn released, n ->
+    cond do
+      "flow" not in AtlasBus.endpoints() -> :ok
+      n == 0 -> flunk("the bus name flow is still attached after the engine stopped")
+      true -> :erlang.yield() && released.(released, n - 1)
+    end
+  end
+
   stop_engine = fn engine ->
     GenServer.stop(engine)
     stop_items.()
+    released.(released, 1_000_000)
+  end
+
+  # Writes Flow makes itself, sent as Flow (`flow`) while no engine runs, from a process of
+  # their own that gives the name back before it ends.
+  as_flow = fn fun ->
+    refute "flow" in AtlasBus.endpoints()
+
+    Task.async(fn ->
+      :ok = AtlasBus.attach("flow")
+
+      try do
+        fun.()
+      after
+        Registry.unregister(AtlasBus.Endpoints, "flow")
+      end
+    end)
+    |> Task.await(30_000)
   end
 
   round = fn engine ->
@@ -168,23 +199,29 @@ try do
     flush.()
   end
 
+  blank = fn
+    v when v in [nil, "", []] -> nil
+    v -> v
+  end
+
   # What a use case presents, on its Assignment, and to whom: {expected, owner, state}.
   presents = fn key ->
     [assignment] = read.("use_case", key)["links"]["assignment"]
     a = read.("assignment", assignment)
-    {a["values"]["expected"], a["links"]["assigned_to"], a["values"]["flow_state"]}
+
+    {blank.(a["values"]["expected"]), blank.(a["links"]["assigned_to"]),
+     blank.(a["values"]["flow_state"])}
   end
 
-  shown = fn key -> Tuple.delete_at(presents.(key), 2) end
-
-  run_of = fn flow, key ->
-    case read.(config["kind"], Run.key(flow, "use_case", key, 1)) do
+  run_of = fn flow, key, generation ->
+    case read.(config["kind"], Run.key(flow, "use_case", key, generation)) do
       nil -> nil
       fact -> elem(Store.decode(config, fact), 1)
     end
   end
 
-  design = fn key -> run_of.("design_and_accept", key) end
+  design = fn key -> run_of.("design_and_accept", key, 1) end
+  build = fn key -> run_of.("test_and_accept_use_case", key, 1) end
   summary = fn run -> run && {run["state"], run["status"], run["entry"]} end
 
   for {kind, key, name} <- [
@@ -208,93 +245,154 @@ try do
     key
   end
 
-  issue = fn n, under ->
+  issue = fn n, under, values ->
     key = "IS-Proof-#{n}"
 
     put.("issue", %{
       "op" => "create",
       "key" => key,
-      "values" => %{"title" => "Issue #{n}", "stage" => "specification"},
+      "values" => Map.merge(%{"title" => "Issue #{n}", "stage" => "specification"}, values),
       "links" => %{"in_use_case" => [under]}
     })
 
     key
   end
 
+  # A merged pull request of an issue: Facts completes the issue by it, and its run
+  # reports it to the issue's run (`pr_outcome`), which ends.
+  merged = fn number, issue ->
+    put.("pull_request", %{
+      "op" => "create",
+      "key" => "PR-eyra-atlas-#{number}",
+      "values" => %{"url" => "https://github.com/eyra/atlas/pull/#{number}", "state" => "merged"},
+      "links" => %{"in_issue" => [issue]}
+    })
+  end
+
+  # Accepted and reopened as Control sends them for the decider: the To do answer (the
+  # verdict, with accepted_by naming the one who answers), and the Reopen action.
+  accept = fn key ->
+    put.("use_case", %{
+      "op" => "change",
+      "key" => key,
+      "values" => %{"verdict" => "accept"},
+      "links" => %{"accepted_by" => ["reviewer-1"]},
+      "by" => "reviewer-1"
+    })
+  end
+
+  reopen = fn key ->
+    put.("use_case", %{
+      "op" => "change",
+      "key" => key,
+      "values" => %{},
+      "links" => %{"accepted_by" => []},
+      "by" => "reviewer-1",
+      "cause" => "Not right yet"
+    })
+  end
+
   writing = use_case.(1, "writing")
   building = use_case.(2, "approved")
-  _ = issue.(1, building)
-  _ = issue.(2, building)
+  _ = issue.(1, building, %{})
+  _ = issue.(2, building, %{})
   breaking = use_case.(3, "approved")
   phaseless = use_case.(4, nil)
   reviewing = use_case.(5, "in_review")
   sent_back = use_case.(6, "changes_requested")
-  all = [writing, building, breaking, phaseless, reviewing, sent_back]
+  done = use_case.(7, "approved")
+  accept.(done)
+  phaseless_built = use_case.(8, nil)
+  _ = issue.(5, phaseless_built, %{})
+  all = [writing, building, breaking, phaseless, reviewing, sent_back, done, phaseless_built]
   architect = ["architect"]
   coordinator = ["coordinator"]
+  decider = ["reviewer-1"]
 
-  # Before the cutover: the legacy flow presents every use case, as on test and prod.
+  # Before the cutover, as on test and prod (slice 10): the design run presents a design
+  # being written or reviewed, the legacy flow every other use case.
   engine = start_engine.(AcceptanceProof.Before)
 
   live = %{
-    writing => {"Write its Design part", architect, "design"},
+    writing => {"Write its Design part", architect, "designing"},
     building => {"Build it", coordinator, "building"},
     breaking => {"Break it down into issues", coordinator, "break_down"},
     phaseless => {"Build it", coordinator, "building"},
     reviewing => {"Have its design reviewed", coordinator, "design_review"},
-    sent_back => {"Write its Design part", architect, "design"}
+    sent_back => {"Write its Design part", architect, "redesign"},
+    done => {nil, nil, nil},
+    phaseless_built => {"Build it", coordinator, "building"}
   }
 
   for key <- all, do: assert(presents.(key) == live[key], key)
-  for key <- all, do: assert(design.(key) == nil)
-  stop_engine.(engine)
-  values = Map.new(all, &{&1, read.("use_case", &1)})
-
-  # The cutover. A run starts only for a design being written or reviewed: one being
-  # written as a new one does, the others joining their wait, each writing nothing.
-  engine = start_engine.(Model.AtlasEyra)
   assert summary.(design.(writing)) == {"designing", "active", 1}
   refute Map.has_key?(design.(writing)["last_input"], "import")
   assert summary.(design.(reviewing)) == {"design_review", "active", 1}
   assert summary.(design.(sent_back)) == {"redesign", "active", 1}
   for key <- [reviewing, sent_back], do: assert(design.(key)["last_input"]["import"] == true)
+  for key <- all, do: assert(build.(key) == nil)
+  stop_engine.(engine)
+  values = Map.new(all, &{&1, read.("use_case", &1)})
 
-  # Approved, with or without issues, and without a design phase: never a run, nothing
-  # written on the use case, the legacy flow presents it.
-  for key <- [building, breaking, phaseless] do
+  # The cutover. The build run takes every use case the design run does not: approved or
+  # with no design phase it joins building, its count moving it where the legacy flow had
+  # it; accepted, it is completed history. Each writes nothing but its count of issues.
+  engine = start_engine.(Model.AtlasEyra)
+
+  for {key, at} <- [
+        {building, {"building", "active", 1}},
+        {breaking, {"break_down", "active", 2}},
+        {phaseless, {"building", "active", 1}},
+        {phaseless_built, {"building", "active", 1}},
+        {done, {"accepted", "completed", 1}}
+      ] do
+    assert summary.(build.(key)) == at, key
     assert design.(key) == nil
-    assert read.("use_case", key)["version"] == values[key]["version"]
-    assert Store.selected(config, "use_case", read.("use_case", key)) == nil
   end
 
-  # What every use case presents, and to whom, is what it presented before. The state's
-  # name is the run's where the run presents it.
-  for key <- all, do: assert(shown.(key) == Tuple.delete_at(live[key], 2), key)
+  # Imported where the table says (the approved one with nothing under it moved on by its
+  # count, after its import).
+  for key <- [building, phaseless, phaseless_built, done],
+      do: assert(build.(key)["last_input"]["import"] == true, key)
 
-  assert Enum.map([writing, reviewing, sent_back], &elem(presents.(&1), 2)) ==
-           ["designing", "design_review", "redesign"]
+  for key <- [writing, reviewing, sent_back], do: assert(build.(key) == nil)
 
-  # The run of an admitted use case changed nothing on it but its count of issues (the
-  # composition's, now that both ends are selected): none, none open.
-  for key <- [writing, reviewing, sent_back] do
+  # What every use case presents, and to whom, is what it presented before; no use case
+  # is left to the legacy flow.
+  for key <- all do
+    assert presents.(key) == live[key], key
+    assert {_, _} = Store.selected(config, "use_case", read.("use_case", key))
+  end
+
+  # The runs changed nothing on a use case but its count of issues (the composition's).
+  counts = %{
+    building => {2, 2},
+    breaking => {0, 0},
+    phaseless => {0, 0},
+    phaseless_built => {1, 1},
+    done => {0, 0}
+  }
+
+  for key <- all do
     fact = read.("use_case", key)
-    assert Map.drop(fact["values"], ~w(children open_children)) == values[key]["values"]
 
-    assert Map.take(fact["values"], ~w(children open_children)) == %{
-             "children" => 0,
-             "open_children" => 0
-           }
+    assert Map.drop(fact["values"], ~w(children open_children)) ==
+             Map.drop(values[key]["values"], ~w(children open_children)),
+           key
 
-    assert {"design_and_accept", _} = Store.selected(config, "use_case", fact)
+    if c = counts[key] do
+      assert {fact["values"]["children"], fact["values"]["open_children"]} == c, key
+    end
   end
 
   # Restart while waiting (Facts and Flow): nothing moves, nothing is written again.
   stop_engine.(engine)
   facts = restart.(facts)
-  waiting = Map.new(all, &{&1, {design.(&1), read.("use_case", &1)["version"]}})
+  runs = fn key -> {design.(key), build.(key), read.("use_case", key)["version"]} end
+  waiting = Map.new(all, &{&1, runs.(&1)})
   engine = start_engine.(Model.AtlasEyra)
-  for key <- all, do: assert({design.(key), read.("use_case", key)["version"]} == waiting[key])
-  for key <- all, do: assert(shown.(key) == Tuple.delete_at(live[key], 2), key)
+  for key <- all, do: assert(runs.(key) == waiting[key], key)
+  for key <- all, do: assert(presents.(key) == live[key], key)
 
   # Its review asks for changes: back to the Architect; written again, in review again.
   set = fn key, status ->
@@ -310,8 +408,8 @@ try do
   assert summary.(design.(reviewing)) == {"design_review", "active", 3}
   assert presents.(reviewing) == {"Have its design reviewed", coordinator, "design_review"}
 
-  # Its review approves it: the design is accepted. Flow stops after the run ended and
-  # before its accepted write reached Facts (as it stores the run before it sends it).
+  # Its review approves it: the design is accepted. Flow stops after the run ended and its
+  # accepted write reached Facts, and before it made the build run.
   stop_engine.(engine)
   set.(reviewing, "approved")
   stored = read.(config["kind"], Run.key("design_and_accept", "use_case", reviewing, 1))
@@ -323,11 +421,10 @@ try do
   assert {summary.(ended), length(ended["pending"]["writes"])} ==
            {{"accepted", "completed", 4}, 1}
 
+  [write] = ended["pending"]["writes"]
   values_of = Store.encode(config, ended)
 
-  Task.async(fn ->
-    :ok = AtlasBus.attach("flow")
-
+  as_flow.(fn ->
     assert {:stored, _} =
              Talk.put(config["kind"], %{
                "op" => "change",
@@ -337,68 +434,108 @@ try do
                "was" => Map.new(Map.keys(values_of), &{&1, stored["values"][&1]}),
                "by" => config["writer"]["by"]
              })
-  end)
-  |> Task.await(30_000)
 
-  # Restarted, its process looks before the engine's round: the design is no longer the
-  # run's to present (approved), so the legacy building phase presents it: not the run,
-  # and not nobody.
-  spec =
-    {Item, {"use_case", reviewing, every: 3_600_000, clock: {ManualClock, clock}, runner: runner}}
-
-  {:ok, _} = DynamicSupervisor.start_child(AtlasFlow.Supervisor, spec)
-  flush.()
-  assert design.(reviewing)["pending"]["writes"] != []
-  assert read.("use_case", reviewing)["values"]["design_status"] == "approved"
-  assert presents.(reviewing) == {"Break it down into issues", coordinator, "break_down"}
-  stop_items.()
-
-  # The engine's round pays the run's debt: accepted, once; the same writer presents it.
-  version = read.("use_case", reviewing)["version"]
-  engine = start_engine.(Model.AtlasEyra)
-  paid = design.(reviewing)
-  assert summary.(paid) == {"accepted", "completed", 4}
-  assert paid["pending"]["writes"] == []
-  accepted = read.("use_case", reviewing)
-  assert accepted["values"]["design_status"] == "accepted"
-  assert accepted["version"] != version
-  assert presents.(reviewing) == {"Break it down into issues", coordinator, "break_down"}
-  assert Store.selected(config, "use_case", accepted) == nil
-
-  # The same write again, under its id (a lost answer, replayed with the engine stopped,
-  # so the bus name is free): stored once.
-  stop_engine.(engine)
-  [write] = ended["pending"]["writes"]
-
-  Task.async(fn ->
-    :ok = AtlasBus.attach("flow")
     assert {:stored, _} = Talk.put(write["kind"], write["content"], write["id"])
   end)
-  |> Task.await(30_000)
 
-  assert read.("use_case", reviewing)["version"] == accepted["version"]
+  accepted = read.("use_case", reviewing)
+  assert accepted["values"]["design_status"] == "accepted"
+  assert build.(reviewing) == nil
 
-  # Restart at acceptance (Facts and Flow): nothing moves, nothing is written again.
+  # Restarted (Facts and Flow): the design run's owed write is the one Facts has (replayed
+  # under its id, stored once); exactly one build run is made, which starts on its
+  # predicate in break_down, on its own cursor; restarted again, the same one, and no other.
   facts = restart.(facts)
   engine = start_engine.(Model.AtlasEyra)
-  assert design.(reviewing) == paid
+  paid = design.(reviewing)
+  assert {summary.(paid), paid["pending"]["writes"]} == {{"accepted", "completed", 4}, []}
   assert read.("use_case", reviewing)["version"] == accepted["version"]
+  started = build.(reviewing)
+  assert summary.(started) == {"break_down", "active", 1}
+  refute Map.has_key?(started["last_input"], "import")
+  assert started["key"] != paid["key"]
+  assert presents.(reviewing) == {"Break it down into issues", coordinator, "break_down"}
+  stop_engine.(engine)
+  engine = start_engine.(Model.AtlasEyra)
+  assert build.(reviewing) == started
+  assert run_of.("test_and_accept_use_case", reviewing, 2) == nil
+  assert design.(reviewing) == paid
 
-  # Its building phase goes on on the legacy flow: an issue under it, and it is built.
-  # The build subflow is not selected: it starts no run.
-  _ = issue.(3, reviewing)
+  # Its issues: one open under it, built; another, already merged, and its count says one
+  # is open; the first one's pull request merged, none is: it is the decider's to test,
+  # and its verdict is reset.
+  open = issue.(3, reviewing, %{})
   round.(engine)
+  assert summary.(build.(reviewing)) == {"building", "active", 2}
   assert presents.(reviewing) == {"Build it", coordinator, "building"}
-  assert design.(reviewing)["state"] == "accepted" and design.(reviewing)["entry"] == 4
-  assert run_of.("test_and_accept_use_case", reviewing) == nil
+  built = issue.(4, reviewing, %{})
+  merged.(9401, built)
+  round.(engine)
+  round.(engine)
+  assert build.(reviewing)["state"] == "building"
+  assert presents.(reviewing) == {"Build it", coordinator, "building"}
+  merged.(9301, open)
+  round.(engine)
+  round.(engine)
+  tested = build.(reviewing)
 
-  # One process per use case, one writer each: the run while it is admitted and active,
-  # the legacy flow otherwise.
+  assert {tested["state"], tested["status"], tested["pending"]["writes"]} ==
+           {"to_test", "active", []}
+
+  fact = read.("use_case", reviewing)
+
+  assert Map.take(fact["values"], ~w(children open_children verdict)) == %{
+           "children" => 2,
+           "open_children" => 0,
+           "verdict" => "none"
+         }
+
+  assert presents.(reviewing) == {"Test it", decider, "to_test"}
+
+  # Restart while it is tested (Facts and Flow): nothing moves.
+  stop_engine.(engine)
+  facts = restart.(facts)
+  engine = start_engine.(Model.AtlasEyra)
+  assert build.(reviewing) == tested
+  assert presents.(reviewing) == {"Test it", decider, "to_test"}
+
+  # The decider accepts it, as Control sends the answer: its run ends, nothing is
+  # presented any more, and Facts completes it.
+  accept.(reviewing)
+  round.(engine)
+  ended_build = build.(reviewing)
+  assert summary.(ended_build) == {"accepted", "completed", tested["entry"] + 1}
+  assert presents.(reviewing) == {nil, nil, nil}
+
+  assert %{"fact" => %{"completion" => completion}} =
+           Talk.read("use_case", %{"key" => reviewing, "incoming" => false})
+
+  assert completion != nil
+
+  # Reopened (accepted_by removed with a note), its design put back and accepted again:
+  # neither run starts again and no new generation is made; only an explicit restart
+  # would make one. Nothing presents it meanwhile.
+  reopen.(reviewing)
+  round.(engine)
+
+  for status <- ["writing", "accepted"] do
+    set.(reviewing, status)
+    round.(engine)
+  end
+
+  assert build.(reviewing) == ended_build
+  assert design.(reviewing) == paid
+  assert run_of.("test_and_accept_use_case", reviewing, 2) == nil
+  assert run_of.("design_and_accept", reviewing, 2) == nil
+  assert presents.(reviewing) == {nil, nil, nil}
+
+  # One writer per use case at every moment: the run of the selection that admits it,
+  # presenting while it is active; never the legacy flow.
   for key <- all do
-    assert [{_, _}] = Registry.lookup(AtlasFlow.Items, {"use_case", key})
-    run = design.(key)
-    admitted = Store.selected(config, "use_case", read.("use_case", key)) != nil
-    assert admitted == (run != nil and run["status"] == "active"), key
+    fact = read.("use_case", key)
+    assert {name, _} = Store.selected(config, "use_case", fact), key
+    run = run_of.(name, key, 1)
+    assert (run != nil and run["status"] == "active") == (presents.(key) != {nil, nil, nil}), key
   end
 
   stop_engine.(engine)
@@ -406,9 +543,10 @@ try do
   Agent.stop(clock)
 
   IO.puts(
-    "flow-acceptance native proof: live presentations kept, imports, never a run for " <>
-      "approved or phase-less use cases, restart while waiting, changes requested, accepted " <>
-      "once across a restart before its write, one writer at every step, build on legacy ok"
+    "flow-acceptance native proof: live presentations kept, none left to the legacy flow, " <>
+      "design and build imports, restart while waiting, changes requested, design accepted " <>
+      "once, one build run across a restart before it was made, issues built and tested " <>
+      "across a restart, accepted by the decider, reopening starts no new generation"
   )
 after
   System.cmd("/bin/kill", ["-TERM", to_string(os_pid)], stderr_to_stdout: true)

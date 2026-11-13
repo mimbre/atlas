@@ -1148,7 +1148,6 @@
           ],
           "creates": [],
           "final": false,
-          "kind": "pass",
           "label": "Break it down into issues",
           "present": {
             "expected": "Break it down into issues",
@@ -1158,11 +1157,6 @@
             "why": "nothing is under it yet"
           },
           "set": [],
-          "spec": {
-            "mode": "author",
-            "profile": "architect",
-            "writes": "none"
-          },
           "timers": [],
           "waiting_for": []
         },
@@ -1172,12 +1166,12 @@
             {
               "roles": ["atlas-flow"],
               "to": "break_down",
-              "when": "entity.children == 0"
+              "when": "entity.children == 0 and (entity.design_status == 'approved' or entity.design_status == 'accepted')"
             },
             {
               "roles": ["atlas-flow"],
               "to": "to_test",
-              "when": "entity.open_children == 0"
+              "when": "entity.children > 0 and entity.open_children == 0"
             }
           ],
           "creates": [],
@@ -1201,22 +1195,10 @@
               "roles": ["atlas-flow"],
               "to": "building",
               "when": "entity.open_children > 0"
-            },
-            {
-              "roles": ["atlas-flow"],
-              "to": "to_test",
-              "when": "entity.pass_result == 'delivered'"
-            },
-            {
-              "label": "Rework failed; the acceptor decides",
-              "roles": ["atlas-flow"],
-              "to": "to_test",
-              "when": "entity.pass_result == 'failed'"
             }
           ],
           "creates": [],
           "final": false,
-          "kind": "pass",
           "label": "Rework it",
           "present": {
             "expected": "Rework: {note}",
@@ -1225,17 +1207,7 @@
             },
             "why": "reopened"
           },
-          "set": [
-            {
-              "field": "pass_result",
-              "value": "none"
-            }
-          ],
-          "spec": {
-            "input": ["channel", "newest_since_last_pass"],
-            "mode": "rework",
-            "profile": "architect"
-          },
+          "set": [],
           "timers": [],
           "waiting_for": []
         },
@@ -1243,32 +1215,55 @@
           "awaits": [],
           "branches": [
             {
-              "roles": ["acceptor"],
+              "roles": [],
               "to": "accepted",
               "when": "entity.verdict == 'accept'"
             },
             {
-              "roles": ["acceptor"],
+              "roles": [],
               "to": "rework",
               "when": "entity.verdict == 'reject'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "building",
+              "when": "entity.open_children > 0"
             }
           ],
           "creates": [],
           "final": false,
           "label": "Test it",
+          "owner": {
+            "default": {
+              "config": "decider",
+              "kind": "person"
+            },
+            "relation": "assigned_to",
+            "via": "assignment"
+          },
           "present": {
             "expected": "Test it",
             "todo": {
               "answers": [
                 {
+                  "change": {
+                    "self": "accepted_by",
+                    "values": {
+                      "verdict": "accept"
+                    }
+                  },
                   "key": "a",
-                  "label": "Accept",
-                  "set": "accepted_by"
+                  "label": "Accept"
                 },
                 {
+                  "change": {
+                    "values": {
+                      "verdict": "reject"
+                    }
+                  },
                   "key": "f",
                   "label": "Reject",
-                  "remove": "accepted_by"
+                  "note": true
                 }
               ],
               "instructions": "Try the test below, then accept it, or reject it with a note.",
@@ -1285,9 +1280,8 @@
               "value": "none"
             }
           ],
-          "status": "input_required",
           "timers": [],
-          "waiting_for": ["acceptor"]
+          "waiting_for": []
         }
       },
       "subject": "use_case"
@@ -1522,6 +1516,6 @@
       "version": 1
     }
   },
-  "rela_flows_sha256": "64e6d896b207f6e8f1d8fc56a7f137b835774868139ddeecc467f4e922d13ec9",
+  "rela_flows_sha256": "d28f819b037684bf4b350f5565abed51aec0362bcdfcb9096455e922515ccbd6",
   "writer": "system:atlas-flow"
 }

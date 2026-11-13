@@ -37,13 +37,15 @@ defmodule Model.GoldenTest do
   # Slice 10: design_and_accept keeps designing, design_review, redesign and accepted,
   # moved by design_status; its passes, design gate, acceptor and maintainer wait (was
   # 0971d09c2b1a34ad).
+  # Slice 11: test_and_accept_use_case loses its passes; the decider's verdict ends
+  # to_test (was a207d811b03394f4).
   @versions [
     {"issue", [issue: "de930a7511675ac8"]},
     {"pull_request", [pull_request: "0684c47a59a3e818"]},
     {"pr_review", [pr_review: "9d16908ccca4b854"]},
     {"pr_test", [pr_test: "816eaa1d9ee76d3b"]},
     {"use_case",
-     [design_and_accept: "dcf324cd5ccd6218", test_and_accept_use_case: "a207d811b03394f4"]},
+     [design_and_accept: "dcf324cd5ccd6218", test_and_accept_use_case: "87b0c759cc5226cb"]},
     {"scene", [test_and_accept_scene: "8dc48c7180394ded"]},
     {"decision", [decide: "e2ad1048cd8a4748"]}
   ]
@@ -132,8 +134,9 @@ defmodule Model.GoldenTest do
     # Flow applies those two, by the revision they are current for. Slice 9 selects the
     # issue, so the pull request's own link to it applies too, with no identity: every pull
     # request of the issue is current. Slice 10 selects design_and_accept on the use case,
-    # so the use case's count of its issues applies (both ends are selected); the scene's
-    # count of its use cases waits for slices 11-12.
+    # so the use case's count of its issues applies (both ends are selected); slice 11
+    # selects test_and_accept_use_case too, the child of the scene's count of its use
+    # cases, which waits for slice 12 to select a subflow on the scene.
     for env <- [:prod, :test] do
       runner = AtlasFlow.Model.load(AtlasEyra, env, %{"decider" => "someone"})
 
@@ -143,7 +146,8 @@ defmodule Model.GoldenTest do
                "issue",
                "pr_review",
                "pr_test",
-               "pull_request"
+               "pull_request",
+               "test_and_accept_use_case"
              ]
 
       assert Enum.map(runner.config["composition"]["links"], &{&1["child"], &1["current"]}) == [
