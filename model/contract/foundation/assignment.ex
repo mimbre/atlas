@@ -61,7 +61,14 @@ defmodule Model.Assignment do
     ]
   )
 
-  todo_words(title: "What to do", why: "Why", instructions: "How", answers: "Answers")
+  todo_words(
+    title: "What to do",
+    why: "Why",
+    instructions: "How",
+    answers: "Answers",
+    reopened:
+      "Reopened after its run ended: nothing is expected and nobody owns it until its run is restarted"
+  )
 
   start_page(
     assigned: [relation: :assigned_to, title: "Assigned to you", count: "{count} assigned to you"],

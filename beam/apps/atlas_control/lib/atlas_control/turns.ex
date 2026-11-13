@@ -11,7 +11,8 @@ defmodule AtlasControl.Turns do
          [turn] <- Enum.filter(turns, &(&1["values"][n["state"]] == n["running"])),
          [key] <- get_in(turn, ["links", n["on"]]) || [],
          [on_kind] <- n["on_kinds"] || [],
-         %{"fact" => %{} = item} <- read.(on_kind, %{"key" => key, "plain" => true}),
+         %{"fact" => %{} = item} <-
+           read.(on_kind, %{"key" => key, "plain" => true, "presentation" => true}),
          true <- owner?(n, on_kind, item, by),
          {:ok, {kind_of_on, on}} <- original(m, on_kind, key, read) do
       context = %{"key" => turn["key"], "on" => on, "turn" => turn, "names" => n}
@@ -61,11 +62,11 @@ defmodule AtlasControl.Turns do
     end
   end
 
-  # The facts a turn works on are the model's (`items`), each owned through its relation.
+  # The facts a turn works on are the model's (`items`); who owns the work on one, Facts'
+  # presentation of it says.
   defp owner?(n, kind, fact, by) do
-    Enum.any?(n["items"] || [], fn item ->
-      item["kind"] == kind and by in (get_in(fact, ["links", item["owner_relation"]]) || [])
-    end)
+    Enum.any?(n["items"] || [], &(&1["kind"] == kind)) and
+      by in (get_in(fact, ["presentation", "owner"]) || [])
   end
 
   # The fact the item is the component of, when it is one; else the item itself.

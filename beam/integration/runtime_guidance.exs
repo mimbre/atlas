@@ -31,6 +31,10 @@ defmodule AtlasRuntime.RuntimeGuidanceTest do
         "owned_by" => {"clerk", ["ada"]}
       })
 
+    # The box whose work the card carries: Facts presents the work on a card for the box
+    # that points at it (the model's legacy flow runs on boxes and writes on their card).
+    {:ok, _} = Rela.create(rela, "boxes", "box-a", %{}, %{"card" => {"card", ["card-a"]}})
+
     server =
       start_supervised!(
         {AtlasFacts.Server, rela: rela, data_dir: Path.join(dir, "facts"), model: @model}

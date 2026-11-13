@@ -14,6 +14,8 @@ defmodule RelaDSL.Facts.Model do
       (completion, progress, review, late; `RelaDSL.Facts.Derived`);
     * `run_mapping/0`: where runs and their inputs are kept, who writes them, and what
       each selected subflow takes choices on; nil without `flow_runtime`;
+    * `presentation/0`: who presents the work on each kind of fact: the presenters
+      (`RelaDSL.Presentation`), from which Facts serves a fact's presentation;
     * `connector(kind)`: the outside system a kind's facts are copied from, or nil:
       `%{"system", "address", "fields", "until", "names"}`, where `names` (when given)
       carries the `kind` its `relation` starts at and that kind's id `prefix` (nil when
@@ -46,9 +48,10 @@ defmodule RelaDSL.Facts.Model do
   alias RelaDSL.Facts.Served
 
   @doc false
-  def body(schema, extension, flow_runtime) do
+  def body(schema, extension, flow_runtime, presentations \\ %{}) do
     served = Served.of(schema)
     d = described(served, extension, flow_runtime)
+    presenters = RelaDSL.Presentation.presenters(d, flow_runtime, presentations)
 
     connectors =
       for {kind, %{"connector" => %{} = rule}} <- Enum.sort(d["entities"] || %{}),
@@ -72,6 +75,9 @@ defmodule RelaDSL.Facts.Model do
 
       @doc "Where runs and their inputs are kept and who writes them; nil without one."
       def run_mapping, do: unquote(Macro.escape(run_mapping(d["flow_runtime"])))
+
+      @doc "Who presents the work on each kind of fact (`RelaDSL.Presentation`)."
+      def presentation, do: unquote(Macro.escape(presenters))
 
       @doc "The outside system the facts of `kind` are copied from, or nil."
       unquote_splicing(

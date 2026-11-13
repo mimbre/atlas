@@ -523,7 +523,8 @@ defmodule AtlasControl.Workers do
          true <- DateTime.compare(lease, DateTime.utc_now()) == :gt,
          [item] <- get_in(turn, ["links", n["on"]]),
          [item_kind] <- n["on_kinds"] || [],
-         {:ok, owned} <- fact(read, item_kind, %{"key" => item, "plain" => true}),
+         {:ok, owned} <-
+           fact(read, item_kind, %{"key" => item, "plain" => true, "presentation" => true}),
          :ok <- ownership(m, item_kind, owned, target["worker"]),
          %{"facts" => current} when is_list(current) <-
            read.(n["kind"], %{"linked" => %{n["by"] => target["worker"]}, "plain" => true}),
@@ -538,27 +539,17 @@ defmodule AtlasControl.Workers do
     end
   end
 
-  # The facts a turn works on are the model's (`turn/0` `items`): owned through their
-  # owner relation, open while their state field has a value, and not handed over.
+  # The facts a turn works on are the model's (`turn/0` `items`); whether the worker owns
+  # the work on one, something is to be done and no handover waits, Facts' presentation
+  # of it says.
   defp ownership(m, kind, fact, worker) do
-    flows = for item <- (m.turn || %{})["items"] || [], item["kind"] == kind, do: item
+    shown = fact["presentation"] || %{}
 
-    cond do
-      flows == [] ->
-        {:error, "stale_execution"}
-
-      Enum.any?(flows, fn flow ->
-        get_in(fact, ["links", flow["owner_relation"]]) == [worker] and
-          (is_nil(flow["state_field"]) or
-             get_in(fact, ["values", flow["state_field"]]) not in [nil, ""]) and
-            (is_nil(flow["handover_field"]) or
-               get_in(fact, ["values", flow["handover_field"]]) in [nil, ""])
-      end) ->
-        :ok
-
-      true ->
-        {:error, "stale_execution"}
-    end
+    if Enum.any?((m.turn || %{})["items"] || [], &(&1["kind"] == kind)) and
+         shown["owner"] == [worker] and shown["actionable"] == true and
+         shown["handover"] == nil,
+       do: :ok,
+       else: {:error, "stale_execution"}
   end
 
   defp same_submission?(existing, values, actor),

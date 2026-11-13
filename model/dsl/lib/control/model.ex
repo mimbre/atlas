@@ -25,10 +25,11 @@ defmodule RelaDSL.Control.Model do
   """
 
   @doc false
-  def body(schema, extension, flow_runtime, definitions) do
+  def body(schema, extension, flow_runtime) do
     d = merge(schema, extension)
-    kinds = kinds(d)
-    flows = flows(d, flow_runtime, definitions)
+    presenters = RelaDSL.Presentation.presenters(d, flow_runtime)
+    kinds = kinds(d, presenters)
+    flows = flows(d, presenters)
 
     quote do
       @doc "The native shell: its title and tabs, with the tabs `settings` add; nil without one."
@@ -180,7 +181,7 @@ defmodule RelaDSL.Control.Model do
   # -- Kinds ------------------------------------------------------------------------------
 
   @doc false
-  def kinds(d) do
+  def kinds(d, presenters \\ []) do
     relations = d["relations"] || %{}
 
     children =
@@ -240,15 +241,8 @@ defmodule RelaDSL.Control.Model do
           end,
         agent: spec["agent"],
         delete_error: if(is_binary(spec["delete_error"]), do: spec["delete_error"]),
-        hidden: state_fields(d, kind),
-        expected:
-          for(
-            {_name, flow} <- Enum.sort(d["flows"] || %{}),
-            is_map(flow),
-            kind in (flow["kinds"] || []),
-            is_binary(flow["field"]),
-            do: %{field: flow["field"], on_component: flow["on"] != nil}
-          )
+        hidden: state_fields(presenters, kind),
+        presented: Enum.any?(presenters, &(&1["kind"] == kind))
       }
     end
   end
@@ -362,23 +356,15 @@ defmodule RelaDSL.Control.Model do
     end
   end
 
-  # The fields a flow keeps on `kind` to itself: state is shown in What to do;
-  # bookkeeping stays hidden.
-  defp state_fields(d, kind) do
-    for {_name, flow} <- Enum.sort(d["flows"] || %{}),
-        is_map(flow),
-        field <- [flow["state_field"], flow["handover_field"]],
+  # The fields a presenter keeps on `kind` to itself: the state is shown in What to do;
+  # bookkeeping (a deferred handover) stays hidden.
+  defp state_fields(presenters, kind) do
+    for p <- presenters,
+        p["kind"] == kind,
+        field <- [p["state_field"], p["handover_field"]],
         is_binary(field),
-        kind in written_kinds(d, flow),
         uniq: true,
         do: field
-  end
-
-  defp written_kinds(d, flow) do
-    case flow["on"] && get_in(d, ["relations", flow["on"], "to"]) do
-      [to] -> [to]
-      _ -> flow["kinds"] || []
-    end
   end
 
   # -- The start page ---------------------------------------------------------------------
@@ -396,16 +382,7 @@ defmodule RelaDSL.Control.Model do
     open =
       case {get_in(d, ["start", "open"]), assigned} do
         {%{} = rule, %{}} ->
-          %{
-            title: rule["title"],
-            empty: rule["empty"],
-            expected:
-              for(
-                {_name, flow} <- Enum.sort(d["flows"] || %{}),
-                is_map(flow),
-                do: flow["field"]
-              )
-          }
+          %{title: rule["title"], empty: rule["empty"]}
 
         _ ->
           nil
@@ -536,53 +513,25 @@ defmodule RelaDSL.Control.Model do
 
   # -- What the owner is to do ------------------------------------------------------------
 
-  # Per kind a flow runs on (the first by name): where it writes on (the fact, or the one
-  # component its `on` relation points at), the fields it writes, and what each state
-  # shows its owner: the presentation of the generated subflows selected for the flow,
-  # else the flow's own state.
-  defp flows(d, flow_runtime, definitions) do
-    selection = (flow_runtime && get_in(flow_runtime, ["flow_runtime", "selection"])) || %{}
+  # Per kind whose work is presented (the first presenter of it): where its presentation
+  # is on (the fact, or the one component its `on` relation points at, whose Facts read
+  # carries the presentation), and the words of What to do. What each state shows, Facts'
+  # presentation says (`RelaDSL.Presentation`).
+  defp flows(d, presenters) do
     words = d["todo"] || %{}
 
-    for {kind, _spec} <- d["entities"] || %{},
-        {name, flow} <-
-          [
-            Enum.find(Enum.sort(d["flows"] || %{}), fn {_, f} ->
-              is_map(f) and kind in (f["kinds"] || [])
-            end)
-          ],
-        into: %{} do
-      legacy = Map.new(flow["states"] || [], &{&1["name"], &1})
-
-      # Every selected subflow that takes the kind's facts from the flow (one per phase,
-      # each admitting its own): a state's name is its run's, so each presents its own.
-      presented =
-        for {subflow, s} <- Enum.sort(selection),
-            s["subject"] == kind and s["legacy"] == name,
-            {state, %{"present" => %{} = present}} <-
-              get_in(definitions, [subflow, "states"]) || %{},
-            into: %{},
-            do: {state, Map.put(present, "name", state)}
-
-      on_kind =
-        case flow["on"] && get_in(d, ["relations", flow["on"], "to"]) do
-          [to] -> to
-          _ -> nil
-        end
-
-      {kind,
+    for p <- Enum.reverse(presenters), into: %{} do
+      {p["subject"],
        %{
-         on: flow["on"],
-         on_kind: on_kind,
-         field: flow["field"],
-         state_field: flow["state_field"],
-         owner_relation: flow["owner_relation"],
-         states: Map.merge(legacy, presented),
+         on: p["on"],
+         on_kind: if(p["on"], do: p["kind"]),
+         owner_relation: p["owner_relation"],
          words: %{
            title: to_text(words["title"]),
            why: to_text(words["why"]),
            instructions: to_text(words["instructions"]),
-           answers: to_text(words["answers"])
+           answers: to_text(words["answers"]),
+           reopened: to_text(words["reopened"])
          }
        }}
     end

@@ -857,12 +857,21 @@ defmodule AtlasControl.Session do
 
     case Pages.set_problem(state.model, route, answers) do
       nil ->
-        put_fact(
-          %{state | route: route},
-          kind,
-          link(key, relation, [state.by]),
-          {:item, kind, key}
-        )
+        # In a state whose answer sets it, as that answer does: the run moves as when the
+        # owner answers (Accept writes its verdict with the link).
+        content =
+          case Pages.self_answer(state.model, kind, relation, answers) do
+            nil ->
+              link(key, relation, [state.by])
+
+            answer ->
+              {:ok, content, _cause} =
+                AtlasControl.Answers.change(answer, key, state.by, "", DateTime.utc_now())
+
+              content
+          end
+
+        put_fact(%{state | route: route}, kind, content, {:item, kind, key})
 
       problem ->
         state = notice(state, "error", problem)
@@ -1345,7 +1354,10 @@ defmodule AtlasControl.Session do
         {Faults.page(route, Faults.offers(on)), answers, ReadSet.none()}
 
       route ->
-        viewer = Map.merge(form, %{by: state.by, by_kind: state.by_kind})
+        # What this session wrote and Flow has not settled stays on its pages, marked.
+        viewer =
+          Map.merge(form, %{by: state.by, by_kind: state.by_kind, marked: Map.keys(state.marks)})
+
         page = route |> Pages.render(state.model, answers, viewer) |> Faults.with_action(route)
         set = ReadSet.of(PageReads.roles(route, state.model), answers, page.blocks)
         {page, answers, set}
@@ -1590,7 +1602,13 @@ defmodule AtlasControl.Session do
   # with the page when what it was read from changed (its own read set) or it was never
   # read.
   defp count(state, {:assigned, _} = _route, answers, set),
-    do: %{state | count: %{text: Pages.assigned_count(state.model, answers), set: set}}
+    do: %{
+      state
+      | count: %{
+          text: Pages.assigned_count(state.model, answers, Map.keys(state.marks)),
+          set: set
+        }
+    }
 
   defp count(%{count: %{set: nil}} = state, _route, _answers, _set) do
     if Pages.assigned_start?(state.model, state.by_kind) do

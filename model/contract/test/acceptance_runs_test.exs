@@ -625,6 +625,24 @@ defmodule Model.AcceptanceRunsTest do
     end
   end
 
+  # The assignment as Facts answers it to Control: the work on the subject presented
+  # (`AtlasFacts.Presentation`) from its active run of `flow` in the state it wrote.
+  defp presented(assignment, fact, flow) do
+    p = Enum.find(Model.AtlasEyra.presentation(), &(&1["subject"] == @kind))
+    state = assignment["values"]["flow_state"]
+
+    run = %{
+      "key" => "R-1",
+      "flow" => flow,
+      "generation" => 1,
+      "status" => "active",
+      "state" => state
+    }
+
+    shown = AtlasFacts.Presentation.view(p, assignment, fact, [run], fn -> false end)
+    Map.put(assignment, "presentation", shown)
+  end
+
   test "the decider's answers write the verdict, Accept with accepted_by, Reject with a note" do
     fact = %{
       "key" => "UC-Atlas-01",
@@ -632,11 +650,13 @@ defmodule Model.AcceptanceRunsTest do
       "links" => %{"assignment" => ["AS-UC-Atlas-01"]}
     }
 
-    assignment = %{
-      "key" => "AS-UC-Atlas-01",
-      "values" => %{"flow_state" => "to_test", "expected" => "Test it"},
-      "links" => %{"assigned_to" => ["someone"]}
-    }
+    assignment =
+      %{
+        "key" => "AS-UC-Atlas-01",
+        "values" => %{"flow_state" => "to_test", "expected" => "Test it"},
+        "links" => %{"assigned_to" => ["someone"]}
+      }
+      |> presented(fact, @build)
 
     item = %{"fact" => fact, "parts" => %{"assignment" => assignment}}
     viewer = %{key: "someone", kind: "person"}
@@ -671,13 +691,18 @@ defmodule Model.AcceptanceRunsTest do
     assert links == %{}
 
     # Each state of either run on the use case shows its own presentation in Control.
-    for {state, expected} <- [
-          {"designing", "Write its Design part"},
-          {"design_review", "Have its design reviewed"},
-          {"break_down", "Break it down into issues"},
-          {"building", "Build it"}
+    for {flow, state, expected} <- [
+          {"design_and_accept", "designing", "Write its Design part"},
+          {"design_and_accept", "design_review", "Have its design reviewed"},
+          {@build, "break_down", "Break it down into issues"},
+          {@build, "building", "Build it"}
         ] do
-      a = %{assignment | "values" => %{"flow_state" => state, "expected" => expected}}
+      a =
+        presented(
+          %{assignment | "values" => %{"flow_state" => state, "expected" => expected}},
+          fact,
+          flow
+        )
 
       assert %{expected: ^expected} =
                Model.AtlasEyra.todo(@kind, fact, %{"assignment" => a}, viewer)

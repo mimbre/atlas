@@ -1265,6 +1265,53 @@ defmodule AtlasControl.SessionTest do
     assert FakeStore.sent() == sent
   end
 
+  test "setting a relation an answer of the presented state sets writes that answer's values" do
+    # In the review's check state, Accept links checked_by and sets the state final; Check
+    # on the page sets the same relation (`Shop.Reviewed`). Done by someone who is not the
+    # card's holder, it writes what Accept writes, so the run ends as when the owner
+    # accepts.
+    port = gateway(Shop.Reviewed)
+    FakeStore.put("W-1", %{"title" => "One"}, "widget", %{"card" => ["C-W-1"]})
+    FakeStore.put("C-W-1", %{"of" => "W-1", "step" => "check"}, "card", %{"held_by" => ["ada"]})
+    FakeStore.put("bob", %{"name" => "Bob"}, "member")
+    Application.put_env(:atlas_control, :tui_user, "bob")
+    on_exit(fn -> Application.delete_env(:atlas_control, :tui_user) end)
+    {:ok, tui} = :gen_tcp.connect(~c"127.0.0.1", port, [:binary, packet: :line, active: false])
+    on_exit(fn -> :gen_tcp.close(tui) end)
+
+    put(tui, %{
+      "op" => "hello",
+      "env" => "test",
+      "client" => "tui",
+      "spec" => AtlasControl.Blocks.version()
+    })
+
+    next(tui, "page")
+    to = AtlasControl.Pages.path({:set, "widget", "W-1", "checked_by"})
+    put(tui, %{"op" => "submit", "to" => to, "values" => %{}})
+    assert %{"reason" => "stored"} = next(tui, "page")
+
+    assert %{"links" => %{"checked_by" => ["bob"]}, "values" => %{"state" => "final"}} =
+             List.last(FakeStore.sent())
+
+    # Once the run left that state, the same relation is set alone.
+    FakeStore.put("W-2", %{"title" => "Two"}, "widget", %{"card" => ["C-W-2"]})
+    FakeStore.put("C-W-2", %{"of" => "W-2"}, "card", %{"held_by" => ["ada"]})
+
+    put(tui, %{
+      "op" => "submit",
+      "to" => AtlasControl.Pages.path({:set, "widget", "W-2", "checked_by"}),
+      "values" => %{}
+    })
+
+    assert %{"reason" => "stored"} = next(tui, "page")
+
+    assert %{"links" => %{"checked_by" => ["bob"]}, "values" => values} =
+             List.last(FakeStore.sent())
+
+    assert values == %{}
+  end
+
   test "an update that decides goes as the client's, with what it read; a kind never deleted refuses unsent" do
     # Who checked a widget decides its dark shade; a widget is never deleted (`Shop.Kept`).
     port = gateway(Shop.Kept)

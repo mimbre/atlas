@@ -357,7 +357,7 @@ defmodule AtlasControl.Pages do
     relation = assigned_rule(m).relation
     froms = (rel(m, relation) || %{from: []}).from
 
-    for(from <- froms, do: {from, %{"linked" => %{relation => by}}}) ++
+    for(from <- froms, do: {from, presented(m, from, %{"linked" => %{relation => by}})}) ++
       for {_component, owner} <- owner_kinds(m, froms), do: {owner, %{}}
   end
 
@@ -368,7 +368,7 @@ defmodule AtlasControl.Pages do
     if open_work?(m, kind) do
       froms = (rel(m, assigned_rule(m).relation) || %{from: []}).from
 
-      for(from <- froms, do: {from, %{}}) ++
+      for(from <- froms, do: {from, presented(m, from, %{})}) ++
         for {_component, owner} <- owner_kinds(m, froms), do: {owner, %{}}
     else
       list_reads(kind, m)
@@ -391,9 +391,9 @@ defmodule AtlasControl.Pages do
 
     parts =
       for {_relation, part_kind, component} <- components(m, kind),
-          do: {part_kind, %{"key" => part_key(component, key)}}
+          do: {part_kind, presented(m, part_kind, %{"key" => part_key(component, key)})}
 
-    [{kind, %{"key" => key}} | children] ++ causes ++ parts
+    [{kind, presented(m, kind, %{"key" => key})} | children] ++ causes ++ parts
   end
 
   # A change form also lists where the fact can move: every fact of each parent kind.
@@ -419,6 +419,14 @@ defmodule AtlasControl.Pages do
 
   def reads(:unknown, _), do: []
   def reads(:kinds, _), do: []
+
+  # A read of a kind whose work is presented asks Facts for each fact's presentation.
+  defp presented(m, kind, read) do
+    case kind(m, kind) do
+      %{presented: true} -> Map.put(read, "presentation", true)
+      _ -> read
+    end
+  end
 
   @doc """
   The role of each of `reads(route, m)`, in the same order (`AtlasControl.Freshness.ReadSet`):
@@ -552,9 +560,12 @@ defmodule AtlasControl.Pages do
   What is assigned, among the answers to `reads({:assigned, by})`: `[{kind, fact, link}]`,
   newest link first. `link` is the fact that points at the client (the Assignment, with
   what is expected and the origin of the link); `fact` is what it is the component of (or
-  itself, when it is no component), left out once completed.
+  itself, when it is no component), left out once completed, and left out while Facts'
+  presentation of the work on it has nothing to do and nobody set its owner by hand: a
+  run that ended leaves nothing to act on, whatever is still written. A row whose fact
+  this session just wrote (`marked`, the keys it marks until Flow settles) stays.
   """
-  def assigned_facts(m, answers) do
+  def assigned_facts(m, answers, marked \\ []) do
     relation = assigned_rule(m).relation
     froms = (rel(m, relation) || %{from: []}).from
     owners = owner_kinds(m, froms)
@@ -571,7 +582,8 @@ defmodule AtlasControl.Pages do
     for {from, %{"facts" => links}} <- Enum.zip(froms, linked),
         link <- links,
         {kind, fact} = Map.get(whose, link["key"], {from, link}),
-        not completed?(fact) do
+        not completed?(fact),
+        current?(link, fact, marked) do
       {kind, fact, link}
     end
     |> Enum.sort_by(
@@ -591,14 +603,34 @@ defmodule AtlasControl.Pages do
         do: {r.name, owner}
   end
 
-  @doc "The count of what is assigned, as the model words it (`count`)."
-  def assigned_count(m, answers) do
+  @doc "The count of what is assigned, as the model words it (`count`); `marked` as `assigned_facts/3`."
+  def assigned_count(m, answers, marked \\ []) do
     rule = assigned_rule(m)
-    n = length(assigned_facts(m, answers))
+    n = length(assigned_facts(m, answers, marked))
     String.replace(rule.count || "{count}", "{count}", Integer.to_string(n))
   end
 
   defp completed?(fact), do: get_in(fact, ["completion", "done"]) == true
+
+  # Work to show: its presentation has something to do, or someone set its owner by hand;
+  # a fact no presenter presents is shown as it is. A row this session just wrote (one
+  # it marks, `marked`: Flow has not settled past the write) stays as it was, flagged
+  # pending, until Flow settles; then it leaves or changes as Flow decided (page
+  # freshness, F7).
+  defp current?(link, fact, marked) do
+    case link["presentation"] do
+      %{} = shown ->
+        shown["actionable"] == true or shown["manual"] == true or
+          link["key"] in marked or fact["key"] in marked
+
+      _ ->
+        true
+    end
+  end
+
+  # The keys of the facts this session wrote that Flow has not settled yet (`marked` in
+  # the form, the session's marks).
+  defp marked(form), do: (is_map(form) && form[:marked]) || []
 
   @doc """
   Open work (the model's `start_page().open`: `title`, `empty`): the list of a kind the
@@ -618,25 +650,24 @@ defmodule AtlasControl.Pages do
   `assigned_facts/2`, for everyone, of the facts someone is assigned to or something is
   expected of; late first, then the newest link.
   """
-  def open_facts(m, answers) do
+  def open_facts(m, answers, marked \\ []) do
     relation = assigned_rule(m).relation
-    expected = open_rule(m).expected
 
     m
-    |> assigned_facts(answers)
-    |> Enum.filter(fn {_kind, _fact, link} ->
-      (get_in(link, ["links", relation]) || []) != [] or
-        Enum.any?(expected, fn field -> to_text(get_in(link, ["values", field])) != "" end)
+    |> assigned_facts(answers, marked)
+    |> Enum.filter(fn {_kind, fact, link} ->
+      (get_in(link, ["links", relation]) || []) != [] or expected(fact, link) != nil
     end)
     |> Enum.sort_by(fn {_, _, link} -> if link["late"] == true, do: 0, else: 1 end)
   end
 
   # Each row: the fact, what its owner is expected to do (the field its flow writes), and
   # since when and why it is theirs (the fact that set the link).
-  defp assigned(m, _by, answers) do
+  defp assigned(m, _by, answers, marked) do
     rule = assigned_rule(m)
 
-    rows = for item <- assigned_facts(m, answers), do: work_row(m, rule.relation, item, false)
+    rows =
+      for item <- assigned_facts(m, answers, marked), do: work_row(m, rule.relation, item, false)
 
     list =
       Blocks.list(
@@ -668,7 +699,7 @@ defmodule AtlasControl.Pages do
       [
         owner,
         review_text(fact),
-        expected(k, fact, link),
+        expected(fact, link),
         late_detail(link_k, link),
         origin["since"] && "since " <> short_moment(origin["since"]),
         not owner? && origin["cause"]
@@ -693,13 +724,13 @@ defmodule AtlasControl.Pages do
   end
 
   # Open work: the list of a kind the start's relation starts at, for everyone.
-  defp open_work(m, kind, answers) do
+  defp open_work(m, kind, answers, marked) do
     case Enum.find(answers, &match?(%{"error" => _}, &1)) do
       nil ->
         rule = open_rule(m)
         relation = assigned_rule(m).relation
 
-        rows = for item <- open_facts(m, answers), do: work_row(m, relation, item, true)
+        rows = for item <- open_facts(m, answers, marked), do: work_row(m, relation, item, true)
 
         list =
           Blocks.list(
@@ -716,15 +747,14 @@ defmodule AtlasControl.Pages do
     end
   end
 
-  # What the fact's owner is expected to do: the value of the field a flow on its kind
-  # writes, on the fact or, for a flow `on` a component, on its component (`link`).
-  defp expected(nil, _fact, _link), do: nil
-
-  defp expected(k, fact, link) do
-    Enum.find_value(k.expected, fn e ->
-      written = if e.on_component, do: link, else: fact
-      value = to_text(get_in(written, ["values", e.field]))
-      if value == "", do: nil, else: value
+  # What the fact's owner is expected to do, as Facts' presentation of the work says: on
+  # the component it is presented on (`link`), or on the fact itself.
+  defp expected(fact, link) do
+    Enum.find_value([link, fact], fn written ->
+      case to_text(get_in(written, ["presentation", "expected"])) do
+        "" -> nil
+        value -> value
+      end
     end)
   end
 
@@ -767,7 +797,7 @@ defmodule AtlasControl.Pages do
   """
   def render(route, m, answers, form \\ %{})
 
-  def render({:assigned, by}, m, answers, _form), do: assigned(m, by, answers)
+  def render({:assigned, by}, m, answers, form), do: assigned(m, by, answers, marked(form))
 
   def render(:home, m, answers, form) do
     case top_kinds(m) do
@@ -901,7 +931,7 @@ defmodule AtlasControl.Pages do
 
   defp page({:list, kind}, kind, k, m, answers, form) do
     if open_work?(m, kind),
-      do: open_work(m, kind, answers),
+      do: open_work(m, kind, answers, marked(form)),
       else: list_page(kind, k, m, answers, form)
   end
 
@@ -1546,6 +1576,35 @@ defmodule AtlasControl.Pages do
       true -> nil
     end
   end
+
+  @doc """
+  The answer of the state the work on the fact is presented in that links the fact to
+  the one who answers through `relation` (its change's `self`), as the presentation's
+  todo declares it (`%{"values", "self", "label", "note"}`, as the model's `answer/4`
+  gives one), or nil. Setting `relation` on the page (Accept) writes what that answer
+  writes, by whoever may set it, so the run moves as when the owner answers. `answers` are
+  Facts' answers to the route's reads, the fact first.
+  """
+  def self_answer(m, kind, relation, [%{"fact" => fact} | rest]) when is_map(fact) do
+    parts = for {_kind, _k, part, _made} <- item_parts(m, kind, rest), do: part
+
+    Enum.find_value([fact | parts], fn written ->
+      with %{"actionable" => true, "todo" => %{} = todo} <- written["presentation"],
+           %{"change" => %{} = change} = answer <-
+             Enum.find(todo["answers"] || [], &(get_in(&1, ["change", "self"]) == relation)) do
+        %{
+          "values" => change["values"] || %{},
+          "self" => relation,
+          "label" => answer["label"],
+          "note" => false
+        }
+      else
+        _ -> nil
+      end
+    end)
+  end
+
+  def self_answer(_m, _kind, _relation, _answers), do: nil
 
   # The operations and actions the model offers on a fact's page, for this client.
   defp fact_actions(m, k, fact, form) do

@@ -5,9 +5,9 @@ defmodule RelaDSL.Runtime.Model do
 
     * `turn/0`: the names of the turn's kind and fields (`runtime turn:`), with
       `on_kinds` (the kinds its `on` relation leads to) and `items` (the facts a turn
-      works on: each legacy flow with an owner relation gives the kinds it writes on,
-      with `owner_relation`, `state_field` and `handover_field`, in the flows' order and
-      each once); nil without `runtime`;
+      works on: the kinds work is owned on, each with its `owner_relation`, once each,
+      as the presenters give them, `RelaDSL.Presentation`; whether one is open and free
+      to start on, Facts' presentation of it says); nil without `runtime`;
     * `agent/0`: `kind` (the one kind the turn's `by` leads to, or nil) and
       `cannot_run` (`runtime agent:`); nil without `runtime`;
     * `guidance/0`: the guidance records (`guidance`), or nil;
@@ -19,7 +19,7 @@ defmodule RelaDSL.Runtime.Model do
   """
 
   @doc false
-  def body(schema, extension) do
+  def body(schema, extension, flow_runtime \\ nil) do
     relations = schema["relations"] || %{}
     runtime = extension["runtime"] || %{}
     names = runtime["turn"]
@@ -28,7 +28,13 @@ defmodule RelaDSL.Runtime.Model do
       names &&
         Map.merge(names, %{
           "on_kinds" => to(relations, names["on"]),
-          "items" => items(relations, extension["flows"] || %{})
+          "items" =>
+            RelaDSL.Presentation.owned(
+              RelaDSL.Presentation.presenters(
+                %{"relations" => relations, "flows" => extension["flows"] || %{}},
+                flow_runtime
+              )
+            )
         })
 
     agent =
@@ -69,25 +75,6 @@ defmodule RelaDSL.Runtime.Model do
   end
 
   defp to(relations, name), do: (is_binary(name) && relations[name]["to"]) || []
-
-  # The facts flows write on, owned through their owner relation: `on`'s one kind, or
-  # their kinds.
-  defp items(relations, flows) do
-    for {_name, %{"owner_relation" => relation} = flow} <- Enum.sort(flows),
-        is_binary(relation),
-        kind <-
-          (case to(relations, flow["on"]) do
-             [to] -> [to]
-             _ -> flow["kinds"] || []
-           end),
-        uniq: true,
-        do: %{
-          "kind" => kind,
-          "owner_relation" => relation,
-          "state_field" => flow["state_field"],
-          "handover_field" => flow["handover_field"]
-        }
-  end
 
   # The rule with every name it shows resolved: the anchors' kind, its primary field,
   # the labels of the relations and of the tags' values.

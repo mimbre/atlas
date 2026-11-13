@@ -665,4 +665,102 @@ defmodule AtlasControl.WorkerPagesTest do
         value <- values(block(page, id)),
         do: refute(MapSet.member?(worker_values, value))
   end
+
+  describe "guidance to a running worker" do
+    # A clerk's running turn on a card (`AtlasControl.Packing`); the reader may submit.
+    # Whether the card is still the worker's open work, Facts' presentation of it says.
+    defp submit(presentation) do
+      m =
+        AtlasControl.Model.catalog(AtlasControl.Packing, %{
+          "workers" => %{"submit" => %{"actors" => ["viewer"]}}
+        })
+
+      target = %{
+        "environment" => AtlasBus.environment(),
+        "machine" => "page-machine",
+        "worker" => "page-worker",
+        "turn" => "page-turn",
+        "attempt" => "1"
+      }
+
+      execution =
+        Map.merge(target, %{
+          "key" => "execution",
+          "capability_version" => "1",
+          "queued_input" => true,
+          "durable_accept_query" => true,
+          "consumption_evidence" => true
+        })
+
+      lease = DateTime.utc_now() |> DateTime.add(60) |> DateTime.to_iso8601()
+
+      turn = %{
+        "key" => "page-turn",
+        "values" => %{
+          "host" => "page-machine",
+          "try" => "1",
+          "status" => "going",
+          "until" => lease
+        },
+        "links" => %{"worker" => ["page-worker"], "work" => ["C-1"]}
+      }
+
+      card = %{
+        "key" => "C-1",
+        "values" => %{"step" => "packing"},
+        "links" => %{"holder" => ["page-worker"]},
+        "presentation" => presentation
+      }
+
+      read = fn
+        "reader", %{"key" => "viewer"} -> %{"fact" => %{"key" => "viewer"}}
+        "trace", %{"turn" => "page-turn", "attempt" => "1"} -> %{"fact" => execution}
+        "memo_note", %{"client_key" => _} -> %{"fact" => nil}
+        "run", %{"key" => "page-turn"} -> %{"fact" => turn}
+        "run", %{"linked" => _} -> %{"facts" => [turn]}
+        "card", %{"key" => "C-1", "presentation" => true} -> %{"fact" => card}
+      end
+
+      write = fn _kind, content ->
+        {:stored,
+         %{
+           "fact" =>
+             Map.merge(content["values"], %{
+               "actor" => content["by"],
+               "environment" => AtlasBus.environment()
+             })
+         }}
+      end
+
+      request = %{
+        "execution" => target,
+        "guidance" => %{"client_key" => "k-1", "body" => "Look again", "cause" => "test"}
+      }
+
+      AtlasControl.Workers.handle(
+        "worker_submit",
+        request,
+        m,
+        %{key: "viewer", kind: "reader"},
+        read,
+        write
+      )
+    end
+
+    @open %{"owner" => ["page-worker"], "actionable" => true, "handover" => nil}
+
+    test "is taken while the work is the worker's and open" do
+      assert {:ok, %{"interaction" => _}} = submit(@open)
+    end
+
+    test "is refused once its run ended, or a handover waits, or the work is another's" do
+      for shown <- [
+            %{@open | "actionable" => false},
+            %{@open | "handover" => %{"from" => ["page-worker"], "position" => 2}},
+            %{@open | "owner" => ["someone-else"]}
+          ] do
+        assert {:error, "stale_execution"} = submit(shown)
+      end
+    end
+  end
 end

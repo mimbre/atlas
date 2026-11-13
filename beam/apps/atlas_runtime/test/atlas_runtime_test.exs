@@ -79,7 +79,14 @@ defmodule AtlasRuntimeTest do
     runtime = engine(dir, every: 3_600_000)
     eventually(fn -> run("R-C-B-1-1") != nil end)
     [{turn, _}] = Registry.lookup(AtlasRuntime.Turns, "R-C-B-1-1")
-    held = FakeFacts.hold_read("card", %{"linked" => %{"owned_by" => "ada"}, "plain" => true})
+
+    held =
+      FakeFacts.hold_read("card", %{
+        "linked" => %{"owned_by" => "ada"},
+        "plain" => true,
+        "presentation" => true
+      })
+
     round = Task.async(fn -> Engine.round(runtime) end)
     assert_receive {:held_read, ^held}, 3_000
 

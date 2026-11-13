@@ -19,10 +19,18 @@ defmodule AtlasControl.TurnsTest do
 
   defp read(turn, item) do
     fn
-      "run", %{"linked" => %{"worker" => "ada"}} -> %{"facts" => [turn]}
-      "run", _ -> %{"facts" => []}
-      "card", _ -> %{"fact" => item}
-      "box", _ -> %{"facts" => [%{"key" => "B-1"}]}
+      "run", %{"linked" => %{"worker" => "ada"}} ->
+        %{"facts" => [turn]}
+
+      "run", _ ->
+        %{"facts" => []}
+
+      # As Facts answers it: the work on the card presented (`AtlasControl.Presented`).
+      "card", content ->
+        AtlasControl.Presented.answer(AtlasControl.Packing, "card", content, %{"fact" => item})
+
+      "box", _ ->
+        %{"facts" => [%{"key" => "B-1"}]}
     end
   end
 
