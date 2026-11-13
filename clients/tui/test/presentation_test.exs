@@ -68,6 +68,7 @@ defmodule AtlasTui.PresentationTest do
           :dim,
           :selected,
           :cursor,
+          :header,
           :prod,
           :ok,
           :pending,
@@ -80,6 +81,28 @@ defmodule AtlasTui.PresentationTest do
       {fg, bg} = Palette.colors(role, theme)
       [low, high] = Enum.sort([luminance(fg), luminance(bg)])
       assert (high + 0.05) / (low + 0.05) >= 4.5, "#{theme} #{inspect(role)}"
+    end
+  end
+
+  test "the header bar is primary in every environment and only prod badges its name" do
+    for env <- ["prod", "test"], count <- [nil, "3"], width <- [20, 60] do
+      base = model()
+      [bar | _] = AtlasTui.ConsoleView.header(%{base | env: env, count: count}, width)
+      {badged, rest} = Enum.split_with(bar, fn {style, _} -> style == :prod end)
+
+      assert Enum.all?(rest, fn {style, _} -> style == :header end), inspect(bar)
+      cells = Enum.sum(Enum.map(bar, &String.length(elem(&1, 1))))
+      assert if(count, do: cells >= width, else: cells == width)
+      assert badged == if(env == "prod", do: [{:prod, " #{env} "}], else: [])
+    end
+
+    for theme <- [:light, :dark] do
+      assert {white, primary} = Palette.colors(:header, theme)
+      assert white == {255, 255, 255}
+      assert {r, g, b} = primary
+      assert b > r and b > g
+      assert {white, {219, 30, 30}} == Palette.colors(:prod, theme)
+      assert Palette.ansi(:header, theme) |> IO.iodata_to_binary() =~ "\e[0;1;"
     end
   end
 

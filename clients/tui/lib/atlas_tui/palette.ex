@@ -10,11 +10,16 @@ defmodule AtlasTui.Palette do
 
   `:muted` is a modifier, not a colour: a muted segment keeps the colours of `:dim`, or
   of the role it wraps (`{:selected, :muted}`), and is drawn faint and never bold.
+  `:header` is the title bar, the same in both themes; inside it `:prod` marks only the
+  environment name as a red badge, so production stays recognisable.
   `:pending_selected` is `:pending` inside the selection: yellow text cannot reach 4.5:1 on
   the selection background, so there the yellow is the background, under dark text.
   """
   @tokens %{
     primary: {66, 114, 239},
+    # Not a Prism token: primary scaled to 97%, the nearest same-hue shade where white text
+    # reaches 4.5:1 (4.51:1; white on primary itself is 4.30:1).
+    primaryshade: {64, 111, 232},
     primarylight: {227, 234, 253},
     secondary: {255, 94, 94},
     tertiary: {255, 207, 96},
@@ -44,6 +49,7 @@ defmodule AtlasTui.Palette do
       case style do
         :selected -> {:grey1, :primarylight}
         :cursor -> {:grey1, :tertiary}
+        :header -> {:white, :primaryshade}
         :prod -> {:white, :error}
         :dim -> if dark, do: {:grey3, :grey1}, else: base
         :border -> if dark, do: {:grey2, :grey1}, else: {:grey2, :white}
@@ -64,7 +70,7 @@ defmodule AtlasTui.Palette do
     weight =
       cond do
         muted?(style) -> "2;"
-        style in [:bold, :selected, :prod] -> "1;"
+        style in [:bold, :selected, :header, :prod] -> "1;"
         true -> ""
       end
 
