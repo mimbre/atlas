@@ -60,6 +60,7 @@ defmodule FlowMigrationBootTest do
     defdelegate runs(), to: Model.AtlasEyra
     defdelegate selection(name), to: Model.AtlasEyra
     defdelegate migrations(), to: Model.AtlasEyra
+    defdelegate composition(), to: Model.AtlasEyra
     defdelegate actors(), to: Model.AtlasEyra
     defdelegate relations(), to: Model.AtlasEyra
     defdelegate turn(), to: Model.AtlasEyra

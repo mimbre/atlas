@@ -31,6 +31,16 @@ defmodule AtlasFlow.Model do
   @callback migrations() :: [map]
 
   @doc """
+  How the results of its subflows reach one another, as versioned data:
+  `%{"version" => 1, "links" => [...], "counts" => [...]}`. A link writes a child run's
+  outcome to a field of its parent (`AtlasFlow.Composition.Links`), a count the parent's
+  number of children and of open ones (`AtlasFlow.Composition.Counts`). Flow applies
+  those whose child subflow and a subflow on the parent are both selected; it refuses a
+  version it does not know.
+  """
+  @callback composition() :: map
+
+  @doc """
   The configured actors the model needs: `[{role, kind}]`. An owner whose default is
   `%{"kind", "config" => role}` is the actor the environment configures for that role
   (`AtlasBus.Actors`).

@@ -189,6 +189,71 @@ defmodule Mix.Tasks.Model.GenTest do
     end
   end
 
+  describe "a contract with a composition" do
+    test "flows.json holds its links and counts as versioned data, beside the subflows",
+         %{json: json} do
+      n = System.unique_integer([:positive])
+      flows = :"Elixir.RelaDSL.GenComposed#{n}.Flows"
+      contract = :"Elixir.RelaDSL.GenComposed#{n}"
+
+      Code.compile_string("""
+      defmodule #{inspect(flows)} do
+        use RelaDSL.Schema
+        subflow :tray, subject: :tray do
+          owner default: {:team, :desk}
+          start :create
+          initial :waiting
+          state :waiting do
+            await :outcome, full: :done
+          end
+          final :done
+        end
+        subflow :cup, subject: :cup do
+          owner default: {:team, :desk}
+          start :create
+          initial :filling
+          state :filling do
+            wait_for [:filler], on: :level, reset: false, full: :full
+          end
+          final :full
+        end
+      end
+      defmodule #{inspect(contract)} do
+        use RelaDSL.Schema.Composition
+        defcomposition :gen do
+          subflows [#{inspect(flows)}]
+          link :cup, to: {:tray, :on_tray}, field: :outcome, states: [full: :full]
+        end
+        def __gates__, do: []
+      end
+      """)
+
+      Application.put_env(:rela_dsl, :contract, contract)
+      Application.put_env(:rela_dsl, :gates, contract)
+      gen()
+
+      written = JSON.decode!(File.read!(json))
+
+      assert written["composition"] == %{
+               "version" => 1,
+               "links" => [
+                 %{
+                   "child" => "cup",
+                   "child_subject" => "cup",
+                   "parent_subject" => "tray",
+                   "relation" => "on_tray",
+                   "field" => "outcome",
+                   "states" => %{"full" => "full"},
+                   "stale" => "keep"
+                 }
+               ],
+               "counts" => []
+             }
+
+      assert Map.keys(written["flows"]) == ["cup", "tray"]
+    end
+  end
+
   describe "with ATLAS_RELA_BIN set" do
     test "what rela refuses fails the task, in rela's words, and nothing is written", c do
       refusing_rela(c.tmp_dir)

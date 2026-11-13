@@ -12,6 +12,7 @@ defmodule Model.GoldenTest do
     @data @path |> File.read!() |> JSON.decode!()
 
     def flows, do: @data["flows"]
+    def composition, do: @data["composition"]
     def gates, do: @data["gates"]
     def rela_flows_sha256, do: @data["rela_flows_sha256"]
 
@@ -96,8 +97,36 @@ defmodule Model.GoldenTest do
              Atlas.flows_json(
                resolved(),
                AtlasEyra.__rela__(:gates),
-               Committed.rela_flows_sha256()
+               Committed.rela_flows_sha256(),
+               AtlasEyra.__composition__()
              )
+  end
+
+  test "the committed composition is the compiled one; production applies none of it" do
+    compiled = AtlasEyra.composition()
+    no_nil = &Enum.map(&1, fn x -> Map.reject(x, fn {_, v} -> v == nil end) end)
+    assert Committed.composition() == Map.update!(compiled, "links", no_nil)
+    assert compiled["version"] == 1
+
+    assert Enum.map(compiled["links"], &{&1["child"], &1["parent_subject"], &1["field"]}) == [
+             {"pr_review", "pull_request", "review_outcome"},
+             {"pr_test", "pull_request", "test_outcome"},
+             {"pull_request", "issue", "pr_outcome"}
+           ]
+
+    assert Enum.map(compiled["counts"], &{&1["child"], &1["parent_subject"]}) == [
+             {"issue", "use_case"},
+             {"test_and_accept_use_case", "scene"}
+           ]
+
+    # Production selection is unchanged (only decide): no link or count has both ends
+    # selected, so Flow applies none, and nothing refuses.
+    for env <- [:prod, :test] do
+      runner = AtlasFlow.Model.load(AtlasEyra, env, %{"decider" => "someone"})
+      assert Map.keys(runner.config["selection"]) == ["decide"]
+      assert runner.config["composition"] == %{"links" => [], "counts" => []}
+      assert runner.refusal == nil
+    end
   end
 
   test "the committed flows.json is bound to the committed flows.yaml" do

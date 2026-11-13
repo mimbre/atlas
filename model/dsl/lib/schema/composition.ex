@@ -12,19 +12,27 @@ defmodule RelaDSL.Schema.Composition do
           subflows [MyFlows.Letter, MyFlows.Receipt]
 
           link :receipt, to: {:letter, :receipt_of}, field: :receipt,
-            states: [signed: :signed, lost: :lost], stale: :drop
+            states: [signed: :signed, lost: :lost], stale: :drop, current: {:round, :round}
 
           count :receipt, to: {:letter, :receipt_of}, all: :receipts, open: :open_receipts
         end
       end
 
-    * `link child, to: {parent_subject, relation}, field:, states:, stale:`: when a
-      run of the subflow `child` reaches one of `states` (child state: value), the
-      value is written to `field` on the parent the child relates to by `relation`.
-      `stale: :drop` drops a value from a child that is no longer the current one.
+    * `link child, to: {parent_subject, relation}, field:, states:, stale:, current:`:
+      when a run of the subflow `child` reaches one of `states` (child state: value),
+      the value is written to `field` on the parent the child relates to by
+      `relation`. Only the current child writes: `current: {child_field,
+      parent_field}` makes a child current when its `child_field` equals the parent's
+      `parent_field` (a revision or fingerprint, never a time); without it every
+      related child is. More than one current child is ambiguous and writes nothing.
+      `stale: :drop` drops a value from a child that is no longer the current one; a
+      runner refuses it without `current:`, since nothing then says which one is.
     * `count child, to: {parent_subject, relation}, all:, open:`: the parent's
       fields `all` (how many children relate to it) and `open` (how many of them
-      have a run of `child` that has not reached a final state).
+      have no run of `child` in a final state yet).
+
+  `__composition__/0` holds the links and counts as written; `RelaDSL.Atlas.composition/2`
+  gives them as versioned data (`"version" => 1`), as a runner and `flows.json` take them.
 
   `use` gives the module `__composition__/0` (the composition as plain data) and
   `__flows__/0` (every subflow of the listed modules, in the order listed), so the
@@ -149,6 +157,8 @@ defmodule RelaDSL.Schema.Composition do
       field: opts[:field],
       states: Keyword.get(opts, :states, []),
       stale: opts[:stale],
+      current: opts[:current],
+      unknown: Keyword.keys(opts) -- [:to, :field, :states, :stale, :current],
       line: line
     }
 
@@ -164,6 +174,7 @@ defmodule RelaDSL.Schema.Composition do
       relation: relation,
       all: opts[:all],
       open: opts[:open],
+      unknown: Keyword.keys(opts) -- [:to, :all, :open],
       line: line
     }
 
@@ -198,8 +209,8 @@ defmodule RelaDSL.Schema.Composition do
       name: c.name,
       file: file,
       subflows: modules,
-      links: Enum.map(c.links, &Map.delete(&1, :line)),
-      counts: Enum.map(c.counts, &Map.delete(&1, :line))
+      links: Enum.map(c.links, &Map.drop(&1, [:line, :unknown])),
+      counts: Enum.map(c.counts, &Map.drop(&1, [:line, :unknown]))
     }
 
     quote do
@@ -266,7 +277,11 @@ defmodule RelaDSL.Schema.Composition do
       {l.line, l.field == nil && pre <> "needs field: the parent's field it writes"},
       {l.line, l.states == [] && pre <> "needs states: [child state: value]"},
       {l.line, child == nil && pre <> "names no subflow of this composition"},
-      {l.line, (l.subject != nil and parents == []) && pre <> "no subflow runs on #{l.subject}"}
+      {l.line, (l.subject != nil and parents == []) && pre <> "no subflow runs on #{l.subject}"},
+      {l.line, l.unknown != [] && pre <> "knows no #{Enum.join(l.unknown, ", ")}"},
+      {l.line, l.stale not in [nil, :drop] && pre <> "stale: is :drop or left out"},
+      {l.line,
+       not current?(l.current) && pre <> "current: is {child field, parent field}, two names"}
     ] ++
       for {state, _value} <- l.states,
           child != nil,
@@ -282,7 +297,8 @@ defmodule RelaDSL.Schema.Composition do
       {n.line, n.subject == nil && pre <> "needs to: {parent subject, relation}"},
       {n.line, (n.all == nil or n.open == nil) && pre <> "needs all: and open: fields"},
       {n.line, by_name[n.child] == nil && pre <> "names no subflow of this composition"},
-      {n.line, (n.subject != nil and parents == []) && pre <> "no subflow runs on #{n.subject}"}
+      {n.line, (n.subject != nil and parents == []) && pre <> "no subflow runs on #{n.subject}"},
+      {n.line, n.unknown != [] && pre <> "knows no #{Enum.join(n.unknown, ", ")}"}
     ] ++
       for field <- [n.all, n.open],
           field != nil,
@@ -292,6 +308,10 @@ defmodule RelaDSL.Schema.Composition do
             {n.line,
              pre <> "writes #{field} to #{n.subject}, which no branch of a subflow on it reads"}
   end
+
+  defp current?(nil), do: true
+  defp current?({child, parent}), do: is_atom(child) and is_atom(parent)
+  defp current?(_), do: false
 
   # Values a link writes are read where its parent's subflows branch on them, by an
   # await or by a branch's own condition.

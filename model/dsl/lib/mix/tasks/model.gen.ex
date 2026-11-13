@@ -23,7 +23,8 @@ defmodule Mix.Tasks.Model.Gen do
 
     * `rela` (subflows alone): `flows.yaml`, every subflow in Rela's format;
     * `atlas`: `flows.json`, what Atlas runs them by, and every gate (`RelaDSL.Atlas`),
-      bound to that run's `flows.yaml` by its SHA-256;
+      bound to that run's `flows.yaml` by its SHA-256; with the contract's composition
+      (`__composition__/0`), its links and counts as versioned data too;
     * `diagrams`: `<subflow>.md` for each subflow, its state diagram as Rela draws it;
     * `proof` (a composition): `digests.json`, each subflow's digest and states per
       environment, with its history (`RelaDSL.RunIdentity`).
@@ -120,7 +121,7 @@ defmodule Mix.Tasks.Model.Gen do
       Header.put(
         ".json",
         source(contract, flows ++ gates),
-        atlas_json!(flows, gates, Atlas.sha256(yaml))
+        atlas_json!(flows, gates, Atlas.sha256(yaml), composition(contract))
       )
 
     project = if composition?, do: project_files(contract, yaml), else: []
@@ -134,7 +135,7 @@ defmodule Mix.Tasks.Model.Gen do
             Header.put(
               ".json",
               source(contract, resolved ++ gates),
-              atlas_json!(resolved, gates, Atlas.sha256(pair_yaml))
+              atlas_json!(resolved, gates, Atlas.sha256(pair_yaml), composition(contract))
             ),
           {dir, file, body} <- [
             {dirs[:rela], "flows.yaml", pair_yaml},
@@ -330,8 +331,12 @@ defmodule Mix.Tasks.Model.Gen do
     end
   end
 
-  defp atlas_json!(flows, gates, sha) do
-    Atlas.flows_json(flows, gates, sha)
+  defp composition(contract) do
+    if function_exported?(contract, :__composition__, 0), do: contract.__composition__()
+  end
+
+  defp atlas_json!(flows, gates, sha, composition) do
+    Atlas.flows_json(flows, gates, sha, composition)
   rescue
     e in ArgumentError -> Mix.raise("flows.json: " <> Exception.message(e))
   end

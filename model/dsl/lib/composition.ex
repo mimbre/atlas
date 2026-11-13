@@ -323,7 +323,8 @@ defmodule RelaDSL.Composition do
         environments,
         schema,
         extension,
-        flow_runtime
+        flow_runtime,
+        raw
       )
 
     runtime = RelaDSL.Runtime.Model.body(schema, extension)
