@@ -5,6 +5,11 @@ defmodule AtlasFlow.FakeFacts do
   and answers each fact with stored and a position (the Bus hints it to listeners). Its
   kinds are the neutral depot's (`AtlasFlow.Depot`): a box holds crates, a clerk signs a
   box off.
+
+  It keeps a run's inputs as Facts does (its flow inputs), for the kind a fact
+  `submit` is sent of: a submit applies the choice to the run's subject and records it
+  applied; a read by `run` answers the run's inputs; Flow's `consume` is taken only for the
+  input the stored run names as its last, at or past its position.
   """
   use GenServer
 
@@ -41,6 +46,9 @@ defmodule AtlasFlow.FakeFacts do
   @doc "Every fact content Flow sent, oldest first."
   def sent, do: GenServer.call(__MODULE__, :sent)
 
+  @doc "Every fact content stored from Flow's endpoints only, oldest first."
+  def stored_from_flow, do: GenServer.call(__MODULE__, :from_flow)
+
   def set_description(description), do: GenServer.call(__MODULE__, {:description, description})
 
   @doc """
@@ -49,6 +57,9 @@ defmodule AtlasFlow.FakeFacts do
   (a Control session still asking, in the same VM) reads from whatever the store is now.
   """
   def reads, do: GenServer.call(__MODULE__, :reads)
+
+  @doc "How many facts Flow sent so far, each attempt and replay counted: its round trips."
+  def puts, do: GenServer.call(__MODULE__, :puts)
 
   @doc "How many facts its answers to Flow's reads held so far (a list counts each fact)."
   def facts_read, do: GenServer.call(__MODULE__, :facts_read)
@@ -65,8 +76,12 @@ defmodule AtlasFlow.FakeFacts do
        lose_ack: nil,
        reads: {0, 0},
        facts_read: 0,
+       puts: 0,
+       from_flow: [],
+       inputs: %{},
        position: 0,
        busy: MapSet.new(),
+       busy_after_write: MapSet.new(),
        description: Keyword.get(opts, :description, description())
      }}
   end
@@ -80,9 +95,11 @@ defmodule AtlasFlow.FakeFacts do
   def handle_call({:lose_ack, kind}, _from, s), do: {:reply, :ok, %{s | lose_ack: kind}}
   def handle_call({:get, kind, key}, _from, s), do: {:reply, s.facts[{kind, key}], s}
   def handle_call(:sent, _from, s), do: {:reply, Enum.reverse(s.sent), s}
+  def handle_call(:from_flow, _from, s), do: {:reply, Enum.reverse(s.from_flow), s}
   def handle_call({:description, d}, _from, s), do: {:reply, :ok, %{s | description: d}}
   def handle_call(:reads, _from, s), do: {:reply, s.reads, s}
   def handle_call(:facts_read, _from, s), do: {:reply, s.facts_read, s}
+  def handle_call(:puts, _from, s), do: {:reply, s.puts, s}
 
   def handle_call({:drop, kind, key}, _from, s),
     do: {:reply, :ok, %{s | facts: Map.delete(s.facts, {kind, key})}}
@@ -90,6 +107,11 @@ defmodule AtlasFlow.FakeFacts do
   # A read of this fact gets Facts' answer when it could not read it, until `{:free, …}`.
   def handle_call({:busy, kind, key}, _from, s),
     do: {:reply, :ok, %{s | busy: MapSet.put(s.busy, {kind, key})}}
+
+  # Reads of this fact fail once its next write is stored (Flow stops there, as on a crash
+  # right after that write), until `{:free, …}`.
+  def handle_call({:busy_after_write, kind, key}, _from, s),
+    do: {:reply, :ok, %{s | busy_after_write: MapSet.put(s.busy_after_write, {kind, key})}}
 
   def handle_call({:free, kind, key}, _from, s),
     do: {:reply, :ok, %{s | busy: MapSet.delete(s.busy, {kind, key})}}
@@ -116,9 +138,12 @@ defmodule AtlasFlow.FakeFacts do
 
           %{"facts" => facts}
 
-        # The inputs of a run: none was given.
-        {_kind, %{"run" => _}} ->
-          %{"inputs" => []}
+        # The inputs of a run, in their order.
+        {_kind, %{"run" => run}} ->
+          %{
+            "inputs" =>
+              for({_, i} <- s.inputs, i["run"] == run, do: i) |> Enum.sort_by(& &1["position"])
+          }
 
         {kind, _} ->
           %{"facts" => for({{^kind, _}, fact} <- s.facts, do: fact)}
@@ -133,9 +158,106 @@ defmodule AtlasFlow.FakeFacts do
     {:noreply, s}
   end
 
-  def handle_info({:atlas_bus, %Envelope{class: "fact"} = e, %{"key" => key} = c}, s) do
+  def handle_info({:atlas_bus, %Envelope{class: "fact"} = e, c}, s) do
+    s = if flow?(e.sender), do: %{s | puts: s.puts + 1}, else: s
+
+    case {s.ledger[e.id], c} do
+      {{class, answer, position}, _} ->
+        AtlasBus.send(Envelope.reply(e, class, position: position), answer)
+        {:noreply, s}
+
+      {nil, %{"op" => "submit"}} ->
+        {:noreply, submit(e, c, s)}
+
+      {nil, %{"op" => "consume"}} ->
+        {:noreply, consume(e, c, s)}
+
+      {nil, %{"key" => _}} ->
+        fact(e, c, s)
+
+      _ ->
+        {:noreply, s}
+    end
+  end
+
+  def handle_info(_message, s), do: {:noreply, s}
+
+  # Someone's choice (`values`: `run`, `entry`, `roles`, `changed_fields`): its subject
+  # changed as it says, and the input recorded applied on the subject's new version.
+  defp submit(e, %{"key" => key, "values" => v}, s) do
+    run = cursor(s, v["run"])
+    subject_key = {run["values"]["subject_kind"], run["values"]["subject_key"]}
+    position = s.position + 1
+    subject = s.facts[subject_key]
+
+    subject =
+      Map.merge(subject, %{
+        "values" => Map.merge(subject["values"], v["changed_fields"]),
+        "version" => position,
+        "position" => position
+      })
+
+    input =
+      Map.merge(v, %{
+        "key" => key,
+        "status" => "applied",
+        "position" => position,
+        "subject_version" => position,
+        "prepared_at" => v["prepared_at"] || "2026-11-12T00:00:00Z"
+      })
+
+    answer = %{
+      "op" => "submit",
+      "key" => key,
+      "subject_kind" => elem(subject_key, 0),
+      "subject_key" => elem(subject_key, 1),
+      "changes" => [
+        %{"kind" => elem(subject_key, 0), "key" => elem(subject_key, 1), "op" => "change"}
+      ]
+    }
+
+    AtlasBus.send(Envelope.reply(e, "stored", position: position), answer)
+
+    %{
+      s
+      | position: position,
+        facts: Map.put(s.facts, subject_key, subject),
+        inputs: Map.put(s.inputs, key, input),
+        ledger: Map.put(s.ledger, e.id, {"stored", answer, position})
+    }
+  end
+
+  # Flow's consume: only of the input the stored run accepted last, as Facts takes it.
+  defp consume(e, %{"key" => key, "run" => run_key} = c, s) do
+    input = s.inputs[key]
+    run = cursor(s, run_key)
+    last = run && JSON.decode!(run["values"]["last_input"])
+
+    if input != nil and input["run"] == run_key and last["input"] == key and
+         run["values"]["input_cursor"] >= input["position"] do
+      position = s.position + 1
+      answer = %{"key" => key, "status" => "consumed"}
+      AtlasBus.send(Envelope.reply(e, "stored", position: position), answer)
+
+      %{
+        s
+        | position: position,
+          sent: [c | s.sent],
+          from_flow: [c | s.from_flow],
+          inputs: Map.put(s.inputs, key, Map.put(input, "status", "consumed")),
+          ledger: Map.put(s.ledger, e.id, {"stored", answer, position})
+      }
+    else
+      AtlasBus.send(Envelope.reply(e, "refused"), %{"reasons" => ["input authority"]})
+      s
+    end
+  end
+
+  defp cursor(s, run_key),
+    do: Enum.find_value(s.facts, fn {{_, key}, fact} -> if key == run_key, do: fact end)
+
+  defp fact(e, %{"key" => key} = c, s) do
     old = s.facts[{e.kind, key}]
-    replay = s.ledger[e.id]
 
     conflict =
       old != nil and c["op"] == "change" and c["version"] != nil and
@@ -143,11 +265,6 @@ defmodule AtlasFlow.FakeFacts do
         not Enum.all?(c["was"] || %{}, fn {field, value} -> old["values"][field] == value end)
 
     cond do
-      replay ->
-        {class, answer, position} = replay
-        AtlasBus.send(Envelope.reply(e, class, position: position), answer)
-        {:noreply, s}
-
       old != nil and c["op"] == "create" and
           Enum.all?(c["values"] || %{}, fn {f, v} -> old["values"][f] == v end) ->
         AtlasBus.send(
@@ -195,10 +312,20 @@ defmodule AtlasFlow.FakeFacts do
         s = %{
           s
           | sent: [c | s.sent],
+            from_flow: if(flow?(e.sender), do: [c | s.from_flow], else: s.from_flow),
             position: position,
             facts: facts,
             ledger: Map.put(s.ledger, e.id, {"stored", answer, position})
         }
+
+        s =
+          if MapSet.member?(s.busy_after_write, {e.kind, key}),
+            do: %{
+              s
+              | busy: MapSet.put(s.busy, {e.kind, key}),
+                busy_after_write: MapSet.delete(s.busy_after_write, {e.kind, key})
+            },
+            else: s
 
         if s.lose_ack == e.kind do
           # Commit, then lose the answer. Immediate transport failure avoids timer waits.
@@ -210,8 +337,6 @@ defmodule AtlasFlow.FakeFacts do
         end
     end
   end
-
-  def handle_info(_message, s), do: {:noreply, s}
 
   defp fact_links(nil), do: %{}
   defp fact_links(fact), do: fact["links"] || %{}

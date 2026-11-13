@@ -242,6 +242,49 @@ defmodule AtlasFlow.Composition.RecoveryTest do
     assert [_] = writes("T-1", "outcome")
   end
 
+  # One reaction is stored once (`AtlasFlow.Runs.Store`): a new parent's run is made with
+  # its count's write pending, the count written, and the run stored again only where the
+  # count left it. A crash between those writes (after the count is committed, its answer
+  # lost; or after it is acknowledged, before the transitions it allows are stored) loses
+  # only what was worked out in memory: the next reconcile replays the stored write under
+  # its id and ends where a reaction without the crash ends, with the count written once.
+  for crash <- [:answer_lost, :after_write] do
+    test "a crash between one reaction's writes (#{crash}) ends as without it", c do
+      # Without a crash: the reference tray.
+      tray("T-2")
+      assert {:ok, _} = reconcile(c)
+      reference = for name <- ~w(fill tally), do: settled(run(c, name, "T-2"))
+
+      tray("T-1")
+
+      case unquote(crash) do
+        :answer_lost -> FakeFacts.lose_ack("tray")
+        :after_write -> GenServer.call(FakeFacts, {:busy_after_write, "tray", "T-1"})
+      end
+
+      assert {:error, _} = reconcile(c)
+      # What the crash left: the run made, with the count's write still pending.
+      crashed = run(c, "fill", "T-1")
+      assert {crashed["state"], crashed["entry"]} == {"waiting", 1}
+      assert [%{"content" => %{"values" => %{"cups" => 0}}}] = crashed["pending"]["writes"]
+      assert [_] = writes("T-1", "cups")
+
+      restart_flow()
+      GenServer.call(FakeFacts, {:free, "tray", "T-1"})
+      assert {:ok, _} = reconcile(c)
+      assert for(name <- ~w(fill tally), do: settled(run(c, name, "T-1"))) == reference
+      assert [%{"values" => %{"cups" => 0, "open_cups" => 0}}] = writes("T-1", "cups")
+
+      # And nothing more to do.
+      sent = FakeFacts.sent()
+      assert {:ok, _} = reconcile(c)
+      assert FakeFacts.sent() == sent
+    end
+  end
+
+  # A run as it ends, without what names its own key and subject.
+  defp settled(run), do: Map.drop(run, ~w(key subject_key))
+
   # A parent taken over from facts as they were (the import table of its selection): a
   # history row completes it as it was, and its child's late result neither moves it nor
   # rewrites what it holds; an open parent no row holds starts, and its current child's

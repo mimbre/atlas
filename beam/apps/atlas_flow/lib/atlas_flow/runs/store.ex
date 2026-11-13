@@ -1,6 +1,9 @@
 defmodule AtlasFlow.Runs.Store do
   @moduledoc """
-  One writer reconciles durable cursors through Facts before sending entry writes.
+  One writer reconciles durable cursors through Facts before sending entry writes. A run's
+  reaction to what Facts holds now is stored once: the transitions it takes one after the
+  other are worked out in memory and written together, sooner only where Facts or a
+  service must see the stored cursor first (see "One reaction, stored once" below).
 
   A run on a parent of the model's composition (`AtlasFlow.Model.composition/0`) also
   owes its subject the values of its links and counts. Each drain works them out again
@@ -287,21 +290,12 @@ defmodule AtlasFlow.Runs.Store do
       if existing, do: existing["key"], else: Run.key(name, flow.subject(), subject["key"], 1)
 
     with {:ok, fact} <- fetch(config, key) do
-      if fact == nil do
-        run = Run.new(name, flow, subject, selection["imports"], now)
-
-        content = %{
-          "op" => "create",
-          "key" => key,
-          "values" => encode(config, run),
-          "by" => config["writer"]["by"]
-        }
-
-        # A lost create answer is recovered by reading the stable fact key.
-        Talk.put(config["kind"], content, Run.digest({key, "create"}))
-      end
-
-      settle(config, key, flow, now)
+      # A new run is made in the same write as its first reaction is stored (`react/6`);
+      # a lost create answer is recovered by reading the stable fact key.
+      if fact == nil,
+        do:
+          settle(config, key, flow, now, Run.new(name, flow, subject, selection["imports"], now)),
+        else: settle(config, key, flow, now)
     end
   end
 
@@ -309,14 +303,21 @@ defmodule AtlasFlow.Runs.Store do
   # state, entry or status), drain the runs on its parents too, so a child's completion
   # reaches its parent in the same reconcile and not only after a hint Flow never gets
   # (its own writes are not hinted). `{:ok, run, parents}`: the runs it drained.
-  defp settle(config, key, flow, now) do
+  defp settle(config, key, flow, now, new \\ nil) do
+    # A new run moved when its reaction took it from where it was made.
     before =
-      case fetch(config, key) do
+      case new || fetch(config, key) do
+        %{} = new -> new
         {:ok, %{} = fact} -> with {:ok, run} <- decode(config, fact), do: run
         _ -> nil
       end
 
-    with {:ok, run} <- drain(config, key, flow, now, 32) do
+    drained =
+      if new,
+        do: react(config, %{fact: nil, stored: nil, consumed: nil}, new, flow, now, 32),
+        else: drain(config, key, flow, now, 32)
+
+    with {:ok, run} <- drained do
       moved = fn -> Map.take(before || %{}, @moved) != Map.take(run, @moved) end
 
       if child?(config, run["flow"]) and moved.() do
@@ -327,88 +328,256 @@ defmodule AtlasFlow.Runs.Store do
     end
   end
 
+  # -- One reaction, stored once ------------------------------------------------------------
+  #
+  # A run reacts to what Facts holds now: it takes every transition that holds, one after
+  # the other, in memory, and stores the result in one versioned write. It stores it
+  # sooner only where something outside the run must see the stored cursor first (the
+  # durable-cursor protocol, docs/design/flow-runs-state-machines.md §3):
+  #
+  # - before its pending writes are sent: the writes and the entry they belong to are
+  #   stored first, and sent with their stable ids; their acknowledgement is noted in
+  #   memory and stored with the next write of the run, so a crash in between replays them
+  #   under the same ids, which Facts answers from its ledger;
+  # - before an activity is asked (a gate, a pass, an effect): its frozen request is
+  #   stored before it is sent;
+  # - before an accepted input is consumed: Facts consumes only the input the stored run
+  #   names;
+  # - before its inputs are read once its cursor moved: Facts applies a prepared input
+  #   only to the entry the stored run is in.
+  #
+  # A crash between two such writes loses only transitions computed in memory since the
+  # last one, which the next reaction takes again from the stored run, as it would have
+  # after a crash just before them. `d` is what Facts holds of the run: its fact (nil
+  # before it is made), that fact decoded (`stored`), and the input this reaction
+  # consumed.
+
   defp drain(_config, _key, _flow, _now, 0), do: {:error, :transition_limit}
 
   defp drain(config, key, flow, now, remaining) do
     with {:ok, %{} = fact} <- fetch(config, key),
          {:ok, run} <- decode(config, fact) do
-      if run["definition_sha256"] != flow.digest() do
-        migrations = config["selection"][run["flow"]]["migrations"] || []
-
-        case Run.migrate(run, flow, migrations, now) do
-          {:ok, ^run} ->
-            {:ok, run}
-
-          {:ok, updated} ->
-            advance(config, fact, run, updated, flow, now, remaining)
-
-          _ ->
-            blocked = Run.block_definition(run, flow)
-
-            if blocked == run,
-              do: {:ok, run},
-              else: advance(config, fact, run, blocked, flow, now, remaining)
-        end
-      else
-        case run["pending"]["writes"] do
-          [write | rest] ->
-            case Talk.put(write["kind"], write["content"], write["id"]) do
-              {:stored, _} ->
-                updated = put_in(run, ["pending", "writes"], rest)
-                advance(config, fact, run, updated, flow, now, remaining)
-
-              error ->
-                {:error, {:pending, error}}
-            end
-
-          [] ->
-            with :ok <- consume_input(config["inputs"], run),
-                 {:ok, inputs} <- read_inputs(config["inputs"], run) do
-              # Recover prepared writes first, then fetch the subject's current ETag.
-              case Talk.transition_read(run["subject_kind"], %{
-                     "key" => run["subject_key"],
-                     "plain" => true
-                   }) do
-                %{"fact" => %{} = subject} = answer ->
-                  subject =
-                    Map.put(subject, "position", answer["position"] || subject["position"] || 0)
-
-                  # The parent's writes of its links and counts are stored before they are
-                  # sent; a changed aggregate is then the run's input.
-                  with {:ok, composed} <- compose(config, run, subject),
-                       {:ok, updated} <-
-                         if(composed != run,
-                           do: {:ok, composed},
-                           else: synthetic_or_next(config, run, flow, subject, now, inputs)
-                         ) do
-                    if updated == run,
-                      do: {:ok, run},
-                      else: advance(config, fact, run, updated, flow, now, remaining)
-                  end
-
-                # A deleted subject leaves its run as it is: nothing moves it or is
-                # written for it, and the other runs go on (a parent counts its children
-                # as Facts holds them, so a deleted child is no longer among them).
-                %{"fact" => nil} ->
-                  {:ok, run}
-
-                other ->
-                  {:error, {:subject_unavailable, other}}
-              end
-            end
-        end
-      end
+      react(config, %{fact: fact, stored: run, consumed: nil}, run, flow, now, remaining)
     else
-      false -> {:error, {:definition_changed, key}}
       other -> {:error, {:invalid_run, key, other}}
     end
   end
 
-  defp synthetic_or_next(config, run, flow, subject, now, inputs) do
-    case Run.synthetic(run, flow, subject, now) do
-      :none -> next(config, run, flow, subject, now, inputs)
-      {:ok, updated} -> {:ok, updated}
+  defp react(_config, _d, _run, _flow, _now, 0), do: {:error, :transition_limit}
+
+  defp react(config, d, run, flow, now, remaining) do
+    if run["definition_sha256"] != flow.digest() do
+      migrations = config["selection"][run["flow"]]["migrations"] || []
+
+      case Run.migrate(run, flow, migrations, now) do
+        {:ok, ^run} ->
+          finish(config, d, run, flow, now, remaining)
+
+        {:ok, updated} ->
+          step(config, d, run, updated, flow, now, remaining)
+
+        _ ->
+          blocked = Run.block_definition(run, flow)
+
+          if blocked == run,
+            do: finish(config, d, run, flow, now, remaining),
+            else: step(config, d, run, blocked, flow, now, remaining)
+      end
+    else
+      case run["pending"]["writes"] do
+        [_ | _] ->
+          stored(config, d, run, :all, flow, now, remaining, fn d, run ->
+            with :ok <- send_writes(run["pending"]["writes"]),
+                 do:
+                   step(
+                     config,
+                     d,
+                     run,
+                     put_in(run, ["pending", "writes"], []),
+                     flow,
+                     now,
+                     remaining
+                   )
+          end)
+
+        [] ->
+          consumed(config, d, run, flow, now, remaining, fn d, run ->
+            look(config, d, run, flow, now, remaining)
+          end)
+      end
     end
+  end
+
+  # What the run's subject, its children and its inputs say now: the next transition, or
+  # the end of the reaction.
+  defp look(config, d, run, flow, now, remaining) do
+    # The inputs are read on a stored cursor only (Facts applies a prepared input to the
+    # entry the stored run is in). A moved cursor reads none yet: a link, count or
+    # synthetic input may move it on without them, and it is stored before they are read.
+    cursor? = config["inputs"] == nil or durable?(d, run, ~w(state entry status deadlines))
+
+    with {:ok, inputs} <- if(cursor?, do: read_inputs(config["inputs"], run), else: {:ok, []}) do
+      # Recover prepared writes first, then fetch the subject's current ETag.
+      case Talk.transition_read(run["subject_kind"], %{
+             "key" => run["subject_key"],
+             "plain" => true
+           }) do
+        %{"fact" => %{} = subject} = answer ->
+          subject =
+            Map.put(subject, "position", answer["position"] || subject["position"] || 0)
+
+          # The parent's writes of its links and counts are stored before they are
+          # sent; a changed aggregate is then the run's input.
+          with {:ok, composed} <- compose(config, run, subject) do
+            cond do
+              composed != run ->
+                step(config, d, run, composed, flow, now, remaining)
+
+              (synthetic = Run.synthetic(run, flow, subject, now)) != :none ->
+                {:ok, updated} = synthetic
+                step(config, d, run, updated, flow, now, remaining)
+
+              not cursor? ->
+                stored(config, d, run, :all, flow, now, remaining, fn d, run ->
+                  look(config, d, run, flow, now, remaining)
+                end)
+
+              activity?(run, flow) ->
+                # A frozen request is stored before it is sent.
+                stored(config, d, run, :all, flow, now, remaining, fn d, run ->
+                  with {:ok, updated} <- next(config, run, flow, subject, now, inputs),
+                       do: step(config, d, run, updated, flow, now, remaining)
+                end)
+
+              true ->
+                with {:ok, updated} <- next(config, run, flow, subject, now, inputs),
+                     do: step(config, d, run, updated, flow, now, remaining)
+            end
+          end
+
+        # A deleted subject leaves its run as it is: nothing moves it or is
+        # written for it, and the other runs go on (a parent counts its children
+        # as Facts holds them, so a deleted child is no longer among them).
+        %{"fact" => nil} ->
+          finish(config, d, run, flow, now, remaining)
+
+        other ->
+          {:error, {:subject_unavailable, other}}
+      end
+    end
+  end
+
+  defp activity?(run, flow), do: run["status"] == "active" and flow.mechanism(run["state"]) != nil
+
+  # One transition taken: the next one from it, or the end of the reaction when it
+  # changed nothing. A new generation is another run: the one it ends is stored first.
+  defp step(config, d, run, updated, flow, now, remaining) do
+    cond do
+      updated == run ->
+        finish(config, d, run, flow, now, remaining)
+
+      updated["key"] != run["key"] ->
+        stored(config, d, run, :all, flow, now, remaining, fn _d, _run ->
+          react(
+            config,
+            %{fact: nil, stored: nil, consumed: nil},
+            updated,
+            flow,
+            now,
+            remaining - 1
+          )
+        end)
+
+      true ->
+        react(config, d, updated, flow, now, remaining - 1)
+    end
+  end
+
+  # The end of a reaction: the run as Facts holds it.
+  defp finish(config, d, run, flow, now, remaining),
+    do: stored(config, d, run, :all, flow, now, remaining, fn _d, run -> {:ok, run} end)
+
+  # The accepted input the run names consumed, once per reaction, once the run that
+  # accepted it is stored.
+  defp consumed(config, d, run, flow, now, remaining, go) do
+    key = run["last_input"]["input"]
+
+    if is_binary(key) and config["inputs"] != nil and key != d.consumed do
+      stored(config, d, run, ~w(last_input input_cursor), flow, now, remaining, fn d, run ->
+        with :ok <- consume_input(config["inputs"], run), do: go.(%{d | consumed: key}, run)
+      end)
+    else
+      go.(d, run)
+    end
+  end
+
+  defp durable?(%{stored: nil}, _run, _fields), do: false
+  defp durable?(%{stored: stored}, run, :all), do: stored == run
+
+  defp durable?(%{stored: stored}, run, fields),
+    do: Map.take(stored, fields) == Map.take(run, fields)
+
+  # Go on with `go.(d, run)` once Facts holds `fields` of `run` (`:all`: all of it), as one
+  # write when it does not yet. A write Facts did not take as sent (a conflict, a lost
+  # answer that was not committed) is never assumed: the reaction starts again from what
+  # Facts holds.
+  defp stored(config, d, run, fields, flow, now, remaining, go) do
+    if durable?(d, run, fields) do
+      go.(d, run)
+    else
+      with {:ok, d} <- write(config, d, run) do
+        if d.stored == run,
+          do: go.(d, run),
+          else: react(config, d, d.stored, flow, now, remaining - 1)
+      end
+    end
+  end
+
+  defp write(config, d, run) do
+    key = run["key"]
+
+    if d.fact == nil do
+      content = %{
+        "op" => "create",
+        "key" => key,
+        "values" => encode(config, run),
+        "by" => config["writer"]["by"]
+      }
+
+      # A lost create answer is recovered by reading the stable fact key.
+      Talk.put(config["kind"], content, Run.digest({key, "create"}))
+    else
+      values = encode(config, run)
+
+      content = %{
+        "op" => "change",
+        "key" => key,
+        "values" => values,
+        "version" => d.fact["version"],
+        "was" => Map.new(Map.keys(values), &{&1, d.fact["values"][&1]}),
+        "by" => config["writer"]["by"]
+      }
+
+      # Conflict or lost acknowledgement: reread, never assume it was committed.
+      Talk.put(config["kind"], content)
+    end
+
+    with {:ok, %{} = fact} <- fetch(config, key),
+         {:ok, stored} <- decode(config, fact) do
+      {:ok, %{d | fact: fact, stored: stored}}
+    else
+      other -> {:error, {:invalid_run, key, other}}
+    end
+  end
+
+  # Each pending write, in order, under its stable id.
+  defp send_writes(writes) do
+    Enum.reduce_while(writes, :ok, fn write, :ok ->
+      case Talk.put(write["kind"], write["content"], write["id"]) do
+        {:stored, _} -> {:cont, :ok}
+        error -> {:halt, {:error, {:pending, error}}}
+      end
+    end)
   end
 
   # -- Composition: links and counts on the run's subject, as a parent ---------------------
@@ -859,39 +1028,6 @@ defmodule AtlasFlow.Runs.Store do
         with {:ok, reply} <- Talk.gate("decide", intent),
              do: Run.gate_result(run, flow, subject, now, reply)
     end
-  end
-
-  defp advance(config, fact, old, updated, flow, now, remaining) do
-    if old["key"] != updated["key"] do
-      content = %{
-        "op" => "create",
-        "key" => updated["key"],
-        "values" => encode(config, updated),
-        "by" => config["writer"]["by"]
-      }
-
-      Talk.put(config["kind"], content, Run.digest({updated["key"], "create"}))
-      drain(config, updated["key"], flow, now, remaining - 1)
-    else
-      advance_same(config, fact, old, updated, flow, now, remaining)
-    end
-  end
-
-  defp advance_same(config, fact, old, updated, flow, now, remaining) do
-    values = encode(config, updated)
-
-    content = %{
-      "op" => "change",
-      "key" => old["key"],
-      "values" => values,
-      "version" => fact["version"],
-      "was" => Map.new(Map.keys(values), &{&1, fact["values"][&1]}),
-      "by" => config["writer"]["by"]
-    }
-
-    # Conflict or lost acknowledgement: reread, never assume it was committed.
-    Talk.put(config["kind"], content)
-    drain(config, old["key"], flow, now, remaining - 1)
   end
 
   defp fetch(config, key) do
