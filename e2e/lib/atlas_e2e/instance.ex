@@ -23,6 +23,21 @@ defmodule AtlasE2E.Instance do
   def root, do: @root
 
   def start do
+    instance = prepare()
+    # `atlas-ops restart` starts rela when it does not answer, then the core, and waits for it.
+    :ok = ops!(instance, ["restart", "--env", "test"])
+    :ok = build_runtime_cli(instance)
+    :ok = start_runtime(instance)
+    instance
+  end
+
+  @doc """
+  The run's folder, free ports and settings files, and the environment the core, the TUIs
+  and `atlas` run with; nothing started but the stand-in GitHub. `start/0` starts rela, the
+  core and the Runtime node on it; a proof that runs inside the core's node starts them
+  itself.
+  """
+  def prepare do
     dir = Path.join(System.tmp_dir!(), "atlas-e2e-#{System.os_time(:millisecond)}")
     File.mkdir_p!(dir)
     [rela_port, control_port, link_port] = free_ports(3)
@@ -109,7 +124,7 @@ defmodule AtlasE2E.Instance do
     File.write!(runtime_file, JSON.encode!(runtime_settings))
     File.write!(file, JSON.encode!(Map.delete(settings, "runtime")))
 
-    instance = %__MODULE__{
+    %__MODULE__{
       root: @root,
       dir: dir,
       file: file,
@@ -124,12 +139,22 @@ defmodule AtlasE2E.Instance do
         {"ATLAS_BUS_LINK_TOKEN", JSON.encode!(%{"e2e" => "e2e-private-link"})}
       ]
     }
+  end
 
-    # `atlas-ops restart` starts rela when it does not answer, then the core, and waits for it.
-    :ok = ops!(instance, ["restart", "--env", "test"])
-    :ok = build_runtime_cli(instance)
-    :ok = start_runtime(instance)
-    instance
+  @doc "Compile the core and the clients first, so starting the core or a TUI never waits for a compile."
+  def compile do
+    for dir <- ["beam", "clients/tui", "clients/agent"] do
+      {out, status} =
+        System.cmd("mix", ["compile"],
+          cd: Path.join(@root, dir),
+          env: [{"MIX_ENV", "dev"}],
+          stderr_to_stdout: true
+        )
+
+      if status != 0, do: raise("#{dir} does not compile:\n#{out}")
+    end
+
+    :ok
   end
 
   # The Runtime node runs through `atlas-runtime node`, built from this tree into the run's
