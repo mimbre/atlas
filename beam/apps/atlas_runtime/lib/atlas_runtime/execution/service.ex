@@ -1000,8 +1000,12 @@ defmodule AtlasRuntime.Service do
          id,
          %{run: %{backend: backend}} = worker,
          state
-       ),
-       do: update_run(state, id, worker, Map.put(worker.run, :model, model))
+       ) do
+    if state[:server] && worker.run[:server],
+      do: Lifecycle.model(state.server.reporter, worker.run, model)
+
+    update_run(state, id, worker, Map.put(worker.run, :model, model))
+  end
 
   defp agent_message({:session, session}, id, worker, state),
     do: update_run(state, id, worker, Map.put(worker.run, :session_id, session))

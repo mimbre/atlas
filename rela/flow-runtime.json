@@ -272,6 +272,34 @@
           }
         ]
       },
+      "test_and_accept_scene": {
+        "choices": [],
+        "choice_states": [],
+        "migrations": [
+          {"from":"79141c9da4b0fe990b2add3265ce542b546a0a68f9922e0128c502aa5ae1b444","to":"c29dfcb9a206681c88eaf60343ac2f05841fccb39e86b8b8530373584afa8a8f","states":{"accepted":"accepted","break_down":"break_down","building":"building","rework":"rework","to_test":"to_test"},"reason":"Slice 12: selected without its passes; the decider's verdict ends to_test"}
+        ],
+        "subject": "scene",
+        "legacy": "test_and_accept",
+        "projection": {
+          "on": "assignment",
+          "state_field": "flow_state",
+          "handover_field": "handover",
+          "owner_relation": "assigned_to",
+          "field": "expected"
+        },
+        "admission": [],
+        "imports": [
+          {
+            "completed": true,
+            "state": "accepted"
+          },
+          {
+            "completed": false,
+            "state": "building"
+          }
+        ],
+        "reopen": "explicit"
+      },
       "design_and_accept": {
         "choices": [],
         "choice_states": [],

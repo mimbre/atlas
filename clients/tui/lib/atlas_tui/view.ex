@@ -154,13 +154,21 @@ defmodule AtlasTui.View do
     |> blocks_in(by_id)
   end
 
+  # A list inside a folded section is not drawn and holds no part of the selection.
   defp with_offsets(model) do
+    hidden = Model.folded(model)
+
     {placed, _} =
       model.ids
       |> Enum.zip(model.blocks)
       |> Enum.map_reduce(0, fn
-        {id, %ListBlock{rows: rows} = block}, at -> {{id, block, at}, at + length(rows || [])}
-        {id, block}, at -> {{id, block, at}, at}
+        {id, %ListBlock{rows: rows} = block}, at ->
+          if MapSet.member?(hidden, id),
+            do: {{id, block, -1}, at},
+            else: {{id, block, at}, at + length(rows || [])}
+
+        {id, block}, at ->
+          {{id, block, at}, at}
       end)
 
     placed
@@ -360,6 +368,18 @@ defmodule AtlasTui.View do
 
   # Parts frame content; Console highlights retain the supplied semantic tone as
   # a text badge as well as a color, without inferring status from entity text.
+  # A collapsible section is folded until the page's sections are unfolded: its heading
+  # alone, marked ▸; unfolded, ▾ above its blocks.
+  defp markup(%Section{title: title, collapsible: true}, children, model, width, room) do
+    mark = if model.unfolded, do: "▾ ", else: "▸ "
+    rule = String.duplicate("─", max(width - String.length(title) - 5, 0))
+    heading = [[{:bold, " " <> mark <> title}, {:dim, " " <> rule}]]
+
+    if model.unfolded,
+      do: heading ++ [[]] ++ nodes(children, model, width, room),
+      else: heading
+  end
+
   defp markup(%Section{title: title}, children, model, width, room) do
     rule = String.duplicate("─", max(width - String.length(title) - 3, 0))
     [[{:bold, " " <> title}, {:dim, " " <> rule}], []] ++ nodes(children, model, width, room)
@@ -488,26 +508,40 @@ defmodule AtlasTui.View do
     heading ++ if(rows == [], do: empty, else: content)
   end
 
-  # Values keep their line breaks and blank lines; a heading line (`#`) is bold.
+  # Values keep their line breaks and blank lines; a heading line (`#`) is bold. A value
+  # without a label (prose, such as what a worker said) takes the whole width.
   defp block(%Item{} = item, _at, _model, width, _room) do
     fields =
       Enum.flat_map(item.fields, fn pair ->
         label = single_line(pair.label)
-        stacked = width < 40 or display_width(label) >= @label_width
-        padding = if stacked, do: min(5, max(width - 2, 0)), else: @label_width + 3
+        bare = label == ""
+        stacked = not bare and (width < 40 or display_width(label) >= @label_width)
+
+        padding =
+          cond do
+            bare -> min(3, max(width - 2, 0))
+            stacked -> min(5, max(width - 2, 0))
+            true -> @label_width + 3
+          end
+
         indent = String.duplicate(" ", padding)
         value_width = max(width - padding, 1)
         [first | rest] = detail_wrap(pair.value || "—", value_width)
 
         heading =
-          if stacked do
-            prefix = String.duplicate(" ", min(3, max(width - 2, 0)))
+          cond do
+            bare ->
+              [[{:plain, indent}, text_row(first)]]
 
-            Enum.map(detail_wrap(label <> ":", max(width - byte_size(prefix), 1)), fn line ->
-              [{:dim, prefix <> line}]
-            end) ++ [[{:plain, indent}, text_row(first)]]
-          else
-            [[{:dim, "   " <> cell_pad(label, @label_width)}, text_row(first)]]
+            stacked ->
+              prefix = String.duplicate(" ", min(3, max(width - 2, 0)))
+
+              Enum.map(detail_wrap(label <> ":", max(width - byte_size(prefix), 1)), fn line ->
+                [{:dim, prefix <> line}]
+              end) ++ [[{:plain, indent}, text_row(first)]]
+
+            true ->
+              [[{:dim, "   " <> cell_pad(label, @label_width)}, text_row(first)]]
           end
 
         origin =

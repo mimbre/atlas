@@ -171,10 +171,8 @@ defmodule AtlasFlow.Item do
 
     with nil <- refusal,
          true <- subflow != nil,
-         key = Run.key(name, state.kind, state.key, 1),
-         %{"fact" => %{} = stored} <-
-           Talk.read(config["kind"], %{"key" => key, "plain" => true}),
-         {:ok, run} <- Store.decode(config, stored),
+         # The latest generation: after an explicit restart, the new run presents.
+         {:ok, %{} = run} <- Store.latest(config, name, state.kind, state.key),
          true <- run["definition_sha256"] == subflow.digest() do
       follow = selection["follow_through"]
 

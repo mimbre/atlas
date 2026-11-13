@@ -189,9 +189,8 @@ defmodule AtlasTui.Interactions do
 
   defp current(model) do
     selected =
-      Enum.flat_map(Enum.zip(model.ids, model.blocks), fn
-        {id, %Blocks.List{rows: rows}} -> Enum.map(rows || [], &{id, &1.id || &1.to})
-        _ -> []
+      Enum.flat_map(Model.lists(model), fn {id, %Blocks.List{rows: rows}} ->
+        Enum.map(rows || [], &{id, &1.id || &1.to})
       end)
       |> Enum.at(model.selected)
 

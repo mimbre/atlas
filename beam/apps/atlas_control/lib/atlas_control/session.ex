@@ -16,8 +16,9 @@ defmodule AtlasControl.Session do
     is read again only when what the hints say changed is something it depended on. The
     page on screen is sent again; up to 3 other recent pages are pushed, the most
     recently viewed first. A form is never redrawn under the user's hands; they get a
-    notice instead. Before handling hints of others' writes the session waits, briefly
-    (`hint_settle_ms`), for Flow to have settled past them.
+    notice instead. Hints are handled as soon as they are collected, whoever wrote them:
+    what Flow writes after a change comes as hints of its own. Only a stored write of this
+    client waits for Flow (above); hints that come meanwhile are handled with its page.
   - Once a write of this client is stored, the facts it changed are marked
     (`AtlasControl.Freshness.Marks`) until Flow says it has settled past it: every page
     sent meanwhile flags their rows `pending`, and a recent page that shows one is sent
@@ -53,7 +54,7 @@ defmodule AtlasControl.Session do
   @key_tries 10
   # What Facts answers with how far it is: its position alone.
   @position "_position"
-  # Who answers how far Flow has settled (`_settled`), and whose hints are Flow's.
+  # Who answers how far Flow has settled (`_settled`).
   @flow "flow"
   # How many recent pages, besides the one on screen, one batch of hints pushes.
   @pushes 3
@@ -180,7 +181,7 @@ defmodule AtlasControl.Session do
           end
 
         # Its own write is a hint too: the recent pages it changed are pushed once settled.
-        hint = %{position: envelope.position, changes: changes, by: state.by}
+        hint = %{position: envelope.position, changes: changes}
         state = seen(%{state | batch: Batch.add(state.batch, hint, now_ms())}, envelope.position)
         # What it changed is being processed until Flow settles past it: the recent pages
         # that show it say so now, as they were sent.
@@ -210,7 +211,7 @@ defmodule AtlasControl.Session do
   # A hint: facts were stored, by anyone. Collected, and handled with the hints that come
   # with it (`:flush`).
   def handle_info({:atlas_bus, %Envelope{class: "stored"} = envelope, content}, state) do
-    hint = %{position: envelope.position, changes: content["changes"] || [], by: content["by"]}
+    hint = %{position: envelope.position, changes: content["changes"] || []}
     now = now_ms()
     batch = Batch.add(state.batch, hint, now)
     state = cancel_flush(seen(%{state | batch: batch}, envelope.position))
@@ -250,27 +251,20 @@ defmodule AtlasControl.Session do
 
   def handle_info({:atlas_bus, _envelope, _content}, state), do: {:noreply, state}
 
-  # While Flow is waited for, hints wait too: they are handled once it answers.
-  def handle_info(:flush, %{settling: %{}} = state), do: {:noreply, %{state | flush_timer: nil}}
+  # While a stored write of this client waits for Flow, hints wait too: they are handled
+  # with its stored page (read-your-writes).
+  def handle_info(:flush, %{settling: %{stored: %{}}} = state),
+    do: {:noreply, %{state | flush_timer: nil}}
 
+  # Hints are handled at once, whoever wrote them: a stored change is shown as Facts has it,
+  # and what Flow writes after it comes as hints of its own. While marks are held, Flow is
+  # asked again, after, whether it settled past them.
   def handle_info(:flush, state) do
     state = %{state | flush_timer: nil}
 
-    cond do
-      Batch.empty?(state.batch) ->
-        {:noreply, state}
-
-      Batch.others?(state.batch.hints, @flow) and is_integer(Batch.position(state.batch.hints)) ->
-        position = max(Batch.position(state.batch.hints), Marks.lowest(state.marks) || 0)
-        {:noreply, settle(state, position, hint_settle_ms(), nil)}
-
-      # While marks are held, Flow is asked again whether it settled past them.
-      Marks.held?(state.marks) ->
-        {:noreply, settle(state, Marks.lowest(state.marks), hint_settle_ms(), nil)}
-
-      true ->
-        {:noreply, flush(state)}
-    end
+    if Batch.empty?(state.batch),
+      do: {:noreply, state},
+      else: {:noreply, state |> flush() |> ask_settled()}
   end
 
   # Flow did not say it settled in time: the page goes out as Facts has it now. Flow's
@@ -1560,8 +1554,9 @@ defmodule AtlasControl.Session do
     flush(state)
   end
 
-  # While marks are held and nothing is waited for, Flow is asked again, briefly, whether
-  # it settled past them; its answer clears them.
+  # While marks are held and nothing is waited for, Flow is asked again, briefly
+  # (`hint_settle_ms`), whether it settled past them; its answer clears them. Hints are not
+  # held back by it.
   defp ask_settled(%{settling: nil} = state) do
     if Marks.held?(state.marks),
       do: settle(state, Marks.lowest(state.marks), hint_settle_ms(), nil),

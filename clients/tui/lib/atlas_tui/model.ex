@@ -13,7 +13,7 @@ defmodule AtlasTui.Model do
   """
 
   alias AtlasTui.{Blocks, Selection, Text}
-  alias AtlasTui.Blocks.{Confirm, Form, Input, Item, Part, Plan}
+  alias AtlasTui.Blocks.{Confirm, Form, Input, Item, Part, Plan, Section}
   alias AtlasTui.Blocks.List, as: ListBlock
 
   @scroll_step 10
@@ -39,6 +39,9 @@ defmodule AtlasTui.Model do
             # is scrolled by hand (by part number; missing: its top, or its selected row).
             part: nil,
             scrolls: %{},
+            # Whether the page's collapsible sections are open (`sections_toggle`); a new
+            # page starts with them folded.
+            unfolded: false,
             # Bounds and page sizes from the last rendered frame, keyed by part number.
             viewports: %{},
             focus: 0,
@@ -100,7 +103,8 @@ defmodule AtlasTui.Model do
         cursor: if(same, do: model.cursor, else: nil),
         scroll: if(same, do: model.scroll, else: first_scroll(blocks)),
         part: if(same, do: model.part, else: nil),
-        scrolls: if(same, do: model.scrolls, else: %{})
+        scrolls: if(same, do: model.scrolls, else: %{}),
+        unfolded: same and model.unfolded
     }
 
     model = if msg["reason"] == "hint", do: %{model | last_hint: updated}, else: model
@@ -213,10 +217,43 @@ defmodule AtlasTui.Model do
   def confirm(model), do: Enum.find(model.blocks, &match?(%Confirm{}, &1))
 
   @doc "The rows of every list on the page, in order: one selection."
-  def rows(model) do
-    Enum.flat_map(model.blocks, fn
-      %ListBlock{rows: rows} -> rows || []
-      _ -> []
+  def rows(model), do: Enum.flat_map(lists(model), fn {_id, list} -> list.rows || [] end)
+
+  @doc """
+  The page's lists a reader can reach, as `{id, list}` in page order: all of them but those
+  inside a folded collapsible section. Their rows are the page's one selection.
+  """
+  def lists(model) do
+    hidden = folded(model)
+
+    for {id, %ListBlock{} = list} <- Enum.zip(model.ids, model.blocks),
+        not MapSet.member?(hidden, id),
+        do: {id, list}
+  end
+
+  @doc "The ids of the blocks inside the page's collapsible sections while they are folded."
+  def folded(%__MODULE__{unfolded: true}), do: MapSet.new()
+  def folded(%__MODULE__{markup: []}), do: MapSet.new()
+
+  def folded(model) do
+    model.ids
+    |> AtlasBFF.Markup.tree(model.markup)
+    |> folded_ids()
+    |> MapSet.new()
+  rescue
+    ArgumentError -> MapSet.new()
+  end
+
+  defp folded_ids(nodes) do
+    Enum.flat_map(nodes, fn
+      {:markup, %{"value" => %Section{collapsible: true}}, children} ->
+        Enum.flat_map(children, &ids_in/1)
+
+      {:markup, _entry, children} ->
+        folded_ids(children)
+
+      {:block, _id} ->
+        []
     end)
   end
 
@@ -323,6 +360,12 @@ defmodule AtlasTui.Model do
   def operation(model, "back"), do: AtlasTui.Console.back(model)
   def operation(model, "refresh"), do: {model, [{:send, %{"op" => "refresh"}}]}
   def operation(model, "quit"), do: {model, [:quit]}
+
+  # Folds or unfolds the page's collapsible sections; the selection stays on a reachable row.
+  def operation(model, "sections_toggle") do
+    model = %{model | unfolded: not model.unfolded}
+    {%{model | selected: min(model.selected, max(length(rows(model)) - 1, 0))}, []}
+  end
 
   def operation(model, name) when name in ["page_next", "page_previous"] do
     by = if name == "page_next", do: @scroll_step, else: -@scroll_step
@@ -461,7 +504,7 @@ defmodule AtlasTui.Model do
   # Other panes retain the reader's independent manual position.
   defp select(model, selected) do
     {id, _offset} =
-      Enum.reduce_while(Enum.zip(model.ids, model.blocks), {nil, selected}, fn
+      Enum.reduce_while(lists(model), {nil, selected}, fn
         {id, %ListBlock{rows: rows}}, {nil, offset} ->
           count = length(rows || [])
 

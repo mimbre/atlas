@@ -186,6 +186,130 @@ defmodule AtlasControl.Workers do
   end
 
   defp inspect_execution(m, actor, target, read) do
+    with {:ok, view, _turn, _execution, _n} <- inspected(m, actor, target, read),
+         do: {:ok, view}
+  end
+
+  @doc """
+  What the worker page shows of `execution` (as `worker_inspect` takes it) besides its
+  view: `{:ok, view, about}`, `about` with what a reader reads first, each nil when
+  nothing says it: `"title"` (the turn's own, else its item's), `"status"` (running,
+  finished, failed, stopped or ended), `"model"` (the turn's, else the execution's reported
+  or configured one; never the placeholder `unknown`), `"started_at"` (when the execution
+  was registered), `"ended_at"`, and `"newer"`: the newest other turn of the same worker
+  that is newer than this one (running while this one ended, or ended after it), as
+  `%{"execution", "status"}`.
+  """
+  def about(m, actor, execution, read) do
+    with {:ok, %{"execution" => target}} <- handle_target(execution),
+         :ok <- authorize(m, actor, "read", read),
+         {:ok, view, turn, ex, n} <- inspected(m, actor, target, read) do
+      values = turn["values"] || %{}
+
+      {:ok, view,
+       %{
+         "title" => known(values[n["title"]]) || known(view["item_title"]),
+         "status" => status(n, values),
+         "model" =>
+           Enum.find_value(
+             [values[n["model"]], ex["reported_model"], ex["configured_model"]],
+             &known/1
+           ),
+         "started_at" => known(ex["recorded_at"]),
+         "ended_at" => known(values[n["ended_at"]]),
+         "newer" => newer(n, turn, read)
+       }}
+    end
+  end
+
+  defp handle_target(%{"worker" => %{} = worker, "turn" => turn} = execution),
+    do:
+      {:ok,
+       %{"execution" => Map.merge(worker, %{"turn" => turn, "attempt" => execution["attempt"]})}}
+
+  defp handle_target(_), do: {:error, "invalid_target"}
+
+  # A value worth showing: text that is neither empty nor the placeholder Runtime writes
+  # for what it does not know.
+  defp known(value) when is_binary(value) do
+    if String.trim(value) in ["", "unknown"], do: nil, else: value
+  end
+
+  defp known(_), do: nil
+
+  # The turn's state in plain words: the model's running value, or how it ended (the words
+  # Runtime gives why: finished, failed: …, stopped or killed); any other end is "ended",
+  # and a state that is neither is shown as it is.
+  defp status(n, values) do
+    why = to_string(values[n["why"]] || "")
+
+    cond do
+      values[n["state"]] == n["running"] -> "running"
+      values[n["state"]] != n["ended"] or is_nil(n["ended"]) -> known(values[n["state"]])
+      why == "finished" -> "finished"
+      String.starts_with?(why, "failed") -> "failed"
+      why in ["stopped", "killed"] -> "stopped"
+      true -> "ended"
+    end
+  end
+
+  # Among the worker's other turns: a running one when this one has ended (the most
+  # recently renewed), else one that ended after this one (the latest).
+  defp newer(n, turn, read) do
+    with [worker] <- get_in(turn, ["links", n["by"]]),
+         %{"facts" => turns} when is_list(turns) <-
+           read.(n["kind"], %{"linked" => %{n["by"] => worker}, "plain" => true}) do
+      values = turn["values"] || %{}
+      ended = values[n["state"]] == n["ended"]
+      own_end = recency(values[n["ended_at"]])
+
+      others =
+        for other <- turns,
+            other["key"] != turn["key"],
+            {:ok, target} <- [target_from_turn(n, other)],
+            do: {other["values"] || %{}, target}
+
+      running =
+        for {v, target} <- others, ended and v[n["state"]] == n["running"], do: {v, target}
+
+      later =
+        for {v, target} <- others,
+            ended and own_end > 0 and v[n["state"]] == n["ended"],
+            recency(v[n["ended_at"]]) > own_end,
+            do: {v, target}
+
+      chosen =
+        case running do
+          [_ | _] ->
+            Enum.max_by(running, fn {v, t} -> {recency(v[n["lease"]]), t["turn"]} end)
+
+          [] when later != [] ->
+            Enum.max_by(later, fn {v, t} -> {recency(v[n["ended_at"]]), t["turn"]} end)
+
+          [] ->
+            nil
+        end
+
+      case chosen do
+        {v, target} ->
+          %{
+            "execution" => %{
+              "worker" => Map.take(target, ~w(environment machine worker)),
+              "turn" => target["turn"],
+              "attempt" => target["attempt"]
+            },
+            "status" => status(n, v)
+          }
+
+        nil ->
+          nil
+      end
+    else
+      _ -> nil
+    end
+  end
+
+  defp inspected(m, actor, target, read) do
     with {:ok, execution} <- execution(m, target, read),
          {:ok, n} <- names(m),
          {:ok, turn} <- fact(read, n["kind"], %{"key" => target["turn"], "plain" => true}),
@@ -227,7 +351,7 @@ defmodule AtlasControl.Workers do
            "available" => can_submit and eligibility == :ok,
            "reason" => if(can_submit, do: eligibility_reason(eligibility), else: "forbidden")
          }
-       }}
+       }, turn, execution, n}
     end
   end
 

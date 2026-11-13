@@ -69,7 +69,7 @@ defmodule Model.DeliveryRunsTest do
       assert runner.refusal == nil
 
       assert Enum.sort(Map.keys(runner.config["selection"])) ==
-               ~w(decide design_and_accept issue pr_review pr_test pull_request test_and_accept_use_case)
+               ~w(decide design_and_accept issue pr_review pr_test pull_request test_and_accept_scene test_and_accept_use_case)
 
       f = flow(env)
       assert Run.validate(f) == :ok
@@ -391,8 +391,10 @@ defmodule Model.DeliveryRunsTest do
             )
 
       # The use case counts its issues (slice 10 selects its design, a subflow on a use
-      # case): an issue's run moving drains the run on its use case.
-      assert Enum.map(runner.config["composition"]["counts"], & &1["child"]) == [@issue]
+      # case): an issue's run moving drains the run on its use case. The scene counts its
+      # use cases (slice 12 selects a subflow on the scene).
+      assert Enum.map(runner.config["composition"]["counts"], & &1["child"]) ==
+               [@issue, "test_and_accept_use_case"]
     end
 
     s = issue_selection()

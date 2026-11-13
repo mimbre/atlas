@@ -691,13 +691,13 @@ defmodule RelaDSL.Description.Check do
 
     keys(
       turn,
-      ~w(kind key on by state running ended machine lease activity why ended_at outcome attempt),
+      ~w(kind key on by state running ended machine lease activity why ended_at outcome attempt title model),
       path
     ) ++
       entity(ctx, kind, path) ++
       Enum.flat_map(missing, &p(path, "runtime.turn: missing #{&1}")) ++
       for(
-        k <- ~w(state machine lease activity why ended_at outcome),
+        k <- ~w(state machine lease activity why ended_at outcome title model),
         Map.has_key?(turn, k),
         problem <- field(ctx, kind, turn[k], path),
         do: problem

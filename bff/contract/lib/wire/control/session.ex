@@ -1,7 +1,7 @@
 defmodule AtlasBFFContract.Wire.Control.Session do
   @moduledoc "Control page/session and agent wire operations."
   use AtlasBFF.Schema
-  version "0.15.0"
+  version "0.16.0"
   models_from(AtlasBFFContract.Models.Presentation)
 
   # IS-101 described the 0.14.0 bytes without a bump; 0.15.0 adds the row fields `key` and

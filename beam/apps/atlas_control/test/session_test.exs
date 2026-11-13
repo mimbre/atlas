@@ -256,7 +256,7 @@ defmodule AtlasControl.SessionTest do
   test "a client sees the top list at once", %{port: port} do
     FakeStore.put("W-1", %{"title" => "One"})
     c = client(port)
-    assert %{"env" => "test", "spec" => "0.15.0"} = next(c, "welcome")
+    assert %{"env" => "test", "spec" => "0.16.0"} = next(c, "welcome")
     assert %{"path" => "/", "title" => "Widgets", "reason" => "open"} = page = next(c, "page")
     assert rows(page) == ["One"]
   end
@@ -1499,10 +1499,11 @@ defmodule AtlasControl.SessionTest do
       assert reads_since(before) == []
     end
 
-    test "others' writes: the flush waits briefly for Flow to settle past them, then reads once",
+    test "others' writes: the flush reads and sends at once; it waits for no Flow work",
          %{port: port} do
       FakeStore.put("W-1", %{"title" => "One"})
       hold_clock()
+      # Flow never answers: what another wrote is shown as stored, not once Flow settles.
       FakeFlow.hold()
       FakeFlow.tell(self())
       a = client(port)
@@ -1512,14 +1513,10 @@ defmodule AtlasControl.SessionTest do
       FakeStore.hint("widget", "W-1", [changed("widget", "W-1", ["title"])], "ada")
       {pid, _, _} = flush_wait()
       send(pid, :flush)
-      assert_receive {:settled_asked, 1}, @arrives
-      assert {_, _, 250} = held_wait({:settle_timeout, _})
-      assert pages(sync(a)) == []
-      assert reads_since(before) == []
-
-      FakeFlow.settle(1)
-      assert %{"reason" => "hint", "position" => 1} = next(a, "page")
+      assert [%{"reason" => "hint", "position" => 1}] = pages(sync(a))
       assert reads_since(before) == ["_page"]
+      refute_received {:clock, ^pid, {:settle_timeout, _}, _}
+      refute_received {:settled_asked, _}
     end
 
     test "at most 3 recent pages are pushed per flush, the most recently viewed first; the rest are forgotten",
@@ -1735,16 +1732,17 @@ defmodule AtlasControl.SessionTest do
       run_out(wait)
       assert pages(sync(a)) == []
 
-      # A hint of W-2 (Flow's): the flush asks Flow again first; the page it sends marks
-      # W-1 only.
+      # A hint of W-2 (Flow's): the flush sends the page at once, marking W-1 only, and only
+      # then asks Flow again.
       FakeStore.hint("widget", "W-2", [changed("widget", "W-2", ["title"])], "flow")
       {pid, _, _} = flush_wait()
       send(pid, :flush)
+      assert [%{"path" => "/", "reason" => "hint", "position" => 2} = hinted] = pages(sync(a))
+      assert flags(hinted) == [{"W-1", true}, {"W-2", false}]
       assert_receive {:settled_asked, 1}, @arrives
       assert {_, _, 250} = wait = held_wait({:settle_timeout, _})
       run_out(wait)
-      assert [%{"path" => "/", "reason" => "hint", "position" => 2} = hinted] = pages(sync(a))
-      assert flags(hinted) == [{"W-1", true}, {"W-2", false}]
+      assert pages(sync(a)) == []
 
       # Flow settles: the marker goes from the page on screen, as it was sent, no read.
       before = FakeStore.reads()

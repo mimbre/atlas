@@ -3,7 +3,7 @@ defmodule AtlasBFFContract.Console do
 
   @contexts ~w(browse form confirm ask plan_planning plan_proposed plan_running plan_done step_form legend)
   @tokens ~w(Tab Shift+Tab Up Down Left Right Home End PageUp PageDown Enter Esc Backspace Space Ctrl+C Ctrl+S)
-  @local ~w(list_next list_previous open_selected scroll_up scroll_down submit cancel tab_next tab_previous move_next move_previous select_first select_last page_next page_previous part_next part_previous back refresh quit legend_open legend_close focus_next focus_previous submit_form cancel_form form_enter input_up input_down input_left input_right input_home input_end input_backspace ask_send ask_cancel plan_cancel plan_run plan_toggle plan_edit plan_previous plan_next plan_stop plan_close step_save step_cancel)
+  @local ~w(list_next list_previous open_selected scroll_up scroll_down submit cancel tab_next tab_previous move_next move_previous select_first select_last page_next page_previous part_next part_previous back refresh quit legend_open legend_close sections_toggle focus_next focus_previous submit_form cancel_form form_enter input_up input_down input_left input_right input_home input_end input_backspace ask_send ask_cancel plan_cancel plan_run plan_toggle plan_edit plan_previous plan_next plan_stop plan_close step_save step_cancel)
   @worker ~w(worker_history worker_receipts worker_output_subscribe)
 
   defdelegate compile(page), to: AtlasBFFContract.Console.Projection
