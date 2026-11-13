@@ -62,10 +62,24 @@ defmodule AtlasTui.PresentationTest do
 
   test "both themes keep all text roles above 4.5:1 contrast on their own surface" do
     for theme <- [:light, :dark],
-        role <- [:plain, :bold, :dim, :selected, :cursor, :prod, :ok, :pending, :error, :info] do
+        role <- [
+          :plain,
+          :bold,
+          :dim,
+          :selected,
+          :cursor,
+          :prod,
+          :ok,
+          :pending,
+          :error,
+          :info,
+          :muted,
+          {:selected, :muted},
+          :pending_selected
+        ] do
       {fg, bg} = Palette.colors(role, theme)
       [low, high] = Enum.sort([luminance(fg), luminance(bg)])
-      assert (high + 0.05) / (low + 0.05) >= 4.5, "#{theme} #{role}"
+      assert (high + 0.05) / (low + 0.05) >= 4.5, "#{theme} #{inspect(role)}"
     end
   end
 

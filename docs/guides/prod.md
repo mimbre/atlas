@@ -150,9 +150,7 @@ Preserve both `rela/` and `beam/`, including Facts' provenance and answered-fact
 7. **Switch ordinary clients only after data checks and delivery approval.** Under
    the agreed policy, #61 sets `fly.in_use=true` and `control.port=7593`, removing
    local core settings. Validate the prod TUI and CLI against Fly Control. Keep all
-   backups and the source dataset. Keep Runtime stopped and deployed Bus listeners
-   disabled until separate IS-91 activation approval; changing client settings
-   activates neither.
+   backups and the source dataset. Changing client settings starts no Runtime.
 
 ### Runtime after the client switch (IS-Atlas-91)
 
@@ -161,17 +159,28 @@ independent process with its own PID, log and optional Bus proxy. Core stop/rest
 does not stop it. A disconnected node retries its configured endpoint; it does not
 retarget automatically from the Mac to Fly. Settings are read when the node starts.
 
-Only after separate activation approval, configure the approved core's private Bus
-listener and distinct per-machine credentials, configure each machine's local
-`runtime.json` for Fly, then explicitly start Runtime. Prod's conventional Bus tunnel
-is `7595:7594`, independent of Control's `7593:7591`. Agents' CLI calls use the ordinary
-client environment file and therefore the switched Control. Keep test/prod settings
-and credentials separate. No public Fly service is needed.
+Activated on 2026-11-13 (IS-91 approval). `fly/prod/core.json` enables the private Bus
+listener on `::`, port `7594`; `fly/prod/core.toml` declares no public service for it.
+The core secret `ATLAS_BUS_LINK_TOKEN` (a JSON object from machine name to a distinct
+random token) must be set on `eyra-atlas` before this configuration deploys: the core
+refuses to boot when it is missing or malformed. The first node is machine
+`melle-mac-mini` on the Mac mini; it reaches the listener through prod's Bus tunnel
+`7595:7594`, independent of Control's `7593:7591`. That machine's Bus token and Fly
+WireGuard token come from Infisical (project Atlas, environment `prod`, path
+`/runtimes/melle-mac-mini`), read at Runtime start through the machine identity
+`melle-mac-mini` and passed to the node as environment variables; neither is stored in
+the repository. Each machine's local `runtime.json`
+names its machine and the tunnel; Runtime is then started explicitly. Agents' CLI calls
+use the ordinary client environment file and therefore Fly Control. Keep test/prod
+settings and credentials separate.
 
-Verify Bus registration and stub-turn leases/logs before separately approved real
-agent work. A Runtime PID alone does not prove a connected Bus. IS-91 retries dropped
-Bus connections; it does not promise indefinite recovery of a dead flyctl proxy,
-cross-machine failover or a durable outbox. This procedure authorizes no activation.
+Prod's settings also add the Workers tab and its grants (`control.tabs`,
+`control.workers`): `melle` may read and submit.
+
+Verify Bus registration and stub-turn leases/logs before real agent work. A Runtime
+PID alone does not prove a connected Bus. IS-91 retries dropped Bus connections; it
+does not promise indefinite recovery of a dead flyctl proxy, cross-machine failover or
+a durable outbox.
 
 ### Rollback preserves the latest authority
 

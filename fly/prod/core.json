@@ -2,7 +2,16 @@
   "env": "prod",
   "tui_user": "melle",
   "actors": { "decider": "melle" },
-  "control": { "host": "::", "port": 7591 },
+  "control": {
+    "host": "::",
+    "port": 7591,
+    "tabs": [{ "id": "workers", "label": "Workers", "to": "/workers" }],
+    "workers": {
+      "read": { "actors": ["melle"] },
+      "submit": { "actors": ["melle"] }
+    }
+  },
+  "bus_link": { "host": "::", "port": 7594 },
   "rela": {
     "url": "http://eyra-atlas-rela.internal:7590/api/v1",
     "ipv6": true
