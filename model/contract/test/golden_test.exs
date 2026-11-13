@@ -32,8 +32,10 @@ defmodule Model.GoldenTest do
   # f8969c0536e1442b and c3eae1a7a5eeea98).
   # Slice 8: pull_request loses its integrate effect and its creates; merged ends it from
   # every open state (was 1235a3dae3c7e42b).
+  # Slice 9: issue keeps author and done; passes, smart gates, publish and timers wait
+  # for their receivers (was 5e2320f6db243534).
   @versions [
-    {"issue", [issue: "5e2320f6db243534"]},
+    {"issue", [issue: "de930a7511675ac8"]},
     {"pull_request", [pull_request: "0684c47a59a3e818"]},
     {"pr_review", [pr_review: "9d16908ccca4b854"]},
     {"pr_test", [pr_test: "816eaa1d9ee76d3b"]},
@@ -106,7 +108,7 @@ defmodule Model.GoldenTest do
              )
   end
 
-  test "the committed composition is the compiled one; Flow applies the pull request's links" do
+  test "the committed composition is the compiled one; Flow applies the three links" do
     compiled = AtlasEyra.composition()
     no_nil = &Enum.map(&1, fn x -> Map.reject(x, fn {_, v} -> v == nil end) end)
     assert Committed.composition() == Map.update!(compiled, "links", no_nil)
@@ -124,13 +126,16 @@ defmodule Model.GoldenTest do
            ]
 
     # Slice 8 selects the pull request, the parent of the review's and the test's links:
-    # Flow applies those two, by the revision they are current for. The pull request's own
-    # link to its issue waits for the issue (slice 9); no count has both ends selected.
+    # Flow applies those two, by the revision they are current for. Slice 9 selects the
+    # issue, so the pull request's own link to it applies too, with no identity: every pull
+    # request of the issue is current. No count has both ends selected: the use case and
+    # the scene wait for slices 10-12.
     for env <- [:prod, :test] do
       runner = AtlasFlow.Model.load(AtlasEyra, env, %{"decider" => "someone"})
 
       assert Map.keys(runner.config["selection"]) == [
                "decide",
+               "issue",
                "pr_review",
                "pr_test",
                "pull_request"
@@ -138,7 +143,8 @@ defmodule Model.GoldenTest do
 
       assert Enum.map(runner.config["composition"]["links"], &{&1["child"], &1["current"]}) == [
                {"pr_review", %{"child" => "revision", "parent" => "revision"}},
-               {"pr_test", %{"child" => "revision", "parent" => "revision"}}
+               {"pr_test", %{"child" => "revision", "parent" => "revision"}},
+               {"pull_request", nil}
              ]
 
       assert runner.config["composition"]["counts"] == []
@@ -154,11 +160,15 @@ defmodule Model.GoldenTest do
   test "a running component reads the mechanisms and the gates" do
     flows = Committed.flows()
     states = flows["issue"]["states"]
-    assert states["delivery_gate"]["spec"] == %{"gate" => "delivery_evidence", "version" => 1}
 
-    assert Map.take(states["in_pr"], ~w(final label)) == %{
+    # The issue's passes, gates and publish effect wait for what runs them; it is built by
+    # hand (slice 9). Its two gates stay defined, for when its passes come back.
+    assert Enum.sort(Map.keys(states)) == ["author", "done"]
+    refute Enum.any?(Map.values(states), &Map.has_key?(&1, "kind"))
+
+    assert Map.take(states["author"], ~w(final label)) == %{
              "final" => false,
-             "label" => "In pull request"
+             "label" => "Building"
            }
 
     assert flows["design_and_accept"]["states"]["design_gate"]["spec"] ==

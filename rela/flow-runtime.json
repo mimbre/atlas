@@ -105,6 +105,33 @@
           ]
         }
       },
+      "issue": {
+        "choices": [],
+        "choice_states": [],
+        "migrations": [
+          {"from":"99b406f1da0c908d703acd82c37c2bd07ec5c103e352809afed37b676693ed5e","to":"6dcb5eefa0dd0aec97748b7280249678cb64d759808b81e2104b3992c7b38052","states":{"author":"author","closed":"author","delivery_gate":"author","done":"done","in_pr":"author","needs_person":"author","publish":"author","review":"author","review_gate":"author","rework":"author"},"reason":"Slice 9: selected without its passes, gates and publish effect; built by hand"}
+        ],
+        "subject": "issue",
+        "legacy": "build_and_merge",
+        "projection": {
+          "on": "assignment",
+          "state_field": "flow_state",
+          "handover_field": "handover",
+          "owner_relation": "assigned_to",
+          "field": "expected"
+        },
+        "admission": [],
+        "imports": [
+          {
+            "when": {
+              "pr_outcome": [
+                "integrated"
+              ]
+            },
+            "state": "done"
+          }
+        ]
+      },
       "pull_request": {
         "choices": [],
         "choice_states": [],

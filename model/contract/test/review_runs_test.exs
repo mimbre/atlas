@@ -59,7 +59,7 @@ defmodule Model.ReviewRunsTest do
       assert runner.refusal == nil
 
       assert Enum.sort(Map.keys(runner.config["selection"])) ==
-               ~w(decide pr_review pr_test pull_request)
+               ~w(decide issue pr_review pr_test pull_request)
 
       for {name, _, _, _, _} <- @kinds do
         f = flow(env, name)
