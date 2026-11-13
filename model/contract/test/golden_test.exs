@@ -28,11 +28,13 @@ defmodule Model.GoldenTest do
   # version it started with, so the generated file must keep them too. One intended change
   # (flow-compose-2): use_case's result field is design_status, not design, so its two
   # flows have new versions (were fb94ff2ad22d759e and cea573908d89e395).
+  # Slice 7: pr_review and pr_test lose their pass and take superseded as written (were
+  # f8969c0536e1442b and c3eae1a7a5eeea98).
   @versions [
     {"issue", [issue: "5e2320f6db243534"]},
     {"pull_request", [pull_request: "1235a3dae3c7e42b"]},
-    {"pr_review", [pr_review: "f8969c0536e1442b"]},
-    {"pr_test", [pr_test: "c3eae1a7a5eeea98"]},
+    {"pr_review", [pr_review: "9d16908ccca4b854"]},
+    {"pr_test", [pr_test: "816eaa1d9ee76d3b"]},
     {"use_case",
      [design_and_accept: "0971d09c2b1a34ad", test_and_accept_use_case: "a207d811b03394f4"]},
     {"scene", [test_and_accept_scene: "8dc48c7180394ded"]},
@@ -119,11 +121,12 @@ defmodule Model.GoldenTest do
              {"test_and_accept_use_case", "scene"}
            ]
 
-    # Production selection is unchanged (only decide): no link or count has both ends
-    # selected, so Flow applies none, and nothing refuses.
+    # Slice 7 selects decide, pr_review and pr_test; the parent of their links (the pull
+    # request) is not selected until slice 8, so no link or count has both ends selected:
+    # Flow applies none, and nothing refuses.
     for env <- [:prod, :test] do
       runner = AtlasFlow.Model.load(AtlasEyra, env, %{"decider" => "someone"})
-      assert Map.keys(runner.config["selection"]) == ["decide"]
+      assert Map.keys(runner.config["selection"]) == ["decide", "pr_review", "pr_test"]
       assert runner.config["composition"] == %{"links" => [], "counts" => []}
       assert runner.refusal == nil
     end

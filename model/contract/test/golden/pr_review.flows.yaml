@@ -1,6 +1,8 @@
 # Software: PR review, a linked flow on the PR, owned by a person.
 # Created by the pull_request flow's create output; starts on create.
-# The person sets verdict; the Atlas link reports the final state to the PR.
+# The person sets verdict, naming themselves in verdict_by: a trusted choice. The Atlas
+# link reports the final state to the PR, for the PR's current revision only.
+# Slice 7: no pass yet; superseded is taken as written.
 flows:
   pr_review:
     label: PR review
@@ -12,10 +14,11 @@ flows:
     states:
       working:
         label: PR review in progress
+        status: input_required
         waiting_for: [reviewer]
         on:
           change:
-            - { to: superseded, roles: [atlas-flow], when: "entity.superseded == true" }
+            - { to: superseded, when: "entity.superseded == true" }
             - { to: approved, roles: [reviewer], when: "entity.verdict == 'approved'" }
             - { to: changes_requested, roles: [reviewer], when: "entity.verdict == 'changes_requested'" }
         after:
@@ -26,7 +29,7 @@ flows:
         waiting_for: [maintainer, reviewer]
         on:
           change:
-            - { to: superseded, roles: [atlas-flow], when: "entity.superseded == true" }
+            - { to: superseded, when: "entity.superseded == true" }
             - { to: approved, roles: [maintainer, reviewer], when: "entity.verdict == 'approved'" }
             - { to: changes_requested, roles: [maintainer, reviewer], when: "entity.verdict == 'changes_requested'" }
       approved:

@@ -5,7 +5,8 @@
 #
 # This proves Flow's composition (links, counts, the parent's durable writes and its
 # synthetic input) on a private contract. It selects no production subflow: the model the
-# core runs links or counts nothing until slice 7 selects both ends of a link.
+# core runs links or counts nothing until both ends of a link are selected (slice 7 selects
+# the review and the test, slice 8 their parent, the pull request).
 ExUnit.start()
 
 defmodule FlowCompositionProof do

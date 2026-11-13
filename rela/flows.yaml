@@ -166,10 +166,11 @@ flows:
     states:
       working:
         label: PR review in progress
+        status: input_required
         waiting_for: [reviewer]
         on:
           change:
-            - { to: superseded, roles: [atlas-flow], when: "entity.superseded == true" }
+            - { to: superseded, when: "entity.superseded == true" }
             - { to: approved, roles: [reviewer], when: "entity.verdict == 'approved'" }
             - { to: changes_requested, roles: [reviewer], when: "entity.verdict == 'changes_requested'" }
         after:
@@ -180,7 +181,7 @@ flows:
         waiting_for: [maintainer, reviewer]
         on:
           change:
-            - { to: superseded, roles: [atlas-flow], when: "entity.superseded == true" }
+            - { to: superseded, when: "entity.superseded == true" }
             - { to: approved, roles: [maintainer, reviewer], when: "entity.verdict == 'approved'" }
             - { to: changes_requested, roles: [maintainer, reviewer], when: "entity.verdict == 'changes_requested'" }
       approved:
@@ -201,10 +202,11 @@ flows:
     states:
       working:
         label: PR test in progress
+        status: input_required
         waiting_for: [tester]
         on:
           change:
-            - { to: superseded, roles: [atlas-flow], when: "entity.superseded == true" }
+            - { to: superseded, when: "entity.superseded == true" }
             - { to: passed, roles: [tester], when: "entity.verdict == 'passed'" }
             - { to: failed, roles: [tester], when: "entity.verdict == 'failed'" }
         after:
@@ -215,7 +217,7 @@ flows:
         waiting_for: [maintainer, tester]
         on:
           change:
-            - { to: superseded, roles: [atlas-flow], when: "entity.superseded == true" }
+            - { to: superseded, when: "entity.superseded == true" }
             - { to: passed, roles: [maintainer, tester], when: "entity.verdict == 'passed'" }
             - { to: failed, roles: [maintainer, tester], when: "entity.verdict == 'failed'" }
       passed:

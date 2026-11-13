@@ -98,6 +98,9 @@ entities:
       test_outcome:
         type: string
         description: 'Flow: how its test ended (none, passed, failed)'
+      revision:
+        type: string
+        description: The revision its review and test are for (its head commit); one of another is not current
       update:
         type: string
         description: 'Flow: updated when a new revision arrives after changes were requested (none, updated)'
@@ -124,6 +127,9 @@ entities:
         type: boolean
         default: false
         description: True when a newer revision of the pull request replaced this review
+      revision:
+        type: string
+        description: The exact revision of the pull request this review is for (its head commit)
   pr_test:
     label: PR test
     plural: pr_tests
@@ -144,6 +150,9 @@ entities:
         type: boolean
         default: false
         description: True when a newer revision of the pull request replaced this test
+      revision:
+        type: string
+        description: The exact revision of the pull request this test is for (its head commit)
 relations:
   in_issue:
     label: in issue
@@ -167,6 +176,19 @@ relations:
     inverse:
       id: reviews
       label: reviews
+  verdict_by:
+    label: verdict by
+    description: Who gave the verdict of a review or test; one, a person or an agent.
+    from:
+    - pr_review
+    - pr_test
+    to:
+    - person
+    - agent
+    max_outgoing: 1
+    inverse:
+      id: verdicts
+      label: verdicts
   test_of:
     label: test of
     description: A test belongs to one pull request; a pull request has its tests.

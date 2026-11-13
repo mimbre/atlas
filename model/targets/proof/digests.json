@@ -269,8 +269,18 @@
     },
     "pr_review": {
       "prod": {
-        "digest": "ee1314e80a41b4d4102923cc46d08126403ea5fc3c58bcf49d88617823acd86b",
+        "digest": "7291ab5579991c4083ad2d1f18c211a7cc7c85ec27735c8d00d0d99e8752542e",
         "history": [
+          {
+            "digest": "7291ab5579991c4083ad2d1f18c211a7cc7c85ec27735c8d00d0d99e8752542e",
+            "states": [
+              "approved",
+              "changes_requested",
+              "escalated",
+              "superseded",
+              "working"
+            ]
+          },
           {
             "digest": "ee1314e80a41b4d4102923cc46d08126403ea5fc3c58bcf49d88617823acd86b",
             "states": [
@@ -291,8 +301,18 @@
         ]
       },
       "test": {
-        "digest": "ee1314e80a41b4d4102923cc46d08126403ea5fc3c58bcf49d88617823acd86b",
+        "digest": "7291ab5579991c4083ad2d1f18c211a7cc7c85ec27735c8d00d0d99e8752542e",
         "history": [
+          {
+            "digest": "7291ab5579991c4083ad2d1f18c211a7cc7c85ec27735c8d00d0d99e8752542e",
+            "states": [
+              "approved",
+              "changes_requested",
+              "escalated",
+              "superseded",
+              "working"
+            ]
+          },
           {
             "digest": "ee1314e80a41b4d4102923cc46d08126403ea5fc3c58bcf49d88617823acd86b",
             "states": [
@@ -315,10 +335,20 @@
     },
     "pr_test": {
       "prod": {
-        "digest": "43fcbbf9a95d4e5bbac5c72d2dc878c28e56b48f7dd865e43d57cdb5e6bd5644",
+        "digest": "909f7ac67ca0c71b562b6828d4e92cb38b057cfdb7d2afb7b4f95c7edd1a2237",
         "history": [
           {
             "digest": "43fcbbf9a95d4e5bbac5c72d2dc878c28e56b48f7dd865e43d57cdb5e6bd5644",
+            "states": [
+              "escalated",
+              "failed",
+              "passed",
+              "superseded",
+              "working"
+            ]
+          },
+          {
+            "digest": "909f7ac67ca0c71b562b6828d4e92cb38b057cfdb7d2afb7b4f95c7edd1a2237",
             "states": [
               "escalated",
               "failed",
@@ -337,10 +367,20 @@
         ]
       },
       "test": {
-        "digest": "43fcbbf9a95d4e5bbac5c72d2dc878c28e56b48f7dd865e43d57cdb5e6bd5644",
+        "digest": "909f7ac67ca0c71b562b6828d4e92cb38b057cfdb7d2afb7b4f95c7edd1a2237",
         "history": [
           {
             "digest": "43fcbbf9a95d4e5bbac5c72d2dc878c28e56b48f7dd865e43d57cdb5e6bd5644",
+            "states": [
+              "escalated",
+              "failed",
+              "passed",
+              "superseded",
+              "working"
+            ]
+          },
+          {
+            "digest": "909f7ac67ca0c71b562b6828d4e92cb38b057cfdb7d2afb7b4f95c7edd1a2237",
             "states": [
               "escalated",
               "failed",

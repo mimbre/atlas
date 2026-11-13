@@ -1363,6 +1363,14 @@
       "only_target": {
         "error": "only the person who confirms a verdict sets reviewed_by, to themselves"
       }
+    },
+    "verdict_by": {
+      "only_target": {
+        "also": [
+          "migration"
+        ],
+        "error": "only the one who gives the verdict sets verdict_by, to themselves"
+      }
     }
   },
   "runtime": {

@@ -104,6 +104,84 @@
             "overruled_by"
           ]
         }
+      },
+      "pr_review": {
+        "choices": ["verdict"],
+        "choice_states": ["working", "escalated"],
+        "migrations": [
+          {"from":"ee1314e80a41b4d4102923cc46d08126403ea5fc3c58bcf49d88617823acd86b","to":"7291ab5579991c4083ad2d1f18c211a7cc7c85ec27735c8d00d0d99e8752542e","states":{"approved":"approved","changes_requested":"changes_requested","escalated":"escalated","superseded":"superseded","working":"working"},"reason":"Slice 7: selected without its pass; superseded taken as written"}
+        ],
+        "subject": "pr_review",
+        "admission": [],
+        "imports": [
+          {
+            "when": {
+              "superseded": [
+                true
+              ]
+            },
+            "state": "superseded"
+          },
+          {
+            "when": {
+              "verdict": [
+                "approved"
+              ]
+            },
+            "state": "approved"
+          },
+          {
+            "when": {
+              "verdict": [
+                "changes_requested"
+              ]
+            },
+            "state": "changes_requested"
+          },
+          {
+            "when": [],
+            "state": "working"
+          }
+        ]
+      },
+      "pr_test": {
+        "choices": ["verdict"],
+        "choice_states": ["working", "escalated"],
+        "migrations": [
+          {"from":"43fcbbf9a95d4e5bbac5c72d2dc878c28e56b48f7dd865e43d57cdb5e6bd5644","to":"909f7ac67ca0c71b562b6828d4e92cb38b057cfdb7d2afb7b4f95c7edd1a2237","states":{"escalated":"escalated","failed":"failed","passed":"passed","superseded":"superseded","working":"working"},"reason":"Slice 7: selected without its pass; superseded taken as written"}
+        ],
+        "subject": "pr_test",
+        "admission": [],
+        "imports": [
+          {
+            "when": {
+              "superseded": [
+                true
+              ]
+            },
+            "state": "superseded"
+          },
+          {
+            "when": {
+              "verdict": [
+                "passed"
+              ]
+            },
+            "state": "passed"
+          },
+          {
+            "when": {
+              "verdict": [
+                "failed"
+              ]
+            },
+            "state": "failed"
+          },
+          {
+            "when": [],
+            "state": "working"
+          }
+        ]
       }
     },
     "inputs": {
@@ -143,12 +221,44 @@
           "update": [
             "decision"
           ]
+        },
+        "reviewer": {
+          "update": [
+            "pr_review"
+          ]
+        },
+        "maintainer": {
+          "update": [
+            "issue",
+            "pull_request",
+            "pr_review",
+            "pr_test",
+            "use_case"
+          ]
+        },
+        "tester": {
+          "update": [
+            "pr_test"
+          ]
+        },
+        "maintainer": {
+          "update": [
+            "issue",
+            "pull_request",
+            "pr_review",
+            "pr_test",
+            "use_case"
+          ]
         }
       },
       "roles": {
         "decider": "decided_by",
         "principle_authority": "decided_by",
-        "delegate": "decided_by"
+        "delegate": "decided_by",
+        "reviewer": "verdict_by",
+        "maintainer": "verdict_by",
+        "tester": "verdict_by",
+        "maintainer": "verdict_by"
       }
     }
   }

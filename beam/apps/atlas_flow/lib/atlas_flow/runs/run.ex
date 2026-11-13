@@ -274,17 +274,36 @@ defmodule AtlasFlow.Runs.Run do
     run = Map.put(run, "key", key(name, kind, subject["key"], generation))
     import = Enum.find(imports, &holds?(&1["when"], subject["values"] || %{}))
 
-    if import do
-      run
-      |> enter(flow, import["state"], now, false)
-      |> Map.put("status", "completed")
-      |> Map.put("last_input", %{"version" => 1, "import" => true})
-    else
-      if starts?(flow, subject),
-        do: enter(run, flow, flow.initial(), now, true, subject),
-        else: idle(run, now)
+    cond do
+      import && flow.final?(import["state"]) ->
+        run
+        |> enter(flow, import["state"], now, false)
+        |> Map.put("status", "completed")
+        |> Map.put("last_input", %{"version" => 1, "import" => true})
+
+      # An open subject joins its wait: the state's timers run from the import, but
+      # nothing is written or rerun (`importable?/2` admits only states with neither).
+      import ->
+        run
+        |> enter(flow, import["state"], now, :timers, subject)
+        |> Map.put("last_input", %{"version" => 1, "import" => true})
+
+      true ->
+        if starts?(flow, subject),
+          do: enter(run, flow, flow.initial(), now, true, subject),
+          else: idle(run, now)
     end
   end
+
+  @doc """
+  Whether an import row may lead to `state` of `flow`: a final state (completed history),
+  or a state a run can wait in without anything being done for it on entry: no mechanism
+  (no activity is run again) and no entry writes (no set, no create).
+  """
+  def importable?(flow, state),
+    do:
+      state in flow.states() and
+        (flow.final?(state) or (flow.mechanism(state) == nil and flow.enter(state, %{}) == []))
 
   def starts?(flow, subject),
     do: flow.start?(:create, subject) or flow.start?(:predicate, subject["values"] || %{})
@@ -469,10 +488,11 @@ defmodule AtlasFlow.Runs.Run do
         }
       end
 
-    writes = if effects?, do: sets, else: []
+    # `:timers` (an import into an open state) arms the timers alone.
+    writes = if effects? == true, do: sets, else: []
 
     creates =
-      if effects?,
+      if effects? == true,
         do:
           Enum.with_index(for {:create, c} <- outputs, do: c)
           |> Enum.map(fn {c, index} ->
@@ -493,7 +513,7 @@ defmodule AtlasFlow.Runs.Run do
         else: []
 
     timers =
-      if effects?,
+      if effects? in [true, :timers],
         do:
           Enum.map(flow.timers(state_name), fn t ->
             %{
