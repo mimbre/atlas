@@ -17,7 +17,8 @@ defmodule AtlasControl.Freshness.ReadSet do
       narrowing never misses a change.
 
   An answer that says nothing of what it depended on (an error, a reader that does not
-  say) depends on every fact of the kind it read.
+  say) depends on every fact of the kind it read; a page with an answer that is an error
+  was read at no position (`as_of` nil).
   """
 
   alias AtlasControl.Freshness.RowKey
@@ -61,7 +62,7 @@ defmodule AtlasControl.Freshness.ReadSet do
 
     %__MODULE__{
       deps: deps |> MapSet.to_list() |> Enum.sort(),
-      as_of: answers |> Enum.map(& &1["position"]) |> lowest(),
+      as_of: as_of(answers),
       until: answers |> Enum.map(& &1["until"]) |> Enum.reduce(nil, &earliest/2),
       row_keys: row_keys(blocks, joins)
     }
@@ -75,6 +76,14 @@ defmodule AtlasControl.Freshness.ReadSet do
       until: earliest(a.until, b.until),
       row_keys: Map.merge(b.row_keys, a.row_keys)
     }
+  end
+
+  # A page with an answer Facts could not give is as of no position: any change makes it
+  # stale, and a reconcile reads it again.
+  defp as_of(answers) do
+    if Enum.any?(answers, &Map.has_key?(&1, "error")),
+      do: nil,
+      else: answers |> Enum.map(& &1["position"]) |> lowest()
   end
 
   defp deps_of(_kind, %{"deps" => deps}) when is_list(deps), do: deps

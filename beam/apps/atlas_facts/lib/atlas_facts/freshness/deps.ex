@@ -3,8 +3,9 @@ defmodule AtlasFacts.Freshness.Deps do
   What a read answer depended on: its `deps` and `until` (docs/design/page-freshness.md
   §1.1). Recorded while the answer is built, in the reading process, by what Facts
   looks up for it: the facts it returns, the facts that point at one (`linked`), whole
-  kinds (a kind read, and what the model's derived values read through `list`), and the
-  earliest instant a time-derived value in it changes.
+  kinds (a kind read), what the model's derived values read (the facts that point at
+  the facts worked out, `linked`, and those they point at, `key`), and the earliest
+  instant a time-derived value in it changes.
 
   Wire forms: `["key", kind, key, fields]` (`fields` is `"*"` for now), `["linked",
   relation, target, "*"]`, `["kind", kind]`; `until` an ISO 8601 instant.

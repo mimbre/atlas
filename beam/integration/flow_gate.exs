@@ -155,12 +155,14 @@ defmodule FlowGateProof do
         links: %{}
       }
 
-      list = fn
-        "decision" -> {:ok, [anchor]}
-        _ -> {:ok, []}
+      # What the review reads: the decisions the issue is based on, by key.
+      found = fn
+        "decision", keys -> {:ok, Enum.filter([anchor], &(&1.key in keys))}
+        _, _ -> {:ok, []}
       end
 
-      assert {:ok, [derived]} = Model.AtlasEyra.derived("issue", [work], %{"list" => list})
+      lookup = %{"linked" => fn _, _, _ -> {:ok, []} end, "facts" => found}
+      assert {:ok, [derived]} = Model.AtlasEyra.derived("issue", [work], lookup)
       assert (derived["review"] || %{})["label"] == label
     end
   end

@@ -14,18 +14,25 @@ defmodule AtlasFlow.Settled do
     not matter.
   - `wait/3`: a waiter for position `p` is answered as soon as the value reaches `p`, at
     once when it has. Every change returns the waiters it answers, `{waiter, value}`.
+  - At most `most` waiters wait (256), so a Flow that never settles holds no more: one
+    more answers the oldest at once, with the value as it is, below its position. That
+    still says how far Flow has settled; the asker waits on for as long as it chose to,
+    and may ask again.
   """
 
-  defstruct seen: 0, tickets: %{}, waiters: []
+  @most 256
+
+  defstruct seen: 0, tickets: %{}, waiters: [], most: @most
 
   @type t :: %__MODULE__{
           seen: non_neg_integer,
           tickets: %{optional(term) => [pos_integer]},
-          waiters: [{non_neg_integer, term}]
+          waiters: [{non_neg_integer, term}],
+          most: pos_integer
         }
 
-  @doc "Nothing seen yet."
-  def new, do: %__MODULE__{}
+  @doc "Nothing seen yet; at most `most:` waiters (256)."
+  def new(opts \\ []), do: %__MODULE__{most: Keyword.get(opts, :most, @most)}
 
   @doc "The settled position."
   def value(%__MODULE__{tickets: tickets, seen: seen}) when tickets == %{}, do: seen
@@ -66,9 +73,19 @@ defmodule AtlasFlow.Settled do
   @doc "`holder` is gone: what it held is no longer waited for."
   def down(settled, holder), do: due(%{settled | tickets: Map.delete(settled.tickets, holder)})
 
-  @doc "`waiter` waits for `position`: answered at once when it is settled, else later."
-  def wait(settled, position, waiter),
-    do: due(%{settled | waiters: settled.waiters ++ [{position, waiter}]})
+  @doc """
+  `waiter` waits for `position`: answered at once when it is settled, else later. Beyond
+  `most` waiting, the oldest are answered now, with the value as it is.
+  """
+  def wait(settled, position, waiter) do
+    {answered, settled} = due(%{settled | waiters: settled.waiters ++ [{position, waiter}]})
+
+    {oldest, waiters} =
+      Enum.split(settled.waiters, max(length(settled.waiters) - settled.most, 0))
+
+    value = value(settled)
+    {answered ++ for({_, w} <- oldest, do: {w, value}), %{settled | waiters: waiters}}
+  end
 
   defp due(settled) do
     value = value(settled)

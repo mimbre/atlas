@@ -101,6 +101,9 @@ defmodule AtlasControl.ConsoleTest do
            )
 
     assert :ok = AtlasBFF.Markup.check(Enum.map(page["blocks"], & &1["id"]), page["markup"])
+    # A reconcile sends the page again once Facts is past what the session saw.
+    :ok = AtlasBus.drop_hints(1)
+    FakeStore.hint("widget", "W-9", [])
     put(s, %{"op" => "refresh"})
     refreshed = read(s)
     refute refreshed["actions_revision"] == page["actions_revision"]

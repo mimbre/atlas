@@ -1,7 +1,7 @@
 defmodule RelaDSL.Facts.ProgressTest do
   use ExUnit.Case, async: true
 
-  alias RelaDSL.Facts.Derived
+  alias RelaDSL.Facts.{Derived, Reads}
 
   # Made-up kinds, two levels: a box holds crates, a crate holds jars. A jar says how far it
   # is in `phase`; a crate and a box in `group` while nothing is under them. A jar is
@@ -52,7 +52,7 @@ defmodule RelaDSL.Facts.ProgressTest do
 
   defp plain_progress(kind, facts, lists) do
     {:ok, annotated} =
-      Derived.annotate(@description, kind, facts, fn of -> {:ok, lists[of] || []} end)
+      Derived.annotate(@description, kind, facts, Reads.of(fn of -> {:ok, lists[of] || []} end))
 
     Enum.map(annotated, & &1.progress)
   end
@@ -143,6 +143,36 @@ defmodule RelaDSL.Facts.ProgressTest do
            ] = progress("box", boxes, %{"crate" => crates, "jar" => jars})
   end
 
+  test "a roll-up asks for what points at the facts it works out, level by level, never a whole kind" do
+    crates = [
+      fact("C-1", %{}, %{"in_box" => ["B-1"]}),
+      fact("C-3", %{}, %{"in_box" => ["B-2"]})
+    ]
+
+    jars = [jar("J-1", "C-1", "sealed"), jar("J-2", "C-3", "packing")]
+    lists = %{"crate" => crates, "jar" => jars, "label" => []}
+    reads = Reads.asking(fn of -> {:ok, lists[of] || []} end, self())
+
+    assert {:ok, [%{progress: %{"value" => "sealed", "count" => 1, "of" => 1}}]} =
+             Derived.annotate(@description, "box", [fact("B-1", %{})], reads)
+
+    # The crates in B-1, the jars in those, and the labels on those jars; a jar points at
+    # no label, so none is asked for by key.
+    assert asked() == [
+             {:linked, "crate", "in_box", ["B-1"]},
+             {:linked, "jar", "in_crate", ["C-1"]},
+             {:linked, "label", "on_jar", ["J-1"]}
+           ]
+  end
+
+  defp asked do
+    receive do
+      {:read, ask} -> [ask | asked()]
+    after
+      0 -> []
+    end
+  end
+
   test "a parent is never completed because its children are" do
     jars = [jar("J-1", "C-1", "sealed", true)]
     crates = [fact("C-1", %{}, %{"in_box" => ["B-1"]})]
@@ -169,10 +199,15 @@ defmodule RelaDSL.Facts.ProgressTest do
     ]
 
     {:ok, annotated} =
-      Derived.annotate(@description, "jar", jars, fn
-        "label" -> {:ok, [sent, draft, other]}
-        _ -> {:ok, []}
-      end)
+      Derived.annotate(
+        @description,
+        "jar",
+        jars,
+        Reads.of(fn
+          "label" -> {:ok, [sent, draft, other]}
+          _ -> {:ok, []}
+        end)
+      )
 
     assert [
              %{"over" => "on_jar", "key" => "L-1", "value" => "sent"},
@@ -183,9 +218,14 @@ defmodule RelaDSL.Facts.ProgressTest do
     refute Map.has_key?(hd(annotated), :progress)
 
     {:ok, [crate]} =
-      Derived.annotate(@description, "crate", [fact("C-1", %{}, %{"signed_by" => ["K-1"]})], fn
-        _ -> {:ok, []}
-      end)
+      Derived.annotate(
+        @description,
+        "crate",
+        [fact("C-1", %{}, %{"signed_by" => ["K-1"]})],
+        Reads.of(fn
+          _ -> {:ok, []}
+        end)
+      )
 
     assert crate.completion == %{"done" => true, "by" => "signed_by", "keys" => ["K-1"]}
   end
@@ -204,10 +244,15 @@ defmodule RelaDSL.Facts.ProgressTest do
     jars = [fact("J-1", %{"phase" => "draft"}), fact("J-2", %{"phase" => "draft"})]
 
     {:ok, [one, two]} =
-      Derived.annotate(description, "jar", jars, fn
-        "label" -> {:ok, [pending, dropped]}
-        _ -> {:ok, []}
-      end)
+      Derived.annotate(
+        description,
+        "jar",
+        jars,
+        Reads.of(fn
+          "label" -> {:ok, [pending, dropped]}
+          _ -> {:ok, []}
+        end)
+      )
 
     assert %{
              "value" => "packing",
@@ -223,11 +268,16 @@ defmodule RelaDSL.Facts.ProgressTest do
     jars = [fact("J-1", %{"phase" => "draft"}, %{"in_crate" => ["C-1"]})]
 
     {:ok, [crate]} =
-      Derived.annotate(description, "crate", [fact("C-1", %{})], fn
-        "label" -> {:ok, [pending]}
-        "jar" -> {:ok, jars}
-        _ -> {:ok, []}
-      end)
+      Derived.annotate(
+        description,
+        "crate",
+        [fact("C-1", %{})],
+        Reads.of(fn
+          "label" -> {:ok, [pending]}
+          "jar" -> {:ok, jars}
+          _ -> {:ok, []}
+        end)
+      )
 
     assert %{"value" => "packing", "count" => 1, "of" => 1} = crate.progress
   end
@@ -236,14 +286,19 @@ defmodule RelaDSL.Facts.ProgressTest do
     facts = [fact("L-1", %{"state" => "sent"})]
 
     assert {:ok, ^facts} =
-             Derived.annotate(@description, "label", facts, fn _ -> raise "read" end)
+             Derived.annotate(@description, "label", facts, Reads.of(fn _ -> raise "read" end))
   end
 
   test "when the children cannot be read, neither can the progress" do
     assert {:error, :unavailable} =
-             Derived.annotate(@description, "crate", [fact("C-1", %{})], fn _ ->
-               {:error, :unavailable}
-             end)
+             Derived.annotate(
+               @description,
+               "crate",
+               [fact("C-1", %{})],
+               Reads.of(fn _ ->
+                 {:error, :unavailable}
+               end)
+             )
   end
 
   # A review in an item shows what the item is doing while it is open, a merged one
@@ -311,11 +366,16 @@ defmodule RelaDSL.Facts.ProgressTest do
     review = fact("R-12", %{"state" => review_state}, %{"in_item" => ["I-1"]})
 
     {:ok, [annotated]} =
-      Derived.annotate(@reviewed, kind, [fact], fn
-        "item" -> {:ok, [item()]}
-        "review" -> {:ok, [review]}
-        _ -> {:ok, []}
-      end)
+      Derived.annotate(
+        @reviewed,
+        kind,
+        [fact],
+        Reads.of(fn
+          "item" -> {:ok, [item()]}
+          "review" -> {:ok, [review]}
+          _ -> {:ok, []}
+        end)
+      )
 
     annotated
   end

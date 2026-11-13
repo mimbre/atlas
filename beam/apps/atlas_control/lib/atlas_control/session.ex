@@ -26,6 +26,10 @@ defmodule AtlasControl.Session do
     still shows it flagged is sent again without. While marks are held, each flush and
     each refresh asks Flow again how far it has settled.
   - The client asks for a refresh on an interval (it reconciles); a lost hint only delays.
+    A reconcile asks Facts only how far it is (`_position`): the page on screen is read
+    again when Facts is past every position the session has seen (a hint it got, a page
+    it read), or once a value on it changes by time alone (`until`). The model is
+    compiled in, so a reconcile never works it out again.
   - Each fact says who sent it (`by`): the user at a TUI (`tui_user` in the environment's
     settings; one for now), `migration` for a migration (which may set what the
     model marks `set_by: migration`), or `agent` for any other client, as its hello
@@ -47,6 +51,8 @@ defmodule AtlasControl.Session do
   @last_resend 60_000
   # How often a create tries the next number when its key turns out to be taken.
   @key_tries 10
+  # What Facts answers with how far it is: its position alone.
+  @position "_position"
   # Who answers how far Flow has settled (`_settled`), and whose hints are Flow's.
   @flow "flow"
   # How many recent pages, besides the one on screen, one batch of hints pushes.
@@ -91,6 +97,8 @@ defmodule AtlasControl.Session do
        # handling hints of others' writes. The highest settled position Flow reported.
        settling: nil,
        settled: nil,
+       # The highest position the session has seen: of a hint it got, or a page it read.
+       seen: 0,
        # The facts this client's stored writes changed that Flow has not settled yet:
        # `key => position` (`AtlasControl.Freshness.Marks`).
        marks: Marks.new()
@@ -173,7 +181,7 @@ defmodule AtlasControl.Session do
 
         # Its own write is a hint too: the recent pages it changed are pushed once settled.
         hint = %{position: envelope.position, changes: changes, by: state.by}
-        state = %{state | batch: Batch.add(state.batch, hint, now_ms())}
+        state = seen(%{state | batch: Batch.add(state.batch, hint, now_ms())}, envelope.position)
         # What it changed is being processed until Flow settles past it: the recent pages
         # that show it say so now, as they were sent.
         state = sync_marks(%{state | marks: Marks.mark(state.marks, envelope.position, changes)})
@@ -205,7 +213,7 @@ defmodule AtlasControl.Session do
     hint = %{position: envelope.position, changes: content["changes"] || [], by: content["by"]}
     now = now_ms()
     batch = Batch.add(state.batch, hint, now)
-    state = cancel_flush(%{state | batch: batch})
+    state = cancel_flush(seen(%{state | batch: batch}, envelope.position))
     wait = max(Batch.due(batch, batch_timing()) - now, 0)
     {:noreply, %{state | flush_timer: AtlasControl.Clock.after_ms(:flush, wait)}}
   end
@@ -571,8 +579,6 @@ defmodule AtlasControl.Session do
   end
 
   defp handle_op("refresh", _message, state) do
-    state = describe(state)
-
     # A page Facts did not answer for is worked out again.
     route =
       case state.route do
@@ -580,7 +586,17 @@ defmodule AtlasControl.Session do
         route -> route
       end
 
-    state = if Pages.form?(route), do: state, else: show(state, route, "reconcile", nil)
+    state =
+      if Pages.form?(route) do
+        state
+      else
+        case reconcile(state, route) do
+          :current -> state
+          :timed -> show(state, route, "reconcile", nil)
+          :missed -> show(missed(state), route, "reconcile", nil)
+        end
+      end
+
     {:noreply, ask_settled(state)}
   end
 
@@ -1023,8 +1039,9 @@ defmodule AtlasControl.Session do
 
   # Reads
 
-  # Listen for hints of every kind of the model, and find out again which kind of fact the
-  # client is.
+  # Listen for hints of every kind of the model, and find out which kind of fact the
+  # client is: once, at its hello. The model is compiled in and never changes under a
+  # running session; which kind the client is, a hint about it says (`flush/1`).
   defp describe(state) do
     state = listen(state)
     %{state | by_kind: known_kind(state, actor_kind(state))}
@@ -1192,7 +1209,7 @@ defmodule AtlasControl.Session do
     message = message(state, route, page, reason, as_of, refused)
     flagged = deliver_marked(state, message, set.row_keys, welcome)
     recent = Recent.viewed(state.recent, message["path"], entry(route, set, message, flagged))
-    %{state | route: route, form: form, recent: recent}
+    seen(%{state | route: route, form: form, recent: recent}, set.as_of)
   end
 
   # A recent page off screen, read again and pushed (reason "hint"), without the form or
@@ -1202,7 +1219,8 @@ defmodule AtlasControl.Session do
     {page, _answers, set} = page(state, route, %{})
     message = message(state, route, page, "hint", position, nil)
     flagged = deliver_marked(state, message, set.row_keys, nil)
-    %{state | recent: Recent.sent(state.recent, path, entry(route, set, message, flagged))}
+    recent = Recent.sent(state.recent, path, entry(route, set, message, flagged))
+    seen(%{state | recent: recent}, set.as_of)
   end
 
   # A page as it goes out: its rows flagged by the session's marks. Returns the marked
@@ -1244,6 +1262,66 @@ defmodule AtlasControl.Session do
       not match?({tag, _, _} when tag in [:worker_page, :fault], route) and
       not match?({tag, _} when tag in [:faults], route) and
       not match?({:unavailable, _, _}, route) and route != :unknown
+  end
+
+  # How far the session has seen: a hint at `position`, or a page read at it.
+  defp seen(state, position) when is_integer(position),
+    do: %{state | seen: max(state.seen, position)}
+
+  defp seen(state, _position), do: state
+
+  # Whether the page on screen, `route`, is to be read again at a reconcile: `:current`
+  # (it is as Facts has it: Facts is not past what the session has seen, and no value on
+  # it changed by time since), `:timed` (a value changed by time alone) or `:missed`
+  # (Facts is past it, the page was read at no position, or it says nothing of what it
+  # depended on). Only the first asks Facts anything: its position.
+  defp reconcile(state, route) do
+    entry = route == state.route && Recent.get(state.recent, current_path(route))
+
+    cond do
+      not (is_map(entry) and entry.route == route and pushable?(entry)) -> :missed
+      not is_integer(entry.as_of) -> :missed
+      due?(entry.until) -> :timed
+      past?(ask(@position, %{}), state.seen) -> :missed
+      true -> :current
+    end
+  end
+
+  defp past?(%{"position" => position}, seen) when is_integer(position), do: position > seen
+  defp past?(_answer, _seen), do: true
+
+  defp due?(nil), do: false
+
+  defp due?(until) do
+    case DateTime.from_iso8601(until) do
+      {:ok, at, _} -> DateTime.compare(DateTime.utc_now(), at) != :lt
+      _ -> true
+    end
+  end
+
+  # Facts is past what the session saw: a hint may have been lost, so what it would have
+  # said is found again, the kind of fact the client is and the header's count too.
+  defp missed(state) do
+    state = put_in(state.count.set, nil)
+    %{state | by_kind: known_kind(state, actor_kind(state))}
+  end
+
+  # A hint that the fact the client is was made or deleted: which kind of fact the client
+  # is, found again. `{state, changed?}`.
+  defp client_kind(state, changes) do
+    about? =
+      Enum.any?(changes, fn {_position, entries} ->
+        Enum.any?(entries, &(&1["key"] == state.by and &1["op"] in ["create", "delete"]))
+      end)
+
+    by_kind = if about?, do: known_kind(state, actor_kind(state)), else: state.by_kind
+
+    if by_kind == state.by_kind do
+      {state, false}
+    else
+      state = %{state | by_kind: by_kind}
+      {put_in(state.count.set, nil), true}
+    end
   end
 
   # The page `route` shows, the answers it was read from and what it depended on.
@@ -1372,9 +1450,10 @@ defmodule AtlasControl.Session do
       changes = Batch.changes(hints)
       position = Batch.position(hints)
       {state, count?} = stale_count(state, changes)
+      {state, kind?} = client_kind(state, changes)
       screen = current_path(state.route)
       stale = Affected.affected(state.recent, changes)
-      state = screen(state, screen, screen in stale, count?, changes, position)
+      state = screen(state, screen, kind? or screen in stale, count? or kind?, changes, position)
 
       {pushed, dropped} =
         stale

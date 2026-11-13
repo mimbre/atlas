@@ -29,6 +29,11 @@ defmodule RelaDSL.Facts.Model do
     * `"list"`: `fn kind -> {:ok, [fact]} | {:error, reason} end`;
     * `"incoming"`: `fn kind, key, relation -> [key] end`, what points at a fact;
     * `"fingerprint"`: `fn fact, spec -> digest end`, a subject's fingerprint;
+    * for `derived`, what its rules read, asked as precisely as they read it, so a store
+      can say what a read depended on: `"linked"`, `fn kind, relation, keys -> {:ok,
+      [fact]} | {:error, reason} end` (the facts of `kind` that point at one of `keys`
+      through `relation`), and `"facts"`, `fn kind, keys -> {:ok, [fact]} | {:error,
+      reason} end` (those of `kind` with one of `keys`);
     * `"now"` (optional, for `derived`): the time lateness is worked out at.
 
   A `fact` is as rela gives it: `%{key, properties, links}`.

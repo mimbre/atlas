@@ -181,6 +181,9 @@ defmodule AtlasControl.SessionTest do
              Protocol.classify(:submit, next(a, "page"))
 
     assert {:reply, %{effect: :progress}} = Protocol.classify(:open, next(b, "page"))
+    # A reconcile sends a page once Facts is past what b saw: a write whose hint was lost.
+    :ok = AtlasBus.drop_hints(1)
+    FakeStore.hint("widget", "W-01", [])
     put(b, %{"op" => "refresh"})
     assert {:reply, %{effect: :progress}} = Protocol.classify(:open, next(b, "page"))
     put(a, %{"op" => "turn_end", "key" => "stale", "outcome" => "done"})
@@ -1725,10 +1728,8 @@ defmodule AtlasControl.SessionTest do
       assert %{"path" => "/", "reason" => "open"} = opened = next(a, "page")
       assert flags(opened) == [{"W-1", true}, {"W-2", false}]
 
-      # A reconcile: still marked, and Flow is asked again, briefly.
+      # A reconcile: nothing new in Facts, so no page; Flow is asked again, briefly.
       put(a, %{"op" => "refresh"})
-      assert %{"reason" => "reconcile"} = reconciled = next(a, "page")
-      assert flags(reconciled) == [{"W-1", true}, {"W-2", false}]
       assert_receive {:settled_asked, 1}, @arrives
       assert {_, _, 250} = wait = held_wait({:settle_timeout, _})
       run_out(wait)
@@ -1753,9 +1754,8 @@ defmodule AtlasControl.SessionTest do
       assert pages(sync(a)) == []
       assert reads_since(before) == []
 
-      # Nothing is held any more: a reconcile asks Flow nothing.
+      # Nothing is held any more: a reconcile asks Flow nothing, and sends no page.
       put(a, %{"op" => "refresh"})
-      assert flags(next(a, "page")) == [{"W-1", false}, {"W-2", false}]
       assert pages(sync(a)) == []
       refute_received {:settled_asked, _}
     end
@@ -1852,6 +1852,59 @@ defmodule AtlasControl.SessionTest do
       refute_received {:settled_asked, _}
     end
 
+    test "a reconcile reads Facts' position only; the page again only past what the session saw (F9)",
+         %{port: port} do
+      FakeStore.put("W-1", %{"title" => "One"})
+      a = client(port)
+      assert %{"path" => "/"} = next(a, "page")
+
+      # Nothing happened since the page was read: one position read, no page, and the model
+      # is never asked for again.
+      before = FakeStore.reads()
+      put(a, %{"op" => "refresh"})
+      assert pages(sync(a)) == []
+      assert reads_since(before) == ["_position"]
+
+      # A hint the session had (handled at its flush): Facts is not past it.
+      hold_clock()
+      FakeStore.hint("part", "P-9", [changed("part", "P-9", ["title"])])
+      {pid, _, _} = flush_wait()
+      send(pid, :flush)
+      assert pages(sync(a)) == []
+      before = FakeStore.reads()
+      put(a, %{"op" => "refresh"})
+      assert pages(sync(a)) == []
+      assert reads_since(before) == ["_position"]
+
+      # A write whose hint was lost: Facts is past it, so the page is read again, once.
+      :ok = AtlasBus.drop_hints(1)
+      FakeStore.put("W-1", %{"title" => "Uno"})
+      FakeStore.hint("widget", "W-1", [changed("widget", "W-1", ["title"])])
+      assert pages(sync(a)) == []
+      before = FakeStore.reads()
+      put(a, %{"op" => "refresh"})
+      assert [%{"path" => "/", "reason" => "reconcile", "position" => 2} = page] = pages(sync(a))
+      assert rows(page) == ["Uno"]
+      # Who the client is is found again too (a lost hint may have been about it).
+      assert reads_since(before) == ["_position", "member", "_page"]
+
+      # Seen now: the next reconcile reads the position only again.
+      before = FakeStore.reads()
+      put(a, %{"op" => "refresh"})
+      assert pages(sync(a)) == []
+      assert reads_since(before) == ["_position"]
+
+      # A value on the page changes by time alone, and that time has passed: read again,
+      # without asking the position first.
+      FakeStore.until("2000-01-01T00:00:00Z")
+      put(a, %{"op" => "open", "to" => "/"})
+      assert %{"path" => "/"} = next(a, "page")
+      before = FakeStore.reads()
+      put(a, %{"op" => "refresh"})
+      assert [%{"path" => "/", "reason" => "reconcile"}] = pages(sync(a))
+      assert reads_since(before) == ["_page"]
+    end
+
     test "a session that closes drops its marks: a new one shows Facts' state unmarked",
          %{port: port} do
       FakeStore.put("W-1", %{"title" => "One"})
@@ -1879,8 +1932,8 @@ defmodule AtlasControl.SessionTest do
       assert %{"path" => "/"} = start = next(b, "page")
       assert rows(start) == ["Uno"]
       assert flags(start) == [{"W-1", false}]
+      # A reconcile has nothing to add, and no mark to send.
       put(b, %{"op" => "refresh"})
-      assert flags(next(b, "page")) == [{"W-1", false}]
       assert pages(sync(b)) == []
       refute_received {:settled_asked, _}
     end

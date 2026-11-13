@@ -101,6 +101,42 @@ defmodule AtlasControl.Freshness.AffectedTest do
     assert Affected.affected(recent, [{4, [change("tag", "T-1", "create")]}]) == []
   end
 
+  describe "a roll-up page (F10): its derived values depend on linked sets, not on a whole kind" do
+    # The page of W-1, whose progress rolls up its parts, read as Facts says it now: the
+    # widget, and what points at it through `of_widget` (its parts, for its progress).
+    @rolled_up [@w1, @parts_of_w1]
+    # As Facts said it before F10: every part, for the progress.
+    @rolled_up_by_kind [@w1, @parts_of_w1, ["kind", "part"]]
+
+    @unrelated change("part", "P-2", "change", ["phase"], [], %{"of_widget" => ["W-2"]})
+    @linked change("part", "P-1", "change", ["phase"], [], %{"of_widget" => ["W-1"]})
+    @moved_in change("part", "P-2", "change", [], ["of_widget"], %{"of_widget" => ["W-1", "W-2"]})
+
+    test "a change of a part of another widget does not make it stale; one of its own part does" do
+      refute Affected.stale?(@rolled_up, 7, [{8, [@unrelated]}])
+      assert Affected.stale?(@rolled_up, 7, [{8, [@linked]}])
+      assert Affected.stale?(@rolled_up, 7, [{8, [@moved_in]}])
+
+      # Before, the unrelated part made it stale too.
+      assert Affected.stale?(@rolled_up_by_kind, 7, [{8, [@unrelated]}])
+    end
+
+    test "only the recent page whose roll-up the change is under is read again" do
+      entry = fn deps -> %{route: :x, deps: deps, row_keys: %{}, view: %{}, as_of: 7} end
+
+      recent =
+        Recent.new()
+        |> Recent.viewed(
+          "/k/widget/W-2",
+          entry.([["key", "widget", "W-2", "*"], ["linked", "of_widget", "W-2", "*"]])
+        )
+        |> Recent.viewed("/k/widget/W-1", entry.(@rolled_up))
+
+      assert Affected.affected(recent, [{8, [@linked]}]) == ["/k/widget/W-1"]
+      assert Affected.affected(recent, [{8, [@unrelated]}]) == ["/k/widget/W-2"]
+    end
+  end
+
   describe "a lookup read is narrowed to the facts the rows point at, or that point at them" do
     # The rows: widgets made by M-1. The lookup: every part, to say which part a row has.
     @reads [{"widget", :rows}, {"part", :lookup}]
@@ -178,6 +214,22 @@ defmodule AtlasControl.Freshness.AffectedTest do
 
     assert set.deps == [["kind", "part"], @widgets]
     assert set.as_of == nil
+  end
+
+  test "a page with an answer that is an error was read at no position, whatever Facts said" do
+    set =
+      ReadSet.of(
+        [{"widget", :rows}, {"part", :rows}],
+        [
+          %{"facts" => [], "deps" => [], "position" => 4},
+          %{"error" => "rela is not reachable", "position" => 4}
+        ],
+        []
+      )
+
+    assert set.as_of == nil
+    # So any change after it makes it stale.
+    assert Affected.stale?(set.deps, set.as_of, [{1, [change("part", "P-1", "create")]}])
   end
 
   test "until is the earliest instant a value in the page changes by time" do
