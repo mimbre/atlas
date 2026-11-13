@@ -69,7 +69,7 @@ defmodule Model.DeliveryRunsTest do
       assert runner.refusal == nil
 
       assert Enum.sort(Map.keys(runner.config["selection"])) ==
-               ~w(decide issue pr_review pr_test pull_request)
+               ~w(decide design_and_accept issue pr_review pr_test pull_request)
 
       f = flow(env)
       assert Run.validate(f) == :ok
@@ -390,8 +390,9 @@ defmodule Model.DeliveryRunsTest do
                 Store.selected(runner.config, @issue, %{"values" => %{"stage" => stage}})
             )
 
-      # The use case does not count its issues yet: no subflow on a use case is selected.
-      assert runner.config["composition"]["counts"] == []
+      # The use case counts its issues (slice 10 selects its design, a subflow on a use
+      # case): an issue's run moving drains the run on its use case.
+      assert Enum.map(runner.config["composition"]["counts"], & &1["child"]) == [@issue]
     end
 
     s = issue_selection()

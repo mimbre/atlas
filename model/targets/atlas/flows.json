@@ -384,66 +384,22 @@
           "timers": [],
           "waiting_for": []
         },
-        "design_gate": {
-          "awaits": [],
-          "branches": [
-            {
-              "roles": ["atlas-flow"],
-              "to": "to_accept",
-              "when": "entity.gate_result == 'ready'"
-            },
-            {
-              "roles": ["atlas-flow"],
-              "to": "redesign",
-              "when": "entity.gate_result == 'rework'"
-            },
-            {
-              "roles": ["atlas-flow"],
-              "to": "needs_person",
-              "when": "entity.gate_result == 'person'"
-            }
-          ],
-          "creates": [],
-          "final": false,
-          "kind": "gate",
-          "label": "Design gate",
-          "set": [
-            {
-              "field": "gate_result",
-              "value": "none"
-            }
-          ],
-          "spec": {
-            "gate": "design",
-            "version": 1
-          },
-          "timers": [
-            {
-              "label": "No gate decision within an hour",
-              "name": "no_decision",
-              "period": "1h",
-              "to": "needs_person"
-            }
-          ],
-          "waiting_for": []
-        },
         "design_review": {
           "awaits": [],
           "branches": [
             {
-              "roles": ["atlas-flow"],
-              "to": "design_gate",
-              "when": "entity.pass_result == 'delivered'"
+              "roles": [],
+              "to": "accepted",
+              "when": "entity.design_status == 'approved' or entity.design_status == 'accepted'"
             },
             {
-              "roles": ["atlas-flow"],
-              "to": "needs_person",
-              "when": "entity.pass_result == 'failed'"
+              "roles": [],
+              "to": "redesign",
+              "when": "entity.design_status == 'changes_requested' or entity.design_status == 'writing'"
             }
           ],
           "creates": [],
           "final": false,
-          "kind": "pass",
           "label": "Design review pass",
           "present": {
             "expected": "Have its design reviewed",
@@ -452,48 +408,35 @@
             },
             "why": "its Design part waits for review"
           },
-          "set": [
-            {
-              "field": "pass_result",
-              "value": "none"
-            }
-          ],
-          "spec": {
-            "diversity": "other_vendor",
-            "findings": "required",
-            "folder": ["packet", "last"],
-            "mode": "review",
-            "permissions": "review_packet",
-            "profile": "architect"
-          },
-          "timers": [
-            {
-              "label": "The owner's Runtime did not finish the review",
-              "name": "runtime_wait",
-              "period": "2d",
-              "to": "needs_person"
-            }
-          ],
+          "set": [],
+          "timers": [],
           "waiting_for": []
         },
         "designing": {
           "awaits": [],
           "branches": [
             {
-              "roles": ["atlas-flow"],
-              "to": "design_review",
-              "when": "entity.pass_result == 'delivered'"
+              "roles": [],
+              "to": "accepted",
+              "when": "entity.design_status == 'approved' or entity.design_status == 'accepted'"
             },
             {
-              "roles": ["atlas-flow"],
-              "to": "needs_person",
-              "when": "entity.pass_result == 'failed'"
+              "roles": [],
+              "to": "design_review",
+              "when": "entity.design_status == 'in_review'"
             }
           ],
           "creates": [],
           "final": false,
-          "kind": "pass",
           "label": "Design pass",
+          "owner": {
+            "default": {
+              "key": "architect",
+              "kind": "agent"
+            },
+            "relation": "assigned_to",
+            "via": "assignment"
+          },
           "present": {
             "expected": "Write its Design part",
             "todo": {
@@ -501,95 +444,35 @@
             },
             "why": "its design is not reviewed yet"
           },
-          "set": [
-            {
-              "field": "pass_result",
-              "value": "none"
-            }
-          ],
-          "spec": {
-            "folder": ["materialize", "target"],
-            "freeze": "packet",
-            "mode": "author",
-            "permissions": "materialized_folder",
-            "profile": "architect"
-          },
-          "timers": [
-            {
-              "label": "The owner's Runtime did not finish the pass",
-              "name": "runtime_wait",
-              "period": "2d",
-              "to": "needs_person"
-            }
-          ],
-          "waiting_for": []
-        },
-        "dropped": {
-          "awaits": [],
-          "branches": [],
-          "creates": [],
-          "final": true,
-          "label": "Dropped",
           "set": [],
-          "status": "cancelled",
           "timers": [],
           "waiting_for": []
-        },
-        "needs_person": {
-          "awaits": [],
-          "branches": [
-            {
-              "roles": ["maintainer"],
-              "to": "design_review",
-              "when": "entity.gate_result == 'review'"
-            },
-            {
-              "roles": ["maintainer"],
-              "to": "redesign",
-              "when": "entity.gate_result == 'rework'"
-            },
-            {
-              "roles": ["maintainer"],
-              "to": "to_accept",
-              "when": "entity.gate_result == 'ready'"
-            },
-            {
-              "roles": ["maintainer"],
-              "to": "dropped",
-              "when": "entity.gate_result == 'close'"
-            }
-          ],
-          "creates": [],
-          "final": false,
-          "label": "A person decides",
-          "set": [
-            {
-              "field": "gate_result",
-              "value": "none"
-            }
-          ],
-          "status": "input_required",
-          "timers": [],
-          "waiting_for": ["maintainer"]
         },
         "redesign": {
           "awaits": [],
           "branches": [
             {
-              "roles": ["atlas-flow"],
-              "to": "design_review",
-              "when": "entity.pass_result == 'delivered'"
+              "roles": [],
+              "to": "accepted",
+              "when": "entity.design_status == 'approved' or entity.design_status == 'accepted'"
             },
             {
-              "roles": ["atlas-flow"],
-              "to": "needs_person",
-              "when": "entity.pass_result == 'failed'"
+              "roles": [],
+              "to": "design_review",
+              "when": "entity.design_status == 'in_review'"
             }
           ],
           "creates": [],
           "final": false,
-          "kind": "pass",
           "label": "Design rework pass",
+          "owner": {
+            "default": {
+              "key": "architect",
+              "kind": "agent"
+            },
+            "relation": "assigned_to",
+            "via": "assignment"
+          },
           "present": {
             "expected": "Write its Design part",
             "todo": {
@@ -597,56 +480,9 @@
             },
             "why": "its design is not reviewed yet"
           },
-          "set": [
-            {
-              "field": "pass_result",
-              "value": "none"
-            }
-          ],
-          "spec": {
-            "folder": ["continue", "designing"],
-            "freeze": "packet",
-            "input": ["channel", "newest_since_last_pass"],
-            "mode": "rework",
-            "permissions": "materialized_folder",
-            "profile": "architect"
-          },
-          "timers": [
-            {
-              "label": "The owner's Runtime did not finish the rework",
-              "name": "runtime_wait",
-              "period": "2d",
-              "to": "needs_person"
-            }
-          ],
-          "waiting_for": []
-        },
-        "to_accept": {
-          "awaits": [],
-          "branches": [
-            {
-              "roles": ["acceptor"],
-              "to": "accepted",
-              "when": "entity.verdict == 'accept'"
-            },
-            {
-              "roles": ["acceptor"],
-              "to": "redesign",
-              "when": "entity.verdict == 'reject'"
-            }
-          ],
-          "creates": [],
-          "final": false,
-          "label": "Accept the design",
-          "set": [
-            {
-              "field": "verdict",
-              "value": "none"
-            }
-          ],
-          "status": "input_required",
+          "set": [],
           "timers": [],
-          "waiting_for": ["acceptor"]
+          "waiting_for": []
         }
       },
       "subject": "use_case"
@@ -1686,6 +1522,6 @@
       "version": 1
     }
   },
-  "rela_flows_sha256": "fbd2e17397cde695a82635651009ec97e661af1e15ea3170d05498bba5ba8130",
+  "rela_flows_sha256": "559d63fda817fb20d04328bb28acd2f1a402cf70bdbdce4396f87aa65fb94fcd",
   "writer": "system:atlas-flow"
 }

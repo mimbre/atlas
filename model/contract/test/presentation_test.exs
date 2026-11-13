@@ -79,8 +79,9 @@ defmodule Model.PresentationTest do
         {subflow, s["owner"]}
       end
 
-    # A person in v1 is a role now (wait_for); v1's architect is the profile of the design
-    # passes, routed to the owner; every other v1 owner is the default.
+    # A person in v1 is a role now (wait_for); v1's architect owns the design states
+    # themselves while their passes wait (slice 10: `owner` in designing and redesign);
+    # every other v1 owner is the default.
     for {subflow, %{"kind" => kind} = owner} <- owners,
         kind == "agent",
         owner["key"] != "architect" do

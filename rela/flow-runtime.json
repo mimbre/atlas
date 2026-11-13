@@ -271,6 +271,57 @@
             "state": "working"
           }
         ]
+      },
+      "design_and_accept": {
+        "choices": [],
+        "choice_states": [],
+        "migrations": [
+          {"from":"25f57fda40fa0e12d9322c7eb41a9d1829bee934777abe157f5c6a93685e377e","to":"57752d31e8065f37845ac886a1e93b6a24dc18d4a5aaeac20707c3c76e0ce571","states":{"accepted":"accepted","design_gate":"design_review","design_review":"design_review","designing":"designing","dropped":"designing","needs_person":"design_review","redesign":"redesign","to_accept":"design_review"},"reason":"Slice 10: selected without its passes, design gate and acceptor; designed by hand"}
+        ],
+        "subject": "use_case",
+        "legacy": "design_and_accept",
+        "projection": {
+          "on": "assignment",
+          "state_field": "flow_state",
+          "handover_field": "handover",
+          "owner_relation": "assigned_to",
+          "field": "expected"
+        },
+        "admission": {
+          "design_status": [
+            "writing",
+            "in_review",
+            "changes_requested"
+          ]
+        },
+        "imports": [
+          {
+            "when": {
+              "design_status": [
+                "in_review"
+              ]
+            },
+            "state": "design_review"
+          },
+          {
+            "when": {
+              "design_status": [
+                "changes_requested"
+              ]
+            },
+            "state": "redesign"
+          }
+        ],
+        "follow_through": {
+          "state": "accepted",
+          "when": {
+            "design_status": [
+              "writing",
+              "in_review",
+              "changes_requested"
+            ]
+          }
+        }
       }
     },
     "inputs": {

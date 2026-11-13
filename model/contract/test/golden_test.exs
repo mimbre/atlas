@@ -34,13 +34,16 @@ defmodule Model.GoldenTest do
   # every open state (was 1235a3dae3c7e42b).
   # Slice 9: issue keeps author and done; passes, smart gates, publish and timers wait
   # for their receivers (was 5e2320f6db243534).
+  # Slice 10: design_and_accept keeps designing, design_review, redesign and accepted,
+  # moved by design_status; its passes, design gate, acceptor and maintainer wait (was
+  # 0971d09c2b1a34ad).
   @versions [
     {"issue", [issue: "de930a7511675ac8"]},
     {"pull_request", [pull_request: "0684c47a59a3e818"]},
     {"pr_review", [pr_review: "9d16908ccca4b854"]},
     {"pr_test", [pr_test: "816eaa1d9ee76d3b"]},
     {"use_case",
-     [design_and_accept: "0971d09c2b1a34ad", test_and_accept_use_case: "a207d811b03394f4"]},
+     [design_and_accept: "dcf324cd5ccd6218", test_and_accept_use_case: "a207d811b03394f4"]},
     {"scene", [test_and_accept_scene: "8dc48c7180394ded"]},
     {"decision", [decide: "e2ad1048cd8a4748"]}
   ]
@@ -128,13 +131,15 @@ defmodule Model.GoldenTest do
     # Slice 8 selects the pull request, the parent of the review's and the test's links:
     # Flow applies those two, by the revision they are current for. Slice 9 selects the
     # issue, so the pull request's own link to it applies too, with no identity: every pull
-    # request of the issue is current. No count has both ends selected: the use case and
-    # the scene wait for slices 10-12.
+    # request of the issue is current. Slice 10 selects design_and_accept on the use case,
+    # so the use case's count of its issues applies (both ends are selected); the scene's
+    # count of its use cases waits for slices 11-12.
     for env <- [:prod, :test] do
       runner = AtlasFlow.Model.load(AtlasEyra, env, %{"decider" => "someone"})
 
       assert Map.keys(runner.config["selection"]) == [
                "decide",
+               "design_and_accept",
                "issue",
                "pr_review",
                "pr_test",
@@ -147,7 +152,12 @@ defmodule Model.GoldenTest do
                {"pull_request", nil}
              ]
 
-      assert runner.config["composition"]["counts"] == []
+      assert Enum.map(
+               runner.config["composition"]["counts"],
+               &{&1["child"], &1["parent_subject"]}
+             ) ==
+               [{"issue", "use_case"}]
+
       assert runner.refusal == nil
     end
   end
@@ -171,8 +181,10 @@ defmodule Model.GoldenTest do
              "label" => "Building"
            }
 
-    assert flows["design_and_accept"]["states"]["design_gate"]["spec"] ==
-             %{"gate" => "design", "version" => 1}
+    # The design's passes and its gate wait too (slice 10); the gate stays defined.
+    design = flows["design_and_accept"]["states"]
+    assert Enum.sort(Map.keys(design)) == ["accepted", "design_review", "designing", "redesign"]
+    refute Enum.any?(Map.values(design), &Map.has_key?(&1, "kind"))
 
     # The integrate effect waits for a Code receiver; the gate stays for Code (slice 8).
     refute Map.has_key?(flows["pull_request"]["states"]["integrating"], "kind")

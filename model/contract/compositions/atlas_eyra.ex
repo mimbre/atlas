@@ -296,9 +296,12 @@ defmodule Model.AtlasEyra do
           ]
         ]
       ],
+      # Its building phase, from the design's acceptance on: the review's `approved`, as
+      # before slice 10, or the `accepted` the subflow design_and_accept writes as it ends
+      # (that subflow presents the design phase, by its admission).
       [
         name: :break_down,
-        when: [values: [design_status: [:approved]], empty: "in_use_case"],
+        when: [values: [design_status: [:approved, :accepted]], empty: "in_use_case"],
         owner: [kind: :agent, key: "coordinator"],
         expected: "Break it down into issues",
         why: "nothing is under it yet",

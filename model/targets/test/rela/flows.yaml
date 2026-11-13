@@ -142,76 +142,27 @@ flows:
     states:
       designing:
         label: Design pass
-        outputs:
-          - set: { properties: { pass_result: none } }
         on:
           change:
-            - { to: design_review, roles: [atlas-flow], when: "entity.pass_result == 'delivered'" }
-            - { to: needs_person, roles: [atlas-flow], when: "entity.pass_result == 'failed'" }
-        after:
-          runtime_wait: { period: 2d, to: needs_person, label: The owner's Runtime did not finish the pass }
+            - { to: accepted, when: "entity.design_status == 'approved' or entity.design_status == 'accepted'" }
+            - { to: design_review, when: "entity.design_status == 'in_review'" }
       design_review:
         label: Design review pass
-        outputs:
-          - set: { properties: { pass_result: none } }
         on:
           change:
-            - { to: design_gate, roles: [atlas-flow], when: "entity.pass_result == 'delivered'" }
-            - { to: needs_person, roles: [atlas-flow], when: "entity.pass_result == 'failed'" }
-        after:
-          runtime_wait: { period: 2d, to: needs_person, label: The owner's Runtime did not finish the review }
-      design_gate:
-        label: Design gate
-        outputs:
-          - set: { properties: { gate_result: none } }
-        on:
-          change:
-            - { to: to_accept, roles: [atlas-flow], when: "entity.gate_result == 'ready'" }
-            - { to: redesign, roles: [atlas-flow], when: "entity.gate_result == 'rework'" }
-            - { to: needs_person, roles: [atlas-flow], when: "entity.gate_result == 'person'" }
-        after:
-          no_decision: { period: 1h, to: needs_person, label: No gate decision within an hour }
+            - { to: accepted, when: "entity.design_status == 'approved' or entity.design_status == 'accepted'" }
+            - { to: redesign, when: "entity.design_status == 'changes_requested' or entity.design_status == 'writing'" }
       redesign:
         label: Design rework pass
-        outputs:
-          - set: { properties: { pass_result: none } }
         on:
           change:
-            - { to: design_review, roles: [atlas-flow], when: "entity.pass_result == 'delivered'" }
-            - { to: needs_person, roles: [atlas-flow], when: "entity.pass_result == 'failed'" }
-        after:
-          runtime_wait: { period: 2d, to: needs_person, label: The owner's Runtime did not finish the rework }
-      to_accept:
-        label: Accept the design
-        status: input_required
-        waiting_for: [acceptor]
-        outputs:
-          - set: { properties: { verdict: none } }
-        on:
-          change:
-            - { to: accepted, roles: [acceptor], when: "entity.verdict == 'accept'" }
-            - { to: redesign, roles: [acceptor], when: "entity.verdict == 'reject'" }
-      needs_person:
-        label: A person decides
-        status: input_required
-        waiting_for: [maintainer]
-        outputs:
-          - set: { properties: { gate_result: none } }
-        on:
-          change:
-            - { to: design_review, roles: [maintainer], when: "entity.gate_result == 'review'" }
-            - { to: redesign, roles: [maintainer], when: "entity.gate_result == 'rework'" }
-            - { to: to_accept, roles: [maintainer], when: "entity.gate_result == 'ready'" }
-            - { to: dropped, roles: [maintainer], when: "entity.gate_result == 'close'" }
+            - { to: accepted, when: "entity.design_status == 'approved' or entity.design_status == 'accepted'" }
+            - { to: design_review, when: "entity.design_status == 'in_review'" }
       accepted:
         label: Design accepted
         final: true
         outputs:
           - set: { properties: { design_status: accepted } }
-      dropped:
-        label: Dropped
-        final: true
-        status: cancelled
   test_and_accept_use_case:
     label: Build, test and accept
     subject: use_case

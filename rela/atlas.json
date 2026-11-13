@@ -971,7 +971,8 @@
             "empty": "in_use_case",
             "values": {
               "design_status": [
-                "approved"
+                "approved",
+                "accepted"
               ]
             }
           },
