@@ -43,7 +43,12 @@ defmodule RelaDSL.Presentation do
         "flows",
         for(
           {name, s} <- group,
-          do: %{"name" => name, "reopen" => s["reopen"], "admission" => s["admission"] || %{}}
+          do: %{
+            "name" => name,
+            "reopen" => s["reopen"],
+            "restart_by" => s["restart_by"] || [],
+            "admission" => s["admission"] || %{}
+          }
         )
       )
     end)

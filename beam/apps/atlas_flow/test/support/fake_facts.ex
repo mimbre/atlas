@@ -169,15 +169,18 @@ defmodule AtlasFlow.FakeFacts do
 
           %{"facts" => facts}
 
-        # The inputs of a run, in their order; a prepared one fails the read unless the run
-        # is active in its entry (Facts would apply it there).
+        # Completed runs expose all retained inputs without applying prepared choices.
+        # Otherwise a prepared one fails unless the run is active in its entry.
         {_kind, %{"run" => run}} ->
           inputs = for({_, i} <- s.inputs, i["run"] == run, do: i)
           cursor = cursor(s, run)
 
-          if Enum.any?(inputs, &(&1["status"] == "prepared" and not open?(cursor, &1))),
-            do: %{"error" => ":prepared_input_needs_reconciliation"},
-            else: %{"inputs" => Enum.sort_by(inputs, & &1["position"])}
+          completed? = cursor != nil and cursor["values"]["status"] == "completed"
+
+          if not completed? and
+               Enum.any?(inputs, &(&1["status"] == "prepared" and not open?(cursor, &1))),
+             do: %{"error" => ":prepared_input_needs_reconciliation"},
+             else: %{"inputs" => Enum.sort_by(inputs, & &1["position"])}
 
         {kind, _} ->
           %{"facts" => for({{^kind, _}, fact} <- s.facts, do: fact)}

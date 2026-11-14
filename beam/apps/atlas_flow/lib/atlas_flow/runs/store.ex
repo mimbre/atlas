@@ -550,27 +550,70 @@ defmodule AtlasFlow.Runs.Store do
             else: step(config, d, run, blocked, flow, now, remaining)
       end
     else
-      case run["pending"]["writes"] do
-        [_ | _] ->
-          stored(config, d, run, :all, flow, now, remaining, fn d, run ->
-            with :ok <- send_writes(run["pending"]["writes"]),
-                 do:
-                   step(
-                     config,
-                     d,
-                     run,
-                     put_in(run, ["pending", "writes"], []),
-                     flow,
-                     now,
-                     remaining
-                   )
-          end)
+      resume(config, d, run, flow, now, remaining)
+    end
+  end
 
-        [] ->
-          consumed(config, d, run, flow, now, remaining, fn d, run ->
-            look(config, d, run, flow, now, remaining)
-          end)
+  # A new generation keeps its source request pending until the old run acknowledges
+  # it. Boot restores the latest generation, so recovery cannot depend on loading its
+  # predecessor again.
+  defp resume(config, d, run, flow, now, remaining) do
+    case run["pending"]["restart"] do
+      %{} = request ->
+        stored(config, d, run, :all, flow, now, remaining, fn d, run ->
+          with :ok <- acknowledge_restart(config, request) do
+            updated = update_in(run, ["pending"], &Map.delete(&1, "restart"))
+            step(config, d, run, updated, flow, now, remaining)
+          end
+        end)
+
+      nil ->
+        resume_writes(config, d, run, flow, now, remaining)
+    end
+  end
+
+  defp acknowledge_restart(config, request) do
+    with {:ok, %{} = fact} <- fetch(config, request["run"]),
+         {:ok, old} <- decode(config, fact) do
+      accepted =
+        old
+        |> Map.put("input_cursor", max(old["input_cursor"], request["position"]))
+        |> put_in(["last_input", "input"], request["input"])
+
+      d = %{fact: fact, stored: old, consumed: nil}
+      result = if accepted == old, do: {:ok, d}, else: write(config, d, accepted)
+
+      with {:ok, %{stored: ^accepted}} <- result do
+        consume_input(config["inputs"], accepted)
+      else
+        other -> {:error, {:restart_acknowledgement, other}}
       end
+    else
+      other -> {:error, {:restart_source_unavailable, other}}
+    end
+  end
+
+  defp resume_writes(config, d, run, flow, now, remaining) do
+    case run["pending"]["writes"] do
+      [_ | _] ->
+        stored(config, d, run, :all, flow, now, remaining, fn d, run ->
+          with :ok <- send_writes(run["pending"]["writes"]),
+               do:
+                 step(
+                   config,
+                   d,
+                   run,
+                   put_in(run, ["pending", "writes"], []),
+                   flow,
+                   now,
+                   remaining
+                 )
+        end)
+
+      [] ->
+        consumed(config, d, run, flow, now, remaining, fn d, run ->
+          look(config, d, run, flow, now, remaining)
+        end)
     end
   end
 
@@ -581,58 +624,111 @@ defmodule AtlasFlow.Runs.Store do
     # entry the stored run is in). A moved cursor reads none yet: a link, count or
     # synthetic input may move it on without them, and it is stored before they are read.
     cursor? = config["inputs"] == nil or durable?(d, run, ~w(state entry status deadlines))
-    # Only a run that takes inputs reads them: a completed, blocked or idle one never takes
-    # one, and a prepared input left on it would fail the read.
-    read? = cursor? and Run.takes_inputs?(run)
+
+    restart? =
+      run["status"] == "completed" and
+        (config["selection"][run["flow"]]["restart_by"] || []) != []
+
+    read? = cursor? and (Run.takes_inputs?(run) or restart?)
 
     with {:ok, inputs} <- if(read?, do: read_inputs(config["inputs"], run), else: {:ok, []}) do
-      # Recover prepared writes first, then fetch the subject's current ETag.
-      case Talk.transition_read(run["subject_kind"], %{
+      restart =
+        Enum.find(inputs, fn input ->
+          run["status"] == "completed" and input["run"] == run["key"] and
+            input["roles"] == ["restart"] and input["changed_fields"] == %{} and
+            input["status"] in ~w(applied consumed)
+        end)
+
+      if restart do
+        restart_requested(config, d, run, flow, restart, now, remaining)
+      else
+        look_subject(config, d, run, flow, inputs, cursor?, now, remaining)
+      end
+    end
+  end
+
+  # Store the new generation before consuming its request on the old one. A crash or
+  # lost create acknowledgement finds the same next key, even if that run already ended.
+  defp restart_requested(config, _d, run, flow, input, now, remaining) do
+    with %{"fact" => %{} = subject} <-
+           Talk.transition_read(run["subject_kind"], %{
              "key" => run["subject_key"],
              "plain" => true
-           }) do
-        %{"fact" => %{} = subject} = answer ->
-          subject =
-            Map.put(subject, "position", answer["position"] || subject["position"] || 0)
+           }),
+         {:ok, new} <- Run.restart(run, flow, subject, now),
+         new =
+           put_in(new, ["pending", "restart"], %{
+             "run" => run["key"],
+             "input" => input["key"],
+             "position" => input["position"]
+           }),
+         {:ok, existing} <- fetch(config, new["key"]),
+         {:ok, restarted} <-
+           if(existing,
+             do: drain(config, new["key"], flow, now, remaining - 1),
+             else:
+               react(
+                 config,
+                 %{fact: nil, stored: nil, consumed: nil},
+                 new,
+                 flow,
+                 now,
+                 remaining - 1
+               )
+           ) do
+      {:ok, restarted}
+    else
+      other -> {:error, {:restart_unavailable, other}}
+    end
+  end
 
-          # The parent's writes of its links and counts are stored before they are
-          # sent; a changed aggregate is then the run's input.
-          with {:ok, composed} <- compose(config, run, subject) do
-            cond do
-              composed != run ->
-                step(config, d, run, composed, flow, now, remaining)
+  defp look_subject(config, d, run, flow, inputs, cursor?, now, remaining) do
+    # Recover prepared writes first, then fetch the subject's current ETag.
+    case Talk.transition_read(run["subject_kind"], %{
+           "key" => run["subject_key"],
+           "plain" => true
+         }) do
+      %{"fact" => %{} = subject} = answer ->
+        subject =
+          Map.put(subject, "position", answer["position"] || subject["position"] || 0)
 
-              (synthetic = Run.synthetic(run, flow, subject, now)) != :none ->
-                {:ok, updated} = synthetic
-                step(config, d, run, updated, flow, now, remaining)
+        # The parent's writes of its links and counts are stored before they are
+        # sent; a changed aggregate is then the run's input.
+        with {:ok, composed} <- compose(config, run, subject) do
+          cond do
+            composed != run ->
+              step(config, d, run, composed, flow, now, remaining)
 
-              not cursor? ->
-                stored(config, d, run, :all, flow, now, remaining, fn d, run ->
-                  look(config, d, run, flow, now, remaining)
-                end)
+            (synthetic = Run.synthetic(run, flow, subject, now)) != :none ->
+              {:ok, updated} = synthetic
+              step(config, d, run, updated, flow, now, remaining)
 
-              activity?(run, flow) ->
-                # A frozen request is stored before it is sent.
-                stored(config, d, run, :all, flow, now, remaining, fn d, run ->
-                  with {:ok, updated} <- next(config, run, flow, subject, now, inputs),
-                       do: step(config, d, run, updated, flow, now, remaining)
-                end)
+            not cursor? ->
+              stored(config, d, run, :all, flow, now, remaining, fn d, run ->
+                look(config, d, run, flow, now, remaining)
+              end)
 
-              true ->
+            activity?(run, flow) ->
+              # A frozen request is stored before it is sent.
+              stored(config, d, run, :all, flow, now, remaining, fn d, run ->
                 with {:ok, updated} <- next(config, run, flow, subject, now, inputs),
                      do: step(config, d, run, updated, flow, now, remaining)
-            end
+              end)
+
+            true ->
+              with {:ok, updated} <- next(config, run, flow, subject, now, inputs),
+                   do: step(config, d, run, updated, flow, now, remaining)
           end
+        end
 
-        # A deleted subject leaves its run as it is: nothing moves it or is
-        # written for it, and the other runs go on (a parent counts its children
-        # as Facts holds them, so a deleted child is no longer among them).
-        %{"fact" => nil} ->
-          finish(config, d, run, flow, now, remaining)
+      # A deleted subject leaves its run as it is: nothing moves it or is
+      # written for it, and the other runs go on (a parent counts its children
+      # as Facts holds them, so a deleted child is no longer among them).
+      %{"fact" => nil} ->
+        finish(config, d, run, flow, now, remaining)
 
-        other ->
-          {:error, {:subject_unavailable, other}}
-      end
+      other ->
+        {:error, {:subject_unavailable, other}}
     end
   end
 
@@ -804,8 +900,6 @@ defmodule AtlasFlow.Runs.Store do
   that counts, presents and is drained, never the completed generation before it.
   """
   def latest(config, name, kind, key), do: latest(config, name, kind, key, 1, nil)
-
-  defp latest(_config, _name, _kind, _key, 65, found), do: {:ok, found}
 
   defp latest(config, name, kind, key, generation, found) do
     case fetch(config, Run.key(name, kind, key, generation)) do

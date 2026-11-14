@@ -348,7 +348,11 @@
             "state": "building"
           }
         ],
-        "reopen": "explicit"
+        "reopen": "explicit",
+        "restart_by": [
+          "owner",
+          "decider"
+        ]
       },
       "design_and_accept": {
         "choices": [],
@@ -389,7 +393,11 @@
             "state": "redesign"
           }
         ],
-        "reopen": "explicit"
+        "reopen": "explicit",
+        "restart_by": [
+          "owner",
+          "decider"
+        ]
       },
       "test_and_accept_use_case": {
         "choices": [],
@@ -434,7 +442,11 @@
             "state": "building"
           }
         ],
-        "reopen": "explicit"
+        "reopen": "explicit",
+        "restart_by": [
+          "owner",
+          "decider"
+        ]
       }
     },
     "inputs": {

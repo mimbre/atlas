@@ -111,6 +111,7 @@ defmodule AtlasFacts.Server do
        links: Links.open(dir),
        model: model,
        description: schema,
+       actors: Keyword.get_lazy(opts, :actors, &AtlasBus.Actors.configured/0),
        input_clock: Keyword.get(opts, :flow_input_clock, fn -> DateTime.utc_now() end)
      }}
   end
@@ -316,6 +317,7 @@ defmodule AtlasFacts.Server do
   defp context(state) do
     Map.merge(state.description || %{}, %{
       "flow_runtime" => state.model.run_mapping(),
+      "actors" => state.actors || %{},
       "guidance" => state.model.guidance(),
       "runtime" => %{"turn" => state.model.turn()}
     })

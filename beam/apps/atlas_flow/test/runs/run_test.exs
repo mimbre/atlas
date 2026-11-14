@@ -7,7 +7,7 @@ defmodule AtlasFlow.Runs.RunTest do
   defp subject(values \\ %{}),
     do: %{"key" => "B-1", "values" => Map.merge(%{"phase" => "first"}, values)}
 
-  defp config, do: TestModel.config()
+  defp config, do: put_in(TestModel.config(), ["selection", "sort", "restart_by"], ["owner"])
   defp sort, do: TestModel.sort()
 
   defmodule Unselected do
@@ -129,6 +129,187 @@ defmodule AtlasFlow.Runs.RunTest do
     fact = FakeFacts.get("cursor", Run.key("sort", "box", "B-1", 1))
     {:ok, run} = Store.decode(config(), fact)
     run
+  end
+
+  test "a durable restart request creates one generation across replay and a lost create acknowledgement",
+       %{clock: clock} do
+    FakeFacts.put("box", subject(%{"result" => "old"}))
+    assert {:ok, [_]} = reconcile(clock)
+    completed = stored()
+    assert completed["status"] == "completed"
+    FakeFacts.put("box", subject())
+    assert {:ok, [_]} = reconcile(clock)
+    next_key = Run.key("sort", "box", "B-1", 2)
+    assert FakeFacts.get("cursor", next_key) == nil
+
+    request = %{
+      "op" => "submit",
+      "key" => "restart-request",
+      "values" => %{
+        "run" => completed["key"],
+        "entry" => completed["entry"],
+        "roles" => ["restart"],
+        "changed_fields" => %{}
+      }
+    }
+
+    assert {:stored, _} = Talk.put("choice", request, "restart-request")
+
+    # The new cursor committed, then its read failed: recovery must find that key.
+    :ok = GenServer.call(FakeFacts, {:busy_after_write, "cursor", next_key})
+    assert {:error, _} = reconcile(clock)
+    :ok = GenServer.call(FakeFacts, {:free, "cursor", next_key})
+    assert {:ok, [_]} = reconcile(clock)
+    assert {:ok, second} = Store.decode(config(), FakeFacts.get("cursor", next_key))
+    assert {second["generation"], second["state"], second["status"]} == {2, "waiting", "active"}
+    assert :sys.get_state(FakeFacts).inputs["restart-request"]["status"] == "consumed"
+    refute Map.has_key?(second["pending"], "restart")
+
+    # Replay the same input, then reconcile from a cached predecessor cursor.
+    assert {:stored, _} = Talk.put("choice", request, "restart-request")
+
+    assert {:ok, _} =
+             Store.reconcile_subjects(
+               config(),
+               %{"sort" => sort()},
+               ManualClock.now(clock),
+               [completed],
+               [{"box", "B-1"}]
+             )
+
+    assert {:ok, [_]} = reconcile(clock)
+    assert FakeFacts.get("cursor", Run.key("sort", "box", "B-1", 3)) == nil
+
+    assert Map.take(stored(), ~w(state status generation entry)) ==
+             Map.take(completed, ~w(state status generation entry))
+
+    assert Enum.count(
+             FakeFacts.sent(),
+             &(&1["op"] == "change" and &1["key"] == "B-1" and
+                 get_in(&1, ["values", "mark"]) == "entered")
+           ) == 1
+
+    assert {:error, :not_completed} =
+             Run.restart(second, sort(), subject(), ManualClock.now(clock))
+
+    # Even after generation two ends, replay still names generation one.
+    FakeFacts.put("box", subject(%{"result" => "ok"}))
+    assert {:ok, [%{"generation" => 2, "status" => "completed"}]} = reconcile(clock)
+    assert {:stored, _} = Talk.put("choice", request, "restart-request")
+    assert {:ok, [%{"generation" => 2, "status" => "completed"}]} = reconcile(clock)
+    assert FakeFacts.get("cursor", Run.key("sort", "box", "B-1", 3)) == nil
+  end
+
+  test "mixed completed history stays inert while its stored restart creates one successor", %{
+    clock: clock
+  } do
+    assert {:ok, [_]} = reconcile(clock)
+    FakeFacts.put("box", subject(%{"result" => "ok"}))
+    assert {:ok, [completed]} = reconcile(clock)
+    assert completed["status"] == "completed"
+    FakeFacts.put("box", subject())
+    reopened = FakeFacts.get("box", "B-1")
+
+    history =
+      for {status, position} <- Enum.with_index(~w(prepared applied consumed), 1) do
+        input = %{
+          "key" => "ordinary-" <> status,
+          "run" => completed["key"],
+          "entry" => completed["entry"],
+          "actor" => "ada",
+          "roles" => ["clerk"],
+          "status" => status,
+          "changed_fields" => %{"result" => "no"},
+          "subject_version" => reopened["version"],
+          "position" => position,
+          "prepared_at" => DateTime.to_iso8601(@now)
+        }
+
+        :ok = FakeFacts.put_input(input)
+        input
+      end
+
+    assert {:ok, [^completed]} = reconcile(clock)
+    assert %{"inputs" => ^history} = Talk.read("choice", %{"run" => completed["key"]})
+    assert FakeFacts.get("box", "B-1") == reopened
+    assert FakeFacts.get("cursor", Run.key("sort", "box", "B-1", 2)) == nil
+
+    request = %{
+      "op" => "submit",
+      "key" => "mixed-history-restart",
+      "values" => %{
+        "run" => completed["key"],
+        "entry" => completed["entry"],
+        "actor" => "ada",
+        "roles" => ["restart"],
+        "changed_fields" => %{}
+      }
+    }
+
+    assert {:stored, _} = Talk.put("choice", request, "mixed-history-restart")
+    assert {:ok, [successor]} = reconcile(clock)
+
+    assert {successor["generation"], successor["state"], successor["status"]} ==
+             {2, "waiting", "active"}
+
+    assert FakeFacts.get("box", "B-1")["values"]["result"] == nil
+
+    assert %{"inputs" => retained} = Talk.read("choice", %{"run" => completed["key"]})
+    assert Enum.filter(retained, &(&1["roles"] == ["clerk"])) == history
+    assert [intent] = Enum.filter(retained, &(&1["roles"] == ["restart"]))
+    assert intent["key"] == "mixed-history-restart" and intent["status"] == "consumed"
+    predecessor = stored()
+
+    assert Map.drop(predecessor, ~w(input_cursor last_input)) ==
+             Map.drop(completed, ~w(input_cursor last_input))
+
+    assert Map.delete(predecessor["last_input"], "input") == completed["last_input"]
+    assert predecessor["last_input"]["input"] == intent["key"]
+
+    FakeFacts.put("box", subject(%{"result" => "ok"}))
+    assert {:ok, [%{"generation" => 2, "status" => "completed"} = ended]} = reconcile(clock)
+    assert {:stored, _} = Talk.put("choice", request, "mixed-history-restart")
+
+    assert {:ok, _} =
+             Store.reconcile_subjects(
+               config(),
+               %{"sort" => sort()},
+               ManualClock.now(clock),
+               [completed],
+               [{"box", "B-1"}]
+             )
+
+    assert {:ok, [^ended]} = reconcile(clock)
+    assert stored() == predecessor
+    assert %{"inputs" => ^retained} = Talk.read("choice", %{"run" => completed["key"]})
+    assert %{"facts" => cursors} = Talk.read("cursor", %{})
+
+    assert Enum.sort(Enum.map(cursors, & &1["key"])) ==
+             Enum.sort([completed["key"], successor["key"]])
+  end
+
+  test "an explicit restart supplies the start edge even when the predicate is false", %{
+    clock: clock
+  } do
+    %{flows: flows} = AtlasFlow.Model.load(AtlasFlow.Yard, :prod)
+    flow = flows["tally"]
+    subject = %{"key" => "T-1", "values" => %{"phase" => "first", "cups" => 0}}
+
+    completed =
+      Run.new(
+        "tally",
+        flow,
+        subject,
+        [%{"when" => %{}, "state" => "counted"}],
+        ManualClock.now(clock)
+      )
+
+    assert completed["status"] == "completed"
+    refute Run.starts?(flow, subject)
+    assert {:ok, restarted} = Run.restart(completed, flow, subject, ManualClock.now(clock))
+
+    assert {restarted["generation"], restarted["state"], restarted["status"]} ==
+             {2, flow.initial(), "active"}
   end
 
   test "restart in a waiting entry, duplicate create, just before and exactly at original due time",

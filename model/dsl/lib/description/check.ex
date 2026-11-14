@@ -31,7 +31,8 @@ defmodule RelaDSL.Description.Check do
     }
 
     guidance(ctx) ++
-      keyed(ctx, "todo", ~w(title why instructions answers reopened)) ++
+      keyed(ctx, "todo", ~w(title why instructions answers reopened restart)) ++
+      restart_words(ctx) ++
       shell(ctx) ++
       start(ctx) ++
       types(ctx) ++
@@ -202,6 +203,23 @@ defmodule RelaDSL.Description.Check do
   end
 
   defp guidance(_ctx), do: []
+
+  # The words of the explicit restart's action: its label and the key that takes it.
+  defp restart_words(%{x: %{"todo" => %{"restart" => restart}}}) do
+    if is_map(restart) and Map.keys(restart) -- ~w(label key) == [] and
+         text?(restart["label"]) and is_binary(restart["key"]) and
+         String.length(restart["key"]) == 1,
+       do: [],
+       else:
+         p(
+           ["todo", "restart"],
+           :restart_words,
+           [],
+           "todo.restart: expected label and a one-character key"
+         )
+  end
+
+  defp restart_words(_ctx), do: []
 
   defp keyed(ctx, key, allowed) do
     case ctx.x[key] do

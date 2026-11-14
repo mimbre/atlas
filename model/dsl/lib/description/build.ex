@@ -38,7 +38,8 @@ defmodule RelaDSL.Description.Build do
     :admission,
     :imports,
     :verification,
-    :reopen
+    :reopen,
+    :restart_by
   ]
   @migrate_keys [:from, :to, :states, :rekey, :preserve_entry, :reason]
   @flow_runtime_keys [:runs, :writer, :inputs]
@@ -399,7 +400,8 @@ defmodule RelaDSL.Description.Build do
                       :admission,
                       :imports,
                       :verification,
-                      :reopen
+                      :reopen,
+                      :restart_by
                     ],
                     Keyword.has_key?(o, k),
                     do: {to_string(k), Plain.ordered(o[k])}

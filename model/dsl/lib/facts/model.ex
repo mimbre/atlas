@@ -12,8 +12,9 @@ defmodule RelaDSL.Facts.Model do
       (components, the change itself, what it replaces; `RelaDSL.Facts.Writes`);
     * `derived(kind, facts, lookup)`: what is worked out for each fact on a read
       (completion, progress, review, late; `RelaDSL.Facts.Derived`);
-    * `run_mapping/0`: where runs and their inputs are kept, who writes them, and what
-      each selected subflow takes choices on; nil without `flow_runtime`;
+    * `run_mapping/0`: where runs and their inputs are kept, who writes them, what
+      each selected subflow takes choices on, and who may ask for an explicit restart
+      of its completed run (`restart_by`); nil without `flow_runtime`;
     * `presentation/0`: who presents the work on each kind of fact: the presenters
       (`RelaDSL.Presentation`), from which Facts serves a fact's presentation;
     * `connector(kind)`: the outside system a kind's facts are copied from, or nil:
@@ -141,7 +142,7 @@ defmodule RelaDSL.Facts.Model do
     |> Map.put(
       "selection",
       Map.new(config["selection"] || %{}, fn {name, s} ->
-        {name, Map.take(s, ["subject", "choices", "choice_states"])}
+        {name, Map.take(s, ~w(subject choices choice_states restart_by projection admission))}
       end)
     )
   end

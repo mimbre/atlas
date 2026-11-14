@@ -396,6 +396,27 @@ defmodule RelaDSL.Description.ChecksTest do
     assert selects(select(", reopen: :always")) == [{:reopen_policy, [":always"]}]
   end
 
+  test "restart policy requires a projected owner or a declared configured actor" do
+    projection = "projection: [field: :expected, owner_relation: :kept_by]"
+    assert selects(select(", #{projection}, restart_by: [:owner]")) == []
+    configured = String.replace(@subflow, "{:keeper, :desk}", "{:keeper, config: :judge}")
+
+    c =
+      concept(
+        concept: configured <> "\nselect :thing, #{projection}, restart_by: [:owner, :judge]"
+      )
+
+    assert selects(c) == []
+
+    for selection <- [
+          "restart_by: [:owner]",
+          "#{projection}, restart_by: [:unknown]",
+          "#{projection}, restart_by: []"
+        ] do
+      assert [{:restart_policy, _}] = selects(select(", #{selection}"))
+    end
+  end
+
   test "a migration leads to a current digest and maps states it knows" do
     a = String.duplicate("a", 64)
 

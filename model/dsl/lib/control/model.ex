@@ -17,7 +17,10 @@ defmodule RelaDSL.Control.Model do
       or those a fact's page offers, with the actions the model adds (`action`);
     * `todo(kind, fact, parts, viewer)`: what the fact's owner is to do in the state its
       run is in, and the answers they can give; nil for anyone else;
-    * `answer(kind, name, item, viewer)`: the change an owner's answer writes.
+    * `answer(kind, name, item, viewer)`: the change an owner's answer writes;
+    * `restart(kind, fact, parts, viewer, actors)`: the explicit restart of the completed
+      run that presents the fact, for a viewer its selection's `restart_by` names (its
+      owner, or a configured actor); nil for anyone else, and without the model's words.
 
   Every name is resolved, every default applied and every list ordered when the model
   compiles; nothing is read from a file. The callbacks that depend on a fact evaluate
@@ -29,7 +32,7 @@ defmodule RelaDSL.Control.Model do
     d = merge(schema, extension)
     presenters = RelaDSL.Presentation.presenters(d, flow_runtime)
     kinds = kinds(d, presenters)
-    flows = flows(d, presenters)
+    flows = flows(d, presenters, get_in(flow_runtime || %{}, ["flow_runtime", "inputs", "kind"]))
 
     quote do
       @doc "The native shell: its title and tabs, with the tabs `settings` add; nil without one."
@@ -108,6 +111,28 @@ defmodule RelaDSL.Control.Model do
 
       def answer(_kind, _answer, _item, _viewer),
         do: RelaDSL.Control.Rules.answer(nil, nil, nil, nil)
+
+      @doc """
+      The explicit restart of the completed run that presents `fact`, when `viewer` may ask
+      for it (`actors`: the configured actors, `%{role => %{"key"}}`); else nil.
+      """
+      unquote_splicing(
+        for {name, flow} <- Enum.sort(flows) do
+          quote do
+            def restart(unquote(name), fact, parts, viewer, actors),
+              do:
+                RelaDSL.Control.Rules.restart(
+                  unquote(Macro.escape(flow)),
+                  fact,
+                  parts,
+                  viewer,
+                  actors
+                )
+          end
+        end
+      )
+
+      def restart(_kind, _fact, _parts, _viewer, _actors), do: nil
     end
   end
 
@@ -517,8 +542,14 @@ defmodule RelaDSL.Control.Model do
   # is on (the fact, or the one component its `on` relation points at, whose Facts read
   # carries the presentation), and the words of What to do. What each state shows, Facts'
   # presentation says (`RelaDSL.Presentation`).
-  defp flows(d, presenters) do
+  defp flows(d, presenters, inputs) do
     words = d["todo"] || %{}
+
+    restart =
+      case words["restart"] do
+        %{"label" => label, "key" => key} -> %{label: to_text(label), key: to_text(key)}
+        _ -> nil
+      end
 
     for p <- Enum.reverse(presenters), into: %{} do
       {p["subject"],
@@ -526,12 +557,17 @@ defmodule RelaDSL.Control.Model do
          on: p["on"],
          on_kind: if(p["on"], do: p["kind"]),
          owner_relation: p["owner_relation"],
+         # Who may ask for an explicit restart of each subflow's completed run, and the
+         # kind such a request is kept as (the run mapping's inputs).
+         restart_by: Map.new(p["flows"] || [], &{&1["name"], &1["restart_by"] || []}),
+         inputs: inputs,
          words: %{
            title: to_text(words["title"]),
            why: to_text(words["why"]),
            instructions: to_text(words["instructions"]),
            answers: to_text(words["answers"]),
-           reopened: to_text(words["reopened"])
+           reopened: to_text(words["reopened"]),
+           restart: restart
          }
        }}
     end

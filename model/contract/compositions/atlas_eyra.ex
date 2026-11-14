@@ -31,8 +31,8 @@ defmodule Model.AtlasEyra do
 
   alias Model.{
     Decision,
+    Delivery,
     FollowThrough,
-    Issue,
     PrReview,
     PrTest,
     PullRequest,
@@ -238,7 +238,7 @@ defmodule Model.AtlasEyra do
 
   defcomposition :atlas_eyra do
     subflows([
-      Issue,
+      Delivery,
       PullRequest,
       PrReview,
       PrTest,

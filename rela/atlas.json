@@ -1063,6 +1063,10 @@
     "answers": "Answers",
     "instructions": "How",
     "reopened": "Reopened after its run ended: nothing is expected and nobody owns it until its run is restarted",
+    "restart": {
+      "key": "g",
+      "label": "Restart"
+    },
     "title": "What to do",
     "why": "Why"
   },
