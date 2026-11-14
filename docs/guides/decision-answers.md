@@ -57,7 +57,8 @@ decisions, Flow owns this field, so a deadline set by hand does not stay.
 - **Flow contract** (`model/contract/foundation/decision.ex`): the person states declare
   `owner … default: {:person, :melle}, preserve_kind: :person`, and
   `present(answers: …)`. Each answer is `change: %{self: :decided_by, values: …}`
-  (`"$now"` is filled when it is sent). Reject has `note: true`. `for_person`
+  (`"$now"` is filled when it is sent, and `"$note"`, where a value names it, with the
+  note it is sent with). Reject has `note: true`. `for_person`
   has `deadline: :no_answer`.
 - **Control:** an answer is `/k/:kind/:key/answer/:answer`. It is a confirm, or
   a note form when the answer needs a note. Submitting it reads the fact again

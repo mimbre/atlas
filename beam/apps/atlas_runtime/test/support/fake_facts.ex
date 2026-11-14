@@ -5,10 +5,8 @@ defmodule AtlasRuntime.FakeFacts do
   fact with stored (the Bus hints it to listeners). Its kinds are the neutral model's
   (`AtlasRuntime.TestModel`): a clerk owns a box through a card; a run is a turn.
 
-  A read that asks for it (`"presentation" => true`) answers each card with its
-  presentation, as Facts presents the work of the model's legacy flow: owned through
-  `owned_by`, open while its `step` has a value, and a handover waiting while its `later`
-  has one.
+  A read that asks for it (`"presentation" => true`) answers each fact with the
+  presentation the test gave it (as Facts derives it from the runs), or none.
   """
   use GenServer
 
@@ -142,17 +140,6 @@ defmodule AtlasRuntime.FakeFacts do
 
   # A presentation the test gives (a run that ended, say) is answered as it is.
   defp present(_kind, %{"presentation" => _} = fact, %{"presentation" => true}), do: fact
-
-  defp present("card", fact, %{"presentation" => true}) do
-    blank = &(&1 in [nil, ""])
-
-    Map.put(fact, "presentation", %{
-      "owner" => fact["links"]["owned_by"] || [],
-      "actionable" => not blank.(fact["values"]["step"]),
-      "handover" => if(blank.(fact["values"]["later"]), do: nil, else: %{}),
-      "manual" => false
-    })
-  end
 
   defp present(_kind, fact, _content), do: fact
 end

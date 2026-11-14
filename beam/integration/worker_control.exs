@@ -78,6 +78,45 @@ defmodule WorkerControlModel.Kinds do
   relation(:task, label: "task", from: [:run], to: [:ticket])
   relation(:owner, label: "owner", from: [:ticket], to: [:operator])
 
+  # The runs of its subflow, as Flow keeps them.
+  entity :job, label: "Job", plural: "jobs", id_type: :manual do
+    for f <- ~w(flow subject_kind subject_key definition_sha256 state entered_at status
+                deadlines pending last_input blocked_reason)a,
+        do: field(f, :string)
+
+    for f <- ~w(generation entry input_cursor)a, do: field(f, :integer)
+    top(false)
+    by_hand(false)
+  end
+
+  flow_runtime(runs: :job, writer: [sender: :flow, by: :flow])
+
+  # An operator works a ticket; its state is the ticket's step.
+  subflow :work, label: "Work", subject: :ticket do
+    owner(relation: :owner, default: {:operator, :worker})
+    start(:create)
+    initial(:work)
+
+    state :work, label: "Work" do
+      present(expected: "work")
+      branch(to: :done, when: "entity.title == 'done'")
+    end
+
+    final(:done, label: "Done")
+  end
+
+  select(:work,
+    choices: [],
+    projection: [
+      field: :title,
+      state_field: :step,
+      handover_field: :handover,
+      owner_relation: :owner
+    ],
+    admission: [],
+    imports: []
+  )
+
   runtime(
     turn: [
       kind: :run,
@@ -122,20 +161,8 @@ defmodule WorkerControlModel do
   modules([WorkerControlModel.Room])
   shell(title: "Private workers", tabs: [[id: "tickets", label: "Tickets", to: "/k/ticket"]])
 
-  legacy_flow(:work,
-    kinds: [:ticket],
-    state_field: :step,
-    handover_field: :handover,
-    owner_relation: :owner,
-    field: :title,
-    states: [
-      [name: :done, when: [completed: true], done: true],
-      [name: :work, owner: [kind: :operator, key: "W-1"], expected: "work", next: [:done]]
-    ]
-  )
-
   defcomposition :workers do
-    subflows([])
+    subflows([WorkerControlModel.Kinds])
   end
 end
 
@@ -165,6 +192,15 @@ defmodule WorkerControlTest do
       Rela.create(rela, "tickets", "T-1", %{"title" => "Private task", "step" => "work"}, %{
         "owner" => {"operator", ["W-1"]}
       })
+
+    # Its subflow's run, working, as Flow keeps it: Facts presents the ticket from it.
+    runner = AtlasFlow.Model.load(WorkerControlModel, :prod, %{})
+    ticket = %{"key" => "T-1", "values" => %{}}
+    job = AtlasFlow.Runs.Run.new("work", runner.flows["work"], ticket, [], DateTime.utc_now())
+    job = put_in(job, ["pending", "writes"], [])
+
+    {:ok, _} =
+      Rela.create(rela, "jobs", job["key"], AtlasFlow.Runs.Store.encode(runner.config, job), %{})
 
     {:ok, []} =
       Rela.create(

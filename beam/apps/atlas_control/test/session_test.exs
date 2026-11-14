@@ -1209,6 +1209,27 @@ defmodule AtlasControl.SessionTest do
     assert %{"op" => "change", "links" => %{"of_widget" => ["W-2"]}} = FakeStore.last_fact()
   end
 
+  # Facts' presentation of the work on card `key` while the review's run is active in its
+  # check state (`Shop.Reviewed`), held by `owners`: what that state shows, theirs.
+  defp reviewing(key, owners) do
+    shown = Enum.find(Shop.Reviewed.presentation(), &(&1["kind"] == "card"))["states"]["check"]
+
+    FakeStore.present("card", key, %{
+      "flow" => "review",
+      "status" => "active",
+      "state" => "check",
+      "actionable" => true,
+      "reopened" => false,
+      "expected" => shown["expected"],
+      "why" => shown["why"],
+      "todo" => shown["todo"],
+      "owner" => owners,
+      "manual" => false,
+      "handover" => nil,
+      "deadline" => nil
+    })
+  end
+
   test "a declared answer submits one self change, requires its note, and rechecks a stale owner" do
     # A subflow reviews each widget; in its check state the card's holder answers
     # (`Shop.Reviewed`): accept makes its state final, reject (with a note) dropped.
@@ -1216,6 +1237,7 @@ defmodule AtlasControl.SessionTest do
 
     holder = fn by ->
       FakeStore.put("C-W-1", %{"of" => "W-1", "step" => "check"}, "card", %{"held_by" => [by]})
+      reviewing("C-W-1", [by])
     end
 
     FakeStore.put("W-1", %{"title" => "One"}, "widget", %{"card" => ["C-W-1"]})
@@ -1273,6 +1295,7 @@ defmodule AtlasControl.SessionTest do
     port = gateway(Shop.Reviewed)
     FakeStore.put("W-1", %{"title" => "One"}, "widget", %{"card" => ["C-W-1"]})
     FakeStore.put("C-W-1", %{"of" => "W-1", "step" => "check"}, "card", %{"held_by" => ["ada"]})
+    reviewing("C-W-1", ["ada"])
     FakeStore.put("bob", %{"name" => "Bob"}, "member")
     Application.put_env(:atlas_control, :tui_user, "bob")
     on_exit(fn -> Application.delete_env(:atlas_control, :tui_user) end)

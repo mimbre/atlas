@@ -982,6 +982,20 @@ defmodule RelaDSL.SchemaTest do
         5,
         "section: must be [field: name, heading: text]"
       )
+
+      # A whole field under a label is a section too; a heading and a label at once is not.
+      assert compile!(presented(~s|present expected: "A", section: [field: :body, label: "B"]|))
+
+      error =
+        assert_raise CompileError, fn ->
+          compile!(
+            presented(
+              ~s|present expected: "A", section: [field: :body, label: "B", heading: "C"]|
+            )
+          )
+        end
+
+      assert error.line == 6
     end
 
     test "an answer that sets and removes, or gives a key twice" do

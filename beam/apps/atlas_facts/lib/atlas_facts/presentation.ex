@@ -7,22 +7,20 @@ defmodule AtlasFacts.Presentation do
 
   A presenter (the model's `presentation/0`) says where one subject kind's work is
   written (`kind`, through `on`, in `field`, `state_field`, `handover_field`,
-  `deadline_field` and `owner_relation`) and by which selected subflows' runs (`flows`),
-  or by a legacy flow (`legacy`) while no selected subflow presents it.
+  `deadline_field` and `owner_relation`) and by which selected subflows' runs (`flows`).
 
   The presentation, for a fact `target` the work is written on:
 
-    * `subject` (`%{"kind", "key"}`), `flow` and `legacy` (who presents it), and the run
-      that does: `run`, `generation`, `status`;
-    * `state`: the state presented: the active (or blocked) run's own, or, for a
-      completed run that still follows through (its selection's `follow_through`), the
-      state Flow wrote; nil when no run presents anything;
+    * `subject` (`%{"kind", "key"}`), `flow` (who presents it), and the run that does:
+      `run`, `generation`, `status`;
+    * `state`: the state presented: the active (or blocked) run's own; nil when no run
+      presents anything;
     * `expected`, `why`, `todo` (the state's `instructions`, `section`, `answers`) and
       `deadline`;
     * `owner` (the keys the owner relation links), `manual` (a user or an agent set it,
       not Flow, a migration or nobody), `handover` (the deferred handover Flow holds,
       `%{"from", "position"}`, or nil);
-    * `follow_through`, and `reopened`: its runs ended, a selection that declares reopened
+    * `reopened`: its runs ended, a selection that declares reopened
       work runs again only on an explicit restart (`reopen: "explicit"`) still admits the
       subject, and the subject is not completed: reopened work, nobody's until then;
     * `actionable`: there is something to do: a state is presented and what Flow wrote
@@ -46,12 +44,10 @@ defmodule AtlasFacts.Presentation do
     base = %{
       "subject" => %{"kind" => presenter["subject"], "key" => subject["key"]},
       "flow" => nil,
-      "legacy" => presenter["legacy"],
       "run" => nil,
       "generation" => nil,
       "status" => nil,
       "state" => nil,
-      "follow_through" => false,
       "reopened" => false,
       "owner" => owners(target, presenter),
       "manual" => manual?(target, presenter["owner_relation"]),
@@ -59,12 +55,7 @@ defmodule AtlasFacts.Presentation do
       "deadline" => blank(field(values, presenter["deadline_field"]))
     }
 
-    presented =
-      if presenter["legacy"] do
-        legacy(presenter, stored)
-      else
-        by_run(presenter, latest(presenter, runs), subject_values, stored, completed?)
-      end
+    presented = by_run(presenter, latest(presenter, runs), subject_values, stored, completed?)
 
     view = Map.merge(base, presented)
     state = view["state"]
@@ -77,39 +68,15 @@ defmodule AtlasFacts.Presentation do
     })
   end
 
-  # A legacy flow writes the state it finds on the fact; without a state field the work is
-  # open while it is written.
-  defp legacy(presenter, stored) do
-    %{
-      "state" => stored,
-      "actionable" => presenter["state_field"] == nil or stored != nil
-    }
-  end
-
   defp by_run(presenter, latest, values, stored, completed?) do
-    follow =
-      Enum.find(latest, fn {cfg, run} ->
-        ft = cfg["follow_through"]
-
-        run["status"] == "completed" and is_map(ft) and run["state"] == ft["state"] and
-          holds?(ft["when"] || %{}, values) and stored != nil
-      end)
-
-    case {Enum.find(latest, fn {_, run} -> run["status"] in ["active", "blocked"] end), follow} do
-      {{cfg, run}, _} ->
+    case Enum.find(latest, fn {_, run} -> run["status"] in ["active", "blocked"] end) do
+      {cfg, run} ->
         Map.merge(of_run(cfg, run), %{
           "state" => run["state"],
           "actionable" => presenter["state_field"] == nil or stored == run["state"]
         })
 
-      {nil, {cfg, run}} ->
-        Map.merge(of_run(cfg, run), %{
-          "state" => stored,
-          "follow_through" => true,
-          "actionable" => true
-        })
-
-      {nil, nil} ->
+      nil ->
         ended =
           Enum.find(latest, fn {cfg, run} ->
             run["status"] == "completed" and holds?(cfg["admission"] || %{}, values)

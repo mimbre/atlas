@@ -17,17 +17,14 @@ defmodule AtlasFacts.PresentationTest do
     "handover_field" => "later",
     "deadline_field" => "due",
     "owner_relation" => "held_by",
-    "legacy" => nil,
     "flows" => [
       %{
         "name" => "sorting",
-        "follow_through" => nil,
         "reopen" => "explicit",
         "admission" => %{"phase" => ["first"]}
       },
       %{
         "name" => "shipping",
-        "follow_through" => %{"state" => "shipped", "when" => %{"status" => ["sent"]}},
         "reopen" => "explicit",
         "admission" => %{"phase" => ["second", nil]}
       }
@@ -82,11 +79,11 @@ defmodule AtlasFacts.PresentationTest do
              "owner" => ["ada"],
              "deadline" => "2026-11-04T10:00:00Z",
              "handover" => nil,
-             "follow_through" => false,
              "reopened" => false
            } = shown
 
     assert shown["subject"] == %{"kind" => "parcel", "key" => "P-1"}
+    refute Map.has_key?(shown, "legacy") or Map.has_key?(shown, "follow_through")
   end
 
   test "the latest generation presents" do
@@ -115,31 +112,12 @@ defmodule AtlasFacts.PresentationTest do
     assert shown["todo"] == nil
   end
 
-  test "a completed run that follows through presents what Flow still writes" do
+  test "a completed run presents nothing, whatever Flow still wrote and the subject holds" do
     subject = %{"key" => "P-1", "values" => %{"phase" => "second", "status" => "sent"}}
     target = label(%{"step" => "track", "todo" => "Track it"})
 
-    assert %{
-             "follow_through" => true,
-             "state" => "track",
-             "actionable" => true,
-             "expected" => "Track it",
-             "status" => "completed"
-           } =
-             view(target, [run("shipping", 1, "completed", "shipped")], subject)
-
-    # Once Flow cleared it (the follow-through ended), nothing is presented.
-    assert %{"follow_through" => false, "actionable" => false} =
-             view(label(%{}), [run("shipping", 1, "completed", "shipped")], subject)
-
-    # Nor once the subject no longer holds its condition.
-    assert %{"follow_through" => false, "actionable" => false} =
-             view(
-               target,
-               [run("shipping", 1, "completed", "shipped")],
-               %{subject | "values" => %{"phase" => "second"}},
-               true
-             )
+    assert %{"actionable" => false, "expected" => nil, "todo" => nil, "status" => "completed"} =
+             view(target, [run("shipping", 1, "completed", "shipped")], subject, true)
   end
 
   test "an owner set by hand is manual; one Flow, a migration or nobody set is not" do
@@ -208,31 +186,5 @@ defmodule AtlasFacts.PresentationTest do
   test "no run: nothing to do" do
     assert %{"run" => nil, "actionable" => false, "reopened" => false} =
              view(label(%{"step" => "weigh"}), [])
-  end
-
-  test "a legacy flow's work is open while its state is written, or always without a state field" do
-    legacy = %{@presenter | "legacy" => "old", "flows" => []}
-
-    assert %{
-             "legacy" => "old",
-             "state" => "weigh",
-             "actionable" => true,
-             "expected" => "Weigh it"
-           } =
-             Presentation.view(
-               legacy,
-               label(%{"step" => "weigh", "todo" => "Weigh it"}),
-               @subject,
-               [],
-               fn -> false end
-             )
-
-    assert %{"actionable" => false} =
-             Presentation.view(legacy, label(%{}), @subject, [], fn -> false end)
-
-    stateless = %{legacy | "state_field" => nil}
-
-    assert %{"actionable" => true} =
-             Presentation.view(stateless, label(%{}), @subject, [], fn -> false end)
   end
 end

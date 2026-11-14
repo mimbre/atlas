@@ -247,7 +247,8 @@ defmodule Mix.Tasks.Model.GenTest do
                    "stale" => "keep"
                  }
                ],
-               "counts" => []
+               "counts" => [],
+               "tallies" => []
              }
 
       assert Map.keys(written["flows"]) == ["cup", "tray"]

@@ -20,4 +20,18 @@ defmodule AtlasControl.AnswersTest do
       assert cause == "My reason"
     end
   end
+
+  test "an answer may keep its note in a field as well as giving it as the cause" do
+    answer = %{
+      "label" => "Close",
+      "note" => true,
+      "values" => %{"phase" => "closed", "how" => "$note"}
+    }
+
+    assert {:error, _} = Answers.change(answer, "B-1", "ada", "", @now)
+    assert {:ok, content, cause} = Answers.change(answer, "B-1", "ada", " Filed it \n", @now)
+    assert content["values"] == %{"phase" => "closed", "how" => "Filed it"}
+    assert content["links"] == %{}
+    assert cause == "Filed it"
+  end
 end

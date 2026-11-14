@@ -74,7 +74,7 @@ defmodule RelaDSL.Facts.Model do
         do: RelaDSL.Facts.Derived.of(__facts__(), kind, facts, lookup)
 
       @doc "Where runs and their inputs are kept and who writes them; nil without one."
-      def run_mapping, do: unquote(Macro.escape(run_mapping(d["flow_runtime"])))
+      def run_mapping, do: unquote(Macro.escape(run_mapping(d["flow_runtime"], d["relations"])))
 
       @doc "Who presents the work on each kind of fact (`RelaDSL.Presentation`)."
       def presentation, do: unquote(Macro.escape(presenters))
@@ -120,9 +120,22 @@ defmodule RelaDSL.Facts.Model do
     end)
   end
 
-  defp run_mapping(nil), do: nil
+  defp run_mapping(nil, _relations), do: nil
 
-  defp run_mapping(config) do
+  defp run_mapping(config, relations) do
+    # Rela's public schema has no Atlas component rules. Carry only the component
+    # definitions needed by choice authorization in the compiled Facts contract.
+    components =
+      Map.new(
+        for {name, %{"component" => %{}} = spec} <- relations || %{},
+            do: {name, Map.take(spec, ~w(from to component))}
+      )
+
+    config =
+      if is_map(config["inputs"]),
+        do: put_in(config, ["inputs", "components"], components),
+        else: config
+
     config
     |> Map.take(["kind", "fields", "writer", "inputs"])
     |> Map.put(

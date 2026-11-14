@@ -12,15 +12,15 @@ defmodule AtlasFlow.Talk do
   @wrote {__MODULE__, :wrote}
 
   @doc """
-  Run `fun`: `{its result, the highest position a fact put while it ran was stored at}`
-  (nil: none).
+  Run `fun`: `{its result, the positions the facts put while it ran were stored at}`,
+  ascending (`[]`: none).
   """
   def writing(fun) do
-    Process.put(@wrote, nil)
+    Process.put(@wrote, [])
 
     try do
       result = fun.()
-      {result, Process.get(@wrote)}
+      {result, Enum.sort(Enum.uniq(Process.get(@wrote)))}
     after
       Process.delete(@wrote)
     end
@@ -29,8 +29,7 @@ defmodule AtlasFlow.Talk do
   defp wrote(position) when is_integer(position) do
     case Process.get(@wrote, :none) do
       :none -> :ok
-      nil -> Process.put(@wrote, position)
-      highest -> Process.put(@wrote, max(highest, position))
+      positions -> Process.put(@wrote, [position | positions])
     end
   end
 
@@ -56,6 +55,31 @@ defmodule AtlasFlow.Talk do
   @doc "Read: Facts' answer, or `%{\"error\" => …}`."
   def transition_read(kind, content),
     do: read(kind, Map.put(content, "consistency", "transition"))
+
+  @doc "Trusted, read-only evidence for an explicitly reviewed tally retirement."
+  def recovery_evidence(write, writer, candidate \\ nil) do
+    envelope = Envelope.new("read", "_flow_recovery")
+    id = envelope.id
+    store = AtlasBus.store()
+
+    with :ok <-
+           AtlasBus.send(envelope, %{
+             "write" => write,
+             "by" => writer["by"],
+             "candidate" => candidate
+           }) do
+      receive do
+        {:atlas_bus, %Envelope{id: ^id, class: "answer", sender: ^store},
+         %{"receipt" => %{"class" => "refused"} = receipt}} ->
+          {:ok, receipt}
+
+        {:atlas_bus, %Envelope{id: ^id, class: "answer", sender: ^store}, _} ->
+          {:error, :recovery_ineligible}
+      after
+        @wait -> {:error, :recovery_evidence_unavailable}
+      end
+    end
+  end
 
   def read(kind, content), do: read(kind, content, @tries)
 

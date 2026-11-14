@@ -52,6 +52,7 @@ defmodule AtlasFacts.Server do
   @description "_description"
   @page "_page"
   @position "_position"
+  @recovery "_flow_recovery"
   # How many reads one page may ask for, and what each may say (no other query context).
   @page_reads 64
   @page_read_keys ~w(key linked plain incoming presentation)
@@ -158,6 +159,25 @@ defmodule AtlasFacts.Server do
 
   def handle_info({:atlas_bus, _envelope, _content}, state), do: {:noreply, state}
 
+  # Maintenance evidence is read from the owning ledger, never ordinary write replay.
+  # Only the already configured machine endpoint may ask; the reply grants no write.
+  defp dispatch(%Envelope{class: "read", kind: @recovery} = envelope, content, state) do
+    writer = get_in(context(state), ["flow_runtime", "writer"])
+
+    answer =
+      if is_map(content) and is_map(writer) and is_binary(writer["sender"]) and
+           writer["sender"] != "" and
+           is_binary(writer["by"]) and writer["by"] != "" and
+           envelope.sender == writer["sender"] and content["by"] == writer["by"] do
+        recovery_evidence(state, content["write"], writer, content["candidate"])
+      else
+        %{"error" => "forbidden"}
+      end
+
+    reply(envelope, "answer", answer, nil)
+    {:noreply, state}
+  end
+
   defp dispatch(%Envelope{class: "read", kind: @page} = envelope, content, state) do
     if String.starts_with?(envelope.sender || "", "control/") do
       ordinary(envelope, content, state)
@@ -214,6 +234,80 @@ defmodule AtlasFacts.Server do
         :ordinary ->
           dispatch_ordinary(envelope, content, state)
       end
+    end
+  end
+
+  defp recovery_evidence(
+         state,
+         %{"id" => id, "kind" => kind, "content" => content},
+         writer,
+         candidate
+       )
+       when is_binary(id) and is_binary(kind) and is_map(content) do
+    state = %{state | rela: AtlasFacts.Collections.uncached(state.rela)}
+
+    with {"refused", about, nil} <- Ledger.answer(state.ledger, id),
+         true <- Enum.all?(~w(op key by), &(about[&1] == content[&1])),
+         :ok <- recovery_preflight(state, kind, content, writer),
+         :ok <- recovery_successor(state, id, kind, content, writer, candidate) do
+      %{
+        "receipt" => %{
+          "class" => "refused",
+          "content" => about,
+          "position" => nil,
+          "binding" => "legacy_unbound"
+        }
+      }
+    else
+      _ -> %{"error" => "recovery evidence unavailable or ineligible"}
+    end
+  rescue
+    _ -> %{"error" => "recovery evidence unavailable or ineligible"}
+  catch
+    {@lookup_failed, _} -> %{"error" => "recovery evidence unavailable or ineligible"}
+  end
+
+  defp recovery_evidence(_state, _write, _writer, _candidate),
+    do: %{"error" => "invalid recovery request"}
+
+  defp recovery_successor(_state, _id, _kind, _content, _writer, nil), do: :ok
+
+  defp recovery_successor(state, id, kind, content, writer, candidate) do
+    with true <-
+           is_binary(candidate["id"]) and candidate["id"] != id and candidate["kind"] == kind,
+         next = candidate["content"],
+         true <- Enum.all?(~w(op key by), &(next[&1] == content[&1])),
+         true <- Map.keys(next["values"]) == Map.keys(content["values"]) do
+      recovery_preflight(state, kind, next, writer)
+    end
+  end
+
+  defp recovery_preflight(state, kind, content, writer) do
+    with %{"op" => "change", "key" => key, "values" => values} <- content,
+         true <- Map.keys(content) -- ~w(op key values by links) == [],
+         true <- (content["links"] || %{}) == %{} and content["by"] == writer["by"],
+         [{field, n}] when is_integer(n) and n >= 0 <- Map.to_list(values),
+         true <- function_exported?(state.model, :__rela__, 1),
+         extension = state.model.__rela__(:description).extension,
+         true <-
+           get_in(extension, ["entities", kind, "properties", field, "set_by"]) == [writer["by"]],
+         {:ok, spec, state} <- kind_spec(state, kind),
+         lookup = lookup(state, kind, spec, "change", key),
+         change = Map.put(content, "links", %{}),
+         [own] <- state.model.with_change(kind, change, lookup),
+         true <- own == Map.merge(change, %{"as" => "fact", "kind" => kind}),
+         :stored <-
+           store(
+             Map.merge(state, %{sender: writer["sender"], validate_only: true}),
+             kind,
+             spec,
+             "change",
+             key,
+             content
+           ) do
+      :ok
+    else
+      _ -> :ineligible
     end
   end
 
@@ -425,7 +519,7 @@ defmodule AtlasFacts.Server do
   # Metadata reads fetch their own fresh snapshot in read/3. They are not entity
   # kinds to pre-validate: doing so would fetch the same backend schema twice.
   defp ensure_description(state, %Envelope{class: "read", kind: kind})
-       when kind in [@description, @position],
+       when kind in [@description, @position, @recovery],
        do: {:ok, state}
 
   defp ensure_description(state, %Envelope{class: "read", kind: @page}) do

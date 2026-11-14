@@ -149,13 +149,39 @@ defmodule Model.DescriptionTest do
       refute Map.has_key?(d.schema["entities"], "scene")
       refute Map.has_key?(d.schema["relations"], "accepted_by")
 
-      assert Map.keys(d.extension["flows"]) ==
-               ~w(build_and_merge restore_service review_and_merge)
-
       assert d.extension["entities"]["issue"]["create"]["id"]["prefix"] == "IS-Maint-"
+      refute Map.has_key?(d.extension, "flows")
 
-      assert List.last(d.extension["flows"]["build_and_merge"]["states"])["owner"] ==
-               %{"kind" => "agent", "key" => "runner"}
+      # Its own subflows build an issue, owned by the runner, and merge its pull request,
+      # which reports the merge to its issue.
+      runtime = RelaDSL.Description.Plain.unorder(d.flow_runtime)["flow_runtime"]
+
+      assert Enum.sort(Map.keys(runtime["selection"])) ==
+               ~w(incident_issue incident_pull_request)
+
+      [issue] =
+        for f <- Model.Profiles.Incident.subflows(:test), f.name() == "incident_issue", do: f
+
+      assert issue.owner(issue.initial())["default"] == %{"kind" => "agent", "key" => "runner"}
+
+      assert [%{"child" => "incident_pull_request", "parent_subject" => "issue"}] =
+               Model.Profiles.Incident.composition()["links"]
+
+      assert AtlasFlow.Model.load(Model.Profiles.Incident, :test, %{}).refusal == nil
+
+      # The pull request ends merged or closed; its merge, through the link, ends the issue.
+      [pr] =
+        for f <- Model.Profiles.Incident.subflows(:test),
+            f.name() == "incident_pull_request",
+            do: f
+
+      assert pr.next("open", %{"state" => "merged"}, nil) == {:to, "merged"}
+      assert pr.next("open", %{"state" => "closed"}, nil) == {:to, "closed"}
+      assert pr.next("open", %{"state" => "open"}, nil) == :stay
+
+      merged = %{roles: ["atlas-flow"], changed: %{"pr_outcome" => "integrated"}}
+      assert issue.next("building", %{"pr_outcome" => "integrated"}, merged) == {:to, "done"}
+      assert issue.next("building", %{"pr_outcome" => "integrated"}, nil) == :stay
     end
   end
 

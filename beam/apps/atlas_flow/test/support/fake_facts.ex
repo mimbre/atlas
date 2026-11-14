@@ -81,6 +81,8 @@ defmodule AtlasFlow.FakeFacts do
        inputs: %{},
        position: 0,
        busy: MapSet.new(),
+       blocked_reads: MapSet.new(),
+       refused_writes: MapSet.new(),
        busy_after_write: MapSet.new(),
        description: Keyword.get(opts, :description, description())
      }}
@@ -116,6 +118,18 @@ defmodule AtlasFlow.FakeFacts do
   def handle_call({:free, kind, key}, _from, s),
     do: {:reply, :ok, %{s | busy: MapSet.delete(s.busy, {kind, key})}}
 
+  def handle_call({:block_read, kind, content}, _from, s),
+    do: {:reply, :ok, %{s | blocked_reads: MapSet.put(s.blocked_reads, {kind, content})}}
+
+  def handle_call({:allow_read, kind, content}, _from, s),
+    do: {:reply, :ok, %{s | blocked_reads: MapSet.delete(s.blocked_reads, {kind, content})}}
+
+  def handle_call({:refuse_write, kind, key}, _from, s),
+    do: {:reply, :ok, %{s | refused_writes: MapSet.put(s.refused_writes, {kind, key})}}
+
+  def handle_call({:allow_write, kind, key}, _from, s),
+    do: {:reply, :ok, %{s | refused_writes: MapSet.delete(s.refused_writes, {kind, key})}}
+
   @impl true
   def handle_info({:atlas_bus, %Envelope{class: "read"} = e, content}, s) do
     s = if flow?(e.sender), do: %{s | reads: count(s.reads, content)}, else: s
@@ -148,6 +162,11 @@ defmodule AtlasFlow.FakeFacts do
         {kind, _} ->
           %{"facts" => for({{^kind, _}, fact} <- s.facts, do: fact)}
       end
+
+    answer =
+      if MapSet.member?(s.blocked_reads, {e.kind, content}),
+        do: %{"error" => "Facts did not answer"},
+        else: answer
 
     s =
       if flow?(e.sender),
@@ -265,6 +284,10 @@ defmodule AtlasFlow.FakeFacts do
         not Enum.all?(c["was"] || %{}, fn {field, value} -> old["values"][field] == value end)
 
     cond do
+      flow?(e.sender) and MapSet.member?(s.refused_writes, {e.kind, key}) ->
+        AtlasBus.send(Envelope.reply(e, "refused"), %{"reasons" => ["projection unavailable"]})
+        {:noreply, s}
+
       old != nil and c["op"] == "create" and
           Enum.all?(c["values"] || %{}, fn {f, v} -> old["values"][f] == v end) ->
         AtlasBus.send(

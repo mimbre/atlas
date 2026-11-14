@@ -4,8 +4,8 @@ defmodule AtlasFlow.Runs.MigrationTest do
   alias AtlasFlow.Runs.{Run, Store}
   @now ~U[2026-11-12 00:00:00Z]
   # A digest of the same definition in an older encoding (as a re-key migration names it).
-  @legacy_digest :crypto.hash(:sha256, "the sort, encoded as before")
-                 |> Base.encode16(case: :lower)
+  @earlier_digest :crypto.hash(:sha256, "the sort, encoded as before")
+                  |> Base.encode16(case: :lower)
 
   # The depot, whose sort's runs move from the older encoding by a re-key.
   defmodule Rekeyed do
@@ -50,7 +50,7 @@ defmodule AtlasFlow.Runs.MigrationTest do
 
   defp rekey(flow) do
     %{
-      "from" => @legacy_digest,
+      "from" => @earlier_digest,
       "to" => flow.digest(),
       "rekey" => true,
       "states" => Map.new(flow.states(), &{&1, &1}),
@@ -75,7 +75,7 @@ defmodule AtlasFlow.Runs.MigrationTest do
           %{fresh | "status" => "idle"},
           %{fresh | "status" => "blocked", "blocked_reason" => "other reason"}
         ] do
-      old = Map.put(run, "definition_sha256", @legacy_digest)
+      old = Map.put(run, "definition_sha256", @earlier_digest)
       assert {:error, :definition_changed} = Run.migrate(old, flow, [], @now)
       assert {:ok, migrated} = Run.migrate(old, flow, [rekey(flow)], @now)
       assert migrated["definition_sha256"] == flow.digest()
@@ -87,7 +87,7 @@ defmodule AtlasFlow.Runs.MigrationTest do
       assert Map.delete(migrated["pending"], "migrations") == old["pending"]
 
       assert audit == %{
-               "from" => @legacy_digest,
+               "from" => @earlier_digest,
                "to" => flow.digest(),
                "state" => old["state"],
                "entry" => old["entry"],
@@ -99,7 +99,7 @@ defmodule AtlasFlow.Runs.MigrationTest do
     end
 
     blocked =
-      fresh |> Map.put("definition_sha256", @legacy_digest) |> Run.block_definition(flow)
+      fresh |> Map.put("definition_sha256", @earlier_digest) |> Run.block_definition(flow)
 
     assert {:ok, recovered} = Run.migrate(blocked, flow, [rekey(flow)], @now)
     assert recovered["status"] == fresh["status"]
@@ -112,7 +112,7 @@ defmodule AtlasFlow.Runs.MigrationTest do
     assert {:error, :definition_changed} = Run.migrate(blocked, old_flow(), [rekey(flow)], @now)
   end
 
-  test "engine restarts over legacy digests without re-entering or resetting deadlines", %{
+  test "engine restarts over earlier digests without re-entering or resetting deadlines", %{
     clock: clock
   } do
     alias AtlasFlow.Engine
@@ -123,16 +123,11 @@ defmodule AtlasFlow.Runs.MigrationTest do
 
     old =
       old
-      |> Map.put("definition_sha256", @legacy_digest)
+      |> Map.put("definition_sha256", @earlier_digest)
       |> put_in(["pending", "writes"], [])
 
     FakeFacts.put("cursor", %{"key" => old["key"], "values" => Store.encode(config, old)})
     opts = [clock: {ManualClock, clock}, model: Rekeyed]
-
-    on_exit(fn ->
-      for {_, pid, _, _} <- DynamicSupervisor.which_children(AtlasFlow.Supervisor),
-          do: DynamicSupervisor.terminate_child(AtlasFlow.Supervisor, pid)
-    end)
 
     FakeFacts.lose_ack("cursor")
     Registry.unregister(AtlasBus.Endpoints, "flow")

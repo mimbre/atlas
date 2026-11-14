@@ -78,11 +78,10 @@ In prod, after the merge and a restart, every open scene and use case gets its `
   4. `building` (otherwise).
 
   Each open state names its owner, what is expected, why, and its next states.
-- **The check:** Facts checks every definition before anyone runs it (`AtlasFacts.Flows`). Every state that is not done has an owner and a way out to a next state, every state reaches done, the last state holds when no other does, and the kinds, field and owner relation exist. The description Facts answers carries `flow_problems`, and Flow runs only a sound definition. A unit test checks the definitions in `rela/atlas.json`, so CI refuses an unsound one.
+- **The check:** the model checks every subflow when it compiles (`model/contract`), and the pinned rela validates the generated `flows.yaml`; Flow refuses to run a selected subflow it cannot run, writing nothing.
 - **The engine:** Flow is its own BEAM application, `atlas_flow`, beside Bus, Facts and Control, and it talks only over the Bus.
-  - It runs one supervised process per open fact (`AtlasFlow.Item`), registered by kind and key, so a second one cannot start. Each process has a timer in every state (every minute; `flow.tick_seconds` in the environment's settings, or a state's `every_seconds`).
-  - On its timer, and at once on any hint, a process reads its fact and what hangs under it, works out the state, and stores only what differs (safe to repeat). It stops once its fact is done or gone. It keeps nothing Facts does not hold, so a crashed process is started again and goes on from Facts.
-  - At boot, and every round, the engine starts a process for every open fact without one. A hint of a new fact starts its process at once. Nobody depends on a hint.
+  - It keeps one durable run per subject of each selected subflow, in Facts, and no process per fact (since flow slice 14: the old flow definitions and their per-fact processes are gone).
+  - On its round (every minute; `flow.tick_seconds` in the environment's settings, sooner when a run's timer is due), and at once on any hint about the facts it changes, it reconciles the runs, then projects what each presents (what is expected, the state and the owner) on its subject, storing only what differs (safe to repeat). It keeps nothing Facts does not hold, so a restarted Flow goes on from Facts. Nobody depends on a hint.
 - No kind is named in BEAM, TUI or agent code; the boundary test covers `atlas_flow` too.
 
 `e2e/scenarios/uc-atlas-27.exs` follows these steps on a private instance.

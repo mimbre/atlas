@@ -1,7 +1,8 @@
 defmodule Model.Foundation do
   @moduledoc """
   Foundation: the actors (people and agents), Assignments and turns, guidance records,
-  the decision ledger with its gate verdicts, and the durable flow runs. Every
+  the decision ledger with its gate verdicts, To-Dos (work no flow covers), and the
+  durable flow runs. Every
   composition selects it.
   """
   use RelaDSL.Module,
@@ -13,6 +14,7 @@ defmodule Model.Foundation do
       Model.Turn,
       Model.Guidance,
       Model.Decision,
+      Model.ToDo,
       Model.GateVerdict,
       Model.FlowRun
     ]

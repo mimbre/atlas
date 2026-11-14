@@ -31,7 +31,7 @@ defmodule RelaDSL.Runtime.Model do
           "items" =>
             RelaDSL.Presentation.owned(
               RelaDSL.Presentation.presenters(
-                %{"relations" => relations, "flows" => extension["flows"] || %{}},
+                %{"relations" => relations},
                 flow_runtime
               )
             )

@@ -2,7 +2,9 @@
 #   ATLAS_E2E_RELA_BIN=<dir with rela-server> mix run integration/work_anchors.exs
 # (without it, rela is looked for as AtlasE2E.Instance.rela_bin!/0 does)
 # Proves, on the real description, the compiled model and a real rela store, the three ways work hangs from the
-# records it is based on: an accepted one with no work waits for it; work based on a
+# records it is based on: an accepted one with no work waits for it (its follow_through
+# run, which Flow reconciles and projects through Facts: the tally of the work based on
+# it, kept on the frozen record, ends it, and so does its no_work); work based on a
 # replaced one is to be reviewed; and a worker reads them first.
 ExUnit.start(seed: 0)
 
@@ -106,20 +108,32 @@ defmodule WorkAnchorsTest do
     })
   end
 
-  # The state the model's compiled legacy flow puts a fact in, from what Facts answers.
-  defp state(relations, kind, key) do
-    flow = AtlasFlow.Legacy.for_kind(Model.AtlasEyra.legacy(), kind)
-    %{"fact" => fact} = ask(kind, %{"key" => key, "incoming" => false})
-    pointing = AtlasFlow.Legacy.pointing(flow, relations, kind)
+  # Flow's runs of follow_through reconciled and each record projected, as Flow's engine
+  # does, from a process of its own on the Bus (`flow`, the writer Facts takes runs and
+  # tallies from); only follow_through runs here (decide would ask Gates). The record's
+  # run, `{state, status}`, and what its Assignment says is expected.
+  defp follow_through(key) do
+    runner =
+      AtlasFlow.Model.load(Model.AtlasEyra, AtlasFlow.Model.environment(), %{
+        "decider" => "melle"
+      })
 
-    pointed =
-      for relation <- pointing,
-          from <- relations[relation]["from"],
-          fact <- ask(from, %{"linked" => %{relation => key}, "plain" => true})["facts"],
-          do: fact
+    runner = update_in(runner.config["selection"], &Map.take(&1, ["follow_through"]))
 
-    {state, vars} = flow.state(fact, pointed, [], pointing)
-    {state, flow.expected(state, vars)}
+    {run, assignment} =
+      Task.async(fn ->
+        :ok = AtlasBus.attach("flow")
+        {:ok, _} = AtlasFlow.Runs.Store.reconcile(runner.config, runner.flows, DateTime.utc_now())
+
+        for %{"key" => k} <- ask("decision", %{})["facts"],
+            do: assert({:ok, _} = AtlasFlow.Runs.Projection.project(runner, "decision", k))
+
+        {:ok, run} = AtlasFlow.Runs.Store.latest(runner.config, "follow_through", "decision", key)
+        {run, ask("assignment", %{"key" => "AS-" <> key, "plain" => true})["fact"]}
+      end)
+      |> Task.await(30_000)
+
+    {{run["state"], run["status"]}, assignment["values"]["expected"]}
   end
 
   test "an accepted record waits for work, flags replaced work, and is read first" do
@@ -127,7 +141,6 @@ defmodule WorkAnchorsTest do
     # the parent and component marks). The flows are compiled and checked with the model.
     %{"description" => served} = ask("_description", %{})
     assert served["entities"]["decision"]["plural"] == "decisions"
-    d = Model.AtlasEyra.relations()
 
     put("person", %{"op" => "create", "key" => "melle", "values" => %{"name" => "Melle"}})
 
@@ -167,7 +180,9 @@ defmodule WorkAnchorsTest do
     )
 
     # 1. Accepted, nothing based on it: waiting, with its consequences as what is expected.
-    assert state(d, "decision", "D-0024") == {"waiting", "Carry it out: What D-0024 changes."}
+    assert {{"waiting", "active"}, expected} = follow_through("D-0024")
+    assert expected =~ "What D-0024 changes."
+    assert ask("decision", %{"key" => "D-0024", "plain" => true})["fact"]["values"]["work"] == 0
 
     put("scene", %{
       "op" => "create",
@@ -177,10 +192,12 @@ defmodule WorkAnchorsTest do
       "by" => "melle"
     })
 
-    assert state(d, "decision", "D-0024") == {"accepted", nil}
+    # The tally of its work, kept on the frozen record, ends its run; nothing is expected.
+    assert {{"carried_out", "completed"}, nil} = follow_through("D-0024")
+    assert ask("decision", %{"key" => "D-0024", "plain" => true})["fact"]["values"]["work"] == 1
 
     # Or it says no work is needed: accepted records still take that one value.
-    assert state(d, "decision", "D-0025") |> elem(0) == "waiting"
+    assert {{"waiting", "active"}, _} = follow_through("D-0025")
 
     put("decision", %{
       "op" => "change",
@@ -189,7 +206,7 @@ defmodule WorkAnchorsTest do
       "by" => "melle"
     })
 
-    assert state(d, "decision", "D-0025") == {"no_work", nil}
+    assert {{"no_work", "completed"}, nil} = follow_through("D-0025")
 
     # 3. Read first: what it is based on, then what applies to all work of its scopes, as
     # the model compiled it (what `atlas turn` and Runtime give a worker).

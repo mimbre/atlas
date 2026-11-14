@@ -38,6 +38,9 @@ roles:
   delegate:
     read: ["*"]
     update: [decision]
+  assignee:
+    read: ["*"]
+    update: [to_do]
 assignments:
   system:atlas-flow: atlas-flow
   system:sf-flow: sf-flow

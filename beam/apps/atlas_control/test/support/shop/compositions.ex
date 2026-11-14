@@ -203,20 +203,14 @@ end
 
 defmodule Shop.Assigning do
   @moduledoc "A start page of what is kept by the client: a keeper opens on what it keeps."
-  use Shop.Composition, name: "shop-assigning", concepts: Shop.Base.concepts() ++ [Shop.Keeper]
+  use Shop.Composition,
+    name: "shop-assigning",
+    concepts: Shop.Base.concepts() ++ [Shop.Keeper, Shop.Runs, Shop.Flows.Kept],
+    subflows: [Shop.Flows.Kept]
 
   relation(:kept_by, label: "kept by", from: [:widget, :part], to: [:keeper], max_outgoing: 1)
   extend_entity(:keeper, top: false)
   extend_entity(:widget, start: [key: "s", label: "Widgets"])
-
-  legacy_flow(:f,
-    kinds: [:widget],
-    field: :shade,
-    states: [
-      [name: :done, when: [completed: true], done: true],
-      [name: :open, owner: [kind: :keeper, key: "K-1"], expected: "Keep it", next: [:done]]
-    ]
-  )
 
   start_page(
     assigned: [
@@ -232,20 +226,12 @@ defmodule Shop.AssigningOpen do
   @moduledoc "As Assigning, with open work: the same list for everyone."
   use Shop.Composition,
     name: "shop-assigning-open",
-    concepts: Shop.Base.concepts() ++ [Shop.Keeper]
+    concepts: Shop.Base.concepts() ++ [Shop.Keeper, Shop.Runs, Shop.Flows.Kept],
+    subflows: [Shop.Flows.Kept]
 
   relation(:kept_by, label: "kept by", from: [:widget, :part], to: [:keeper], max_outgoing: 1)
   extend_entity(:keeper, top: false)
   extend_entity(:widget, start: [key: "s", label: "Widgets"])
-
-  legacy_flow(:f,
-    kinds: [:widget],
-    field: :shade,
-    states: [
-      [name: :done, when: [completed: true], done: true],
-      [name: :open, owner: [kind: :keeper, key: "K-1"], expected: "Keep it", next: [:done]]
-    ]
-  )
 
   start_page(
     assigned: [
@@ -260,34 +246,20 @@ end
 
 defmodule Shop.CardedStart do
   @moduledoc "What is held is a card: the start page shows the widget it belongs to."
-  use Shop.Composition, name: "shop-carded-start", concepts: Shop.Base.concepts() ++ [Shop.Card]
-
-  legacy_flow(:f,
-    kinds: [:widget],
-    on: :card,
-    field: :todo,
-    states: [
-      [name: :done, when: [completed: true], done: true],
-      [name: :open, owner: [kind: :member, key: "ada"], expected: "Paint it", next: [:done]]
-    ]
-  )
+  use Shop.Composition,
+    name: "shop-carded-start",
+    concepts: Shop.Base.concepts() ++ [Shop.Card, Shop.Runs, Shop.Flows.Painted],
+    subflows: [Shop.Flows.Painted]
 
   start_page(assigned: [relation: :held_by, title: "Held by you", count: "{count} held"])
 end
 
 defmodule Shop.Open do
   @moduledoc "Open work: the list of the cards is what is held, for everyone; a card is due."
-  use Shop.Composition, name: "shop-open", concepts: Shop.Base.concepts() ++ [Shop.Card]
-
-  legacy_flow(:f,
-    kinds: [:widget],
-    on: :card,
-    field: :todo,
-    states: [
-      [name: :done, when: [completed: true], done: true],
-      [name: :open, owner: [kind: :member, key: "ada"], expected: "Paint it", next: [:done]]
-    ]
-  )
+  use Shop.Composition,
+    name: "shop-open",
+    concepts: Shop.Base.concepts() ++ [Shop.Card, Shop.Runs, Shop.Flows.Painted],
+    subflows: [Shop.Flows.Painted]
 
   extend_entity(:card, late: [after: :due, while: :todo])
 
@@ -298,87 +270,32 @@ defmodule Shop.Open do
 end
 
 defmodule Shop.Todo do
-  @moduledoc "What to do: a flow on widgets, on their card; its state is the card's step."
-  use Shop.Composition, name: "shop-todo", concepts: Shop.Base.concepts() ++ [Shop.Card]
+  @moduledoc "What to do: a subflow on widgets, on their card; its state is the card's step."
+  use Shop.Composition,
+    name: "shop-todo",
+    concepts: Shop.Base.concepts() ++ [Shop.Card, Shop.Runs, Shop.Flows.Checked],
+    subflows: [Shop.Flows.Checked]
 
   todo_words(title: "Your move", why: "Because", instructions: "How", answers: "Keys")
-
-  legacy_flow(:f,
-    kinds: [:widget],
-    on: :card,
-    field: :todo,
-    state_field: :step,
-    owner_relation: :held_by,
-    states: [
-      [name: :done, when: [completed: true], done: true],
-      [
-        name: :check,
-        owner: [kind: :member, key: "ada"],
-        expected: "Check it",
-        next: [:done],
-        why: "it is painted",
-        todo: [
-          instructions: "Look it over.",
-          section: [field: :notes, heading: "Check"],
-          answers: [[key: "a", label: "Approve"]]
-        ]
-      ]
-    ]
-  )
 end
 
 defmodule Shop.Delegated do
   @moduledoc "What to do, for whoever the environment configures as the approver (`config`)."
-  use Shop.Composition, name: "shop-delegated", concepts: Shop.Base.concepts() ++ [Shop.Card]
-
-  legacy_flow(:f,
-    kinds: [:widget],
-    on: :card,
-    field: :todo,
-    state_field: :step,
-    owner_relation: :held_by,
-    states: [
-      [name: :done, when: [completed: true], done: true],
-      [
-        name: :check,
-        owner: [kind: :member, config: :approver],
-        expected: "Check it",
-        next: [:done],
-        why: "it is painted"
-      ]
-    ]
-  )
+  use Shop.Composition,
+    name: "shop-delegated",
+    concepts: Shop.Base.concepts() ++ [Shop.Card, Shop.Runs, Shop.Flows.Delegated],
+    subflows: [Shop.Flows.Delegated]
 end
 
 defmodule Shop.Answering do
   @moduledoc "The owner's answers: approve sets checked_by; send back removes it."
-  use Shop.Composition, name: "shop-answering", concepts: Shop.Base.concepts() ++ [Shop.Card]
+  use Shop.Composition,
+    name: "shop-answering",
+    concepts: Shop.Base.concepts() ++ [Shop.Card, Shop.Runs, Shop.Flows.Answered],
+    subflows: [Shop.Flows.Answered]
 
   todo_words(title: "Your move", why: "Because", instructions: "How", answers: "Keys")
   extend_relation(:checked_by, actions: [set: [label: "Check", key: "v"]])
-
-  legacy_flow(:f,
-    kinds: [:widget],
-    on: :card,
-    field: :todo,
-    state_field: :step,
-    owner_relation: :held_by,
-    states: [
-      [name: :done, when: [completed: true], done: true],
-      [
-        name: :check,
-        owner: [kind: :member, key: "ada"],
-        expected: "Check it",
-        next: [:done],
-        todo: [
-          answers: [
-            [key: "v", label: "Approve", set: :checked_by],
-            [key: "z", label: "Send back", remove: :checked_by]
-          ]
-        ]
-      ]
-    ]
-  )
 end
 
 defmodule Shop.Reviewed do
@@ -402,29 +319,6 @@ defmodule Shop.Reviewed do
 
   todo_words(title: "Your move", why: "Because", instructions: "How", answers: "Keys")
   extend_relation(:checked_by, actions: [set: [label: "Check", key: "v"]])
-
-  legacy_flow(:f,
-    kinds: [:widget],
-    on: :card,
-    field: :todo,
-    state_field: :step,
-    owner_relation: :held_by,
-    states: [
-      [name: :done, when: [completed: true], done: true],
-      [
-        name: :check,
-        owner: [kind: :member, key: "ada"],
-        expected: "Check it",
-        next: [:done],
-        todo: [
-          answers: [
-            [key: "v", label: "Approve", set: :checked_by],
-            [key: "z", label: "Send back", remove: :checked_by]
-          ]
-        ]
-      ]
-    ]
-  )
 
   acl(comment: "The shop's flow.")
   role("shop-flow", read: ["*"], update: [:widget, :run])

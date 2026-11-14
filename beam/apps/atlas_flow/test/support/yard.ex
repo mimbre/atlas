@@ -10,8 +10,7 @@ defmodule AtlasFlow.Yard do
   """
   use RelaDSL.Composition,
     name: "yard",
-    subflow_behaviour: AtlasFlow.Subflow,
-    legacy_behaviour: AtlasFlow.Legacy
+    subflow_behaviour: AtlasFlow.Subflow
 
   @behaviour AtlasFlow.Model
 

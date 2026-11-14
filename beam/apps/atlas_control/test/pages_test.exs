@@ -11,12 +11,74 @@ defmodule AtlasControl.PagesTest do
   defp fact(key, values, version \\ "v1"),
     do: %{"key" => key, "values" => values, "version" => version}
 
-  # A page from Facts' answers to its reads, each fact presented where its read asks for
-  # it, as Facts presents it (`AtlasControl.Presented`).
-  defp render(route, m, answers, form \\ %{}) do
+  # A page from Facts' answers to its reads; a fact whose work is presented carries the
+  # presentation Facts derives from its runs (`running/4`).
+  defp render(route, m, answers, form \\ %{}), do: Pages.render(route, m, answers, form)
+
+  # The page while the run that presents its work is active in `state`.
+  defp render_run(route, m, state, answers, form \\ %{}),
+    do: render(route, m, running(answers, route, m, state), form)
+
+  # Facts' answers to `route`'s reads, with the work on each fact a presenter writes on
+  # presented as Facts derives it while the run that presents it is active in `state`:
+  # what is expected is what Flow wrote, while what Flow wrote agrees with the run's state;
+  # why and the todo are the state's; the owner is who the owner relation links.
+  defp running(answers, route, m, state) do
+    module = if is_map(m), do: m.module, else: m
     reads = Pages.reads(route, m)
     {read, rest} = Enum.split(answers, length(reads))
-    Pages.render(route, m, AtlasControl.Presented.answers(m, reads, read) ++ rest, form)
+
+    presented =
+      for {{kind, content}, answer} <- Enum.zip(reads, read) do
+        p =
+          content["presentation"] == true &&
+            Enum.find(module.presentation(), &(&1["kind"] == kind))
+
+        # A fixture that gives its own presentation (a run that ended, say) keeps it.
+        present = &Map.put_new_lazy(&1, "presentation", fn -> view(p, &1, state) end)
+
+        case {p, answer} do
+          {nil, _} ->
+            answer
+
+          {false, _} ->
+            answer
+
+          {_, %{"fact" => %{} = fact}} ->
+            %{answer | "fact" => present.(fact)}
+
+          {_, %{"facts" => facts}} when is_list(facts) ->
+            %{answer | "facts" => Enum.map(facts, present)}
+
+          _ ->
+            answer
+        end
+      end
+
+    presented ++ rest
+  end
+
+  defp view(p, fact, state) do
+    values = fact["values"] || %{}
+    agrees = p["state_field"] == nil or values[p["state_field"]] == state
+    shown = p["states"][state] || %{}
+    origin = get_in(fact, ["origins", p["owner_relation"] || ""]) || %{}
+    blank = &if(&1 in [nil, ""], do: nil, else: &1)
+
+    %{
+      "state" => state,
+      "status" => "active",
+      "flow" => "f",
+      "reopened" => false,
+      "actionable" => agrees,
+      "expected" => if(agrees, do: blank.(p["field"] && values[p["field"]])),
+      "why" => shown["why"],
+      "todo" => if(agrees, do: shown["todo"]),
+      "owner" => (p["owner_relation"] && get_in(fact, ["links", p["owner_relation"]])) || [],
+      "manual" => origin["by"] not in [nil, "flow", "migration"],
+      "handover" => nil,
+      "deadline" => blank.(p["deadline_field"] && values[p["deadline_field"]])
+    }
   end
 
   test "failed reads preserve typed codes without deriving them from prose" do
@@ -1318,7 +1380,7 @@ defmodule AtlasControl.PagesTest do
     }
 
     %{blocks: [%{"props" => list}]} =
-      render({:assigned, "ada"}, @carded_start, [cards, widgets])
+      render_run({:assigned, "ada"}, @carded_start, "open", [cards, widgets])
 
     # The fact, not its card; a completed one is not there; what the card expects, and why.
     assert [%{"id" => "W-1", "label" => "One", "to" => "/k/widget/W-1"} = row] = list["rows"]
@@ -1327,8 +1389,8 @@ defmodule AtlasControl.PagesTest do
 
     selected_widgets = %{"facts" => Enum.take(widgets["facts"], 2)}
 
-    assert render({:assigned, "ada"}, @carded_start, [cards, widgets]) ==
-             render({:assigned, "ada"}, @carded_start, [cards, selected_widgets])
+    assert render_run({:assigned, "ada"}, @carded_start, "open", [cards, widgets]) ==
+             render_run({:assigned, "ada"}, @carded_start, "open", [cards, selected_widgets])
 
     assert Pages.assigned_facts(@carded_start, [%{"facts" => []}, widgets]) == []
     assert Pages.assigned_count(@carded_start, [%{"facts" => []}, widgets]) == "0 held"
@@ -1360,7 +1422,7 @@ defmodule AtlasControl.PagesTest do
     marks = AtlasControl.Freshness.Marks.mark(%{}, 7, [%{"key" => "W-2"}])
 
     # Marked: the row stays where it was, and the page flags it pending.
-    page = render(route, @carded_start, answers, %{marked: Map.keys(marks)})
+    page = render_run(route, @carded_start, "open", answers, %{marked: Map.keys(marks)})
     blocks = AtlasControl.Freshness.RowKey.put(page.blocks)
 
     {[%{"props" => %{"rows" => rows}}], flagged} =
@@ -1373,7 +1435,7 @@ defmodule AtlasControl.PagesTest do
 
     # Flow settled past the write: the mark goes, and so does the row.
     marks = AtlasControl.Freshness.Marks.settled(marks, 7)
-    page = render(route, @carded_start, answers, %{marked: Map.keys(marks)})
+    page = render_run(route, @carded_start, "open", answers, %{marked: Map.keys(marks)})
     [%{"props" => %{"rows" => rows}}] = page.blocks
     assert Enum.map(rows, & &1["id"]) == ["W-1"]
     assert Pages.assigned_count(@carded_start, answers, Map.keys(marks)) == "1 held"
@@ -1408,7 +1470,9 @@ defmodule AtlasControl.PagesTest do
         )
     }
 
-    %{blocks: [%{"props" => list}]} = render({:assigned, "ada"}, @carded_start, [cards, widgets])
+    %{blocks: [%{"props" => list}]} =
+      render_run({:assigned, "ada"}, @carded_start, "open", [cards, widgets])
+
     assert Enum.map(list["rows"], & &1["id"]) |> Enum.sort() == ["W-1", "W-3"]
 
     # What is expected is the presentation's: none on work whose run ended.
@@ -1469,7 +1533,7 @@ defmodule AtlasControl.PagesTest do
     }
 
     %{title: "All held", back: "/", blocks: [%{"props" => list}]} =
-      render({:list, "card"}, @open, [cards, widgets])
+      render_run({:list, "card"}, @open, "open", [cards, widgets])
 
     # Late first; each with who holds it, what is expected, and its time.
     assert [%{"id" => "W-2", "to" => "/k/widget/W-2"} = late, %{"id" => "W-1"} = one] =
@@ -1481,7 +1545,7 @@ defmodule AtlasControl.PagesTest do
     assert one["detail"] =~ ~r/^ada · Paint it · since 3 Nov \d\d:00$/
 
     %{blocks: [%{"props" => empty}]} =
-      render({:list, "card"}, @open, [%{"facts" => []}, %{"facts" => []}])
+      render_run({:list, "card"}, @open, "open", [%{"facts" => []}, %{"facts" => []}])
 
     assert empty["rows"] == [] and empty["empty"] == "Nothing is held."
   end
@@ -1579,7 +1643,7 @@ defmodule AtlasControl.PagesTest do
         end
       end
 
-    page = render({:item, "widget", "W-1"}, @todo, answers, %{by: "ada"})
+    page = render_run({:item, "widget", "W-1"}, @todo, "check", answers, %{by: "ada"})
     assert [%{"id" => "todo", "type" => "item", "props" => todo} | _] = page.blocks
 
     assert %{"start" => "todo", "props" => %{"title" => "Your move", "role" => "todo"}} =
@@ -1609,7 +1673,7 @@ defmodule AtlasControl.PagesTest do
           {%{by: "ada"},
            List.replace_at(answers, -1, %{"fact" => put_in(card, ["values", "step"], nil)})}
         ] do
-      page = render({:item, "widget", "W-1"}, @todo, answers, form)
+      page = render_run({:item, "widget", "W-1"}, @todo, "check", answers, form)
       refute Enum.any?(page.blocks, &(&1["id"] == "todo"))
     end
   end
@@ -1638,7 +1702,7 @@ defmodule AtlasControl.PagesTest do
     route = {:item, "widget", "W-1"}
 
     page =
-      render(route, @answering, answering_reads(route, "ada"), %{
+      render_run(route, @answering, "check", answering_reads(route, "ada"), %{
         by: "ada",
         by_kind: "member"
       })
@@ -1654,7 +1718,7 @@ defmodule AtlasControl.PagesTest do
     refute Enum.any?(rest, &(&1["key"] in ["v", "z"]))
 
     page =
-      render(route, @answering, answering_reads(route, "bob"), %{
+      render_run(route, @answering, "check", answering_reads(route, "bob"), %{
         by: "ada",
         by_kind: "member"
       })
@@ -1673,14 +1737,14 @@ defmodule AtlasControl.PagesTest do
     form = %{by: "ada", by_kind: "member"}
 
     %{blocks: [%{"type" => "form", "props" => send_back}]} =
-      render(route, @answering, answering_reads(route, "ada"), form)
+      render_run(route, @answering, "check", answering_reads(route, "ada"), form)
 
     assert send_back["title"] == "Send back W-1"
     assert [%{"name" => "_key"}, %{"name" => "note", "kind" => "multiline"}] = send_back["inputs"]
 
     # Not the owner: nothing to remove, as before.
     %{blocks: [%{"type" => "confirm", "props" => refused}]} =
-      render(route, @answering, answering_reads(route, "bob"), form)
+      render_run(route, @answering, "check", answering_reads(route, "bob"), form)
 
     assert refused["text"] == "W-1 has no checked by."
   end
@@ -1707,7 +1771,7 @@ defmodule AtlasControl.PagesTest do
     answers = [widgets, parts]
 
     %{title: "Kept by you", back: nil, blocks: [%{"props" => list}]} =
-      render({:assigned, "K-1"}, @assigning, answers)
+      render_run({:assigned, "K-1"}, @assigning, "open", answers)
 
     # Newest move first; a completed one is not there; what its flow expects, and why.
     assert [%{"id" => "P-1", "to" => "/k/part/P-1"}, %{"id" => "W-1"} = older] = list["rows"]
@@ -1716,17 +1780,19 @@ defmodule AtlasControl.PagesTest do
     assert Pages.assigned_count(@assigning, answers) == "2 kept by you"
 
     %{blocks: [%{"props" => empty}]} =
-      render({:assigned, "K-1"}, @assigning, [%{"facts" => []}, %{"facts" => []}])
+      render_run({:assigned, "K-1"}, @assigning, "open", [%{"facts" => []}, %{"facts" => []}])
 
     assert empty["rows"] == [] and empty["empty"] == "Nothing is kept by you."
   end
 
   test "with a start of assignments, the only top kind's list goes back to it" do
     answer = %{"facts" => []}
-    assert %{back: nil} = render({:list, "widget"}, @assigning, [answer], %{by_kind: nil})
+
+    assert %{back: nil} =
+             render_run({:list, "widget"}, @assigning, "open", [answer], %{by_kind: nil})
 
     assert %{back: "/"} =
-             render({:list, "widget"}, @assigning, [answer], %{by_kind: "keeper"})
+             render_run({:list, "widget"}, @assigning, "open", [answer], %{by_kind: "keeper"})
   end
 
   test "the kinds page names the kinds that hold a record" do
@@ -2044,10 +2110,8 @@ defmodule AtlasControl.PagesTest do
 
     route = {:item, "widget", "W-1"}
     reads = answering_reads(route, "ada")
-    # As Facts answers them: each card presented (`AtlasControl.Presented`).
-    present = &AtlasControl.Presented.answers(description, Pages.reads(route, description), &1)
     form = %{by: "ada", by_kind: "member"}
-    page = render(route, description, reads, form)
+    page = render_run(route, description, "check", reads, form)
     item = Enum.find(page.blocks, &(&1["id"] == "item"))["props"]
 
     assert [%{"key" => "a", "label" => "Accept"}, %{"key" => "f", "label" => "Reject"} | _] =
@@ -2058,11 +2122,17 @@ defmodule AtlasControl.PagesTest do
     assert Enum.find(item["actions"], &(&1["key"] == "f"))["to"] ==
              Pages.path({:answer, "widget", "W-1", "f"})
 
-    assert Pages.declared_answer(description, "widget", "a", present.(reads), %{by: "bob"}) ==
+    assert Pages.declared_answer(
+             description,
+             "widget",
+             "a",
+             running(reads, route, description, "check"),
+             %{by: "bob"}
+           ) ==
              nil
 
     # Someone else sees the item, but neither the answers nor what to do.
-    other = render(route, description, reads, %{by: "bob", by_kind: "member"})
+    other = render_run(route, description, "check", reads, %{by: "bob", by_kind: "member"})
     refute inspect(other.blocks) =~ "Accept"
     refute inspect(other.blocks) =~ "/answer/"
 
@@ -2076,19 +2146,25 @@ defmodule AtlasControl.PagesTest do
             answer
         end)
 
-      assert Pages.declared_answer(description, "widget", "a", present.(other), form) == nil
+      assert Pages.declared_answer(
+               description,
+               "widget",
+               "a",
+               running(other, route, description, state),
+               form
+             ) == nil
     end
 
     %{blocks: [%{"type" => "form", "props" => reject}]} =
-      render({:answer, "widget", "W-1", "f"}, description, reads, form)
+      render_run({:answer, "widget", "W-1", "f"}, description, "check", reads, form)
 
     assert [%{"name" => "note", "required" => true}] = reject["inputs"]
 
     %{blocks: [%{"type" => "confirm"}]} =
-      render({:answer, "widget", "W-1", "a"}, description, reads, form)
+      render_run({:answer, "widget", "W-1", "a"}, description, "check", reads, form)
 
     # What the answer writes: its values, linked to whoever answers; a reject needs a note.
-    item = Pages.answer_item(description, "widget", present.(reads))
+    item = Pages.answer_item(description, "widget", running(reads, route, description, "check"))
     viewer = %{key: "ada", kind: "member"}
 
     assert {:write,

@@ -4,14 +4,22 @@ defmodule AtlasFlow.Settled do
   has been looked at, and the writes Flow made for those looks are stored. Pure; the
   engine (`AtlasFlow.Engine`) feeds it and answers who waits for it.
 
-  - A hint at `p` that pokes processes gives each a ticket `p` (`hint/3`); one that pokes
-    none is settled at once.
-  - A process that looked, with every write it made acknowledged, reports the highest
-    ticket it had and the highest position it wrote (`looked/4`); a process that is gone
-    holds no ticket any more (`down/2`).
-  - `value/1`: while tickets are held, the lowest one less one; otherwise the highest
-    position seen, writes included. So the order in which hints and reports arrive does
-    not matter.
+  - The engine looks at a hint at once, with every write it makes for it acknowledged,
+    then reports the hint as handled (`handled/3`): settled through the hint's own
+    position, and through Flow's own writes for it that follow it without a gap. A write
+    of someone else's can fall in between (stored after the hint, before Flow's write);
+    its hint is not handled yet, so the settled position stops before it. Flow's own
+    later writes are reached when their own hints come (`seen/2`).
+  - `value/1`: the highest position settled.
+  - A hint whose runs could not be reconciled or whose required projection failed is
+    not settled: the engine holds it (`hold/2`), and the value stays below it, however
+    far later hints reach, until a round reconciles every run and successfully projects
+    every subject (`release/1`). Then it is settled through every hint looked at by then.
+
+  It assumes what one store guarantees: hints reach the engine in position order (Facts
+  sends them one after the other), so every hint before one the engine handles was
+  handled first. A writer may ask about its write before the engine has its hint: it is
+  answered once the hint is handled, never before (`wait/3`).
   - `wait/3`: a waiter for position `p` is answered as soon as the value reaches `p`, at
     once when it has. Every change returns the waiters it answers, `{waiter, value}`.
   - At most `most` waiters wait (256), so a Flow that never settles holds no more: one
@@ -22,11 +30,12 @@ defmodule AtlasFlow.Settled do
 
   @most 256
 
-  defstruct seen: 0, tickets: %{}, waiters: [], most: @most
+  defstruct seen: 0, reached: 0, held: nil, waiters: [], most: @most
 
   @type t :: %__MODULE__{
           seen: non_neg_integer,
-          tickets: %{optional(term) => [pos_integer]},
+          reached: non_neg_integer,
+          held: nil | non_neg_integer,
           waiters: [{non_neg_integer, term}],
           most: pos_integer
         }
@@ -35,43 +44,41 @@ defmodule AtlasFlow.Settled do
   def new(opts \\ []), do: %__MODULE__{most: Keyword.get(opts, :most, @most)}
 
   @doc "The settled position."
-  def value(%__MODULE__{tickets: tickets, seen: seen}) when tickets == %{}, do: seen
+  def value(%__MODULE__{seen: seen}), do: seen
 
-  def value(%__MODULE__{tickets: tickets}),
-    do: tickets |> Map.values() |> List.flatten() |> Enum.min() |> Kernel.-(1)
-
-  @doc "Whether `holder` holds a ticket."
-  def holds?(%__MODULE__{tickets: tickets}, holder), do: Map.has_key?(tickets, holder)
-
-  @doc "A hint at `position` poked `holders` (none: settled at once)."
-  def hint(settled, position, holders) do
-    tickets =
-      Enum.reduce(holders, settled.tickets, fn holder, tickets ->
-        Map.update(tickets, holder, [position], &Enum.uniq([position | &1]))
-      end)
-
-    due(%{settled | seen: max(settled.seen, position), tickets: tickets})
+  @doc "Every hint and write up to `position` was looked at and is stored."
+  def seen(settled, position) do
+    reached = max(settled.reached, position)
+    capped = if settled.held, do: min(reached, settled.held - 1), else: reached
+    due(%{settled | reached: reached, seen: max(settled.seen, capped)})
   end
-
-  @doc "A position seen with nobody to poke (a hint of Flow's own write, say)."
-  def seen(settled, position), do: hint(settled, position, [])
 
   @doc """
-  `holder` looked at what its tickets up to `ticket` were for and wrote up to `wrote`
-  (nil: nothing).
+  The hint at `position` was looked at, but reconciliation or required projection
+  failed: settled no further than `position - 1` until `release/1`.
   """
-  def looked(settled, holder, ticket, wrote) do
-    tickets =
-      case Enum.reject(Map.get(settled.tickets, holder, []), &(&1 <= (ticket || 0))) do
-        [] -> Map.delete(settled.tickets, holder)
-        left -> Map.put(settled.tickets, holder, left)
-      end
-
-    due(%{settled | seen: max(settled.seen, wrote || 0), tickets: tickets})
+  def hold(settled, position) do
+    held = if settled.held, do: min(settled.held, position), else: position
+    seen(%{settled | held: held}, position)
   end
 
-  @doc "`holder` is gone: what it held is no longer waited for."
-  def down(settled, holder), do: due(%{settled | tickets: Map.delete(settled.tickets, holder)})
+  @doc "Every run reconciled and required projection succeeded: release every held hint."
+  def release(settled), do: seen(%{settled | held: nil}, settled.reached)
+
+  @doc """
+  The hint at `position` was handled, and Flow's own writes for it are stored at `own`:
+  settled through `position` and the positions of `own` that follow it without a gap.
+  """
+  def handled(settled, position, own) do
+    own = MapSet.new(own)
+
+    through =
+      Enum.reduce_while(Stream.iterate(position + 1, &(&1 + 1)), position, fn p, at ->
+        if MapSet.member?(own, p), do: {:cont, p}, else: {:halt, at}
+      end)
+
+    seen(settled, through)
+  end
 
   @doc """
   `waiter` waits for `position`: answered at once when it is settled, else later. Beyond

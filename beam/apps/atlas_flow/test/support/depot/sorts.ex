@@ -388,10 +388,59 @@ defmodule AtlasFlow.Sorts.Written do
     end
   end
 
+  defmodule Handover do
+    @moduledoc """
+    Two open states, each with its own owner: bob packs the box, ada checks it, and it is
+    done once checked. A projection test's subflow: what is expected, the state and the
+    owner move with the run.
+    """
+    use RelaDSL.Schema
+
+    subflow :sort, label: "Sort", subject: :box do
+      run_as("system:depot")
+      owner(relation: :owned_by, default: {:clerk, :bob})
+      start(:create)
+      initial(:packing)
+
+      state :packing, label: "Pack it" do
+        branch(to: :check, when: "entity.stage == 'check'")
+        present(expected: "Pack it", why: "not all in it is packed")
+      end
+
+      state :check, label: "Check it" do
+        owner(relation: :owned_by, default: {:clerk, :ada})
+        branch(to: :done, when: "entity.result == 'ok'")
+        branch(to: :packing, when: "entity.stage == 'packing'")
+        present(expected: "Check it", why: "all in it is packed")
+      end
+
+      final(:done, label: "Done")
+    end
+  end
+
+  defmodule Checked do
+    @moduledoc "Checked by whoever the environment configures as its checker."
+    use RelaDSL.Schema
+
+    subflow :sort, label: "Sort", subject: :box do
+      run_as("system:depot")
+      owner(relation: :owned_by, default: {:clerk, config: :checker})
+      start(:create)
+      initial(:check)
+
+      state :check, label: "Check it" do
+        branch(to: :done, when: "entity.result == 'ok'")
+        present(expected: "Check it")
+      end
+
+      final(:done, label: "Done")
+    end
+  end
+
   defmodule Handing do
     @moduledoc """
     Ends by moving the box out of the phase its runs are admitted in: its final state
-    sets the phase whose boxes the legacy flow presents (a two-phase hand-off).
+    sets the phase whose boxes another subflow presents (a two-phase hand-off).
     """
     use RelaDSL.Schema
 
@@ -515,4 +564,14 @@ end
 defmodule AtlasFlow.Sorts.Handing do
   @moduledoc false
   use AtlasFlow.Sorts, from: AtlasFlow.Sorts.Written.Handing
+end
+
+defmodule AtlasFlow.Sorts.Handover do
+  @moduledoc false
+  use AtlasFlow.Sorts, from: AtlasFlow.Sorts.Written.Handover
+end
+
+defmodule AtlasFlow.Sorts.Checked do
+  @moduledoc false
+  use AtlasFlow.Sorts, from: AtlasFlow.Sorts.Written.Checked
 end

@@ -28,6 +28,7 @@ defmodule RelaDSL.Facts.GuardsTest do
     "frozen" => %{
       "when" => %{"state" => ["final", "overturned"]},
       "only" => %{"state" => ["overturned"]},
+      "tallied" => ["cited"],
       "error" => "{key} is {value}"
     },
     "replaces" => %{
@@ -81,6 +82,47 @@ defmodule RelaDSL.Facts.GuardsTest do
 
     overturned = %{"values" => %{"title" => "T", "state" => "overturned"}, "links" => %{}}
     assert {:refused, ["R-2 is overturned"]} = check("change", overturned, %{"title" => "New"})
+  end
+
+  test "a frozen fact still takes any value of a tallied field, and nothing else with it" do
+    overturned = %{"values" => %{"title" => "T", "state" => "overturned"}, "links" => %{}}
+    assert :ok = check("change", overturned, %{"cited" => 3})
+    assert :ok = check("change", overturned, %{"cited" => 0, "state" => "overturned"})
+
+    assert {:refused, ["R-2 is overturned"]} =
+             check("change", overturned, %{"cited" => 1, "title" => "X"})
+
+    assert {:refused, ["R-2 is overturned"]} = check("delete", overturned, %{})
+  end
+
+  test "a frozen tally is written through the full guard by Flow alone" do
+    description = %{
+      "entities" => %{
+        "ruling" => %{
+          "frozen" => @rules["frozen"],
+          "properties" => %{"cited" => %{"set_by" => ["flow"]}}
+        }
+      },
+      "flow_runtime" => %{"writer" => %{"by" => "flow", "sender" => "flow"}}
+    }
+
+    current = final(%{"cited" => 2})
+    lookup = %{"current" => fn -> current end}
+    flow = %{"by" => "flow", "sender" => "flow"}
+    human = %{"by" => "human", "sender" => "control/session"}
+    spoofed = %{"by" => "flow", "sender" => "control/session"}
+
+    for count <- [0, 3] do
+      change = %{"op" => "change", "key" => "R-2", "values" => %{"cited" => count}}
+      assert :ok = Writes.check(description, "ruling", change, flow, lookup)
+
+      for actor <- [human, spoofed] do
+        assert {:refuse, [_ | _]} = Writes.check(description, "ruling", change, actor, lookup)
+      end
+
+      edit = put_in(change, ["values", "title"], "Other")
+      assert {:refuse, [_ | _]} = Writes.check(description, "ruling", edit, flow, lookup)
+    end
   end
 
   test "only_target rules come from every outgoing relation and protect old and new targets" do
@@ -137,6 +179,21 @@ defmodule RelaDSL.Facts.GuardsTest do
     open = %{"values" => %{"weight" => "heavy", "check" => "a test"}, "links" => %{}}
     assert {:refused, ["needs check"]} = check("change", open, %{"check" => ""})
     assert :ok = check("change", open, %{"title" => "x"})
+  end
+
+  test "required text must contain non-whitespace; zero and false remain present" do
+    for value <- [nil, "", "  \t\n  ", "\u00A0"] do
+      assert {:refused, [_]} = check("create", nil, %{"weight" => "heavy", "check" => value})
+
+      current = %{"values" => %{"weight" => "heavy", "check" => "checked"}, "links" => %{}}
+      assert {:refused, [_]} = check("change", current, %{"check" => value})
+    end
+
+    for value <- ["  checked \n", 0, false] do
+      assert :ok = check("create", nil, %{"weight" => "heavy", "check" => value})
+    end
+
+    assert :ok = check("create", nil, %{"weight" => "light", "check" => "  \t\n  "})
   end
 
   test "who may make it final: the named kind always, another only when delegated" do

@@ -90,7 +90,6 @@ defmodule AtlasControl.Shop.DecidedWidget do
   end
 
   select(:review,
-    legacy: :f,
     choices: [:state],
     roles: [checker: :checked_by],
     projection: [on: :card, state_field: :step, owner_relation: :held_by, field: :todo],

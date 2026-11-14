@@ -25,6 +25,8 @@ defmodule AtlasFlow.Depot.Box do
     field(:todo, :string)
     field(:due, :string)
     field(:stage, :box_stage)
+    field(:step, :string)
+    field(:later, :string)
   end
 
   relation(:owned_by, label: "owned by", from: [:box], to: [:clerk], max_outgoing: 1)
@@ -51,7 +53,6 @@ defmodule AtlasFlow.Depot.Box do
   end
 
   select(:sort,
-    legacy: :pack,
     choices: [:choice],
     roles: [clerk: :chosen_by],
     projection: [field: :todo, owner_relation: :owned_by],

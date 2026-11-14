@@ -107,6 +107,12 @@ defmodule Model.Decision do
       label: "No work needed"
     )
 
+    field(:work, :integer,
+      description: "Flow: how many facts carry it out (based on it)",
+      label: "Work based on it",
+      set_by: [:flow]
+    )
+
     field(:unverified, :boolean,
       description: "An agent decided after the person answer limit; cleared by review",
       label: "Unverified",
@@ -176,6 +182,7 @@ defmodule Model.Decision do
     frozen(
       when: [status: [:accepted, :superseded]],
       only: [unverified: [false], status: [:superseded], no_work: [true]],
+      tallied: [:work],
       error: "{key} is {value} and is never edited; a newer decision supersedes it"
     )
 
@@ -417,9 +424,12 @@ defmodule Model.Decision do
   end
 
   # How the runs of decide are selected from the decisions, and imported from the status a
-  # decision had before the subflow ran.
+  # decision had before the subflow ran. An accepted decision is follow_through's
+  # (`Model.FollowThrough`), which presents it until work carries it out: the two admit
+  # disjoint statuses, so one run presents a decision at any moment. A decision decide
+  # runs on keeps its run when it is accepted; the run reaches `accepted` and presents
+  # nothing more.
   select(:decide,
-    legacy: :decide,
     choices: [:status],
     roles: [decider: :decided_by, principle_authority: :decided_by, delegate: :decided_by],
     projection: [
@@ -430,13 +440,11 @@ defmodule Model.Decision do
       owner_relation: :assigned_to,
       field: :expected
     ],
-    admission: [status: [:proposed, :accepted, :rejected, :superseded]],
+    admission: [status: [:proposed, :rejected, :superseded]],
     imports: [
-      [when: [status: [:accepted]], state: :accepted],
       [when: [status: [:rejected]], state: :rejected],
       [when: [status: [:superseded]], state: :accepted]
     ],
-    follow_through: [state: :accepted, when: [status: [:accepted]]],
     verification: [
       kind: :gate_verdict,
       field: :unverified,

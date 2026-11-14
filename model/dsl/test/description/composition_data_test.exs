@@ -2,6 +2,8 @@ defmodule RelaDSL.Description.CompositionDataTest do
   use ExUnit.Case, async: true
 
   alias RelaDSL.Atlas
+  alias RelaDSL.Description.Subflows
+  alias RelaDSL.Schema.Composition
 
   # A neutral model: cups stand on a tray. A cup's run reports how it ended to its tray
   # (a link, current by revision), and the tray counts its cups (a count). It is compiled
@@ -9,7 +11,9 @@ defmodule RelaDSL.Description.CompositionDataTest do
   @link "link :cup, to: {:tray, :on_tray}, field: :outcome, states: [full: :full, spilt: :spilt], stale: :drop, current: {:revision, :revision}"
   @count "count :cup, to: {:tray, :on_tray}, all: :cups, open: :open_cups"
 
-  defp model(link, count) do
+  @tally "tally to: {:tray, :about_tray}, all: :notes"
+
+  defp model(link, count, tally) do
     p = "RelaDSL.CompositionDataTest.M#{System.unique_integer([:positive])}"
 
     """
@@ -20,6 +24,7 @@ defmodule RelaDSL.Description.CompositionDataTest do
         field :outcome, :string
         field :cups, :integer
         field :open_cups, :integer
+        field :notes, :integer
       end
       subflow :tray, subject: :tray do
         owner default: {:tray, :desk}
@@ -28,6 +33,7 @@ defmodule RelaDSL.Description.CompositionDataTest do
         state :waiting do
           await :outcome, full: :done, spilt: :done
           branch to: :done, by: :atlas, when: "entity.open_cups == 0 and entity.cups > 0"
+          branch to: :done, by: :atlas, when: "entity.notes > 2"
         end
         final :done
       end
@@ -39,6 +45,10 @@ defmodule RelaDSL.Description.CompositionDataTest do
         field :level, :string
       end
       relation :on_tray, label: "on tray", from: [:cup], to: [:tray], max_outgoing: 1
+      entity :note, label: "Note", plural: "notes", id_type: :manual do
+        field :text, :string
+      end
+      relation :about_tray, label: "about tray", from: [:cup, :note], to: [:tray]
       subflow :cup, subject: :cup do
         owner default: {:tray, :desk}
         start :create
@@ -63,13 +73,14 @@ defmodule RelaDSL.Description.CompositionDataTest do
         subflows([#{p}.Tray, #{p}.Cup])
         #{link}
         #{count}
+        #{tally}
       end
     end
     """
   end
 
-  defp compile!(link \\ @link, count \\ @count) do
-    modules = Code.compile_string(model(link, count), "model.exs")
+  defp compile!(link \\ @link, count \\ @count, tally \\ @tally) do
+    modules = Code.compile_string(model(link, count, tally), "model.exs")
     {comp, _} = Enum.find(modules, fn {m, _} -> String.ends_with?(inspect(m), ".Comp") end)
     comp
   end
@@ -105,6 +116,14 @@ defmodule RelaDSL.Description.CompositionDataTest do
                  "all" => "cups",
                  "open" => "open_cups"
                }
+             ],
+             "tallies" => [
+               %{
+                 "parent_subject" => "tray",
+                 "relation" => "about_tray",
+                 "all" => "notes",
+                 "readers" => ["tray"]
+               }
              ]
            }
 
@@ -119,6 +138,50 @@ defmodule RelaDSL.Description.CompositionDataTest do
 
     for module <- comp.subflows(:prod),
         do: assert(module.digest() == RelaDSL.DefinitionDigest.of(with["flows"][module.name()]))
+  end
+
+  test "a tally counts what relates to a parent its subflow reads, by a relation that ends there" do
+    comp = compile!()
+    flows = comp.__flows__()
+    t = %{subject: :tray, relation: :about_tray, all: :notes}
+
+    problems = fn tally ->
+      for {_line, p} <- Composition.problems(%{comp.__composition__() | tallies: [tally]}, flows),
+          do: p
+    end
+
+    assert problems.(t) == []
+
+    assert [{:many_writers, :tray, :cups, writers}] = problems.(%{t | all: :cups})
+    assert Enum.sort(writers) == [{:count, :cup}, {:tally, :about_tray}]
+
+    assert {:unread, {:tally, :about_tray}, :revision, :tray} in problems.(%{t | all: :revision})
+
+    assert {:unknown_options, {:tally, :about_tray}, [:open]} in problems.(
+             Map.put(t, :unknown, [:open])
+           )
+
+    assert {:missing_option, {:tally, :about_tray}, :all} in problems.(%{t | all: nil})
+
+    # Against the description: its relation ends at the parent, and the field is the parent's.
+    schema = comp.rela_schema()
+    assert Subflows.tally_problems(t, schema) == []
+
+    assert Subflows.tally_problems(%{t | relation: :on_shelf}, schema) == [
+             {:not_to_parent, :on_shelf, "tray"}
+           ]
+
+    assert Subflows.tally_problems(%{t | all: :mugs}, schema) == [
+             {:no_field, :about_tray, "tray", :mugs}
+           ]
+
+    # The compile refuses each, at the tally's line.
+    error =
+      assert_raise CompileError, fn ->
+        compile!(@link, @count, "tally to: {:tray, :on_tray}, all: :notes, open: :x")
+      end
+
+    assert error.file == "model.exs"
   end
 
   test "a link without current: is written as keep, its current as nil" do

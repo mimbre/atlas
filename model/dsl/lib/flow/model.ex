@@ -6,8 +6,6 @@ defmodule RelaDSL.Flow.Model do
     * `subflows(environment)`: the module of each subflow it runs, compiled with that
       environment's limits (`RelaDSL.Flow.Subflow`), as `<Root>.Subflows.<Name>.<Env>`;
       an environment it does not declare raises;
-    * `legacy/0`: the module of each legacy flow (`RelaDSL.Flow.Legacy`), as
-      `<Root>.Legacy.<Name>`, sorted by name;
     * `runs/0`: where runs are kept (`kind`, `fields`, `writer`, `inputs`), nil when no
       concept declares `flow_runtime`;
     * `selection(subflow)`: how the runs of a subflow are selected, imported and
@@ -15,8 +13,8 @@ defmodule RelaDSL.Flow.Model do
     * `migrations/0`: every approved migration, with its `subflow`;
     * `actors/0`: the configured actors the model needs, `[{role, kind}]` sorted by role:
       every role an owner names as its default (`default: {kind, config: role}` of a
-      subflow or a state, `owner: [kind:, config: role]` of a legacy flow's state), with
-      the kind of fact its actor is; each environment's settings say who it is;
+      subflow or a state), with the kind of fact its actor is; each environment's
+      settings say who it is;
     * `relations/0`: every relation, by name, as the store describes it with the model's
       additions (`parent`, `component`, ...): what a runner walks from a fact to the
       facts above and under it;
@@ -32,12 +30,11 @@ defmodule RelaDSL.Flow.Model do
   """
 
   alias RelaDSL.Description.Plain
-  alias RelaDSL.Flow.{Legacy, Subflow}
+  alias RelaDSL.Flow.Subflow
 
   @doc false
   def body(root, opts, flows, gates, environments, schema, extension, flow_runtime, composition) do
     subflow_behaviour = opts[:subflow_behaviour]
-    legacy_behaviour = opts[:legacy_behaviour]
     file = to_string(root)
 
     by_env =
@@ -53,13 +50,7 @@ defmodule RelaDSL.Flow.Model do
         {env, modules}
       end
 
-    legacy =
-      for {name, flow} <- Enum.sort(extension["flows"] || %{}), is_map(flow) do
-        {Module.concat([root, "Legacy", Macro.camelize(name)]),
-         Legacy.body(name, flow, legacy_behaviour)}
-      end
-
-    actors = actors(flows, extension["flows"] || %{})
+    actors = actors(flows)
     runtime = if flow_runtime, do: Plain.unorder(flow_runtime)["flow_runtime"]
     selection = (runtime && runtime["selection"]) || %{}
 
@@ -72,7 +63,7 @@ defmodule RelaDSL.Flow.Model do
           do: Map.put(m, "subflow", name)
 
     modules =
-      for {module, body} <- Enum.flat_map(by_env, &elem(&1, 1)) ++ legacy do
+      for {module, body} <- Enum.flat_map(by_env, &elem(&1, 1)) do
         quote do
           defmodule unquote(module) do
             @moduledoc false
@@ -113,9 +104,6 @@ defmodule RelaDSL.Flow.Model do
               "(environments: #{unquote(inspect(environments))})"
           )
 
-      @doc "The module of each legacy flow, sorted by name."
-      def legacy, do: unquote(Enum.map(legacy, &elem(&1, 0)))
-
       @doc "Where the runs are kept, or nil."
       def runs, do: unquote(Macro.escape(runs))
 
@@ -142,7 +130,10 @@ defmodule RelaDSL.Flow.Model do
         do:
           unquote(
             Macro.escape(
-              RelaDSL.Atlas.composition(composition || %{links: [], counts: []}, flows)
+              RelaDSL.Atlas.composition(
+                composition || %{links: [], counts: [], tallies: []},
+                flows
+              )
             )
           )
 
@@ -155,22 +146,16 @@ defmodule RelaDSL.Flow.Model do
   end
 
   @doc """
-  The configured actors that `flows` (the subflows) and `legacy` (the legacy flows, by
-  name) name as owners: `[{role, kind}]`, sorted by role. A role names one kind of fact;
-  raises when two owners give it two.
+  The configured actors that `flows` (the subflows) name as owners: `[{role, kind}]`,
+  sorted by role. A role names one kind of fact; raises when two owners give it two.
   """
-  def actors(flows, legacy) do
+  def actors(flows) do
     subflows =
       for f <- flows,
           %{default: %{config: role, kind: kind}} <- [f.owner | Enum.map(f.states, & &1.owner)],
           do: {role, to_string(kind)}
 
-    legacies =
-      for {_name, %{"states" => states}} <- legacy,
-          %{"owner" => %{"config" => role, "kind" => kind}} <- states,
-          do: {String.to_atom(role), kind}
-
-    named = Enum.sort(Enum.uniq(subflows ++ legacies))
+    named = Enum.sort(Enum.uniq(subflows))
 
     for {role, [_, _ | _] = kinds} <- Enum.group_by(named, &elem(&1, 0), &elem(&1, 1)) do
       raise ArgumentError,

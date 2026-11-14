@@ -257,11 +257,12 @@ defmodule AtlasFacts.FlowInputs do
          :ok <- need(before_deadline?(run, now.()), :answer_too_late),
          {:ok, subject} <- subject(rela, d, run),
          :ok <- need(subject.version == v["source_version"], :subject_changed),
+         {:ok, held} <- part_links(rela, d, run["subject_kind"], run["subject_key"]),
          roles =
            roles(
              d,
              run["subject_kind"],
-             %{subject | links: Map.merge(subject.links, v["links"] || %{})},
+             %{subject | links: subject.links |> Map.merge(v["links"] || %{}) |> Map.merge(held)},
              actor
            ),
          :ok <- need(roles != [], :not_named_to_choose),
@@ -375,6 +376,47 @@ defmodule AtlasFacts.FlowInputs do
       {:ok, due, _} = DateTime.from_iso8601(t["due"])
       DateTime.compare(now, due) != :gt
     end)
+  end
+
+  # The links of the facts made with the subject (its components, such as what being
+  # assigned holds), as they are stored: their associations are the subject's own, so a
+  # role may come through one. Stored, never as the choice sends them: naming oneself
+  # there in the same change gives no role. Only the components a role of the subject's
+  # kind comes through are read: a kind whose roles all lead from itself reads none.
+  defp part_links(rela, d, kind, key) do
+    Enum.reduce_while(granting_parts(d, kind), {:ok, %{}}, fn {to, template}, {:ok, acc} ->
+      case Rela.get(
+             rela,
+             Description.kind(d, to)["plural"],
+             String.replace(template, "{key}", key)
+           ) do
+        {:ok, part} -> {:cont, {:ok, Map.merge(acc, part.links || %{})}}
+        {:error, :not_found} -> {:cont, {:ok, acc}}
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  # `[{part kind, key template}]` of the components of `kind` that a relation giving one
+  # of the kind's roles (under its ACL) leads from.
+  defp granting_parts(d, kind) do
+    c = d["flow_runtime"]["inputs"]
+    # Components are model metadata, not part of Rela's public schema. The compiled
+    # input mapping supplies them when Facts runs against the real schema.
+    relations = Map.merge(d["relations"] || %{}, c["components"] || %{})
+
+    from =
+      for {role, relation} <- c["roles"] || %{},
+          kind in (get_in(c, ["acl", role, "update"]) || []),
+          part <- List.wrap((relations[relation] || %{})["from"]),
+          uniq: true,
+          do: part
+
+    for {_name, %{"component" => %{"key" => template}, "to" => [to]} = spec} <-
+          Enum.sort(relations),
+        kind in List.wrap(spec["from"]),
+        to in from,
+        do: {to, template}
   end
 
   defp roles(d, kind, subject, actor) do

@@ -9,7 +9,7 @@ defmodule AtlasControl.Faults do
 
   - Runtime: on a turn it runs, kill its agent; on an agent it runs through the stand-in,
     make it idle, silent, or end its turns empty, or put it back to work;
-  - Flow: on a fact it runs a process for, kill that process;
+  - Flow: nothing of its own; it keeps no process per fact, and asked, offers none;
   - Control: drop the next hint, take Control offline for 10 s, restart the node.
 
   Each opens a confirm that says what will be seen as it recovers; confirming causes it,
@@ -33,8 +33,8 @@ defmodule AtlasControl.Faults do
        "it is not connected, and comes back by itself."},
     {"restart", "Restart the node",
      "The node stops and starts again (atlas-ops restart). Clients lose Control and come back; " <>
-       "Runtime ends the turns that ran and starts them again; Flow starts the process of " <>
-       "every open fact again."}
+       "Runtime ends the turns that ran and starts them again; Flow reconciles every run " <>
+       "from Facts again."}
   ]
 
   @doc "Whether failures are offered here: never in prod."

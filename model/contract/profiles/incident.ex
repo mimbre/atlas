@@ -30,27 +30,104 @@ defmodule Model.Profiles.Incident.Service do
   )
 end
 
+defmodule Model.Profiles.Incident.Work do
+  @moduledoc """
+  How the incident profile builds its issues: the runner builds an issue until one of
+  its pull requests is merged, and the coordinator reviews and merges the pull request.
+  The pull request's run reports its merge to the issue (`pr_outcome`, the
+  composition's link). An incident itself is resolved by a person (`resolved_by`), which
+  no subflow presents.
+  """
+  use RelaDSL
+
+  subflow :incident_issue, label: "Build it", subject: :issue do
+    run_as "system:atlas-flow"
+    owner via: :assignment, relation: :assigned_to, default: {:agent, :runner}
+    start :create
+    initial :building
+
+    state :building, label: "Build it" do
+      present(
+        expected: "Build it",
+        why: "its pull request is not merged",
+        instructions:
+          "Build it in one pull request and get that merged; link the pull request to it."
+      )
+
+      await :pr_outcome, integrated: :done
+    end
+
+    final :done, label: "Merged"
+  end
+
+  subflow :incident_pull_request, label: "Review and merge", subject: :pull_request do
+    run_as "system:atlas-flow"
+    owner via: :assignment, relation: :assigned_to, default: {:agent, :coordinator}
+    start :create
+    initial :open
+
+    state :open, label: "Review and merge it" do
+      present(
+        expected: "Review and merge it",
+        why: "it is open",
+        instructions: "Review the pull request; merge it, or close it."
+      )
+
+      branch to: :merged, when: "entity.state == 'merged'"
+      branch to: :closed, when: "entity.state == 'closed'"
+    end
+
+    final :merged, label: "Merged"
+    final :closed, label: "Closed", status: :cancelled
+  end
+
+  @projection [
+    on: :assignment,
+    state_field: :flow_state,
+    handover_field: :handover,
+    owner_relation: :assigned_to,
+    field: :expected
+  ]
+
+  select(:incident_issue,
+    choices: [],
+    projection: @projection,
+    admission: [],
+    imports: [[completed: true, state: :done]]
+  )
+
+  select(:incident_pull_request,
+    choices: [],
+    projection: @projection,
+    admission: [],
+    imports: [
+      [when: [state: [:merged]], state: :merged],
+      [when: [state: [:closed]], state: :closed]
+    ]
+  )
+end
+
 defmodule Model.Profiles.Incident.Module do
   @moduledoc "The incident profile's own module."
   use RelaDSL.Module,
     path: "modules/incident/schema.yaml",
-    concepts: [Model.Profiles.Incident.Service]
+    concepts: [Model.Profiles.Incident.Service, Model.Profiles.Incident.Work]
 end
 
 defmodule Model.Profiles.Incident do
   @moduledoc """
   A private dependency proof, not an installed workflow (MIX_ENV=test only): foundation,
   its audit and software reused for incidents, with independent person resolution and
-  no scene, use case or acceptance. Issues are built and their pull requests merged as
-  in the main composition, but an issue's keys are its own, its last state is owned by
-  the runner agent, and an incident is resolved while its software follow-up is open.
+  no scene, use case or acceptance. Issues are built and their pull requests merged by
+  its own subflows (`Model.Profiles.Incident.Work`): an issue's keys are its own, it is
+  owned by the runner agent while it is built, and an incident is resolved by a person
+  while its software follow-up is open.
 
       MIX_ENV=test mix model.gen --contract Model.Profiles.Incident --out DIR
   """
   use RelaDSL.Composition,
     name: "incident",
-    subflow_behaviour: AtlasFlow.Subflow,
-    legacy_behaviour: AtlasFlow.Legacy
+    subflow_behaviour: AtlasFlow.Subflow
 
   # The model Facts, Flow, Gates, Runtime and Control are wired to (config :atlas, model: …).
   @behaviour AtlasFacts.Model
@@ -107,73 +184,23 @@ defmodule Model.Profiles.Incident do
     ]
   )
 
-  @run [
-    on: :assignment,
-    state_field: :flow_state,
-    handover_field: :handover,
-    owner_relation: :assigned_to,
-    field: :expected
-  ]
+  acl(comment: "The roles the incident profile's subflows name.")
 
-  legacy_flow(
-    :build_and_merge,
-    @run ++
-      [
-        kinds: [:issue],
-        states: [
-          [name: :done, when: [completed: true], done: true],
-          [
-            name: :building,
-            owner: [kind: :agent, key: "runner"],
-            expected: "Build it",
-            why: "its pull request is not merged",
-            next: [:done],
-            todo: [
-              instructions:
-                "Build it in one pull request and get that merged; link the pull request to it."
-            ]
-          ]
-        ]
-      ]
+  role("atlas-flow",
+    read: ["*"],
+    create: [:flow_run, :flow_input],
+    update: [:flow_input, :flow_run, :issue, :pull_request]
   )
 
-  legacy_flow(
-    :review_and_merge,
-    @run ++
-      [
-        kinds: [:pull_request],
-        states: [
-          [name: :done, when: [values: [state: [:merged, :closed]]], done: true],
-          [
-            name: :open,
-            owner: [kind: :agent, key: "coordinator"],
-            expected: "Review and merge it",
-            why: "it is open",
-            next: [:done],
-            todo: [instructions: "Review the pull request; merge it, or close it."]
-          ]
-        ]
-      ]
-  )
-
-  legacy_flow(
-    :restore_service,
-    @run ++
-      [
-        kinds: [:incident],
-        states: [
-          [name: :done, when: [completed: true], done: true],
-          [
-            name: :restore,
-            owner: [kind: :agent, key: "coordinator"],
-            expected: "Restore service and record resolution",
-            next: [:done]
-          ]
-        ]
-      ]
-  )
+  assign("system:atlas-flow", "atlas-flow")
 
   defcomposition :incident do
-    subflows([])
+    subflows([Model.Profiles.Incident.Work])
+
+    link(:incident_pull_request,
+      to: {:issue, :in_issue},
+      field: :pr_outcome,
+      states: [merged: :integrated]
+    )
   end
 end

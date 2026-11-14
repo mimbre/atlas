@@ -84,7 +84,8 @@ defmodule RelaDSL.Schema do
   Flow routes passes to the owner's Runtime; the format never maps a person to a role.
 
   `present` is what the owner sees in a state: what they are `expected` to do, `why`
-  it came to them, `instructions`, the `section` of a field to show, and the
+  it came to them, `instructions`, the `section` of a field to show (the part under a
+  heading, or the whole field under a label), and the
   `answers` they can give (a relation set/removal, or a declared change).
   `deadline:` names the state timer whose due time is presented. It goes to the Atlas
   target only; Rela never sees it.
@@ -167,7 +168,8 @@ defmodule RelaDSL.Schema do
       an owner names `relation:` or `default:`, `via:` comes with `relation:`, and a
       default is `{kind, key}` or `{kind, config: role}`;
     * a state presents at most once, a final state not at all; `expected` is a text,
-      a section is `[field:, heading:]`, and each answer has a key of its own, a
+      a section is `[field:, heading:]` or `[field:, label:]`, and each answer has a
+      key of its own, a
       label, and sets or removes one relation.
 
   What Rela itself checks (properties, values, roles, grants) is left to Rela.
@@ -349,8 +351,9 @@ defmodule RelaDSL.Schema do
 
   @doc """
   What the owner sees in the state: `expected:` (what they are to do), `why:` (why it
-  came to them), `instructions:`, `section: [field:, heading:]` (the part of a field to
-  show) and `answers:` (each `[key:, label:, set: relation]` or `remove: relation`).
+  came to them), `instructions:`, `section:` (`[field:, heading:]`, the part of a field
+  under that heading; or `[field:, label:]`, the whole field under that label) and
+  `answers:` (each `[key:, label:, set: relation]` or `remove: relation`).
   """
   defmacro present(opts), do: item(:present, [opts])
 
@@ -1099,8 +1102,9 @@ defmodule RelaDSL.Schema do
         "present's instructions: must be a text",
       (p.section != nil and
          not (is_atom(p.section[:field]) and p.section[:field] != nil and
-                text?.(p.section[:heading]) and map_size(p.section) == 2)) &&
-        "present's section: must be [field: name, heading: text]",
+                map_size(p.section) == 2 and
+                (text?.(p.section[:heading]) or text?.(p.section[:label])))) &&
+        "present's section: must be [field: name, heading: text] or [field: name, label: text]",
       keys != Enum.uniq(keys) &&
         "present gives answer key #{list(Enum.uniq(keys -- Enum.uniq(keys)))} twice"
     ] ++

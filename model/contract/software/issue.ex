@@ -155,7 +155,6 @@ defmodule Model.Issue do
   # it showed and its owner stay. Its pull requests, open or merged, are already linked to
   # it; their runs report to it through the composition's link.
   select(:issue,
-    legacy: :build_and_merge,
     choices: [],
     projection: [
       on: :assignment,

@@ -50,8 +50,7 @@ A file under `modules/` or `compositions/` that the model does not write is left
 the task removes it, and `--check` fails on it. The model's checks are those the
 assembler had, now at compile time of the composition: each `atlas.json` leaf has one
 author (even identical duplicates fail), no key without a construct, no dangling
-fields, relations, types or values, no ambiguous parents, overlapping flows or shortcut
-collisions, and every legacy flow is sound. With `ATLAS_RELA_BIN` set, the task also has
+fields, relations, types or values, no ambiguous parents or shortcut collisions. With `ATLAS_RELA_BIN` set, the task also has
 the pinned rela validate the generated description with the generated `flows.yaml`.
 Actor existence is reconciled by Flow.
 

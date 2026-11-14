@@ -6,9 +6,10 @@ defmodule AtlasFlow.Runs.Store do
   service must see the stored cursor first (see "One reaction, stored once" below).
 
   A run on a parent of the model's composition (`AtlasFlow.Model.composition/0`) also
-  owes its subject the values of its links and counts. Each drain works them out again
-  from the parent's children and their latest runs (`AtlasFlow.Composition.Links`,
-  `AtlasFlow.Composition.Counts`), so a deleted or moved child and a lost hint are
+  owes its subject the values of its links, counts and tallies. Each drain works them out
+  again from the parent's children and their latest runs (`AtlasFlow.Composition.Links`,
+  `AtlasFlow.Composition.Counts`), and from every fact that relates to it
+  (`AtlasFlow.Composition.Tallies`), so a deleted or moved child and a lost hint are
   counted right. Owed writes join the run's pending writes, with stable ids, before any
   is sent; the run keeps the sources it applied, so a duplicate or replayed completion
   writes nothing again. A changed aggregate becomes a synthetic input of Flow's own
@@ -21,11 +22,165 @@ defmodule AtlasFlow.Runs.Store do
   alias AtlasFlow.Activities.Gate
   alias AtlasFlow.Activities.Pass
   alias AtlasFlow.Activities.Effect
-  alias AtlasFlow.Composition.{Counts, Links}
+  alias AtlasFlow.Composition.{Counts, Links, Tallies}
 
   @structured ~w(deadlines pending last_input)
   # What a child's run moving means to its parents.
   @moved ~w(state entry status)
+
+  @doc "Apply one reviewed plan (%{id, reason, run}) without changing ordinary replay."
+  def recover_refused_tally(config, flows, plan, now) when is_map(config) and is_map(plan) do
+    with true <- Enum.sort(Map.keys(plan)) == ~w(id reason run),
+         true <-
+           is_binary(plan["id"]) and plan["id"] != "" and
+             is_binary(plan["reason"]) and plan["reason"] != "",
+         %{"key" => key} = expected <- plan["run"],
+         {:ok, %{} = fact} <- fetch(config, key),
+         {:ok, run} <- decode(config, fact),
+         flow when not is_nil(flow) <- flows[run["flow"]] do
+      fingerprint = Run.digest(plan)
+      audit = Enum.find(run["pending"]["migrations"] || [], &(&1["plan_id"] == plan["id"]))
+
+      cond do
+        audit && audit["plan_digest"] == fingerprint ->
+          cond do
+            run["definition_sha256"] != expected["definition_sha256"] or
+                flow.digest() != expected["definition_sha256"] ->
+              {:error, :recovery_definition_changed}
+
+            run["entry"] == audit["to_entry"] and
+                (run["pending"]["writes"] != [] or run["pending"]["synthetic"] != nil) ->
+              drain(with_flows(config, flows), key, flow, now, 64)
+
+            true ->
+              {:ok, run}
+          end
+
+        audit != nil ->
+          {:error, :recovery_plan_conflict}
+
+        run != expected ->
+          {:error, :recovery_snapshot_changed}
+
+        true ->
+          recover_tally(config, flows, fact, run, flow, plan, fingerprint, now)
+      end
+    else
+      _ -> {:error, :invalid_recovery_plan}
+    end
+  rescue
+    _ in [ArgumentError, BadMapError, KeyError, FunctionClauseError] ->
+      {:error, :invalid_recovery_plan}
+  end
+
+  def recover_refused_tally(_config, _flows, _plan, _now), do: {:error, :invalid_recovery_plan}
+
+  defp recover_tally(config, flows, fact, run, flow, plan, fingerprint, now) do
+    config = with_flows(config, flows)
+
+    with true <- get_in(config, ["selection", run["flow"], "choices"]) == [],
+         [write] <- run["pending"]["writes"],
+         true <- recovery_tally?(config, run, write),
+         :ok <- recovery_inputs(config["inputs"], run),
+         %{"fact" => %{} = subject} <-
+           Talk.transition_read(run["subject_kind"], %{
+             "key" => run["subject_key"],
+             "plain" => true
+           }),
+         {:ok, receipt} <- Talk.recovery_evidence(write, config["writer"]),
+         retirement = %{
+           "plan_id" => plan["id"],
+           "plan_digest" => fingerprint,
+           "reason" => plan["reason"],
+           "snapshot_digest" => Run.digest(run),
+           "receipt" => receipt
+         },
+         {:ok, entered} <- Run.reenter_refused_tally_wait(run, flow, subject, retirement, now),
+         {:ok, proposed} <- compose(config, entered, subject),
+         :ok <- recovery_successor(proposed, write, config["writer"], receipt),
+         # No effect can escape this versioned cursor claim. A lost acknowledgement
+         # is resolved by the same reread as ordinary writes, never by assuming success.
+         {:ok, committed} <- write(config, %{fact: fact, stored: run, consumed: nil}, proposed),
+         true <- committed.stored == proposed do
+      drain(config, run["key"], flow, now, 64)
+    else
+      {:error, _} = error -> error
+      _ -> {:error, :recovery_ineligible_or_conflicted}
+    end
+  end
+
+  defp recovery_successor(%{"pending" => %{"writes" => []}}, _old, _writer, _receipt), do: :ok
+
+  defp recovery_successor(%{"pending" => %{"writes" => [candidate]}}, old, writer, receipt) do
+    case Talk.recovery_evidence(old, writer, candidate) do
+      {:ok, ^receipt} -> :ok
+      _ -> {:error, :recovery_successor_ineligible}
+    end
+  end
+
+  defp recovery_successor(_run, _old, _writer, _receipt),
+    do: {:error, :recovery_successor_ineligible}
+
+  defp recovery_tally?(config, run, %{"id" => id, "kind" => kind, "content" => content})
+       when is_map(content) do
+    tallies =
+      for t <- config["composition"]["tallies"],
+          t["parent_subject"] == run["subject_kind"] and run["flow"] in t["readers"],
+          do: t
+
+    other = config["composition"]["links"] ++ config["composition"]["counts"]
+
+    with true <- is_binary(id) and id != "" and kind == run["subject_kind"],
+         true <- Enum.all?(other, &(&1["parent_subject"] != kind)),
+         [%{"all" => field}] <- tallies,
+         true <- Map.keys(content) -- ~w(op key values by links) == [],
+         true <- is_map(content["values"]),
+         true <-
+           content["op"] == "change" and content["key"] == run["subject_key"] and
+             content["by"] == config["writer"]["by"] and (content["links"] || %{}) == %{},
+         [{^field, n}] when is_integer(n) and n >= 0 <- Map.to_list(content["values"]) do
+      true
+    else
+      _ -> false
+    end
+  end
+
+  defp recovery_tally?(_config, _run, _write), do: false
+
+  # Unlike the typed inputs read, this plain list never applies prepared choices.
+  defp recovery_inputs(nil, _run), do: :ok
+
+  defp recovery_inputs(c, run) do
+    case Talk.transition_read(c["kind"], %{"plain" => true}) do
+      %{"facts" => facts} when is_list(facts) ->
+        readable =
+          Enum.all?(
+            [c["kind"], c["fields"]["run"], c["fields"]["status"]],
+            &(is_binary(&1) and &1 != "")
+          ) and
+            Enum.all?(facts, fn f ->
+              is_binary(f["values"][c["fields"]["run"]]) and
+                f["values"][c["fields"]["status"]] in ~w(prepared applied consumed)
+            end)
+
+        cond do
+          not readable ->
+            {:error, :recovery_inputs_unavailable}
+
+          Enum.any?(facts, fn f ->
+            f["values"][c["fields"]["run"]] == run["key"] and
+                f["values"][c["fields"]["status"]] in ~w(prepared applied)
+          end) ->
+            {:error, :recovery_pending_input}
+
+          true ->
+            :ok
+        end
+
+      _ ->
+        {:error, :recovery_inputs_unavailable}
+    end
+  end
 
   @doc """
   What the runs of `model` are kept and selected by, for its compiled subflows `flows`
@@ -38,15 +193,15 @@ defmodule AtlasFlow.Runs.Store do
 
     case model.runs() do
       runs when is_map(runs) and selection != %{} ->
-        {composition, refused} = composition(model.composition(), selection, flows)
+        {composition, refused} =
+          composition(model.composition(), selection, flows, model.relations())
 
         config =
           runs
           |> Map.put("selection", selection)
           |> Map.put("composition", composition)
 
-        {config,
-         validate_selection(config, flows) || two_writers(model, selection, flows) || refused}
+        {config, validate_selection(config, flows) || two_writers(selection) || refused}
 
       _ ->
         {nil, nil}
@@ -54,19 +209,23 @@ defmodule AtlasFlow.Runs.Store do
   end
 
   # The links and counts Flow applies: those whose child subflow is selected and some
-  # selected subflow runs on the parent. Production selects none of them unless the model
-  # selects both ends. A version this runner does not know, or an active link or count it
-  # cannot apply, refuses every run.
-  defp composition(%{"version" => version} = c, selection, flows) do
-    active = fn x ->
-      Map.has_key?(selection, x["child"]) and
-        Enum.any?(selection, fn {name, _} ->
-          flows[name] != nil and flows[name].subject() == x["parent_subject"]
-        end)
+  # selected subflow runs on the parent; the tallies whose parent a selected subflow runs
+  # on. Production selects none of them unless the model selects both ends. A version
+  # this runner does not know, or an active link, count or tally it cannot apply, refuses
+  # every run.
+  defp composition(%{"version" => version} = c, selection, flows, relations) do
+    parent? = fn x ->
+      Enum.any?(selection, fn {name, _} ->
+        flows[name] != nil and flows[name].subject() == x["parent_subject"]
+      end)
     end
 
+    active = &(Map.has_key?(selection, &1["child"]) and parent?.(&1))
     links = Enum.filter(c["links"] || [], active)
     counts = Enum.filter(c["counts"] || [], active)
+
+    tallies =
+      for t <- c["tallies"] || [], parent?.(t), do: Tallies.resolve(t, relations)
 
     refused =
       cond do
@@ -78,14 +237,18 @@ defmodule AtlasFlow.Runs.Store do
             Enum.find_value(
               counts,
               &(Counts.valid?(&1) != :ok and {:unsupported_count, &1["child"]})
+            ) ||
+            Enum.find_value(
+              tallies,
+              &(Tallies.valid?(&1) != :ok and {:unsupported_tally, &1["relation"]})
             )
       end
 
-    {%{"links" => links, "counts" => counts}, refused}
+    {%{"links" => links, "counts" => counts, "tallies" => tallies}, refused}
   end
 
-  defp composition(other, _selection, _flows),
-    do: {%{"links" => [], "counts" => []}, {:unsupported_composition, other}}
+  defp composition(other, _selection, _flows, _relations),
+    do: {%{"links" => [], "counts" => [], "tallies" => []}, {:unsupported_composition, other}}
 
   defp validate_selection(config, flows) do
     Enum.find_value(Enum.sort(config["selection"]), fn {name, selection} ->
@@ -100,32 +263,16 @@ defmodule AtlasFlow.Runs.Store do
     end)
   end
 
-  # One writer per subject's presentation: a selected subflow on a kind a legacy flow also
-  # runs takes that kind's facts from it only by naming it (`legacy`) and giving its own
-  # `projection`; and no two selected subflows that project may admit the same fact.
-  # Otherwise two writers would present one fact: refuse every run.
-  defp two_writers(model, selection, flows) do
-    legacy = model.legacy()
-
+  # One writer per subject's presentation: no two selected subflows that project may admit
+  # the same fact. Otherwise two writers would present one fact: refuse every run.
+  defp two_writers(selection) do
     Enum.find_value(Enum.sort(selection), fn {name, s} ->
-      kind = flows[name] && flows[name].subject()
-      runs_kind = Enum.filter(legacy, &(kind in &1.kinds()))
-
-      cond do
-        runs_kind != [] and
-            (not is_map(s["projection"]) or Enum.map(runs_kind, & &1.name()) != [s["legacy"]]) ->
-          {:two_writers, name}
-
-        is_map(s["projection"]) and
-            Enum.any?(selection, fn {other, o} ->
-              other != name and is_map(o["projection"]) and o["subject"] == s["subject"] and
-                  overlap?(o["admission"], s["admission"])
-            end) ->
-          {:two_writers, name}
-
-        true ->
-          nil
-      end
+      if is_map(s["projection"]) and
+           Enum.any?(selection, fn {other, o} ->
+             other != name and is_map(o["projection"]) and o["subject"] == s["subject"] and
+               overlap?(o["admission"], s["admission"])
+           end),
+         do: {:two_writers, name}
     end)
   end
 
@@ -207,7 +354,7 @@ defmodule AtlasFlow.Runs.Store do
     do:
       config
       |> Map.put("flows", flows)
-      |> Map.put_new("composition", %{"links" => [], "counts" => []})
+      |> Map.put_new("composition", %{"links" => [], "counts" => [], "tallies" => []})
 
   # A subject with no run known: one is made when the selection admits it, as a scan does.
   defp admitted(config, name, flow, selection, kind, key, now) do
@@ -653,21 +800,54 @@ defmodule AtlasFlow.Runs.Store do
     end
   end
 
-  # What the run's subject owes its links and counts now: the writes, stored in the run
-  # before they are sent (stable ids), the sources it applied, the ambiguity it refuses,
-  # and the synthetic input its changed aggregate gives it. Unchanged when it owes none.
+  # What the run's subject owes its links, counts and tallies now: the writes, stored in
+  # the run before they are sent (stable ids), the sources it applied, the ambiguity it
+  # refuses, and the synthetic input its changed aggregate gives it. Unchanged when it owes
+  # none.
   defp compose(config, run, subject) do
     kind = run["subject_kind"]
     links = for l <- config["composition"]["links"], l["parent_subject"] == kind, do: l
     counts = for c <- config["composition"]["counts"], c["parent_subject"] == kind, do: c
 
-    if links == [] and counts == [] do
+    # A tally is given only to the runs of the subflows that read it (`readers`).
+    tallies =
+      for t <- config["composition"]["tallies"] || [],
+          t["parent_subject"] == kind and run["flow"] in t["readers"],
+          do: t
+
+    if links == [] and counts == [] and tallies == [] do
       {:ok, run}
     else
-      with {:ok, children} <- children(config, links ++ counts, subject) do
-        {:ok, composed(run, subject, links, counts, children)}
+      with {:ok, children} <- children(config, links ++ counts, subject),
+           {:ok, related} <- related(tallies, subject) do
+        {:ok, composed(run, subject, links, counts ++ tallies, Map.merge(children, related))}
       end
     end
+  end
+
+  # Every fact that relates to the subject through a tally's relation, of each kind it
+  # starts at: `%{{:tally, relation} => facts}`.
+  defp related(tallies, subject) do
+    Enum.reduce_while(tallies, {:ok, %{}}, fn t, {:ok, acc} ->
+      facts =
+        Enum.reduce_while(t["from"], {:ok, []}, fn kind, {:ok, facts} ->
+          case Talk.transition_read(kind, %{
+                 "linked" => %{t["relation"] => subject["key"]},
+                 "plain" => true
+               }) do
+            %{"facts" => more} ->
+              {:cont, {:ok, facts ++ Enum.map(more, &Map.put(&1, "kind", kind))}}
+
+            other ->
+              {:halt, {:error, {:related_unavailable, other}}}
+          end
+        end)
+
+      case facts do
+        {:ok, facts} -> {:cont, {:ok, Map.put(acc, {:tally, t["relation"]}, facts)}}
+        error -> {:halt, error}
+      end
+    end)
   end
 
   defp composed(run, subject, links, counts, children) do
@@ -716,8 +896,17 @@ defmodule AtlasFlow.Runs.Store do
 
     {acc, aggregate} =
       Enum.reduce(counts, {acc, %{}}, fn c, {acc, aggregate} ->
-        {facts, runs} = children[{c["child_subject"], c["relation"], c["child"]}]
-        values = Counts.values(c, facts, runs)
+        {identity, values} =
+          case c do
+            %{"child" => child} ->
+              {facts, runs} = children[{c["child_subject"], c["relation"], child}]
+              {child, Counts.values(c, facts, runs)}
+
+            tally ->
+              {["tally", tally["relation"]],
+               Tallies.values(tally, children[{:tally, tally["relation"]}])}
+          end
+
         changes = Counts.changes(values, subject)
 
         write =
@@ -726,7 +915,7 @@ defmodule AtlasFlow.Runs.Store do
             else: [
               subject_write(
                 run,
-                {"count", c["child"], changes, subject["version"], run["key"], run["entry"]},
+                {"count", identity, changes, subject["version"], run["key"], run["entry"]},
                 changes
               )
             ]

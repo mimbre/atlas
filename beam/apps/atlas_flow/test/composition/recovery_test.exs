@@ -340,7 +340,6 @@ defmodule AtlasFlow.Composition.RecoveryTest do
         quote do
           @behaviour AtlasFlow.Model
           defdelegate subflows(env), to: AtlasFlow.Yard
-          defdelegate legacy(), to: AtlasFlow.Yard
           defdelegate runs(), to: AtlasFlow.Yard
           defdelegate migrations(), to: AtlasFlow.Yard
           defdelegate actors(), to: AtlasFlow.Yard
@@ -367,7 +366,7 @@ defmodule AtlasFlow.Composition.RecoveryTest do
 
     # The cup's subflow not selected: no link or count of it is applied, so nothing refuses.
     assert %{refusal: nil, config: config} = load.(unsafe, %{"pour" => nil})
-    assert config["composition"] == %{"links" => [], "counts" => []}
+    assert config["composition"] == %{"links" => [], "counts" => [], "tallies" => []}
   end
 
   defp restart_flow do

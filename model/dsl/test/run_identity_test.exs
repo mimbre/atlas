@@ -34,31 +34,24 @@ defmodule RelaDSL.RunIdentityTest do
 
   test "on the model alone: to leads to a current digest, states map known states, rekey keeps them" do
     problems = fn migrations ->
-      Enum.map(RunIdentity.problems(current(@now), migrations), &elem(&1, 1))
+      for {_, p} <- RunIdentity.problems(current(@now), migrations), do: RelaDSL.Problem.key(p)
     end
 
-    assert [msg] = problems.([m(from: @a, to: @b, states: :same)])
-    assert msg =~ "is no current digest of run"
+    assert problems.([m(from: @a, to: @b, states: :same)]) == [{:not_current, ["run"]}]
 
-    assert [msg] = problems.([m(from: @a, to: @c, states: [open: :gone, done: :done])])
-    assert msg =~ "maps to states that"
+    assert problems.([m(from: @a, to: @c, states: [open: :gone, done: :done])]) ==
+             [{:states_to, ["run"]}]
 
-    assert [msg] =
-             problems.([m(from: @a, to: @c, states: [open: :done, done: :done], rekey: true)])
+    assert problems.([m(from: @a, to: @c, states: [open: :done, done: :done], rekey: true)]) ==
+             [{:rekey, ["run"]}]
 
-    assert msg =~ "rekey: true keeps every state"
-
-    assert [msg] = problems.([m(from: @a, to: @c, states: :same, reason: " ")])
-    assert msg =~ "needs reason"
+    assert problems.([m(from: @a, to: @c, states: :same, reason: " ")]) == [{:reason, ["run"]}]
 
     # One digest has one set of states, whichever migration names it.
-    assert [msg] =
-             problems.([
-               m(from: @a, to: @c, states: [open: :open]),
-               m(from: @a, to: @c, states: [open: :open, done: :done])
-             ])
-
-    assert msg =~ "maps other states than"
+    assert problems.([
+             m(from: @a, to: @c, states: [open: :open]),
+             m(from: @a, to: @c, states: [open: :open, done: :done])
+           ]) == [{:states_from, ["run"]}]
   end
 
   test "against the base: nothing removed, a changed digest is migrated, and from is the base's" do

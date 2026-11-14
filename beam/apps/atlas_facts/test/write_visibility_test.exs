@@ -38,7 +38,8 @@ defmodule AtlasFacts.WriteVisibilityTest do
   defp request(class, kind, content) do
     e = Envelope.new(class, kind)
     :ok = AtlasBus.send(e, content)
-    assert_receive {:atlas_bus, %Envelope{id: id}, answer} when id == e.id
+    # Routing is asynchronous; visibility is checked after the correlated reply.
+    assert_receive {:atlas_bus, %Envelope{id: id}, answer} when id == e.id, 1_000
     answer
   end
 

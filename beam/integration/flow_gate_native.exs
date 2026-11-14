@@ -73,9 +73,6 @@ try do
   served = await.(await)
   assert Map.take(served, ~w(entities relations types)) == Model.AtlasEyra.rela_schema()
   %{config: config, flows: flows} = AtlasFlow.Model.load(Model.AtlasEyra, :test)
-  # Facts keeps runs by the same compiled run mapping Flow runs them by.
-  assert Map.take(Model.AtlasEyra.run_mapping(), ~w(kind fields writer inputs)) ==
-           Map.take(config, ~w(kind fields writer inputs))
 
   reconcile = fn ->
     Task.async(fn ->
@@ -168,9 +165,6 @@ try do
     AtlasFlow.Engine.round(engine)
     assert :sys.get_state(engine).refusal == nil
     GenServer.stop(engine)
-
-    for {_, pid, _, _} <- DynamicSupervisor.which_children(AtlasFlow.Supervisor),
-        do: DynamicSupervisor.terminate_child(AtlasFlow.Supervisor, pid)
   end
 
   assert {:ok, runs} = reconcile.()

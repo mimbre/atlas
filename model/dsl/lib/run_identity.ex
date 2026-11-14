@@ -75,7 +75,7 @@ defmodule RelaDSL.RunIdentity do
     end)
   end
 
-  @doc "Problems of the migrations on the model alone: `[{migration, message}]`."
+  @doc "Problems of the migrations on the model alone: `[{migration, RelaDSL.Problem}]`."
   def problems(current, migrations) do
     states = states(current, migrations)
 
@@ -86,24 +86,29 @@ defmodule RelaDSL.RunIdentity do
       chain = for n <- migrations, n.subflow == name, do: n.opts[:from]
       expanded = expand(m.opts[:states], to, states)
       pre = "migrate #{name} from #{short(from)}: "
+      names = [to_string(name)]
+      p = &RelaDSL.Problem.new(&1, names, pre <> &2)
 
       [
-        not (hex?(from) and hex?(to)) && pre <> "from: and to: are full SHA-256 digests",
-        currents == [] && pre <> "the composition runs no subflow #{name}",
+        not (hex?(from) and hex?(to)) && p.(:digests, "from: and to: are full SHA-256 digests"),
+        currents == [] && p.(:not_run, "the composition runs no subflow #{name}"),
         (currents != [] and to not in currents and to not in chain) &&
-          pre <>
-            "to: #{short(to)} is no current digest of #{name}, nor the from of another of its migrations",
-        not text?(m.opts[:reason]) && pre <> "needs reason: why the runs may move",
-        expanded == :invalid && pre <> "states: is a map of from-states to to-states, or :same",
+          p.(
+            :not_current,
+            "to: #{short(to)} is no current digest of #{name}, nor the from of another of its migrations"
+          ),
+        not text?(m.opts[:reason]) && p.(:reason, "needs reason: why the runs may move"),
+        expanded == :invalid &&
+          p.(:states_shape, "states: is a map of from-states to to-states, or :same"),
         (expanded != :invalid and states[to] != nil and
            Enum.any?(expanded, fn {_, v} -> v not in states[to] end)) &&
-          pre <> "states: maps to states that #{short(to)} does not have",
+          p.(:states_to, "states: maps to states that #{short(to)} does not have"),
         (expanded != :invalid and states[from] != nil and
            Enum.sort(Enum.map(expanded, &elem(&1, 0))) != states[from]) &&
-          pre <> "states: maps other states than #{short(from)} has",
+          p.(:states_from, "states: maps other states than #{short(from)} has"),
         (m.opts[:rekey] == true and expanded != :invalid and
            Enum.any?(expanded, fn {k, v} -> k != v end)) &&
-          pre <> "rekey: true keeps every state: map each to itself"
+          p.(:rekey, "rekey: true keeps every state: map each to itself")
       ]
       |> Enum.filter(& &1)
       |> Enum.map(&{m, &1})

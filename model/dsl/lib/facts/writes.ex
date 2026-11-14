@@ -21,13 +21,18 @@ defmodule RelaDSL.Facts.Writes do
     `kind` is always allowed and `agent_kind` only by a fresh verdict of the decider
     gate (`decider.gate`, of `decider.kind`, linked through `decider.relation`), bound
     to the write by its fingerprint. A change that decides and does not link its writer
-    through `by` yet gets that link (`with_change/4`).
+    through `by` yet gets that link (`with_change/4`). An existing frozen fact's
+    tally-only change, from each tally's configured machine writer and endpoint,
+    preserves its recorded authority without requiring a new acceptance verdict.
+    This permits no ordinary fields or links and does not authorize a new acceptance.
   - `layering`: `%{"relation", "field", "not", "error"}`: a fact whose `field` is a key of
     `not` may not link through `relation` to a fact whose `field` is one of that key's
     values, nor may a fact take a value in `not` while such a fact links to it
     ({key}, {value}, {other}, {other_value}).
-  - `frozen`: `%{"when", "only", "error"}`: a fact that holds `when` is never deleted, and a
-    change may only set the properties of `only` to one of their values; no links.
+  - `frozen`: `%{"when", "only", "tallied", "error"}`: a fact that holds `when` is never
+    deleted, and a change may only set the properties of `only` to one of their values,
+    and those of `tallied` (the counts Flow keeps on it, which only Flow writes) to any;
+    no links.
   - `replaces`: `%{"relation", "when", "of", "set", "error"}`: a fact stored holding `when`
     sets `set` on every fact it links to through `relation` (in the same write,
     `with_change/4`), and each of those must hold `of`.
@@ -505,10 +510,15 @@ defmodule RelaDSL.Facts.Writes do
       else
         fact = after_write(current, values, links)
 
+        authority_reasons =
+          if frozen_tally?(rules, op, current, values, links, env),
+            do: [],
+            else: authority(authority_rule, fact, kind_of)
+
         reasons =
           only_target(rules["only_target"], current, links, env["writer"]) ++
             requires(rules["requires"], fact) ++
-            authority(authority_rule, fact, kind_of) ++
+            authority_reasons ++
             decides(authority_rule, current, values, fact, env["writer"], kind_of) ++
             replaces(rules["replaces"], key, fact, fetch) ++
             layering(rules["layering"], key, current, fact, fetch, env["incoming"])
@@ -517,6 +527,29 @@ defmodule RelaDSL.Facts.Writes do
       end
     end
   end
+
+  # Tallies maintain an already frozen fact; they do not decide it again. Require
+  # the declared tally fields AND their installed writer guards, even though the
+  # field checks above also enforce identity. Mixed writes still check authority.
+  defp frozen_tally?(rules, "change", %{} = current, values, links, env) do
+    tallied = List.wrap(get_in(rules, ["frozen", "tallied"]))
+
+    holds?(get_in(rules, ["frozen", "when"]), current["values"]) and
+      map_size(links) == 0 and map_size(values) > 0 and
+      Enum.all?(values, fn {name, _} ->
+        name in tallied and
+          case get_in(rules, ["field_writers", name]) do
+            %{"by" => by, "sender" => sender} = writer
+            when is_binary(by) and by != "" and is_binary(sender) and sender != "" ->
+              machine_writer(writer, env) == :ok
+
+            _ ->
+              false
+          end
+      end)
+  end
+
+  defp frozen_tally?(_rules, _op, _current, _values, _links, _env), do: false
 
   defp deletable(message, "delete") when is_binary(message), do: {:refused, [message]}
   defp deletable(_, _), do: :ok
@@ -554,11 +587,12 @@ defmodule RelaDSL.Facts.Writes do
   defp frozen(%{"when" => condition} = rule, op, key, %{} = current, values, links) do
     if holds?(condition, current["values"]) do
       only = rule["only"] || %{}
+      tallied = List.wrap(rule["tallied"])
 
       allowed? =
         op != "delete" and
           Enum.all?(values, fn {name, value} ->
-            loose(value) == loose(current["values"][name]) or
+            loose(value) == loose(current["values"][name]) or name in tallied or
               (Map.has_key?(only, name) and loose(value) in loose_all(only[name]))
           end) and
           Enum.all?(links, fn {relation, keys} ->
@@ -618,10 +652,13 @@ defmodule RelaDSL.Facts.Writes do
     for rule <- List.wrap(rules),
         is_map(rule),
         holds?(rule["when"], fact["values"]),
-        missing = Enum.filter(List.wrap(rule["fields"]), &(loose(fact["values"][&1]) == nil)),
+        missing = Enum.filter(List.wrap(rule["fields"]), &required_empty?(fact["values"][&1])),
         missing != [],
         do: rule["error"] || "#{Enum.join(missing, ", ")} is required"
   end
+
+  defp required_empty?(value) when is_binary(value), do: String.trim(value) == ""
+  defp required_empty?(value), do: value == nil
 
   defp authority(%{"when" => condition, "by" => by} = rule, fact, kind_of) do
     if holds?(condition, fact["values"]) and not may_decide?(rule, fact, kind_of),

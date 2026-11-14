@@ -18,16 +18,8 @@ defmodule AtlasFlow.Application do
         []
       end
 
-    # One process per open fact, each restarted by itself when it crashes.
     children =
-      [
-        AtlasFlow.Activities.Pass.Inbox,
-        AtlasFlow.Activities.Effect.Inbox,
-        {Registry, keys: :unique, name: AtlasFlow.Items},
-        # The processes whose owner does not exist yet, by that owner (`AtlasFlow.Item`).
-        {Registry, keys: :duplicate, name: AtlasFlow.Waiting},
-        {DynamicSupervisor, name: AtlasFlow.Supervisor, strategy: :one_for_one}
-      ] ++ engine
+      [AtlasFlow.Activities.Pass.Inbox, AtlasFlow.Activities.Effect.Inbox] ++ engine
 
     Supervisor.start_link(children, strategy: :one_for_one, name: AtlasFlow.Root)
   end

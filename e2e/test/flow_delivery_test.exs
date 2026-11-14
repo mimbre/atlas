@@ -1,7 +1,7 @@
 defmodule AtlasE2E.FlowDeliveryTest do
   @moduledoc """
   Slices 8 and 9 on real persistence: the pull request and the issue run on Flow's durable
-  runs in place of their legacy flows, against a private Rela and real Facts
+  runs in place of their old flows (gone since slice 14), against a private Rela and real Facts
   (`beam/integration/flow_delivery_native.exs`). Imports of merged, closed and open pull
   requests, one writer, restart while waiting, changes requested, a new revision whose
   replaced verdict is ignored, review and test together leading to integrating once; Code's

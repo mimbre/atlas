@@ -54,7 +54,6 @@ defmodule AtlasFlow.Runs.ReactionTest do
 
   defmodule Gathering do
     use AtlasFlow.TestModel,
-      legacy: [],
       subflows: [
         AtlasFlow.Runs.ReactionTest.Gather,
         Enum.find(AtlasFlow.Yard.subflows(:prod), &(&1.name() == "pour"))
@@ -84,13 +83,6 @@ defmodule AtlasFlow.Runs.ReactionTest do
 
   setup do
     Application.put_env(:atlas_bus, :store, "reaction-#{System.unique_integer([:positive])}")
-    :ok = Supervisor.terminate_child(AtlasFlow.Root, AtlasFlow.Supervisor)
-    {:ok, _} = Supervisor.restart_child(AtlasFlow.Root, AtlasFlow.Supervisor)
-
-    on_exit(fn ->
-      for {_, pid, _, _} <- DynamicSupervisor.which_children(AtlasFlow.Supervisor),
-          do: DynamicSupervisor.terminate_child(AtlasFlow.Supervisor, pid)
-    end)
 
     start_supervised!({FakeFacts, description: @description})
     FakeFacts.put("hand", %{"key" => "ada"})

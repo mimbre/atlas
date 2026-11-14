@@ -1,44 +1,20 @@
 # Run in the umbrella with MIX_ENV=test; invoked by the external e2e test harness.
 ExUnit.start(seed: 0)
 
-# Runtime runs the neutral model of its tests (AtlasRuntime.TestModel). Flow's side: the
-# same legacy flow, compiled from the Rela DSL into the model Flow's items run (a neutral
-# one, with no runs selected), walking that neutral model's relations and turn.
-defmodule HandoverPack do
-  use RelaDSL.Flow.Legacy,
-    name: :pack,
-    behaviour: AtlasFlow.Legacy,
-    flow: [
-      kinds: [:box],
-      on: :card,
-      field: :todo,
-      state_field: :step,
-      handover_field: :later,
-      owner_relation: :owned_by,
-      states: [
-        [
-          name: :checking,
-          when: [values: [phase: [:check]]],
-          owner: [kind: :clerk, key: "bob"],
-          expected: "Check it"
-        ],
-        [name: :packing, owner: [kind: :clerk, key: "ada"], expected: "Pack it"]
-      ]
-    ]
-end
-
-defmodule HandoverModel do
-  use AtlasFlow.TestModel,
-    legacy: [HandoverPack],
-    selection: %{"sort" => nil},
-    relations: AtlasRuntime.TestModel.relations(),
-    turn: AtlasRuntime.TestModel.turn()
-end
-
+# Runtime runs the neutral model of its tests (AtlasRuntime.TestModel), and so does Flow:
+# its selected subflow `pack` (ada packs a box, bob checks it), whose run Flow keeps as a
+# fact and projects on the box's card (`AtlasFlow.Runs.Projection`, the one writer of what
+# a run presents). What Runtime reads of the card is its presentation, as Facts derives it
+# from the run and what Flow wrote (`AtlasFacts.Presentation`). Flow keeps nothing: each
+# projection reads Facts again, so a fresh Flow is a projection like any other.
 defmodule RuntimeFlowHandoverTest do
   use ExUnit.Case, async: false
 
   alias AtlasRuntime.{Engine, FakeFacts}
+  alias AtlasFlow.Runs.{Projection, Run, Store}
+
+  @model AtlasRuntime.TestModel
+  @now ~U[2026-11-14 00:00:00Z]
 
   @moduletag :tmp_dir
 
@@ -57,30 +33,80 @@ defmodule RuntimeFlowHandoverTest do
           do: DynamicSupervisor.terminate_child(AtlasRuntime.Supervisor, pid)
     end)
 
-    # Umbrella Flow tests may leave item processes under their application supervisor.
-    # None may reconcile against this test's replacement Facts endpoint.
-    if Process.whereis(AtlasFlow.Supervisor) do
-      for {_, pid, _, _} <- DynamicSupervisor.which_children(AtlasFlow.Supervisor),
-          do: DynamicSupervisor.terminate_child(AtlasFlow.Supervisor, pid)
-
-      eventually(fn -> Registry.count(AtlasFlow.Items) == 0 end)
-    end
-
     start_supervised!({FakeFacts, description: FakeFacts.description_of(AtlasRuntime.TestModel)})
     FakeFacts.put("clerk", %{"key" => "ada"})
     FakeFacts.put("clerk", %{"key" => "bob"})
     %{dir: dir}
   end
 
-  # Ada's box: its card is hers, and its flow has a state for it.
+  # Ada's box: its card is hers, and the run of its subflow packs it (as Flow wrote it).
   defp box(owner \\ "ada", step \\ "packing") do
     FakeFacts.put("box", %{"key" => "B-1", "links" => %{"card" => ["C-B-1"]}})
 
     FakeFacts.put("card", %{
       "key" => "C-B-1",
-      "values" => %{"step" => step},
+      "values" => %{"step" => step, "todo" => "Pack it"},
       "links" => %{"owned_by" => List.wrap(owner)}
     })
+
+    put_run(Run.new("pack", flow(), FakeFacts.get("box", "B-1"), [], @now))
+  end
+
+  defp runner, do: AtlasFlow.Model.load(@model, :prod, %{})
+  defp flow, do: runner().flows["pack"]
+
+  # The run as Flow stores it, its entry writes acknowledged; and the card presented.
+  defp put_run(run) do
+    run = put_in(run, ["pending", "writes"], [])
+    FakeFacts.put("job", %{"key" => run["key"], "values" => Store.encode(runner().config, run)})
+    present()
+    run
+  end
+
+  defp run_of_box do
+    key = Run.key("pack", "box", "B-1", 1)
+    {:ok, run} = Store.decode(runner().config, FakeFacts.get("job", key))
+    run
+  end
+
+  # The box moved on: its run takes the change, as Flow's store does.
+  defp moves(values) do
+    box = FakeFacts.get("box", "B-1")
+    box = Map.update!(box, "values", &Map.merge(&1, values))
+    FakeFacts.put("box", box)
+    {:ok, run} = Run.step(run_of_box(), flow(), box, @now)
+    put_run(run)
+  end
+
+  # Flow projects the run on the card, from a process of its own on the Bus, as the
+  # engine does; then Facts presents the card again.
+  defp project do
+    runner = runner()
+
+    Task.async(fn ->
+      :ok = AtlasBus.attach("flow-#{System.unique_integer([:positive])}")
+      {:ok, _} = Projection.project(runner, "box", "B-1")
+    end)
+    |> Task.await()
+
+    present()
+  end
+
+  # What Facts answers as the card's presentation, from the run and what Flow wrote.
+  defp present do
+    presenter = Enum.find(@model.presentation(), &(&1["kind"] == "card"))
+    card = Map.delete(FakeFacts.get("card", "C-B-1"), "presentation")
+    box = FakeFacts.get("box", "B-1")
+    runs = for {:ok, r} <- [safe_run()], do: r
+    shown = AtlasFacts.Presentation.view(presenter, card, box, runs, fn -> false end)
+    FakeFacts.put("card", Map.put(card, "presentation", shown))
+  end
+
+  defp safe_run do
+    case FakeFacts.get("job", Run.key("pack", "box", "B-1", 1)) do
+      nil -> :none
+      fact -> Store.decode(runner().config, fact)
+    end
   end
 
   defp engine(dir, more \\ []) do
@@ -113,8 +139,8 @@ defmodule RuntimeFlowHandoverTest do
     end
   end
 
-  # The Flow item is explicitly suspended after it saves its handover. Runtime can
-  # reconcile as often as it likes while Flow cannot react to the end hint or its timer.
+  # Flow saves its handover, then does nothing until the end: Runtime can reconcile as
+  # often as it likes while Flow does not react to the end hint.
   for ending <- [:outcome, :crash, :silence, :restart] do
     test "a pending handover cannot be starved after #{ending}", %{dir: dir} do
       box()
@@ -126,6 +152,8 @@ defmodule RuntimeFlowHandoverTest do
           "owned_by" => %{"by" => "human", "position" => 1}
         })
       )
+
+      present()
 
       opts = [
         every: 3_600_000,
@@ -139,23 +167,14 @@ defmodule RuntimeFlowHandoverTest do
       eventually(fn -> run("R-C-B-1-1") != nil end)
       [{turn, _}] = Registry.lookup(AtlasRuntime.Turns, "R-C-B-1-1")
 
-      {:ok, _} = Application.ensure_all_started(:atlas_flow)
-
-      flow =
-        start_supervised!(
-          {AtlasFlow.Item, {"box", "B-1", [every: 3_600_000, model: HandoverModel]}}
-        )
-
-      :sys.get_state(flow)
-      item = FakeFacts.get("box", "B-1") |> put_in(["values", "phase"], "check")
-      FakeFacts.put("box", item)
-      send(flow, :look)
-      :sys.get_state(flow)
+      # The box is all packed: the run moves on to bob's check, and Flow defers the
+      # handover while ada's turn runs.
+      moves(%{"phase" => "check"})
+      project()
       card = FakeFacts.get("card", "C-B-1")
       assert card["values"]["later"] != nil
       assert card["links"]["owned_by"] == ["ada"]
-      :sys.suspend(flow)
-      on_exit(fn -> if Process.alive?(flow), do: :sys.resume(flow) end)
+      assert card["presentation"]["handover"] != nil
 
       # Pending transfer does not revoke the running turn's ownership or authority.
       Engine.round(runtime)
@@ -193,16 +212,8 @@ defmodule RuntimeFlowHandoverTest do
       assert run("R-C-B-1-2") == nil
       assert FakeFacts.get("card", "C-B-1")["links"]["owned_by"] == ["ada"]
 
-      :sys.resume(flow)
-      # A fresh Flow process must also recover the pending transfer from Facts.
-      stop_supervised!(AtlasFlow.Item)
-
-      flow =
-        start_supervised!(
-          {AtlasFlow.Item, {"box", "B-1", [every: 3_600_000, model: HandoverModel]}}
-        )
-
-      :sys.get_state(flow)
+      # Flow, fresh or not, recovers the pending transfer from Facts alone.
+      project()
       card = FakeFacts.get("card", "C-B-1")
       assert card["links"]["owned_by"] == ["bob"]
       assert card["values"]["later"] == nil
@@ -231,19 +242,14 @@ defmodule RuntimeFlowHandoverTest do
       "origins" => %{"owned_by" => %{"by" => "human", "position" => 2}}
     })
 
+    present()
+
     runtime = engine(dir, every: 3_600_000)
     Engine.round(runtime)
     settle_turns()
     assert FakeFacts.all("run") == []
 
-    {:ok, _} = Application.ensure_all_started(:atlas_flow)
-
-    flow =
-      start_supervised!(
-        {AtlasFlow.Item, {"box", "B-1", [every: 3_600_000, model: HandoverModel]}}
-      )
-
-    :sys.get_state(flow)
+    project()
     assert FakeFacts.get("card", "C-B-1")["values"]["later"] == nil
     assert FakeFacts.get("card", "C-B-1")["links"]["owned_by"] == ["ada"]
     Engine.round(runtime)
