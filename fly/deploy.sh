@@ -48,7 +48,7 @@ if [ "$(machines rela "$rela_app")" -gt 0 ]; then
     # Resolve the whole selected closure locally before uploading anything. The deployed
     # old image may predate Python/includes, so preflight receives an equivalent flat
     # schema; the new image and local startup still use native includes.
-    next="$(mktemp -d)"
+    next="$(mktemp -d "${TMPDIR:-/tmp}/atlas-deploy.XXXXXX")"
     trap 'rm -rf "$next"' EXIT
     "${ATLAS_CONFIG_PYTHON:-python3}" "$root/rela/scripts/config.py" flat > "$next/schema.yaml"
     cp "$root/rela/data-entry.yaml" "$next/data-entry.yaml"

@@ -6,7 +6,17 @@ defmodule AtlasFacts.GuidanceNativeTest do
   # Needs rela-server and rela/scripts/config.py (Python with PyYAML).
   @moduletag :integration
   @root Path.expand("../../../..", __DIR__)
-  @bin System.get_env("ATLAS_E2E_RELA_BIN") || Path.expand("~/.local/share/atlas/test/bin")
+  # rela's binaries: ATLAS_E2E_RELA_BIN, ATLAS_RELA_BIN, the `rela-bin` folder beside the
+  # checkout when it holds rela-server (a worker's), else the test instance's (as e2e's
+  # AtlasE2E.Instance.rela_bin!/0).
+  @bin Enum.find(
+         [System.get_env("ATLAS_E2E_RELA_BIN"), System.get_env("ATLAS_RELA_BIN")],
+         &(&1 not in [nil, ""])
+       ) ||
+         if(File.exists?(Path.join([@root, "../rela-bin", "rela-server"])),
+           do: Path.join(@root, "../rela-bin"),
+           else: Path.expand("~/.local/share/atlas/test/bin")
+         )
   @moduletag skip: not File.exists?(Path.join(@bin, "rela-server"))
 
   defp start_rela(dir) do

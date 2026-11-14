@@ -20,8 +20,11 @@ atlas-ops tunnel close --env test  # closes this Mac's tunnel; test keeps runnin
 The tunnel is `fly proxy 7693:7691 -a eyra-atlas-test`, flyctl's WireGuard into test's network, running in the background like the core used to. It needs flyctl logged in to organisation eyra (`fly auth whoami`); nothing else on the Mac (no VPN, no root). Its files are in `~/.local/share/atlas/test-on-fly/`.
 
 Before passing the tunnel to a client, the launcher checks a read-only Control
-handshake, not only the local port. It reopens an unresponsive existing proxy and
-waits up to a minute for a new proxy to reach Control. `status` reports a broken
+handshake, not only the local port. An existing tunnel is shared by every client on
+the Mac, so a slow Control does not drop it: after three failed hellos (10 s each) it is
+reopened only if its `fly proxy` has died or its port no longer accepts; otherwise the
+launcher says `Control is slow or not answering through the tunnel` and goes on. It waits
+up to a minute for a new proxy to reach Control. `status` reports a broken
 upstream as unavailable even if flyctl still listens locally. This restarts no Fly
 machine and replays no client writes. A hello refusal is left to the client to
 report; a handshake alone does not prove Facts/rela health.
@@ -32,6 +35,8 @@ Test deployment waits for the focused generator, contract, core, TUI and agent j
 not the full native end-to-end suite. End-to-end checks still run independently;
 production deployment continues to require them. Data compatibility checks, paired
 deployment serialization and the deployed read-only smoke remain mandatory.
+When the merged tree already passed every test job (on its pull request), those jobs are
+skipped and test deploys right away; see `docs/guides/prod.md`, "CI tests a tree once".
 
 1. On rela's machine, on a copy of its data: does this build's description describe all of it? When it does not, nothing is deployed and test keeps its build; that data needs a migration first (below).
 2. rela, then the core.
@@ -121,7 +126,7 @@ atlas-ops move-to-fly --env test --from <folder> --replace-live              # t
 atlas-ops fetch-from-fly --env test --to ~/.local/share/atlas/test-backup-$(date -u +%Y%m%dT%H%M%SZ)
 ```
 
-It holds both apps for about a minute: the machines stay up but serve nothing, so the copy is whole. It then copies `/data/rela` and `/data/beam` into `<folder>/rela` and `<folder>/beam`, the layout `move-to-fly` takes back. Last, it releases both apps.
+It first refuses, changing nothing, when either app already has a hold or a pending move (`/data/incoming/<name>.tar.gz`): a restart would end that hold or apply that move. It holds both apps for about a minute: the machines stay up but serve nothing, so the copy is whole. It then copies `/data/rela` and `/data/beam` into `<folder>/rela` and `<folder>/beam`, the layout `move-to-fly` takes back. Last, it releases both apps.
 
 ## A migration
 

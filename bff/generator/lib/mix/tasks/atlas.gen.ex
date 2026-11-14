@@ -8,13 +8,15 @@ defmodule Mix.Tasks.Atlas.Gen do
 
       config :atlas_bff,
         contract: MyContract,
-        targets: [json: "../targets/json"],
+        targets: [json: "../targets/json", swift: {"../targets/swift", package: "MyKit"}],
         root: "../.."
 
-  `contract` uses `AtlasBFF.Schema`; `targets` maps each file target to its folder;
+  `contract` uses `AtlasBFF.Schema`; `targets` maps each file target to its folder, or to
+  `{folder, options}` for a target that takes options;
   `root` (optional, default the project's folder) is what the header's path to the
   contract file is relative to. The
-  file targets are `json` (`AtlasBFF.Targets.Json`). Compile-time targets
+  file targets are `json` (`AtlasBFF.Targets.Json`) and `swift` (`AtlasBFF.Targets.Swift`,
+  option `package:`, the Swift package's name). Compile-time targets
   (`AtlasBFF.Targets.Server`, `AtlasBFF.Targets.Client`) write no files.
 
   Every file starts with an `AtlasBFF.Header`. A file without exactly that header is
@@ -28,9 +30,9 @@ defmodule Mix.Tasks.Atlas.Gen do
 
   @requirements ["compile"]
 
-  # Every file target has `files/1`: a contract's `__schema__/0` to `[{path, body}]`,
-  # paths relative to the target's folder.
-  @targets %{json: AtlasBFF.Targets.Json}
+  # Every file target has `files/2`: a contract's `__schema__/0` and the target's options
+  # to `[{path, body}]`, paths relative to the target's folder.
+  @targets %{json: AtlasBFF.Targets.Json, swift: AtlasBFF.Targets.Swift}
 
   @impl true
   def run(args) do
@@ -43,8 +45,8 @@ defmodule Mix.Tasks.Atlas.Gen do
       Path.relative_to(schema.file, Path.expand(Application.get_env(:atlas_bff, :root, ".")))
 
     files =
-      for {target, dir} <- targets!(),
-          {path, body} <- Map.fetch!(@targets, target).files(schema),
+      for {target, dir, target_opts} <- targets!(),
+          {path, body} <- Map.fetch!(@targets, target).files(schema, target_opts),
           do: {Path.join(dir, path), Header.put(Path.extname(path), source, body)}
 
     stale = for {path, body} <- files, File.read(path) != {:ok, body}, do: path
@@ -81,16 +83,18 @@ defmodule Mix.Tasks.Atlas.Gen do
     end
   end
 
-  # Files with the header, in a target's folder, that no target writes now.
+  # Files with the header, in a target's folder, that no target writes now (once, also when
+  # one target's folder is inside another's).
   defp leftovers(files) do
     written = Enum.map(files, &elem(&1, 0))
 
-    for {_target, dir} <- targets!(),
+    for {_target, dir, _opts} <- targets!(),
         path <- Path.wildcard(Path.join(dir, "**/*")),
         File.regular?(path),
         path not in written,
         generated?(path),
-        do: path
+        do: path,
+        uniq: true
   end
 
   defp generated?(path), do: Header.generated?(Path.extname(path), File.read!(path))
@@ -111,6 +115,19 @@ defmodule Mix.Tasks.Atlas.Gen do
       )
     end
 
-    targets
+    for {target, spec} <- targets do
+      case spec do
+        {dir, opts} when is_binary(dir) and is_list(opts) ->
+          {target, dir, opts}
+
+        dir when is_binary(dir) ->
+          {target, dir, []}
+
+        other ->
+          Mix.raise(
+            "target #{inspect(target)}: expected a folder or {folder, options}, got #{inspect(other)}"
+          )
+      end
+    end
   end
 end

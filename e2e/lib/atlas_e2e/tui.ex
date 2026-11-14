@@ -3,7 +3,8 @@ defmodule AtlasE2E.Tui do
   Console negotiation and contextual actions run against the same real Control as
   the native Console transport scenarios.
   One real TUI, started with `atlas tui --env test` in a tmux pane of its own (on a tmux server of
-  this run only, so no session of anyone else is touched). Keys go in with
+  this run only, its socket `<socket>.tmux` in the system temp directory, so no session of
+  anyone else is touched). Keys go in with
   `tmux send-keys`; the screen comes out with `tmux capture-pane`.
   """
 
@@ -56,7 +57,12 @@ defmodule AtlasE2E.Tui do
     out
   end
 
-  def kill_server(socket), do: tmux(socket, ["kill-server"])
+  # tmux removes its socket when its server ends; one that never ran a pane leaves it.
+  def kill_server(socket) do
+    result = tmux(socket, ["kill-server"])
+    File.rm(socket |> server() |> List.last())
+    result
+  end
 
   defp tmux!(socket, args) do
     case tmux(socket, args) do
@@ -65,6 +71,12 @@ defmodule AtlasE2E.Tui do
     end
   end
 
-  defp tmux(socket, args),
-    do: System.cmd("tmux", ["-L", socket | args], stderr_to_stdout: true)
+  @doc """
+  tmux's arguments that pick the run's server `socket`: its socket lies in the system temp
+  directory (`TMPDIR`), not in tmux's own (/tmp/tmux-UID), which a sandboxed worker may not
+  write.
+  """
+  def server(socket), do: ["-S", Path.join(System.tmp_dir!(), socket <> ".tmux")]
+
+  defp tmux(socket, args), do: System.cmd("tmux", server(socket) ++ args, stderr_to_stdout: true)
 end

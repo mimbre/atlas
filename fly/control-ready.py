@@ -4,6 +4,8 @@
 A welcome or explicit hello refusal proves transport works. Leave refusals (such
 as an old client contract) to the actual client; restarting a proxy cannot fix
 those. This sends no commands that write data and never replays client requests.
+
+Usage: control-ready.py SETTINGS CONTRACT [TIMEOUT_SECONDS]  (default 3)
 """
 import json
 import socket
@@ -45,7 +47,8 @@ if __name__ == "__main__":
     try:
         settings = json.loads(Path(sys.argv[1]).read_text())
         contract = json.loads(Path(sys.argv[2]).read_text())
-        probe(settings, contract["version"])
+        timeout = float(sys.argv[3]) if len(sys.argv) > 3 else 3
+        probe(settings, contract["version"], timeout)
     except (OSError, ValueError, KeyError) as error:
         print(f"Control is not reachable: {error}", file=sys.stderr)
         sys.exit(1)

@@ -2,7 +2,7 @@ defmodule AtlasCodeTest do
   use ExUnit.Case, async: true
   import ExUnit.CaptureLog
 
-  @moduletag :tmp_dir
+  setup {AtlasCode.TestDir, :tmp_dir}
   @token "runtime-secret-token"
   @orchestrator "orchestrator-secret-token"
   @attribution "\n\n<sub>Written by an AI agent (test).</sub>\n"
@@ -1802,6 +1802,7 @@ defmodule AtlasCodeTest do
       {200, _} = orchestrate(port, "/v1/reviews", review(uuid(91), change))
       {200, %{"revision" => target}} = resolve(port, "github.com/test/plain", "develop")
       hook = Path.join([remote, "hooks", "pre-receive"])
+      File.mkdir_p!(Path.dirname(hook))
 
       File.write!(hook, """
       #!/bin/sh
@@ -1858,6 +1859,7 @@ defmodule AtlasCodeTest do
         |> String.trim()
 
       hook = Path.join([remote, "hooks", "pre-receive"])
+      File.mkdir_p!(Path.dirname(hook))
       # Runs after the client checked its lease against the advertised refs.
       File.write!(
         hook,
@@ -2328,6 +2330,7 @@ defmodule AtlasCodeTest do
         orchestrate(port, "/v1/reviews", review(uuid(149), uuid(148)))
 
       hook = Path.join([remote, "hooks", "pre-receive"])
+      File.mkdir_p!(Path.dirname(hook))
       File.write!(hook, "#!/bin/sh\necho \"work branches are protected\" >&2\nexit 1\n")
       File.chmod!(hook, 0o755)
       refused = review_update(uuid(150), uuid(149), uuid(142), protected, fpr)

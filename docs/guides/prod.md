@@ -21,10 +21,14 @@ More:
 
 Before reusing or opening a tunnel, `atlas` sends a read-only Control hello through
 it. A local listening port alone is not enough: flyctl can keep that port open
-while its WireGuard tunnel or private DNS is unavailable. An unresponsive existing
-proxy is reopened; a new proxy must reach Control within a minute before a client
-starts. This changes only the local proxy, never the Fly machines or stored data,
-and never retries a client's write. `atlas-ops status` reports an unavailable upstream
+while its WireGuard tunnel or private DNS is unavailable. An existing tunnel is shared
+by every client on this Mac (the TUI, `atlas` commands, agents), so it gets three hellos
+of up to 10 s each, and is reopened only if they all fail and its `fly proxy` has died or
+its port no longer accepts. If the port accepts but Control does not answer, `atlas`
+prints `Control is slow or not answering through the tunnel: …` and leaves the tunnel
+alone. A new proxy must reach Control within a minute before a client starts. This
+changes only the local proxy, never the Fly machines or stored data, and never retries
+a client's write. `atlas-ops status` reports an unavailable upstream
 separately from a closed tunnel.
 
 The probe proves transport, not Facts/rela health. An explicit hello refusal (for
@@ -36,6 +40,23 @@ Fly connectivity to recover; no public address is needed.
 **Prod runs master's build.** A merge to master deploys it (d-0014). A merge to develop changes this Mac's clients (the main clone follows develop) but not prod's core, so a new feature reaches prod only with the next merge to master. Control lets a client newer than itself in, and sends an older one away.
 
 A deploy first checks that the build's description describes all of prod's data on Fly, as `atlas-ops restart` does for a core on this Mac (IS-Atlas-73). When it does not, nothing is deployed, prod keeps its build, and the job names the data: migrate it first (`docs/guides/test-on-fly.md`, "A migration").
+
+## CI tests a tree once
+
+One change reaches prod through four CI runs on the same git tree: its pull request (on GitHub's merge of it into develop), develop after the integration merge, the release pull request develop → master, and master. The tests (every job of `.github/workflows/ci.yml` except the deploys and the base job) run on the first, and on the others only when the tree is new.
+
+- **The records.** When every test job of a run passed, job `record-tested-tree` uploads the artifact `tested-tree-<tree>` (`git rev-parse HEAD^{tree}`). The base job `model-base` (`mix model.gen --check --base`) is recorded on its own, as `tested-base-<tree>-<base key>` (job `record-tested-base`), because its result also depends on the base: the base key is the blob of `model/targets/proof/digests.json` at the base commit, or `none` when the base has none. The files inside name the run, commit and ref. Artifacts, not caches: caches are scoped to a branch, but the repository's artifact list (`GET /repos/{owner}/{repo}/actions/artifacts?name=…`) shows a pull request's artifact to a later run on develop or master. They live as long as the repository's artifact retention.
+- **The base.** A pull request's base is its base branch; a push's is its branch as it was before the push (`github.event.before`). So the pull request into develop and the push to develop that integrates it check against the same develop, and the release pull request and the push to master against the same master. A base that is no commit of the repository (a force push) fails `model-base`.
+- **The lookup.** On a push to develop or master, and on a pull request into master, job `tested-tree` looks both up (`tools/ci/tested-tree.mjs find`). It trusts a record only when it is not expired and its run is a completed, successful run of this same workflow file in this repository, not from a fork, and not this run. With the tree's record the test jobs report *skipped*; with the base record as well, `model-base` too. The base job is skipped only together with the tests, so every skipped job of a run is explained by the tree's record. The deploys run as before, with their description check and smoke check: test on develop, prod on master. A pull request into develop never looks up: it always runs, and records, everything.
+- **Otherwise everything runs.** No record (develop moved before the integration, so the merge is another tree; a change pushed directly; an expired record), an untrusted one, or a failed lookup: everything runs as before. The lookup never fails a run. The run summary has one line for the tests and one for the base job, for example `tests skipped: tree <hash> passed in run <id>` or `full suite: no record for tree <hash>` with the reason.
+
+In practice, on the release pull request the tests are skipped but `model-base` runs against master's `digests.json` (prod's history), unless master's file is the same blob as develop's; the push to master then finds that record and skips it.
+
+Why it is safe: the test jobs read only the checked-out tree, so the same tree gives the same result, and a different tree, however small the difference, has another hash and runs everything. The one check that reads more, the run identities against the base's `digests.json` (`git show <base>:…`, nothing else from the base), is keyed on that file's content as well, so it is skipped only when the same tree passed against the same file. A record is written only after its jobs passed, and it is trusted only when that whole run succeeded, so a run that failed later, was cancelled or is still running counts for nothing. A fork's run can upload artifacts and run its own edited workflow, so its records are refused by the run's head repository. What stays trusted is a pull request from this repository: someone with write access could edit the workflow in their own branch to record a tree untested, as they could already push untested work; the review of workflow changes covers that.
+
+The required checks stay satisfied: GitHub counts a skipped job as passed, and a run whose test jobs were skipped concludes `success`. The integrate gate's `ci_conclusion` is taken on pull requests into develop, which always run everything; on a release pull request read the run's conclusion or the required checks, not each job's own conclusion, which is `skipped`.
+
+A new test job joins with `needs: tested-tree` and `if: ${{ !cancelled() && needs.tested-tree.outputs.tested != 'true' }}`, and its id in `record-tested-tree`'s needs; a job whose result depends on the base as well skips on `base_tested` instead, and goes into `record-tested-base`'s needs (the comment at the top of the workflow). `tested-tree` checks the workflow on every run and fails CI while a job is outside the scheme, a `deploy-*` job's `if` lost one of its clauses (no failure, no cancel, skipped only when tested), or a record job lost its success condition.
 
 ## Where it runs
 
@@ -74,6 +95,39 @@ A merge to master deploys prod (CI job `deploy-prod`, `fly/deploy.sh prod`). It 
 On Fly the connector reads its token from that secret (`connectors.github.token_env` in `fly/prod/core.json`). A token that can only read pull requests of eyra/atlas is enough, for example a fine-grained token with "Pull requests: read" on that one repository. The installed token is verified through an actual private PR refresh; presence or activation metadata alone does not prove authentication. If a token is missing, each round logs `no token: GITHUB_TOKEN is not set` and keeps the stored values.
 
 There is no Flux connector yet: `flux_id` and `flux_ref` are described as set by a connector, but no code reads Flux, so nothing needs a Flux secret. When one is built, its secret goes on `eyra-atlas` the same way.
+
+### Back up prod's data
+
+`atlas-ops fetch-from-fly` is prod's backup route. It reads the app names from
+`env/prod.json`, so it follows every release; it needs flyctl, logged in (`fly auth login`)
+with access to both prod apps.
+
+```sh
+atlas-ops fetch-from-fly --env prod --to ~/.local/share/atlas/prod-backup-$(date -u +%Y%m%dT%H%M%SZ)
+```
+
+1. First it asks both apps whether they already have a hold (`/data/hold`) or a pending
+   move (`/data/incoming/<name>.tar.gz`, left by an unfinished `move-to-fly`). If either one
+   does, or an app does not answer, it refuses and changes nothing. A restart would end that
+   hold, putting prod back in service in the middle of a migration. It would also apply that
+   move at boot, before the hold check, replacing prod's data. Find out whose hold or move
+   it is and finish that first; never remove it just to make a backup.
+2. Then it holds both apps, the core first, then rela (`/data/hold`, then a restart), so
+   nothing writes while it copies. For about a minute prod serves nothing: Control does not
+   answer, and a linked Runtime loses its Bus link and links again after the release. What
+   the Runtime sends in that minute is not answered; it asks again a few times and then
+   gives up, so start the backup when no turn is running.
+3. It copies `/data/rela` (rela's data) and `/data/beam` (Facts' own) into `<folder>/rela`
+   and `<folder>/beam`, the layout `move-to-fly --from` takes back, and counts the items per
+   kind.
+4. It releases rela, then the core, and waits until both pass their health checks.
+
+The folder must be new or empty. A failure can leave prod held: see "Held" in
+`docs/guides/test-on-fly.md` before anything else. With `--hold` both apps stay held after
+the copy, for a migration (below). The copy carries no checksums. To check it, run
+`atlas-ops move-to-fly --env prod --from <folder> --dry-run`, which checks the description
+fits it and counts it without changing Fly, or restore it to a private instance
+(`ATLAS_ENV_FILE`).
 
 ### Move prod's data, and switch (IS-Atlas-90)
 

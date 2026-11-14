@@ -6,8 +6,8 @@ defmodule AtlasBFF.Targets.Json do
 
   alias AtlasBFF.Names
 
-  @doc "`[{path, body}]`, paths relative to the target's folder."
-  def files(schema) do
+  @doc "`[{path, body}]`, paths relative to the target's folder; it takes no options."
+  def files(schema, _opts \\ []) do
     markup = Names.markup()
 
     entry = fn e ->

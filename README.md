@@ -50,6 +50,7 @@ cd model/dsl && mix test         # the Rela DSL
 cd model/contract && mix model.gen # after changing the model: regenerate rela/ and model/targets/
 cd e2e && mix test               # the atlas launcher's own rules
 bin/atlas-dev e2e --env test     # the end-to-end test, on a private instance
+node --test tools/ci/tested-tree.test.mjs # CI's tested-tree record (Node 18+)
 ```
 
 Four commands, each with its own purpose:

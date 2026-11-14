@@ -4,8 +4,9 @@
 # the environment's private network, over WireGuard, and runs in the background.
 tunnel_pidfile() { echo "$ATLAS_TEST_ROOT/tunnel.pid"; }
 tunnel_log() { echo "$ATLAS_TEST_ROOT/tunnel.log"; }
+# One hello through the tunnel; $1 is its time limit in seconds (default 3).
 control_ready() {
-  probe_error="$(python3 "$root/fly/control-ready.py" "$settings" "$root/bff/targets/json/blocks.json" 2>&1)"
+  probe_error="$(python3 "$root/fly/control-ready.py" "$settings" "$root/bff/targets/json/blocks.json" ${1:+"$1"} 2>&1)"
 }
 fly_cli() {
   command -v fly || command -v flyctl || {
@@ -27,9 +28,18 @@ stop_tunnel() {
 }
 ensure_tunnel() {
   local fly holder deadline probe_error=""
+  # An open tunnel is shared by every client on this machine (the TUI, atlas commands,
+  # agents), so a slow answer must not drop it: it is reopened only once its proxy has
+  # died or its port no longer accepts.
   if tunnel_pid >/dev/null; then
-    if control_ready; then return 0; fi
-    echo "$prog: the tunnel to $fly_app is not reaching Control; reopening it ($probe_error)" >&2
+    for _ in 1 2 3; do
+      if control_ready 10; then return 0; fi
+    done
+    if tunnel_pid >/dev/null && listening; then
+      echo "$prog: Control is slow or not answering through the tunnel: $probe_error; if it persists: atlas-ops tunnel close --env $env" >&2
+      return 0
+    fi
+    echo "$prog: the tunnel to $fly_app has stopped; reopening it ($probe_error)" >&2
   fi
   stop_tunnel
   if listening; then

@@ -28,8 +28,11 @@ while [ $# -gt 0 ]; do
 done
 
 # The end-to-end test makes its own private test instance; it never reads env/<env>.json
-# and never runs on prod. It needs no setup: unless ATLAS_E2E_RELA_BIN names rela's binaries,
-# it installs the pinned rela into a per-user cache (and reuses it later), and unless
+# and never runs on prod. It needs no setup: rela's binaries are ATLAS_E2E_RELA_BIN's, else
+# ATLAS_RELA_BIN's, else the rela-bin folder beside the checkout when it holds rela-server (a
+# worker's folder, where the pinned rela is installed for it; AtlasE2E.Instance.rela_bin/1
+# looks in the same order); else it installs the pinned rela into a per-user cache (and
+# reuses it later). Whichever it is, a different version is replaced by the pinned one. Unless
 # ATLAS_CONFIG_PYTHON is set (or .venv-config found) or python3 already has
 # rela/scripts/requirements.txt, it makes a private Python for rela's scripts there too.
 if [ "$cmd" = e2e ]; then
@@ -37,9 +40,16 @@ if [ "$cmd" = e2e ]; then
     echo "atlas-dev: e2e runs only on a private test instance, never on $env" >&2; exit 1
   fi
   cache="${XDG_CACHE_HOME:-$HOME/.cache}/atlas"
+  beside="$(dirname "$root")/rela-bin"
   if [ -z "${ATLAS_E2E_RELA_BIN:-}" ]; then
-    version="$(sed -n 's/^version=//p' "$root/rela/scripts/start-test.sh")"
-    export ATLAS_E2E_RELA_BIN="$cache/rela-$version"
+    if [ -n "${ATLAS_RELA_BIN:-}" ]; then
+      export ATLAS_E2E_RELA_BIN="$ATLAS_RELA_BIN"
+    elif [ -x "$beside/rela-server" ]; then
+      export ATLAS_E2E_RELA_BIN="$beside"
+    else
+      version="$(sed -n 's/^version=//p' "$root/rela/scripts/start-test.sh")"
+      export ATLAS_E2E_RELA_BIN="$cache/rela-$version"
+    fi
     ATLAS_RELA_BIN="$ATLAS_E2E_RELA_BIN" "$root/rela/scripts/start-test.sh" install >&2
   fi
   requirements="$root/rela/scripts/requirements.txt"

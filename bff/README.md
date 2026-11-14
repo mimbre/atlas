@@ -24,8 +24,9 @@ A contract compiles to one function, `__schema__/0`: plain data, documented in `
 | `AtlasBFF.Targets.Server` | compile time | `AtlasControl.Blocks` (`use AtlasBFF.Targets.Server, contract: AtlasBFFContract.Contract`): a builder macro per block, model and kind of markup, and `view_model/2`. |
 | `AtlasBFF.Targets.Client` | compile time | `AtlasTui.Blocks`: a struct per block, model and kind of markup, `decode/1` with a fallback, and `view_model/1`. |
 | `AtlasBFF.Targets.Json` | file | `bff/targets/json/blocks.json`, the contract as data for clients in other languages. Never edit it. |
+| `AtlasBFF.Targets.Swift` | file | `bff/targets/swift/`, the Swift package `AtlasControlKit` (macOS 14 and iOS 17, Foundation only, Swift 6): a `Codable`, `Sendable`, `Equatable` type per model, block and kind of markup; `Block` and `MarkupEntry` with a `Fallback` for what it cannot show (its `Fallback.Reason` a case and a path, not text); `Page` with `path(_:)` and `match(_:)`; the messages of each channel the endpoints name (`ControlRequest`, `ControlMessage`, `SteerRequest`, `SteerMessage`), keyed on `op`, a received one `unknown` or `undecodable` rather than a throw; `Contract.version`; and its tests. Never edit it; only `Tests/Fixtures/` is kept by hand. |
 
-Control and the TUI depend on the contract by path, and read it when they compile: changing the contract recompiles them, and no Elixir code is generated into files. A Swift package for iOS will be a file target under `bff/targets/swift/`.
+Control and the TUI depend on the contract by path, and read it when they compile: changing the contract recompiles them, and no Elixir code is generated into files. Clients on Apple's platforms use the Swift package: `mix atlas.gen` writes it with `blocks.json`, and CI builds and tests it on macOS (`swift build`, `swift test`) and builds it for iOS. It holds generated code only, plus the message lines in `Tests/Fixtures/<channel>/{sent,received}.jsonl` that its tests decode and round-trip: lines a Control test session sent and received, on the neutral model of Control's tests. A transport and the apps are hand-written and live elsewhere ([Apple clients](../docs/design/apple-clients.md)).
 
 A block in the contract:
 
@@ -45,7 +46,7 @@ Types are `:string`, `:integer`, `:boolean`, a model (`defmodel`), or `{:list, t
 - in the contract: an unknown type, a name or field defined twice, a block that holds a block, a field that holds markup, a name that is not snake_case, an option other than `required:`, a missing `version`;
 - in Control's code: a builder call (`Blocks.form(title: ..., ...)`) that leaves out a required prop or names one the block does not have. The builders are macros, so a caller writes `require AtlasControl.Blocks, as: Blocks`. A wrong value, or a required prop that is `nil` at run time, raises when the block is built.
 
-Change the contract, run `cd bff/contract && mix atlas.gen`, commit the contract and `bff/targets/`. CI runs `mix atlas.gen --check`, which fails on a file that would change and on a generated file no target writes any more. Every generated file starts with a header that says so and names the contract file; `mix atlas.gen` never overwrites a file without it. Then check the TUI still knows every block and kind of markup (`AtlasTui.View.known/0`; its tests fail otherwise).
+Change the contract, run `cd bff/contract && mix atlas.gen`, commit the contract and `bff/targets/` (`targets: [json: "../targets/json", swift: {"../targets/swift", package: "AtlasControlKit", version_field: "spec"}]` in `bff/contract/config/config.exs`). CI runs `mix atlas.gen --check`, which fails on a file that would change and on a generated file no target writes any more. Every generated file starts with a header that says so and names the contract file; `mix atlas.gen` never overwrites a file without it. Then check the TUI still knows every block and kind of markup (`AtlasTui.View.known/0`; its tests fail otherwise).
 
 The DSL is plain macros, not Spark: a contract of a few blocks, models and kinds of markup needs only entries, typed fields and a handful of checks, and plain macros keep it without a dependency.
 
@@ -136,7 +137,7 @@ Control to client:
 | `{"op":"bye","text"}` | Control closes the connection. |
 | `{"op":"turn","key":"<turn>","on":"<item>"}` | Current turn context; errors have `error` instead of the keys. An outcome is acknowledged with a stored page. |
 
-Every message here is an endpoint of the contract (`defendpoint`, its call the message's `op`; ADR 0002), with what it takes and what it replies, and `blocks.json` lists them: hello, refresh, the pages' `open`, the submits, what Control sends unasked (`page` by hint, `notice`, `bye`), and the agent's `ask`, `run`, `cancel` and `stop`. Unasked pages are the pushes `hint` and `pending`.
+Every message here is an endpoint of the contract (`defendpoint`, its call the message's `op`; ADR 0002), with what it takes and what it replies, and `blocks.json` lists them: hello, refresh, the pages' `open`, the submits, what Control sends unasked (`page` by hint, `notice`, `bye`), the agent's `ask`, `run`, `cancel` and `stop`, and the worker pages' messages (below, [Worker Control contract](#worker-control-contract)). Unasked pages are the pushes `hint` and `pending`.
 
 Paths are the contract's pages (`defpage`, ADR [0002](../docs/adr/0002-pages-and-endpoints.md)): `/`, `/_kinds`, `/k/:kind`, `/k/:kind/new`, `/k/:kind/new/:relation/:parent`, `/k/:kind/:key` and its `/edit`, `/delete`, `/links/:relation`, `/set/:relation`, `/answer/:answer`, `/remove/:relation`; in the test environment only, the failure pages `/faults`, `/k/:kind/:key/faults`, `/fault/:fault` and `/k/:kind/:key/fault/:fault` (IS-Atlas-23: what can be made to fail there, and the confirm that causes it). Control serves those and nothing else (a path outside them gets "No such page"); `blocks.json` lists them, and the targets give every Elixir consumer `pages/0`, `match/1` and `path/2` (`AtlasBFF.Paths`). A client with a screen only follows them.
 
@@ -222,6 +223,29 @@ query, history and receipt messages on the Control channel. It reuses Runtime's
 execution identity; `Contract` composes the wire APIs and shared payload models. Existing
 list/item/form blocks implement the worker pages, so they follow the block wire version
 (0.16.0); typed worker messages independently require version 0.1.0.
+
+The eight messages the TUI's worker pages exchange are endpoints of the contract too
+(`lib/endpoints.ex`; each call is the message's `op`, each takes and replies a model of
+`lib/models/workers.ex` that is exactly its envelope without `op`, `channel` and `version`,
+which `test/worker_endpoints_test.exs` checks). Every request carries an `id`, which its
+`<op>_result` or `<op>_error` repeats:
+
+| Endpoint | Takes | Replies `result` | Replies `error` |
+|---|---|---|---|
+| `worker_inspect` | `id`, `execution` | `id`, `view` | `worker_error`: `id`, `error` |
+| `worker_submit` | `id`, `execution`, `guidance` | `id`, `interaction` | `worker_error` |
+| `worker_query` | `id`, `execution`, `client_key` | `id`, `found`, `interaction`? | `worker_error` |
+| `worker_history` | `id`, `execution`, `cursor`? | `id`, `interactions`, `cursor`, `more` | `worker_error` |
+| `worker_receipts` | `id`, `execution`, `interaction`, `cursor`? | `id`, `receipts`, `cursor`, `more` | `worker_error` |
+| `worker_output_subscribe` | `id`, `execution`, `cursor`? | `id`, `subscription`, `view`, `stream`, `cursor`, `reset`? | `worker_output_error`: `id`, `error`, `view`?, `reset`? |
+| `worker_output_next` | `id`, `subscription`, `cursor` | `id`, `subscription`, `stream`, `events`, `cursor`, `more`, `reset`?, `view`? | `worker_output_error` |
+| `worker_output_unsubscribe` | `id`, `subscription` | `id`, `subscription` | `worker_output_error` |
+
+(`?`: optional.) Control sends no worker message unasked: output is read with
+`worker_output_next`, and the worker pages themselves change by the session's `hint` pages.
+`worker_overview` stays an operation without an endpoint: no worker page sends it. Declaring
+these endpoints changed no byte on the wire, so neither the block version (0.16.0) nor the
+worker version (0.1.0) moved, and no client is refused.
 
 Generate with the same `mix atlas.gen` command. Named actor grants, durable outcome
 semantics, bounds, generic-page limits and the outstanding Runtime integration are

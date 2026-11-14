@@ -92,7 +92,7 @@ defmodule AtlasFacts.Connector.GitHub do
     [
       ssl: [
         verify: :verify_peer,
-        cacerts: :public_key.cacerts_get(),
+        cacerts: AtlasFacts.Trust.get!(),
         depth: 4,
         customize_hostname_check: [
           match_fun: :public_key.pkix_verify_hostname_match_fun(:https)

@@ -417,7 +417,7 @@ func TestClaudeFolderSettingsAreTheEnforcementContract(t *testing.T) {
 			`"filesystem":{"allowWrite":` + q(dest, temporary) + `,"denyWrite":` + q(append(append(roots, protected...), record, baseline)...) +
 			`,"denyRead":` + q(append([]string{user}, protected...)...) + `,"allowRead":` + q(append(append(allowRead, readable...), inspector)...) +
 			`},"network":{"allowedDomains":[],"strictAllowlist":true,"allowUnixSockets":` + q(temporary) +
-			`,"allowAllUnixSockets":false,"allowLocalBinding":true}},` +
+			`,"allowAllUnixSockets":false,"allowLocalBinding":true},"allowPty":true},` +
 			`"permissions":{"deny":` + q(rules...) + `}}`
 	}
 	if encoded != want(inspector) {
@@ -946,7 +946,8 @@ func TestClaudePacketSettingsAreTheEnforcementContract(t *testing.T) {
 		`},"network":{"allowedDomains":[],"strictAllowlist":true,"allowUnixSockets":` + q(temporary) +
 		`,"allowAllUnixSockets":false,"allowLocalBinding":true}},` +
 		`"permissions":{"deny":` + q(rules...) + `}}`
-	if encoded != want {
+	// A review pass gets no pseudo-terminals: the exact JSON above has no allowPty.
+	if encoded != want || strings.Contains(encoded, "allowPty") {
 		t.Fatalf("got  %s\nwant %s", encoded, want)
 	}
 	executable := filepath.Join(findings, "atlas-runtime")

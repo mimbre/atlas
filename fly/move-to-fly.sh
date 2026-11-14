@@ -97,7 +97,7 @@ fi
 
 # 2. Send. A half-sent archive is never applied: it is renamed only once complete. What is
 # sent is unpacked here too, for the manifests to compare with.
-tmp="$(mktemp -d)"
+tmp="$(mktemp -d "${TMPDIR:-/tmp}/atlas-move.XXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
 for name in rela beam; do
   COPYFILE_DISABLE=1 tar -czf "$tmp/$name.tar.gz" --exclude '*.log' --exclude '*.pid' -C "$from/$name" .

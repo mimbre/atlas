@@ -773,6 +773,102 @@
         "plan": "plan"
       },
       "wire": "stop"
+    },
+    {
+      "call": "worker_inspect",
+      "name": "worker_inspect",
+      "params": [],
+      "path": "",
+      "replies": {
+        "error": "worker_error",
+        "result": "worker_inspect_result"
+      },
+      "takes": "worker_inspect_request",
+      "wire": "worker_inspect"
+    },
+    {
+      "call": "worker_submit",
+      "name": "worker_submit",
+      "params": [],
+      "path": "",
+      "replies": {
+        "error": "worker_error",
+        "result": "worker_submit_result"
+      },
+      "takes": "worker_submit_request",
+      "wire": "worker_submit"
+    },
+    {
+      "call": "worker_query",
+      "name": "worker_query",
+      "params": [],
+      "path": "",
+      "replies": {
+        "error": "worker_error",
+        "result": "worker_query_result"
+      },
+      "takes": "worker_query_request",
+      "wire": "worker_query"
+    },
+    {
+      "call": "worker_history",
+      "name": "worker_history",
+      "params": [],
+      "path": "",
+      "replies": {
+        "error": "worker_error",
+        "result": "worker_history_result"
+      },
+      "takes": "worker_history_request",
+      "wire": "worker_history"
+    },
+    {
+      "call": "worker_receipts",
+      "name": "worker_receipts",
+      "params": [],
+      "path": "",
+      "replies": {
+        "error": "worker_error",
+        "result": "worker_receipts_result"
+      },
+      "takes": "worker_receipts_request",
+      "wire": "worker_receipts"
+    },
+    {
+      "call": "worker_output_subscribe",
+      "name": "worker_output_subscribe",
+      "params": [],
+      "path": "",
+      "replies": {
+        "error": "worker_output_error",
+        "result": "worker_output_subscribe_result"
+      },
+      "takes": "worker_output_subscribe_request",
+      "wire": "worker_output_subscribe"
+    },
+    {
+      "call": "worker_output_next",
+      "name": "worker_output_next",
+      "params": [],
+      "path": "",
+      "replies": {
+        "error": "worker_output_error",
+        "result": "worker_output_next_result"
+      },
+      "takes": "worker_output_next_request",
+      "wire": "worker_output_next"
+    },
+    {
+      "call": "worker_output_unsubscribe",
+      "name": "worker_output_unsubscribe",
+      "params": [],
+      "path": "",
+      "replies": {
+        "error": "worker_output_error",
+        "result": "worker_output_unsubscribe_result"
+      },
+      "takes": "worker_output_unsubscribe_request",
+      "wire": "worker_output_unsubscribe"
     }
   ],
   "markup": [
@@ -1747,6 +1843,396 @@
         }
       ],
       "name": "worker_receipt"
+    },
+    {
+      "fields": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "error",
+          "required": true,
+          "type": "runtime_error"
+        }
+      ],
+      "name": "worker_error"
+    },
+    {
+      "fields": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "execution",
+          "required": true,
+          "type": "runtime_execution"
+        }
+      ],
+      "name": "worker_inspect_request"
+    },
+    {
+      "fields": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "view",
+          "required": true,
+          "type": "worker_view"
+        }
+      ],
+      "name": "worker_inspect_result"
+    },
+    {
+      "fields": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "execution",
+          "required": true,
+          "type": "runtime_execution"
+        },
+        {
+          "name": "guidance",
+          "required": true,
+          "type": "worker_guidance_input"
+        }
+      ],
+      "name": "worker_submit_request"
+    },
+    {
+      "fields": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "interaction",
+          "required": true,
+          "type": "worker_interaction"
+        }
+      ],
+      "name": "worker_submit_result"
+    },
+    {
+      "fields": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "execution",
+          "required": true,
+          "type": "runtime_execution"
+        },
+        {
+          "name": "client_key",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "name": "worker_query_request"
+    },
+    {
+      "fields": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "found",
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "name": "interaction",
+          "required": false,
+          "type": "worker_interaction"
+        }
+      ],
+      "name": "worker_query_result"
+    },
+    {
+      "fields": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "execution",
+          "required": true,
+          "type": "runtime_execution"
+        },
+        {
+          "name": "cursor",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "name": "worker_history_request"
+    },
+    {
+      "fields": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "interactions",
+          "required": true,
+          "type": "list of worker_interaction"
+        },
+        {
+          "name": "cursor",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "more",
+          "required": true,
+          "type": "boolean"
+        }
+      ],
+      "name": "worker_history_result"
+    },
+    {
+      "fields": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "execution",
+          "required": true,
+          "type": "runtime_execution"
+        },
+        {
+          "name": "interaction",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "cursor",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "name": "worker_receipts_request"
+    },
+    {
+      "fields": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "receipts",
+          "required": true,
+          "type": "list of worker_receipt"
+        },
+        {
+          "name": "cursor",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "more",
+          "required": true,
+          "type": "boolean"
+        }
+      ],
+      "name": "worker_receipts_result"
+    },
+    {
+      "fields": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "error",
+          "required": true,
+          "type": "runtime_error"
+        },
+        {
+          "name": "view",
+          "required": false,
+          "type": "worker_view"
+        },
+        {
+          "name": "reset",
+          "required": false,
+          "type": "runtime_output_reset"
+        }
+      ],
+      "name": "worker_output_error"
+    },
+    {
+      "fields": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "execution",
+          "required": true,
+          "type": "runtime_execution"
+        },
+        {
+          "name": "cursor",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "name": "worker_output_subscribe_request"
+    },
+    {
+      "fields": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "subscription",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "view",
+          "required": true,
+          "type": "worker_view"
+        },
+        {
+          "name": "stream",
+          "required": true,
+          "type": "runtime_output_stream"
+        },
+        {
+          "name": "cursor",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "reset",
+          "required": false,
+          "type": "runtime_output_reset"
+        }
+      ],
+      "name": "worker_output_subscribe_result"
+    },
+    {
+      "fields": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "subscription",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "cursor",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "name": "worker_output_next_request"
+    },
+    {
+      "fields": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "subscription",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "stream",
+          "required": true,
+          "type": "runtime_output_stream"
+        },
+        {
+          "name": "events",
+          "required": true,
+          "type": "list of runtime_output_event"
+        },
+        {
+          "name": "cursor",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "more",
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "name": "reset",
+          "required": false,
+          "type": "runtime_output_reset"
+        },
+        {
+          "name": "view",
+          "required": false,
+          "type": "worker_view"
+        }
+      ],
+      "name": "worker_output_next_result"
+    },
+    {
+      "fields": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "subscription",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "name": "worker_output_unsubscribe_request"
+    },
+    {
+      "fields": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "subscription",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "name": "worker_output_unsubscribe_result"
     },
     {
       "fields": [
