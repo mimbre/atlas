@@ -89,8 +89,8 @@ defmodule AtlasFacts.PresentationReadTest do
   @moduletag :tmp_dir
   setup %{tmp_dir: dir} do
     Application.put_env(:atlas_bus, :store, "presentation-#{System.unique_integer([:positive])}")
+    # FakeRela is linked to this test process and exits with it on shutdown.
     pid = AtlasFacts.FakeRela.start()
-    on_exit(fn -> if Process.alive?(pid), do: Agent.stop(pid) end)
     rela = {Backend, pid}
 
     {:ok, _} = Rela.create(rela, "clerks", "ada", %{}, %{})

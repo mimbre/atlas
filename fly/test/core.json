@@ -17,5 +17,6 @@
     "ipv6": true
   },
   "facts": { "data": "/data/beam" },
+  "code": { "data": "/data/code", "repositories": [] },
   "reconcile_seconds": 5
 }

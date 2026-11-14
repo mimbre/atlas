@@ -16,6 +16,9 @@ defmodule Atlas.MixProject do
             atlas_facts: :permanent,
             atlas_gates: :permanent,
             atlas_flow: :permanent,
+            # Code's receiver of Flow's integrate effect, on the Bus started above (code.* in
+            # the core's settings); not the local Code service, which this release never runs.
+            atlas_code: :permanent,
             atlas_runtime: :permanent,
             atlas_control: :permanent
           ],

@@ -65,6 +65,32 @@ if config_env() != :test do
     # Flow looks at each open fact again this often, and at once on a hint.
     config :atlas_flow, tick_seconds: get_in(settings, ["flow", "tick_seconds"]) || 60
 
+    # Code's receiver of Flow's integrate effect (AtlasCode.Effects), with its journal in
+    # `code.data`, the repositories it may integrate (`code.repositories`, owner/repo) and
+    # GitHub reached with the GitHub connector's settings: no secret of its own. Flow runs
+    # an integrate effect only through a receiver it is told of, so both come from this one
+    # block; without it every subflow with such an effect is refused, and Flow runs none.
+    if code = settings["code"] do
+      config :atlas_code,
+        effects: %{
+          "dir" => expand.(code["data"] || raise("#{file} has no code.data")),
+          "repositories" => code["repositories"] || raise("#{file} has no code.repositories"),
+          "merge_method" => code["merge_method"] || "merge",
+          "github" =>
+            {AtlasCode.Effects.GitHub,
+             Map.take(get_in(settings, ["connectors", "github"]) || %{}, [
+               "api",
+               "token_env",
+               "token_command"
+             ])}
+        }
+
+      config :atlas_flow,
+        effect_receivers: %{
+          "code" => %{"contract" => 1, "address" => "code/effects", "operations" => ["integrate"]}
+        }
+    end
+
     # Who fills each role the model's owners name (`"actors": {"decider": "<key>"}`): the
     # model names roles, never people. Flow and Control refuse to start without one
     # (AtlasBus.Actors); an actor whose fact does not exist yet only makes its owner wait.
