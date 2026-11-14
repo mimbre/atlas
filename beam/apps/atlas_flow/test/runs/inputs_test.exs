@@ -166,4 +166,53 @@ defmodule AtlasFlow.Runs.InputsTest do
     assert {:ok, ^done} =
              Run.step(unedged, f, subject(%{"ready" => true}), @now, [], reopen: "explicit")
   end
+
+  test "an active durable run still reads its inputs on a reconcile" do
+    FakeFacts.put("box", subject(%{"ready" => true}))
+    config = TestModel.config()
+    assert {:ok, [active]} = Store.reconcile(config, %{"sort" => Sorts.Ready}, @now)
+    assert active["status"] == "active"
+    before = Map.fetch!(FakeFacts.input_reads(), active["key"])
+    assert {:ok, [^active]} = Store.reconcile(config, %{"sort" => Sorts.Ready}, @now)
+    assert Map.fetch!(FakeFacts.input_reads(), active["key"]) > before
+  end
+
+  # A run of `Sorts.Ready` taken to its end: completed on its branch, with no input.
+  defp completed(config, f) do
+    FakeFacts.put("box", subject(%{"ready" => true}))
+    assert {:ok, [_started]} = Store.reconcile(config, %{"sort" => f}, @now)
+    FakeFacts.put("box", subject(%{"ready" => true, "result" => "ok"}))
+    assert {:ok, [done]} = Store.reconcile(config, %{"sort" => f}, @now)
+    assert done["status"] == "completed"
+    done
+  end
+
+  test "a reconcile reads no inputs of a run that takes none" do
+    f = Sorts.Ready
+    config = TestModel.config()
+    done = completed(config, f)
+    before = Map.get(FakeFacts.input_reads(), done["key"], 0)
+
+    assert {:ok, [^done]} = Store.reconcile(config, %{"sort" => f}, @now)
+    assert Map.get(FakeFacts.input_reads(), done["key"], 0) - before == 0
+  end
+
+  test "a prepared input left on a completed run does not refuse the runs" do
+    f = Sorts.Ready
+    config = TestModel.config()
+    done = completed(config, f)
+
+    FakeFacts.put_input(%{
+      "key" => "I-late",
+      "run" => done["key"],
+      "entry" => done["entry"],
+      "status" => "prepared",
+      "roles" => ["clerk"],
+      "changed_fields" => %{"choice" => "yes"},
+      "position" => 99,
+      "prepared_at" => "2026-11-12T00:05:00Z"
+    })
+
+    assert {:ok, [^done]} = Store.reconcile(config, %{"sort" => f}, @now)
+  end
 end

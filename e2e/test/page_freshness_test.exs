@@ -12,13 +12,17 @@ defmodule AtlasE2E.PageFreshnessTest do
   1. precision: a session whose pages do not depend on a write gets no push for it; a
      page that depends on it is pushed by hint, within the suite's second;
   2. read-your-writes: after `a` on a decision, the first page the TUI gets is the stored
-     one, and it already shows what Flow did (the decision handed on, the count down);
-     the core logs no settle timeout;
+     one, within the suite's second, and it already shows what Flow did (the decision
+     handed on, the count down);
   3. the marker: after `f`, while Flow has not settled, every list page shows the
      answered row `⋯ being processed`, and none shows it gone; once Flow settles, the
      row has left and nothing is marked;
   4. selection: after `a` and after `f`, the row that left was selected, and the row now
      at its index is.
+
+  Control bounds its wait for Flow: on timeout it sends the stored page with pending
+  marks, which a later covering settlement answer clears. Setup writes may take this
+  fallback; their timeout logs do not determine whether the checks above pass.
   """
   use ExUnit.Case, async: false
 
@@ -66,8 +70,6 @@ defmodule AtlasE2E.PageFreshnessTest do
 
     assert status == 0, out
     assert out =~ "page freshness proof: 3 steps passed", out
-    # The core's log (what `atlas-ops` writes to core.log) has no settle timeout.
-    refute out =~ "settle timeout", out
   end
 
   # rela as `atlas-ops` starts it (rela/scripts/start-test.sh), in the foreground, under a

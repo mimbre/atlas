@@ -46,7 +46,8 @@ end
 
 defmodule FlowMigrationBootTest do
   use ExUnit.Case, async: false
-  alias AtlasFlow.{Engine, FakeFacts, ManualClock}
+  alias AtlasBus.Envelope
+  alias AtlasFlow.{Engine, FakeFacts, ManualClock, Talk}
   alias AtlasFlow.Runs.{Run, Store}
   @now ~U[2026-11-12 00:00:00Z]
   # Slice 1's deployed definition digest, retained in the sidecar migration table.
@@ -77,12 +78,31 @@ defmodule FlowMigrationBootTest do
   # does not start without it. The person exists, as on test and prod.
   setup do
     Application.put_env(:atlas, :actors, %{"decider" => "tester"})
+    :ok = AtlasBus.attach("migration-proof-#{System.unique_integer([:positive])}")
     on_exit(fn -> Application.delete_env(:atlas, :actors) end)
   end
 
-  defp facts(description) do
-    start_supervised!({FakeFacts, description: description})
+  defp facts do
+    entities =
+      Map.new(~w(decision flow_run assignment person agent), &{&1, %{"plural" => &1 <> "s"}})
+
+    start_supervised!({FakeFacts, description: %{"entities" => entities}})
     FakeFacts.put("person", %{"key" => "tester", "values" => %{"name" => "Tester"}})
+    FakeFacts.put("agent", %{"key" => "coordinator"})
+  end
+
+  defp decision(subject) do
+    assignment = "AS-" <> subject["key"]
+    subject = Map.put(subject, "links", %{"assignment" => [assignment]})
+    FakeFacts.put("assignment", %{"key" => assignment})
+    FakeFacts.put("decision", subject)
+    subject
+  end
+
+  defp ask(position) do
+    request = %{Envelope.new("request", "_settled") | address: "flow"}
+    :ok = AtlasBus.send(request, %{"position" => position})
+    request.id
   end
 
   test "deploy boot migrates old cursors, preserves finals, and admits missed starts" do
@@ -91,7 +111,7 @@ defmodule FlowMigrationBootTest do
     on_exit(fn -> File.rm_rf!(dir) end)
     Application.put_env(:atlas_bus, :store, "migration-boot")
     config = AtlasFlow.Model.load(Runs, :test).config
-    facts(%{"entities" => %{}})
+    facts()
     start_supervised!(MigrationGate)
     clock = start_supervised!({ManualClock, @now})
     flow = decide(:test)
@@ -107,8 +127,7 @@ defmodule FlowMigrationBootTest do
           into: %{} do
         status = if state == "proposed", do: "proposed", else: state
         status = if import?, do: "superseded", else: status
-        subject = %{"key" => key, "values" => %{"status" => status}}
-        FakeFacts.put("decision", subject)
+        subject = decision(%{"key" => key, "values" => %{"status" => status}})
         run = Run.new("decide", flow, subject, config["selection"]["decide"]["imports"], @now)
 
         run =
@@ -138,13 +157,16 @@ defmodule FlowMigrationBootTest do
       end
 
     for key <- ~w(D-0073 D-0074),
-        do: FakeFacts.put("decision", %{"key" => key, "values" => %{"status" => "proposed"}})
+        do: decision(%{"key" => key, "values" => %{"status" => "proposed"}})
 
     opts = [clock: {ManualClock, clock}, model: Runs, environment: :test]
-    # Stop after the new entry commits and its first write loses its answer.
+    # Observe the interruption after the new entry commits and its first write
+    # loses its answer. Other subjects can finish independently in that round.
     FakeFacts.lose_ack("decision")
     engine = start_supervised!({Engine, opts})
-    assert match?({:pending, _}, :sys.get_state(engine).refusal)
+    # Boot is stepped. Wait for that round, then inspect its durable interruption;
+    # a step failure does not become the runner's configuration refusal.
+    Engine.idle(engine)
 
     {:ok, interrupted} =
       Store.decode(config, FakeFacts.get("flow_run", originals["D-active"]["key"]))
@@ -152,11 +174,45 @@ defmodule FlowMigrationBootTest do
     assert interrupted["state"] == "deciding" and interrupted["entry"] == 8
     assert interrupted["pending"]["writes"] != []
     assert length(interrupted["pending"]["migrations"]) == 1
-    assert GenServer.call(MigrationGate, :calls) == []
+
+    refute Enum.any?(GenServer.call(MigrationGate, :calls), fn {_, key, _} ->
+             key == "D-active"
+           end)
+
+    # A causal hint cannot settle while this migrated subject is unreadable. The
+    # other subjects may finish; their writes must not release this one's hold.
+    GenServer.call(FakeFacts, {:busy, "decision", "D-active"})
+
+    assert {:stored, position} =
+             Talk.put("decision", %{"op" => "change", "key" => "D-active", "values" => %{}})
+
+    waiting = ask(position)
+    Engine.idle(engine)
+    refute_received {:atlas_bus, %Envelope{id: ^waiting, class: "answer"}, _}
     stop_supervised!(Engine)
     engine = start_supervised!({Engine, opts})
+    Engine.idle(engine)
+    # Waiters are process-local. Give the restarted engine a fresh causal hint
+    # while recovery still fails; historical watermark bootstrap is separate.
+    assert {:stored, position} =
+             Talk.put("decision", %{"op" => "change", "key" => "D-active", "values" => %{}})
+
+    waiting = ask(position)
+    Engine.idle(engine)
+    refute_received {:atlas_bus, %Envelope{id: ^waiting, class: "answer"}, _}
+
+    refute Enum.any?(GenServer.call(MigrationGate, :calls), fn {_, key, _} ->
+             key == "D-active"
+           end)
+
+    GenServer.call(FakeFacts, {:free, "decision", "D-active"})
     Engine.round(engine)
-    assert :sys.get_state(engine).refusal == nil
+
+    assert_receive {:atlas_bus, %Envelope{id: ^waiting, class: "answer"},
+                    %{"settled" => settled}},
+                   1_000
+
+    assert settled >= position
 
     read = fn key ->
       {:ok, run} =
@@ -192,7 +248,6 @@ defmodule FlowMigrationBootTest do
     stop_supervised!(Engine)
     restarted = start_supervised!({Engine, opts})
     Engine.round(restarted)
-    assert :sys.get_state(restarted).refusal == nil
     assert read.("D-active") == active
     assert read.("D-unknown") == blocked
     assert FakeFacts.sent() == before
@@ -213,7 +268,7 @@ defmodule FlowMigrationBootTest do
       )
 
       config = AtlasFlow.Model.load(Runs, String.to_atom(env)).config
-      facts(%{"entities" => %{}})
+      facts()
       start_supervised!(MigrationGate)
       clock = start_supervised!({ManualClock, @now})
       flow = decide(String.to_atom(env))
@@ -237,8 +292,7 @@ defmodule FlowMigrationBootTest do
               {"D-always", "for_person_always", 2, []}
             ],
             into: %{} do
-          subject = %{"key" => key, "values" => %{"status" => "proposed"}}
-          FakeFacts.put("decision", subject)
+          subject = decision(%{"key" => key, "values" => %{"status" => "proposed"}})
 
           run =
             Run.new("decide", flow, subject, config["selection"]["decide"]["imports"], @now)
@@ -268,7 +322,6 @@ defmodule FlowMigrationBootTest do
 
       engine = start_supervised!({Engine, opts})
       Engine.round(engine)
-      assert :sys.get_state(engine).refusal == nil
 
       migrated =
         for {key, old_run} <- originals, into: %{} do

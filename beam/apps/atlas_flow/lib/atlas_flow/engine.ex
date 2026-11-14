@@ -8,6 +8,15 @@ defmodule AtlasFlow.Engine do
   - At boot, and on its own timer (its round), it reads rela's schema (its kinds),
     reconciles every run, and projects every fact of each kind a selected subflow runs
     on. A run's timer due before the round brings the round forward.
+  - A round is planned in one message (`AtlasFlow.Runs.Store.plan/2`: every run and every
+    admitted subject, and the facts to project), then taken one step per message: one
+    subject reconciled, or one fact projected, each step sent to itself behind whatever
+    waits. So a hint, and a `_settled` request, wait at most one step, never the whole
+    round. Only one round steps at a time: one due while it steps is the next one, planned
+    after it ends. A subject a hint reconciles before its step is reconciled again by the
+    step, which finds the run as the hint left it and writes nothing it wrote already; one
+    whose step passed is the hint's (and the next round's). The round keeps nothing
+    durable: an engine restarted mid-round plans a new one from Facts.
   - It listens to every kind. A hint is about the facts it changed (the one it is about
     and every one in its `changes`) and every fact above them (through the model's
     parent relations, read plainly from Facts); a fact whose turn ended (the work it was
@@ -16,8 +25,10 @@ defmodule AtlasFlow.Engine do
     fact also reaches its former parents through its `changes` links (before and after).
     A delete cannot be
     read any more: what was above a fact it removed is found from the links its `changes`
-    name (before and after). The runs of those facts are reconciled, then each is
-    projected again. A new fact of a kind that owns work projects again the facts whose
+    name (before and after). The runs of those facts are reconciled, then their subjects
+    and those of all returned runs are projected, including composition parents and
+    recursive ancestors absent from hint discovery. Every required projection must
+    succeed. A new fact of a kind that owns work projects again the facts whose
     owner waited for it. A hint reads only around the facts it is about, never every
     fact: finding kinds, facts that changed without a hint about them, and every other
     run is the round's. A hint of Flow's own write is passed over: Flow writes only what
@@ -29,8 +40,9 @@ defmodule AtlasFlow.Engine do
   engine reconciled and projected what it is about, through the writes it made for it
   that follow the hint without another writer's in between. A hint whose subjects could
   not be completely discovered, whose runs could not be reconciled, or whose required
-  projection failed holds the position below it until a round reconciles every run and
-  successfully reads and projects every subject; a
+  projection failed holds the position below it until a round planned after that hint
+  reconciles every run and successfully reads and projects every subject. A round
+  releases only holds from before it began; a failed step releases none. A
   request `_settled` (`{"position": P}`) is answered `{"settled": S}` once `S ≥ P`, at
   once when it is. At most 256 wait: one more answers the oldest at once, with `S` as it
   is. A waiter left when the engine restarts is lost; whoever asked waits no longer than
@@ -55,12 +67,18 @@ defmodule AtlasFlow.Engine do
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name))
 
-  @doc "Read Facts, reconcile every run and project every subject, now (for tests)."
+  @doc """
+  Read Facts, reconcile every run and project every subject, now; answered once that
+  round ended (for tests). A round stepping already ends first.
+  """
   def round(server), do: GenServer.call(server, :round, 30_000)
 
   @doc "Apply one reviewed maintenance plan in the existing sole writer. No automatic retry."
   def recover_refused_tally(server, plan),
     do: GenServer.call(server, {:recover_refused_tally, plan}, 30_000)
+
+  @doc "Answered once no round steps (at once when none does), for tests."
+  def idle(server), do: GenServer.call(server, :idle, 30_000)
 
   @impl true
   def init(opts) do
@@ -87,6 +105,10 @@ defmodule AtlasFlow.Engine do
        round_at: nil,
        # Whether the runs were read whole once: before that, a hint reconciles no run.
        reconciled: false,
+       round: nil,
+       # A due round, independently of the synchronous callers waiting for it.
+       pending_round: false,
+       queued: [],
        settled: Settled.new(),
        # The facts whose owner did not exist yet, by that owner: `%{owner => MapSet}`.
        waiting: %{}
@@ -94,9 +116,17 @@ defmodule AtlasFlow.Engine do
   end
 
   @impl true
-  def handle_call(:round, _from, state), do: {:reply, :ok, look_all(state)}
+  def handle_call(:round, from, %{round: nil} = state), do: {:noreply, begin_round(state, [from])}
 
-  def handle_call({:recover_refused_tally, plan}, _from, state) do
+  def handle_call(:round, from, state),
+    do: {:noreply, %{state | pending_round: true, queued: state.queued ++ [from]}}
+
+  def handle_call(:idle, _from, %{round: nil} = state), do: {:reply, :ok, state}
+
+  def handle_call(:idle, from, state),
+    do: {:noreply, put_in(state.round.callers, state.round.callers ++ [from])}
+
+  def handle_call({:recover_refused_tally, plan}, from, state) do
     result =
       Store.recover_refused_tally(
         state.runner.config,
@@ -106,8 +136,17 @@ defmodule AtlasFlow.Engine do
       )
 
     case result do
-      {:ok, _} -> {:reply, result, look_all(state)}
-      _ -> {:reply, result, state}
+      {:ok, _} ->
+        # Reconcile and project after recovery before answering, through a fresh
+        # stepped round. A round already in progress must finish first.
+        caller = {:recovery, from, result}
+
+        if state.round == nil,
+          do: {:noreply, begin_round(state, [caller])},
+          else: {:noreply, %{state | pending_round: true, queued: state.queued ++ [caller]}}
+
+      _ ->
+        {:reply, result, state}
     end
   end
 
@@ -115,7 +154,11 @@ defmodule AtlasFlow.Engine do
   def terminate(_reason, state), do: Clock.cancel(state.clock, state.timer)
 
   @impl true
-  def handle_info(:round, state), do: {:noreply, look_all(state)}
+  def handle_info(:round, %{round: nil} = state), do: {:noreply, begin_round(state, [])}
+  # Due while one steps: coalesce independently of callers waiting for a round.
+  def handle_info(:round, state), do: {:noreply, %{state | pending_round: true}}
+  def handle_info(:round_step, %{round: nil} = state), do: {:noreply, state}
+  def handle_info(:round_step, state), do: {:noreply, round_step(state)}
 
   # Its own write changes nothing any state depends on.
   def handle_info({:atlas_bus, %Envelope{class: "stored"} = hint, %{"by" => "flow"}}, state),
@@ -125,7 +168,7 @@ defmodule AtlasFlow.Engine do
     {{state, reconciled, projected}, wrote} =
       Talk.writing(fn ->
         with {:ok, facts} <- affected(state, kind, content) do
-          {state, reconciled} = reconcile_runs(state, facts)
+          {state, reconciled, runs} = reconcile_runs(state, facts)
 
           subjects = for {k, key, _} <- facts, k in state.kinds, uniq: true, do: {k, key}
 
@@ -145,7 +188,7 @@ defmodule AtlasFlow.Engine do
           {state, projected} =
             project_all(
               %{state | waiting: waiting},
-              Enum.uniq(subjects ++ MapSet.to_list(waited))
+              Enum.uniq(subjects ++ run_subjects(runs) ++ MapSet.to_list(waited))
             )
 
           {state, reconciled, projected}
@@ -339,13 +382,13 @@ defmodule AtlasFlow.Engine do
     end)
   end
 
-  # The runs of the facts a hint is about, reconciled now (`{state, :ok}`); every other
+  # The runs of the facts a hint is about, reconciled now (`{state, :ok, runs}`); every other
   # run waits for the round. Nothing before the runs were read whole once, or while they
   # cannot be: those, and a reconcile that fails, are `:failed`, for the round to do.
-  defp reconcile_runs(%{reconciled: false} = state, _facts), do: {state, :failed}
+  defp reconcile_runs(%{reconciled: false} = state, _facts), do: {state, :failed, []}
 
   defp reconcile_runs(%{refusal: refusal} = state, _facts) when refusal != nil,
-    do: {state, :failed}
+    do: {state, :failed, []}
 
   defp reconcile_runs(state, facts) do
     subjects = for {kind, key, _} <- facts, uniq: true, do: {kind, key}
@@ -359,20 +402,23 @@ defmodule AtlasFlow.Engine do
            subjects
          ) do
       {:ok, []} ->
-        {state, :ok}
+        {state, :ok, []}
 
       {:ok, runs} ->
-        same = fn a, b -> a["flow"] == b["flow"] and a["subject_key"] == b["subject_key"] end
-        kept = Enum.reject(state.runs, fn run -> Enum.any?(runs, &same.(&1, run)) end)
-        {sooner(%{state | runs: kept ++ runs}), :ok}
+        {sooner(%{state | runs: Store.merge(state.runs, runs)}), :ok, runs}
 
       {:error, why} ->
         Logger.warning("flow could not reconcile the runs a hint is about: #{inspect(why)}")
-        {state, :failed}
+        {state, :failed, []}
     end
   end
 
+  defp run_subjects(runs),
+    do: Enum.uniq(for run <- runs, do: {run["subject_kind"], run["subject_key"]})
+
   # A run's timer due before the round: the round comes then.
+  defp sooner(%{round: round} = state) when round != nil, do: state
+
   defp sooner(state) do
     delay = next_round(state)
     at = DateTime.add(Clock.now(state.clock), delay, :millisecond)
@@ -413,40 +459,127 @@ defmodule AtlasFlow.Engine do
     end)
   end
 
-  defp look_all(state) do
+  # Plan a round: read the kinds, listen to them, read every run and subject (no
+  # reconcile yet), and list what to project; then step it.
+  defp begin_round(state, callers) do
+    Clock.cancel(state.clock, state.timer)
+    state = %{state | timer: nil, round_at: nil}
+
+    case Talk.read("_description", %{}) do
+      %{"description" => description} ->
+        # Listen to every kind: what hangs under a fact can change its state.
+        listening =
+          Enum.reduce(Map.keys(description["entities"] || %{}), state.listening, fn kind, acc ->
+            :ok = AtlasBus.listen(kind)
+            MapSet.put(acc, kind)
+          end)
+
+        {state, reconcile} = plan(%{state | listening: listening})
+
+        {project, listed} =
+          Enum.reduce(state.kinds, {[], nil}, fn kind, {steps, failed} ->
+            case facts(kind) do
+              {:ok, facts} ->
+                keys = Enum.sort(for fact <- facts, do: fact["key"])
+                {steps ++ for(key <- keys, do: {:project, kind, key}), failed}
+
+              :failed ->
+                {steps, :listing_failed}
+            end
+          end)
+
+        # The hints looked at until now are the ones this round can release.
+        state = settle(state, Settled.begin(state.settled))
+        round = %{steps: reconcile ++ project, failed: state.refusal || listed, callers: callers}
+        send(self(), :round_step)
+        %{state | round: round}
+
+      other ->
+        Logger.warning("flow has no description yet: #{inspect(other)}")
+        end_round(%{state | round: %{steps: [], failed: :no_description, callers: callers}})
+    end
+  end
+
+  # The runs read whole, and the subjects to reconcile one by one: `{state, steps}`.
+  defp plan(%{runner: %{refusal: refusal}} = state) when refusal != nil do
+    Logger.error("generated runner refused: #{inspect(refusal)}")
+    {%{state | runs: [], refusal: refusal}, []}
+  end
+
+  defp plan(state) do
+    case Store.plan(state.runner.config, state.runner.flows) do
+      {:ok, %{runs: runs, subjects: subjects}} ->
+        # Every run is known from here on, so a hint can reconcile its own as a step would.
+        {%{state | runs: runs, refusal: nil, reconciled: true},
+         for({kind, key} <- subjects, do: {:reconcile, kind, key})}
+
+      {:error, why} ->
+        Logger.error("generated runner refused: #{inspect(why)}")
+        {%{state | runs: [], refusal: why}, []}
+    end
+  end
+
+  defp round_step(%{round: %{steps: []}} = state), do: end_round(state)
+
+  defp round_step(%{round: %{steps: [step | rest]}} = state) do
+    state = put_in(state.round.steps, rest)
+
     state =
-      case Talk.read("_description", %{}) do
-        %{"description" => description} ->
-          state = reconcile(state)
+      case step do
+        {:reconcile, kind, key} ->
+          reconcile_step(state, kind, key)
 
-          # Listen to every kind: what hangs under a fact can change its state.
-          listening =
-            Enum.reduce(Map.keys(description["entities"] || %{}), state.listening, fn kind, acc ->
-              :ok = AtlasBus.listen(kind)
-              MapSet.put(acc, kind)
-            end)
-
-          {subjects, listed} =
-            Enum.reduce(state.kinds, {[], :ok}, fn kind, {subjects, outcome} ->
-              case facts(kind) do
-                {:ok, facts} -> {subjects ++ Enum.map(facts, &{kind, &1["key"]}), outcome}
-                :failed -> {subjects, :failed}
-              end
-            end)
-
-          {state, projected} = project_all(%{state | listening: listening}, subjects)
-
-          # Release only after the complete recovery projection, including its reads.
-          if state.refusal == nil and state.reconciled and listed == :ok and projected == :ok,
-            do: settle(state, Settled.release(state.settled)),
-            else: state
-
-        other ->
-          Logger.warning("flow has no description yet: #{inspect(other)}")
-          state
+        {:project, kind, key} ->
+          {state, projected} = project_all(state, [{kind, key}])
+          if projected == :ok, do: state, else: put_in(state.round.failed, :projection_failed)
       end
 
-    schedule_round(state, next_round(state))
+    send(self(), :round_step)
+    state
+  end
+
+  # One subject's runs, as a hint reconciles them. A failure leaves the rest of the round
+  # to step, but it releases nothing held.
+  defp reconcile_step(state, kind, key) do
+    case Store.reconcile_subjects(
+           state.runner.config,
+           state.runner.flows,
+           Clock.now(state.clock),
+           state.runs,
+           [{kind, key}]
+         ) do
+      {:ok, runs} ->
+        # Parents returned by composition are required projections too. Keep each
+        # projection as its own mailbox step, including subjects absent from the plan.
+        projects = for {k, key} <- run_subjects(runs), do: {:project, k, key}
+        state = %{state | runs: Store.merge(state.runs, runs)}
+        update_in(state.round.steps, &Enum.uniq(&1 ++ projects))
+
+      {:error, why} ->
+        Logger.warning("flow could not reconcile the runs of #{kind} #{key}: #{inspect(why)}")
+        put_in(state.round.failed, state.round.failed || why)
+    end
+  end
+
+  defp end_round(%{round: round} = state) do
+    # Every run reconciled after the hints held before the round began: those are settled.
+    state =
+      if round.failed == nil and state.refusal == nil and state.reconciled,
+        do: settle(state, Settled.release(state.settled)),
+        else: state
+
+    for caller <- round.callers do
+      case caller do
+        {:recovery, from, result} -> GenServer.reply(from, result)
+        from -> GenServer.reply(from, :ok)
+      end
+    end
+
+    state = %{state | round: nil}
+
+    if state.pending_round,
+      do: begin_round(%{state | pending_round: false, queued: []}, state.queued),
+      else: schedule_round(state, next_round(state))
   end
 
   defp facts(kind) do
@@ -457,22 +590,6 @@ defmodule AtlasFlow.Engine do
       other ->
         Logger.warning("flow could not list #{kind}: #{inspect(other)}")
         :failed
-    end
-  end
-
-  defp reconcile(%{runner: %{refusal: refusal}} = state) when refusal != nil do
-    Logger.error("generated runner refused: #{inspect(refusal)}")
-    %{state | runs: [], refusal: refusal}
-  end
-
-  defp reconcile(state) do
-    case Store.reconcile(state.runner.config, state.runner.flows, Clock.now(state.clock)) do
-      {:ok, runs} ->
-        %{state | runs: runs, refusal: nil, reconciled: true}
-
-      {:error, why} ->
-        Logger.error("generated runner refused: #{inspect(why)}")
-        %{state | runs: [], refusal: why}
     end
   end
 
