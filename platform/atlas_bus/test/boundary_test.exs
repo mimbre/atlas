@@ -125,6 +125,21 @@ defmodule AtlasBus.BoundaryTest do
           ])
         )
 
+  # The Runtime's own contract projects (boundary, model and backend), which
+  # only the Runtime compiles.
+  defp sources(dir, "AtlasRuntime"),
+    do:
+      sources(dir) ++
+        Path.wildcard(
+          Path.join([
+            @root,
+            "platform/atlas_runtime/{boundary,model,backend}/contract",
+            "{lib,test}",
+            "**",
+            "*.{ex,exs}"
+          ])
+        )
+
   defp sources(dir, _own), do: sources(dir)
 
   describe "the checks catch violations" do
@@ -254,6 +269,8 @@ defmodule AtlasBus.BoundaryTest do
 
       files = Enum.flat_map(dirs, fn {dir, own} -> sources(dir, own) end)
       assert Path.join(@root, "platform/atlas_control/backend/contract/lib/blocks.ex") in files
+      assert Path.join(@root, "platform/atlas_runtime/boundary/contract/lib/work.ex") in files
+      assert Path.join(@root, "platform/atlas_runtime/model/contract/lib/work.ex") in files
       assert length(files) > 20
 
       for file <- files do

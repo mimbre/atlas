@@ -68,7 +68,7 @@ defmodule AtlasRuntime.Test.FakeWork do
 
       for {pid, client} <- state.subscribers,
           visible?(client, owner),
-          do: send(pid, {:notification, value})
+          do: send(pid, {:atlas_runtime_work, value})
 
       {sequence, %{state | sequence: sequence, changes: changes}}
     end)
@@ -77,7 +77,7 @@ defmodule AtlasRuntime.Test.FakeWork do
   @doc "Send `build.(client)` to every subscriber now (a heartbeat, filtered per client)."
   def broadcast(build) do
     for {pid, client} <- Agent.get(@window, & &1.subscribers),
-        do: send(pid, {:notification, build.(client)})
+        do: send(pid, {:atlas_runtime_work, build.(client)})
 
     :ok
   end
@@ -159,7 +159,7 @@ defmodule AtlasRuntime.Test.FakeWork do
         end
       end)
 
-    for value <- missed, do: send(self(), {:notification, value})
+    for value <- missed, do: send(self(), {:atlas_runtime_work, value})
     outcome
   end
 

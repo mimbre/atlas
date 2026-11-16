@@ -8,12 +8,14 @@ defmodule AtlasRuntime.Backend.Events do
   event when the subscription opened with one. From then on the work implementation
   sends this process each notification the client may see as
 
-      {:notification, struct}
+      {:atlas_runtime_work, struct}
 
   where `struct` is one of the facade's event models (`WorkChanged`, `CapacityAvailable`,
   `Heartbeat`, `Reset`). The loop writes every one as a frame (`event:`, `id:` = its
   change sequence where it has one, `data:` the JSON) through the router's `__event__/1`,
-  and ignores anything that is no event.
+  and ignores anything that is no event. The tag is the work core's
+  (`AtlasRuntime.Work.Notifications.tag/0`), written out here because the backend calls
+  only the facade.
 
   It has no timer of its own. The 15 s `heartbeat` is a boundary notification the core
   emits (§3.6); written like any other, it also keeps proxies from dropping the
@@ -30,7 +32,7 @@ defmodule AtlasRuntime.Backend.Events do
 
   defp stream(conn, router, parent) do
     receive do
-      {:notification, value} ->
+      {:atlas_runtime_work, value} ->
         case router.__event__(value) do
           {:ok, frame} ->
             case Plug.Conn.chunk(conn, frame) do
