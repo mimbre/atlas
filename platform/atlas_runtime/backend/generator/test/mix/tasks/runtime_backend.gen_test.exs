@@ -130,11 +130,42 @@ defmodule Mix.Tasks.RuntimeBackend.GenTest do
       )
     end
 
-    test "refuses several contracts, an unknown key, or no contract", %{tmp_dir: dir} do
-      example = AtlasRuntimeBackend.Generator.Example.Api
+    test "several contracts: a file each, with its own header", %{tmp_dir: dir} do
+      both = [
+        lending: AtlasRuntimeBackend.Generator.Example.Api,
+        desk: AtlasRuntimeBackend.Generator.Example.DeskApi
+      ]
 
-      in_project([contracts: [a: example, b: example], targets: [json: dir]], fn ->
-        assert_raise Mix.Error, ~r/one contract per project/, fn -> gen() end
+      in_project([contracts: both, targets: [json: dir], root: "test"], fn ->
+        gen()
+        assert Enum.sort(File.ls!(dir)) == ["desk.json", "lending.json"]
+        assert File.read!(Path.join(dir, "lending.json")) =~ "change support/example_api.ex"
+        assert File.read!(Path.join(dir, "desk.json")) =~ "change support/example_desk.ex"
+        assert File.read!(Path.join(dir, "desk.json")) =~ "/v1/desk/open"
+        gen(["--check"])
+        assert_received {:mix_shell, :info, ["generated files are up to date"]}
+      end)
+
+      # A contract taken out of the config leaves its file over.
+      in_project(
+        [contracts: Keyword.take(both, [:lending]), targets: [json: dir], root: "test"],
+        fn ->
+          assert_raise Mix.Error, ~r/desk.json \(left over\)/, fn -> gen(["--check"]) end
+        end
+      )
+    end
+
+    test "refuses a name twice, two contracts on one path, an unknown key, or no contract",
+         %{tmp_dir: dir} do
+      example = AtlasRuntimeBackend.Generator.Example.Api
+      desk = AtlasRuntimeBackend.Generator.Example.DeskApi
+
+      in_project([contracts: [a: example, a: desk], targets: [json: dir]], fn ->
+        assert_raise Mix.Error, ~r/contract a is named twice/, fn -> gen() end
+      end)
+
+      in_project([contracts: [a: example, b: desk], targets: [json: {dir, name: "one"}]], fn ->
+        assert_raise Mix.Error, ~r/two contracts write .*one.json/, fn -> gen() end
       end)
 
       in_project([contracts: [a: example], targets: [json: dir], contract: example], fn ->
@@ -142,7 +173,9 @@ defmodule Mix.Tasks.RuntimeBackend.GenTest do
       end)
 
       in_project([targets: [json: dir]], fn ->
-        assert_raise Mix.Error, ~r/expected contracts: \[name: Module\], got nil/, fn -> gen() end
+        assert_raise Mix.Error, ~r/expected contracts: \[name: Module, \.\.\.\], got nil/, fn ->
+          gen()
+        end
       end)
 
       assert File.ls!(dir) == []

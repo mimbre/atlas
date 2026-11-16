@@ -197,6 +197,80 @@ defmodule AtlasRuntime.Policy do
 
   def profiles(_, _availability, _installed, _now), do: %{}
 
+  @doc """
+  The declared policy view (operations `policy`, design §13.1 Q7): the operations
+  contract's `policy` fields and nothing else, never the file and never the quota
+  evidence. Profiles are sorted by name; each option keeps its order and carries its
+  availability now (`not_installed` before `quota`, as in a resolution). `limits` shows
+  the `max_duration` that applies, configured or default.
+
+  Without a valid policy nothing is permitted: `version` is 0, there are no profiles and
+  the buffer is the default one. A `changed_at` that is not ISO-8601 is left out.
+  Arguments as for `profiles/4`.
+  """
+  @spec view(loaded(), map(), [String.t()] | (String.t() -> boolean()), integer()) :: map()
+  def view({:ok, policy} = loaded, availability, installed, now) do
+    view = %{
+      version: policy["version"],
+      buffer_size: buffer_size(loaded),
+      profiles:
+        for {name, profile} <- Enum.sort(policy["profiles"]) do
+          %{
+            profile: name,
+            permissions: profile["permissions"],
+            cost_classes: profile["cost_classes"],
+            limits: %{max_duration: limits(loaded, name).max_duration},
+            options: Enum.map(profile["options"], &option_view(&1, availability, installed, now))
+          }
+        end
+    }
+
+    view
+    |> put_present(:changed_by, policy["changed_by"])
+    |> put_present(:changed_at, datetime(policy["changed_at"]))
+    |> put_present(:independence, independence_view(policy["independence"]))
+  end
+
+  def view(loaded, _availability, _installed, _now),
+    do: %{version: 0, buffer_size: buffer_size(loaded), profiles: []}
+
+  defp option_view(option, availability, installed, now) do
+    harness = option["harness"]
+
+    availability =
+      if installed?(installed, harness) do
+        case AtlasRuntime.Availability.status(availability, harness, now) do
+          :available -> %{available: true}
+          {:out, nil} -> %{available: false, reason: :quota}
+          {:out, until} -> %{available: false, reason: :quota, until: DateTime.from_unix!(until)}
+        end
+      else
+        %{available: false, reason: :not_installed}
+      end
+
+    %{
+      provider: option["provider"],
+      harness: harness,
+      model: option["model"],
+      availability: availability
+    }
+  end
+
+  defp independence_view(%{"different_from" => strength}), do: %{different_from: strength}
+  defp independence_view(_), do: nil
+
+  defp put_present(map, _key, nil), do: map
+  defp put_present(map, key, value), do: Map.put(map, key, value)
+
+  defp datetime(text) when is_binary(text) do
+    case DateTime.from_iso8601(text) do
+      {:ok, at, _offset} -> at
+      _ -> nil
+    end
+  end
+
+  defp datetime(_), do: nil
+
   defp walk(policy, name, options, availability, permission, installed, now) do
     {picked, skipped} =
       Enum.reduce_while(options, {nil, []}, fn option, {nil, skipped} ->

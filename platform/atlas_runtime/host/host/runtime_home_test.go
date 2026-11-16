@@ -127,7 +127,7 @@ func TestCodexManagedRepositoryDeniesTheRuntimeHomeBesideItsAncestors(t *testing
 	}
 	sensitive := func(skip ...string) []string {
 		var paths []string
-		for _, name := range []string{"runtime.sock", "read.sock", "backend.sock", "turns", "code.json", "server.json", "backends.json", "policy.json", "availability.json", "service.log",
+		for _, name := range []string{"runtime.sock", "backend.sock", "turns", "code.json", "server.json", "backends.json", "policy.json", "availability.json", "service.log",
 			"service.lock", "passes", "snapshots", "materializations", "scratch", "work", "admissions", "preparations", "packets", "submissions", "rebinds",
 			"execution-events.json", "mode.json", "clients.json", "code.json.tmp", "server.json.tmp", "backends.json.tmp", "policy.json.tmp",
 			"availability.json.tmp", "execution-events.json.tmp", "mode.json.tmp", "clients.json.tmp"} {
@@ -485,8 +485,8 @@ func TestRepositoryAndPlainProfilesDenyTheRuntimeHomeUnderInstalledCodexSandbox(
 		gitIn(t, user, "init", "-q", root)
 	}
 	socket := listenInRuntimeHome(t, user, "runtime.sock")
-	// S6 P0: the work contract's socket, which grants operate, and the read socket are dialled too.
-	sockets := []string{socket, listenInRuntimeHome(t, user, "read.sock"), listenInRuntimeHome(t, user, "backend.sock")}
+	// S6 P0: the backend socket, which grants operate, is dialled too (S2 removed read.sock).
+	sockets := []string{socket, listenInRuntimeHome(t, user, "backend.sock")}
 	sentinel := filepath.Join(home, "sentinel")
 	if err := os.WriteFile(sentinel, []byte("HOME-SENTINEL"), 0600); err != nil {
 		t.Fatal(err)

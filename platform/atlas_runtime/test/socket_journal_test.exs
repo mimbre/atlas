@@ -1,6 +1,6 @@
 defmodule AtlasRuntime.SocketJournalTest do
   # The journal on runtime.sock (design 2026-11-16-runtime-backend §13.1 Q3): `events` and
-  # `follow` with the runtime.read/1 protocol, as read.sock serves them until S2 removes it.
+  # `follow` with the runtime.read/1 protocol, the only socket that serves them since S2.
   # A controlled contract test over the synthetic native CLI; it is not real worker proof.
   use ExUnit.Case, async: false
 
@@ -132,13 +132,13 @@ defmodule AtlasRuntime.SocketJournalTest do
     end)
   end
 
-  test "events and a follow page on runtime.sock are byte-identical to read.sock's", %{dir: dir} do
+  test "events and a follow page on runtime.sock keep the runtime.read/1 lines", %{dir: dir} do
     store = appended(dir, 5)
-    launch(dir)
+    service = launch(dir)
 
-    # `atlas-runtime events --limit 2`, on both sockets.
+    # `atlas-runtime events --limit 2`: the line is the Service's own read, as encoded.
     events = ~s({"api":"runtime.read/1","op":"events","limit":2})
-    golden = raw(dir, "read.sock", events)
+    golden = JSON.encode!(GenServer.call(service, {:read, "events", %{"limit" => 2}})) <> "\n"
     assert raw(dir, "runtime.sock", events) == golden
     page = JSON.decode!(golden)
     assert Enum.sort(Map.keys(page)) == @page
@@ -147,14 +147,12 @@ defmodule AtlasRuntime.SocketJournalTest do
     assert %{"more" => true, "cursor" => cursor} = page
     assert cursor == store["epoch"] <> ":2"
 
-    # One follow page, from that cursor and from another epoch (a reset), on both sockets.
+    # One follow page, from that cursor and from another epoch (a reset).
     other = String.duplicate("0", 32) <> ":1"
 
     for fields <- [%{"cursor" => cursor}, %{"cursor" => other}] do
       line = JSON.encode!(Map.merge(%{"api" => "runtime.read/1", "op" => "follow"}, fields))
-      golden = raw(dir, "read.sock", line)
-      assert raw(dir, "runtime.sock", line) == golden
-      frame = JSON.decode!(golden)
+      frame = JSON.decode!(raw(dir, "runtime.sock", line))
       assert %{"op" => "follow", "type" => "page", "more" => false} = frame
       assert Enum.sort(Map.keys(frame) -- ["reset", "type"]) == @page
       assert frame["cursor"] == store["epoch"] <> ":5"
@@ -504,26 +502,35 @@ defmodule AtlasRuntime.SocketJournalTest do
             "handoff" => declaration()
           })
 
-          if rem(n, 50) == 0, do: status_latency(dir)
+          if rem(n, 50) == 0, do: command_latency(dir, hd(turns))
         end
 
       assert :sys.get_state(service).events["sequence"] == 1_000
       assert Enum.max(Enum.reject(latencies, &is_nil/1)) < 100
       assert_receive {:DOWN, ^ref, :process, ^follower, _}, 5_000
       await(fn -> :sys.get_state(service).followers == %{} end)
-      assert status_latency(dir) < 100
+      assert command_latency(dir, hd(turns)) < 100
     end
 
-    # One service-status round trip over runtime.sock, in milliseconds.
-    defp status_latency(dir) do
+    # One guidance round trip over runtime.sock to the Service, in milliseconds: runtime.sock
+    # serves no operations since S2.
+    defp command_latency(dir, turn) do
       status = connect(dir, "runtime.sock")
       started = System.monotonic_time(:millisecond)
-      :ok = :gen_tcp.send(status, ~s({"command":"service-status"}\n))
+      request = %{"command" => "handoff", "worker_id" => "alpha", "turn_id" => turn}
+      :ok = :gen_tcp.send(status, JSON.encode!(request) <> "\n")
       assert {:ok, line} = :gen_tcp.recv(status, 0, 5_000)
       elapsed = System.monotonic_time(:millisecond) - started
-      assert %{"service" => "running"} = JSON.decode!(line)
+      assert %{"turn_id" => ^turn} = JSON.decode!(line)
       :gen_tcp.close(status)
       elapsed
+    end
+
+    # A service stop as the operations implementation asks for it, in-process (runtime.sock
+    # refuses it since S2): the reply, then the shutdown it requests.
+    defp service_stop do
+      assert {_, true} = GenServer.call(Service, %{"command" => "service-stop"}, 30_000)
+      send(Service, :shutdown)
     end
 
     test "32 followers at most; a closed follower frees its slot", %{dir: dir} do
@@ -561,9 +568,7 @@ defmodule AtlasRuntime.SocketJournalTest do
               }
             )
 
-      stop = connect(dir, "runtime.sock")
-      :ok = :gen_tcp.send(stop, ~s({"command":"service-stop"}\n))
-      assert {:ok, _} = :gen_tcp.recv(stop, 0, 5_000)
+      service_stop()
       assert_receive {:halted, 0}, 5_000
 
       assert Enum.find(Stream.repeatedly(fn -> frame(socket) end), &(&1["type"] == "end")) ==
@@ -587,9 +592,7 @@ defmodule AtlasRuntime.SocketJournalTest do
       first = follow(dir)
       assert %{"cursor" => cursor} = page(first)
 
-      stop = connect(dir, "runtime.sock")
-      :ok = :gen_tcp.send(stop, ~s({"command":"service-stop"}\n))
-      assert {:ok, _} = :gen_tcp.recv(stop, 0, 5_000)
+      service_stop()
       assert_receive {:halted, 0}, 5_000
       assert %{"type" => "end", "reason" => "service_stopping"} = frame(first)
       closed!(first)

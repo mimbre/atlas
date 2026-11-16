@@ -7,7 +7,7 @@ defmodule AtlasRuntime.Service do
   alias AtlasRuntime.HandoffRecords
   alias AtlasRuntime.PeerQuestionRecords
   alias AtlasRuntime.QuestionRecords
-  alias AtlasRuntime.Entrypoints.{ReadSocket, Socket}
+  alias AtlasRuntime.Entrypoints.Socket
   alias AtlasRuntime.Execution.RestartReconciliation
   alias AtlasRuntime.Handoffs.Commands, as: Handoffs
   alias AtlasRuntime.Integrations.AtlasServer.Lifecycle
@@ -20,8 +20,8 @@ defmodule AtlasRuntime.Service do
   require Logger
   import AtlasRuntime.Execution.Identity
 
-  # Open follow connections, on read.sock and runtime.sock together; more are refused with
-  # `too_many_followers`.
+  # Open journal followers (runtime.sock's follow connections, the work core among them);
+  # more are refused with `too_many_followers`.
   @followers 32
 
   @doc "Start the service; `server` (without its token) opts into Atlas Server lifecycle reporting."
@@ -33,8 +33,8 @@ defmodule AtlasRuntime.Service do
   def init({dir, server, reporting}), do: init({dir, server, reporting, []})
 
   # `reporting` and `options` are explicit dependency injection for tests: bounded Talk
-  # timing; `follow:` the follow timing of both sockets, `halt:` the exit after a service
-  # stop and `process_probe:` the liveness check of restart reconciliation.
+  # timing; `follow:` the follow timing of runtime.sock, `halt:` the exit after a service stop
+  # and `process_probe:` the liveness check of restart reconciliation.
   def init({dir, server, reporting, options}) do
     # Policy is read from policy.json for every resolution; only a former backends.json
     # quota record moves, once, into availability.json.
@@ -45,7 +45,6 @@ defmodule AtlasRuntime.Service do
     # The bound socket proves no other service runs here, and this one owns no port yet.
     probe = Keyword.get(options, :process_probe, &RestartReconciliation.process_state/2)
     events = RestartReconciliation.reconcile(dir, events, probe)
-    ReadSocket.start(dir, self(), Keyword.get(options, :follow, []))
 
     state = %{
       dir: dir,
@@ -64,8 +63,8 @@ defmodule AtlasRuntime.Service do
     end
   end
 
-  # Every callback that grew the journal signals the followers afterwards. Decided here, at
-  # the boundary, because some paths store new events before `record_changes/2`.
+  # Every callback that grew the journal signals the journal followers afterwards. Decided
+  # here, at the boundary, because some paths store new events before `record_changes/2`.
   def handle_call(request, from, state), do: signal(state, serve_call(request, from, state))
   def handle_info(message, state), do: signal(state, serve_info(message, state))
 
@@ -82,13 +81,13 @@ defmodule AtlasRuntime.Service do
 
   defp followers(state), do: Map.get(state, :followers, %{})
 
-  # Admitted reads (read.sock's, and runtime.sock's journal reads): answered from the state,
-  # which they never change, and never dispatched as commands.
+  # In-process reads (`Inspection.Reads`) and runtime.sock's journal reads: answered from the
+  # state, which they never change, and never dispatched as commands.
   defp serve_call({:read, op, args}, _from, state),
     do: {:reply, Reads.read(op, args, state), state}
 
-  # A follow connection (read.sock or runtime.sock): registration and its first page in one
-  # call. Followers are connection bookkeeping, never persisted or returned.
+  # A journal follower (a runtime.sock follow connection): registration and its first page in
+  # one call. Followers are connection bookkeeping, never persisted or returned.
   # Once the shutdown began the service still answers until the exit lands, but a follow
   # started then would report a stopping Runtime reachable: it ends at once instead.
   defp serve_call({:follow, pid, cursor}, _from, state) when is_pid(pid) do
@@ -116,6 +115,12 @@ defmodule AtlasRuntime.Service do
         end
     end
   end
+
+  # The work core's `clear_quota_mark` (operations, design §13.1 Q7): run here, in the process
+  # that records quota evidence (`Availability.record_quota/5`), so neither write loses the
+  # other's. Never a socket command.
+  defp serve_call({:clear_quota_mark, harness}, _from, state) when is_binary(harness),
+    do: {:reply, Availability.clear_quota_mark(state.dir, harness), state}
 
   defp serve_call(request, _from, state) do
     {reply, next, shutdown?} =
@@ -242,7 +247,7 @@ defmodule AtlasRuntime.Service do
   defp command(%{"command" => "release"} = request, state) do
     if Map.keys(request) -- ["command", "worker_id"] != [] or
          not Map.has_key?(request, "worker_id"),
-       do: raise("Release requires exactly --worker")
+       do: raise("Release requires exactly --slot")
 
     id = request["worker_id"]
     if not valid_worker_id?(id), do: raise("Invalid worker ID")
@@ -701,7 +706,7 @@ defmodule AtlasRuntime.Service do
       do:
         raise(
           "Worker #{worker_id} is latched after stopping turn #{latch["turn_id"]}; " <>
-            "run atlas-runtime release --worker #{worker_id} first"
+            "run atlas-runtime release --slot #{worker_id} first"
         )
   end
 
@@ -1282,7 +1287,8 @@ defmodule AtlasRuntime.Service do
 
   # A turn's public output (the provider's projection, as a connected turn's) is retained,
   # owned by this service: a reported turn's in Output under its exact Server identity, any
-  # other's in the local buffer that only read.sock reads (`Reads.output_stream/1`). It never
+  # other's in the local buffer, read only through the work contract's turn output
+  # (`Reads.output_stream/1`). It never
   # waits for Server, and a missing ring never changes the native lifecycle.
   # Only a new event from the turn's own agent may reopen a lost ring, in a new epoch.
   defp open_output(run), do: output(run, &Output.open(&1, self(), &2))

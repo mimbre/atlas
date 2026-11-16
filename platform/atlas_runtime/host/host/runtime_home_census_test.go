@@ -44,9 +44,8 @@ type censusEntry struct {
 }
 
 var censusHome = map[string]censusEntry{
-	"runtime.sock":          {"denied", "the service command socket", false},
-	"read.sock":             {"denied", "the runtime.read/1 socket", false},
-	"backend.sock":          {"denied", "the work contract socket, which grants operate", false},
+	"runtime.sock":          {"denied", "the guidance and journal socket", false},
+	"backend.sock":          {"denied", "the work, operations and history contracts socket, which grants operate", false},
 	"turns":                 {"denied", "the turn folders and their records", false},
 	"code.json":             {"denied", "the Code configuration, naming the Code token", false},
 	"server.json":           {"denied", "the Atlas Server configuration", false},
@@ -138,6 +137,15 @@ var censusNotHome = map[string]string{
 	"proof.txt":     "verify_sandbox.exs workspace",
 	"sandbox-probe": "verify_sandbox.exs test directory",
 	"native":        "verify_sandbox.exs test directory",
+	// The S6 fixture tables (host/internal/s6fixture, a test helper): the module root and its fixtures.
+	"go.mod":   "the host module root (s6fixture.Dir finds it upwards)",
+	"test":     "the S6 fixture tables (platform/atlas_runtime/test/fixtures/s6)",
+	"fixtures": "the S6 fixture tables (platform/atlas_runtime/test/fixtures/s6)",
+	"s6":       "the S6 fixture tables (platform/atlas_runtime/test/fixtures/s6)",
+	"s6-":      "prefix of an S6 fixture root in the system temp (s6fixture.NewRoot)",
+	// The native facts helper's private directory (sandbox/facts.ex: atlas-facts-<hex> in the system temp).
+	"stdin":  "the facts helper's private temp directory",
+	"stderr": "the facts helper's private temp directory",
 }
 
 type censusSite struct {

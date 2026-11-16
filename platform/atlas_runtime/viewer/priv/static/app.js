@@ -1,19 +1,22 @@
-// Atlas Runtime viewer. Polls runtime.read/1 through this viewer's /api/read and shows
-// what Runtime returns. Every Runtime value is placed with textContent, never as HTML.
+// Atlas Runtime viewer. Polls Runtime through this viewer's /api/read (runtime info, the
+// history and turn output from backend.sock, the journal from runtime.sock) and shows what
+// Runtime returns. Every Runtime value is placed with textContent, never as HTML.
 // Cursors are Runtime's opaque values, kept only in memory and sent back unchanged.
 
 const POLL_MS = 2000;
 const REQUEST_MS = 12000;
 const MAX_BACKOFF_MS = 15000;
 const MAX_PAGES = 5;
+// History pages of 100 turns read per poll; older turns beyond them are not shown.
+const MAX_TURN_PAGES = 20;
 const MAX_EVENTS = 500;
 const MAX_OUTPUT = 2000;
 
 const token = takeToken();
 const view = {
-  service: null,
-  workers: null,
+  runtime: null,
   turns: null,
+  turnsTruncated: false,
   events: [],
   eventsCursor: null,
   recordingStartedAt: null,
@@ -74,7 +77,8 @@ async function read(op, fields = {}) {
   }
 }
 
-// A Runtime error reply that the caller does not handle itself.
+// A Runtime error reply that the caller does not handle itself: a journal error, or a
+// backend refusal, whose code is its problem type.
 function expect(body) {
   if (body.error) throw new ReadError("runtime_" + body.error.code, `Runtime: ${body.error.message} (${body.error.code}).`);
   return body;
@@ -111,12 +115,12 @@ async function tick() {
   again = false;
   const generation = view.generation;
   try {
-    const overview = expect(await read("workers"));
-    const turns = expect(await read("turns"));
+    const runtime = expect(await read("runtime"));
+    const turns = await readTurns();
     await readEvents();
-    view.service = overview.service;
-    view.workers = overview.workers;
-    view.turns = turns.turns;
+    view.runtime = runtime;
+    view.turns = turns.list;
+    view.turnsTruncated = turns.truncated;
     if (view.selected !== null && generation === view.generation) await readSelected(generation);
     view.failures = 0;
     view.lastOk = new Date();
@@ -134,6 +138,19 @@ async function tick() {
   }
   if (view.connection.state === "unauthorized") return;
   schedule(again ? 0 : view.connection.state === "live" ? POLL_MS : view.connection.retryMs);
+}
+
+// The history in its order (oldest first), page by page.
+async function readTurns() {
+  const list = [];
+  let cursor = null;
+  for (let page = 0; page < MAX_TURN_PAGES; page++) {
+    const body = expect(await read("turns", cursor ? { cursor, limit: 100 } : { limit: 100 }));
+    list.push(...body.turns);
+    if (!body.more) return { list, truncated: false };
+    cursor = body.cursor;
+  }
+  return { list, truncated: true };
 }
 
 async function readEvents() {
@@ -160,30 +177,28 @@ async function readSelected(generation) {
   const output = view.output;
   const body = await read("turn", { turn_id: id });
   if (generation !== view.generation) return;
-  if (body.error && body.error.code === "unknown_turn") {
+  if (body.error && body.error.code === "not-found") {
     view.turn = { missing: true };
     return;
   }
-  const turn = expect(body).turn;
+  const turn = expect(body);
   for (let page = 0; page < MAX_PAGES; page++) {
     const reply = await read("output", output.cursor ? { turn_id: id, cursor: output.cursor } : { turn_id: id });
     if (generation !== view.generation) return;
-    if (reply.error && reply.error.code === "output_unavailable") {
+    if (reply.error && reply.error.code === "not-found") {
       output.unavailable = true;
       break;
     }
-    if (reply.error && reply.error.code === "invalid_cursor") {
+    if (reply.error && reply.error.code === "invalid" && output.cursor) {
       output.cursor = null;
       output.events = [{ gap: "Runtime no longer accepts this viewer's output cursor; reading again from the oldest retained output." }];
       continue;
     }
     expect(reply);
     output.unavailable = false;
-    if (reply.reset) output.events.push({ gap: describeReset(reply.reset, "Output events") });
     output.events.push(...reply.events);
     keepLast(output.events, MAX_OUTPUT);
     output.cursor = reply.cursor;
-    output.stream = reply.stream;
     if (!reply.more) break;
   }
   view.turn = turn;
@@ -194,7 +209,7 @@ function select(turnId) {
   view.generation += 1;
   view.selected = turnId;
   view.turn = null;
-  view.output = { cursor: null, events: [], unavailable: false, stream: null };
+  view.output = { cursor: null, events: [], unavailable: false };
   render();
   if (running) again = true;
   else if (token && view.connection.state !== "unauthorized") schedule(0);
@@ -221,9 +236,8 @@ function time(date) {
   return date ? date.toLocaleTimeString() : "never";
 }
 
-function stateTag(state, recorded) {
-  const label = state === "unknown" && recorded ? `unknown (recorded ${recorded}; its service ended)` : text(state);
-  return el("span", { class: state === "finished" ? "prism-tag prism-tag-success" : "prism-tag" }, el("span", { class: "prism-tag-inner" }, label));
+function stateTag(state) {
+  return el("span", { class: state === "finished" ? "prism-tag prism-tag-success" : "prism-tag" }, el("span", { class: "prism-tag-inner" }, text(state)));
 }
 
 // A native button selecting a turn; `key` restores keyboard focus across renders.
@@ -264,7 +278,7 @@ function renderStatus() {
   return el("p", { class: "flex flex-wrap items-center gap-2" },
     el("span", { class: "prism-tag prism-tag-success" }, el("span", { class: "prism-tag-inner" }, "Live")),
     `Updated ${time(view.lastOk)}.`,
-    view.service === "stopping" ? stateTag("Runtime service is stopping") : null);
+    view.runtime && view.runtime.mode !== "open" ? stateTag(`Runtime ${view.runtime.mode}`) : null);
 }
 
 function disconnectedTitle(code) {
@@ -274,69 +288,60 @@ function disconnectedTitle(code) {
   return "Read failed.";
 }
 
-function renderWorkers() {
-  if (view.workers === null) return el("p", {}, "Not read yet.");
-  if (view.workers.length === 0) return el("p", {}, "No workers registered since this Runtime service started.");
-  return el("ul", { class: "space-y-2" }, view.workers.map((worker) => {
-    const label = [el("span", { class: "font-semibold" }, worker.worker_id), stateTag(worker.state)];
-    return el("li", {}, worker.turn
-      ? turnButton("worker:" + worker.worker_id, worker.turn.turn_id, [...label, el("span", { class: "font-mono text-sm" }, worker.turn.turn_id)])
-      : el("p", { class: "flex items-center gap-2" }, ...label, "no turn"));
+// The newest turn on a slot that has not ended, from the history read this poll.
+function openTurn(slot) {
+  const open = (view.turns || []).filter((turn) => turn.slot === slot && !turn.ended_at);
+  return open.length ? open[open.length - 1] : null;
+}
+
+function renderSlots() {
+  if (view.runtime === null) return el("p", {}, "Not read yet.");
+  if (view.runtime.slots.length === 0) return el("p", {}, "This Runtime has no slots in its policy.");
+  return el("ul", { class: "space-y-2" }, view.runtime.slots.map((slot) => {
+    const label = [el("span", { class: "font-semibold" }, slot.name), stateTag(slot.busy ? "busy" : "free")];
+    const turn = openTurn(slot.name);
+    return el("li", {}, turn
+      ? turnButton("slot:" + slot.name, turn.turn_id, [...label, el("span", { class: "font-mono text-sm" }, turn.turn_id)])
+      : el("p", { class: "flex items-center gap-2" }, ...label));
   }));
 }
 
 function renderTurns() {
   if (view.turns === null) return el("p", {}, "Not read yet.");
   if (view.turns.length === 0) return el("p", {}, "No turns recorded.");
-  return el("ul", { class: "space-y-2" }, view.turns.map((turn) =>
-    el("li", {}, turnButton("turn:" + turn.turn_id, turn.turn_id, [
-      el("span", { class: "font-mono text-sm" }, turn.turn_id),
-      stateTag(turn.state, turn.recorded_state),
-      el("span", { class: "text-sm" }, `${text(turn.worker_id)} · started ${text(turn.started_at)}`),
-    ]))));
+  return el("div", { class: "space-y-2" },
+    view.turnsTruncated ? el("p", { class: "text-sm" }, `Showing the oldest ${view.turns.length} turns; later ones are not read.`) : null,
+    el("ul", { class: "space-y-2" }, [...view.turns].reverse().map((turn) =>
+      el("li", {}, turnButton("turn:" + turn.turn_id, turn.turn_id, [
+        el("span", { class: "font-mono text-sm" }, turn.turn_id),
+        stateTag(turn.state),
+        el("span", { class: "text-sm" }, `${text(turn.slot)} · started ${text(turn.started_at)}`),
+      ])))));
 }
 
 const TURN_FIELDS = [
-  ["turn_id", "Turn"], ["worker_id", "Worker"], ["attempt", "Server attempt"], ["source_turn_id", "Continues turn"],
-  ["backend", "Backend"], ["requested_model", "Requested model"], ["model", "Confirmed model"],
-  ["questions_enabled", "Questions enabled"], ["started_at", "Started"], ["ended_at", "Ended"],
+  ["turn_id", "Turn"], ["slot", "Slot"], ["native_outcome", "Native outcome"], ["harness", "Harness"],
+  ["configured_model", "Configured model"], ["reported_model", "Reported model"], ["conversation_id", "Conversation"],
+  ["started_at", "Started"], ["ended_at", "Ended"],
 ];
 
 function renderTurn() {
-  if (view.selected === null) return el("p", {}, "Select a worker's turn or a turn to see its details, activity and output.");
+  if (view.selected === null) return el("p", {}, "Select a slot's turn or a turn to see its details and output.");
   if (view.turn === null) return el("p", { class: "flex items-center gap-2" }, el("span", { class: "prism-spinner", "aria-hidden": "true" }), `Reading ${view.selected}…`);
   if (view.turn.missing) return el("div", { class: "prism-alert prism-alert-error" }, `Runtime has no turn ${view.selected}.`);
   const turn = view.turn;
-  const pending = turn.pending_question
-    ? `${turn.pending_question.question_id} (revision ${turn.pending_question.revision}); its text is not part of the read API`
-    : "none";
   return el("div", { class: "space-y-4" },
-    el("p", { class: "flex items-center gap-2" }, "State:", stateTag(turn.state, turn.recorded_state)),
+    el("p", { class: "flex items-center gap-2" }, "State:", stateTag(turn.state)),
     el("dl", { class: "grid grid-cols-3 gap-x-4 gap-y-1 text-sm" },
-      TURN_FIELDS.flatMap(([key, label]) => [el("dt", { class: "font-semibold" }, label), el("dd", { class: "col-span-2 font-mono break-words" }, text(turn[key]))]),
-      el("dt", { class: "font-semibold" }, "Pending question"), el("dd", { class: "col-span-2 font-mono break-words" }, pending)),
-    block("Activity", turn.activity, "Latest activity summary; it is not evidence that the worker is still running — see State."),
-    block("Result", turn.result),
-    block("Error", turn.error),
-    block("Answer", turn.answer, turn.answer_truncated ? "Truncated to its first 1 MiB." : null, "No answer recorded."),
+      TURN_FIELDS.flatMap(([key, label]) => [el("dt", { class: "font-semibold" }, label), el("dd", { class: "col-span-2 font-mono break-words" }, text(turn[key]))])),
+    el("p", { class: "text-sm" }, "The history holds a turn's metadata: its assignment, result, answer and questions are not part of it."),
     renderOutput());
-}
-
-function block(title, value, note = null, empty = "None.") {
-  return el("div", { class: "space-y-1" },
-    el("h3", { class: "font-semibold" }, title),
-    note ? el("p", { class: "text-sm" }, note) : null,
-    value === null || value === undefined || value === ""
-      ? el("p", { class: "text-sm" }, empty)
-      : el("pre", { class: "font-mono text-sm whitespace-pre-wrap break-words overflow-auto max-h-96 p-2" }, text(value)));
 }
 
 function renderOutput() {
   const output = view.output;
-  const stream = output.stream;
   const lines = output.events.map((event) => {
     if (event.gap) return el("p", { class: "prism-alert" }, event.gap);
-    if (event.kind === "tool") return el("p", { class: "font-mono text-sm" }, `tool ${text(event.tool_name)}: ${text(event.status)}`);
     if (event.kind === "activity") return el("p", { class: "font-mono text-sm" }, `activity: ${text(event.text)}`);
     return el("pre", { class: "font-mono text-sm whitespace-pre-wrap break-words" }, text(event.text));
   });
@@ -344,12 +349,8 @@ function renderOutput() {
     el("h3", { class: "font-semibold" }, "Output"),
     output.unavailable
       ? el("p", { class: "prism-alert" },
-          "Runtime retains no output for this turn now. Output is lost when the Runtime service exits and expires 15 minutes after a turn ends; the result and answer above are durable.",
+          "Runtime has no output for this turn now: output is lost when the Runtime service exits and expires 15 minutes after a turn ends.",
           output.events.length ? " The lines below were read before that." : "")
-      : null,
-    stream
-      ? el("p", { class: "text-sm" }, `Epoch ${text(stream.epoch)}, through sequence ${text(stream.watermark)}.`,
-          stream.ended ? " The producer closed this stream; that is not turn completion — see State." : "")
       : null,
     lines.length ? el("div", { class: "space-y-1 overflow-auto max-h-96 p-2" }, lines) : output.unavailable ? null : el("p", { class: "text-sm" }, "No output yet."));
 }
@@ -368,7 +369,7 @@ function renderEvents() {
 function render() {
   const focused = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.key : null;
   document.getElementById("status").replaceChildren(renderStatus());
-  document.getElementById("workers").replaceChildren(renderWorkers());
+  document.getElementById("slots").replaceChildren(renderSlots());
   document.getElementById("turns").replaceChildren(renderTurns());
   document.getElementById("turn").replaceChildren(renderTurn());
   document.getElementById("events").replaceChildren(renderEvents());

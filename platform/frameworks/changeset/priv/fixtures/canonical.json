@@ -1,0 +1,170 @@
+{
+  "about": "Canonical form and csf_ fingerprint of one root (AtlasChangeset). Each canonical was typed by hand and each fingerprint is printf <canonical> | shasum -a 256; entries are given in input order.",
+  "cases": [
+    {
+      "name": "empty-root",
+      "about": "an empty root",
+      "base": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "root": "atlas",
+      "entries": [
+
+      ],
+      "canonical": "{\"base\":\"sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\",\"entries\":[],\"root\":\"atlas\"}",
+      "fingerprint": "csf_d9856683f70d1cbc6f562138de18ad93de78b0011df0d6b62e664d8f0b3a0f42"
+    },
+    {
+      "name": "kinds",
+      "about": "a file, an executable, a symlink and a delete, given out of order",
+      "base": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "root": "atlas",
+      "entries": [
+        {
+          "path": "docs/guide.md",
+          "op": "write",
+          "kind": "file",
+          "mode": "100644",
+          "size": 6,
+          "sha256": "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"
+        },
+        {
+          "path": "old/notes.txt",
+          "op": "delete"
+        },
+        {
+          "path": "lib/current",
+          "op": "write",
+          "kind": "symlink",
+          "mode": "120000",
+          "size": 14,
+          "sha256": "b28f1f2d2e503f3c7d9da2daad7e680daa6f5746b640e2a8a17dd35631561b08",
+          "target": "../releases/v2"
+        },
+        {
+          "path": "bin/run",
+          "op": "write",
+          "kind": "file",
+          "mode": "100755",
+          "size": 19,
+          "sha256": "a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35"
+        }
+      ],
+      "canonical": "{\"base\":\"sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\",\"entries\":[{\"kind\":\"file\",\"mode\":\"100755\",\"op\":\"write\",\"path\":\"bin/run\",\"sha256\":\"a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35\",\"size\":19},{\"kind\":\"file\",\"mode\":\"100644\",\"op\":\"write\",\"path\":\"docs/guide.md\",\"sha256\":\"5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03\",\"size\":6},{\"kind\":\"symlink\",\"mode\":\"120000\",\"op\":\"write\",\"path\":\"lib/current\",\"sha256\":\"b28f1f2d2e503f3c7d9da2daad7e680daa6f5746b640e2a8a17dd35631561b08\",\"size\":14,\"target\":\"../releases/v2\"},{\"op\":\"delete\",\"path\":\"old/notes.txt\"}],\"root\":\"atlas\"}",
+      "fingerprint": "csf_98368fa42794daa43284a4c45ac1f726244855f3773b93369152d738c2a37e39"
+    },
+    {
+      "name": "unsorted",
+      "about": "unsorted input; paths sort by bytes (B < a-b < a.b < a/b < z < é)",
+      "base": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "root": "src",
+      "entries": [
+        {
+          "path": "z",
+          "op": "delete"
+        },
+        {
+          "path": "é.txt",
+          "op": "delete"
+        },
+        {
+          "path": "a/b",
+          "op": "write",
+          "kind": "file",
+          "mode": "100644",
+          "size": 6,
+          "sha256": "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"
+        },
+        {
+          "path": "a.b",
+          "op": "delete"
+        },
+        {
+          "path": "B.txt",
+          "op": "delete"
+        },
+        {
+          "path": "a-b",
+          "op": "delete"
+        }
+      ],
+      "canonical": "{\"base\":\"sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\",\"entries\":[{\"op\":\"delete\",\"path\":\"B.txt\"},{\"op\":\"delete\",\"path\":\"a-b\"},{\"op\":\"delete\",\"path\":\"a.b\"},{\"kind\":\"file\",\"mode\":\"100644\",\"op\":\"write\",\"path\":\"a/b\",\"sha256\":\"5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03\",\"size\":6},{\"op\":\"delete\",\"path\":\"z\"},{\"op\":\"delete\",\"path\":\"é.txt\"}],\"root\":\"src\"}",
+      "fingerprint": "csf_df9eab68f44660925a7e0d1a130e62f268a0f802721850aba406ad135b6a56fe"
+    },
+    {
+      "name": "escaping",
+      "about": "escaping: a space, é, \", \\, control characters, U+2028 and / are written as the canonical form says",
+      "base": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "root": "atlas",
+      "entries": [
+        {
+          "path": "name with space.txt",
+          "op": "write",
+          "kind": "file",
+          "mode": "100644",
+          "size": 6,
+          "sha256": "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"
+        },
+        {
+          "path": "café/é.txt",
+          "op": "write",
+          "kind": "file",
+          "mode": "100644",
+          "size": 6,
+          "sha256": "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"
+        },
+        {
+          "path": "say \"hi\".txt",
+          "op": "delete"
+        },
+        {
+          "path": "back\\slash",
+          "op": "delete"
+        },
+        {
+          "path": "tab\there",
+          "op": "delete"
+        },
+        {
+          "path": "unit\u001fsep",
+          "op": "delete"
+        },
+        {
+          "path": "line sep",
+          "op": "write",
+          "kind": "file",
+          "mode": "100644",
+          "size": 6,
+          "sha256": "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"
+        },
+        {
+          "path": "link",
+          "op": "write",
+          "kind": "symlink",
+          "mode": "120000",
+          "size": 14,
+          "sha256": "b28f1f2d2e503f3c7d9da2daad7e680daa6f5746b640e2a8a17dd35631561b08",
+          "target": "../say \"hi\"/x"
+        }
+      ],
+      "canonical": "{\"base\":\"sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\",\"entries\":[{\"op\":\"delete\",\"path\":\"back\\\\slash\"},{\"kind\":\"file\",\"mode\":\"100644\",\"op\":\"write\",\"path\":\"café/é.txt\",\"sha256\":\"5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03\",\"size\":6},{\"kind\":\"file\",\"mode\":\"100644\",\"op\":\"write\",\"path\":\"line sep\",\"sha256\":\"5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03\",\"size\":6},{\"kind\":\"symlink\",\"mode\":\"120000\",\"op\":\"write\",\"path\":\"link\",\"sha256\":\"b28f1f2d2e503f3c7d9da2daad7e680daa6f5746b640e2a8a17dd35631561b08\",\"size\":14,\"target\":\"../say \\\"hi\\\"/x\"},{\"kind\":\"file\",\"mode\":\"100644\",\"op\":\"write\",\"path\":\"name with space.txt\",\"sha256\":\"5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03\",\"size\":6},{\"op\":\"delete\",\"path\":\"say \\\"hi\\\".txt\"},{\"op\":\"delete\",\"path\":\"tab\\u0009here\"},{\"op\":\"delete\",\"path\":\"unit\\u001fsep\"}],\"root\":\"atlas\"}",
+      "fingerprint": "csf_7acd35b7c43d38e6f9d56b9775d0b8aeed29809a54ae5398f97c4545d5764547"
+    },
+    {
+      "name": "large-size",
+      "about": "a size above 2^32, in decimal",
+      "base": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "root": "atlas",
+      "entries": [
+        {
+          "path": "data/big.bin",
+          "op": "write",
+          "kind": "file",
+          "mode": "100644",
+          "size": 68719476736,
+          "sha256": "2a21fe6d592a19b7de898b50eb53c429608de1a66f3e9f62da19714a770553d1"
+        }
+      ],
+      "canonical": "{\"base\":\"sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\",\"entries\":[{\"kind\":\"file\",\"mode\":\"100644\",\"op\":\"write\",\"path\":\"data/big.bin\",\"sha256\":\"2a21fe6d592a19b7de898b50eb53c429608de1a66f3e9f62da19714a770553d1\",\"size\":68719476736}],\"root\":\"atlas\"}",
+      "fingerprint": "csf_8bcc1bbc2263d694e136b1f22a39b3a018dbb2ebbd0593a718b0d33b184ade8b"
+    }
+  ]
+}

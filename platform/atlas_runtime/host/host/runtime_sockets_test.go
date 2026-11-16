@@ -10,9 +10,9 @@ import (
 )
 
 // expectedRuntimeSockets are the Unix sockets the Runtime serves in its home (runtime.sock in
-// entrypoints/socket.ex, read.sock in entrypoints/read_socket.ex, backend.sock in backend/listener.ex).
+// entrypoints/socket.ex, backend.sock in backend/listener.ex; S2 removed read.sock).
 // They are written out rather than taken from runtimeSockets, so a socket dropped from that list fails.
-var expectedRuntimeSockets = []string{"runtime.sock", "read.sock", "backend.sock"}
+var expectedRuntimeSockets = []string{"runtime.sock", "backend.sock"}
 
 // socketPaths are the expectedRuntimeSockets in home.
 func socketPaths(home string) []string {

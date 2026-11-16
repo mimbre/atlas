@@ -131,11 +131,11 @@ func runtimeEntries(home, project string) ([][2]string, error) {
 	return append(append([][2]string{{home, "none"}}, token...), sockets...), nil
 }
 
-// runtimeSockets are the Unix sockets the Runtime serves in its home: runtime.sock (the service
-// commands), read.sock (runtime.read/1) and backend.sock (the work contract, which grants operate).
+// runtimeSockets are the Unix sockets the Runtime serves in its home: runtime.sock (guidance and
+// the journal) and backend.sock (the work, operations and history contracts; it grants operate).
 // Every worker profile denies each by path, beside whatever denies the home itself, so that no
 // more specific allow inside the home and no profile that cannot deny the home whole re-opens one.
-var runtimeSockets = []string{"runtime.sock", "read.sock", "backend.sock"}
+var runtimeSockets = []string{"runtime.sock", "backend.sock"}
 
 // socketEntries deny the runtimeSockets in home, none of which may contain a project path.
 func socketEntries(home string, projects ...string) ([][2]string, error) {

@@ -43,33 +43,29 @@
           "awaits": [],
           "branches": [
             {
-              "roles": ["atlas-flow"],
+              "roles": ["writer"],
               "to": "proofread",
-              "when": "entity.pass_result == 'delivered'"
+              "when": "entity.draft_result == 'delivered'"
             },
             {
-              "roles": ["atlas-flow"],
+              "roles": ["writer"],
               "to": "stuck",
-              "when": "entity.pass_result == 'failed'"
+              "when": "entity.draft_result == 'failed'"
             }
           ],
           "creates": [],
           "final": false,
-          "kind": "pass",
           "label": "Write the draft",
           "present": {
             "expected": "Write it"
           },
           "set": [
             {
-              "field": "pass_result",
+              "field": "draft_result",
               "value": "none"
             }
           ],
-          "spec": {
-            "mode": "draft",
-            "profile": "writer"
-          },
+          "status": "input_required",
           "timers": [
             {
               "label": "The writer did not finish",
@@ -78,7 +74,7 @@
               "to": "stuck"
             }
           ],
-          "waiting_for": []
+          "waiting_for": ["writer"]
         },
         "dropped": {
           "awaits": [],
@@ -301,6 +297,6 @@
       "version": 1
     }
   },
-  "rela_flows_sha256": "4ef5b3607e97c599655450b538fc55aefaa029691a6d34d65ce0cd81117b94db",
+  "rela_flows_sha256": "7fe4d4867d92fe48caa14d8da4be35e40e5a74afe7129490549a8fd11c463e42",
   "writer": "system:atlas-flow"
 }

@@ -141,6 +141,10 @@
         },
         {
           "name": "limit",
+          "range": {
+            "max": 100,
+            "min": 1
+          },
           "required": false,
           "type": "integer"
         }

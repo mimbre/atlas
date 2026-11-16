@@ -44,6 +44,9 @@ defmodule AtlasRuntimeBoundary.Generator.Schema do
 
   - `defmodel`: a value a capability takes or gives, with its fields.
   - `field`: a snake_case name, a type and `required: true | false` (default `false`).
+    An `:integer` field may also take `range: min..max` (integer literals, `min <= max`):
+    a value outside it does not validate, so the facade refuses it as an invalid input and
+    the implementation never sees it. Nothing is clamped.
     Types:
     - `:string`, `:integer`, `:boolean`;
     - `:datetime`: a point in time (an Elixir `DateTime`; ISO-8601 text in JSON);
@@ -81,7 +84,9 @@ defmodule AtlasRuntimeBoundary.Generator.Schema do
       %{
         version: "1.0.0",
         file: "/abs/path/to/the/contract.ex",
-        models: [%{name: atom, fields: [%{name: atom, type: type, required: boolean}]}],
+        models: [
+          %{name: atom, fields: [%{name: atom, type: type, required: boolean, range?: {min, max}}]}
+        ],
         capabilities: [
           %{name: atom, input: atom | nil, right: atom,
             outcomes: [%{name: atom, model: atom | nil}]}
@@ -90,7 +95,8 @@ defmodule AtlasRuntimeBoundary.Generator.Schema do
       }
 
   Models, fields, capabilities and outcomes are in the order written. A type is as written
-  in `field`; a `one_of` is always `{:one_of, [model], tag: atom}`.
+  in `field`; a `one_of` is always `{:one_of, [model], tag: atom}`. `range` is present only
+  on a field that declares one.
   """
 
   @primitives [:string, :integer, :boolean, :datetime]
@@ -193,10 +199,47 @@ defmodule AtlasRuntimeBoundary.Generator.Schema do
   defmacro field(name, type, opts \\ []) do
     %{file: file, line: line} = __CALLER__
 
-    unless Keyword.keyword?(opts) and Keyword.keys(opts) -- [:required] == [] and
+    unless Keyword.keyword?(opts) and Keyword.keys(opts) -- [:required, :range] == [] and
              is_boolean(Keyword.get(opts, :required, false)) do
-      __fail__(file, line, "field #{inspect(name)}: the only option is required: true | false")
+      __fail__(
+        file,
+        line,
+        "field #{inspect(name)}: the options are required: true | false and range: min..max"
+      )
     end
+
+    range =
+      case Keyword.fetch(opts, :range) do
+        :error ->
+          nil
+
+        {:ok, {:.., _, [min, max]}} when is_integer(min) and is_integer(max) and min <= max ->
+          if type != :integer,
+            do: __fail__(file, line, "field #{inspect(name)}: range: is only for :integer fields")
+
+          {min, max}
+
+        {:ok, other} ->
+          __fail__(
+            file,
+            line,
+            "field #{inspect(name)}: range must be min..max with integer literals and " <>
+              "min <= max, got #{Macro.to_string(other)}"
+          )
+      end
+
+    entry =
+      quote do
+        %{
+          name: unquote(name),
+          type: unquote(type),
+          required: unquote(Keyword.get(opts, :required, false)),
+          file: unquote(file),
+          line: unquote(line)
+        }
+      end
+
+    entry = if range, do: quote(do: Map.put(unquote(entry), :range, unquote(range))), else: entry
 
     quote do
       unless Module.get_attribute(__MODULE__, :spec_open) do
@@ -207,13 +250,7 @@ defmodule AtlasRuntimeBoundary.Generator.Schema do
         )
       end
 
-      @spec_fields %{
-        name: unquote(name),
-        type: unquote(type),
-        required: unquote(Keyword.get(opts, :required, false)),
-        file: unquote(file),
-        line: unquote(line)
-      }
+      @spec_fields unquote(entry)
     end
   end
 
@@ -296,7 +333,7 @@ defmodule AtlasRuntimeBoundary.Generator.Schema do
     for model <- models do
       %{
         name: model.name,
-        fields: Enum.map(model.fields, &Map.take(&1, [:name, :type, :required]))
+        fields: Enum.map(model.fields, &Map.take(&1, [:name, :type, :required, :range]))
       }
     end
   end
