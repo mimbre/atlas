@@ -45,6 +45,8 @@ jobs:
       base_run_id: ${{ steps.find.outputs.base_run_id }}
       # The macOS jobs (swift, apple) run only when this change touches what they test.
       apple: ${{ steps.apple.outputs.apple }}
+      # The Fly deploys run only when something that ends up on Fly changed.
+      deploy: ${{ steps.apple.outputs.deploy }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -80,6 +82,15 @@ jobs:
             echo "apple=true" >> "$GITHUB_OUTPUT"
           else
             echo "apple=false" >> "$GITHUB_OUTPUT"
+          fi
+          # Deploy unless every changed path is docs, skills, the Apple client, CI or Markdown.
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ] \
+            || ! git cat-file -e "$BASE^{commit}" 2>/dev/null \
+            || git diff --name-only "$BASE" HEAD \
+              | grep -qvE '^(docs/|skills/|platform/clients/apple/|\.github/)|\.md$'; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
           fi
 
   generator:
@@ -587,6 +598,7 @@ jobs:
     if: >-
       ${{ !cancelled()
       && github.event_name == 'push' && github.ref == 'refs/heads/develop'
+      && needs.tested-tree.outputs.deploy != 'false'
       && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
       && (needs.tested-tree.outputs.tested == 'true' || !contains(needs.*.result, 'skipped')) }}
     runs-on: ubuntu-latest
@@ -624,6 +636,7 @@ jobs:
     if: >-
       ${{ !cancelled()
       && github.event_name == 'push' && github.ref == 'refs/heads/master'
+      && needs.tested-tree.outputs.deploy != 'false'
       && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
       && (needs.tested-tree.outputs.tested == 'true' || !contains(needs.*.result, 'skipped')) }}
     runs-on: ubuntu-latest
