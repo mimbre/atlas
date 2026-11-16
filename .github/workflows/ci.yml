@@ -43,6 +43,8 @@ jobs:
       run_id: ${{ steps.find.outputs.run_id }}
       base_tested: ${{ steps.find.outputs.base_tested }}
       base_run_id: ${{ steps.find.outputs.base_run_id }}
+      # The macOS jobs (swift, apple) run only when this change touches what they test.
+      apple: ${{ steps.apple.outputs.apple }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -63,6 +65,22 @@ jobs:
           TREE: ${{ steps.keys.outputs.tree }}
           BASE_KEY: ${{ steps.keys.outputs.base_key }}
         run: node platform/ops/ci/tested-tree.mjs find
+      # Waiting for a macOS runner is the slowest part of a run; skip it when nothing Apple
+      # changed. No usable base (first push, unknown commit) means run them.
+      - name: Does this change touch the Apple clients or the Control backend?
+        id: apple
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ] \
+            || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            echo "apple=true" >> "$GITHUB_OUTPUT"
+          elif git diff --name-only "$BASE" HEAD \
+            | grep -qE '^(platform/clients/apple/|platform/atlas_control/backend/|\.github/workflows/ci\.yml$)'; then
+            echo "apple=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "apple=false" >> "$GITHUB_OUTPUT"
+          fi
 
   generator:
     name: Spec generator on its own
@@ -454,7 +472,7 @@ jobs:
   swift:
     name: Swift package of the contract (macOS, iOS)
     needs: tested-tree
-    if: ${{ !cancelled() && needs.tested-tree.outputs.tested != 'true' }}
+    if: ${{ !cancelled() && needs.tested-tree.outputs.tested != 'true' && needs.tested-tree.outputs.apple != 'false' }}
     runs-on: macos-latest
     defaults:
       run:
@@ -480,7 +498,7 @@ jobs:
   apple:
     name: Apple clients (macOS app, shared package for iOS)
     needs: tested-tree
-    if: ${{ !cancelled() && needs.tested-tree.outputs.tested != 'true' }}
+    if: ${{ !cancelled() && needs.tested-tree.outputs.tested != 'true' && needs.tested-tree.outputs.apple != 'false' }}
     runs-on: macos-latest
     defaults:
       run:
