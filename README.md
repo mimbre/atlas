@@ -15,13 +15,13 @@ The BEAM side runs the system. rela describes it. Entities, schemas, flows and t
 
 ## Main parts
 
-- **Bus**: the only way the layers talk to each other. A layer depends on the Bus and on nothing else.
+- **Bus**: carries work between the layers. It is not the only way they talk: per [ADR 0006](docs/adr/0006-system-structure.md), co-located systems call each other's boundary target, never each other's internals, and remote clients call a backend.
 - **Facts**: stores facts in rela. Connectors to outside systems sit at its edge.
 - **Flow**: moves each open fact on, following a flow definition, and says what its owner should do.
-- **Control**: the one interface for clients. It serves pages and forms, described by the BFF contract.
+- **Control**: serves clients pages and forms, described by the backend contract. It is not the only interface for clients: they call the Runtime's backend directly.
 - **Runtime**: runs agent workers and their executions on a machine.
 - **Code**: holds the repositories. It gives Runtime snapshots and takes back changes.
-- **Clients**: the terminal Console (TUI), the agents' command line and a read-only Runtime viewer. Clients render what Control sends. They know no entity.
+- **Clients**: the terminal Console (TUI), the agents' command line and a read-only Runtime viewer. Clients render what Control or the Runtime's backend sends. They know no entity.
 
 ## Repository layout
 

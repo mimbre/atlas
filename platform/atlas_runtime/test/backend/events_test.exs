@@ -203,7 +203,7 @@ defmodule AtlasRuntime.BackendTest.Events do
     path = listen(ctx, 10)
     {stream, _client, _} = subscribe(path)
     [{pid, _}] = FakeWork.subscribers()
-    send(pid, {:notification, %F.Outcome.Subscribed{}})
+    send(pid, {:atlas_runtime_work, %F.Outcome.Subscribed{}})
     send(pid, {:other, :message})
     changed(me())
     {stream, seen} = TestSocket.await(stream, frame(1))

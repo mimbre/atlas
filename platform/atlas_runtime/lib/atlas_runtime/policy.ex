@@ -101,7 +101,8 @@ defmodule AtlasRuntime.Policy do
   @doc """
   The configured model of a harness when every policy option for it names the same model,
   otherwise nil (the harness's native default). Only for starts that name a backend
-  explicitly instead of a profile (legacy CLI and Flow passes until their cutover).
+  explicitly instead of a profile (in-BEAM callers of the Service; runtime.sock serves no
+  start).
   """
   def configured_model({:ok, policy}, harness) do
     models =

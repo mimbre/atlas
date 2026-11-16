@@ -140,7 +140,8 @@ var sensitiveHomeNames = []string{"runtime.sock", "read.sock", "turns", "code.js
 // Code token directory that contains the repository (a managed one) is not denied whole. Instead every
 // entry existing at launch in it and in each directory down to the repository is denied unless it is
 // on that ancestor chain, together with the Code token and, in the home, the sensitiveHomeNames.
-// Other entries created in those chain directories after launch are not covered.
+// Below <home>/workers, siblingWorkerGlobs also deny every other worker directory, including one
+// created after launch. Other entries created in the chain directories after launch are not covered.
 func repositoryRuntimeEntries(home, root string) ([][2]string, error) {
 	entries, err := runtimeEntries(home, root)
 	if err != nil {
@@ -166,8 +167,55 @@ func repositoryRuntimeEntries(home, root string) ([][2]string, error) {
 			}
 			denied = append(denied, [2]string{path, "none"})
 		}
+		globs, err := siblingWorkerGlobs(home, root)
+		if err != nil {
+			return nil, err
+		}
+		denied = append(denied, globs...)
 	}
 	return denied, nil
+}
+
+// siblingWorkerGlobs are the Codex deny-read glob patterns of every <home>/workers entry except the
+// worker directory containing root, so a sibling worker created during the turn is denied too: Codex
+// renders glob entries as Seatbelt regex rules, which are checked at access time. A glob cannot
+// exclude one name, so for the name c1…cn the patterns are [!c1]*, c1…c(k-1)[!ck]* for each k, each
+// proper prefix exactly as c1…c(k-1)[ck], and c1…cn[!/]*; none matches the own worker directory or
+// workers itself, which Git must lstat. Each pattern also gets /** in case * does not cross /.
+func siblingWorkerGlobs(home, root string) ([][2]string, error) {
+	workers := filepath.Join(home, "workers")
+	if !within(workers, root) || root == workers {
+		return nil, nil
+	}
+	name := strings.SplitN(strings.TrimPrefix(root, workers+"/"), "/", 2)[0]
+	for _, c := range name {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_' || c == '.') {
+			return nil, fmt.Errorf("Worker directory %s cannot be excluded by a Codex deny-read glob", filepath.Join(workers, name))
+		}
+	}
+	// The literal home part: glob metacharacters become one-character classes.
+	var prefix strings.Builder
+	for _, c := range workers {
+		switch c {
+		case '\\':
+			return nil, fmt.Errorf("Runtime home %s cannot be written as a Codex deny-read glob", home)
+		case '*', '?', '[', ']', '{', '}':
+			prefix.WriteString("[" + string(c) + "]")
+		default:
+			prefix.WriteRune(c)
+		}
+	}
+	base := prefix.String() + "/"
+	patterns := []string{base + "[!" + name[:1] + "]*"}
+	for k := 1; k < len(name); k++ {
+		patterns = append(patterns, base+name[:k]+"[!"+name[k:k+1]+"]*", base+name[:k-1]+"["+name[k-1:k]+"]")
+	}
+	patterns = append(patterns, base+name+"[!/]*")
+	var globs [][2]string
+	for _, pattern := range patterns {
+		globs = append(globs, [2]string{pattern, "none"}, [2]string{pattern + "/**", "none"})
+	}
+	return globs, nil
 }
 
 // offChainEntries deny every existing entry of top and of each directory below it down to root that is

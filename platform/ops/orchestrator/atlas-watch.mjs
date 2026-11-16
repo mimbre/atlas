@@ -151,14 +151,17 @@ export function createWatch(home, { spawn = spawnProcess } = {}) {
   function enqueue(runtime, args) {
     if (!runtime.work.some(item => JSON.stringify(item) === JSON.stringify(args))) runtime.work.push(args);
   }
+  // A turn as `service status` lists it (id, pending_question.id) or as `turns` reads it
+  // from read.sock (turn_id, pending_question.question_id).
   function inspectTurn(target, turn) {
     const runtime = state.runtimes[target];
-    const { worker_id: worker, id, state: outcome } = turn;
+    const { worker_id: worker, state: outcome } = turn;
+    const id = turn.id ?? turn.turn_id;
     if (!worker || !id) return;
-    if (terminal.has(outcome)) record(target, `turn:${id}`, ['output', '--worker', worker, '--turn', id],
+    if (terminal.has(outcome)) record(target, `turn:${id}`, ['output', '--turn', id],
       { worker_id: worker, turn_id: id, state: outcome });
     if (turn.pending_question) enqueue(runtime,
-      ['question', '--worker', worker, '--turn', id, '--question', turn.pending_question.id]);
+      ['question', '--worker', worker, '--turn', id, '--question', turn.pending_question.id ?? turn.pending_question.question_id]);
     enqueue(runtime, ['handoff', '--worker', worker, '--turn', id]);
   }
   function gap(target, evidence) {

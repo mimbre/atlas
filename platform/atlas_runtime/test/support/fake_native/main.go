@@ -4,6 +4,8 @@
 //	fake-native question|peer ARGV0 ARGS...   Claude stream-json question fixtures
 //	fake-native admission ROOT ARGV0 ARGS...  Codex/Claude admission fixture (backend from ARGV0)
 //	fake-native protocol MODE CAPTURE         Claude SDK protocol projection fixture
+//	fake-native detach COMMAND ARGS...        COMMAND in a new session (the e2e's Runtime, so it can be killed as a group)
+//	fake-native work ROOT ARGV0 ARGS...       Codex/Claude turn for the work core (goal: complete|hang|stubborn|wait NAME|fail|model_change|subagent_model|resume ...)
 package main
 
 import (
@@ -15,6 +17,8 @@ import (
 	"io"
 	"maps"
 	"os"
+	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -29,7 +33,7 @@ var (
 
 func main() {
 	if len(os.Args) < 2 {
-		fail("usage: fake-native question|peer|admission|protocol ...")
+		fail("usage: fake-native question|peer|admission|protocol|work|detach ...")
 	}
 	switch mode, args := os.Args[1], os.Args[2:]; mode {
 	case "question":
@@ -43,6 +47,16 @@ func main() {
 		admission(args[0], args[1:])
 	case "protocol":
 		protocol(args)
+	case "detach":
+		if len(args) < 1 {
+			fail("detach requires COMMAND")
+		}
+		detach(args)
+	case "work":
+		if len(args) < 2 {
+			fail("work requires ROOT and ARGV0")
+		}
+		work(args[0], args[1:])
 	default:
 		fail("unknown fixture mode " + mode)
 	}
@@ -332,6 +346,134 @@ func admission(root string, argv []string) {
 	check(os.WriteFile(arg(argv, "--output-last-message", ""), []byte("done"), 0666))
 	emit(map[string]any{"type": "item.completed", "item": map[string]any{"type": "agent_message", "text": "done"}})
 	emit(map[string]any{"type": "turn.completed"})
+}
+
+// detach replaces itself with argv in a new session, as `atlas-runtime service start`
+// starts the Runtime (Setsid): its PID is then the group a test can SIGKILL whole, while a
+// native turn's own process group survives it.
+func detach(argv []string) {
+	path, err := exec.LookPath(argv[0])
+	check(err)
+	// A process that already leads its group (as an Erlang port's child does) cannot
+	// Setsid, and is already the group to kill.
+	if _, err = syscall.Setsid(); err != nil && syscall.Getpgrp() != os.Getpid() {
+		check(err)
+	}
+	check(syscall.Exec(path, argv, os.Environ()))
+}
+
+// work acts as Codex or Claude for the work core's tests. Each launch is logged to
+// ROOT/work-launches.jsonl (goal, mode, backend, model, resumed, session, pid, ppid (the
+// host helper), cwd, argv, at), and each end the fixture sees to ROOT/work-ends.jsonl
+// (goal, pid, how, at), so a test can prove from the logs alone that a work never started,
+// started once, or started only after another ended. The
+// goal's first word then decides the turn: "complete" (or anything else) answers
+// "done: GOAL", "hang" runs until it is signalled, "stubborn" also ignores SIGINT (only a
+// kill ends it), "wait NAME" completes once ROOT/NAME no longer exists, "fail" exits 1
+// without a result, and for Claude "model_change" reports a second top-level model (then
+// runs until it is signalled), "subagent_model" reports another model only in a subagent
+// record (then completes), and "resume" runs until it is signalled unless it was launched
+// as a resume, which completes with "resumed: SESSION".
+func work(root string, argv []string) {
+	goal, backend := argv[len(argv)-1], filepath.Base(argv[0])
+	resumed := slices.Contains(argv, "resume")
+	if backend == "claude" {
+		resumed = slices.Contains(argv, "--resume")
+	}
+	if backend == "codex" {
+		check(os.Chdir(arg(argv, "--cd", "")))
+	}
+	cwd, err := syscall.Getwd()
+	check(err)
+	session := uuid5(fmt.Sprintf("%s:%s:%d", cwd, goal, os.Getpid()))
+	if resumed && backend == "claude" {
+		session = arg(argv, "--resume", "")
+	} else if resumed {
+		session = argv[len(argv)-2]
+	}
+	words := strings.Fields(goal)
+	mode := ""
+	if len(words) > 0 {
+		mode = words[0]
+	}
+	model := arg(argv, "--model", arg(argv, "-m", ""))
+	at := func() string { return time.Now().UTC().Format(time.RFC3339Nano) }
+	appendFile(filepath.Join(root, "work-launches.jsonl"), encode(map[string]any{
+		"goal": goal, "mode": mode, "backend": backend, "model": model,
+		"resumed": resumed, "session_id": session, "pid": os.Getpid(), "ppid": os.Getppid(), "cwd": cwd,
+		"argv": argv[1:], "at": at()}))
+	ended := func(how string) {
+		appendFile(filepath.Join(root, "work-ends.jsonl"), encode(map[string]any{
+			"goal": goal, "pid": os.Getpid(), "how": how, "at": at()}))
+	}
+	if backend == "claude" {
+		if model == "" {
+			model = "claude-sonnet-4-6"
+		}
+		emit(map[string]any{"type": "system", "subtype": "init", "session_id": session, "model": model})
+	} else {
+		emit(map[string]any{"type": "thread.started", "thread_id": session})
+	}
+	assistant := func(model string, parent any) {
+		emit(map[string]any{"type": "assistant", "session_id": session, "parent_tool_use_id": parent,
+			"message": map[string]any{"model": model, "content": []any{
+				map[string]any{"type": "text", "text": "working with " + model}}}})
+	}
+	// Runs until SIGINT or SIGTERM, logs that end, then dies of the signal as before; a
+	// SIGKILL is never seen.
+	untilSignalled := func() {
+		signals := make(chan os.Signal, 1)
+		signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
+		received := (<-signals).(syscall.Signal)
+		ended("signal " + received.String())
+		signal.Reset(received)
+		check(syscall.Kill(os.Getpid(), received))
+		for {
+			time.Sleep(time.Hour)
+		}
+	}
+	if mode == "resume" && !resumed {
+		mode = "hang"
+	}
+	switch mode {
+	case "stubborn":
+		signal.Ignore(syscall.SIGINT, syscall.SIGTERM)
+		for {
+			time.Sleep(time.Hour)
+		}
+	case "hang":
+		untilSignalled()
+	case "wait":
+		if len(words) > 1 {
+			waitWhile(true, filepath.Join(root, words[1]))
+		}
+	case "fail":
+		ended("fail")
+		exit(1)
+	case "model_change":
+		if backend == "claude" {
+			assistant(model, nil)
+			assistant(model+"-changed", nil)
+			untilSignalled()
+		}
+	case "subagent_model":
+		if backend == "claude" {
+			assistant(model, nil)
+			assistant(model+"-subagent", "toolu_fixture_subagent")
+		}
+	}
+	answer := "done: " + goal
+	if mode == "resume" {
+		answer = "resumed: " + session
+	}
+	if backend == "claude" {
+		emit(map[string]any{"type": "result", "subtype": "success", "is_error": false, "session_id": session, "result": answer})
+	} else {
+		check(os.WriteFile(arg(argv, "--output-last-message", ""), []byte(answer), 0666))
+		emit(map[string]any{"type": "item.completed", "item": map[string]any{"type": "agent_message", "text": answer}})
+		emit(map[string]any{"type": "turn.completed"})
+	}
+	ended("result")
 }
 
 // protocol captures one bounded request line and answers with a synthetic SDK projection.

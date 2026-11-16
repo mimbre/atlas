@@ -1,33 +1,76 @@
 # Runtime service and CLI
 
-One Go command-line client, a separate Elixir Runtime daemon, and explicitly targeted concurrent native workers. Each worker has at most one active execution. A start that names a profile resolves through the local [model policy](#model-policy); one that names neither a profile nor a backend still runs Codex. No Atlas server connection, unless explicitly opted into [lifecycle reporting](#optional-atlas-server-lifecycle-reporting), and no orchestration. Runtime and Bus are the only Atlas applications started; Facts, Flow, Control and Rela are not started.
+One Go command-line client and a separate Elixir Runtime daemon that runs native agents (the official Codex and Claude CLIs) in slots. Clients submit **work**; the Runtime queues it, picks a slot and a harness under its human-owned [model policy](#model-policy), and runs one attempt at a time. No Atlas server connection, unless explicitly opted into [lifecycle reporting](#optional-atlas-server-lifecycle-reporting), and no orchestration. Runtime and Bus are the only Atlas applications started; Facts, Flow, Control and Rela are not started.
 
 ```sh
 atlas-runtime service start
-atlas-runtime start --cwd /path/to/project "Read the project and explain its entry points"
-atlas-runtime status
-atlas-runtime output
-atlas-runtime stop --worker default --turn "$TURN_ID"
+atlas-runtime start --profile deep_coding --cost-class standard --cwd /path/to/project --key task-1 "Read the project and explain its entry points"
+atlas-runtime status --key task-1
+atlas-runtime output --turn "$TURN_ID"
+atlas-runtime stop --work "$WORK_ID"
 atlas-runtime service stop
 ```
 
-Commands return one JSON response, except `output --follow`, which streams JSON lines. `start` returns while the selected native agent runs. `stop` and `kill` control only the exact worker and turn named, not the service; see [Stop, kill and release](#stop-kill-and-release). `service stop` gracefully stops every running worker, then refuses new work and reports `service: "stopping"` until no owned execution remains; it exits nonzero with the workers still pending, and repeating `service stop` completes the shutdown once they ended (or after you kill them). A latch-write failure retains the stops already requested and does not enter the stopping state. `service status` exposes a `workers` map. Single-worker `agent_state`/stop `agent` fields remain available only when unambiguous. No automatic daemon startup, assignment retries or stdin session. Command failures exit nonzero. A successful `status` or `output` query exits zero even for a failed turn, retaining its `state: "failed"`, `error`, ID and artifact location.
+The service listens on three owner-only Unix sockets in its home:
 
-## Explicit concurrent workers
+| Socket | Serves | Until |
+|---|---|---|
+| `backend.sock` | The work contract over HTTP/1.1 (design "Runtime boundary contracts and Runtime backend", 2026-11-16, §8; `platform/atlas_runtime/backend/contract/lib/work_api.ex`): `start`, `continue`, `status`, `capacity`, `retry`, `stop`, `kill`, `output` | — |
+| `read.sock` | History reads, `runtime.read/1` (`docs/contracts/runtime-read.md`): `turns`, `events`, `events --follow`; also Learn and the viewer | S2 |
+| `runtime.sock` | Operations (`service status`, `service stop`, `preferences`, `release`) and guidance (`question`, `answer`, handoffs, peer correlation). It refuses the work commands and names where they went. | S2 |
+
+Commands print one JSON response, except `events --follow`, which streams JSON lines. Command failures exit nonzero; a refusal of the work contract prints its problem. `service stop` gracefully stops every running turn, then refuses new work and reports `service: "stopping"` until no owned execution remains; it exits nonzero with turns still pending, and repeating `service stop` completes the shutdown once they ended. A latch-write failure retains the stops already requested and does not enter the stopping state. `service status` exposes a `workers` map, one entry per slot that ran a turn. No automatic daemon startup and no stdin session.
+
+## Work commands (backend.sock)
+
+| Command | Request | Answer |
+|---|---|---|
+| `start` | `POST /v1/work` | 201 the work (`accepted`), or 200 the same work for a repeated `--key` (`existing`) |
+| `continue --resume-from TURN_ID` | `POST /v1/work` with `resume_from` | as `start` |
+| `status` | `GET /v1/work` (`--state`, `--changed-since`), `GET /v1/work?key=` (`--key`) or `GET /v1/work/WORK_ID` (`--work`) | the list with its change `sequence`, or one work |
+| `capacity` | `GET /v1/capacity` | slots, buffer, per-profile availability, `accepting`, `policy_version`, `incarnation` |
+| `retry --work WORK_ID [--resume]` | `POST /v1/work/WORK_ID/attempts` | 201 the work with its next attempt |
+| `stop --work WORK_ID` / `kill --work WORK_ID` | `POST /v1/work/WORK_ID/cancel`, `mode` `graceful` / `force` | 202 the work (`cancelling`, the attempt's `cancel_stage`), or 200 when it had already ended |
+| `output --turn TURN_ID [--cursor C]` | `GET /v1/turns/TURN_ID/output` | one page: `events` (`text` or `activity`), `cursor`, `more` |
+| `turns` | `read.sock` `turns` | every saved turn, also from before the cutover |
+| `events [--cursor C] [--limit N] [--follow]` | `read.sock` `events` / `follow` | see [Durable execution discovery](#durable-execution-discovery) |
 
 ```sh
-atlas-runtime start --worker server --backend claude --repo https://github.com/eyra/atlas.git --branch work/server-task --permissions dedicated-repository "Server assignment"
-atlas-runtime start --worker console --backend claude --repo https://github.com/eyra/atlas.git --branch work/console-task --permissions dedicated-repository "Console assignment"
-atlas-runtime start --worker runtime --backend claude --repo https://github.com/eyra/atlas.git --branch work/runtime-task --permissions dedicated-repository "Runtime assignment"
-atlas-runtime status --worker server
-atlas-runtime output --worker console --follow
-atlas-runtime stop --worker runtime --turn "$RUNTIME_TURN"
-atlas-runtime continue --worker server --turn turn-0123456789abcdef "Next server assignment"
+atlas-runtime start --profile deep_coding --cost-class standard --cwd /abs/folder [--permissions read-only|workspace-write|materialized-folder] [--title TITLE] [--key KEY] [--slot SLOT] "assignment"
+atlas-runtime start --profile deep_coding --cost-class standard --repo https://github.com/OWNER/REPO.git --branch NEW_BRANCH [--base develop] [--key KEY] "assignment"
+atlas-runtime continue --resume-from TURN_ID --profile deep_coding --cost-class standard --cwd /abs/folder "next assignment"
+atlas-runtime status [--work WORK_ID | --key KEY | --state running --changed-since 41]
+atlas-runtime capacity
+atlas-runtime retry --work WORK_ID [--resume]
+atlas-runtime stop|kill --work WORK_ID [--reason TEXT]
+atlas-runtime output --turn TURN_ID [--cursor CURSOR]
 ```
 
-Worker names match `[a-z][a-z0-9_-]{0,63}`. Flags precede the assignment; use `--` before a dash-leading assignment. Start/status/output/continue accept `--worker`; `stop` and `kill` require `--worker` and `--turn`, and `release` requires `--worker`. Omission selects `default` when no workers are registered, or the sole registered worker; multiple workers always require a selector, even when only one is active. Workers register only after accepted start/continue and remain registered until daemon restart. Explicit unknown workers refuse except when starting, selecting a saved turn or naming a worker with a persisted admission latch. A duplicate active worker refuses rather than queues.
+- **The Runtime validates.** The CLI maps its flags onto one request as given and checks only what it needs to build it: one assignment, after the flags (`--` before one starting with a dash); a folder (`--cwd`, `--permissions`) or a repository (`--repo`, `--branch`, `--base`), not both; the work or turn a path names. A relative `--cwd` is made absolute. `--title` defaults to the assignment's first line, `--permissions` to `read-only`, `--base` to `develop` (the only base accepted). Everything else, including a missing profile or workspace and an unknown field, is the Runtime's answer.
+- **A work states its needs, never a model.** `--profile` (for example `deep_coding`, `light_work`, `independent_review`) and `--cost-class` (`low`, `standard`, `high`) resolve through `policy.json`; there is no `--backend`, `--model` or `--sandbox`. The attempt's `provenance` records the harness, the configured and reported model and the `selection`.
+- **Queued, not run.** `start` answers once the work is recorded, before its turn starts or ends. Follow it with `status`, `output` and `events --follow`. When the slots and the small buffer are full, or the profile is out of quota, the answer is `at-capacity` (HTTP 503) with `reason`, `retry_after` and `capacity`; submit again after `retry_after` or once a capacity event says there is room.
+- **Client key.** `--key` is sent as `Idempotency-Key`. The same key with the same request returns the same work (200); with another request it is refused as `idempotency-conflict` (409). A lost reply is therefore safe to repeat. Without `--key` every `start` is a new work.
+- **Slots.** The slots are `policy.json`'s `slots` (default `["default"]`); the Runtime picks a free one. `--slot` pins it and is available only to the socket's owner, a human at this machine. A continuation and a resumed retry run on their source turn's slot.
+- **Continue and retry.** `continue --resume-from TURN_ID` is a new work that continues that turn's native conversation and workspace; it needs the same profile, cost class and workspace flags as `start`. `retry --work` starts the next attempt of a work once the current one is settled; `--resume` continues an `interrupted` attempt's conversation, and a `resume-unavailable` refusal means: retry without it.
+- **Cancel.** `stop` cancels gracefully: the turn's process group gets one SIGINT and is killed after the grace period (30 s); `kill` forces at once. A buffered work never starts. Both answer with the work; its current attempt shows `cancel_stage` (`requested`, `signalled`, `forced`) and ends `cancelled`.
+- **Refusals** print the problem+json body plus `error`, and exit 1: `type` (`invalid`, `not-permitted`, `idempotency-conflict`, `policy-forbids`, `no-permitted-option`, `resume-unavailable`, `unsupported-workspace`, `at-capacity`, `not-found`, `pruned`), `status`, `reason` and `detail`. `not-found` means never seen; `pruned` means it existed, ended with `kind` and was pruned.
+- **Plain HTTP** works the same: `curl --unix-socket "$ATLAS_RUNTIME_HOME/backend.sock" http://localhost/v1/capacity`. Every client of the socket is its owner, `local:<user>`, with every work right.
 
-`output --turn ID` and `continue --turn ID` resolve the saved worker. Supplying `--worker` as well must match; a session cannot transfer to another worker. Older saved turns without worker attribution belong to the original single-worker `default`. Restart clears the worker registry, starts no native processes and selects no historical execution automatically. `turns` lists all workers' history; `events` remains one global ordered stream, with `worker_id` on every new event. Older journal entries remain unchanged and unattributed. There is no per-worker cursor/filter or scheduler.
+What still reads `read.sock` until S2: this CLI's `turns` and `events [--follow]`, Learn (`platform/atlas_learn/lib/atlas_learn/worker_passes.ex`) and the viewer (`platform/atlas_runtime/viewer/lib/atlas_viewer/read_client.ex`). The coordinator watcher (`platform/ops/orchestrator/atlas-watch.mjs`) follows `events --follow` and reads `turns`.
+
+The sections below describe how the Service runs turns. The work core drives them through the Service's own start, continue, stop and kill, with the slot as the worker and a request ID derived from the work and attempt. Their proof records, and some examples marked as such, come from before the cutover, when the CLI sent those commands on `runtime.sock` with `--worker`, `--backend`, `--sandbox`, `--request-id`, `--questions` and `output --follow`. `runtime.sock` now refuses them.
+
+## Concurrent slots
+
+```sh
+atlas-runtime start --profile deep_coding --cost-class standard --slot server --repo https://github.com/eyra/atlas.git --branch work/server-task "Server assignment"
+atlas-runtime start --profile deep_coding --cost-class standard --slot console --repo https://github.com/eyra/atlas.git --branch work/console-task "Console assignment"
+atlas-runtime status --state running
+```
+
+Each slot is a Service worker with at most one active execution; slot names match `[a-z][a-z0-9_-]{0,63}` and come from `policy.json`. The work core starts a turn on a slot only once the slot's previous attempt is terminal and quiescent. `release --worker SLOT` (on `runtime.sock`) still names a slot. `turns` lists all slots' history; `events` remains one global ordered stream, with `worker_id` (the slot) on every new event. Older journal entries remain unchanged and unattributed.
+
+The proofs below ran before the cutover, with `start --worker NAME`.
 
 Real isolated public-CLI proof on 2026-11-07: Server `turn-849a0f44f47663c9`, Console `turn-711cf725b155be0f` and Runtime `turn-a7e5136ac3891023` each provisioned a separate clone/branch from base `568217bf7986b3f266be4df27fc121cb13200fb9`. All three real `claude-opus-5-5` sessions overlapped inside bounded Bash calls. Stopping Runtime removed its process group/private temp while Server and Console remained running, then independently finished with exact worker-specific file contents and answers. Events attributed accepted/finished/stopped transitions to the correct workers/turns. Ambiguous control, duplicate worker, workspace collision and mismatched saved ownership refused; repeated stop added no event.
 
@@ -36,21 +79,23 @@ After daemon restart, explicit Server continuation `turn-6f4aa53f92af74df` retai
 ## Stop, kill and release
 
 ```sh
-atlas-runtime stop --worker runtime --turn "$TURN_ID"
-atlas-runtime kill --worker runtime --turn "$TURN_ID"
-atlas-runtime release --worker runtime
-atlas-runtime continue --worker runtime --turn "$TURN_ID" "Continue from the current files"
+atlas-runtime stop --work "$WORK_ID"
+atlas-runtime kill --work "$WORK_ID"
+atlas-runtime release --worker SLOT
+atlas-runtime continue --resume-from "$TURN_ID" --profile deep_coding --cost-class standard --cwd /abs/folder "Continue from the current files"
 ```
 
-`stop` asks the turn's native process group to end: the host sends one SIGINT and never escalates. The turn is `stopping` until the leader is reaped and no live member remains in its process group; a native CLI or descendant that ignores SIGINT keeps it `stopping`, with the workspace lock held, indefinitely. `kill` sends SIGKILL to the group immediately; the turn is `killing` until the same confirmation. Kill wins: it is accepted while stopping, and a later stop neither downgrades it nor sends anything. The terminal states are `stopped` and `killed`, with `execution_stopped` and `execution_killed` events; `stopping` and `killing` are persisted in `turn.json` and status only, with no events. After accepting a stop or kill the host no longer decodes provider output: the bytes stay raw in `stream.jsonl`, so partial or invalid JSON written while ending cannot fail the turn. `output --follow` keeps following a `stopping` or `killing` turn and returns its result only after the confirmed end. The host releases the directory lock, and removes its private temp or scratch, only after that confirmation. The worker folder, baseline, output and diagnostics are kept.
+A cancel of a running work reaches its turn as the Service's stop or kill below. `stop --work` sends the stop and, if the turn is still there after the grace period (30 s), the kill; `kill --work` sends the kill at once. The work core lifts the admission latch its own stops leave, once the attempt is settled and nothing else holds the slot; a latch from a model change or a service stop stays until `release`.
+
+At the Service, a stop asks the turn's native process group to end: the host sends one SIGINT and never escalates. The turn is `stopping` until the leader is reaped and no live member remains in its process group; a native CLI or descendant that ignores SIGINT keeps it `stopping`, with the workspace lock held, indefinitely. `kill` sends SIGKILL to the group immediately; the turn is `killing` until the same confirmation. Kill wins: it is accepted while stopping, and a later stop neither downgrades it nor sends anything. The terminal states are `stopped` and `killed`, with `execution_stopped` and `execution_killed` events; `stopping` and `killing` are persisted in `turn.json` and status only, with no events. After accepting a stop or kill the host no longer decodes provider output: the bytes stay raw in `stream.jsonl`, so partial or invalid JSON written while ending cannot fail the turn. The host releases the directory lock, and removes its private temp or scratch, only after that confirmation. The worker folder, baseline, output and diagnostics are kept.
 
 Both commands need the exact current turn of the named worker. A turn that already ended `stopped` or `killed` repeats idempotently; a finished, failed, replaced, unknown or foreign turn refuses without signalling. Repeated requests keep their first request time. The host signals once per control; a repeat re-attempts only a signal that was refused. The turn's `termination` record holds `mode`, `stop_requested_at`/`kill_requested_at`, `stop_signalled_at`/`kill_signalled_at`, `confirmed_at`, the leader's `exit_code`, `native_result` and the last signalling or termination `error`. A refused signal leaves the execution owned and running. If the host fails while stopping, the turn is `failed` with that error. If the execution ended before the host applied the control, it keeps its natural outcome (`finished` with its result, or `failed`) and the request stays recorded.
 
-Before signalling, Runtime writes the worker's admission latch, `workers/<worker>/admission-latch.json`. While it exists, every new `start` and `continue` for that worker refuses, including after daemon restart. Only `release --worker NAME` removes it. Release refuses while the worker still owns its execution, is idempotent, and starts, resumes or reschedules nothing. A corrupt latch fails closed. `status --worker` reports `admission_latch`, also after restart when the latch is all that identifies the worker.
+Before signalling, Runtime writes the worker's admission latch, `workers/<worker>/admission-latch.json`. While it exists, every new `start` and `continue` for that worker refuses, including after daemon restart. Only `release --worker NAME` removes it. Release refuses while the worker still owns its execution, is idempotent, and starts, resumes or reschedules nothing. A corrupt latch fails closed. `service status` reports each slot's latch.
 
 `continue` accepts a `finished`, `stopped` or `killed` source turn that has a confirmed native session (and confirmed model and saved context, for Claude). It creates a new turn from the saved provider conversation and the files as they are now, including human edits made before the explicit continuation. It is not a frozen-process restore: the stopped native process is gone, and work that was in flight inside it is lost. After a daemon restart a turn left `stopping` or `killing` shows `state: "unknown"` with its `recorded_state`; nothing is owned or signalled, and the latch remains.
 
-`service stop` sends the same graceful stop to every running worker. While it waits, `status`, `output`, `events`, `turns`, `stop` and `kill` keep working; new work and `release` refuse.
+`service stop` sends the same graceful stop to every running turn; their attempts end `interrupted`, and a later `retry --resume` continues them. While it waits, `status`, `output`, `events`, `turns`, `stop` and `kill` keep working; new work is answered `at-capacity` with reason `not_accepting`, and `release` refuses.
 
 Limits:
 
@@ -62,11 +107,13 @@ Limits:
 ## Lost-response-safe start and continuation
 
 ```sh
-atlas-runtime start --request-id task-42 --backend claude --cwd /path/to/project "Explain the entry points"
-atlas-runtime continue --request-id task-42-next --turn turn-0123456789abcdef "Explain the tradeoff"
+atlas-runtime start --key task-42 --profile deep_coding --cost-class standard --cwd /path/to/project "Explain the entry points"
+atlas-runtime start --key task-42 --profile deep_coding --cost-class standard --cwd /path/to/project "Explain the entry points"   # same work
 ```
 
-`--request-id` is optional and caller-supplied; Runtime never generates an ID or retries a command automatically. IDs match `[A-Za-z0-9][A-Za-z0-9_-]{0,63}` and share one namespace across start/continue in the selected Runtime home. Existing commands without an ID retain their response and execution behavior.
+For a client, `--key` is the lost-response protection: see [Work commands](#work-commands-backendsock). Below it, the work core gives every attempt's Service start a request ID, `w` plus the first 63 hex digits of the SHA-256 of `WORK_ID:ATTEMPT`, so a core that crashes between asking and recording never starts a turn twice. The rest of this section describes those Service admissions; the examples of the time used a caller-supplied `--request-id`, which the CLI no longer has.
+
+At the Service, a request ID is optional; Runtime never retries a command automatically. IDs match `[A-Za-z0-9][A-Za-z0-9_-]{0,63}` and share one namespace across start/continue in the selected Runtime home. Existing commands without an ID retain their response and execution behavior.
 
 If the response is lost, repeat the same command with the same ID. Its recorded admission returns without launching or resuming again, including while running, after completion, and after daemon restart. Assignment bytes remain exact; cwd aliases resolve canonically; omitted read-only sandbox and disabled-question defaults normalize. Explicit versus omitted worker, source turn and backend selectors remain distinct. The first admission pins the resolved worker/source turn, cwd, scope, repository and provider/model/session settings. Later worker registrations, saved-turn changes, policy and quota changes do not redirect a repeated command. Different valid caller intent under the same ID conflicts; malformed requests refuse. A new ID represents a separate explicit assignment, not recovery of a lost reply.
 
@@ -119,7 +166,7 @@ Focused verification passed: 106 ExUnit tests across handoff storage/service, ex
 atlas-runtime route-peer-question --worker sender --turn "$SENDER_TURN" --question "$QUESTION_ID" --peer-worker peer --peer-turn "$PEER_SOURCE"
 atlas-runtime peer-question --worker sender --turn "$SENDER_TURN" --question "$QUESTION_ID"
 # Dispatch is a separate, explicit coordinator decision:
-atlas-runtime continue --worker peer --turn "$PEER_SOURCE" "$QUESTION_ASSIGNMENT"
+atlas-runtime continue --resume-from "$PEER_SOURCE" --profile deep_coding --cost-class standard --cwd "$PEER_FOLDER" "$QUESTION_ASSIGNMENT"
 atlas-runtime bind-peer-reply --worker sender --turn "$SENDER_TURN" --question "$QUESTION_ID" --response-turn "$FINISHED_RESPONSE"
 # Delivery is also separate; use the actual peer response:
 atlas-runtime answer --worker sender --turn "$SENDER_TURN" --question "$QUESTION_ID" --answers "$ANSWERS_JSON"
@@ -164,38 +211,32 @@ Verification on 2026-11-07: eight focused journal tests and the Go CLI suite pas
 
 ## Continuing a conversation
 
-After `status` reports `finished`, continue that Codex conversation:
+After a work's attempt `completed`, continue that turn's conversation in a new work:
 
 ```sh
-atlas-runtime continue "Now explain the tradeoff in more detail"
+atlas-runtime continue --resume-from turn-0123456789abcdef --profile deep_coding --cost-class standard --cwd /path/to/project "Now explain the tradeoff in more detail"
 ```
 
-`continue` starts a new Runtime turn for the selected worker using its previous explicit native `session_id`, working directory and sandbox. No setting overrides are accepted. Without a turn selector, the worker's latest turn must be `finished`, `stopped`, `killed` or `failed`, with a confirmed native session ID. `start` always creates a fresh conversation. Native session confirmation is required; there is no `--last` selection or fallback to another session. Both native CLIs retain conversation history in their normal local storage; Runtime artifacts remain separate. Restart never restores a conversation automatically.
+The work core continues the turn through the Service's continuation, on the turn's slot, using its previous explicit native `session_id`, working directory and permissions. The source turn must be `finished`, `stopped`, `killed` or `failed`, with a confirmed native session ID; otherwise the answer is `resume-unavailable`. `start` always creates a fresh conversation. Native session confirmation is required; there is no `--last` selection or fallback to another session. Both native CLIs retain conversation history in their normal local storage; Runtime artifacts remain separate. Restart never restores a conversation automatically.
 
-To explicitly resume a saved conversation, including after daemon restart:
+Saved conversations resume the same way after a daemon restart. The saved turn must be `finished`, `stopped`, `killed` or `failed`, with a confirmed native session ID and valid saved cwd/sandbox; its working directory must still exist. A failed turn without a session ID is refused with `The selected turn has no confirmed native session`. Running, stopping, killing, unknown and incomplete records are refused, and so is a worker whose stop latch has not been released. An active agent for that worker blocks continuation; other workers may continue independently unless their workspaces overlap. A new Runtime turn/artifact folder is created; the selected record is unchanged. Selecting an older turn resumes that conversation's current native history, not a rollback or fork at the selected turn. If the selected native backend cannot resume the exact session, the new turn fails without fallback.
 
-```sh
-atlas-runtime continue --turn turn-0123456789abcdef "Next assignment"
-```
-
-The saved turn must be `finished`, `stopped`, `killed` or `failed`, with a confirmed native session ID and valid saved cwd/sandbox; its working directory must still exist. A failed turn without a session ID is refused with `The selected turn has no confirmed native session`. Running, stopping, killing, unknown and incomplete records are refused, and so is a worker whose stop latch has not been released. An active agent for that worker blocks continuation; other workers may continue independently unless their workspaces overlap. A new Runtime turn/artifact folder is created; the selected record is unchanged. Selecting an older turn resumes that conversation's current native history, not a rollback or fork at the selected turn. If the selected native backend cannot resume the exact session, the new turn fails without fallback.
-
-Codex defaults to **read-only**, using the official CLI and the user's existing ChatGPT login (`codex login`). Explicitly opt into Codex's workspace-write sandbox for an editing assignment:
+A folder defaults to **read-only**. Codex uses the official CLI and the user's existing ChatGPT login (`codex login`). Explicitly opt into Codex's workspace-write sandbox for an editing assignment, with a profile whose policy permits it:
 
 ```sh
-atlas-runtime start --cwd /path/to/project --sandbox workspace-write "Make the requested file change"
+atlas-runtime start --profile deep_coding --cost-class standard --cwd /path/to/project --permissions workspace-write "Make the requested file change"
 ```
 
 Codex web search is explicitly disabled for `read-only`, `workspace-write`, `materialized-folder` and `review-packet` workers, whose profiles block external network access. The network-enabled `dedicated-repository` profile enables live web search. Command networking keeps each profile's existing restrictions.
 
 **Runtime home deny (every profile).** Every worker profile denies the Runtime home (its sockets `runtime.sock` and `read.sock`, turn records, `code.json`) and the Code token file and directory named by `code.json`: no read, no write, no Unix-socket connect. Service passes its home to the native host as `ATLAS_RUNTIME_HOME`; the host removes the variable before the native CLI starts and, when it is absent (direct adapter use), denies the default `~/.local/state/atlas-runtime`. Codex `read-only` and `workspace-write` run as the explicit permission profiles `atlas_read_only` and `atlas_workspace_write`: the built-in `:read-only` and `:workspace` plus these denies, without network. A workspace below the Runtime home (or the token directory) keeps the mode's access to it as the more specific path; one that is the home or the token directory is refused. Claude read-only then omits the rule for the containing directory, and `--restricted` keeps its file tools in the workspace. `dedicated-repository` adds the denies to `atlas_repository` (see below); `materialized-folder` and `review-packet` already had them. Claude read-only adds `Read(//…)` deny rules for its file tools.
 
-The `--sandbox` option accepts only `read-only` and `workspace-write` for Codex. Status and output report the selected mode. A read-only denial never automatically escalates permissions. Both standalone backends reuse `AtlasRuntime.Agent.Native` and its owned process-group runner; no credentials are copied, no global native settings change, and no API fallback. Guidance, queues, multi-agent scheduling and Atlas hookup remain outside this step.
+Folder permissions are `read-only`, `workspace-write` (Codex only) and `materialized-folder`; the turn records the selected mode. A read-only denial never automatically escalates permissions. Both standalone backends reuse `AtlasRuntime.Agent.Native` and its owned process-group runner; no credentials are copied, no global native settings change, and no API fallback. Guidance, queues, multi-agent scheduling and Atlas hookup remain outside this step.
 
-To explicitly select the installed official Claude CLI with its existing authentication:
+The installed official Claude CLI, with its existing authentication, runs when the profile's policy option is Claude (for example the S1 mini's `deep_coding`):
 
 ```sh
-atlas-runtime start --backend claude --cwd /path/to/project "Read the project and explain its entry points"
+atlas-runtime start --profile deep_coding --cost-class standard --cwd /path/to/project "Read the project and explain its entry points"
 ```
 
 Claude defaults to fresh read-only file-tool assignments. Native restricted/safe modes expose only `Read`, `Glob` and `Grep`, confine those file tools to the working directory, disable user/project customizations and MCP servers, and deny permission prompts. This default is native tool-level restriction, not a claim of OS-wide sandbox confinement. No Bash, write, browser or network tool is enabled in read-only mode; normal provider communication and existing native authentication remain available. API-key/token environment overrides are not forwarded.
@@ -214,9 +255,13 @@ Real isolated restart proof on 2026-11-07: turns `turn-58f8fe115a937a1e` and `tu
 
 ## Opt-in Claude questions
 
+The work contract does not offer the questions opt-in in S1: work submitted on `backend.sock` runs without it. `question` and `answer` keep serving turns that recorded the capability. The example is from before the cutover.
+
 ```sh
+# before the cutover:
 atlas-runtime start --worker research --backend claude --questions --cwd /path/to/project "Ask which module to explain, then explain it"
 atlas-runtime status --worker research
+# still served on runtime.sock:
 atlas-runtime question --worker research --turn "$TURN_ID" --question "$QUESTION_ID"
 atlas-runtime answer --worker research --turn "$TURN_ID" --question "$QUESTION_ID" --answers '{"Which module?":"runtime"}'
 ```
@@ -255,11 +300,11 @@ Integrated default-model proof on 2026-11-07, after the coordinator cleared the 
 
 ```sh
 atlas-runtime snapshot materialize --snapshot sha256:HEX --dest /abs/assignment   # outside the Runtime home
-atlas-runtime start --worker NAME --backend codex --cwd /abs/assignment --permissions materialized-folder "Assignment"
-atlas-runtime continue --worker NAME --turn TURN_ID "Next step"
+atlas-runtime start --profile deep_coding --cost-class standard --slot NAME --cwd /abs/assignment --permissions materialized-folder "Assignment"
+atlas-runtime continue --resume-from TURN_ID --profile deep_coding --cost-class standard --cwd /abs/assignment --permissions materialized-folder "Next step"
 ```
 
-The worker can read, edit and test the assigned folder and inspect it with `"$ATLAS_RUNTIME_EXECUTABLE" snapshot status|diff --dest .`. `ATLAS_RUNTIME_EXECUTABLE` is the exact CLI that launched the worker; a bare `atlas-runtime` may resolve to another installation in a login shell. The folder must be materialized outside the Runtime home; overlapping folders are refused before launch. The worker cannot read the user's home directory outside the home read allow-list below, Git metadata, the Runtime home (beyond this snapshot's record and baseline, and the launching executable if it lives there), Code tokens or the listed credential locations (including `~/.erlang.cookie`). It has local loopback networking only, always on: external connections are blocked, and Code is reachable on loopback but its token stays denied. Accepted limit: every host loopback service is reachable, cookies passed as `-setcookie` or `RELEASE_COOKIE` are visible through `ps`, and unauthenticated local services (Postgres trust auth, the DevTools endpoint of a running automation browser) are reachable; while such a browser runs, the external-network block is not a guarantee. Codex sets `HTTP(S)_PROXY`/`ALL_PROXY` and a `NO_PROXY` covering localhost and private ranges under its proxy. Loopback has so far been verified only for Codex on macOS. Unix-domain sockets bind and connect only inside the worker's own scratch folder (which contains its `TMPDIR`); all other socket paths are denied. Claude scopes them on macOS only, so on Linux Claude workers still get `EPERM` for every Unix socket. macOS caps socket paths at 104 bytes; scratch paths fit with a short Runtime home. A separate macOS worker user is the planned future isolation. Provider authentication still works because the trusted native host runs outside the sandbox. Runtime setup and continuation run no Git and make no Code request; Code may be stopped while the worker runs. Use `--backend claude` (optionally with `--questions`) for Claude. See the architecture document for both exact profiles and their deny-list limits.
+The worker can read, edit and test the assigned folder and inspect it with `"$ATLAS_RUNTIME_EXECUTABLE" snapshot status|diff --dest .`. `ATLAS_RUNTIME_EXECUTABLE` is the exact CLI that launched the worker; a bare `atlas-runtime` may resolve to another installation in a login shell. The folder must be materialized outside the Runtime home; overlapping folders are refused before launch. The worker cannot read the user's home directory outside the home read allow-list below, Git metadata, the Runtime home (beyond this snapshot's record and baseline, and the launching executable if it lives there), Code tokens or the listed credential locations (including `~/.erlang.cookie`). It has local loopback networking only, always on: external connections are blocked, and Code is reachable on loopback but its token stays denied. Accepted limit: every host loopback service is reachable, cookies passed as `-setcookie` or `RELEASE_COOKIE` are visible through `ps`, and unauthenticated local services (Postgres trust auth, the DevTools endpoint of a running automation browser) are reachable; while such a browser runs, the external-network block is not a guarantee. Codex sets `HTTP(S)_PROXY`/`ALL_PROXY` and a `NO_PROXY` covering localhost and private ranges under its proxy. Loopback has so far been verified only for Codex on macOS. Unix-domain sockets bind and connect only inside the worker's own scratch folder (which contains its `TMPDIR`); all other socket paths are denied. Claude scopes them on macOS only, so on Linux Claude workers still get `EPERM` for every Unix socket. macOS caps socket paths at 104 bytes; scratch paths fit with a short Runtime home. A separate macOS worker user is the planned future isolation. Provider authentication still works because the trusted native host runs outside the sandbox. Runtime setup and continuation run no Git and make no Code request; Code may be stopped while the worker runs. Claude or Codex follows the profile's policy option. See the architecture document for both exact profiles and their deny-list limits.
 
 **Home read allow-list (both backends).** The worker sandbox denies reading `HOME` (Codex: `HOME` = `none`; Claude: `HOME` first in `sandbox.filesystem.denyRead`) and re-allows read-only only these paths, each resolved through symlinks (`homeReadable` in `host/codex.go`, shared by `host/claude.go`):
 
@@ -339,7 +384,7 @@ Evidence: `~/.ac-cf-taaclyk6/claude-folder-profile-evidence.json`. No installati
 ```sh
 atlas-runtime snapshot materialize --snapshot sha256:HEX --dest /abs/assignment
 atlas-runtime snapshot prepare --dest /abs/assignment --npm-ci atlas/platform/atlas_runtime/viewer/assets
-atlas-runtime start --worker NAME --backend claude --cwd /abs/assignment --permissions materialized-folder "Assignment"
+atlas-runtime start --profile deep_coding --cost-class standard --cwd /abs/assignment --permissions materialized-folder "Assignment"
 ```
 
 The orchestrator authorizes setup by running `prepare` before the worker starts; Runtime never detects or runs setup by itself, and a folder that is never prepared works exactly as before. There are two forms, in this order: install the tracked lockfile of one package folder, then at most one declared, network-off script of that package ([below](#network-off-generation-npm-run)).
@@ -469,7 +514,7 @@ Removes a packet folder once its review is over. Offline: no Code, Runtime servi
 
 ## Claude scoped repository writes
 
-Select Claude repository writes explicitly with `atlas-runtime start --backend claude --cwd /canonical/independent/repository --permissions dedicated-repository "Edit the assigned file and create a local commit"`, or use managed `--repo` provisioning below. This reuses independent-root validation and owned directory locking. It enables Bash alongside read-only Read/Glob/Grep, never Edit/Write. Native settings require sandbox availability, disable unsandboxed escape and excluded commands, retain the existing GitHub domain list, and deny writes to `.agents`, `.codex`, `.aws`, `.claude`, `.git/config` and `.git/hooks`. The Runtime home and the Code token with its directory are in `denyRead`, `denyWrite` and `Read(//…)` deny rules. Claude's denies win over its allows, so when the home contains the repository (managed `--repo` provisioning puts it under `workers/`), the home is in `denyRead` only with the repository in `allowRead`: Bash writes stay limited to the repository and private temp, and `--restricted` confines the file tools to the repository. A repository that is the Runtime home or the Code token directory is refused; one inside the token directory is handled like one inside the home, and the token file itself stays denied. Generic workspace-write remains refused.
+The work contract does not offer `dedicated-repository` on a folder in S1; its repository workspace (`--repo`, `--branch`) is the managed form below. Before the cutover, Claude repository writes were selected with `atlas-runtime start --backend claude --cwd /canonical/independent/repository --permissions dedicated-repository "Edit the assigned file and create a local commit"`, or use managed `--repo` provisioning below. This reuses independent-root validation and owned directory locking. It enables Bash alongside read-only Read/Glob/Grep, never Edit/Write. Native settings require sandbox availability, disable unsandboxed escape and excluded commands, retain the existing GitHub domain list, and deny writes to `.agents`, `.codex`, `.aws`, `.claude`, `.git/config` and `.git/hooks`. The Runtime home and the Code token with its directory are in `denyRead`, `denyWrite` and `Read(//…)` deny rules. Claude's denies win over its allows, so when the home contains the repository (managed `--repo` provisioning puts it under `workers/`), the home is in `denyRead` only with the repository in `allowRead`: Bash writes stay limited to the repository and private temp, and `--restricted` confines the file tools to the repository. A repository that is the Runtime home or the Code token directory is refused; one inside the token directory is handled like one inside the home, and the token file itself stays denied. Generic workspace-write remains refused.
 
 On macOS, dedicated-repository settings explicitly allow Mach lookup of `com.apple.trustd.agent` so native `gh` can validate TLS certificates. TLS verification stays enabled; all other sandbox settings stay unchanged. This service access applies to **every sandboxed command**, not just `gh`. Service-mediated networking makes effective isolation weaker than a strict GitHub-only network boundary. Other platforms receive no Mach lookup allowance.
 
@@ -535,7 +580,7 @@ Unknown fields make the file invalid.
 4. The first option left wins: reason `preferred` if it is the first option, otherwise `fallback`, with the skipped options and why.
 5. If nothing is left and an option was skipped for quota, the result is `profile_unavailable` with the earliest known return time. Otherwise it is `no_permitted_option`. Runtime never improvises.
 
-The turn's `selection` records `profile`, `policy_version`, `option`, `reason` and `skipped`, plus `requested`/`selected` `{backend, model}`. A start that names `--backend` instead keeps its former meaning until the work commands move (Flow passes and the CLI): exactly that backend, never a fallback, with the policy's model for that harness when all its options agree, otherwise the native default (reason `explicit`). Without either, the former preference pair (imported from `backends.json`, see below) applies until the CLI moves: its preferred Claude target (reason `preferred`), or its Codex fallback while Claude's weekly quota is out (reason `confirmed_weekly_quota`, with the quota entry); without a pair, Codex runs (reason `default`). A backend that cannot serve the requested permission is refused before execution.
+The turn's `selection` records `profile`, `policy_version`, `option`, `reason` and `skipped`, plus `requested`/`selected` `{backend, model}`. A start that names a backend instead (only in-BEAM callers of the Service: since D3 the CLI starts work on `backend.sock`, and `runtime.sock` serves no start) gets exactly that backend, never a fallback, with the policy's model for that harness when all its options agree, otherwise the native default (reason `explicit`). Without either, the former preference pair (imported from `backends.json`, see below) applies: its preferred Claude target (reason `preferred`), or its Codex fallback while Claude's weekly quota is out (reason `confirmed_weekly_quota`, with the quota entry); without a pair, Codex runs (reason `default`). A backend that cannot serve the requested permission is refused before execution.
 
 ### `availability.json`
 
@@ -565,13 +610,13 @@ Turn metadata separates `requested_model` from native-confirmed `model`. The fir
 
 ## Codex dedicated repository permissions
 
-For an explicitly authorized Git/PR assignment in an **independent clone**, opt into a separate, fixed permission profile:
+For an explicitly authorized Git/PR assignment in an **independent clone**, a separate, fixed permission profile applies. Work reaches it through the repository workspace ([Managed repository provisioning](#managed-repository-provisioning)); a folder with `dedicated-repository`, as below, was a pre-cutover form the work contract does not offer in S1:
 
 ```sh
-atlas-runtime start --cwd /canonical/path/to/independent-clone --permissions dedicated-repository "Complete the assigned change and create its PR"
+atlas-runtime start --cwd /canonical/path/to/independent-clone --permissions dedicated-repository "Complete the assigned change and create its PR"   # before the cutover
 ```
 
-This cannot be combined with `--sandbox`. It permits writes only beneath the canonical repository root, including its own `.git`, while retaining read-only `.agents`, `.codex` and `.aws` paths. Outside writes, including system temporary directories and home caches, remain denied; tools needing writable caches must use repository-local paths. Existing read access is unchanged, except that the Runtime home and the Code token with its directory are denied (`none`); a managed repository below the home stays writable as the more specific path. Because Codex cannot even `lstat` below a `none` path and Git `lstat`s every ancestor of its worktree, a home (or token directory) containing the repository is not denied whole: every entry existing at launch in it and in each directory down to the repository is denied unless it lies on that ancestor chain, and `runtime.sock`, `read.sock`, `turns`, `code.json`, `server.json`, `backends.json`, `policy.json`, `availability.json`, `service.log`, `service.lock`, `passes`, `snapshots`, `materializations`, `scratch` and the Code token are denied by path even when absent at launch. The ancestor directories' names stay listable, and other entries created in them after launch are not covered. Known limit: another worker's managed repository created under `workers/<id>` after this turn launched stays readable to it, because only entries existing at launch are denied. A repository inside one of those named entries is refused. Command networking uses Codex's enforced proxy and allows only `github.com` and `api.github.com`; no unrestricted network fallback is provided.
+It could not be combined with `--sandbox`. It permits writes only beneath the canonical repository root, including its own `.git`, while retaining read-only `.agents`, `.codex` and `.aws` paths. Outside writes, including system temporary directories and home caches, remain denied; tools needing writable caches must use repository-local paths. Existing read access is unchanged, except that the Runtime home and the Code token with its directory are denied (`none`); a managed repository below the home stays writable as the more specific path. Because Codex cannot even `lstat` below a `none` path and Git `lstat`s every ancestor of its worktree, a home (or token directory) containing the repository is not denied whole: every entry existing at launch in it and in each directory down to the repository is denied unless it lies on that ancestor chain, and `runtime.sock`, `read.sock`, `turns`, `code.json`, `server.json`, `backends.json`, `policy.json`, `availability.json`, `service.log`, `service.lock`, `passes`, `snapshots`, `materializations`, `scratch` and the Code token are denied by path even when absent at launch. A repository inside one of those named entries is refused. Every other `workers/<id>` directory, including one created after launch, is also denied by Codex deny-read glob entries, which Codex checks at access time; a Runtime home path containing `\` is refused. Known limits: other entries created after launch directly in the home or inside the worker's own `workers/<id>` are not covered, and the ancestor directories' names, including the worker names in `workers`, stay listable. The globs rely on Codex glob deny-read support, verified with Codex 0.167.1; no minimum Codex version is enforced. Command networking uses Codex's enforced proxy and allows only `github.com` and `api.github.com`; no unrestricted network fallback is provided.
 
 Validation refuses linked worktrees, non-root/aliased paths, external/shared Git metadata, object alternates, metadata symlinks and shared hardlinks. Project/ancestor and system Codex configuration files are refused because legacy sandbox settings can override a native profile; the ignored user config is exempt. Use an independent remote clone, not a local clone with shared objects. Validation runs before launch and again before native execution.
 
@@ -583,7 +628,7 @@ Verified on macOS with Codex 0.166.0. Other platforms/versions are not certified
 
 ## Managed repository provisioning
 
-Both explicit `--backend claude` and eligible preferred-Claude selection support this existing provisioning path. Git preparation still uses the installed Codex sandbox and its fixed repository profile, without making a Codex model request. Missing Codex fails explicitly rather than running unsandboxed Git. Once preparation and scope validation succeed, Claude executes in its own native repository-plus-private-temp scope; there is no nested Codex wrapper around Claude. Existing clone identity, clean-worktree, branch-existence and ownership checks apply unchanged. Explicit successful-session continuation preserves unfinished work.
+Both a Claude and a Codex option of the profile support this existing provisioning path. Git preparation still uses the installed Codex sandbox and its fixed repository profile, without making a Codex model request. Missing Codex fails explicitly rather than running unsandboxed Git. Once preparation and scope validation succeed, Claude executes in its own native repository-plus-private-temp scope; there is no nested Codex wrapper around Claude. Existing clone identity, clean-worktree, branch-existence and ownership checks apply unchanged. Explicit successful-session continuation preserves unfinished work.
 
 Workspace validation, exclusive ownership and Git preparation live in `platform/atlas_runtime/host/workspace/workspace.go`. Elixir admission calls the CLI's internal `workspace` command for path, scope and repository-request checks; `native-host` uses the same package in process and holds the directory lock until native process-group cleanup finishes. The launching CLI supplies its own executable path to the daemon through `ATLAS_RUNTIME_EXECUTABLE`; no alternate installed binary or runtime Go compilation is used. Go owns Git arguments and clone/fetch/branch/continuation checks. Elixir keeps admission and lifecycle ownership. See the [Runtime architecture](../../../docs/runtime-architecture.md) for the implemented boundary and the proposed Code service contract.
 
@@ -592,10 +637,10 @@ Verified through an isolated public CLI on 2026-11-07: eligible preferred Claude
 To have Runtime provision the clone and task branch, supply an explicit GitHub HTTPS URL and a new branch instead of `--cwd`:
 
 ```sh
-atlas-runtime start --repo https://github.com/eyra/atlas.git --branch work/server-task --permissions dedicated-repository "Complete the assigned change"
+atlas-runtime start --profile deep_coding --cost-class standard --repo https://github.com/eyra/atlas.git --branch work/server-task "Complete the assigned change"
 ```
 
-The daemon manages one independent clone per worker and normalized owner/repository beneath its selected state directory: `workers/<worker>/repositories/<owner>/<repository>`. Each caller supplies its own task branch. Older managed paths remain available to their saved continuations; new starts use worker-specific paths without moving existing work. The URL must name `https://github.com/OWNER/REPO[.git]`, without embedded credentials, query strings or fragments. `--repo` and `--branch` must be supplied together with explicit dedicated-repository permissions, and cannot be combined with `--cwd` or `--sandbox`. Repository choice, branch name and assignment remain external decisions.
+The daemon manages one independent clone per worker and normalized owner/repository beneath its selected state directory: `workers/<worker>/repositories/<owner>/<repository>`. Each caller supplies its own task branch. Older managed paths remain available to their saved continuations; new starts use worker-specific paths without moving existing work. The URL must name `https://github.com/OWNER/REPO[.git]`, without embedded credentials, query strings or fragments. `--repo` and `--branch` form the repository workspace (dedicated-repository permissions), with `--base` `develop` (the only base accepted; anything else is `unsupported-workspace`), and cannot be combined with `--cwd` or `--permissions`. Repository choice, branch name and assignment remain external decisions.
 
 Runtime clones an absent path, or reuses only a Runtime-marked independent clone with a matching origin and clean tracked/untracked state. It freshly fetches remote heads and creates the requested new branch at exactly the fetched `origin/develop`, recorded as `base_sha`. Existing local or remote task branches are refused, including `develop`. Dirty, unmanaged, mismatched or actively owned paths are refused without reset, stash, deletion or branch overwrite; ignored-file collisions also prevent checkout. Previous task branches/commits stay intact. Stale remote-tracking branches are not automatically pruned.
 
@@ -607,22 +652,20 @@ Git preparation runs under the same native repository/network profile, using the
 
 Saved/ordinary continuation reuses the exact session and scope without fetching, recreating a branch or discarding unfinished work. Managed continuation additionally requires the saved origin and branch to still match. If another task reused the clone and switched its branch, continuation refuses rather than switching it back. No automatic scheduling, recovery, installation, merging or deployment is introduced.
 
-The client talks to an owner-only Unix socket under `~/.local/state/atlas-runtime/`. `service.log` contains daemon diagnostics. Per-turn artifacts retain full native JSONL, stderr, final answer and process details. `output` returns the selected worker's final answer and a bounded 64 KiB native event tail. Restart resets the in-memory worker registry; retained artifacts do not trigger restoration or re-execution.
+The client talks to owner-only Unix sockets under `~/.local/state/atlas-runtime/`. `service.log` contains daemon diagnostics. Per-turn artifacts retain full native JSONL, stderr, final answer and process details. `output --turn ID` returns one page of the turn's public output (`events` of kind `text` or `activity`, `cursor`, `more`); pass `--cursor` for the next page. The output buffer is in memory: a turn from before the last restart answers an empty page, while its artifacts stay on disk. A work's final answer (at most 8 KB) is in its attempt's `result.answer`. Restart resets the in-memory worker registry; retained artifacts do not trigger restoration or re-execution.
 
-Watch a worker's current turn with `atlas-runtime output --worker NAME --follow`, or omit the worker only when unambiguous. The client resolves and pins worker/turn identity once, reads that turn's local `stream.jsonl` from the beginning and polls targeted status every 200 ms. Output is newline-delimited JSON: initial `{"type":"status","turn":...}`, native `{"type":"event","worker_id":...,"turn_id":...,"event":...}` records, then `{"type":"result","turn":...}` with terminal status and answer. Completed turns replay and exit; idle returns one result immediately. Native events are emitted once per invocation, including events larger than the ordinary output tail. Incomplete records wait for completion; malformed/truncated final JSON fails rather than disappearing.
+`output --follow` is gone with the cutover: follow progress with `events --follow` and `status`, and read output pages with `output --turn`.
 
-Ctrl-C stops the viewer, not the agent. Another `start`/`continue` replacing the selected turn causes a command error rather than silently following another assignment; service loss also fails visibly. Failed/stopped terminal results remain successful inspection commands (exit zero), not proof of assignment success. This is native event output, not a guarantee of token-by-token text streaming.
-
-Inspect local turn history through the running daemon:
+Inspect local turn history through the running daemon (`read.sock`):
 
 ```sh
 atlas-runtime turns
 atlas-runtime output --turn turn-0123456789abcdef
 ```
 
-`turns` returns a `turns` array, newest start first, with worker IDs, assignments, states, settings, native session IDs and timestamps. Each new turn saves `turn.json` atomically beside its existing artifacts at start, native session confirmation, and terminal transition. `output --turn ID` returns the selected turn's answer and bounded native event tail without changing any worker's current turn. Unknown/malformed IDs fail; historical failed/stopped turns remain inspectable with exit zero. Explicit historical selection is a snapshot command, not combined with `--follow`.
+`turns` returns a `turns` array, newest start first, in the `runtime.read/1` projection: `turn_id`, `worker_id` (the slot), `state`, `recorded_state`, `backend`, `requested_model`, `model`, `questions_enabled`, `source_turn_id`, `started_at`, `ended_at`, `activity`, `result`, `error`, `attempt` and `pending_question`; no assignment, folder, settings or native session. It lists turns from before the cutover too. Each new turn saves `turn.json` atomically beside its existing artifacts at start, native session confirmation, and terminal transition. Unknown/malformed turn IDs fail.
 
-History survives daemon restart, but `status` still starts idle and plain `continue` does not select saved history. Explicit `continue --turn ID` selects a saved conversation; failed turns are eligible when their native session ID is confirmed. Older artifact folders without metadata remain readable with state `unknown`; missing assignment/timestamp/session fields are not guessed. A saved `running` turn no longer owned by this daemon is shown as `unknown` with `recorded_state: running`, not claimed to be active or successful. No automatic restart, crash recovery, retention/deletion policy or server connection is introduced.
+Work and its attempts survive daemon restart (`work/` in the home): a turn that was running becomes `interrupted`, and `retry --resume` continues it. `continue --resume-from ID` selects a saved conversation; failed turns are eligible when their native session ID is confirmed. Older artifact folders without metadata remain readable with state `unknown`; missing assignment/timestamp/session fields are not guessed. A saved `running` turn no longer owned by this daemon is shown as `unknown` with `recorded_state: running`, not claimed to be active or successful. No automatic restart, crash recovery, retention/deletion policy or server connection is introduced.
 
 Requires the normal Elixir/OTP/Mix toolchain and the selected official CLI (`codex` or `claude`) on PATH. First service start compiles the `beam` umbrella (Runtime, Bus and the model that `server.json` wires) into its own build directory; it starts only Runtime and Bus. `ATLAS_RUNTIME_HOME=/absolute/path` selects an isolated instance; use it consistently across commands. Directory aliases are resolved before building, including macOS `/tmp` → `/private/tmp`, so Mix's relative `priv` links resolve correctly.
 
@@ -689,7 +732,7 @@ ATLAS_CODE_HOME="${ATLAS_CODE_HOME:-/abs/code-home}" exec mix atlas_code.server
 ```sh
 atlas-dev-code               # own terminal; prints "Code ready on 127.0.0.1:PORT"
 atlas-runtime service start
-atlas-runtime service status # "workers" map of registered workers
+atlas-runtime service status # "workers" map of the slots that ran a turn
 atlas-runtime turns          # saved history across workers and restarts
 atlas-runtime service stop
 ```

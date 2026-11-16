@@ -11,8 +11,9 @@ defmodule AtlasRuntime.Availability do
 
   The `claude_quota` of an existing `backends.json` is imported once, at service start,
   when no `availability.json` exists yet; `backends.json` is never read again after that.
-  Its `preferred`/`fallback` pair is carried as `preferences`: until the CLI cutover (D3) a
-  start with neither a profile nor a backend still follows it (`preferences/1`).
+  Its `preferred`/`fallback` pair is carried as `preferences`: a start with neither a profile
+  nor a backend still follows it (`preferences/1`). Since D3 runtime.sock serves no start, so
+  only in-BEAM callers of the Service reach this.
   Unreadable or invalid evidence fails visibly instead of selecting another option.
   """
 

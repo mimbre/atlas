@@ -73,8 +73,8 @@ Designing the Runtime as a backend that any client (Flow, CLI, TUI, scripts) can
 - Translations are generated from declarations and live at the boundary. There is more code at the edges, and none of it is hidden coupling.
 - Generators are duplicated for now. A later ADR can merge them.
 - Moving an existing system takes work. The Runtime goes first; other systems move when they are next changed, and their existing interfaces stay until then.
-- Two statements in the README no longer hold in general, and will be updated separately:
-  - that the Bus is the only way the parts talk to each other. Co-located systems now call each other's boundary target, and remote clients call a backend.
+- Two statements in the README no longer hold in general, and are updated together with this record:
+  - that the Bus is the only way the parts talk to each other. Co-located systems call each other's boundary target, and remote clients call a backend.
   - that Control is the one interface for clients. The Runtime's backend is called by clients directly.
 - ADR 0001's paths were amended to `platform/atlas_control/backend/…` with Control's rename.
 
