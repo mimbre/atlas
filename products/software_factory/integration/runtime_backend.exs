@@ -1222,12 +1222,20 @@ defmodule RuntimeBackendE2E.RestartTest do
     goal = "wait case-5c-probe"
     {rt, work, _slot, launch} = unknown_n!(rt, goal)
 
-    # n's process ends by itself; the heartbeat's probe (every 15 s) then proves it gone.
-    # n+1 shares n's goal, and its gate is gone too: it completes as soon as it runs, so it
-    # is awaited by its launch and its end, not in `running`.
+    # n's process ends by itself: its gate goes, and its answer meets the pipe of its killed
+    # helper (SIGPIPE), so it never logs its end. The test bounds that end itself, right after
+    # a heartbeat: the probe runs only just before one (every 15 s), so the next probe, which
+    # proves n gone and starts n+1, comes well after n's end is seen.
+    events = subscribe(rt)
+    await_frame(events, "heartbeat", fn _ -> true end, 20_000)
     File.rm!(Path.join(rt.run, "case-5c-probe"))
     await(fn -> not alive?(launch["pid"]) end)
+    gone_by = DateTime.utc_now()
+    close(events)
+    assert [_] = launches(rt, goal), "n+1 was launched while n was alive"
 
+    # n+1 shares n's goal, and its gate is gone too: it completes as soon as it runs, so it
+    # is awaited by its launch and its end, not in `running`.
     await(fn -> length(launches(rt, goal)) >= 2 end, 40_000, fn ->
       "n+1 not launched; log: #{inspect(launches(rt))}"
     end)
@@ -1237,13 +1245,11 @@ defmodule RuntimeBackendE2E.RestartTest do
     assert done["state"] == "completed", inspect(n1)
     assert n1["result"]["answer"] == "done: #{goal}", inspect(n1)
 
-    # From the harness's own logs: n's process ended before n+1's was launched.
+    # From the harness's own log: n+1 was launched after n was seen gone.
     [_, second] = launches(rt, goal)
-    ended = Enum.find(ends(rt), &(&1["pid"] == launch["pid"]))
-    assert ended, "n's end is not in the log: #{inspect(ends(rt))}"
 
-    assert DateTime.compare(iso(ended["at"]), iso(second["at"])) == :lt,
-           "n+1 launched at #{second["at"]}, before n ended at #{ended["at"]}"
+    assert DateTime.compare(gone_by, iso(second["at"])) == :lt,
+           "n+1 launched at #{second["at"]}, before n was seen gone at #{gone_by}"
   end
 
   # The restart proves the turn's process gone (its helper ended it on losing its parent),
