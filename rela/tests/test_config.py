@@ -6,11 +6,23 @@ import shutil
 import tempfile
 import unittest
 import yaml
+import os
+import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('config', ROOT / 'scripts/config.py')
 config = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(config)
+
+
+def fits(root, data, binary, check=False):
+    with tempfile.TemporaryDirectory() as tmp:
+        proposed = Path(tmp)
+        (proposed / 'schema.yaml').write_text(yaml.safe_dump(config.closure(root)[1], sort_keys=False))
+        shutil.copy(root / 'data-entry.yaml', proposed / 'data-entry.yaml')
+        return subprocess.run(['bash', str(ROOT / 'scripts/fits.sh'), str(proposed), str(data)],
+                              env=dict(os.environ, ATLAS_RELA_BIN=str(Path(binary).parent)),
+                              capture_output=True, text=True, check=check)
 
 
 def without_ledger(schema):
@@ -28,8 +40,10 @@ def without_ledger(schema):
     # The fields the flows (flows.yaml) read and write, and the review and test of a pull request.
     for kind in ('pr_review', 'pr_test'):
         schema['entities'].pop(kind)
-    for name in ('review_of', 'test_of', 'verdict_by'):
+    for name in ('review_of', 'test_of', 'verdict_by', 'review_by'):
         schema['relations'].pop(name)
+    # The machine whose Runtime runs an agent, where Flow sends its passes.
+    assert not schema['entities']['agent']['properties'].pop('machine').get('required', False)
     flow_fields = {
         'issue': ('pass_result', 'gate_result', 'effect_result', 'pr_outcome'),
         'pull_request': ('review_outcome', 'test_outcome', 'update', 'integration', 'revision'),
@@ -106,8 +120,11 @@ class SchemaTest(unittest.TestCase):
         binary = Path(self.tmp.name) / 'rela'
         binary.write_text('#!/bin/sh\ncase "$*" in *validate*) exit 0;; *) exit 2;; esac\n')
         binary.chmod(0o755)
-        with self.assertRaises(config.subprocess.CalledProcessError):
-            config.fits(self.root, Path(self.tmp.name) / 'empty', str(binary))
+        data = Path(self.tmp.name) / 'empty'
+        data.mkdir()
+        with self.assertRaises(subprocess.CalledProcessError) as error:
+            fits(self.root, data, str(binary), check=True)
+        self.assertEqual(error.exception.returncode, 2)
 
 class NativeSchemaTest(unittest.TestCase):
     """Use only disposable stores and the already installed pinned CLI/server."""
@@ -115,10 +132,10 @@ class NativeSchemaTest(unittest.TestCase):
     def setUpClass(cls):
         import os
         # As e2e's AtlasE2E.Instance.rela_bin!/0: ATLAS_E2E_RELA_BIN, ATLAS_RELA_BIN, the
-        # rela-bin folder beside the checkout when it holds rela-server, else the test instance's.
+        # rela-bin folder beside the checkout when it holds rela-server-headless-sqlite, else the test instance's.
         beside = Path(__file__).resolve().parents[2].parent / 'rela-bin'
         named = os.environ.get('ATLAS_E2E_RELA_BIN') or os.environ.get('ATLAS_RELA_BIN')
-        folder = Path(named) if named else beside if (beside / 'rela-server').exists() \
+        folder = Path(named) if named else beside if (beside / 'rela-server-headless-sqlite').exists() \
             else Path.home() / '.local/share/atlas/test/bin'
         cls.binary = folder / 'rela'
         if not cls.binary.exists():
@@ -137,12 +154,10 @@ class NativeSchemaTest(unittest.TestCase):
             (data / 'relations').mkdir()
             (data / 'relations/a--removed_link--b.md').write_text('untouched historical relation\n')
             before = {str(p.relative_to(data)): p.read_bytes() for p in data.rglob('*') if p.is_file()}
-            import contextlib, io
-            output = io.StringIO()
-            with contextlib.redirect_stdout(output):
-                self.assertFalse(config.fits(source, data, str(self.binary)))
-            self.assertIn('obsolete', output.getvalue())
-            self.assertIn('removed_link', output.getvalue())
+            result = fits(source, data, str(self.binary))
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('obsolete', result.stdout + result.stderr)
+            self.assertIn('removed_link', result.stdout + result.stderr)
             self.assertEqual(before, {str(p.relative_to(data)): p.read_bytes() for p in data.rglob('*') if p.is_file()})
 
     def test_native_resolved_http_schema_and_form_order_equal_baseline(self):
@@ -151,7 +166,7 @@ class NativeSchemaTest(unittest.TestCase):
             with socket.socket() as s:
                 s.bind(('127.0.0.1', 0))
                 port = s.getsockname()[1]
-            process = subprocess.Popen([str(self.binary.parent / 'rela-server'), '-project', str(root), '-bind', '127.0.0.1', '-port', str(port), '-quiet'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            process = subprocess.Popen([str(self.binary.parent / 'rela-server-headless-sqlite'), '-project', str(root), '-bind', '127.0.0.1', '-port', str(port), '-quiet'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             try:
                 for _ in range(100):
                     try:
@@ -159,7 +174,7 @@ class NativeSchemaTest(unittest.TestCase):
                             return json.load(r)
                     except OSError:
                         if process.poll() is not None:
-                            self.fail('rela-server failed')
+                            self.fail('rela-server-headless-sqlite failed')
                         time.sleep(.05)
                 self.fail('private rela did not answer')
             finally:
@@ -188,6 +203,8 @@ class NativeSchemaTest(unittest.TestCase):
             (root / 'schema.yaml').write_text(yaml.safe_dump(config.closure(ROOT)[1], sort_keys=False))
             shutil.copy(ROOT / 'data-entry.yaml', root / 'data-entry.yaml')
             shutil.copy(ROOT.parent / 'fly/check-fits.sh', root / 'scripts/description.sh')
+            for name in ('data.sh', 'fits.sh'):
+                shutil.copy(ROOT / 'scripts' / name, root / 'scripts' / name)
             data = Path(tmp) / 'data'
             (data / 'entities/people').mkdir(parents=True)
             (data / 'entities/people/tester.md').write_text('---\nid: tester\ntype: person\nname: Tester\n---\n')

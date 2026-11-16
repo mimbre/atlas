@@ -55,7 +55,9 @@ What it gives an app:
   `PageMessage`. An unknown message decodes as `.unknown(JSONValue)`, and one whose
   selector matches a case but whose fields do not decode (a newer Control changed a field)
   as `.undecodable(JSONValue, Fallback.Reason)`; decoding a received line never throws
-  for either, and a client skips both. An unknown request does not decode. A field the descriptor leaves untyped takes
+  for either. A client skips both, except that an undecodable message still answers what
+  the session waits for, by its `op`, as a failure (§2, `SessionState`). An unknown
+  request does not decode. A field the descriptor leaves untyped takes
   the endpoint's type: `PageMessage.blocks: [Block]`, `markup: [MarkupEntry]`,
   `BootShellMessage.tabs: [ShellTabModel]`, `PlanMessage.block: Block`,
   `RunRequest.steps: [RunStepModel]`. `WireLine` reads and writes one message per line.
@@ -66,7 +68,8 @@ What it gives an app:
 Its tests (77) run in `swift test`. A channel's fixtures must be there (a missing file
 fails), and the lines that carry `spec` must carry `Contract.version`, so a new contract
 version fails until the fixtures are recaptured; CI's `swift` job (macos-latest) builds, tests and
-builds it for the iOS Simulator, and refuses a hand-written file in the package.
+builds it for the iOS Simulator, and refuses a hand-written file in the package. The
+hand-written `clients/apple` package has its own job, `apple` (macos-latest, §2).
 
 ### Gaps the next slices close
 
@@ -94,41 +97,67 @@ builds it for the iOS Simulator, and refuses a hand-written file in the package.
 
 ```
 bff/targets/swift/            AtlasControlKit (generated): the contract
-clients/apple/                hand-written Swift package + app targets
-  Package.swift               products: ControlSession, ConsoleKit, BlockViews, WorkerViews
+clients/apple/                hand-written Swift package (+ app targets from S8)
+  Package.swift               products: ControlSession, BlockViews, AtlasMac (S1);
+                              ConsoleKit (S5), WorkerViews (S6)
   Sources/
-    ControlSession/           transport and session state, no UI
-    ConsoleKit/               Console projection: actions, keys, legend groups
+    ControlSession/           transport, session state and the view models, no UI
+    ConsoleKit/               (S5) Console projection: actions, keys, legend groups
     BlockViews/               SwiftUI: blocks, markup, forms, plan, fallbacks, notices
-    WorkerViews/              SwiftUI: worker output stream, conversation, guidance, history
-  Mac/                        macOS app target: the three-column window, menus, keyboard, launcher
+    WorkerViews/              (S6) SwiftUI: worker output stream, conversation, guidance, history
+  Mac/                        macOS app (AtlasMac): the three-column window, menus, keyboard
   iOS/                        iOS app target (later): iPhone tab bar and stack, iPad columns
 ```
 
-Structure by purpose: each target says what it is for. The apps are Xcode app targets
-that depend on the local package (an `.xcodeproj` under `clients/apple`); everything that
-can be tested without a window is in the package and runs in `swift test`.
+Structure by purpose: each target says what it is for. Until S8 the macOS app is the
+package's SwiftPM executable `AtlasMac` (`swift run AtlasMac --env … --host … --port …`);
+S8 makes it an Xcode app target on the local package (an `.xcodeproj` under
+`clients/apple`) for signing and the launcher, and the iOS app is one from the start.
+Everything that can be tested without a window is in the package and runs in `swift test`.
+CI's `apple` job (macos-latest) runs `swift build` and `swift test`, and builds
+`ControlSession` and `BlockViews` for the iOS Simulator.
 
 **ControlSession** (shared, `@MainActor`-free core with an `@Observable` façade):
 
-- `LineConnection`: TCP JSON lines on Network.framework (`NWConnection`, `.tcp`), the same
-  on macOS and iOS. It frames incoming bytes into lines (a line up to 4 MB, as the TUI's
-  socket buffer), writes `WireLine.encode`d requests, and reports `ready`, `line`, `closed`.
-  No Foundation socket or `Process` API, which are macOS-only or unsuitable on iOS.
-- `Reconnector`: on a closed connection says so, retries every 2 s (as the TUI), and on
-  return sends `hello`, then `boot`, then `open` of the page it was on. On iOS it also
-  closes when the app goes to the background and reconnects in the foreground
-  (`scenePhase`), and waits for `NWPathMonitor` to report a path before retrying.
-- `Session`: the handshake (`hello` with `Contract.version`; a `welcome` with another
-  spec, or a `bye`, ends the session with its text), `boot` and the shell (tabs,
-  `initial_to`, `active_tab`, a stale shell kept on a failed boot), the page on screen
-  (`expected` path), `history` for Back (each entry keeps its selection and scroll), the
+- `LineConnection`: TCP JSON lines. `NetworkLineConnection` is it on Network.framework
+  (`NWConnection`, `.tcp`), the same on macOS and iOS. `LineFramer` frames incoming bytes
+  into lines (a line up to 4 MB, as the TUI's socket buffer); it writes `WireLine.encode`d
+  requests and reports `ready`, `line`, `closed`. No Foundation socket or `Process` API,
+  which are macOS-only or unsuitable on iOS.
+- `SessionState`: the TUI's rules (`AtlasTui.Console`, `AtlasTui.App`) as a plain value,
+  with no actor, time or socket: each input (a connection event, a line, a tick, a
+  deadline, what the user does) changes it and returns effects (`connect`, `close`,
+  `send`, `scheduleRetry`, the handshake and boot deadlines). It holds the handshake
+  (`hello` with `Contract.version`; a `welcome` for another environment, spec or surface,
+  or a `bye`, ends the session with its text), `boot` and the shell (tabs, `initial_to`,
+  `active_tab`, the TUI's shell checks, a stale shell kept on a failed boot), the page on
+  screen (the tab's index page and an opened page; one `open` on the wire, the newest
+  wish next; only an `open` answers an `open`), the draft, the notice, the last update
+  (reason, at, position) and last hint, the `count`, and `refresh` every
+  `reconcile_seconds` (default 5). Retrying is part of it, not a type of its own: a closed
+  connection says so, retries every 2 s (as the TUI), and on return sends `hello`, then
+  `boot`, then `open` of the page it was on. A message of a known `op` that does not
+  decode answers what the session waits for as a failure, as the TUI (which goes by `op`
+  alone) does: a welcome ends the session, a boot reply fails the boot (the shell stays,
+  stale, and the connection too), and a page answering the `open` ends it with
+  `openFailure` for the status bar (or asks for the newer wish).
+  Later slices add `history` for Back (each entry keeps its selection and scroll), the
   page cache (newest per path by `position`, at most a fixed number of paths), selection
-  kept by row `key` (else `to`) when a page replaces a list, pending marks as Control
-  sends them, the notice line, the last update (reason, at, position) and last hint, the
-  header `count`, and `refresh` every `reconcile_seconds` (default 5).
-- Time and the connection are injected (`Clock`, `LineConnection` protocol), so tests drive
-  them: no real timers, no sockets in unit tests.
+  kept by row `key` (else `to`) and pending marks (S2). On iOS the session also closes
+  when the app goes to the background and reconnects in the foreground (`scenePhase`), and
+  waits for `NWPathMonitor` to report a path before retrying (I2).
+- `Session`: the `@Observable` façade the views use. It runs `SessionState`'s effects on
+  an injected `LineConnector` (which makes a `LineConnection`) and `SessionClock` (one-shot
+  deadlines and the reconcile tick), and drops events and deadlines of a connection it
+  gave up. Tests inject fakes: no real timers, no sockets in unit tests.
+- The view models `ShellViewModel` (title, environment and prod badge, tabs with
+  `⌘1`–`⌘9`, active tab, stale shell and boot failure, count, the two columns' pages) and
+  `StatusViewModel` (connection, position, last update, last hint, reconcile interval,
+  last notice, a failed `open`), built from the state, so the views are tested through
+  them.
+- `hello` says `client: "tui"` for now (accepted in S1): Control acts for the person only
+  for that client name (`AtlasControl.Session`). A name of its own for the apps needs
+  Control to know it, and is left for later.
 
 **ConsoleKit** (shared): the projection of `console_action` blocks and `legend` markup
 into the operations available in the current context, and their key tokens. The platform
@@ -160,7 +189,7 @@ Above the columns is the title bar; below them is the status bar.
 
 | Part | Source in the BFF | macOS |
 |---|---|---|
-| Tabs | `boot`: `tabs`, `active_tab`, `initial_to` | Sidebar items, with the count in the label. `⌘1`–`⌘9` switches. Scales to the 64-tab limit. |
+| Tabs | `boot`: `tabs`, `active_tab`, `initial_to` | Sidebar items, with the count in the sidebar section's header. `⌘1`–`⌘9` switches. Scales to the 64-tab limit. |
 | Title and env | `boot`: `title`, `env` | Title bar. The prod badge is the same inverted badge as in the TUI. |
 | Index page of a tab | the tab's `to` (a list page) | Middle column. A pending row shows `⋯ being processed`, muted. |
 | Opened page | `open` on a row | Right column. Back and Forward (`⌘[` / `⌘]`, Esc) use the app's own history, as in the TUI. |
@@ -190,9 +219,12 @@ What differs by platform beyond the layout stays in the platform targets:
 
 ## 3. The TUI's functions, and where they go
 
+`Session` in this table is `ControlSession`'s pair: the rules in `SessionState`, run by the
+`Session` façade (§2).
+
 | Function | TUI module(s) | Apple |
 |---|---|---|
-| Connection, retry every 2 s, reopen the page on return | `AtlasTui.App`, `AtlasTui.Console` | `ControlSession.Reconnector` |
+| Connection, retry every 2 s, reopen the page on return | `AtlasTui.App`, `AtlasTui.Console` | `SessionState` (retrying is part of it), run by `Session` on `LineConnector` and `SessionClock` |
 | Environment: prod by default, test when asked; `env/<env>.json` or `ATLAS_ENV_FILE` | `AtlasTui.CLI` | macOS: the launcher passes env, host, port (§5); iOS: configuration (§6) |
 | Tunnel to Fly, readiness probe | `bin/atlas`, `bin/lib/tunnel.sh` | macOS: the launcher reuses it; iOS: the Mac mini's tunnel over the tailnet (§6) |
 | Handshake: hello with the spec, refused when too old, wrong env → bye | `AtlasTui.Console` | `Session` |
@@ -216,7 +248,7 @@ What differs by platform beyond the layout stays in the platform targets:
 | The agent behind `:`: ask, plan (keep, edit, drop steps), run, cancel, stop; `agent:<intent>` actions | `AtlasTui.App` (child process), `AtlasTui.Model`, `AtlasTui.View` | macOS: a toolbar button, `:` or `⌘K`, the plan in a panel, `Process` running `atlas steer`; iOS §6 |
 | Keys from the projection, no local key table; Ctrl+C quits | `AtlasTui.Keys`, `AtlasTui.Interactions` | `ConsoleKit`; ⌘Q / system |
 | The legend, from `legend` markup | `AtlasTui.Legend`, `AtlasTui.LegendView` | macOS: the keys, by group, in the Help menu; iOS: not needed |
-| Palette (Prism tokens, light and dark), prod badge, header count | `AtlasTui.Palette`, `AtlasTui.ConsoleView` | asset colours from the same tokens; the inverted prod badge in the title bar; the count in the sidebar label |
+| Palette (Prism tokens, light and dark), prod badge, header count | `AtlasTui.Palette`, `AtlasTui.ConsoleView` | asset colours from the same tokens; the inverted prod badge in the title bar; the count in the sidebar section's header |
 | Resize: redraw, parts re-laid out | `AtlasTui.Resize` | SwiftUI layout |
 | Unknown blocks and kinds shown as fallbacks | `AtlasTui.View.known/0`, `AtlasTui.Blocks` | `Fallback` view |
 
@@ -225,7 +257,7 @@ What differs by platform beyond the layout stays in the platform targets:
 Every slice keeps the TUI and Control unchanged unless it says so, and adds its tests at
 the lowest level that can show it.
 
-**S1 Transport, session and the macOS shell.** The `clients/apple` package with
+**S1 Transport, session and the macOS shell (source integrated; acceptance below).** The `clients/apple` package with
 `ControlSession` (`LineConnection` on Network.framework, line framing, hello/welcome, boot,
 open, refresh on an injected clock, reconnect, version refusal and bye) and the `Mac`
 target with the approved shell (§2): the three-column window, the sidebar from `boot`'s
@@ -241,6 +273,40 @@ shows exactly the tabs `boot` sent, in its order, up to 64, and no tab of its ow
 failed boot keeps the last good tabs; the status bar's model follows the session. An
 integration test (§7) connects to a real Control and gets a welcome, a page and a boot
 shell. `swift build` for macOS and iOS.
+*Built, with these choices the coordinator accepted:* `hello` says `client: "tui"` (§2);
+the macOS app is the SwiftPM executable `AtlasMac` until S8; the rules are `SessionState`
+with the `Session` façade, and the views read `ShellViewModel` and `StatusViewModel`
+(§2); rows already open their `to` in the right column (`BlockViews` shows `list` rows,
+other blocks as fallbacks); the count is in the sidebar section's header. CI's `apple`
+job builds and tests the package; the integration test runs on a Mac (§7).
+
+*Current acceptance (2026-11-16):* the approved S1 source, including real-clock token
+ownership and capture release, is integrated onto current develop. Direct Swift 6
+compilation and native XCTest, shared iOS library compilation, and private loopback
+Control checks are recorded in the assignment's `delivery-evidence/` outside the product
+tree. The private Control proof uses actual Gateway/Session with accepted downstream
+`FakeStore`/`FakeFlow` and synthetic `Shop.Shelled` data; it is not a full deployment.
+The current generated Swift contract is 0.16.0; a confirmation may omit `confirm_label`
+and `confirm_to`, including when Control has no restart offer. S1 treats it as a known
+fallback and retains the editing guard; it implements no restart action.
+Source readiness does not establish release or visual acceptance: full AtlasMac window,
+entry-point lifecycle, menu/keyboard input and visual layout remain unverified because
+the prior WindowServer/LaunchServices/HI sandbox denials remain unresolved. No GUI check
+was retried. SwiftPM package execution, Xcode schemes and CI remain separate gates;
+direct compiler checks do not prove them. iOS evidence is shared-library compilation,
+not app or device execution. No signing, distribution or transport cutover is included.
+
+*Bounded S1 renderer correction (2026-11-16):* the shared list renderer now provides
+subtle hover feedback, a button covering the full padded row, and distinct persistent
+selection from the actual displayed page path (including redirects, rather than pending
+open intent). IDs, titles and detail summaries have line limits; received strings are
+unchanged. Valid item blocks show their full headings and labeled or blank-label prose,
+with wrapping, blank lines and selectable text. Unsupported actions are identified as
+unsupported; malformed/unknown blocks retain their decoding reasons and other blocks
+remain usable. This adds no submission, worker stream or BFF behavior.
+Direct native compile/XCTest evidence is recorded outside the product tree. Actual
+hover, full-row activation, selection and compactness acceptance remains for the user on
+LAPTOP after independent review; model tests do not establish visual acceptance.
 
 **S2 Pages, lists, Back and Forward.** `list` and `item` blocks, the fallback view, links,
 the page cache, the app's own history (Back and Forward, `⌘[` / `⌘]`, Esc) with selection
@@ -364,9 +430,10 @@ died or its port no longer accepts. If Control stays unreachable, close the tunn
 **Unit tests against fixtures.** The generated package already decodes and round-trips
 real lines (`Tests/Fixtures/control` from a Control test session on the neutral model of
 Control's tests; `Tests/Fixtures/steer` from the agent's steer test harness). The app
-package does the same one level up: `ControlSession` is fed recorded line sequences
-through a fake `LineConnection` and an injected clock, and asserts its state; views are
-tested through their models, not pixels. Recapture fixtures when the contract changes (a
+package does the same one level up: `SessionState` is fed inputs directly, and `Session`
+line sequences through a fake `LineConnector` and `SessionClock`, and both assert the
+state; views are tested through their models (`ShellViewModel`, `StatusViewModel`), not
+pixels. Recapture fixtures when the contract changes (a
 new version fails the fixture tests until they are), by
 running a session in a Control test (Gateway on port 0, `FakeStore`, the shop model) that
 writes every line it sent and received, then deleting that test. The steer fixtures are
@@ -380,16 +447,22 @@ private test instance (rela, core and Control on free ports, through `atlas-ops`
   `swift test --filter ControlIntegration` in `clients/apple` with `ATLAS_ENV_FILE`
   pointing at the instance's settings, as a child of the scenario (`System.cmd`), so the
   servers stop with the scenario;
-- the Swift test reads Control's host and port from that file, connects with the real
-  `LineConnection`, and checks hello/welcome, boot, open, a submit that is stored and a
-  hint to a second session; it is skipped when `ATLAS_ENV_FILE` is unset, so plain
-  `swift test` stays a unit run.
+- the Swift test (`ControlIntegrationTests`) reads Control's host and port from that file,
+  connects with the real `NetworkLineConnection`, and checks hello/welcome, a page and the
+  boot shell (S1); S4 adds a submit that is stored and a hint to a second session. It is
+  skipped when `ATLAS_ENV_FILE` is unset, so plain `swift test` stays a unit run.
 
-Network.framework exists only on Apple's platforms, so this job runs on macOS: the e2e job
-is Ubuntu today (erlef/setup-beam supports Ubuntu and Windows runners, not macOS), so the
-macOS integration job installs Erlang and Elixir with Homebrew and rela with
-`rela/scripts/start-test.sh install`. Until then the integration test runs on a Mac with
-`bin/atlas-dev`.
+The scenario is `e2e/scenarios/apple-control.exs`; on a Mac, run it with
+`bin/atlas-dev e2e apple-control`. A skip there is a failure. Network.framework exists only
+on Apple's platforms, so the scenario runs only on macOS with `swift`; elsewhere it passes
+with a note that it did not run. CI's e2e job is Ubuntu (erlef/setup-beam supports Ubuntu
+and Windows runners, not macOS), so a green e2e job says nothing about the Swift client
+against a real Control. The `apple` job (macOS) runs the unit tests only.
+
+*Follow-up:* a macOS integration job that installs Erlang and Elixir with Homebrew and
+rela with `rela/scripts/start-test.sh install`, and runs the scenario. With it, build the
+Swift package before the instance starts (or put a timeout on the scenario's
+`System.cmd`), so the build does not run inside the shared instance's time.
 
 **A person against test or prod.** On macOS, §5: `bin/atlas mac --env test` opens the
 tunnel and the app; prod is the default and wears the badge. On iOS, a TestFlight build

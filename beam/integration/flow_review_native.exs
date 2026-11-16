@@ -8,11 +8,61 @@
 # verdict counts only as its giver's trusted choice; a replaced review or test completes as
 # superseded and its late verdict moves nothing, while the composition's link counts only
 # the results for the pull request's current revision; review and test complete on one
-# exact revision.
+# exact revision. And the review pass: an agent reviewer with a machine is reviewed once
+# by its Runtime's pass receiver (AtlasRuntime.FlowPasses, its journal on disk, with a
+# stand-in for the native turn and its recorded findings: no provider runs here), on the
+# frozen packet the review names; the pass waits while that Runtime is offline, across a
+# Facts restart; its findings' verdict becomes the trusted verdict (`verdict`,
+# `verdict_by`), stored by real Facts; a person reviewer still answers by hand; a late
+# result for a replaced revision changes nothing.
 import ExUnit.Assertions
 alias AtlasFlow.{ManualClock, Talk}
 alias AtlasFlow.Composition.Links
 alias AtlasFlow.Runs.Store
+
+defmodule ReviewProof.Runtime do
+  @moduledoc """
+  The native side of the reviewer's Runtime, as AtlasRuntime.FlowPasses calls it: one
+  execution per pass id (counted), running until the proof ends it with the verdict its
+  findings record (`finish/3`).
+  """
+  def validate(_state, _request), do: :ok
+
+  def accept(state, r) do
+    Agent.get_and_update(state, fn s ->
+      case s.executions[r["id"]] do
+        nil ->
+          result = %{"execution" => "turn-#{map_size(s.executions) + 1}", "status" => "running"}
+          {{:ok, result}, %{s | executions: Map.put(s.executions, r["id"], result)}}
+
+        result ->
+          {{:ok, result}, s}
+      end
+    end)
+  end
+
+  def lookup(state, r, execution) do
+    case Agent.get(state, & &1.executions[r["id"]]) do
+      %{"execution" => ^execution} = result -> {:ok, result}
+      _ -> {:error, :execution_mismatch}
+    end
+  end
+
+  def finish(state, id, verdict) do
+    Agent.update(state, fn s ->
+      update_in(s.executions[id], fn result ->
+        Map.merge(result, %{
+          "status" => "completed",
+          "outcome" => verdict,
+          "evidence" => %{"findings" => %{"verdict" => verdict}}
+        })
+      end)
+    end)
+  end
+
+  def started(state), do: Agent.get(state, &map_size(&1.executions))
+end
+
 [dir, bin] = System.argv()
 root = Path.expand("../..", __DIR__)
 data = Path.join(dir, "rela")
@@ -39,7 +89,7 @@ assert status == 0, out
 :gen_tcp.close(socket)
 
 server =
-  Port.open({:spawn_executable, Path.join(bin, "rela-server")}, [
+  Port.open({:spawn_executable, Path.join(bin, "rela-server-headless-sqlite")}, [
     :binary,
     :exit_status,
     :stderr_to_stdout,
@@ -270,12 +320,325 @@ try do
   for key <- [review_old, test_old, review_r1, test_r1, review_r2, test_r2],
       do: assert(run_of.(settled, key) == run_of.(runs, key))
 
+  # -- The review pass of an agent reviewer -------------------------------------------------
+
+  # The agent reviews through its Runtime on proof-desk. Its pull request and the review of
+  # its revision, which names the packet the author froze of it, and its reviewer.
+  put.("agent", %{
+    "op" => "create",
+    "key" => "revbot",
+    "values" => %{"name" => "Revbot", "machine" => "proof-desk"}
+  })
+
+  pull = fn key, revision ->
+    put.("pull_request", %{
+      "op" => "create",
+      "key" => key,
+      "values" => %{
+        "url" => "https://github.com/eyra/atlas/pull/#{List.last(String.split(key, "-"))}",
+        "revision" => revision
+      }
+    })
+  end
+
+  reviewed = fn pr_key, revision, reviewer ->
+    body =
+      JSON.encode!(%{
+        "properties" => %{
+          "title" => "A review of #{pr_key}",
+          "revision" => revision,
+          "packet_tree" => "/private/packets/#{revision}/tree",
+          "packet_id" => "packet-#{revision}",
+          "packet_fingerprint" => "fpr_#{revision}"
+        },
+        "relations" => %{
+          "review_of" => %{"data" => [%{"type" => "pull_request", "id" => pr_key}]}
+        }
+      })
+
+    request =
+      {~c"#{rela_url}/pr_reviews", [{~c"accept", ~c"application/json"}], ~c"application/json",
+       body}
+
+    assert {:ok, {{_, status, _}, _, raw}} =
+             :httpc.request(:post, request, [timeout: 5_000], body_format: :binary)
+
+    assert status in [200, 201], raw
+    %{"id" => key} = JSON.decode!(raw)
+    put.("pr_review", %{"op" => "change", "key" => key, "links" => %{"review_by" => [reviewer]}})
+    key
+  end
+
+  pr_a = "PR-eyra-atlas-9002"
+  pull.(pr_a, "a1")
+  review_a = reviewed.(pr_a, "a1", "revbot")
+  {:ok, native} = Agent.start_link(fn -> %{executions: %{}} end)
+
+  passes_opts = [
+    machine: "proof-desk",
+    dir: Path.join(dir, "runtime"),
+    backend: {ReviewProof.Runtime, native}
+  ]
+
+  tick = fn -> ManualClock.advance(clock, 1000) end
+  pass_of = fn runs, key -> run_of.(runs, key)["pending"]["pass"] end
+
+  # Acknowledgement barrier, no timer wait: the receiver and Flow's inbox took what was sent.
+  delivered = fn passes ->
+    if passes, do: :sys.get_state(passes)
+    :sys.get_state(AtlasFlow.Activities.Pass.Inbox)
+  end
+
+  # Its Runtime is offline: the pass is frozen, routed to its machine, and waits.
+  assert {:ok, runs} = reconcile.()
+  frozen = pass_of.(runs, review_a)["request"]
+  assert summary.(run_of.(runs, review_a)) == {"working", "active", 1}
+  assert {frozen["owner"], frozen["machine"]} == {"revbot", "proof-desk"}
+  assert frozen["request"]["cwd"] == "/private/packets/a1/tree"
+  assert frozen["request"]["permissions"] == "review-packet"
+  assert frozen["request"]["backend"] == "claude"
+
+  assert frozen["request"]["packet"] == %{
+           "packet_id" => "packet-a1",
+           "fingerprint" => "fpr_a1",
+           "revision" => "a1"
+         }
+
+  # Seed a persisted pre-fix identity before delivery. Reconciliation must use that id,
+  # not regenerate it with the new formula. The real receiver must replay it unchanged.
+  legacy_id =
+    AtlasBus.Digest.of_term([
+      frozen["run"],
+      frozen["entry"],
+      frozen["name"],
+      frozen["owner"],
+      frozen["machine"],
+      frozen["fingerprint"]
+    ])
+    |> String.replace_prefix("sha256:", "")
+
+  refute legacy_id == frozen["id"]
+  frozen = Map.put(frozen, "id", legacy_id)
+
+  legacy_run =
+    run_of.(runs, review_a)
+    |> put_in(["pending", "pass", "request"], frozen)
+    |> put_in(["pending", "pass", "digest"], AtlasBus.Digest.of_term(frozen))
+
+  Task.async(fn ->
+    :ok = AtlasBus.attach(config["writer"]["sender"])
+
+    try do
+      assert {:stored, _} =
+               Talk.put(config["kind"], %{
+                 "op" => "change",
+                 "key" => legacy_run["key"],
+                 "by" => config["writer"]["by"],
+                 "values" => Store.encode(config, legacy_run)
+               })
+    after
+      Registry.unregister(AtlasBus.Endpoints, config["writer"]["sender"])
+    end
+  end)
+  |> Task.await()
+
+  # Facts restarts while it waits; the pass is retried as the same request, still unsent.
+  GenServer.stop(facts)
+  {:ok, facts} = AtlasFacts.Server.start_link(facts_opts)
+  _ = await.(await)
+  tick.()
+  assert {:ok, runs} = reconcile.()
+  assert pass_of.(runs, review_a)["request"] == frozen
+  assert summary.(run_of.(runs, review_a)) == {"working", "active", 1}
+  assert ReviewProof.Runtime.started(native) == 0
+
+  # The Runtime comes up: one execution starts.
+  {:ok, passes} = AtlasRuntime.FlowPasses.start_link(passes_opts)
+  tick.()
+  assert {:ok, _} = reconcile.()
+  delivered.(passes)
+  assert {:ok, runs} = reconcile.()
+  assert pass_of.(runs, review_a)["execution"] == "turn-1"
+  assert ReviewProof.Runtime.started(native) == 1
+
+  # The Runtime and Flow's inbox restart, and the review ends: its findings pass it.
+  GenServer.stop(passes)
+  Supervisor.terminate_child(AtlasFlow.Root, AtlasFlow.Activities.Pass.Inbox)
+  Supervisor.restart_child(AtlasFlow.Root, AtlasFlow.Activities.Pass.Inbox)
+  {:ok, passes} = AtlasRuntime.FlowPasses.start_link(passes_opts)
+  ReviewProof.Runtime.finish(native, frozen["id"], "pass")
+  tick.()
+  assert {:ok, _} = reconcile.()
+  delivered.(passes)
+  assert {:ok, runs} = reconcile.()
+  done = run_of.(runs, review_a)
+  assert summary.(done) == {"approved", "completed", 2}
+  assert done["last_input"]["pass"] == frozen["id"]
+  assert [%{"request" => ^frozen, "result" => %{"outcome" => "pass"}}] = done["pending"]["passes"]
+
+  # Its verdict is the reviewer's, as real Facts stored it: Flow named the reviewer.
+  answered = read.("pr_review", review_a)
+  assert answered["values"]["verdict"] == "approved"
+  assert answered["links"]["verdict_by"] == ["revbot"]
+
+  pr_select = fn runs, pr_key ->
+    children = Talk.read("pr_review", %{"linked" => %{"review_of" => pr_key}})["facts"]
+    by_key = Map.new(children, &{&1["key"], run_of.(runs, &1["key"])})
+    Links.select(link.("pr_review"), read.("pull_request", pr_key), children, by_key, nil)
+  end
+
+  assert {:write, "approved", %{"child" => ^review_a, "current" => "a1"}} =
+           pr_select.(runs, pr_a)
+
+  # Settled: once, however often it is reconciled.
+  tick.()
+  assert {:ok, again} = reconcile.()
+  delivered.(passes)
+  assert run_of.(again, review_a) == done
+  assert ReviewProof.Runtime.started(native) == 1
+
+  # A replaced revision: its review's pass runs, the pull request moves on and the review is
+  # superseded; the pass's late result then changes nothing.
+  pr_b = "PR-eyra-atlas-9003"
+  pull.(pr_b, "b1")
+  review_b = reviewed.(pr_b, "b1", "revbot")
+  assert {:ok, _} = reconcile.()
+  delivered.(passes)
+  assert {:ok, runs} = reconcile.()
+  late = pass_of.(runs, review_b)
+  assert late["execution"] == "turn-2"
+  put.("pull_request", %{"op" => "change", "key" => pr_b, "values" => %{"revision" => "b2"}})
+  put.("pr_review", %{"op" => "change", "key" => review_b, "values" => %{"superseded" => true}})
+  assert {:ok, runs} = reconcile.()
+  assert summary.(run_of.(runs, review_b)) == {"superseded", "completed", 2}
+  ReviewProof.Runtime.finish(native, late["request"]["id"], "pass")
+  tick.()
+  assert {:ok, _} = reconcile.()
+  delivered.(passes)
+  assert {:ok, runs} = reconcile.()
+  assert summary.(run_of.(runs, review_b)) == {"superseded", "completed", 2}
+  assert read.("pr_review", review_b)["values"]["verdict"] in [nil, ""]
+
+  # A person reviews the new revision: no pass is frozen; they answer by hand, as before.
+  review_b2 = reviewed.(pr_b, "b2", "reviewer-1")
+  assert {:ok, runs} = reconcile.()
+  assert summary.(run_of.(runs, review_b2)) == {"working", "active", 1}
+  assert pass_of.(runs, review_b2) == nil
+  verdict.("pr_review", review_b2, "reviewer-1", "changes_requested")
+  assert {:ok, runs} = reconcile.()
+  assert summary.(run_of.(runs, review_b2)) == {"changes_requested", "completed", 2}
+  assert run_of.(runs, review_b2)["last_input"]["input"]
+
+  assert {:write, "changes_requested", %{"child" => ^review_b2, "current" => "b2"}} =
+           pr_select.(runs, pr_b)
+
+  assert ReviewProof.Runtime.started(native) == 2
+
+  # Assignment-only changes invalidate the binding even when its deciding fingerprint
+  # stays the same. Exercise Store -> Bus -> real receiver journal, also after no answer.
+  pr_c = "PR-eyra-atlas-9004"
+  pull.(pr_c, "c1")
+  review_c = reviewed.(pr_c, "c1", "revbot")
+  assert {:ok, _} = reconcile.()
+  delivered.(passes)
+  assert {:ok, runs} = reconcile.()
+  first = pass_of.(runs, review_c)
+  first_id = first["request"]["id"]
+  journal = fn id -> Path.join([dir, "runtime", "passes", id <> ".json"]) end
+  first_bytes = File.read!(journal.(first_id))
+
+  put.("pr_review", %{
+    "op" => "change",
+    "key" => review_c,
+    "values" => %{"title" => "Assignment changed"}
+  })
+
+  assert {:ok, runs} = reconcile.()
+
+  assert [%{"left" => true, "request" => %{"id" => ^first_id}}] =
+           run_of.(runs, review_c)["pending"]["passes"]
+
+  assert {:ok, _} = reconcile.()
+  tick.()
+  assert {:ok, _} = reconcile.()
+  delivered.(passes)
+  assert {:ok, runs} = reconcile.()
+  second = pass_of.(runs, review_c)
+  second_id = second["request"]["id"]
+  refute second_id == first_id
+  assert second["request"]["fingerprint"] == first["request"]["fingerprint"]
+  assert second["execution"] == "turn-4"
+  assert File.read!(journal.(first_id)) == first_bytes
+
+  ReviewProof.Runtime.finish(native, second_id, "uncertain")
+  tick.()
+  assert {:ok, _} = reconcile.()
+  delivered.(passes)
+  assert {:ok, runs} = reconcile.()
+  assert pass_of.(runs, review_c)["result"]["outcome"] == "uncertain"
+  second_bytes = File.read!(journal.(second_id))
+
+  put.("pr_review", %{
+    "op" => "change",
+    "key" => review_c,
+    "values" => %{"title" => "Changed after no answer"}
+  })
+
+  assert {:ok, _} = reconcile.()
+  assert {:ok, _} = reconcile.()
+  GenServer.stop(passes)
+  {:ok, passes} = AtlasRuntime.FlowPasses.start_link(passes_opts)
+  tick.()
+  assert {:ok, _} = reconcile.()
+  delivered.(passes)
+  assert {:ok, runs} = reconcile.()
+  third = pass_of.(runs, review_c)
+  third_id = third["request"]["id"]
+  refute third_id in [first_id, second_id]
+  assert third["request"]["fingerprint"] == first["request"]["fingerprint"]
+  assert third["execution"] == "turn-5"
+  assert File.read!(journal.(first_id)) == first_bytes
+  assert File.read!(journal.(second_id)) == second_bytes
+
+  ReviewProof.Runtime.finish(native, third_id, "pass")
+  tick.()
+  assert {:ok, _} = reconcile.()
+  delivered.(passes)
+  assert {:ok, runs} = reconcile.()
+  done_c = run_of.(runs, review_c)
+  assert summary.(done_c) == {"approved", "completed", 2}
+  assert done_c["last_input"]["pass"] == third_id
+
+  assert [
+           %{"left" => true, "request" => %{"id" => ^first_id}},
+           %{
+             "left" => true,
+             "request" => %{"id" => ^second_id},
+             "result" => %{"outcome" => "uncertain"}
+           },
+           %{"request" => %{"id" => ^third_id}, "result" => %{"outcome" => "pass"}}
+         ] = done_c["pending"]["passes"]
+
+  tick.()
+  assert {:ok, runs} = reconcile.()
+  delivered.(passes)
+  assert run_of.(runs, review_c) == done_c
+  assert ReviewProof.Runtime.started(native) == 5
+
+  IO.puts(
+    "assignment-only replacements: running and no-answer, 3 distinct executions; old journals unchanged"
+  )
+
+  GenServer.stop(passes)
+  Agent.stop(native)
+
   GenServer.stop(facts)
   Agent.stop(clock)
 
   IO.puts(
     "flow-review native proof: imports, restart at the original due, trusted verdicts, " <>
-      "replaced child ignored, review and test on r2 ok"
+      "replaced child ignored, review and test on r2, and one review pass on an agent " <>
+      "reviewer's Runtime (offline wait, restarts, verdict, late result ignored) ok"
   )
 after
   System.cmd("/bin/kill", ["-TERM", to_string(os_pid)], stderr_to_stdout: true)
@@ -289,7 +652,7 @@ after
       receive do
         {^server, {:exit_status, _}} -> :ok
       after
-        1_000 -> raise "private rela-server did not exit after SIGKILL"
+        1_000 -> raise "private rela-server-headless-sqlite did not exit after SIGKILL"
       end
   end
 

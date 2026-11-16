@@ -25,7 +25,9 @@ defmodule AtlasAgent.TransportTest do
   end
 
   defp peer(script, run) do
-    {:ok, listener} = :gen_tcp.listen(0, [:binary, packet: :line, active: false])
+    {:ok, listener} =
+      :gen_tcp.listen(0, [:binary, packet: :line, active: false, ip: {127, 0, 0, 1}])
+
     {:ok, {_, port}} = :inet.sockname(listener)
 
     task =

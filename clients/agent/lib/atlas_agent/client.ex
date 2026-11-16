@@ -21,11 +21,9 @@ defmodule AtlasAgent.Client do
   `agent`, or a `migration` (which may set what the description marks as set by one).
   """
   def connect(env, settings, as \\ "agent") do
-    host = settings["control"]["host"] |> String.to_charlist()
-    port = settings["control"]["port"]
     options = [:binary, packet: :line, active: false, buffer: 4_194_304]
 
-    case tcp_connect(host, port, options, env) do
+    case control_connect(settings["control"], options, env) do
       {:ok, socket} ->
         client = %__MODULE__{socket: socket, env: env}
 
@@ -58,7 +56,7 @@ defmodule AtlasAgent.Client do
     end
   end
 
-  def close(%__MODULE__{socket: socket}), do: :gen_tcp.close(socket)
+  def close(%__MODULE__{socket: socket}), do: AtlasControlTransport.close(socket)
 
   # The contract version this client implements; Control sends a too old one away.
   @version AtlasAgent.Protocol.version()
@@ -125,14 +123,14 @@ defmodule AtlasAgent.Client do
   @doc "The last part of a path, which is the key of the fact it shows."
   def key_of(path), do: path |> String.split("/") |> List.last() |> URI.decode()
 
-  defp tcp_connect(host, port, options, env) do
-    case :gen_tcp.connect(host, port, options, @connect_timeout) do
+  defp control_connect(settings, options, env) do
+    case AtlasControlTransport.connect(settings, options, @connect_timeout) do
       {:ok, socket} ->
         {:ok, socket}
 
       {:error, _} ->
         {:error,
-         "Control #{env} does not answer at #{host}:#{port}. " <>
+         "Control #{env} does not answer using the selected Control endpoint/settings. " <>
            "Is it running? See `atlas-ops status --env #{env}`."}
     end
   end
@@ -166,7 +164,7 @@ defmodule AtlasAgent.Client do
       if left <= 0 do
         {:error, :timeout}
       else
-        :gen_tcp.recv(client.socket, 0, left)
+        AtlasControlTransport.recv(client.socket, 0, left)
       end
 
     case result do
@@ -260,7 +258,7 @@ defmodule AtlasAgent.Client do
   end
 
   defp send_line(client, message) do
-    case :gen_tcp.send(client.socket, [JSON.encode!(message), "\n"]) do
+    case AtlasControlTransport.send(client.socket, [JSON.encode!(message), "\n"]) do
       :ok -> :ok
       {:error, _} -> {:error, "Control #{client.env} closed the connection"}
     end

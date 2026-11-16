@@ -4,6 +4,64 @@ Prod holds the plan: real scenes, use cases and issues. Its data is real from th
 
 Prod runs on Fly (IS-Atlas-79, below), like test since IS-Atlas-26 (`docs/guides/test-on-fly.md`). This Mac runs only its clients: the TUI, the agents' command line and the agent behind `:`.
 
+## Optional Control TLS ingress (not activated)
+
+The default remains the shared Fly tunnel described below. A client can explicitly
+select `ATLAS_CONTROL_ENDPOINT=tls://<full-node-name>.tail8263c4.ts.net:<port>`.
+The CLI, TUI, its `steer` child, discovery and worker-output connections inherit this
+selection. They verify the system-trusted certificate chain and the full hostname/SNI
+before sending any Control hello, token or request. An empty or invalid selection,
+untrusted certificate, wrong hostname, plaintext peer or failed TLS handshake fails
+closed: no tunnel or plaintext fallback. Unset the variable to restore ordinary settings;
+setting it to an empty string does not disable selection. `atlas-ops` is unchanged.
+
+Server support is independently opt-in: `ATLAS_CONTROL_TAILSCALE=1` in the core image
+startup enables Control-only ingress; absent or `0` preserves normal startup. Any other
+value fails. The image contains checksum-pinned Tailscale 1.104.7 static binaries.
+Startup still applies a move first, honors `/data/hold`, and verifies Rela before
+starting the sidecar. A held machine never starts or enrolls the sidecar.
+
+The owned daemon uses userspace networking, a dedicated persisted node directory
+`/data/control-tailscale` (mode 700), and socket directory
+`/var/run/atlas-control-tailscale`. Do not share this state with another service.
+`ATLAS_CONTROL_TS_STATE_DIR` and `ATLAS_CONTROL_TS_SOCKET_DIR` override these paths.
+`ATLAS_CONTROL_TLS_PORT` defaults to 443. Startup reads the same `ATLAS_ENV_FILE`
+(or `$ATLAS_ROOT/env/$ATLAS_ENV.json`) as the core and forwards only its configured
+Control port, after checking that localhost can reach it. The existing Fly Control
+listener/private path stays intact; Bus and Runtime are unchanged.
+
+The supervised foreground command is
+`tailscale serve --tls-terminated-tcp=<port> tcp://localhost:<control-port>`
+([official Serve reference](https://tailscale.com/docs/reference/tailscale-cli/serve)).
+Serve manages TLS termination; Atlas provisions no application certificate/key or
+renewal subsystem. There is no Funnel, kernel routing, advertised tag/subnet route or
+Tailscale SSH setup. Losing Serve, tailscaled or the core stops the owned processes
+and fails startup; shutdown closes ingress and the core together.
+
+Activation requires a separate operator permission/exposure review, an authorized
+persisted node, tailnet HTTPS/certificate and MagicDNS prerequisites, and permission
+for the intended Control port. The observed eyra.co tailnet uses
+`tail8263c4.ts.net`, with an active broad `src=[*], dst=[*], ip=[*]` grant and no active
+tagOwners: current policy does not confine Control access to one operator. A
+self-device SSH check or member Funnel eligibility does not prove ingress exposure.
+Do not activate based on those observations. No ACL, key, enrollment, access or live
+Fly change is authorized by this implementation.
+
+An already-authorized node requires no new key; a Stopped node resumes using its
+persisted login. Only if an operator later
+explicitly authorizes first login may they supply `TS_AUTHKEY`. Startup removes it
+from the environment before every child (including apply-move and held startup),
+uses a private temporary file only for necessary login, and removes that file. It
+never places the key value in argv or logs, and never logs the node out on stop.
+Removed/unauthorized nodes without such authorization must remain disabled.
+
+Rollback: unset `ATLAS_CONTROL_ENDPOINT` in clients; disable
+`ATLAS_CONTROL_TAILSCALE` and restart the core through the approved operational flow.
+Preserve persisted state and existing Fly settings/tunnels. The local fixtures cover
+TLS and lifecycle behavior only. The image build, real Fly certificate issuance,
+enrollment, policy reachability and Serve route have **not** been exercised; this
+section does not claim deployed or working tailnet ingress.
+
 ## Start
 
 ```sh
@@ -66,7 +124,7 @@ A new test job joins with `needs: tested-tree` and `if: ${{ !cancelled() && need
 | Control | `eyra-atlas-test` on Fly; this Mac's tunnel end 127.0.0.1:7693 | `eyra-atlas` on Fly; this Mac's tunnel end 127.0.0.1:7593 |
 | Data | the apps' volumes on Fly | the apps' volumes on Fly (the Mac's copy from before the move: `~/.local/share/atlas/prod/`) |
 
-Both run the same pinned rela (26.11.2); test runs develop's newest build, prod master's. Test and prod never connect: each has its own Bus, and a prod Bus or Control refuses a test message or client (and the other way round). Facts never move from test to prod.
+Both run the same pinned rela (26.11.3); test runs develop's newest build, prod master's. Test and prod never connect: each has its own Bus, and a prod Bus or Control refuses a test message or client (and the other way round). Facts never move from test to prod.
 
 ## Prod on Fly (IS-Atlas-79)
 
@@ -144,7 +202,8 @@ atlas-ops fetch-from-fly --env prod --to ~/.local/share/atlas/prod-backup-$(date
    gives up, so start the backup when no turn is running.
 3. It copies `/data/rela` (rela's data) and `/data/beam` (Facts' own) into `<folder>/rela`
    and `<folder>/beam`, the layout `move-to-fly --from` takes back, and counts the items per
-   kind.
+   kind on a separate private extraction. The returned raw backup is never opened by
+   the counter: even read-only SQLite access can reconstruct its SHM sidecar.
 4. It releases rela, then the core, and waits until both pass their health checks.
 
 The folder must be new or empty. A failure can leave prod held: see "Held" in
@@ -170,6 +229,18 @@ can mean an earlier branch update landed. An id collision gives `conflict`. Thes
 operator reconciliation against the preserved records and GitHub state, not a blind
 `integration: retry`. Restore the matching journal and look up the existing request
 where possible. Never discard or resubmit an ambiguous effect to reconstruct it.
+
+For a stopped source, move-to-fly stages the original archives and their every-file
+SHA-256 manifests before fits/counts open a disposable extraction. It sends those
+original archives unchanged and compares the boot-time arrival receipts, including
+SQLite DB, WAL and SHM files. Validation leaves the source backup byte-identical.
+The extraction used for validation may acquire a reconstructed SHM; that extraction
+is never repacked as the transfer artifact.
+
+A live local source is supported only by `--dry-run`: checks use coherent SQLite
+online backups rather than copying active DB/WAL/SHM files. Logical read-only access
+can reconstruct the live SHM sidecar; live checks do not promise byte immutability.
+A real move still refuses a served source and requires it to be stopped or a backup.
 
 ### Move prod's data, and switch (IS-Atlas-90)
 

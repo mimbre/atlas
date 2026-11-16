@@ -767,6 +767,115 @@ defmodule AtlasRuntime.NativeAdmissionTest do
     refute File.exists?(git_log)
   end
 
+  test "the pass receiver admits the frozen backend and packet through Service once", context do
+    alias AtlasBus.Digest
+    alias AtlasRuntime.{FlowPasses, Workspaces}
+
+    home = Workspaces.workspace_path(context.dir)
+    dest = home <> "-folder"
+    packet = home <> "-packet"
+    tree = Path.join(packet, "tree")
+    materialize!(home, dest, "repo")
+
+    on_exit(fn ->
+      System.cmd("/bin/chmod", ["-R", "u+w", packet, Path.join(home, "packets")],
+        stderr_to_stdout: true
+      )
+
+      File.rm_rf!(packet)
+      File.rm_rf!(dest)
+    end)
+
+    # An ended author record and a real offline freeze; no provider or Code runs.
+    author = "turn-00000000000000aa"
+    File.mkdir_p!(Path.join([home, "turns", author]))
+
+    File.write!(
+      Path.join([home, "turns", author, "turn.json"]),
+      JSON.encode!(%{"id" => author, "cwd" => dest, "state" => "finished"})
+    )
+
+    {output, status} =
+      System.cmd(
+        System.fetch_env!("ATLAS_RUNTIME_EXECUTABLE"),
+        ~w(snapshot freeze --dest #{dest} --turn #{author} --packet #{packet} --packet-id 11111111-2222-4333-8444-555555555555 --revision 3f2a9c1),
+        env: [{"ATLAS_RUNTIME_HOME", home}],
+        stderr_to_stdout: true
+      )
+
+    assert status == 0, output
+    frozen = JSON.decode!(output)
+
+    # A different local preference cannot replace an explicitly frozen backend.
+    call(context.service, %{
+      "command" => "preferences",
+      "preferred" => %{"backend" => "claude", "model" => "sonnet"},
+      "fallback" => %{"backend" => "codex", "model" => nil}
+    })
+
+    Process.register(context.service, Service)
+    opts = [machine: "desk", dir: home]
+    endpoint = start_supervised!({FlowPasses, opts})
+
+    request = %{
+      "version" => 1,
+      "id" => String.duplicate("b", 64),
+      "machine" => "desk",
+      "fingerprint" => "subject-fp",
+      "request" => %{
+        "mode" => "start",
+        "assignment" => "admit:frozen-pass",
+        "backend" => "codex",
+        "vendors" => ["claude", "codex"],
+        "permissions" => "review-packet",
+        "packet_contract" => 1,
+        "cwd" => tree,
+        "packet" => Map.take(frozen, ~w(packet_id fingerprint revision))
+      }
+    }
+
+    body = %{"operation" => "accept", "request" => request, "digest" => Digest.of_term(request)}
+    reply = FlowPasses.request(endpoint, body)
+    assert reply["status"] == "running"
+    assert is_binary(reply["execution"])
+    record = CommandAdmissions.load(home, request["id"])
+    assert record["turn_id"] == reply["execution"]
+    assert record["binding"]["backend"] == "codex"
+    assert record["binding"]["cwd"] == tree
+    assert record["binding"]["permissions"] == Workspaces.packet_scope(tree, home)
+    assert record["recorded_result"]["selection"]["reason"] == "explicit"
+
+    worker = record["binding"]["worker_id"]
+
+    if agent = :sys.get_state(context.service).workers[worker].agent do
+      monitor = Process.monitor(agent)
+      assert_receive {:DOWN, ^monitor, :process, ^agent, _}, 5_000
+    end
+
+    File.write!(
+      Path.join([packet, "findings", "findings.json"]),
+      JSON.encode!(%{
+        "version" => 1,
+        "packet_id" => frozen["packet_id"],
+        "fingerprint" => frozen["fingerprint"],
+        "verdict" => "pass",
+        "summary" => "Inspected",
+        "findings" => [],
+        "checked" => [],
+        "not_checked" => []
+      })
+    )
+
+    stop_supervised!(FlowPasses)
+    endpoint = start_supervised!({FlowPasses, opts})
+    done = FlowPasses.request(endpoint, body)
+    assert done["execution"] == reply["execution"]
+    assert {done["status"], done["outcome"]} == {"completed", "pass"}
+    assert done["evidence"]["findings"]["review_turn"] == reply["execution"]
+    assert FlowPasses.request(endpoint, body) == done
+    assert length(launches(home)) == 1
+  end
+
   test "review-packet binds the frozen packet; start and continue refuse it once changed out of band",
        context do
     real = AtlasRuntime.Workspaces.workspace_path(context.dir)
@@ -806,13 +915,42 @@ defmodule AtlasRuntime.NativeAdmissionTest do
     {_, 0} =
       System.cmd(
         System.fetch_env!("ATLAS_RUNTIME_EXECUTABLE"),
-        ~w(snapshot freeze --dest #{dest} --turn #{author["turn_id"]} --packet #{packet} --packet-id #{id}),
+        ~w(snapshot freeze --dest #{dest} --turn #{author["turn_id"]} --packet #{packet} --packet-id #{id} --revision 3f2a9c1),
         env: [{"ATLAS_RUNTIME_HOME", real}]
       )
 
     scope = AtlasRuntime.Workspaces.packet_scope(tree, real)
     assert %{"profile" => "review-packet", "root" => ^tree, "packet" => ^packet} = scope
     assert scope["findings"] == Path.join(packet, "findings") and scope["packet_id"] == id
+
+    # A review pass takes the packet only as the one frozen for the revision it reviews.
+    pass = fn revision ->
+      %{
+        "request" => %{
+          "mode" => "start",
+          "assignment" => "Review",
+          "backend" => "claude",
+          "vendors" => ["claude"],
+          "permissions" => "review-packet",
+          "packet_contract" => 1,
+          "cwd" => tree,
+          "packet" => %{
+            "packet_id" => id,
+            "fingerprint" => scope["fingerprint"],
+            "revision" => revision
+          }
+        }
+      }
+    end
+
+    assert AtlasRuntime.FlowPasses.Native.validate(real, pass.("3f2a9c1")) == :ok
+
+    for other <- ["4e1b0d2", nil],
+        do:
+          assert(
+            AtlasRuntime.FlowPasses.Native.validate(real, pass.(other)) ==
+              {:error, :packet_mismatch}
+          )
 
     # The author profile never runs in the frozen tree.
     assert command_error(

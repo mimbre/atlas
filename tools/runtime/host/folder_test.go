@@ -811,7 +811,7 @@ func freeze(t *testing.T, home, dest, packet, id string) map[string]any {
 	if err := os.WriteFile(filepath.Join(home, "turns", authorTurn, "turn.json"), []byte(turn), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := snapshot.Freeze(home, dest, authorTurn, packet, id, ""); err != nil {
+	if _, err := snapshot.Freeze(home, dest, authorTurn, packet, id, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { writable(packet); writable(snapshot.PacketDir(home, id)) })

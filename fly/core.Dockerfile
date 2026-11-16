@@ -16,11 +16,37 @@ COPY beam /src/beam
 WORKDIR /src/beam
 RUN mix compile --warnings-as-errors && mix release atlas
 
+# Optional Control ingress binaries, pinned and checksum verified for each architecture.
+FROM debian:bookworm-slim AS tailscale
+ARG TARGETARCH
+ARG TAILSCALE_VERSION=1.104.7
+ARG TAILSCALE_SHA256_AMD64=e56693ff74a64f2591b7e819c280635a100aae1ddfb0ef058fcd052b7cd8d16c
+ARG TAILSCALE_SHA256_ARM64=d6bed2720310b328b861f943d7b4016c5358a9bad60575eb51e8143b79068484
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates curl \
+  && rm -rf /var/lib/apt/lists/*
+RUN arch="${TARGETARCH:-amd64}" \
+  && case "$arch" in \
+       amd64) sum="$TAILSCALE_SHA256_AMD64" ;; \
+       arm64) sum="$TAILSCALE_SHA256_ARM64" ;; \
+       *) echo "tailscale: no pinned archive for architecture $arch" >&2; exit 1 ;; \
+     esac \
+  && archive="tailscale_${TAILSCALE_VERSION}_${arch}.tgz" \
+  && curl -fsSL -o "/tmp/$archive" "https://pkgs.tailscale.com/stable/$archive" \
+  && { echo "$sum  /tmp/$archive" | sha256sum -c - \
+       || { echo "tailscale $TAILSCALE_VERSION ($arch): the archive does not match its pinned SHA-256" >&2; exit 1; }; } \
+  && mkdir /tailscale \
+  && tar -xzf "/tmp/$archive" -C /tailscale --strip-components=1 \
+  && /tailscale/tailscale version
+
+
 FROM debian:bookworm-slim
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends libstdc++6 openssl libncurses6 ca-certificates python3 \
   && rm -rf /var/lib/apt/lists/*
+
+COPY --from=tailscale /tailscale/tailscale /tailscale/tailscaled /usr/local/bin/
 
 ENV LANG=C.UTF-8 ATLAS_ROOT=/app RELEASE_DISTRIBUTION=none
 COPY --from=build /src/beam/_build/prod/rel/atlas /app/release

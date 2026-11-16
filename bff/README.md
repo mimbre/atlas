@@ -53,7 +53,7 @@ The DSL is plain macros, not Spark: a contract of a few blocks, models and kinds
 ### Source ownership
 
 - `lib/contract.ex`: root composition and existing presentation version.
-- `lib/blocks.ex`: blocks and markup only; `lib/pages.ex` and `lib/endpoints.ex`: page paths and endpoint declarations.
+- `lib/blocks.ex`: blocks only; `lib/markup.ex`: kinds of markup; `lib/pages.ex` and `lib/endpoints.ex`: page paths and endpoint declarations.
 - `lib/models/{runtime,workers,presentation}.ex`: shared payload types. These describe transmitted values, not Rela's stored entities and relationships.
 - `lib/wire/control/{session,discovery,workers}.ex`: client–Server session/steer vocabulary, exact-machine discovery and worker operations.
 - `lib/wire/runtime.ex`: Runtime worker/machine/attachment control and Server–Runtime output reads. The existing on-wire `channel` strings do not change with source ownership.
@@ -109,6 +109,8 @@ All markup nests, of every kind, as in XML: two entries share no block, or one c
 - `place/3`: adds an entry, split into grouped pieces where it would cross.
 
 An item page is in two parts (IS-Atlas-48, IS-Atlas-66), and for its owner a third one first, `todo` titled "What to do" (IS-Atlas-54): a `part` with role `main` titled "Content" over the item (later also what is said about it, such as comments) and a `part` with role `related` titled "References" over its related lists and the facts it points at, each list in a `section` carrying its title (a scene: the scene in Content; its "Use cases" in References; a use case also lists "In scene" there, to open its scene from). The rows of all lists on a page are one selection.
+
+The start page of what is assigned to the viewer (`/`) is calm by default, with detail on demand; it is the shared convention for such overviews, in the vocabulary above (no block or markup of its own). An `item` `summary` titled "Overview" counts the work: `To do` always, `Late` and `Blocked` only when some are. Then the `list` (block id `list`) of calm rows: no id (a client shows no empty id column) and a detail that says only, in this order, the review rule's label when the fact is to be reviewed, what is expected, whether it is blocked, and its deadline; never since when, why, or whose. Last, only when there are rows, an `item` `details` titled "Technical details", one pair per row in list order (the fact's key, then each part it has: kind, Assignment, flow, run, state, status, review, owner, manual, handover, deadline, since in full, cause), inside a collapsible `section` titled "Details", with the page's `sections_toggle` console action (key `d`, the worker page's; left out when a start action already binds `d`). Clients fold a collapsible section by default.
 
 The names (view model, markup) live in one place: `AtlasBFF.Names`, plus the `defmarkup` macro and the module name `AtlasBFF.Markup`.
 

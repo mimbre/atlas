@@ -86,7 +86,7 @@ defmodule AtlasTui.App do
       {:flush, _old} ->
         loop(state)
 
-      {:tcp, socket, line} when socket == state.socket ->
+      {transport, socket, line} when transport in [:tcp, :ssl] and socket == state.socket ->
         case JSON.decode(line) do
           {:ok, message} ->
             {model, effects} = Console.receive(state.model, message)
@@ -97,9 +97,13 @@ defmodule AtlasTui.App do
             loop(state)
         end
 
-      {:tcp_closed, socket} when socket == state.socket ->
+      {closed, socket} when closed in [:tcp_closed, :ssl_closed] and socket == state.socket ->
         Process.send_after(self(), :reconnect, @reconnect)
         loop(draw(%{state | socket: nil, model: Model.disconnected(state.model)}))
+
+      {error, socket, _reason}
+      when error in [:tcp_error, :ssl_error] and socket == state.socket ->
+        loop(draw(connection_timeout(state, "Control transport failed")))
 
       {:boot_timeout, socket, serial} when socket == state.socket ->
         if state.model.console.boot_pending && state.model.console.boot_serial == serial do
@@ -121,10 +125,10 @@ defmodule AtlasTui.App do
       {:handshake_timeout, _socket} ->
         loop(state)
 
-      {:tcp, _old_socket, _line} ->
+      {transport, _old_socket, _line} when transport in [:tcp, :ssl, :tcp_error, :ssl_error] ->
         loop(state)
 
-      {:tcp_closed, _old_socket} ->
+      {closed, _old_socket} when closed in [:tcp_closed, :ssl_closed] ->
         loop(state)
 
       :resized ->
@@ -215,7 +219,7 @@ defmodule AtlasTui.App do
 
     if :quit in effects do
       stop_output(state)
-      if state.socket, do: :gen_tcp.close(state.socket)
+      if state.socket, do: AtlasControlTransport.close(state.socket)
       if state.agent, do: Port.close(state.agent)
       :ok
     else
@@ -291,18 +295,20 @@ defmodule AtlasTui.App do
     do: Path.join(System.get_env("ATLAS_TEST_ROOT") || System.tmp_dir!(), "steer.log")
 
   defp connect(state) do
-    host = state.settings["control"]["host"] |> String.to_charlist()
-    port = state.settings["control"]["port"]
     options = [:binary, packet: :line, active: true, buffer: 4_194_304]
 
-    case :gen_tcp.connect(host, port, options, 2_000) do
+    case AtlasControlTransport.connect(state.settings["control"], options, 2_000) do
       {:ok, socket} ->
         state = %{state | socket: socket, model: Model.disconnected(state.model)}
 
-        send_line(state, Console.hello(state.model))
-        Process.send_after(self(), {:handshake_timeout, socket}, 5_000)
+        case send_line(state, Console.hello(state.model)) do
+          :ok ->
+            Process.send_after(self(), {:handshake_timeout, socket}, 5_000)
+            state
 
-        state
+          {:error, _} ->
+            connection_timeout(state, "Control send failed")
+        end
 
       {:error, _} ->
         Process.send_after(self(), :reconnect, @reconnect)
@@ -311,7 +317,7 @@ defmodule AtlasTui.App do
   end
 
   defp connection_timeout(state, reason) do
-    if state.socket, do: :gen_tcp.close(state.socket)
+    if state.socket, do: AtlasControlTransport.close(state.socket)
     Process.send_after(self(), :reconnect, @reconnect)
     model = Model.disconnected(state.model)
     %{state | socket: nil, model: %{model | console: %{model.console | error: reason}}}
@@ -319,8 +325,17 @@ defmodule AtlasTui.App do
 
   defp send_line(%{socket: nil}, _message), do: :ok
 
-  defp send_line(%{socket: socket}, message),
-    do: :gen_tcp.send(socket, [JSON.encode!(message), "\n"])
+  defp send_line(%{socket: socket}, message) do
+    case AtlasControlTransport.send(socket, [JSON.encode!(message), "\n"]) do
+      :ok ->
+        :ok
+
+      {:error, reason} = error ->
+        AtlasControlTransport.close(socket)
+        send(self(), {:tcp_error, socket, reason})
+        error
+    end
+  end
 
   defp draw(state) do
     {width, height} = size()

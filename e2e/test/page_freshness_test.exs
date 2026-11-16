@@ -30,7 +30,7 @@ defmodule AtlasE2E.PageFreshnessTest do
 
   @bin Instance.rela_bin()
   @moduletag skip:
-               if(@bin == nil, do: "set ATLAS_E2E_RELA_BIN to pinned Rela 26.11.2", else: false)
+               if(@bin == nil, do: "set ATLAS_E2E_RELA_BIN to pinned Rela 26.11.3", else: false)
   @moduletag timeout: 900_000
   @proof Path.expand("page_freshness/proof.exs", __DIR__)
 

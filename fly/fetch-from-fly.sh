@@ -67,6 +67,9 @@ for target in "$app" "$rela_app"; do
 done
 [ -z "$found" ] || fail "refusing to hold $env, nothing was changed:$found"
 
+tmp="$(mktemp -d "${TMPDIR:-/tmp}/atlas-fetch.XXXXXX")"
+trap 'rm -rf "$tmp"' EXIT
+
 # 1. Hold: the core first, so nothing writes to rela while it is copied.
 for target in "$app" "$rela_app"; do
   echo "Holding $target"
@@ -88,11 +91,19 @@ for pair in "$rela_app:rela" "$app:beam"; do
   remote "$target" "rm -f /tmp/$name.tar.gz" >/dev/null
   mkdir -p "$to/$name"
   tar -xzf "$to/$name.tar.gz" -C "$to/$name"
+  if [ "$name" = rela ]; then
+    # Counts opens SQLite and may reconstruct SHM. Keep the returned raw backup
+    # untouched by counting a second extraction of the same stopped-store archive.
+    mkdir "$tmp/rela"
+    tar -xzf "$to/$name.tar.gz" -C "$tmp/rela"
+  fi
   rm -f "$to/$name.tar.gz"
   echo "Copied $target:/data/$name to $to/$name ($(find "$to/$name" -type f | wc -l | tr -d ' ') files)"
 done
 echo "What it holds:"
-"$root/fly/counts.sh" "$to/rela" | sed 's/^/  /'
+bin="${ATLAS_FLY_LOCAL:?}/bin"
+ATLAS_RELA_BIN="$bin" "$root/rela/scripts/start-test.sh" install >&2
+ATLAS_RELA_BIN="$bin" "$root/fly/counts.sh" "$tmp/rela" | sed 's/^/  /'
 
 # 3. Release, or keep held for a migration.
 if [ -n "$keep_held" ]; then

@@ -29,7 +29,7 @@ done
 
 # The end-to-end test makes its own private test instance; it never reads env/<env>.json
 # and never runs on prod. It needs no setup: rela's binaries are ATLAS_E2E_RELA_BIN's, else
-# ATLAS_RELA_BIN's, else the rela-bin folder beside the checkout when it holds rela-server (a
+# ATLAS_RELA_BIN's, else the rela-bin folder beside the checkout when it holds rela-server-headless-sqlite (a
 # worker's folder, where the pinned rela is installed for it; AtlasE2E.Instance.rela_bin/1
 # looks in the same order); else it installs the pinned rela into a per-user cache (and
 # reuses it later). Whichever it is, a different version is replaced by the pinned one. Unless
@@ -44,7 +44,7 @@ if [ "$cmd" = e2e ]; then
   if [ -z "${ATLAS_E2E_RELA_BIN:-}" ]; then
     if [ -n "${ATLAS_RELA_BIN:-}" ]; then
       export ATLAS_E2E_RELA_BIN="$ATLAS_RELA_BIN"
-    elif [ -x "$beside/rela-server" ]; then
+    elif [ -x "$beside/rela-server-headless-sqlite" ]; then
       export ATLAS_E2E_RELA_BIN="$beside"
     else
       version="$(sed -n 's/^version=//p' "$root/rela/scripts/start-test.sh")"

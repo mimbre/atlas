@@ -19,6 +19,12 @@ defmodule Model.Agent do
       label: "Cannot run"
     )
 
+    field(:machine, :string,
+      description:
+        "The machine whose Runtime runs it (its runtime settings name it); Flow sends its passes there. Empty: it works by hand",
+      label: "Machine"
+    )
+
     top(false)
     counts(relation: :assigned_to, text: "{count} assigned")
     primary(:name)

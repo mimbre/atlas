@@ -12,8 +12,12 @@ defmodule Model.PrTest do
     * No verdict in three days escalates it to a maintainer, next to the tester.
     * A newer revision of the pull request supersedes it (`superseded`).
 
-  Slice 7 runs it on Flow's durable runs (`select`), with the parity fixes of
-  `Model.PrReview`: no pass yet, and `superseded` taken as it is written.
+  Slice 7 runs it on Flow's durable runs (`select`), with two parity fixes:
+
+    * no pass: a review pass answers by the findings Runtime records for a frozen
+      packet (`Model.PrReview`); a test has no such record of its result, so a pass
+      could not answer for the tester, and the tester answers by hand;
+    * `superseded` is taken as it is written, as for `Model.PrReview`.
   """
   use RelaDSL
 

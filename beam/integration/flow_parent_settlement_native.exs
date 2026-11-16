@@ -60,7 +60,7 @@ assert is_binary(output)
 :gen_tcp.close(listener)
 
 server =
-  Port.open({:spawn_executable, Path.join(bin, "rela-server")}, [
+  Port.open({:spawn_executable, Path.join(bin, "rela-server-headless-sqlite")}, [
     :binary,
     :exit_status,
     :stderr_to_stdout,

@@ -168,6 +168,75 @@ defmodule AtlasFlow.Runs.Run do
   defp valid_activity?(nil), do: true
   defp valid_activity?(_), do: false
 
+  @doc """
+  The run after a fenced, completed reply of a shared pass (its
+  `answer`, `AtlasFlow.Activities.Pass.answer/3`). An outcome that answers for the owner
+  is taken as the input of the answer's role: the run enters where that role's branch
+  leads, and the answer joins the entry's pending writes under a stable id (the field
+  and the relation naming the owner, written by Flow). An outcome that answers nothing,
+  or that no branch of the role takes, is kept with the pass; the state goes on waiting
+  for its answer by hand and its timers, and the pass is not asked again in this entry.
+  """
+  def pass_answer(run, flow, subject, now, reply, spec) do
+    intent = run["pending"]["pass"]
+
+    with {:ok, result} <- Pass.validate_reply(intent, reply),
+         "completed" <- result["status"],
+         true <-
+           AtlasBus.SubjectFingerprint.of(subject, intent["request"]["fingerprint_definition"]) ==
+             result["fingerprint"] do
+      record = %{"request" => intent["request"], "result" => result}
+
+      to =
+        case Pass.answer(spec, intent, result) do
+          {:answer, field, value, by, owner, role} ->
+            changed = %{field => value}
+            values = Map.merge(subject["values"] || %{}, changed)
+
+            case flow.next(run["state"], values, %{roles: [role], changed: changed}) do
+              {:to, to} -> {to, changed, %{by => [owner]}}
+              :stay -> nil
+            end
+
+          :none ->
+            nil
+        end
+
+      case to do
+        {to, changed, links} ->
+          write = %{
+            "id" => digest({run["key"], run["entry"], "pass-answer"}),
+            "kind" => run["subject_kind"],
+            "content" => %{
+              "op" => "change",
+              "key" => run["subject_key"],
+              "by" => "flow",
+              "values" => changed,
+              "links" => links
+            }
+          }
+
+          {:ok,
+           enter(run, flow, to, now, true, subject)
+           |> update_in(["pending", "writes"], &[write | &1])
+           |> update_in(
+             ["pending"],
+             &Map.update(&1, "passes", [record], fn l -> l ++ [record] end)
+           )
+           |> Map.put("last_input", %{
+             "version" => 1,
+             "pass" => result["id"],
+             "execution" => result["execution"]
+           })}
+
+        nil ->
+          {:ok, put_in(run, ["pending", "pass", "result"], result)}
+      end
+    else
+      _ -> {:error, :invalid_pass_result}
+    end
+  end
+
   def pass_result(run, flow, subject, now, reply) do
     with {:ok, result} <- Pass.validate_reply(run["pending"]["pass"], reply),
          "completed" <- result["status"],
@@ -396,13 +465,15 @@ defmodule AtlasFlow.Runs.Run do
 
   @doc """
   Whether an import row may lead to `state` of `flow`: a final state (completed history),
-  or a state a run can wait in without anything being done for it on entry: no mechanism
-  (no activity is run again) and no entry writes (no set, no create).
+  or a state a run can wait in without anything being done for it on entry: no entry
+  writes (no set, no create) and no mechanism, or only a shared pass (an
+  imported subject never had one: its first is no activity run again).
   """
   def importable?(flow, state),
     do:
       state in flow.states() and
-        (flow.final?(state) or (flow.mechanism(state) == nil and flow.enter(state, %{}) == []))
+        (flow.final?(state) or
+           (shared?(flow.mechanism(state)) and flow.enter(state, %{}) == []))
 
   def starts?(flow, subject),
     do: flow.start?(:create, subject) or flow.start?(:predicate, subject["values"] || %{})
@@ -452,7 +523,7 @@ defmodule AtlasFlow.Runs.Run do
       run["status"] != "active" ->
         {:ok, run}
 
-      run["pending"]["writes"] != [] or flow.mechanism(run["state"]) != nil ->
+      run["pending"]["writes"] != [] or not shared?(flow.mechanism(run["state"])) ->
         {:ok, run}
 
       true ->
@@ -492,7 +563,7 @@ defmodule AtlasFlow.Runs.Run do
             {to, accepted} = choice
 
             {:ok,
-             enter(run, flow, to, now, true, subject)
+             enter(left(run), flow, to, now, true, subject)
              |> Map.put("input_cursor", accepted["position"])
              |> Map.put("last_input", %{
                "version" => 1,
@@ -502,7 +573,7 @@ defmodule AtlasFlow.Runs.Run do
 
           branch ->
             {:ok,
-             enter(run, flow, branch, now, true, subject)
+             enter(left(run), flow, branch, now, true, subject)
              |> input(subject, %{
                "branch" => branch,
                "subject_version" => subject["version"]
@@ -520,7 +591,7 @@ defmodule AtlasFlow.Runs.Run do
 
           timer ->
             {:ok,
-             enter(run, flow, timer["to"], now, true, subject)
+             enter(left(run), flow, timer["to"], now, true, subject)
              |> input(
                subject,
                Map.put(
@@ -535,6 +606,28 @@ defmodule AtlasFlow.Runs.Run do
         end
     end
   end
+
+  # A state its inputs, branches and timers move: no mechanism, or a shared pass.
+  defp shared?(nil), do: true
+  defp shared?({:pass, spec}), do: Pass.with_person?(spec)
+  defp shared?(_), do: false
+
+  # A shared pass the state moved on from: kept with the run's passes, with its result if
+  # it had one, so no later reply of it is taken and the execution it started stays known.
+  defp left(run), do: leave_pass(run)
+
+  @doc "The run without its frozen pass, which its passes keep (`left`), if it has one."
+  def leave_pass(%{"pending" => %{"pass" => %{} = intent}} = run) do
+    record = Map.take(intent, ~w(request execution result)) |> Map.put("left", true)
+
+    update_in(run, ["pending"], fn pending ->
+      pending
+      |> Map.delete("pass")
+      |> Map.update("passes", [record], &(&1 ++ [record]))
+    end)
+  end
+
+  def leave_pass(run), do: run
 
   # Flow's own writer role: the branches a subflow takes `by: :atlas` and its `await`s.
   @writer "atlas-flow"

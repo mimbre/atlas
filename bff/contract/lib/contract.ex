@@ -33,6 +33,7 @@ defmodule AtlasBFFContract.Contract do
   version "0.16.0"
 
   use AtlasBFFContract.Blocks
+  use AtlasBFFContract.Markup
   use AtlasBFFContract.Pages
   use AtlasBFFContract.Endpoints
 end

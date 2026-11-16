@@ -1145,6 +1145,14 @@ defmodule AtlasFlow.Runs.Store do
     opts = [reopen: config["selection"][run["flow"]]["reopen"]]
 
     cond do
+      match?({:pass, _}, mechanism) and Pass.with_person?(elem(mechanism, 1)) ->
+        # A shared pass: a branch, a choice or a timer comes first and leaves the pass.
+        with {:ok, stepped} <- Run.step(run, flow, subject, now, inputs, opts) do
+          if Map.take(stepped, @moved) != Map.take(run, @moved),
+            do: {:ok, stepped},
+            else: pass_next(stepped, flow, subject, now, elem(mechanism, 1))
+        end
+
       match?({:pass, _}, mechanism) ->
         pass_next(run, flow, subject, now, elem(mechanism, 1))
 
@@ -1206,6 +1214,15 @@ defmodule AtlasFlow.Runs.Store do
             {:error, :invalid_pass_binding} -> {:ok, run}
           end
 
+        # A shared pass is left, not blocked: one for the new binding is another request,
+        # also after a result that answered nothing (kept with the passes it left).
+        Pass.with_person?(spec) and not Pass.current?(intent, subject, assignment, owner) ->
+          {:ok, Run.leave_pass(run)}
+
+        # Done without an answer: the answer comes by hand; this binding is not asked again.
+        intent["result"] != nil ->
+          {:ok, run}
+
         not Pass.current?(intent, subject, assignment, owner) ->
           {:ok,
            Map.merge(run, %{
@@ -1219,17 +1236,32 @@ defmodule AtlasFlow.Runs.Store do
               {:ok, put_in(run, ["pending", "pass"], updated)}
 
             {:ok, %{"status" => "completed"} = reply} ->
-              Run.pass_result(run, flow, subject, now, reply)
+              if Pass.with_person?(spec),
+                do: Run.pass_answer(run, flow, subject, now, reply, spec),
+                else: Run.pass_result(run, flow, subject, now, reply)
 
             {:ok, reply} ->
               {:ok, put_in(run, ["pending", "pass", "execution"], reply["execution"])}
 
-            {:error, :pass_requires_reconciliation} ->
-              {:ok,
-               Map.merge(run, %{
-                 "status" => "blocked",
-                 "blocked_reason" => "Runtime pass requires reconciliation"
-               })}
+            # A shared pass ends without an answer: its state still takes the answer by
+            # hand and keeps its timers. Any other pass blocks its run.
+            {:error, {:pass_requires_reconciliation, reason}} ->
+              if Pass.with_person?(spec),
+                do:
+                  {:ok,
+                   put_in(run, ["pending", "pass", "result"], %{
+                     "id" => intent["request"]["id"],
+                     "execution" => intent["execution"],
+                     "status" => "failed",
+                     "requires_reconciliation" => true,
+                     "error" => reason
+                   })},
+                else:
+                  {:ok,
+                   Map.merge(run, %{
+                     "status" => "blocked",
+                     "blocked_reason" => "Runtime pass requires reconciliation"
+                   })}
 
             {:error, _} ->
               {:ok, run}
@@ -1245,14 +1277,32 @@ defmodule AtlasFlow.Runs.Store do
     with %{"description" => d} <- Talk.transition_read("_description", %{}),
          {:ok, assignment} <- pass_assignment(binding, subject, d),
          [key] <- assignment["links"][binding["relation"]],
-         [kind] <- d["relations"][binding["relation"]]["to"],
-         %{"fact" => %{} = owner} <- Talk.transition_read(kind, %{"key" => key, "plain" => true}) do
+         {:ok, owner} <- one_fact(d["relations"][binding["relation"]]["to"], key) do
       # Version/position changes alone do not change an assignment binding.
       {:ok, Map.take(assignment, ~w(key values links)), owner}
     else
       _ -> {:error, :owner_unavailable}
     end
   end
+
+  # The one fact of `kinds` with `key`: a relation to several kinds says which by the fact
+  # that holds the key; none, more than one, or an unanswered read is no owner.
+  defp one_fact(kinds, key) when is_list(kinds) do
+    found =
+      Enum.map(kinds, fn kind ->
+        case Talk.transition_read(kind, %{"key" => key, "plain" => true}) do
+          %{"fact" => fact} -> fact
+          _ -> :unavailable
+        end
+      end)
+
+    case Enum.reject(found, &is_nil/1) do
+      [%{} = owner] -> {:ok, owner}
+      _ -> {:error, :owner_unavailable}
+    end
+  end
+
+  defp one_fact(_, _), do: {:error, :owner_unavailable}
 
   defp pass_assignment(%{"via" => via}, subject, d) when is_binary(via) do
     with [key] <- subject["links"][via],

@@ -11,6 +11,17 @@ atlas put pull_request --url https://github.com/mimbre/atlas/pull/14 --in IS-Atl
 
 `--in <code>` names the parent, `--<field>-file <path>` or `--<field> -` (stdin) reads text of several lines, and `atlas get <code>` and `atlas list <kind> [--in <code>]` read.
 
+Control connections optionally accept
+`ATLAS_CONTROL_ENDPOINT=tls://<full-node-name>.tail8263c4.ts.net:<port>`. This selection
+also reaches discovery, the TUI's `steer` child and worker-output sockets. System CA
+trust and the complete hostname/SNI are checked before hello or any grant/request.
+An explicit empty/invalid value or TLS failure fails closed without opening a Fly
+tunnel or trying plaintext. Unset the variable to preserve the existing settings and
+shared Fly tunnel behavior. This does not select a new environment or change Bus or
+Runtime transport. Optional server activation requires the separate policy review in
+[prod.md](prod.md#optional-control-tls-ingress-not-activated); real Fly certificates,
+enrollment and Serve ingress remain unverified.
+
 An agent that plans gets the same actions as tools: `atlas tools` lists them, made from rela's description through Control. `atlas plan --on <code> "<request>"` asks the environment's planner (`agent.planner` in `env/<env>.json`: a local `claude -p` that may only read, or any command) what it would do on that page. It answers steps, each checked against the form it would fill, and writes nothing ([uc-atlas-16.md](uc-atlas-16.md)). In the TUI, `:` asks the same agent (`atlas steer`, which the TUI starts) about the page you are on; you keep, edit or drop each step, and the kept ones run through Control ([uc-atlas-17.md](uc-atlas-17.md)).
 
 `atlas put <kind> ... --link <association>=<key>[,<key>]` (repeatable) links the new fact right after it is made, each through its association's own form. When a link is refused, the fact stays made and the refusal names its key (`GV-0007 is made, but not linked`), so `atlas set GV-0007 about=PR-12` finishes it.
