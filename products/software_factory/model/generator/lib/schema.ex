@@ -24,7 +24,7 @@ defmodule RelaDSL.Schema do
           initial :write
 
           state :write, label: "Write it" do
-            pass :writer, on: [delivered: :check, failed: :stuck]
+            wait_for [:editor], on: :draft, done: :check
             timer :slow, "1d", to: :stuck
           end
 
@@ -42,9 +42,9 @@ defmodule RelaDSL.Schema do
 
   ## Mechanisms
 
-  A state does its work through at most one **mechanism**: a `pass` (someone's
-  Runtime does a piece of work), a `gate` (a verdict) or an `effect` (a call to an
-  outside service). Each writes one result field on the subject. The macro expands
+  A state does its work through at most one **mechanism**: a `gate` (a verdict) or
+  an `effect` (a call to an outside service). Each writes one result field on the
+  subject. The macro expands
   into what Rela needs for that: the field is reset to `none` when the state is
   entered, and there is one change branch per result value, taken by the role
   `atlas-flow`. A definition maps every value the mechanism can give,
@@ -52,19 +52,16 @@ defmodule RelaDSL.Schema do
 
   | mechanism | field | values |
   |---|---|---|
-  | `pass` | `pass_result` | `delivered`, `failed` |
   | `gate` | `gate_result` | the gate's `verdicts` |
   | `effect` | `effect_result`, or `field:` | `done`, `refused` |
 
   A result may lead to `{state, label}` instead of a state: the branch then carries
-  that label, as `failed: {:decide, "The pass failed; a person decides"}`.
+  that label, as `refused: {:decide, "The service refused; a person decides"}`.
 
   `wait_for` is the same for people: the state waits in their inbox, the field is
   reset, and each value they may choose is a branch only they can take. With
   `reset: false` the field is not reset; a subflow without `run_as` cannot set it.
-  A state that waits for people and has no mechanism is `input_required`; one with
-  a pass that people work in (`with_person: true`) stays working, as a state with a
-  mechanism does. `await` waits for a field that something outside this subflow
+  A state that waits for people and has no mechanism is `input_required`. `await` waits for a field that something outside this subflow
   writes; a composition (`RelaDSL.Schema.Composition`) says what writes it.
 
   Branches are tried in the order written; a mechanism's branches sit where the
@@ -81,7 +78,7 @@ defmodule RelaDSL.Schema do
   owner, and every state that is not final resolves to exactly one: its own (`owner`
   inside the state, with the same options) or the subflow's. Waiting is not a status:
   `wait_for` names the roles that decide, and the owner still answers for the item.
-  Flow routes passes to the owner's Runtime; the format never maps a person to a role.
+  The format never maps a person to a role.
 
   `present` is what the owner sees in a state: what they are `expected` to do, `why`
   it came to them, `instructions`, the `section` of a field to show (the part under a
@@ -156,7 +153,7 @@ defmodule RelaDSL.Schema do
       outcome, and `uncertain` and `error` decide its person verdict;
     * a gate's `purpose` is `:flow` or `:decider`; a smart gate names its `advice`
       and has no `rule`; a rule gate has a `rule` (below) and no `advice`;
-    * a pass or an effect maps exactly its result values;
+    * an effect maps exactly its result values;
     * at most one mechanism per state, and no field set twice in a state;
     * `initial` names a state that is not final; there is a start trigger;
       `run_as` is given when a state has outputs; names are Rela names; at most
@@ -176,7 +173,6 @@ defmodule RelaDSL.Schema do
   """
 
   @writer "atlas-flow"
-  @pass_results [:delivered, :failed]
   @effect_results [:done, :refused]
   @outcomes [:pass, :changes_required, :uncertain, :error]
   @purposes [:flow, :decider]
@@ -201,7 +197,6 @@ defmodule RelaDSL.Schema do
     final: 1,
     final: 2,
     final: 3,
-    pass: 2,
     gate: 2,
     effect: 2,
     wait_for: 2,
@@ -321,9 +316,6 @@ defmodule RelaDSL.Schema do
   end
 
   # -- What a state holds -----------------------------------------------------------
-
-  @doc "Mechanism: a pass by `profile`, with its spec (`mode:`, `folder:`, …) and `on: [delivered:, failed:]`."
-  defmacro pass(profile, opts), do: item(:pass, [profile, opts])
 
   @doc "Mechanism: the gate `name`, mapping each of its verdicts to a state (`ready: :next, …`)."
   defmacro gate(name, verdicts), do: item(:gate, [name, verdicts])
@@ -945,15 +937,6 @@ defmodule RelaDSL.Schema do
   end
 
   # Each returns the state with the entry added, and the problems found.
-  defp put({:pass, profile, opts}, s, _gates) do
-    spec = Map.new([{:profile, profile} | Keyword.delete(opts, :on)])
-    {s, ps} = mechanism(s, {:pass, spec})
-
-    if opts[:writes] == :none,
-      do: {s, ps},
-      else: also(results(s, :pass_result, @pass_results, Keyword.get(opts, :on, [])), ps)
-  end
-
   defp put({:gate, name, mapping}, s, gates) do
     case Enum.find(gates, &(&1.name == name)) do
       nil ->
@@ -1062,7 +1045,7 @@ defmodule RelaDSL.Schema do
   defp mechanism(%{mechanism: nil} = s, m), do: {%{s | mechanism: m}, []}
 
   defp mechanism(s, {kind, _}),
-    do: {s, ["has a second mechanism (#{kind}); a state has at most one pass, gate or effect"]}
+    do: {s, ["has a second mechanism (#{kind}); a state has at most one gate or effect"]}
 
   # One branch per result value, in the order the definition maps them.
   defp results(s, field, values, mapping, source \\ nil) do

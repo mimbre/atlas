@@ -49,14 +49,15 @@ defmodule RelaDSL.SchemaTest do
                [:draft, :proofread, :post, :sent, :stuck, :answered, :dropped]
     end
 
-    test "a pass expands into its reset and one writer branch per result" do
+    test "waiting for people expands into its reset and one branch per value, theirs only" do
       draft = state(:draft)
-      assert draft.mechanism == {:pass, %{profile: :writer, mode: :draft}}
-      assert draft.set == [pass_result: :none]
+      assert draft.mechanism == nil
+      assert {draft.status, draft.waiting_for} == {:input_required, ["writer"]}
+      assert draft.set == [draft_result: :none]
 
       assert branches(draft) == [
-               {:proofread, ["atlas-flow"], "entity.pass_result == 'delivered'"},
-               {:stuck, ["atlas-flow"], "entity.pass_result == 'failed'"}
+               {:proofread, ["writer"], "entity.draft_result == 'delivered'"},
+               {:stuck, ["writer"], "entity.draft_result == 'failed'"}
              ]
 
       assert [%{name: :slow, period: "1d", to: :stuck, label: "The writer did not finish"}] =
@@ -193,27 +194,31 @@ defmodule RelaDSL.SchemaTest do
           start :create
           initial :a
           state :a do
-            pass :writer, on: [delivered: :b, failed: {:b, "It failed; someone looks"}]
+            effect :call, on: [done: :b, refused: {:b, "It was refused; someone looks"}]
           end
           final :b
         end
         """).__flows__()
 
       assert [
-               %{branches: [%{to: :b, label: nil}, %{to: :b, label: "It failed; someone looks"}]}
+               %{
+                 branches: [
+                   %{to: :b, label: nil},
+                   %{to: :b, label: "It was refused; someone looks"}
+                 ]
+               }
                | _
              ] =
                flow.states
     end
 
-    test "people working with a pass keep the state working; reset: false sets nothing" do
+    test "people a state waits for keep it input_required; reset: false sets nothing" do
       [flow] =
         compile!("""
         subflow :f, subject: :t do
           start :create
           initial :a
           state :a do
-            pass :signer, with_person: true, writes: :none
             wait_for [:signer], on: :signed, reset: false, yes: :b
             timer :late, "1d", to: :c
           end
@@ -225,27 +230,32 @@ defmodule RelaDSL.SchemaTest do
         """).__flows__()
 
       [a, c, _] = flow.states
-      assert %{status: nil, waiting_for: ["signer"], set: []} = a
+      assert %{status: :input_required, waiting_for: ["signer"], set: []} = a
       assert %{status: :input_required, waiting_for: ["boss", "signer"], set: []} = c
       assert Enum.map(c.branches, & &1.roles) == [["boss", "signer"]]
     end
 
-    test "a pass a person answers (writes: :none) adds no reset or writer branch" do
-      [flow] =
-        compile!("""
-        subflow :f, subject: :t do
-          start :create
-          initial :a
-          state :a do
-            pass :signer, writes: :none
-            branch to: :b, roles: [:signer], when: "entity.signed == true"
-          end
-          final :b
-        end
-        """).__flows__()
+    test "pass is no mechanism of the format any more (F0): it does not compile" do
+      refute Keyword.has_key?(RelaDSL.Schema.__macros__(), :pass)
 
-      assert [%{mechanism: {:pass, %{profile: :signer}}, set: [], branches: [_]} | _] =
-               flow.states
+      logged =
+        ExUnit.CaptureIO.capture_io(:stderr, fn ->
+          assert_raise CompileError, fn ->
+            compile!("""
+            subflow :f, subject: :t do
+              run_as "system:x"
+              start :create
+              initial :a
+              state :a do
+                pass :writer, on: [delivered: :b, failed: :b]
+              end
+              final :b
+            end
+            """)
+          end
+        end)
+
+      assert logged =~ "undefined function pass/2"
     end
   end
 
@@ -550,7 +560,7 @@ defmodule RelaDSL.SchemaTest do
       refused(String.replace(gate_source(@rule), ":g,", ":G,"), 1, "G is not a valid name")
     end
 
-    test "a pass that does not map every result" do
+    test "an effect that does not map every result" do
       refused(
         """
         subflow :f, subject: :t do
@@ -558,13 +568,13 @@ defmodule RelaDSL.SchemaTest do
           start :create
           initial :a
           state :a do
-            pass :worker, on: [delivered: :b]
+            effect :call, on: [done: :b]
           end
           final :b
         end
         """,
         6,
-        "state a: pass_result can give failed, which no branch takes"
+        "state a: effect_result can give refused, which no branch takes"
       )
     end
 
@@ -590,7 +600,7 @@ defmodule RelaDSL.SchemaTest do
       refused(
         gated("""
           state :a do
-            pass :worker, on: [delivered: :b, failed: :b]
+            effect :call, on: [done: :b, refused: :b]
             gate :size_limit, fits: :b, person: :b
           end
           final :b
@@ -608,14 +618,14 @@ defmodule RelaDSL.SchemaTest do
           start :create
           initial :a
           state :a do
-            pass :worker, on: [delivered: :b, failed: :b]
-            set pass_result: :ready
+            effect :call, on: [done: :b, refused: :b]
+            set effect_result: :ready
           end
           final :b
         end
         """,
         7,
-        "state a: sets pass_result twice"
+        "state a: sets effect_result twice"
       )
     end
 
