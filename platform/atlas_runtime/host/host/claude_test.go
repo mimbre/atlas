@@ -156,7 +156,7 @@ printf '%s\n' '{"type":"result","result":"done"}'
 	argv, _ := os.ReadFile(native + ".argv")
 	// The file tools are denied the Runtime home the test host was given (TestMain), which has no Code token.
 	home, _ := resolvePath(os.Getenv("ATLAS_RUNTIME_HOME"))
-	want := `--settings {"permissions":{"deny":["Read(/` + home + `)"]}} ` +
+	want := `--settings {"permissions":{"deny":["Read(/` + home + `)","` + strings.Join(socketRules(home), `","`) + `"]}} ` +
 		"--print --output-format stream-json --verbose --restricted --safe-mode --strict-mcp-config --no-chrome " +
 		"--tools Read,Glob,Grep --allowedTools Read,Glob,Grep --permission-mode dontAsk --permission-prompts none " +
 		"--model claude-sonnet-4-6 -- fixture goal\n"
@@ -206,6 +206,7 @@ func TestClaudeSettingsTempByteLimitAndTrustService(t *testing.T) {
 	}
 	deny := settings.Sandbox.Filesystem.DenyWrite
 	protected := []string{root + "/.agents", root + "/.codex", root + "/.aws", root + "/.claude", root + "/.git/config", root + "/.git/hooks", "/runtime-home"}
+	protected = append(protected, socketPaths("/runtime-home")...)
 	tmp, _ := resolvePath("/tmp")
 	if len(deny) <= len(protected) || !slices.Equal(deny[len(deny)-len(protected):], protected) ||
 		!slices.Contains(deny, tmp) || !slices.IsSorted(deny[:len(deny)-len(protected)]) {

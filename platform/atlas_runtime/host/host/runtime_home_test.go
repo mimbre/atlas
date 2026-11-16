@@ -38,7 +38,7 @@ func quoted(path string) string { body, _ := json.Marshal(path); return string(b
 func TestCodexRepositoryAndPlainProfilesDenyTheRuntimeHome(t *testing.T) {
 	user := isolatedHome(t)
 	home, token := runtimeHomeWithToken(t, user)
-	denied := quoted(home) + `="none",` + quoted(token) + `="none",` + quoted(filepath.Dir(token)) + `="none"`
+	denied := quoted(home) + `="none",` + quoted(token) + `="none",` + quoted(filepath.Dir(token)) + `="none"` + socketNone(home)
 	// A managed repository below the home: TestCodexManagedRepositoryDeniesTheRuntimeHomeBesideItsAncestors.
 	for _, root := range []string{filepath.Join(user, "repo")} {
 		args, err := permissionArguments(map[string]any{"profile": "dedicated-repository", "root": root}, "", "", home)
@@ -87,7 +87,7 @@ func TestCodexRepositoryAndPlainProfilesDenyTheRuntimeHome(t *testing.T) {
 	}
 	// Without a Code configuration only the home is denied.
 	bare := filepath.Join(user, "bare-runtime")
-	if args, err := sandboxArguments("read-only", workspace, bare); err != nil || !strings.Contains(args[3], `filesystem={`+quoted(bare)+`="none"}`) {
+	if args, err := sandboxArguments("read-only", workspace, bare); err != nil || !strings.Contains(args[3], `filesystem={`+quoted(bare)+`="none"`+socketNone(bare)+`}`) {
 		t.Fatalf("home without code.json: %q %v", args, err)
 	}
 	for _, refused := range []struct{ root, home, message string }{
@@ -127,7 +127,7 @@ func TestCodexManagedRepositoryDeniesTheRuntimeHomeBesideItsAncestors(t *testing
 	}
 	sensitive := func(skip ...string) []string {
 		var paths []string
-		for _, name := range []string{"runtime.sock", "read.sock", "turns", "code.json", "server.json", "backends.json", "policy.json", "availability.json", "service.log",
+		for _, name := range []string{"runtime.sock", "read.sock", "backend.sock", "turns", "code.json", "server.json", "backends.json", "policy.json", "availability.json", "service.log",
 			"service.lock", "passes", "snapshots", "materializations", "scratch"} {
 			if !slices.Contains(skip, name) {
 				paths = append(paths, filepath.Join(home, name))
@@ -160,7 +160,7 @@ func TestCodexManagedRepositoryDeniesTheRuntimeHomeBesideItsAncestors(t *testing
 	// token and its directory, then the sensitive names not already listed, then the sibling worker globs.
 	want := project(managed) + none(slices.Concat([]string{filepath.Join(home, "code.json"), filepath.Join(home, "extra.sock"), filepath.Join(home, "notes.txt"),
 		filepath.Join(home, "turns"), filepath.Join(workers, "w2"), filepath.Join(workers, "w1", "admission-latch.json"), token, filepath.Dir(token)},
-		sensitive("turns", "code.json"), globs("[!w]*", "w[!1]*", "[w]", "w1[!/]*"))...)
+		socketPaths(home), sensitive("turns", "code.json", "runtime.sock", "read.sock", "backend.sock"), globs("[!w]*", "w[!1]*", "[w]", "w1[!/]*"))...)
 	if got := filesystem(args); got != want {
 		t.Fatalf("managed repository:\ngot  %s\nwant %s", got, want)
 	}
@@ -174,7 +174,7 @@ func TestCodexManagedRepositoryDeniesTheRuntimeHomeBesideItsAncestors(t *testing
 	args, err = repositoryArguments(map[string]any{"root": fresh}, home)
 	want = project(fresh) + none(append([]string{filepath.Join(home, "code.json"), filepath.Join(home, "extra.sock"), filepath.Join(home, "notes.txt"),
 		filepath.Join(home, "turns"), filepath.Join(workers, "w1"), filepath.Join(workers, "w2"), token, filepath.Dir(token)},
-		slices.Concat(sensitive("turns", "code.json"), globs("[!w]*", "w[!9]*", "[w]", "w9[!/]*"))...)...)
+		slices.Concat(socketPaths(home), sensitive("turns", "code.json", "runtime.sock", "read.sock", "backend.sock"), globs("[!w]*", "w[!9]*", "[w]", "w9[!/]*"))...)...)
 	if err != nil || filesystem(args) != want {
 		t.Fatalf("repository to prepare: %v\ngot  %s\nwant %s", err, filesystem(args), want)
 	}
@@ -222,7 +222,7 @@ func TestClaudeRepositoryAndReadOnlySettingsDenyTheRuntimeHome(t *testing.T) {
 	temporary := "/u/.ac-12345678"
 	q := func(values ...string) string { body, _ := json.Marshal(values); return string(body) }
 	settings := func(root string, denyWrite, allowRead, rules []string) string {
-		filesystem := `{"allowWrite":` + q(root, temporary) + `,"denyWrite":` + q(denyWrite...) + `,"denyRead":` + q(home, token, filepath.Dir(token))
+		filesystem := `{"allowWrite":` + q(root, temporary) + `,"denyWrite":` + q(denyWrite...) + `,"denyRead":` + q(append([]string{home, token, filepath.Dir(token)}, socketPaths(home)...)...)
 		if allowRead != nil {
 			filesystem += `,"allowRead":` + q(allowRead...)
 		}
@@ -236,11 +236,11 @@ func TestClaudeRepositoryAndReadOnlySettingsDenyTheRuntimeHome(t *testing.T) {
 		}
 		return append(slices.Clone(roots), paths...)
 	}
-	tokenRules := []string{"Read(/" + token + ")", "Read(/" + filepath.Dir(token) + ")"}
+	tokenRules := append([]string{"Read(/" + token + ")", "Read(/" + filepath.Dir(token) + ")"}, socketRules(home)...)
 	// An independent repository: the home and the token are denied to Bash reads and writes and to Read.
 	independent := filepath.Join(user, "repo")
 	encoded, err := claudeRepositorySettings(testScope(independent), temporary, home)
-	if want := settings(independent, append(protected(independent), home, token, filepath.Dir(token)), nil,
+	if want := settings(independent, append(append(protected(independent), home, token, filepath.Dir(token)), socketPaths(home)...), nil,
 		append([]string{"Read(/" + home + ")"}, tokenRules...)); err != nil || encoded != want {
 		t.Fatalf("independent repository: %v\ngot  %s\nwant %s", err, encoded, want)
 	}
@@ -248,7 +248,7 @@ func TestClaudeRepositoryAndReadOnlySettingsDenyTheRuntimeHome(t *testing.T) {
 	// deny on the home would win over the repository's own allow.
 	managed := filepath.Join(home, "workers", "w1", "repo")
 	encoded, err = claudeRepositorySettings(testScope(managed), temporary, home)
-	if want := settings(managed, append(protected(managed), token, filepath.Dir(token)), []string{managed}, tokenRules); err != nil || encoded != want {
+	if want := settings(managed, append(append(protected(managed), token, filepath.Dir(token)), socketPaths(home)...), []string{managed}, tokenRules); err != nil || encoded != want {
 		t.Fatalf("managed repository: %v\ngot  %s\nwant %s", err, encoded, want)
 	}
 	if _, err = claudeRepositorySettings(testScope(home), temporary, home); err == nil || err.Error() != "Workspace "+home+" is the Runtime home" {
@@ -288,7 +288,7 @@ func TestHostDeniesThePassedRuntimeHomeAndKeepsItFromNativeChildren(t *testing.T
 	}{
 		{"codex read-only", "codex", false, `default_permissions="atlas_read_only"`},
 		{"codex dedicated-repository", "codex", true, `default_permissions="atlas_repository"`},
-		{"claude read-only", "claude", false, `"permissions":{"deny":["Read(/` + resolved + `)"]}`},
+		{"claude read-only", "claude", false, `"permissions":{"deny":["Read(/` + resolved + `)","` + strings.Join(socketRules(resolved), `","`) + `"]}`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			folder := t.TempDir()

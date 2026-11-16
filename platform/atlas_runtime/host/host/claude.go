@@ -347,7 +347,15 @@ func claudeWorkerSettings(scope map[string]any, temporary, user, inspector strin
 	if err = writableInspector(inspector, append(slices.Clone(writable), temporary)...); err != nil {
 		return "", err
 	}
-	protected := []string{home, filepath.Join(root, ".git")}
+	protected := []string{home}
+	sockets, err := socketEntries(home, append(slices.Clone(project), temporary)...)
+	if err != nil {
+		return "", err
+	}
+	for _, socket := range sockets {
+		protected = append(protected, socket[0])
+	}
+	protected = append(protected, filepath.Join(root, ".git"))
 	for _, repository := range repositories {
 		path, ok := repository.(string)
 		if !ok {
