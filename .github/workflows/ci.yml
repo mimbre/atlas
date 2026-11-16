@@ -109,7 +109,7 @@ jobs:
           elixir-version: "1.18"
       - name: The generator holds none of the Runtime's values
         run: |
-          if grep -rniE 'AtlasRuntime\.|AtlasRuntimeBoundary\.(Work|Operations)\b|AtlasControl|AtlasBFF|boundary/contract|\.\./contract|work\.json|operations\.json|client_key|work_id|turn_id|at_capacity|read_all|choose_slot|deep_coding|light_work|independent_review|quiescent|provenance|policy_version|cost_class|retry_after|harness|bff\.sock|ATLAS_RUNTIME_HOME' lib test mix.exs; then
+          if grep -rniE 'AtlasRuntime\.|AtlasRuntimeBoundary\.(Work|Operations|History)\b|AtlasControl|AtlasBFF|boundary/contract|\.\./contract|work\.json|operations\.json|history\.json|client_key|work_id|turn_id|at_capacity|read_all|choose_slot|deep_coding|light_work|independent_review|quiescent|provenance|policy_version|cost_class|retry_after|harness|bff\.sock|ATLAS_RUNTIME_HOME' lib test mix.exs; then
             echo "::error::platform/atlas_runtime/boundary/generator mentions the Runtime's contract or Control. Keep the Runtime's values in platform/atlas_runtime/boundary/contract."
             exit 1
           fi
@@ -339,7 +339,7 @@ jobs:
           elixir-version: "1.18"
       - name: The generator holds none of the Runtime's values
         run: |
-          if grep -rniE 'AtlasRuntime\b|AtlasRuntimeBoundary|/v1/work|backend\.sock|runtime\.sock|work_id|choose_slot|\.\./contract' lib test mix.exs; then
+          if grep -rniE 'AtlasRuntime\b|AtlasRuntimeBoundary|/v1/work|/v1/runtime|/v1/control|/v1/policy|/v1/slots|/v1/harnesses|operations|history|backend\.sock|runtime\.sock|work_id|choose_slot|\.\./contract' lib test mix.exs; then
             echo "::error::platform/atlas_runtime/backend/generator mentions the Runtime's values. Keep them in platform/atlas_runtime/backend/contract."
             exit 1
           fi
@@ -375,7 +375,7 @@ jobs:
       - run: mix deps.get
       - run: mix compile --warnings-as-errors
       - run: mix format --check-formatted
-      # Fails when a file in platform/atlas_runtime/backend/targets differs from what the contract generates, or is left over (none in S1).
+      # Fails when a file in platform/atlas_runtime/backend/targets differs from what the contracts (work_api, operations_api) generate, or is left over (none in S2).
       - run: mix runtime_backend.gen --check
       - run: mix test
 

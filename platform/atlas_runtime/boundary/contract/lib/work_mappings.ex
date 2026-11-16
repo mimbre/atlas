@@ -48,8 +48,9 @@ defmodule AtlasRuntimeBoundary.WorkMappings do
   # An attempt and what it produced.
 
   defmapping :attempt, :attempt,
-    # Private: the turn's folder and its stop latch.
-    drop: [:turn_folder, :stop_latch]
+    # Private: the turn's folder, its stop latch, and who released its slot and when
+    # (release_slot, §13.1 Q8).
+    drop: [:turn_folder, :stop_latch, :released_by, :released_at]
 
   defmapping :timestamps, :attempt_timestamps
   defmapping :resume_point, :resume_point

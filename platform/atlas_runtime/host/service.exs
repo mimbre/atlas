@@ -3,6 +3,10 @@ alias AtlasRuntime.Integrations.AtlasServer.Lifecycle
 
 [dir] = System.argv()
 
+# This Service's home, for the reads that are not handed it (the history contract's): the
+# host leaves $ATLAS_RUNTIME_HOME unset for the default home.
+Application.put_env(:atlas_runtime, :runtime_home, dir, persistent: true)
+
 # Opt-in Atlas Server lifecycle reporting (`server.json`): its Bus link is configured before
 # anything starts. Without it, nothing connects and the service is unchanged.
 server = Lifecycle.load!(dir)

@@ -134,9 +134,9 @@ defmodule AtlasRuntimeBackend.Generator.Example.Facade do
   @moduledoc """
   A neutral example facade for `AtlasRuntimeBackend.Generator.Example.Boundary`, written by
   hand with the module names a boundary facade has (`Facade.<Model>`,
-  `Facade.Outcome.<Outcome>`). It refuses a client without the right with a value that is
-  no outcome, and tells the calling process what it was called with
-  (`{:example_called, capability, client, input}`).
+  `Facade.Outcome.<Outcome>`). It refuses a client without the right, or an input it does
+  not accept, with a refusal (`Denied`, `Rejected`) rather than an outcome, and tells the
+  calling process what it was called with (`{:example_called, capability, client, input}`).
   """
   alias AtlasRuntimeBackend.Generator.Example.Struct, as: S
   alias AtlasRuntimeBackend.Generator.Example.Types, as: T
@@ -209,6 +209,11 @@ defmodule AtlasRuntimeBackend.Generator.Example.Facade do
     defstruct [:capability, :right]
   end
 
+  defmodule Rejected do
+    @moduledoc "What the facade returns, instead of an outcome, for an input it does not accept."
+    defstruct [:capability, :reasons]
+  end
+
   @rights %{
     lend: :lend,
     find_book: :browse,
@@ -237,6 +242,9 @@ defmodule AtlasRuntimeBackend.Generator.Example.Facade do
 
         "undeclared" ->
           :undeclared
+
+        "unchecked" ->
+          %Rejected{capability: :lend, reasons: ["title is not checked"]}
 
         title ->
           %Outcome.Lent{book: book(input.request_key || "b1", title, input.place, input.until)}

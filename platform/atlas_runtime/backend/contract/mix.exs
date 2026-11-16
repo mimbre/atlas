@@ -15,12 +15,15 @@ defmodule AtlasRuntimeBackend.MixProject do
         {:atlas_runtime_backend_generator, path: "../generator"},
         {:atlas_runtime_boundary, path: "../../boundary/contract"}
       ],
-      # What `mix runtime_backend.gen` generates, and where. S1 has no file target: the
+      # What `mix runtime_backend.gen` generates, and where. S2 has no file target: the
       # route description (../targets/rest/routes.json) and OpenAPI come with S3, so
-      # --check only compiles the contract. Headers name the contract file from the
+      # --check only compiles the contracts. Headers name the contract file from the
       # repository's root.
       runtime_backend: [
-        contracts: [work_api: AtlasRuntimeBackend.Work],
+        contracts: [
+          work_api: AtlasRuntimeBackend.Work,
+          operations_api: AtlasRuntimeBackend.Operations
+        ],
         targets: [],
         root: "../../../.."
       ]

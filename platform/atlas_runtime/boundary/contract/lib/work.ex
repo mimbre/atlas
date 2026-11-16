@@ -178,10 +178,20 @@ defmodule AtlasRuntimeBoundary.Work do
 
   defmodel :result do
     field :kind, {:enum, @result_kinds}, required: true
-    # failed: absent for a work failure; cancelled: cancel or superseded.
+    # failed: absent for a work failure; cancelled: cancel or superseded; interrupted:
+    # runtime_stop when the Runtime was stopped (§13.1 Q9).
     field :reason,
           {:enum,
-           [:time_limit, :quota, :launch, :workspace, :model_changed, :cancel, :superseded]}
+           [
+             :time_limit,
+             :quota,
+             :launch,
+             :workspace,
+             :model_changed,
+             :cancel,
+             :superseded,
+             :runtime_stop
+           ]}
 
     # Advice to the client; the decision to retry is the client's (I4).
     field :retryable, :boolean, required: true
