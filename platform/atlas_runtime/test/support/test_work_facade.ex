@@ -10,11 +10,19 @@ defmodule AtlasRuntime.Test.WorkFacade do
 end
 
 defmodule AtlasRuntime.Test.WorkRest do
-  @moduledoc "The backend's router, generated on the test facade."
+  @moduledoc """
+  The backend's one router, generated as `AtlasRuntime.Backend.Rest` is but on the test
+  facades: the work contract (with the event stream), the operations contract and the
+  history contract.
+  """
   use AtlasRuntimeBackend.Generator.Targets.Rest,
-    contract: AtlasRuntimeBackend.Work,
-    facade: AtlasRuntime.Test.WorkFacade,
-    stream: AtlasRuntime.Backend.Events
+    contracts: [
+      work:
+        {AtlasRuntimeBackend.Work,
+         facade: AtlasRuntime.Test.WorkFacade, stream: AtlasRuntime.Backend.Events},
+      operations: {AtlasRuntimeBackend.Operations, facade: AtlasRuntime.Test.OperationsFacade},
+      history: {AtlasRuntimeBackend.History, facade: AtlasRuntime.Test.HistoryFacade}
+    ]
 end
 
 defmodule AtlasRuntime.Test.FakeWork do

@@ -631,8 +631,17 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Boundary do
     end
   end
 
-  defp resolve_field(resolve),
-    do: fn field -> {field.name, resolve.(field.type), field.required} end
+  # A ranged integer is `{:integer, min, max}` in `__fields__/0`, so new/1 and validate/1
+  # refuse a value outside it.
+  defp resolve_field(resolve) do
+    fn
+      %{type: :integer, range: {min, max}} = field ->
+        {field.name, {:integer, min, max}, field.required}
+
+      field ->
+        {field.name, resolve.(field.type), field.required}
+    end
+  end
 
   defp resolve({:list, inner}, models), do: {:list, resolve(inner, models)}
   defp resolve({:map, inner}, _models), do: {:map, inner}
@@ -653,6 +662,7 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Boundary do
 
   defp typespec(:string), do: quote(do: String.t())
   defp typespec(:integer), do: quote(do: integer())
+  defp typespec({:integer, min, max}), do: quote(do: unquote(min)..unquote(max))
   defp typespec(:boolean), do: quote(do: boolean())
   defp typespec(:datetime), do: quote(do: DateTime.t())
   defp typespec(:stream), do: quote(do: Enumerable.t())

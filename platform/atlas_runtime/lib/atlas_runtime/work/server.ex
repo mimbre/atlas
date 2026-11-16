@@ -18,8 +18,18 @@ defmodule AtlasRuntime.Work.Server do
   `heartbeat_ms`, `cancel_grace_ms` (default the policy's 30 s), `retention` (seconds, 30
   days), `window` (notifications kept, 10 000), `processes` (taken once per heartbeat, gives the
   probe that heartbeat uses; `AtlasRuntime.Work.Restart.processes/0`), `probe` (a fixed
-  probe instead), `start_timeout_ms` (how long a start may take, 120 s) and `after_write` (called with each
-  record just written, before anything mentions it).
+  probe instead), `start_timeout_ms` (how long a start may take, 120 s), `after_write` (called
+  with each record just written, before anything mentions it) and `stop_exit_ms` (how long
+  after the last attempt of a stop ended the Service exits, 200 ms, so the stop's answer is
+  out first).
+
+  **Stop (design §13.1 Q9).** From `{:stop, force, by}` on the core is `stopping` (in memory
+  only, never persisted): it takes no new work and starts nothing; buffered work stays.
+  Without `force` the Service's own service stop signals what it runs, and after
+  `cancel_grace` the core kills what still runs; with `force` the core kills at once. A
+  stop is not a cancel: no attempt passes through `cancelling` or gets a `cancel_reason`.
+  Each attempt ends `interrupted`, reason `runtime_stop`, retryable, with its resume point,
+  persisted (I2). Once no attempt is live the Service's service stop ends the process.
   """
   use GenServer
   require Logger
@@ -28,19 +38,26 @@ defmodule AtlasRuntime.Work.Server do
   alias AtlasRuntime.Boundary.Work, as: B
   alias AtlasRuntime.Model.Work, as: M
   alias AtlasRuntime.Persistence.History
-  alias AtlasRuntime.Work.{Notifications, Prune, Queue, Restart, Store, Translation, Turns}
+  alias AtlasRuntime.Work.{Mode, Notifications, Prune, Queue, Restart, Store, Translation, Turns}
 
-  @doc "Loads the store and starts the core; a store it cannot read is a logged refusal."
+  @doc """
+  Loads the store and the persisted mode and starts the core; a store or `mode.json` it
+  cannot read is a logged refusal.
+  """
   def start_link(dir, opts \\ []) do
-    case Store.load(dir) do
-      {:ok, loaded} ->
-        GenServer.start_link(__MODULE__, {dir, loaded, opts},
-          name: Keyword.get(opts, :name, __MODULE__)
-        )
-
-      {:error, why} ->
+    with {:store, {:ok, loaded}} <- {:store, Store.load(dir)},
+         {:mode, {:ok, mode}} <- {:mode, Mode.load(dir)} do
+      GenServer.start_link(__MODULE__, {dir, Map.put(loaded, :mode, mode), opts},
+        name: Keyword.get(opts, :name, __MODULE__)
+      )
+    else
+      {:store, {:error, why}} ->
         Logger.error("runtime work: not started, its store is refused: #{why}")
         {:error, {:store, why}}
+
+      {:mode, {:error, why}} ->
+        Logger.error("runtime work: not started, its mode is refused: #{why}")
+        {:error, {:mode, why}}
     end
   end
 
@@ -60,7 +77,10 @@ defmodule AtlasRuntime.Work.Server do
       incarnation: Base.encode16(:crypto.strong_rand_bytes(8), case: :lower),
       notifications: Notifications.new(sequence, Keyword.get(opts, :window, 10_000)),
       cursor: nil,
+      # false once the Service stops or a stop began (mode/0 is then `stopping`).
       accepting: true,
+      # The persisted mode (AtlasRuntime.Work.Mode): new work and starts only while open.
+      mode: loaded.mode,
       room: true,
       blocked: MapSet.new(),
       # Slots a latch of a turn not the core's holds: free again only on `{:released, slot}`.
@@ -71,6 +91,9 @@ defmodule AtlasRuntime.Work.Server do
       processes: processes(opts),
       after_write: Keyword.get(opts, :after_write, fn _record -> :ok end),
       start_timeout_ms: Keyword.get(opts, :start_timeout_ms, 120_000),
+      stop_exit_ms: Keyword.get(opts, :stop_exit_ms, 200),
+      # nil, or the stop: %{force, by, exiting} (exiting: the Service is asked to exit).
+      stopping: nil,
       context: Provenance.context()
     }
 
@@ -263,13 +286,95 @@ defmodule AtlasRuntime.Work.Server do
     {:reply, outcome, %{state | notifications: notifications}}
   end
 
+  ## Operations (design §13.1 Q8, Q9; `AtlasRuntime.Work`'s I-K functions)
+
+  def handle_call(:mode, _from, state), do: {:reply, mode(state), state}
+
+  def handle_call({:set_mode, mode, by}, _from, state) do
+    state = set_mode(state, mode, by)
+    {:reply, mode(state), state, {:continue, :dispatch}}
+  end
+
+  def handle_call(:runtime, _from, state) do
+    capacity = capacity(state)
+    busy = Queue.busy(state.works)
+
+    runtime = %{
+      home: state.dir,
+      runtime_build: capacity.runtime_build,
+      incarnation: capacity.incarnation,
+      policy_version: capacity.policy_version,
+      mode: mode(state),
+      slots: for(slot <- Policy.slots(Policy.load(state.dir)), do: {slot, slot in busy})
+    }
+
+    {:reply, runtime, state}
+  end
+
+  # One stop: a repeat answers the same and signals nothing again.
+  def handle_call({:stop, _force, _by}, _from, %{stopping: %{}} = state),
+    do: {:reply, :ok, state}
+
+  def handle_call({:stop, force, by}, _from, state) do
+    state = %{state | accepting: false, stopping: %{force: force, by: by, exiting: false}}
+    state = Enum.reduce(stoppable(state), state, fn {id, n}, state -> find_turn(state, id, n) end)
+    if force, do: kill_all(state)
+    # The Service stops what it still runs (signal) and starts nothing from here on.
+    service_stop(state)
+    if not force, do: Process.send_after(self(), :stop_grace, grace_ms(state))
+    {:reply, :ok, check_room(state), {:continue, :dispatch}}
+  end
+
+  def handle_call({:mark_released, slot, by}, _from, state) do
+    if slot_alive?(state, slot) do
+      {:reply, :busy, state}
+    else
+      case Turns.command(state.service, %{"command" => "release", "worker_id" => slot}, 30_000) do
+        {:ok, _} ->
+          now = now()
+
+          state =
+            Enum.reduce(unsettled(state), state, fn {id, attempt}, state ->
+              if attempt.slot == slot,
+                do: released(state, id, attempt.attempt, by, now),
+                else: state
+            end)
+
+          state = %{
+            state
+            | blocked: MapSet.delete(state.blocked, slot),
+              latched: MapSet.delete(state.latched, slot)
+          }
+
+          {:reply, :released, state, {:continue, :dispatch}}
+
+        {:error, why} ->
+          Logger.warning("runtime work: release of #{slot} refused: #{inspect(why)}")
+          {:reply, :busy, state}
+      end
+    end
+  end
+
+  def handle_call({:clear_quota_mark, harness}, _from, state) do
+    case GenServer.call(state.service, {:clear_quota_mark, harness}, 30_000) do
+      :cleared -> {:reply, :cleared, check_room(state), {:continue, :dispatch}}
+      answer -> {:reply, answer, state}
+    end
+  end
+
   ## Messages
 
   @impl true
   def handle_info({:events_appended, _sequence}, state),
     do: {:noreply, state |> pull() |> ask_unanswered() |> dispatch()}
 
-  def handle_info(:service_stopping, state), do: {:noreply, %{state | accepting: false}}
+  def handle_info(:service_stopping, state), do: {:noreply, service_stopping(state)}
+
+  # The cancel stages' kill for whatever a stop's signal did not end.
+  def handle_info(:stop_grace, %{stopping: %{exiting: false}} = state) do
+    kill_all(state)
+    {:noreply, dispatch(state)}
+  end
 
   def handle_info(:unanswered, state), do: {:noreply, state |> ask_unanswered() |> dispatch()}
 
@@ -357,7 +462,7 @@ defmodule AtlasRuntime.Work.Server do
             refused(state, :conflict, "client key #{key} names another request")
         end
 
-      not state.accepting ->
+      not open?(state) ->
         {:reply, at_capacity(state, :not_accepting), state}
 
       input.slot && input.slot not in Policy.slots(policy) ->
@@ -482,7 +587,7 @@ defmodule AtlasRuntime.Work.Server do
           match?({:at_capacity, _, _}, check) ->
             {at_capacity(state, :profile_unavailable), state}
 
-          not state.accepting ->
+          not open?(state) ->
             {at_capacity(state, :not_accepting), state}
 
           rule != :replace and not room?(state) ->
@@ -681,29 +786,77 @@ defmodule AtlasRuntime.Work.Server do
     commit(state, put_attempt(state.works[id], attempt))
   end
 
-  defp grace(state, id, n) do
-    ms =
-      state.cancel_grace_ms ||
-        Policy.limits(Policy.load(state.dir), "").cancel_grace * 1000
+  defp grace(state, id, n), do: Process.send_after(self(), {:grace, id, n}, grace_ms(state))
 
-    Process.send_after(self(), {:grace, id, n}, ms)
+  defp grace_ms(state),
+    do: state.cancel_grace_ms || Policy.limits(Policy.load(state.dir), "").cancel_grace * 1000
+
+  ## Modes (§3.4, §13.1 Q5, Q6)
+
+  # Persisted (I2) before the work it returns and before the answer. The same mode again
+  # writes nothing and returns nothing.
+  defp set_mode(%{mode: mode} = state, mode, _by), do: state
+
+  defp set_mode(state, mode, by) do
+    Mode.put!(state.dir, mode, by)
+    state = %{state | mode: mode}
+    state = if mode == :draining, do: return_buffered(state), else: state
+    # resume: capacity_available once, when the Runtime takes new work again.
+    check_room(state)
+  end
+
+  # `stopping` overrides the persisted mode in memory only; it is never written (Q6).
+  # `accepting` is false exactly from a stop (`{:stop, …}`) or a Service stop on.
+  defp mode(state), do: Mode.effective(state.mode, not state.accepting)
+
+  # New work and starts only while open and not stopping ("mode ≠ open", O1's stop gate).
+  defp open?(state), do: state.accepting and state.mode == :open
+
+  # A draining Runtime holds no buffered attempt: each one is returned, never started and
+  # retryable, with one work_changed per work (§5). Also an attempt that went back to the
+  # buffer while draining, and any left by a crash between `mode.json` and its returns.
+  defp return_buffered(state) do
+    Enum.reduce(Queue.buffered(state.works), state, fn {id, attempt}, state ->
+      now = now()
+
+      returned = %{
+        attempt
+        | state: :returned,
+          quiescent: true,
+          timestamps: %{attempt.timestamps | ended_at: now},
+          result:
+            M.Result.new!(
+              kind: :returned,
+              retryable: Turns.retryable?(:returned, nil),
+              never_started: true
+            )
+      }
+
+      commit(state, put_attempt(state.works[id], returned))
+    end)
   end
 
   ## Starting (I1)
 
+  defp dispatch(%{mode: :draining} = state), do: state |> return_buffered() |> stop_check()
+
   defp dispatch(state) do
-    Enum.reduce(Queue.buffered(state.works), state, fn {id, _attempt}, state ->
-      try_start(state, id)
-    end)
+    Queue.buffered(state.works)
+    |> Enum.reduce(state, fn {id, _attempt}, state -> try_start(state, id) end)
+    |> stop_check()
   end
 
-  defp try_start(%{accepting: false} = state, _id), do: state
-
+  # The gate is read again for each start: a start that found the Service stopping closes
+  # it for the ones after it.
   defp try_start(state, id) do
+    if open?(state), do: start(state, id), else: state
+  end
+
+  defp start(state, id) do
     policy = Policy.load(state.dir)
 
-    # The start path re-reads the record before it takes a slot (§3.7): a cancelled or
-    # replaced attempt never starts.
+    # The start path re-reads the record before it takes a slot (§3.7): a cancelled,
+    # replaced or returned attempt never starts.
     with %M.WorkRecord{} = record <- Store.read_work(state.dir, id),
          true <- record == state.works[id],
          %{state: :buffered} = attempt <- Queue.current(record),
@@ -930,7 +1083,7 @@ defmodule AtlasRuntime.Work.Server do
         if page["more"], do: pull(state), else: state
 
       :service_stopping ->
-        %{state | accepting: false}
+        service_stopping(state)
 
       _ ->
         state |> follow() |> refresh_all()
@@ -942,7 +1095,7 @@ defmodule AtlasRuntime.Work.Server do
          %{"cursor" => cursor} <- Turns.read(state.service, {:follow, self(), head}) do
       %{state | cursor: cursor}
     else
-      :service_stopping -> %{state | cursor: nil, accepting: false}
+      :service_stopping -> service_stopping(%{state | cursor: nil})
       _ -> %{state | cursor: nil}
     end
   end
@@ -979,6 +1132,12 @@ defmodule AtlasRuntime.Work.Server do
   defp refresh(state, _turn_id), do: state
 
   defp end_attempt(state, id, n, turn, outcome, turn_id \\ nil) do
+    # A turn a stop ended is the stop's (§13.1 Q9): interrupted, runtime_stop.
+    outcome =
+      if state.stopping && outcome.kind == :interrupted,
+        do: %{outcome | reason: "runtime_stop"},
+        else: outcome
+
     record = state.works[id]
     attempt = attempt_of(state, id, n)
     turn_id = turn_id || attempt.turn_id
@@ -1155,6 +1314,142 @@ defmodule AtlasRuntime.Work.Server do
     state
   end
 
+  ## Stop (§13.1 Q9)
+
+  # The Service is exiting (its service stop, from wherever it was asked): no new work.
+  defp service_stopping(state),
+    do: %{
+      state
+      | accepting: false,
+        stopping: state.stopping || %{force: false, by: nil, exiting: true}
+    }
+
+  # Every live attempt: what a stop must see end.
+  defp stoppable(state) do
+    for {id, record} <- state.works,
+        attempt <- record.attempts,
+        Queue.live?(attempt),
+        do: {id, attempt.attempt}
+  end
+
+  # The kill, through the Service's own `kill`, for each live attempt that has a turn. The
+  # attempt itself is unchanged: it ends when its turn does.
+  defp kill_all(state) do
+    for {id, n} <- stoppable(state),
+        %{turn_id: turn, slot: slot} when is_binary(turn) <- [attempt_of(state, id, n)] do
+      request = %{"command" => "kill", "worker_id" => slot, "turn_id" => turn}
+
+      case Turns.command(state.service, request, 30_000) do
+        {:ok, _} -> :ok
+        {:error, why} -> Logger.warning("runtime work: kill of #{turn} refused: #{inspect(why)}")
+      end
+    end
+
+    :ok
+  end
+
+  defp service_stop(state) do
+    case GenServer.call(state.service, %{"command" => "service-stop"}, 60_000) do
+      {%{command_error: why}, _shutdown?} -> {:pending, why}
+      {_reply, shutdown?} -> {:ok, shutdown?}
+    end
+  catch
+    :exit, why -> {:pending, {:exit, why}}
+  end
+
+  # Once no attempt is live the Service's service stop ends the process (it does once it
+  # owns nothing either; until then each event or heartbeat asks again). A start the Service
+  # never answered is asked for its turn first; with none, now that the Service starts
+  # nothing, it never started.
+  defp stop_check(%{stopping: %{exiting: false}} = state) do
+    state =
+      for {id, record} <- state.works,
+          %{state: :starting, turn_id: nil, attempt: n} <- record.attempts,
+          service_stopping?(state),
+          reduce: state do
+        state ->
+          state = find_turn(state, id, n)
+
+          case attempt_of(state, id, n) do
+            %{turn_id: nil} ->
+              end_attempt(state, id, n, nil, %{
+                kind: :interrupted,
+                reason: nil,
+                native_outcome: nil,
+                quiescent: true,
+                answer: nil
+              })
+
+            _ ->
+              state
+          end
+      end
+
+    with [] <- stoppable(state),
+         {:ok, true} <- service_stop(state) do
+      Process.send_after(state.service, :shutdown, state.stop_exit_ms)
+      put_in(state.stopping.exiting, true)
+    else
+      _ -> state
+    end
+  end
+
+  defp stop_check(state), do: state
+
+  defp service_stopping?(state),
+    do: match?(%{"service" => "stopping"}, Turns.read(state.service, {:read, "workers", %{}}))
+
+  ## Release (§13.1 Q8)
+
+  # Alive: a turn of the slot runs in this incarnation (the core's live attempt, or a turn
+  # the Service owns), or the process probe finds the process of the slot's unconfirmed
+  # turn, or of the turn its latch names, still there.
+  defp slot_alive?(state, slot) do
+    live? = Enum.any?(stoppable(state), fn {id, n} -> attempt_of(state, id, n).slot == slot end)
+
+    owned? =
+      case Turns.read(state.service, {:read, "workers", %{}}) do
+        %{"workers" => workers} ->
+          Enum.any?(
+            workers,
+            &(&1["worker_id"] == slot and &1["state"] in ["running", "stopping", "killing"])
+          )
+
+        _ ->
+          false
+      end
+
+    latched =
+      try do
+        History.latch(state.dir, slot)
+      rescue
+        _ -> nil
+      end
+
+    turns =
+      for({_id, attempt} <- unsettled(state), attempt.slot == slot, do: attempt.turn_id) ++
+        [latched && latched["turn_id"]]
+
+    live? or owned? or probed_alive?(state, turns)
+  end
+
+  # One process listing for this release decision, as the heartbeat takes one per beat.
+  defp probed_alive?(state, turns) do
+    case Enum.filter(turns, &is_binary/1) do
+      [] ->
+        false
+
+      turns ->
+        processes = state.processes.()
+        Enum.any?(turns, &Restart.alive?(state.dir, &1, processes))
+    end
+  end
+
+  defp released(state, id, n, by, now) do
+    attempt = %{attempt_of(state, id, n) | quiescent: true, released_by: by, released_at: now}
+    commit(state, put_attempt(state.works[id], attempt))
+  end
+
   ## Pruning
 
   # The tombstone is written, then the record deleted, then the change mentioned (I2, I7).
@@ -1295,14 +1590,14 @@ defmodule AtlasRuntime.Work.Server do
   defp room?(state) do
     policy = Policy.load(state.dir)
 
-    state.accepting and
+    open?(state) and
       Queue.counts(state.works, Policy.slots(policy), Policy.buffer_size(policy)).available > 0
   end
 
   defp capacity(state) do
     policy = Policy.load(state.dir)
     counts = Queue.counts(state.works, Policy.slots(policy), Policy.buffer_size(policy))
-    room = state.accepting and counts.available > 0
+    room = open?(state) and counts.available > 0
 
     profiles =
       policy
@@ -1321,7 +1616,7 @@ defmodule AtlasRuntime.Work.Server do
       slots: struct!(B.SlotCounts, counts.slots),
       buffer: struct!(B.BufferCounts, counts.buffer),
       profiles: profiles,
-      accepting: state.accepting,
+      accepting: open?(state),
       policy_version: Policy.version(policy) || 0,
       runtime_build: state.context.runtime_build,
       incarnation: state.incarnation,

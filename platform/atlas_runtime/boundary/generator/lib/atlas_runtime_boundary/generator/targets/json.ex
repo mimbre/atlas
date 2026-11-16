@@ -12,6 +12,8 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Json do
     of one of the models, with the tag as a member naming that model;
   - `"format": "ISO-8601"` when its type is or holds a `datetime`, a string such as
     `"2026-01-02T03:04:05Z"`;
+  - `"range": {"min", "max"}` when the integer field declares `range:`: a value outside it
+    is refused as invalid;
   - `"description": "byte stream"` when its type is `stream`: an opaque byte stream that
     a transport sends as bytes, never inside a JSON value.
 
@@ -51,6 +53,12 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Json do
 
   defp field(field) do
     {type, extra} = type(field.type)
+
+    extra =
+      case field do
+        %{range: {min, max}} -> Map.put(extra, "range", %{"min" => min, "max" => max})
+        _ -> extra
+      end
 
     Map.merge(
       %{"name" => Atom.to_string(field.name), "type" => type, "required" => field.required},

@@ -22,8 +22,8 @@ defmodule AtlasRuntime.Application do
     end
   end
 
-  # Standalone turns' public output, read only through read.sock; the Bus endpoint below
-  # serves Output alone, so it is never forwarded to Server.
+  # Standalone turns' public output, read only through the work contract's turn output;
+  # the Bus endpoint below serves Output alone, so it is never forwarded to Server.
   defp local_output,
     do:
       Supervisor.child_spec({AtlasRuntime.Output, name: AtlasRuntime.LocalOutput},

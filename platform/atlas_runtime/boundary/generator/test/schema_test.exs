@@ -144,9 +144,11 @@ defmodule AtlasRuntimeBoundary.Generator.SchemaTest do
     end
 
     test "a field option other than required:, and a field outside a model" do
-      assert_raise CompileError, ~r/the only option is required/, fn ->
-        spec("defmodel :a do field :x, :string, default: 1 end")
-      end
+      assert_raise CompileError,
+                   ~r/the options are required: true \| false and range: min..max/,
+                   fn ->
+                     spec("defmodel :a do field :x, :string, default: 1 end")
+                   end
 
       assert_raise CompileError, ~r/field :x outside a model/, fn -> spec("field :x, :string") end
     end
@@ -359,6 +361,40 @@ defmodule AtlasRuntimeBoundary.Generator.SchemaTest do
           use AtlasRuntimeBoundary.Generator.Schema
         end
         """)
+      end
+    end
+  end
+
+  describe "range: on an integer field" do
+    test "is kept in the schema as {min, max}, and only on the field that declares it" do
+      module =
+        spec("defmodel :page do field :limit, :integer, range: 1..100\n field :n, :integer end")
+
+      [%{fields: [limit, n]}] = module.__schema__().models
+      assert limit == %{name: :limit, type: :integer, required: false, range: {1, 100}}
+      assert n == %{name: :n, type: :integer, required: false}
+    end
+
+    test "a single value is a range too" do
+      module = spec("defmodel :one do field :x, :integer, required: true, range: 3..3 end")
+      assert [%{fields: [%{range: {3, 3}, required: true}]}] = module.__schema__().models
+    end
+
+    test "refused on a field that is no :integer" do
+      for type <- [":string", ":boolean", "{:list, :integer}"] do
+        assert_raise CompileError, ~r/field :x: range: is only for :integer fields/, fn ->
+          spec("defmodel :a do field :x, #{type}, range: 1..2 end")
+        end
+      end
+    end
+
+    test "refused unless min..max with integer literals and min <= max" do
+      for range <- ["5..1", "1..10//2", "1", "[1, 2]", "@x"] do
+        assert_raise CompileError,
+                     ~r/field :x: range must be min..max with integer literals/,
+                     fn ->
+                       spec("defmodel :a do field :x, :integer, range: #{range} end")
+                     end
       end
     end
   end

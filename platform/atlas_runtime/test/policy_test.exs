@@ -584,14 +584,20 @@ defmodule AtlasRuntime.PolicyServiceTest do
     refute File.exists?(Path.join(context.dir, "native-starts.jsonl"))
   end
 
-  test "preferences answers on runtime.sock and cannot write policy or availability", context do
+  test "runtime.sock refuses preferences; the Service's view cannot write policy or availability",
+       context do
     File.write!(Policy.path(context.dir), JSON.encode!(@policy))
     File.write!(Path.join(context.dir, "backends.json"), JSON.encode!(%{"claude_quota" => nil}))
-    launch(context.dir)
+    service = launch(context.dir)
     policy = File.read!(Policy.path(context.dir))
     availability = File.read!(Availability.path(context.dir))
+    # The operations contract serves the policy view on backend.sock (S2).
+    assert send_line(context.dir, %{"command" => "preferences"})["command_error"] =~
+             "backend.sock (GET /v1/policy"
 
-    view = send_line(context.dir, %{"command" => "preferences"})
+    # In-process, as the Service still answers it, with the reply as JSON.
+    served = fn request -> service |> call(request) |> JSON.encode!() |> JSON.decode!() end
+    view = served.(%{"command" => "preferences"})
     assert view["policy"] == @policy
     assert view["policy_error"] == nil
     assert view["slots"] == ["default"]
@@ -604,13 +610,13 @@ defmodule AtlasRuntime.PolicyServiceTest do
           %{"command" => "preferences", "reenable" => "claude"},
           %{"command" => "preferences", "policy" => %{"version" => 8}}
         ] do
-      assert send_line(context.dir, write)["command_error"] =~ "only reads"
+      assert served.(write)["command_error"] =~ "only reads"
     end
 
     assert File.read!(Policy.path(context.dir)) == policy
     assert File.read!(Availability.path(context.dir)) == availability
     File.rm!(Policy.path(context.dir))
-    assert send_line(context.dir, %{"command" => "preferences"})["policy_error"] == "missing"
+    assert served.(%{"command" => "preferences"})["policy_error"] == "missing"
   end
 
   test "a start with neither profile nor backend follows the imported preference pair",

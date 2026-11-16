@@ -3,7 +3,8 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Boundary.Values do
   What the structs and the facade of `AtlasRuntimeBoundary.Generator.Targets.Boundary`
   call at run time: building, checking and dumping values against a struct's fields, and
   a facade's call. Every struct module has `__fields__/0`: `[{name, type, required}]`,
-  with a type of `:string`, `:integer`, `:boolean`, `:datetime`, `{:enum, [atom]}`,
+  with a type of `:string`, `:integer`, `{:integer, min, max}` (a `range:` field),
+  `:boolean`, `:datetime`, `{:enum, [atom]}`,
   `{:model, module}`, `{:one_of, [{name, module}], tag}`, `{:list, type}`,
   `{:map, type}` or `:stream`.
 
@@ -214,6 +215,14 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Boundary.Values do
 
   defp value(:string, value, _at, _mode) when is_binary(value), do: {:ok, value}
   defp value(:integer, value, _at, _mode) when is_integer(value), do: {:ok, value}
+
+  # Out of range is refused, never clamped.
+  defp value({:integer, min, max}, value, at, _mode) when is_integer(value) do
+    if value >= min and value <= max,
+      do: {:ok, value},
+      else: {:error, ["#{at} must be in #{min}..#{max}, got #{value}"]}
+  end
+
   defp value(:boolean, value, _at, _mode) when is_boolean(value), do: {:ok, value}
   defp value(:datetime, %DateTime{} = value, _at, _mode), do: {:ok, value}
 
@@ -328,5 +337,6 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Boundary.Values do
   defp describe({:map, inner}), do: "a map of #{describe(inner)}"
   defp describe(:datetime), do: "a DateTime"
   defp describe(:integer), do: "an integer"
+  defp describe({:integer, min, max}), do: "an integer in #{min}..#{max}"
   defp describe(type), do: "a #{type}"
 end

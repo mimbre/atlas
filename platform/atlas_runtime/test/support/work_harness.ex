@@ -110,7 +110,6 @@ defmodule AtlasRuntime.WorkHarness do
   @doc "A Service on the home; `probe` is its restart reconciliation's process check."
   def start_service!(context, probe \\ nil) do
     File.rm(Path.join(context.dir, "runtime.sock"))
-    File.rm(Path.join(context.dir, "read.sock"))
     options = if probe, do: [process_probe: probe], else: []
     {:ok, pid} = GenServer.start(Service, {context.dir, nil, [], options})
     pid

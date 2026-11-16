@@ -3,9 +3,9 @@ package main
 // The work commands: a hand-built HTTP/1.1 client of the work contract on
 // <home>/backend.sock (design 2026-11-16-runtime-backend §1.8, §8). Each command maps its
 // flags onto one request as given; the Runtime validates it and answers with the outcome's
-// entity, or with an application/problem+json refusal. History (turns, events) is read on
-// read.sock (runtime.read/1) until the operations contract (S2), so turns from before the
-// cutover stay listed.
+// entity, or with an application/problem+json refusal. Turns are the history contract's
+// list_turns on the same socket (GET /v1/turns, paged to the end); events are the journal on
+// runtime.sock (events_follow.go).
 
 import (
 	"bytes"
@@ -157,36 +157,40 @@ func callBackend(dir string, call workCall) (map[string]any, error) {
 	return reply, nil
 }
 
-// readRequest is one runtime.read/1 operation on read.sock.
-func readRequest(dir, op string, args map[string]any) (map[string]any, error) {
-	conn, err := net.DialTimeout("unix", filepath.Join(dir, "read.sock"), time.Second)
-	if err != nil {
-		if absent(err) {
-			return nil, errStopped
+// turnsPageLimit is the page size turns asks for; the history contract pages list_turns.
+const turnsPageLimit = "100"
+
+// listTurns reads the whole history, GET /v1/turns page by page until a page says there
+// is no more, and prints it as one {"turns": [...]} in the history contract's turn shape.
+// A page is {turns, cursor, more}; a page with more turns must name a new cursor, so a
+// misbehaving reply cannot loop.
+func listTurns(dir string) (map[string]any, error) {
+	turns := []any{}
+	cursor := ""
+	for {
+		call := workCall{method: http.MethodGet, path: "/v1/turns", query: url.Values{"limit": {turnsPageLimit}}}
+		if cursor != "" {
+			call.query.Set("cursor", cursor)
 		}
-		return nil, err
+		page, err := callBackend(dir, call)
+		if err != nil {
+			return nil, err
+		}
+		items, ok := page["turns"].([]any)
+		more, known := page["more"].(bool)
+		if !ok || !known {
+			return nil, errors.New("Runtime history page has no turns list or more flag")
+		}
+		turns = append(turns, items...)
+		if !more {
+			return map[string]any{"turns": turns}, nil
+		}
+		next, _ := page["cursor"].(string)
+		if next == "" || next == cursor {
+			return nil, errors.New("Runtime history page says more turns follow but names no new cursor")
+		}
+		cursor = next
 	}
-	defer conn.Close()
-	conn.SetDeadline(time.Now().Add(30 * time.Second))
-	request := map[string]any{"api": readAPI, "op": op}
-	for key, value := range args {
-		request[key] = value
-	}
-	if err = json.NewEncoder(conn).Encode(request); err != nil {
-		return nil, err
-	}
-	var reply map[string]any
-	if err = json.NewDecoder(conn).Decode(&reply); err != nil {
-		return nil, err
-	}
-	if failure, ok := reply["error"].(map[string]any); ok {
-		code, _ := failure["code"].(string)
-		message, _ := failure["message"].(string)
-		return nil, &readProblem{code: code, message: message}
-	}
-	delete(reply, "api")
-	delete(reply, "op")
-	return reply, nil
 }
 
 // visited names the flags given on the command line.
