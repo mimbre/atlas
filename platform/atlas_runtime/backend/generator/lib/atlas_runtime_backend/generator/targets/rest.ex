@@ -45,8 +45,14 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest do
      module's frames.
 
   It also has `__routes__/0` (the route × outcome → status table as data),
-  `__rights__/1` (a listener's rights, from the contract) and `__event__/1` (a frame
-  for an event model struct: `{:ok, iodata}`, or `:error` for anything else).
+  `__rights__/1` (a listener's rights, from the contract), `__event__/1` (a frame
+  for an event model struct: `{:ok, iodata}`, or `:error` for anything else) and
+  `__problem__/2`: `__problem__(kind, conn)` sends the target's error `kind` (one the
+  contract declares, such as a listener's `:unauthenticated` or `:origin_refused`) as
+  its status with an `application/problem+json` body of `type`, `title` and `status`
+  only, and halts the conn. A listener plug uses it to refuse a request before the
+  router runs, so the listener writes no problem body itself; the body never depends on
+  the request, so every refusal of one kind is the same.
   """
 
   alias AtlasRuntimeBackend.Generator.Paths
@@ -259,6 +265,29 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest do
 
       @doc "The rights a client gets on `listener`, as the contract declares them."
       def __rights__(listener), do: Map.fetch!(unquote(Macro.escape(rights)), listener)
+
+      @doc """
+      Sends the target's error `kind` as its declared status and a problem+json body
+      (`type`, `title`, `status`), and halts `conn`. Raises for a kind the contract does
+      not declare.
+      """
+      def __problem__(kind, %Plug.Conn{} = conn) do
+        %{status: status, type: type} =
+          case Map.fetch(@errors, kind) do
+            {:ok, error} ->
+              error
+
+            :error ->
+              raise ArgumentError,
+                    "#{inspect(__MODULE__)}: the contract declares no error #{inspect(kind)}"
+          end
+
+        body = Runtime.problem(status, type, Plug.Conn.Status.reason_phrase(status))
+
+        conn
+        |> send_json(status, "application/problem+json", body)
+        |> Plug.Conn.halt()
+      end
 
       @doc "A Server-Sent Events frame for an event model struct: `{:ok, iodata}` or `:error`."
       unquote_splicing(event_clauses)

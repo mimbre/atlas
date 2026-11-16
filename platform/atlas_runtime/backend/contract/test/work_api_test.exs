@@ -12,10 +12,25 @@ defmodule AtlasRuntimeBackend.WorkTest do
     assert [%{name: :rest, carries: :entities}] = @schema.targets
   end
 
-  test "§8.1: the socket gets every work right, choose_slot included" do
+  test "§8.1: the socket gets every work right, choose_slot included; TCP never choose_slot" do
     assert @schema.rights == [
-             %{listener: :socket, rights: [:submit, :cancel, :read, :read_all, :choose_slot]}
+             %{listener: :socket, rights: [:submit, :cancel, :read, :read_all, :choose_slot]},
+             %{listener: :tcp, rights: [:submit, :cancel, :read, :read_all]}
            ]
+  end
+
+  test "§8.1: the TCP ceiling is within the socket's rights and excludes choose_slot" do
+    rights = Map.new(@schema.rights, &{&1.listener, &1.rights})
+
+    assert MapSet.subset?(MapSet.new(rights.tcp), MapSet.new(rights.socket))
+    refute :choose_slot in rights.tcp
+    # Every right a listener names is a client right of the boundary.
+    [client_rights] =
+      for %{name: :client, fields: fields} <- AtlasRuntimeBoundary.Work.__schema__().models,
+          %{name: :rights, type: {:list, {:enum, values}}} <- fields,
+          do: values
+
+    for {_listener, list} <- rights, do: assert(list -- client_rights == [])
   end
 
   test "§8.2: the resources" do
@@ -79,7 +94,9 @@ defmodule AtlasRuntimeBackend.WorkTest do
     assert Enum.sort(for e <- @rest.errors, do: {e.kind, e.status, e.type}) == [
              {:invalid, 400, "invalid"},
              {:no_route, 404, "no-route"},
-             {:not_permitted, 403, "not-permitted"}
+             {:not_permitted, 403, "not-permitted"},
+             {:origin_refused, 403, "origin-refused"},
+             {:unauthenticated, 401, "unauthenticated"}
            ]
   end
 

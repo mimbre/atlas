@@ -69,6 +69,15 @@ defmodule AtlasRuntimeBackend.Generator.SchemaTest do
 
   defp compile(parts), do: Code.compile_string(source(parts))
 
+  # The default shared part without its rights.
+  defp shared_without_rights,
+    do: """
+      expose [:lend, :find_book, :search, :list_books, :give_back, :count, :watch]
+      not_exposed :audit
+      event :book, :book_changed, id: :sequence
+      event :restart, :restart, id: :current_sequence
+    """
+
   defp fails(parts, message) do
     error = assert_raise CompileError, fn -> compile(parts) end
     assert Exception.message(error) =~ message
@@ -129,6 +138,47 @@ defmodule AtlasRuntimeBackend.Generator.SchemaTest do
         ],
         "capability :count is not exposed"
       )
+    end
+
+    test "a right that is no value of the boundary's client rights" do
+      fails(
+        [shared: shared_without_rights() <> "  rights :socket, [:lend, :shelve]\n"],
+        "rights :socket: :shelve is no client right of AtlasRuntimeBackend.Generator.Example.Boundary (:lend, :browse, :audit)"
+      )
+
+      # Every listener's rights are checked, a ceiling as much as a socket's.
+      fails(
+        [
+          shared:
+            shared_without_rights() <>
+              "  rights :socket, [:lend]\n  rights :token, [:browse, :operate]\n"
+        ],
+        "rights :token: :operate is no client right"
+      )
+
+      # Every right the boundary declares may be named, also one no capability needs.
+      assert [{_module, _binary}] =
+               compile(
+                 shared: shared_without_rights() <> "  rights :socket, [:lend, :browse, :audit]\n"
+               )
+    end
+
+    test "rights over a boundary that declares no client rights" do
+      defmodule NoClient do
+        def __schema__ do
+          schema = AtlasRuntimeBackend.Generator.Example.Boundary.__schema__()
+          %{schema | models: Enum.reject(schema.models, &(&1.name == :client))}
+        end
+      end
+
+      fails(
+        [boundary: inspect(NoClient)],
+        "rights :socket: #{inspect(NoClient)} declares no client rights"
+      )
+
+      # Without a rights entry there is nothing to check.
+      assert [{_module, _binary}] =
+               compile(boundary: inspect(NoClient), shared: shared_without_rights())
     end
 
     test "a boundary target carried by no backend target" do
@@ -289,6 +339,45 @@ defmodule AtlasRuntimeBackend.Generator.SchemaTest do
       )
     end
 
+    test "a listener's errors: optional, each once, unauthenticated always 401" do
+      required =
+        ~s(    error :invalid, 400, type: "invalid"\n    error :not_permitted, 403, type: "not-permitted"\n    error :no_route, 404, type: "no-route"\n)
+
+      assert [{_module, _binary}] =
+               compile(
+                 errors:
+                   required <>
+                     ~s(    error :unauthenticated, 401, type: "unauthenticated"\n    error :origin_refused, 403, type: "origin-refused"\n)
+               )
+
+      fails(
+        [errors: required <> ~s(    error :unauthenticated, 403, type: "unauthenticated"\n)],
+        "error :unauthenticated: the status is 401"
+      )
+
+      fails(
+        [
+          errors:
+            required <> ~s(    error :origin_refused, 403, type: "origin-refused", detail: "x"\n)
+        ],
+        "error :origin_refused: the only option is type:"
+      )
+
+      fails(
+        [
+          errors:
+            required <>
+              ~s(    error :origin_refused, 403, type: "a"\n    error :origin_refused, 400, type: "b"\n)
+        ],
+        "error :origin_refused is declared twice"
+      )
+
+      fails(
+        [errors: required <> ~s(    error :expired, 401, type: "expired"\n)],
+        "error :expired: the kinds are :invalid, :not_permitted, :no_route, :unauthenticated, :origin_refused"
+      )
+    end
+
     test "events and streams" do
       fails(
         [
@@ -382,6 +471,14 @@ defmodule AtlasRuntimeBackend.Generator.SchemaTest do
 
       assert %{outcome: :refused, by: :reason, cases: [%{value: :invalid, status: 400} | _]} =
                Enum.find(rest.statuses, &(&1.outcome == :refused))
+
+      assert rest.errors == [
+               %{kind: :invalid, status: 400, type: "invalid"},
+               %{kind: :not_permitted, status: 403, type: "not-permitted"},
+               %{kind: :no_route, status: 404, type: "no-route"},
+               %{kind: :unauthenticated, status: 401, type: "unauthenticated"},
+               %{kind: :origin_refused, status: 403, type: "origin-refused"}
+             ]
     end
   end
 end
