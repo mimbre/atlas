@@ -454,9 +454,6 @@ jobs:
   e2e:
     name: End to end (rela, core, two TUIs)
     needs: tested-tree
-    # Non-blocking until Atlas runs in real production (Melle, 2026-11-16): failures are
-    # reported but do not fail the run or block integration.
-    continue-on-error: true
     if: ${{ !cancelled() && needs.tested-tree.outputs.tested != 'true' }}
     runs-on: ubuntu-latest
     # Informational only while Atlas is not in real production (Melle, 2026-11-16): a failing
