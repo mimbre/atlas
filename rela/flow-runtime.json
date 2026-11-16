@@ -124,7 +124,8 @@
         "choices": [],
         "choice_states": [],
         "migrations": [
-          {"from":"99b406f1da0c908d703acd82c37c2bd07ec5c103e352809afed37b676693ed5e","to":"6dcb5eefa0dd0aec97748b7280249678cb64d759808b81e2104b3992c7b38052","states":{"author":"author","closed":"author","delivery_gate":"author","done":"done","in_pr":"author","needs_person":"author","publish":"author","review":"author","review_gate":"author","rework":"author"},"reason":"Slice 9: selected without its passes, gates and publish effect; built by hand"}
+          {"from":"99b406f1da0c908d703acd82c37c2bd07ec5c103e352809afed37b676693ed5e","to":"6dcb5eefa0dd0aec97748b7280249678cb64d759808b81e2104b3992c7b38052","states":{"author":"author","closed":"author","delivery_gate":"author","done":"done","in_pr":"author","needs_person":"author","publish":"author","review":"author","review_gate":"author","rework":"author"},"reason":"Slice 9: selected without its passes, gates and publish effect; built by hand"},
+          {"from":"6dcb5eefa0dd0aec97748b7280249678cb64d759808b81e2104b3992c7b38052","to":"1750de74619999b627ea974d5e6c0652b607a7db344027bdaab215e050d838c7","states":{"author":"author","done":"done"},"preserve_entry":true,"reason":"S0: capacity owns worker turns; preserve current integrated behavior"}
         ],
         "subject": "issue",
         "projection": {
@@ -151,7 +152,8 @@
         "choice_states": [],
         "migrations": [
           {"from":"0d65d9a4aa1cdf916e022547e3f4a1974505cd94c349e9809f1a441f13cd8335","to":"e183d55ea7eb411d29dd812053dff89078b4ef131068a3223d40c22617bffbd0","states":{"blocked":"integrating","changes_requested":"changes_requested","checking":"checking","closed":"closed","integrated":"integrated","integrating":"integrating"},"reason":"Slice 8: selected without its integrate effect and creates; merged by hand"},
-          {"from":"e183d55ea7eb411d29dd812053dff89078b4ef131068a3223d40c22617bffbd0","to":"9e9822b579c9f85bd577c278b2c8a10ee7be7d04ee029e12ad8bf790cdc703de","states":{"changes_requested":"changes_requested","checking":"checking","closed":"closed","integrated":"integrated","integrating":"blocked"},"reason":"Integrate effect through Code's receiver; waiting runs blocked until a retry"}
+          {"from":"e183d55ea7eb411d29dd812053dff89078b4ef131068a3223d40c22617bffbd0","to":"9e9822b579c9f85bd577c278b2c8a10ee7be7d04ee029e12ad8bf790cdc703de","states":{"changes_requested":"changes_requested","checking":"checking","closed":"closed","integrated":"integrated","integrating":"blocked"},"reason":"Integrate effect through Code's receiver; waiting runs blocked until a retry"},
+          {"from":"9e9822b579c9f85bd577c278b2c8a10ee7be7d04ee029e12ad8bf790cdc703de","to":"32f7024721ba7e62306c111f2b9ffa194774b5fb1bff3a69de64125fe8b0a2f6","states":{"blocked":"blocked","changes_requested":"changes_requested","checking":"checking","closed":"closed","integrated":"integrated","integrating":"integrating"},"preserve_entry":true,"reason":"S0: capacity owns worker turns; preserve current integrated behavior"}
         ],
         "subject": "pull_request",
         "projection": {

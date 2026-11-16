@@ -12,7 +12,9 @@ defmodule AtlasFlow.Application do
         # with a module that is no model, Flow does not start.
         [
           {AtlasFlow.Engine,
-           every: every, name: AtlasFlow.Engine, model: AtlasFlow.Model.configured!()}
+           every: every, name: AtlasFlow.Engine, model: AtlasFlow.Model.configured!()},
+          {AtlasFlow.Capacity,
+           every: every, name: AtlasFlow.Capacity, model: AtlasFlow.Model.configured!()}
         ]
       else
         []

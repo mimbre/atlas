@@ -29,6 +29,8 @@ defmodule AtlasRuntime.Agent do
 
   @doc "End the agent's turn."
   @callback stop(pid) :: :ok
+  @doc "Return :ok only after the complete execution has been confirmed stopped."
+  @callback stop_confirmed(pid) :: :ok | {:error, term}
 
   @doc "Versioned guidance capabilities. Missing callbacks mean unsupported."
   @callback capabilities(pid) :: {:ok, map} | {:error, term}
@@ -43,7 +45,8 @@ defmodule AtlasRuntime.Agent do
   @callback close_input(pid) :: :ok | {:error, term}
   @doc "Open historical evidence without starting a model or activating an attempt."
   @callback recover_input(map, keyword) :: {:ok, pid} | {:error, term}
-  @optional_callbacks start_monitor: 2,
+  @optional_callbacks stop_confirmed: 1,
+                      start_monitor: 2,
                       capabilities: 1,
                       accept: 2,
                       query: 2,
@@ -89,6 +92,9 @@ defmodule AtlasRuntime.Agent do
   end
 
   def stop(port, pid), do: invoke(port, :stop, [pid])
+
+  @doc "Stop only with an adapter's explicit execution-quiescence confirmation."
+  def stop_confirmed(port, pid), do: invoke(port, :stop_confirmed, [pid])
 
   def close_input(port, pid), do: invoke(port, :close_input, [pid])
 

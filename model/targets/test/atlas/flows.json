@@ -586,9 +586,9 @@
       "initial": "author",
       "label": "Issue",
       "owner": {
-        "default": {
-          "key": "coordinator",
-          "kind": "agent"
+        "capacity": {
+          "backend": ["claude", "codex"],
+          "model": "any"
         },
         "relation": "assigned_to",
         "via": "assignment"
@@ -863,10 +863,12 @@
       "initial": "checking",
       "label": "Pull request",
       "owner": {
-        "default": {
-          "key": "coordinator",
-          "kind": "agent"
-        }
+        "capacity": {
+          "backend": ["claude", "codex"],
+          "model": "any"
+        },
+        "relation": "assigned_to",
+        "via": "assignment"
       },
       "per_subject": "one",
       "run_as": "system:sf-flow",
@@ -979,6 +981,15 @@
           "creates": [],
           "final": false,
           "label": "Review and test",
+          "owner": {
+            "capacity": {
+              "backend": ["claude", "codex"],
+              "differs_from": "author",
+              "model": "any"
+            },
+            "relation": "assigned_to",
+            "via": "assignment"
+          },
           "present": {
             "expected": "Review and merge it",
             "todo": {

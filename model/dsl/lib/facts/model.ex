@@ -30,6 +30,8 @@ defmodule RelaDSL.Facts.Model do
       before the write;
     * `"fact"`: `fn kind, key -> nil | fact end`;
     * `"list"`: `fn kind -> {:ok, [fact]} | {:error, reason} end`;
+    * `"origins"`: `fn kind, key, links -> %{relation => %{"by" => writer}} end`,
+      the current link origins, distinguishing manual ownership from an allocation;
     * `"incoming"`: `fn kind, key, relation -> [key] end`, what points at a fact;
     * `"fingerprint"`: `fn fact, spec -> digest end`, a subject's fingerprint;
     * for `derived`, what its rules read, asked as precisely as they read it, so a store
@@ -49,9 +51,9 @@ defmodule RelaDSL.Facts.Model do
   alias RelaDSL.Facts.Served
 
   @doc false
-  def body(schema, extension, flow_runtime, presentations \\ %{}) do
+  def body(schema, extension, flow_runtime, presentations \\ %{}, authority \\ %{}) do
     served = Served.of(schema)
-    d = described(served, extension, flow_runtime)
+    d = described(served, extension, flow_runtime) |> Map.put("capacity_definitions", authority)
     presenters = RelaDSL.Presentation.presenters(d, flow_runtime, presentations)
 
     connectors =

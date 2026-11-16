@@ -183,7 +183,7 @@ defmodule RelaDSL.Schema do
   @max_timers 8
   @name ~r/^[a-z][a-z0-9_-]{0,63}$/
   @once [:run_as, :per_subject, :owner, :channel, :initial]
-  @owner_keys [:via, :relation, :default, :preserve_kind]
+  @owner_keys [:via, :relation, :default, :preserve_kind, :capacity]
   @present_keys [:expected, :why, :instructions, :section, :answers, :deadline]
 
   @macros [
@@ -261,6 +261,8 @@ defmodule RelaDSL.Schema do
   assignee, and `default: {kind, key}` (or `{kind, config: role}`, the actor the
   environment configures for `role`), who owns it while no one is assigned.
   `preserve_kind:` keeps an assignee of that kind; other assignees take the default.
+  `capacity: [backend: [...], model: :any | [...], differs_from: step]` waits for
+  a fitting live slot instead of naming a default. It applies to ownership turns.
   """
   defmacro owner(opts) do
     quote do
@@ -866,6 +868,10 @@ defmodule RelaDSL.Schema do
       unknown = Keyword.keys(opts) -- @owner_keys
 
       [
+        (opts[:capacity] != nil and
+           (opts[:default] != nil or opts[:relation] == nil or
+              not capacity?(opts[:capacity]))) &&
+          pre <> "capacity needs a relation, backends and models, without a default",
         unknown != [] && pre <> "knows no #{list(unknown)} (only via:, relation:, default:)",
         (opts[:relation] == nil and opts[:default] == nil) &&
           pre <>
@@ -882,6 +888,17 @@ defmodule RelaDSL.Schema do
       [pre <> "takes via:, relation: and default:"]
     end
     |> Enum.filter(& &1)
+  end
+
+  defp capacity?(rule) do
+    Keyword.keyword?(rule) and
+      Keyword.keys(rule) -- [:backend, :model, :differs_from] == [] and
+      is_list(rule[:backend]) and rule[:backend] != [] and
+      Enum.all?(rule[:backend], &is_atom/1) and
+      (rule[:model] == :any or
+         (is_list(rule[:model]) and rule[:model] != [] and
+            Enum.all?(rule[:model], &(is_atom(&1) or is_binary(&1))))) and
+      (rule[:differs_from] == nil or is_atom(rule[:differs_from]))
   end
 
   defp default_problems(:none, _pre), do: []
@@ -1186,7 +1203,14 @@ defmodule RelaDSL.Schema do
 
     states = Enum.flat_map(flow.states, &check_state(&1, by_name))
     reach = if initial, do: unreachable(flow, by_name), else: []
-    header = header ++ owners(flow, pre)
+
+    header =
+      header ++
+        owners(flow, pre) ++
+        for s <- flow.states,
+            (s.owner || flow.owner || %{})[:capacity] != nil,
+            match?({:pass, _}, s.mechanism),
+            do: {s.line, pre <> "capacity owners on passes require slot enrollment"}
 
     for {line, p} <- header ++ states ++ reach, p, do: {line, p}
   end

@@ -247,7 +247,11 @@ defmodule Model.ToDoRunsTest do
   test "an agent-owned To-Do is open work for Runtime, and the agent may close it" do
     # Runtime starts turns on the facts the turn's items name, owned through their owner
     # relation, while Facts' presentation says there is something to do.
-    assert %{"kind" => "assignment", "owner_relation" => "assigned_to"} in Model.AtlasEyra.turn()[
+    assert %{
+             "kind" => "assignment",
+             "owner_relation" => "assigned_to",
+             "state_field" => "flow_state"
+           } in Model.AtlasEyra.turn()[
              "items"
            ]
 

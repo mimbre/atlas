@@ -157,11 +157,19 @@ defmodule Model.PullRequest do
 
   subflow :pull_request, label: "Pull request", subject: :pull_request do
     run_as "system:sf-flow"
-    owner default: {:agent, :coordinator}
+
+    owner via: :assignment,
+          relation: :assigned_to,
+          capacity: [backend: [:claude, :codex], model: :any]
+
     start :create
     initial :checking
 
     state :checking, label: "Review and test" do
+      owner via: :assignment,
+            relation: :assigned_to,
+            capacity: [backend: [:claude, :codex], model: :any, differs_from: :author]
+
       present(
         expected: "Review and merge it",
         why: "it is open",
@@ -302,5 +310,14 @@ defmodule Model.PullRequest do
       integrating: :blocked
     ],
     reason: "Integrate effect through Code's receiver; waiting runs blocked until a retry"
+  )
+
+  # Capacity changes ownership only; keep the durable entry and pending work.
+  migrate(:pull_request,
+    from: "9e9822b579c9f85bd577c278b2c8a10ee7be7d04ee029e12ad8bf790cdc703de",
+    to: "32f7024721ba7e62306c111f2b9ffa194774b5fb1bff3a69de64125fe8b0a2f6",
+    states: :same,
+    preserve_entry: true,
+    reason: "S0: capacity owns worker turns; preserve current integrated behavior"
   )
 end

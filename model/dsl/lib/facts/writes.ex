@@ -74,7 +74,13 @@ defmodule RelaDSL.Facts.Writes do
     links = change["links"] || %{}
 
     result =
-      with :ok <- relations(d, kind, op, key, links, actor, lookup),
+      with :ok <- capacity_conditions(change, actor, lookup),
+           :ok <- capacity_turn_change(d, kind, change, lookup),
+           :ok <- capacity_turn(d, kind, change, lookup),
+           :ok <- turn_end(d, kind, change, actor, lookup),
+           :ok <- capacity_entry(d, kind, change, lookup),
+           :ok <- capacity_slot(d, kind, change, actor, lookup),
+           :ok <- relations(d, kind, op, key, links, actor, lookup),
            :ok <- not_a_part(d, kind, op, key, lookup) do
         guarded(d, kind, op, key, change["values"] || %{}, links, actor, lookup)
       end
@@ -82,6 +88,327 @@ defmodule RelaDSL.Facts.Writes do
     case result do
       :ok -> :ok
       {:refused, reasons} -> {:refuse, reasons}
+    end
+  end
+
+  defp capacity_conditions(change, %{"sender" => "flow/capacity"}, lookup) do
+    current = lookup["current"].()
+    properties = if current, do: current[:properties] || current["values"] || %{}, else: %{}
+    links = if current, do: current[:links] || current["links"] || %{}, else: %{}
+    was = change["was"]
+
+    valid =
+      is_map(was) and
+        Enum.all?(was, fn {name, value} ->
+          if is_list(value),
+            do: Enum.sort(links[name] || []) == Enum.sort(value),
+            else: loose(properties[name]) == loose(value)
+        end)
+
+    if valid, do: :ok, else: {:refused, ["capacity precondition changed"]}
+  end
+
+  defp capacity_conditions(_change, _actor, _lookup), do: :ok
+
+  defp capacity_turn_change(d, kind, change, lookup) do
+    n = get_in(d, ["runtime", "turn"])
+
+    if n && kind == n["kind"] && change["op"] == "change" do
+      current = lookup["current"].()
+      old = if current, do: current[:properties] || current["values"] || %{}, else: %{}
+
+      fields = [
+        n["state"],
+        n["lease"],
+        n["activity"],
+        n["why"],
+        n["ended_at"],
+        n["quiescent"],
+        n["model"]
+      ]
+
+      lifecycle? = Enum.any?(Map.keys(change["values"] || %{}), &(&1 in fields))
+      was = change["was"] || %{}
+
+      if get_in(d, ["runtime", "capacity"]) != nil and
+           (old[n["attempt"]] not in [nil, ""] or old[n["pick"]] not in [nil, ""]) and
+           lifecycle? and
+           (not Map.has_key?(was, n["pick"]) or not Map.has_key?(was, n["attempt"]) or
+              was[n["pick"]] != old[n["pick"]] or was[n["attempt"]] != old[n["attempt"]]),
+         do: {:refused, ["capacity turn allocation changed"]},
+         else: :ok
+    else
+      :ok
+    end
+  end
+
+  defp capacity_turn(d, kind, change, lookup) do
+    n = get_in(d, ["runtime", "turn"])
+    f = get_in(d, ["runtime", "capacity"])
+    admission = change["admission"]
+    current = if admission, do: lookup["current"].()
+    values = if admission, do: properties(current || %{}), else: change["values"] || %{}
+    turn_links = if admission, do: links(current || %{}), else: change["links"] || %{}
+    pick = n && values[n["pick"]]
+
+    if n && f && kind == n["kind"] &&
+         (admission != nil or (change["op"] == "create" and values[n["state"]] == n["running"])) do
+      with true <-
+             admission == nil or
+               (current != nil and values[n["state"]] == n["running"] and
+                  values[n["attempt"]] == admission["attempt"] and
+                  pick == admission["pick"]),
+           [worker] <- turn_links[n["by"]],
+           {:ok, turns} <- lookup["list"].(n["kind"]) do
+        case turn_links[n["on"]] || [] do
+          [] -> standalone_turn(d, values, worker, turns, change, lookup)
+          [key] -> item_turn(d, values, worker, key, turns, change, lookup)
+          _ -> {:refused, ["capacity turn could not be checked"]}
+        end
+      else
+        _ -> {:refused, ["capacity turn could not be checked"]}
+      end
+    else
+      :ok
+    end
+  end
+
+  # Itemless reporting still reserves its worker. Unknown assignment reads fail closed.
+  defp standalone_turn(d, values, worker, turns, change, lookup) do
+    n = d["runtime"]["turn"]
+
+    free =
+      Enum.all?(d["relations"][n["on"]]["to"], fn target ->
+        case lookup["list"].(target) do
+          {:ok, items} ->
+            Enum.all?(items, fn item ->
+              Enum.all?(d["flow_runtime"]["selection"], fn {_, selection} ->
+                p = selection["projection"]
+
+                not is_map(p) or worker not in (links(item)[p["owner_relation"]] || []) or
+                  properties(item)[p["field"]] in [nil, ""]
+              end)
+            end)
+
+          _ ->
+            false
+        end
+      end)
+
+    busy =
+      Enum.any?(turns, fn turn ->
+        v = properties(turn)
+        self? = change["admission"] != nil and (turn[:key] || turn["key"]) == change["key"]
+
+        not self? and worker in (links(turn)[n["by"]] || []) and
+          (v[n["state"]] != n["ended"] or v[n["quiescent"]] != true)
+      end)
+
+    if free and not busy and values[n["pick"]] in [nil, ""] and
+         values[n["attempt"]] not in [nil, ""] and change["allocation"] in [nil, ""],
+       do: :ok,
+       else: {:refused, ["capacity worker is reserved"]}
+  end
+
+  defp item_turn(d, values, worker, key, turns, change, lookup) do
+    n = d["runtime"]["turn"]
+    f = d["runtime"]["capacity"]
+    pick = values[n["pick"]]
+    admission = change["admission"]
+
+    with [target] <- d["relations"][n["on"]]["to"],
+         %{} = fact <- lookup["fact"].(target, key) do
+      v = fact[:properties] || fact["values"] || %{}
+      links = fact[:links] || fact["links"] || %{}
+
+      owner_relations =
+        for {_, selection} <- d["flow_runtime"]["selection"],
+            p = selection["projection"],
+            is_map(p),
+            do: p["owner_relation"]
+
+      owned = Enum.any?(owner_relations, &(links[&1] == [worker]))
+
+      busy =
+        Enum.any?(turns, fn t ->
+          values = t[:properties] || t["values"] || %{}
+          links = t[:links] || t["links"] || %{}
+
+          self? = admission != nil and (t[:key] || t["key"]) == change["key"]
+
+          not self? and
+            ((pick not in [nil, ""] and values[n["pick"]] == pick) or
+               ((values[n["state"]] != n["ended"] or values[n["quiescent"]] != true) and
+                  (worker in (links[n["by"]] || []) or key in (links[n["on"]] || []))))
+        end)
+
+      manual =
+        if reader = lookup["origins"] do
+          origins = reader.(target, key, links)
+
+          Enum.any?(owner_relations, fn relation ->
+            links[relation] == [worker] and
+              get_in(origins, [relation, "by"]) not in [nil, "flow", "migration"]
+          end)
+        else
+          false
+        end
+
+      allocated =
+        (pick in [nil, ""] and (v[f["entry"]] in [nil, ""] or manual)) or
+          (v[f["pick"]] == pick and
+             v[f["picked_entry"]] ==
+               if(admission, do: admission["entry"], else: change["allocation"]) and
+             v[f["entry"]] == v[f["picked_entry"]] and
+             values[n["backend"]] == v[f["backend"]] and values[n["model"]] == v[f["model"]] and
+             values[n["machine"]] == v[f["machine"]] and
+             live_allocation?(d, target, key, v, links, values, lookup))
+
+      if owned and not busy and allocated,
+        do: :ok,
+        else: {:refused, ["capacity turn no longer owns its pick"]}
+    else
+      _ -> {:refused, ["capacity turn could not be checked"]}
+    end
+  end
+
+  defp properties(fact), do: fact[:properties] || fact["values"] || %{}
+  defp links(fact), do: fact[:links] || fact["links"] || %{}
+
+  # Resolve the durable cursor directly through the store, never through presentation.
+  defp live_allocation?(d, target, key, v, item_links, turn, lookup) do
+    f = d["runtime"]["capacity"]
+    n = d["runtime"]["turn"]
+    c = d["flow_runtime"]
+    fields = c["fields"]
+    parts = String.split(to_string(v[f["picked_entry"]]), ":")
+
+    with true <- length(parts) >= 3,
+         {tail, [generation, entry]} <- Enum.split(parts, -2),
+         %{} = run <- lookup["fact"].(c["kind"], Enum.join(tail, ":")),
+         r = properties(run),
+         true <-
+           is_integer(r[fields["generation"]]) and r[fields["generation"]] > 0 and
+             is_integer(r[fields["entry"]]) and r[fields["entry"]] > 0,
+         true <-
+           to_string(r[fields["generation"]]) == generation and
+             to_string(r[fields["entry"]]) == entry and r[fields["status"]] == "active",
+         %{} = definition <- d["capacity_definitions"][r[fields["definition_sha256"]]],
+         true <- definition["name"] == r[fields["flow"]],
+         %{} = state <- definition["states"][r[fields["state"]]],
+         false <- state["final"] == true,
+         owner = state["owner"] || definition["owner"] || %{},
+         %{} = rule <- owner["capacity"],
+         %{} = selection <- c["selection"][r[fields["flow"]]],
+         p = selection["projection"],
+         true <- is_map(p) and owner["relation"] == p["owner_relation"],
+         true <-
+           turn[n["step"]] == r[fields["state"]] and
+             turn[n["backend"]] in rule["backend"] and
+             (rule["model"] == "any" or turn[n["model"]] in rule["model"]),
+         true <- item_links[p["owner_relation"]] != [],
+         true <- r[fields["subject_kind"]] == selection["subject"] do
+      if p["on"] do
+        with %{} = subject <- lookup["fact"].(selection["subject"], r[fields["subject_key"]]) do
+          key in (links(subject)[p["on"]] || []) and
+            target in (get_in(d, ["relations", p["on"], "to"]) || [])
+        else
+          _ -> false
+        end
+      else
+        target == selection["subject"] and key == r[fields["subject_key"]]
+      end
+    else
+      _ -> false
+    end
+  end
+
+  defp capacity_slot(d, kind, change, %{"sender" => "flow/capacity"}, lookup) do
+    f = get_in(d, ["runtime", "capacity"])
+    pick = f && get_in(change, ["values", f["pick"]])
+
+    if pick not in [nil, ""] do
+      n = d["runtime"]["turn"]
+
+      with [{relation, [slot]}] <- Map.to_list(change["links"] || %{}),
+           {:ok, assignments} <- lookup["list"].(kind),
+           {:ok, turns} <- lookup["list"].(n["kind"]) do
+        fields =
+          for {_, selection} <- d["flow_runtime"]["selection"],
+              p = selection["projection"],
+              is_map(p),
+              p["owner_relation"] == relation,
+              do: p["field"]
+
+        reserved =
+          Enum.any?(assignments, fn fact ->
+            v = fact[:properties] || fact["values"] || %{}
+            links = fact[:links] || fact["links"] || %{}
+
+            slot in (links[relation] || []) and
+              Enum.any?(fields, &(v[&1] not in [nil, ""]))
+          end)
+
+        running =
+          Enum.any?(turns, fn fact ->
+            v = fact[:properties] || fact["values"] || %{}
+            links = fact[:links] || fact["links"] || %{}
+
+            (v[n["state"]] != n["ended"] or v[n["quiescent"]] != true) and
+              (slot in (links[n["by"]] || []) or change["key"] in (links[n["on"]] || []))
+          end)
+
+        if not reserved and not running, do: :ok, else: {:refused, ["capacity is busy"]}
+      else
+        _ -> {:refused, ["capacity availability could not be checked"]}
+      end
+    else
+      :ok
+    end
+  end
+
+  defp capacity_slot(_d, _kind, _change, _actor, _lookup), do: :ok
+
+  # A core clock cannot establish that an external execution stopped.
+  defp turn_end(d, kind, _change, actor, _lookup) do
+    n = get_in(d, ["runtime", "turn"])
+
+    if n != nil and n["kind"] == kind and actor["sender"] in ["flow", "flow/capacity"] do
+      {:refused, ["Flow cannot establish execution quiescence from a lease"]}
+    else
+      :ok
+    end
+  end
+
+  defp capacity_entry(d, kind, change, lookup) do
+    f = get_in(d, ["runtime", "capacity"])
+    n = get_in(d, ["runtime", "turn"])
+    targets = if n, do: get_in(d, ["relations", n["on"], "to"]) || [], else: []
+    changed = Map.keys(change["values"] || %{})
+
+    if f && kind in targets && Enum.any?(Map.values(Map.drop(f, ["entry"])), &(&1 in changed)) do
+      current = lookup["current"].()
+      old = if current, do: current[:properties] || current["values"] || %{}, else: %{}
+      entry = old[f["entry"]]
+      c = d["flow_runtime"]
+      parts = String.split(to_string(entry), ":")
+
+      valid =
+        with true <- length(parts) >= 3,
+             {tail, [generation, number]} <- Enum.split(parts, -2),
+             %{} = run <- lookup["fact"].(c["kind"], Enum.join(tail, ":")) do
+          v = run[:properties] || run["values"] || %{}
+          fields = c["fields"]
+
+          to_string(v[fields["generation"]]) == generation and
+            to_string(v[fields["entry"]]) == number and v[fields["status"]] == "active"
+        else
+          _ -> false
+        end
+
+      if valid, do: :ok, else: {:refused, ["capacity run entry has changed"]}
+    else
+      :ok
     end
   end
 
@@ -444,7 +771,13 @@ defmodule RelaDSL.Facts.Writes do
       for {field, p} <- spec["properties"] || %{},
           machine != nil and p["set_by"] == [machine["by"]],
           into: %{},
-          do: {field, machine}
+          do:
+            {field,
+             if(
+               field in Map.values(Map.drop(get_in(d, ["runtime", "capacity"]) || %{}, ["entry"])),
+               do: Map.put(machine, "sender", "flow/capacity"),
+               else: machine
+             )}
 
     rules = if writers == %{}, do: rules, else: Map.put(rules, "field_writers", writers)
 

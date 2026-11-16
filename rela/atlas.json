@@ -134,6 +134,11 @@
       },
       "primary": "of",
       "properties": {
+        "capacity_entry": {
+          "set_by": [
+            "flow"
+          ]
+        },
         "expected": {
           "set_by": [
             "flow",
@@ -141,6 +146,36 @@
           ]
         },
         "handover": {
+          "set_by": [
+            "flow"
+          ]
+        },
+        "pick": {
+          "set_by": [
+            "flow"
+          ]
+        },
+        "picked_at": {
+          "set_by": [
+            "flow"
+          ]
+        },
+        "picked_backend": {
+          "set_by": [
+            "flow"
+          ]
+        },
+        "picked_entry": {
+          "set_by": [
+            "flow"
+          ]
+        },
+        "picked_machine": {
+          "set_by": [
+            "flow"
+          ]
+        },
+        "picked_model": {
           "set_by": [
             "flow"
           ]
@@ -678,6 +713,11 @@
             "runtime"
           ]
         },
+        "backend": {
+          "set_by": [
+            "runtime"
+          ]
+        },
         "ended_at": {
           "label": "Ended at",
           "set_by": [
@@ -706,7 +746,22 @@
             "turn_owner"
           ]
         },
+        "pick": {
+          "set_by": [
+            "runtime"
+          ]
+        },
+        "quiescent": {
+          "set_by": [
+            "runtime"
+          ]
+        },
         "state": {
+          "set_by": [
+            "runtime"
+          ]
+        },
+        "step": {
           "set_by": [
             "runtime"
           ]
@@ -1007,21 +1062,35 @@
     "agent": {
       "cannot_run": "cannot_run"
     },
+    "capacity": {
+      "at": "picked_at",
+      "backend": "picked_backend",
+      "entry": "capacity_entry",
+      "machine": "picked_machine",
+      "model": "picked_model",
+      "pick": "pick",
+      "picked_entry": "picked_entry"
+    },
     "turn": {
       "activity": "activity",
       "attempt": "attempt",
+      "backend": "backend",
       "by": "turn_by",
       "ended": "ended",
       "ended_at": "ended_at",
       "key": "TU-{on}-{n}",
       "kind": "turn",
       "lease": "lease_until",
+      "lease_margin": 120,
       "machine": "machine",
       "model": "model",
       "on": "turn_on",
       "outcome": "outcome",
+      "pick": "pick",
+      "quiescent": "quiescent",
       "running": "running",
       "state": "state",
+      "step": "step",
       "title": "title",
       "why": "why"
     }

@@ -36,6 +36,9 @@ defmodule AtlasRuntime.Agent.Stub do
     :exit, _ -> :ok
   end
 
+  @impl AtlasRuntime.Agent
+  def stop_confirmed(pid), do: stop(pid)
+
   @impl GenServer
   def init({turn_pid, turn, dir}) do
     send(self(), :look)

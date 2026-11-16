@@ -14,6 +14,18 @@ defmodule Model.Assignment do
     """ do
     field(:of, :string, required: true, description: "The key of the fact it belongs to")
 
+    for {name, type} <- [
+          capacity_entry: :string,
+          picked_entry: :string,
+          pick: :string,
+          picked_backend: :string,
+          picked_model: :string,
+          picked_machine: :string,
+          picked_at: :datetime
+        ] do
+      field(name, type, set_by: [:flow])
+    end
+
     field(:expected, :string,
       description: "What its owner is expected to do next; Flow writes it (IS-Atlas-53)",
       set_by: [:flow, :migration]
@@ -69,6 +81,18 @@ defmodule Model.Assignment do
     restart: [label: "Restart", key: "g"],
     reopened:
       "Reopened after its run ended: nothing is expected and nobody owns it until its run is restarted"
+  )
+
+  runtime(
+    capacity: [
+      entry: :capacity_entry,
+      picked_entry: :picked_entry,
+      pick: :pick,
+      backend: :picked_backend,
+      model: :picked_model,
+      machine: :picked_machine,
+      at: :picked_at
+    ]
   )
 
   start_page(

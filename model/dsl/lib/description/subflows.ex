@@ -47,7 +47,20 @@ defmodule RelaDSL.Description.Subflows do
           fields(s, kind, schema, here) ++
             roles(s, acl, here) ++
             creates(s, kind, schema, here) ++
-            owner(s.owner, kind, schema, here) ++ present(s.present, kind, schema, here)
+            owner(s.owner, kind, schema, here) ++
+            present(s.present, kind, schema, here) ++
+            if((s.owner || f.owner || %{})[:capacity] && match?({:pass, _}, s.mechanism),
+              do: [
+                here.(
+                  problem(
+                    :capacity_pass,
+                    [f.name, s.name],
+                    "capacity owners on passes require slot enrollment"
+                  )
+                )
+              ],
+              else: []
+            )
         end)
     end
   end

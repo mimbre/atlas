@@ -95,11 +95,13 @@ defmodule AtlasControl.WorkerPagesTest do
   # The Workers page over these runs (`AtlasControl.Packing`: a run is a turn, going is
   # running, over is ended, `until` its lease and `done_at` when it ended). Each run is
   # `{key, status, at}`: `at` is the lease of a going run and the end of an over one.
-  defp workers_page(runs) do
+  defp workers_page(runs, waiting \\ []) do
     description =
       AtlasControl.Model.catalog(AtlasControl.Packing, %{
         "workers" => %{"read" => %{"actors" => ["viewer"]}}
       })
+
+    description = %{description | turn: Map.put(description.turn, "capacity", %{})}
 
     turns =
       for {key, status, at} <- runs do
@@ -116,6 +118,9 @@ defmodule AtlasControl.WorkerPagesTest do
     by_key = Map.new(turns, &{&1["key"], &1})
 
     read = fn
+      "_capacity", %{} ->
+        %{"waiting" => waiting}
+
       "reader", %{"key" => "viewer"} ->
         %{"fact" => %{"key" => "viewer"}}
 
@@ -153,6 +158,26 @@ defmodule AtlasControl.WorkerPagesTest do
 
   defp row_keys({_id, _type, props}), do: Enum.map(props["rows"], & &1["id"])
 
+  test "waiting rows carry an item destination, need, entry time and queue position" do
+    row = %{
+      "kind" => "card",
+      "key" => "C-1",
+      "label" => "C-1",
+      "state" => "work",
+      "need" => %{"backend" => ["codex"], "model" => ["m"], "differs_from" => "author"},
+      "since" => "2026-11-14T00:00:00Z",
+      "position" => 2,
+      "why" => "busy"
+    }
+
+    {_page, [_running, waiting, _finished]} = workers_page([], [row])
+    assert row_keys(waiting) == ["C-1"]
+    {_, _, props} = waiting
+    assert [%{"to" => destination, "detail" => detail}] = props["rows"]
+    assert AtlasControl.Pages.route(destination) == {:item, "card", "C-1"}
+    assert is_binary(detail) and byte_size(detail) > 0
+  end
+
   defp opens(key),
     do:
       WorkerPages.path(%{
@@ -174,10 +199,11 @@ defmodule AtlasControl.WorkerPagesTest do
 
     assert Enum.map(lists, fn {id, type, _} -> {id, type} end) == [
              {"workers-running", "list"},
+             {"workers-waiting", "list"},
              {"workers-finished", "list"}
            ]
 
-    [running, finished] = lists
+    [running, _waiting, finished] = lists
     assert row_keys(running) == ["R-3", "R-5", "R-2"]
     assert row_keys(finished) == ["R-4", "R-6", "R-1"]
 
@@ -199,7 +225,7 @@ defmodule AtlasControl.WorkerPagesTest do
          DateTime.to_iso8601(DateTime.add(~U[2026-11-01 00:00:00Z], n, :hour))}
       end
 
-    {_page, [running, finished]} = workers_page(Enum.shuffle(runs))
+    {_page, [running, _waiting, finished]} = workers_page(Enum.shuffle(runs))
     assert row_keys(running) == []
 
     assert row_keys(finished) ==
@@ -207,7 +233,12 @@ defmodule AtlasControl.WorkerPagesTest do
   end
 
   test "an empty Running list keeps its place and its empty state" do
-    {page, [{"workers-running", "list", running}, {"workers-finished", "list", finished}]} =
+    {page,
+     [
+       {"workers-running", "list", running},
+       {"workers-waiting", "list", _},
+       {"workers-finished", "list", finished}
+     ]} =
       workers_page([{"R-1", "over", "2026-11-10T10:00:00Z"}])
 
     assert running["rows"] == []

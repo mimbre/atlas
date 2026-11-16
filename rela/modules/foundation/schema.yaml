@@ -143,6 +143,20 @@ entities:
         type: string
         required: true
         description: The key of the fact it belongs to
+      capacity_entry:
+        type: string
+      picked_entry:
+        type: string
+      pick:
+        type: string
+      picked_backend:
+        type: string
+      picked_model:
+        type: string
+      picked_machine:
+        type: string
+      picked_at:
+        type: datetime
       expected:
         type: string
         description: What its owner is expected to do next; Flow writes it (IS-Atlas-53)
@@ -191,6 +205,14 @@ entities:
       attempt:
         type: string
         description: Runtime execution fence; a new attempt never inherits old guidance.
+      pick:
+        type: string
+      backend:
+        type: string
+      step:
+        type: string
+      quiescent:
+        type: boolean
       title:
         type: string
         description: 'What the turn is about when it has no item: the first heading and line of what the agent was asked, shortened'

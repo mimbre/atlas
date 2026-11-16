@@ -93,13 +93,26 @@ defmodule AtlasControl.Workers do
     with :ok <- authorize(m, actor, "read", read),
          {:ok, n} <- names(m),
          {:ok, turns} <- turns(n, read),
-         {:ok, running} <- running(m, actor, n, turns, read) do
+         {:ok, running} <- running(m, actor, n, turns, read),
+         {:ok, waiting} <- waiting(m, read) do
       {:ok,
        %{
          "running" => Enum.sort_by(running, &recency(&1["lease_until"]), :desc),
          "finished" => finished(n, turns),
+         "waiting" => waiting,
          "confirmed_at" => now()
        }}
+    end
+  end
+
+  defp waiting(m, read) do
+    if m.turn["capacity"] do
+      case read.("_capacity", %{}) do
+        %{"waiting" => rows} when is_list(rows) -> {:ok, rows}
+        _ -> {:error, "capacity_unavailable"}
+      end
+    else
+      {:ok, []}
     end
   end
 

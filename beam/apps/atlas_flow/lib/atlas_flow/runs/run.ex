@@ -69,10 +69,8 @@ defmodule AtlasFlow.Runs.Run do
 
   defp migrate_changed(run, flow, migrations, now) do
     mapping =
-      Enum.find(
-        migrations,
-        &(&1["from"] == run["definition_sha256"] and &1["to"] == flow.digest())
-      )
+      migration_path(run["definition_sha256"], flow.digest(), migrations, MapSet.new())
+      |> compose_migrations()
 
     state = mapping && mapping["states"][run["state"]]
 
@@ -133,6 +131,45 @@ defmodule AtlasFlow.Runs.Run do
       true ->
         {:error, :definition_changed}
     end
+  end
+
+  defp migration_path(from, to, _migrations, _seen) when from == to, do: []
+
+  defp migration_path(from, to, migrations, seen) do
+    if MapSet.member?(seen, from) do
+      nil
+    else
+      migrations
+      |> Enum.filter(&(&1["from"] == from))
+      |> Enum.find_value(fn mapping ->
+        case migration_path(mapping["to"], to, migrations, MapSet.put(seen, from)) do
+          nil -> nil
+          rest -> [mapping | rest]
+        end
+      end)
+    end
+  end
+
+  defp compose_migrations(nil), do: nil
+  defp compose_migrations([]), do: nil
+  defp compose_migrations([mapping]), do: mapping
+
+  defp compose_migrations([first | rest] = path) do
+    states =
+      Map.new(first["states"], fn {from, state} ->
+        {from, Enum.reduce(rest, state, fn mapping, state -> mapping["states"][state] end)}
+      end)
+      |> Map.reject(fn {_, state} -> state == nil end)
+
+    preserved = Enum.all?(path, &(&1["rekey"] == true or &1["preserve_entry"] == true))
+
+    first
+    |> Map.drop(["rekey", "preserve_entry"])
+    |> Map.merge(%{
+      "to" => List.last(path)["to"],
+      "states" => states,
+      "preserve_entry" => preserved
+    })
   end
 
   def block_definition(run, flow) do

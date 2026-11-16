@@ -57,6 +57,11 @@ defmodule Model.Turn do
       set_by: [:runtime]
     )
 
+    field(:pick, :string, set_by: [:runtime])
+    field(:backend, :string, set_by: [:runtime])
+    field(:step, :string, set_by: [:runtime])
+    field(:quiescent, :boolean, set_by: [:runtime])
+
     field(:title, :string,
       description:
         "What the turn is about when it has no item: the first heading and line of what the agent was asked, shortened",
@@ -109,7 +114,12 @@ defmodule Model.Turn do
       outcome: :outcome,
       attempt: :attempt,
       title: :title,
-      model: :model
+      model: :model,
+      pick: :pick,
+      backend: :backend,
+      step: :step,
+      quiescent: :quiescent,
+      lease_margin: 120
     ],
     agent: [cannot_run: :cannot_run]
   )

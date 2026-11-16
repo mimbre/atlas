@@ -2,7 +2,8 @@ defmodule Model.FactsSchemaTest do
   @moduledoc """
   Facts refuses to start unless rela serves the schema the model was built with
   (`rela_schema/0`). The fixture is what the pinned rela (26.11.2) serves for `rela/` at
-  `GET /api/v1/_schema`; regenerate it from a running rela when the model's kinds change.
+  `GET /api/v1/_schema`, extended offline with the accepted capacity fields. This fixture
+  checks the expected schema contract; it is not a new live Rela observation.
   """
   use ExUnit.Case, async: true
 

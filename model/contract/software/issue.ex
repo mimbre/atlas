@@ -172,4 +172,13 @@ defmodule Model.Issue do
     ],
     reason: "Slice 9: selected without its passes, gates and publish effect; built by hand"
   )
+
+  # Capacity changes ownership only; keep the durable entry and pending work.
+  migrate(:issue,
+    from: "6dcb5eefa0dd0aec97748b7280249678cb64d759808b81e2104b3992c7b38052",
+    to: "1750de74619999b627ea974d5e6c0652b607a7db344027bdaab215e050d838c7",
+    states: :same,
+    preserve_entry: true,
+    reason: "S0: capacity owns worker turns; preserve current integrated behavior"
+  )
 end

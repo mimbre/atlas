@@ -1149,6 +1149,11 @@ defmodule AtlasControl.Session do
 
   defp ask(kind, content), do: ask(kind, content, @read_attempts, read_timeout())
 
+  defp ask("_capacity", content, attempts, timeout) do
+    envelope = %{Envelope.new("request", "_capacity") | address: "flow/capacity"}
+    await_read(envelope, content, attempts, timeout)
+  end
+
   defp ask(kind, content, attempts, timeout),
     do: await_read(Envelope.new("read", kind), content, attempts, timeout)
 

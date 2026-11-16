@@ -55,11 +55,15 @@ defmodule RelaDSL.Presentation do
   end
 
   @doc "The kinds work is owned on, each with its owner relation, once each: `[%{kind, owner_relation}]`."
-  def owned(presenters) do
+  def owned(presenters, capacity? \\ false) do
     for p <- presenters,
         is_binary(p["owner_relation"]),
         uniq: true,
-        do: %{"kind" => p["kind"], "owner_relation" => p["owner_relation"]}
+        do:
+          Map.merge(
+            %{"kind" => p["kind"], "owner_relation" => p["owner_relation"]},
+            if(capacity?, do: %{"state_field" => p["state_field"]}, else: %{})
+          )
   end
 
   defp presenter(relations, subject, projection, states) do

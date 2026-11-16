@@ -33,9 +33,15 @@ defmodule RelaDSL.Runtime.Model do
               RelaDSL.Presentation.presenters(
                 %{"relations" => relations},
                 flow_runtime
-              )
+              ),
+              runtime["capacity"] != nil
             )
         })
+
+    turn =
+      if turn && runtime["capacity"],
+        do: Map.put(turn, "capacity", runtime["capacity"]),
+        else: turn
 
     agent =
       runtime["agent"] && names &&
@@ -51,6 +57,9 @@ defmodule RelaDSL.Runtime.Model do
     rule = read_first(schema, extension)
 
     quote do
+      @doc "The names of persisted capacity fields; nil without capacity scheduling."
+      def capacity, do: unquote(Macro.escape(runtime["capacity"]))
+
       @doc "The turn's kind and fields, and the facts a turn works on; nil when it runs none."
       def turn, do: unquote(Macro.escape(turn))
 

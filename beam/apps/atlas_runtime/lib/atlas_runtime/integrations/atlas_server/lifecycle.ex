@@ -228,11 +228,12 @@ defmodule AtlasRuntime.Integrations.AtlasServer.Lifecycle do
   @impl true
   def handle_cast({:started, %{id: key, server: server} = run}, state) do
     turn = %{
-      server: server,
+      server: Map.delete(server, "report"),
       report: server["report"],
       written: now(),
       activity: nil,
       timer: nil,
+      completion: nil,
       model: run[:model] || run[:requested_model]
     }
 
@@ -259,12 +260,14 @@ defmodule AtlasRuntime.Integrations.AtlasServer.Lifecycle do
   def handle_cast({:started, _run}, state), do: {:noreply, state}
 
   # Coalesced: at most one activity write per lease interval, as a turn renews its lease.
-  def handle_cast({:activity, %{id: key}, text}, state) do
+  def handle_cast({:activity, %{id: key, server: server}, text}, state) do
+    server = Map.delete(server, "report")
+
     case state.turns[key] do
       nil ->
         {:noreply, state}
 
-      turn ->
+      %{server: ^server, completion: nil} = turn ->
         turn = %{turn | activity: String.slice(to_string(text), 0, 500)}
         wait = turn.written + state.lease - now()
 
@@ -282,15 +285,20 @@ defmodule AtlasRuntime.Integrations.AtlasServer.Lifecycle do
                | timer: Process.send_after(self(), {:activity, key}, wait)
              })}
         end
+
+      _ ->
+        {:noreply, state}
     end
   end
 
   # The model the harness reports, written once it differs from what the turn says.
-  def handle_cast({:model, %{id: key}, model}, state) do
+  def handle_cast({:model, %{id: key, server: server}, model}, state) do
+    server = Map.delete(server, "report")
     n = state.names
 
     case state.turns[key] do
-      %{model: known} = turn when is_binary(model) and model != "" and model != known ->
+      %{server: ^server, completion: nil, model: known} = turn
+      when is_binary(model) and model != "" and model != known ->
         if is_binary(n["model"]) do
           next =
             case change(state, turn.server, %{n["model"] => model}, "model: #{model}") do
@@ -309,14 +317,16 @@ defmodule AtlasRuntime.Integrations.AtlasServer.Lifecycle do
     end
   end
 
-  def handle_cast({:ended, %{id: key} = run}, state) do
-    case Map.pop(state.turns, key) do
-      {nil, _turns} ->
+  def handle_cast({:ended, %{id: key, server: server} = run}, state) do
+    server = Map.delete(server, "report")
+
+    case state.turns[key] do
+      nil ->
         {:noreply, state}
 
-      {turn, turns} ->
+      %{server: ^server} = turn ->
         if turn.timer, do: Process.cancel_timer(turn.timer)
-        state = %{state | turns: turns}
+        turn = %{turn | timer: nil, completion: run}
         n = state.names
         why = why(run)
 
@@ -327,6 +337,13 @@ defmodule AtlasRuntime.Integrations.AtlasServer.Lifecycle do
           n["ended_at"] => at(now())
         }
 
+        values =
+          if is_binary(n["quiescent"]) and
+               (run.state in ["finished", "stopped", "killed"] or
+                  get_in(run, [:termination, "confirmed_at"]) != nil),
+             do: Map.put(values, n["quiescent"], true),
+             else: values
+
         ended =
           case change(state, turn.server, values, why) do
             :ok -> put_in(turn.report["turn"], "ended")
@@ -334,6 +351,15 @@ defmodule AtlasRuntime.Integrations.AtlasServer.Lifecycle do
           end
 
         if ended.report != turn.report, do: send_report(state, key, ended)
+
+        turns =
+          if ended.report["turn"] == "ended",
+            do: Map.delete(state.turns, key),
+            else: Map.put(state.turns, key, ended)
+
+        {:noreply, %{state | turns: turns}}
+
+      _ ->
         {:noreply, state}
     end
   end
@@ -382,14 +408,20 @@ defmodule AtlasRuntime.Integrations.AtlasServer.Lifecycle do
 
         # An unanswered create may still be stored: only this exact attempt confirms it.
         {:error, why} ->
-          values =
+          stored =
             case read(state, n["kind"], %{"key" => server["turn"], "plain" => true}) do
-              %{"fact" => %{"values" => %{} = values}} -> values
+              %{"fact" => %{} = fact} -> fact
               _ -> %{}
             end
 
+          values = stored["values"] || %{}
+
           if values[n["attempt"]] == server["attempt"] and
-               values[n["machine"]] == server["machine"],
+               values[n["machine"]] == server["machine"] and
+               values[n["state"]] == n["running"] and
+               values[n["pick"]] == nil and
+               get_in(stored, ["links", n["by"]]) == [server["worker"]] and
+               (get_in(stored, ["links", n["on"]]) || []) == [],
              do: {:ok, state},
              else: {:error, why, state}
       end
@@ -465,10 +497,15 @@ defmodule AtlasRuntime.Integrations.AtlasServer.Lifecycle do
   end
 
   defp change(state, server, values, cause) do
+    n = state.names
+    was = %{n["attempt"] => server["attempt"]}
+    was = if is_binary(n["pick"]), do: Map.put(was, n["pick"], nil), else: was
+
     fact(state, state.names["kind"], %{
       "op" => "change",
       "key" => server["turn"],
       "values" => values,
+      "was" => was,
       "version" => nil,
       "by" => "runtime",
       "cause" => cause

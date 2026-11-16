@@ -461,14 +461,18 @@ defmodule Model.DeliveryRunsTest do
     end
   end
 
-  test "each open state presents its move to the coordinator" do
+  test "each open state presents work for a capacity owner" do
     for env <- @envs do
       f = flow(env)
 
       for state <- ~w(checking changes_requested integrating blocked) do
         assert %{"expected" => text, "why" => why} = f.present(state, %{})
         assert text != "" and why != ""
-        assert f.owner(state)["default"] == %{"kind" => "agent", "key" => "coordinator"}
+        assert f.owner(state)["default"] == nil
+        assert f.owner(state)["capacity"]["backend"] == ["claude", "codex"]
+
+        assert f.owner(state)["capacity"]["differs_from"] ==
+                 if(state == "checking", do: "author", else: nil)
       end
     end
   end
@@ -476,10 +480,11 @@ defmodule Model.DeliveryRunsTest do
   test "the changes from the base's digests are declared state migrations, never a re-key" do
     for env <- @envs do
       f = flow(env)
-      [first, m] = selection()["migrations"]
+      [first, m, capacity] = selection()["migrations"]
       # Slice 8's, kept: its `to` is the `from` of the next one.
       assert {first["from"], first["to"]} == {@base, @by_hand}
-      assert {m["from"], m["to"]} == {@by_hand, f.digest()}
+      assert {m["from"], m["to"]} == {@by_hand, capacity["from"]}
+      assert capacity["to"] == f.digest() and capacity["preserve_entry"] == true
       kept = ~w(changes_requested checking closed integrated)
       assert m["states"] == Map.put(Map.new(kept, &{&1, &1}), "integrating", "blocked")
 
@@ -531,9 +536,15 @@ defmodule Model.DeliveryRunsTest do
       done = new(env, %{"state" => "merged"}) |> Map.put("definition_sha256", @by_hand)
       assert {:ok, ^done} = Run.migrate(done, f, migrations, @now)
 
-      # No run kept the first digest (none had it); one that did would be refused, blocked.
+      # The declared chain also reaches the current capacity owner from slice 8's
+      # original digest. Its historical blocked state stays blocked after re-entry.
       older = old.(%{"state" => "open"}, "blocked") |> Map.put("definition_sha256", @base)
-      assert {:error, :definition_changed} = Run.migrate(older, f, migrations, @now)
+      assert {:ok, moved} = Run.migrate(older, f, migrations, @now)
+      assert at(moved) == {"blocked", "active", 2}
+      assert moved["pending"]["effect"] == nil
+
+      assert {:error, :definition_changed} =
+               Run.migrate(Map.put(older, "state", "unknown"), f, migrations, @now)
     end
   end
 
@@ -643,13 +654,19 @@ defmodule Model.DeliveryRunsTest do
     end
   end
 
-  test "building presents its move to the coordinator" do
+  test "building presents work for an available capacity owner" do
     for env <- @envs do
       f = issue_flow(env)
       present = f.present("author", @live)
       assert present["expected"] != "" and present["why"] != ""
       assert present["todo"]["instructions"] != ""
-      assert f.owner("author")["default"] == %{"kind" => "agent", "key" => "coordinator"}
+      assert f.owner("author")["default"] == nil
+
+      assert f.owner("author")["capacity"] == %{
+               "backend" => ["claude", "codex"],
+               "model" => "any"
+             }
+
       # Done presents nothing: the projection clears what is expected, as for v1's done.
       assert f.present("done", @live) == nil and f.final?("done")
     end
@@ -772,8 +789,10 @@ defmodule Model.DeliveryRunsTest do
   test "the issue's change from the base's digest is a declared state migration, never a re-key" do
     for env <- @envs do
       f = issue_flow(env)
-      [m] = issue_selection()["migrations"]
-      assert {m["from"], m["to"]} == {@issue_base, f.digest()}
+      [m, capacity] = issue_selection()["migrations"]
+      migrations = [m, capacity]
+      assert {m["from"], m["to"]} == {@issue_base, capacity["from"]}
+      assert capacity["to"] == f.digest() and capacity["preserve_entry"] == true
       refute Map.has_key?(m, "rekey") or Map.has_key?(m, "preserve_entry")
 
       old_states =
@@ -790,7 +809,7 @@ defmodule Model.DeliveryRunsTest do
 
       # A quiescent open run of the old digest builds on, in a new entry.
       for state <- ~w(author in_pr needs_person) do
-        assert {:ok, moved} = Run.migrate(old.(state, "active", %{}), f, [m], @now)
+        assert {:ok, moved} = Run.migrate(old.(state, "active", %{}), f, migrations, @now)
         assert at(moved) == {"author", "active", 2}
         assert moved["definition_sha256"] == f.digest()
         assert [%{"from" => @issue_base, "state" => ^state}] = moved["pending"]["migrations"]
@@ -805,15 +824,15 @@ defmodule Model.DeliveryRunsTest do
           do:
             assert(
               {:error, :definition_changed} =
-                Run.migrate(old.(state, "active", pending), f, [m], @now)
+                Run.migrate(old.(state, "active", pending), f, migrations, @now)
             )
 
       # A done run stays done; a closed (cancelled) one is never taken for done: it blocks.
-      assert {:ok, done} = Run.migrate(old.("done", "completed", %{}), f, [m], @now)
+      assert {:ok, done} = Run.migrate(old.("done", "completed", %{}), f, migrations, @now)
       assert {done["state"], done["status"]} == {"done", "completed"}
 
       assert {:error, :definition_changed} =
-               Run.migrate(old.("closed", "completed", %{}), f, [m], @now)
+               Run.migrate(old.("closed", "completed", %{}), f, migrations, @now)
     end
   end
 end
