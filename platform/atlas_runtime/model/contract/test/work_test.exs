@@ -220,6 +220,35 @@ defmodule AtlasRuntimeModel.WorkTest do
       refute Map.has_key?(encoded, "state")
     end
 
+    # A released slot (§13.1 Q8): who and when stay on the private attempt.
+    test "an attempt with released_by and released_at round-trips" do
+      [first, second] = record().attempts
+      released = %{second | released_by: "local:op", released_at: @t2}
+      record = WorkRecord.new!(%{record() | attempts: [first, released]})
+      encoded = WorkRecord.encode(record)
+
+      assert %{"released_by" => "local:op", "released_at" => "2026-11-16T09:42:10.000000Z"} =
+               List.last(encoded["attempts"])
+
+      assert {:ok, ^record} = encoded |> JSON.encode!() |> JSON.decode!() |> WorkRecord.decode()
+    end
+
+    # P15: an absent optional field is left out, so a record without a release is written
+    # as before and a file from before decodes; format_version stays 1.
+    test "an attempt without the release fields is written and read as before" do
+      encoded = WorkRecord.encode(record())
+      assert encoded["format_version"] == 1
+
+      for attempt <- encoded["attempts"] do
+        refute Map.has_key?(attempt, "released_by")
+        refute Map.has_key?(attempt, "released_at")
+      end
+
+      assert {:ok, decoded} = WorkRecord.decode(encoded)
+      assert Enum.all?(decoded.attempts, &(&1.released_by == nil and &1.released_at == nil))
+      assert decoded == record()
+    end
+
     test "a folder workspace round-trips as the other variant" do
       folder = %Folder{path: "/f", permissions: :materialized_folder}
       record = %{record() | request: %{record().request | workspace: folder}}
@@ -285,6 +314,8 @@ defmodule AtlasRuntimeModel.WorkTest do
     # Rules across entries are the store's (moduledoc of AtlasRuntimeModel.Work); the
     # collection codec checks each entry and the file, not those rules.
     test "the index has no single-entry encode/decode: entries live in the one file" do
+      # function_exported?/3 is false for a module not loaded yet, whatever ran first.
+      Code.ensure_loaded!(KeyIndexEntry)
       refute function_exported?(KeyIndexEntry, :encode, 1)
       refute function_exported?(KeyIndexEntry, :decode, 1)
       assert function_exported?(KeyIndexEntry, :encode_file, 1)

@@ -23,7 +23,7 @@ defmodule AtlasRuntime.Work.Translation do
     workspace_write: :"workspace-write",
     materialized_folder: :"materialized-folder"
   }
-  @result_reasons ~w(time_limit quota launch workspace model_changed cancel superseded)a
+  @result_reasons ~w(time_limit quota launch workspace model_changed cancel superseded runtime_stop)a
   @selection_reasons ~w(preferred fallback continuation)a
   @skip_reasons ~w(not_installed quota)a
 
