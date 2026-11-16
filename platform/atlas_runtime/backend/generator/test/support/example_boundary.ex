@@ -6,11 +6,20 @@ defmodule AtlasRuntimeBackend.Generator.Example.Boundary do
   """
 
   @conditions [:new, :worn, :"badly-worn"]
+  @rights [:lend, :browse, :audit]
 
   @schema %{
     version: "1.0.0",
     file: "example_boundary.ex",
     models: [
+      # Who is calling, and the rights a client can hold: what a backend's rights name.
+      %{
+        name: :client,
+        fields: [
+          %{name: :id, type: :string, required: true},
+          %{name: :rights, type: {:list, {:enum, @rights}}, required: true}
+        ]
+      },
       %{
         name: :book,
         fields: [

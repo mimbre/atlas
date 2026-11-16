@@ -1,32 +1,48 @@
 defmodule AtlasRuntimeBackend.Generator.Targets.Rest do
   @moduledoc """
-  A compile-time target: a Plug router for one target block of a backend contract, made
-  from its `__schema__/0` and the boundary's when the module that uses it compiles. No
-  file is written, and no route, status code or serialization is written by hand.
+  A compile-time target: one Plug router for one target block of each of several backend
+  contracts, made from their `__schema__/0` and their boundaries' when the module that
+  uses it compiles. No file is written, and no route, status code or serialization is
+  written by hand.
 
       defmodule MySystem.Backend.Rest do
         use AtlasRuntimeBackend.Generator.Targets.Rest,
-          contract: MyBackend.Lending,
-          facade: MySystem.Boundary.Lending,
-          stream: MySystem.Backend.Events
+          contracts: [
+            lending: {MyBackend.Lending, facade: MySystem.Boundary.Lending, stream: MySystem.Backend.Events},
+            desk: {MyBackend.Desk, facade: MySystem.Boundary.Desk}
+          ]
       end
 
-  Options:
-  - `contract:` the backend contract (`AtlasRuntimeBackend.Generator.Schema`);
-  - `facade:` the boundary's facade, the only module the router calls into. For a
-    capability `name` with input model `m` and outcomes `o`, the router calls
-    `facade.name(client, input)` (or `facade.name(client)` without input), builds
-    `input` with `facade.M.new/1` (`M` is `m` camelized; `{:ok, struct}` or
+  `contracts:` names each contract once, `name: {contract, options}`, in the order its
+  routes are listed. One contract may also be given on its own, as
+  `contract: C, facade: F, stream: S, target: T` (its name is `C`'s last part in
+  snake_case). Options per contract:
+  - the contract itself, a backend contract (`AtlasRuntimeBackend.Generator.Schema`);
+  - `facade:` the boundary's facade, the only module the router calls into for that
+    contract's routes. For a capability `name` with input model `m` and outcomes `o`, the
+    router calls `facade.name(client, input)` (or `facade.name(client)` without input),
+    builds `input` with `facade.M.new/1` (`M` is `m` camelized; `{:ok, struct}` or
     `{:error, [reason]}`), and encodes an outcome struct `facade.Outcome.O` with its
     `dump/1` (JSON-ready data: string keys, enums as text, `one_of` tagged, ISO-8601
-    datetimes). An event's model `e` is `facade.E`, also with `dump/1`. Anything else the
-    facade returns is a refusal when the client lacks the capability's right, and raises
-    otherwise;
+    datetimes). An event's model `e` is `facade.E`, also with `dump/1`. Besides an
+    outcome, a facade may answer with one of its two refusals, for every capability alike:
+    a struct with exactly the fields `capability` and `right` (the client lacks the right),
+    or exactly `capability` and `reasons` (the input does not validate). Anything else
+    raises;
   - `stream:` the module that keeps a stream open (needed when the target has a
     stream): `stream(conn, router)`, called with the chunked conn after the opening
     event, returning the conn when the stream ends. It turns a notification into a
     frame with `router.__event__/1`;
   - `target:` the target block it serves (default: the contract's only target).
+
+  Each contract is checked on its own as before; across them, these are `CompileError`s:
+  a name, contract or facade given twice; two routes that overlap; more than one stream
+  (a router has one event stream); and errors (`error :invalid`, …) that differ, since the
+  router answers them alike. Two routes of different contracts overlap when their method
+  is the same, they have as many segments, and at every position the segments are the
+  same literal or at least one is a parameter. Within one contract the contract's own
+  rules decide (a literal beats a parameter; one path is told apart by required query
+  parameters).
 
   The module it generates is a Plug (`init/1`, `call/2`). For each request it:
   1. takes the client from `conn.assigns.client`, an opaque `{id, rights}` set by the
@@ -36,17 +52,25 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest do
   3. decodes strictly: the query, the bound headers and the body (a JSON object holding
      only the declared body fields, at most 1 MiB) become the input map, which goes
      through the facade's `new/1`. Any failure is the `:invalid` error;
-  4. calls the facade;
+  4. calls the route's facade;
   5. answers with the outcome's declared status and headers. A status of 400 or more
      has an `application/problem+json` body (RFC 9457: `type`, `title`, `status`, then
      the outcome's fields); one below is `application/json`: the outcome's entity named by
      the status's `body:`, serialized directly, else the outcome's fields.
      A stream answers `text/event-stream`: the opening event, if any, then the stream
-     module's frames.
+     module's frames. A facade's refusal is the `:not_permitted` or the `:invalid` error,
+     whichever contract the route is in.
 
-  It also has `__routes__/0` (the route × outcome → status table as data),
-  `__rights__/1` (a listener's rights, from the contract) and `__event__/1` (a frame
-  for an event model struct: `{:ok, iodata}`, or `:error` for anything else).
+  It also has `__routes__/0` (the route × outcome → status table as data, each route
+  with its contract's name), `__rights__/1` (a listener's rights: those every contract
+  declares for it, in contract order, each once), `__event__/1` (a frame for an event
+  model struct: `{:ok, iodata}`, or `:error` for anything else) and
+  `__problem__/2`: `__problem__(kind, conn)` sends the target's error `kind` (one the
+  contract declares, such as a listener's `:unauthenticated` or `:origin_refused`) as
+  its status with an `application/problem+json` body of `type`, `title` and `status`
+  only, and halts the conn. A listener plug uses it to refuse a request before the
+  router runs, so the listener writes no problem body itself; the body never depends on
+  the request, so every refusal of one kind is the same.
   """
 
   alias AtlasRuntimeBackend.Generator.Paths
@@ -58,124 +82,39 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest do
     caller = __CALLER__
     fail = &raise(CompileError, file: caller.file, line: caller.line, description: &1)
 
-    unless Keyword.keyword?(opts) and
-             Keyword.keys(opts) -- [:contract, :facade, :stream, :target] == [] and
-             Keyword.has_key?(opts, :contract) and Keyword.has_key?(opts, :facade),
-           do:
-             fail.(
-               "use #{inspect(__MODULE__)} takes contract:, facade: and optionally stream: and target:"
-             )
+    prepared =
+      opts
+      |> contracts!(caller, fail)
+      |> Enum.map(&prepare!(&1, fail))
 
-    contract = Macro.expand(opts[:contract], caller)
-    facade = Macro.expand(opts[:facade], caller)
-    stream_module = opts[:stream] && Macro.expand(opts[:stream], caller)
+    across!(prepared, fail)
 
-    compiled? = fn module, function ->
-      is_atom(module) and Code.ensure_compiled(module) == {:module, module} and
-        function_exported?(module, function, 0)
-    end
-
-    unless compiled?.(contract, :__schema__),
-      do: fail.("contract: #{Macro.to_string(opts[:contract])} is no compiled backend contract")
-
-    unless is_atom(facade) and Code.ensure_compiled(facade) == {:module, facade},
-      do: fail.("facade: #{Macro.to_string(opts[:facade])} is not available")
-
-    schema = contract.__schema__()
-    boundary = schema.boundary.__schema__()
-
-    target =
-      case {opts[:target], schema.targets} do
-        {nil, [only]} ->
-          only
-
-        {nil, _several} ->
-          fail.("the contract has several targets; name one with target:")
-
-        {name, targets} ->
-          Enum.find(targets, &(&1.name == name)) ||
-            fail.("the contract has no target #{inspect(name)}")
-      end
-
-    if target.streams != [] and is_nil(stream_module),
-      do: fail.("target #{inspect(target.name)} has a stream; name its loop with stream:")
-
-    capabilities = Map.new(boundary.capabilities, &{&1.name, &1})
-    models = Map.new(boundary.models, &{&1.name, &1})
-    model_module = &Module.concat(facade, Macro.camelize(Atom.to_string(&1)))
-    outcome_module = &Module.concat([facade, Outcome, Macro.camelize(Atom.to_string(&1))])
-
-    exports! = fn module, function, arity, what ->
-      unless Code.ensure_compiled(module) == {:module, module} and
-               function_exported?(module, function, arity),
-             do:
-               fail.(
-                 "facade #{inspect(facade)} has no #{what} (#{inspect(module)}.#{function}/#{arity})"
-               )
-    end
-
-    mapped =
-      Enum.map(target.resources, & &1.capability) ++ Enum.map(target.streams, & &1.capability)
-
-    for name <- mapped do
-      capability = capabilities[name]
-      arity = if capability.input, do: 2, else: 1
-      exports!.(facade, name, arity, "capability #{name}")
-
-      if capability.input,
-        do: exports!.(model_module.(capability.input), :new, 1, "input #{capability.input}")
-
-      for o <- capability.outcomes,
-          do: exports!.(outcome_module.(o.name), :dump, 1, "outcome #{o.name}")
-    end
-
-    events = Map.new(schema.events, &{&1.name, &1})
-    stream_events = target.streams |> Enum.flat_map(& &1.events) |> Enum.uniq()
-
-    for name <- stream_events,
-        do:
-          exports!.(
-            model_module.(events[name].model),
-            :dump,
-            1,
-            "event model #{events[name].model}"
-          )
-
-    errors = Map.new(target.errors, &{&1.kind, &1})
-    statuses = Map.new(target.statuses, &{&1.outcome, &1})
-
-    # Routes: resources by index, then streams.
+    # Every route of every contract, numbered once: resources by index, then streams, per
+    # contract in the order given.
     items =
-      Enum.with_index(
-        Enum.map(target.resources, &{:resource, &1}) ++ Enum.map(target.streams, &{:stream, &1})
-      )
+      prepared
+      |> Enum.flat_map(fn c ->
+        Enum.map(c.target.resources, &{c, :resource, &1}) ++
+          Enum.map(c.target.streams, &{c, :stream, &1})
+      end)
+      |> Enum.with_index()
 
-    routes =
-      for {{kind, item}, key} <- items do
-        {:ok, segments} = Paths.parse(item.path)
-
-        method =
-          if kind == :stream, do: "GET", else: item.method |> Atom.to_string() |> String.upcase()
-
-        query = if kind == :stream, do: [], else: Enum.map(item.query, &elem(&1, 0))
-        required = if kind == :stream, do: [], else: item.required
-
-        %{key: key, method: method, segments: segments, query: query, required: required}
-      end
-
-    field_type = fn capability, field ->
-      Enum.find(models[capability.input].fields, &(&1.name == field)).type
-    end
+    routes = for {{c, kind, item}, key} <- items, do: route(c, kind, item, key)
+    overlap!(routes, fail)
 
     {handlers, openings} =
-      for {{kind, item}, key} <- items do
-        capability = capabilities[item.capability]
-        modules = for o <- capability.outcomes, do: outcome_module.(o.name)
-        input = capability.input && model_module.(capability.input)
+      for {{c, kind, item}, key} <- items do
+        capability = c.capabilities[item.capability]
+        modules = for o <- capability.outcomes, do: c.outcome_module.(o.name)
+        input = capability.input && c.model_module.(capability.input)
+
+        field_type = fn capability, field ->
+          Enum.find(c.models[capability.input].fields, &(&1.name == field)).type
+        end
 
         case kind do
           :resource ->
-            {resource_handler(key, item, capability, input, modules, facade, field_type), []}
+            {resource_handler(key, item, capability, input, modules, c.facade, field_type), []}
 
           :stream ->
             stream_handler(
@@ -184,81 +123,87 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest do
               capability,
               input,
               modules,
-              facade,
-              stream_module,
-              events,
-              outcome_module
+              c.facade,
+              c.stream,
+              c.events,
+              c.outcome_module
             )
         end
       end
       |> Enum.unzip()
 
-    used_outcomes =
-      for item <- target.resources,
-          o <- capabilities[item.capability].outcomes,
-          uniq: true,
-          do: o.name
-
-    responders = for name <- used_outcomes, do: responder(outcome_module.(name), statuses[name])
+    responders =
+      for c <- prepared,
+          name <-
+            Enum.uniq(
+              for item <- c.target.resources,
+                  o <- c.capabilities[item.capability].outcomes,
+                  do: o.name
+            ),
+          do: responder(c.outcome_module.(name), c.statuses[name])
 
     event_clauses =
-      for name <- stream_events do
-        event = events[name]
+      for c <- prepared, name <- c.stream_events do
+        event = c.events[name]
+        model = c.model_module.(event.model)
 
         quote do
-          def __event__(%{__struct__: unquote(model_module.(event.model))} = value) do
-            data = unquote(model_module.(event.model)).dump(value)
+          def __event__(%{__struct__: unquote(model)} = value) do
+            data = unquote(model).dump(value)
             {:ok, Runtime.frame(unquote(Atom.to_string(name)), unquote(id_expr(event.id)), data)}
           end
         end
       end
 
-    table =
-      for {{kind, item}, _key} <- items do
-        capability = capabilities[item.capability]
+    table = for {{c, kind, item}, _key} <- items, do: table_row(c, kind, item)
 
-        outcomes =
-          for o <- capability.outcomes do
-            if kind == :stream do
-              %{
-                outcome: o.name,
-                status: 200,
-                type: nil,
-                by: nil,
-                cases: [],
-                headers: [{"content-type", "text/event-stream"}],
-                opens_with: Keyword.fetch!(item.open, o.name)
-              }
-            else
-              Map.delete(statuses[o.name], :outcome) |> Map.put(:outcome, o.name)
-            end
-          end
+    # A listener's rights: every contract's, in contract order, each once.
+    rights =
+      prepared
+      |> Enum.flat_map(& &1.schema.rights)
+      |> Enum.group_by(& &1.listener, & &1.rights)
+      |> Map.new(fn {listener, lists} -> {listener, lists |> Enum.concat() |> Enum.uniq()} end)
 
-        %{
-          method: if(kind == :stream, do: :get, else: item.method),
-          path: item.path,
-          capability: item.capability,
-          stream: kind == :stream,
-          outcomes: outcomes
-        }
-      end
-
-    rights = Map.new(schema.rights, &{&1.listener, &1.rights})
+    errors = hd(prepared).errors
 
     quote do
-      require unquote(contract)
-      require unquote(facade)
+      unquote_splicing(for c <- prepared, do: quote(do: require(unquote(c.contract))))
+      unquote_splicing(for c <- prepared, do: quote(do: require(unquote(c.facade))))
       @behaviour Plug
-      @compile {:nowarn_unused_function, read_json: 2, header: 3, read_headers: 2, with_conn: 2}
+      @compile {:nowarn_unused_function,
+                read_json: 2, header: 3, read_headers: 2, with_conn: 2, refused: 2}
 
-      @routes unquote(Macro.escape(routes))
+      @routes unquote(Macro.escape(Enum.map(routes, &Map.drop(&1, [:contract, :path]))))
       @errors unquote(Macro.escape(errors))
 
       @doc "The routes, with each outcome's status, problem type and headers, as data."
       def __routes__, do: unquote(Macro.escape(table))
 
-      @doc "The rights a client gets on `listener`, as the contract declares them."
+      @doc "The rights a client gets on `listener`: what every contract declares for it."
       def __rights__(listener), do: Map.fetch!(unquote(Macro.escape(rights)), listener)
+
+      @doc """
+      Sends the target's error `kind` as its declared status and a problem+json body
+      (`type`, `title`, `status`), and halts `conn`. Raises for a kind the contract does
+      not declare.
+      """
+      def __problem__(kind, %Plug.Conn{} = conn) do
+        %{status: status, type: type} =
+          case Map.fetch(@errors, kind) do
+            {:ok, error} ->
+              error
+
+            :error ->
+              raise ArgumentError,
+                    "#{inspect(__MODULE__)}: the contract declares no error #{inspect(kind)}"
+          end
+
+        body = Runtime.problem(status, type, Plug.Conn.Status.reason_phrase(status))
+
+        conn
+        |> send_json(status, "application/problem+json", body)
+        |> Plug.Conn.halt()
+      end
 
       @doc "A Server-Sent Events frame for an event model struct: `{:ok, iodata}` or `:error`."
       unquote_splicing(event_clauses)
@@ -323,14 +268,20 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest do
         end)
       end
 
-      defp other(conn, client, right, value) do
-        if Enum.member?(Runtime.rights(client), right),
-          do:
-            raise(
-              ArgumentError,
-              "#{inspect(__MODULE__)}: the facade returned #{inspect(value)}, which is no declared outcome"
-            ),
-          else: error(conn, :not_permitted, "this needs the right #{right}")
+      # A facade's answer that is no outcome: one of its refusals, the same for every
+      # contract, or a value it should never give.
+      defp refused(conn, value) do
+        case Runtime.refusal(value) do
+          {:not_permitted, right} ->
+            error(conn, :not_permitted, "this needs the right #{right}")
+
+          {:invalid, reasons} ->
+            error(conn, :invalid, Enum.join(reasons, "; "))
+
+          :none ->
+            raise ArgumentError,
+                  "#{inspect(__MODULE__)}: the facade returned #{inspect(value)}, which is no declared outcome"
+        end
       end
 
       defp error(conn, kind, detail) do
@@ -352,12 +303,287 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest do
     end
   end
 
+  ## The contracts, each on its own
+
+  @contract_options [:facade, :stream, :target]
+
+  # [{name, contract, opts}] from `contracts:` or from the one-contract form.
+  defp contracts!(opts, caller, fail) do
+    unless Keyword.keyword?(opts), do: fail.(usage())
+
+    cond do
+      Keyword.has_key?(opts, :contracts) ->
+        unless Keyword.keys(opts) == [:contracts], do: fail.(usage())
+        list = opts[:contracts]
+
+        unless is_list(list) and list != [] and Keyword.keyword?(list),
+          do: fail.("contracts: is [name: {Contract, facade: ..., stream: ..., target: ...}]")
+
+        for {name, spec} <- list do
+          unless snake?(name), do: fail.("contracts: #{inspect(name)} is no snake_case name")
+
+          case spec do
+            {contract, contract_opts} when is_list(contract_opts) ->
+              unless Keyword.keyword?(contract_opts) and
+                       Keyword.keys(contract_opts) -- @contract_options == [] and
+                       Keyword.has_key?(contract_opts, :facade),
+                     do:
+                       fail.(
+                         "contracts: #{name} takes facade: and optionally stream: and target:"
+                       )
+
+              {name, Macro.expand(contract, caller), expand(contract_opts, caller)}
+
+            _ ->
+              fail.("contracts: #{name} is {Contract, facade: ...}, got #{Macro.to_string(spec)}")
+          end
+        end
+
+      Keyword.keys(opts) -- [:contract | @contract_options] == [] and
+        Keyword.has_key?(opts, :contract) and Keyword.has_key?(opts, :facade) ->
+        contract = Macro.expand(opts[:contract], caller)
+
+        name =
+          if is_atom(contract),
+            do:
+              contract |> Module.split() |> List.last() |> Macro.underscore() |> String.to_atom()
+
+        {_, contract_opts} = Keyword.pop(opts, :contract)
+        [{name, contract, expand(contract_opts, caller)}]
+
+      true ->
+        fail.(usage())
+    end
+  end
+
+  defp usage,
+    do:
+      "use #{inspect(__MODULE__)} takes contracts: [name: {Contract, facade: ...}], " <>
+        "or contract:, facade: and optionally stream: and target:"
+
+  defp expand(opts, caller),
+    do: for({key, value} <- opts, do: {key, value && Macro.expand(value, caller)})
+
+  defp prepare!({name, contract, opts}, fail) do
+    facade = opts[:facade]
+    stream_module = opts[:stream]
+    at = "contracts: #{name}:"
+
+    compiled? = fn module, function ->
+      is_atom(module) and Code.ensure_compiled(module) == {:module, module} and
+        function_exported?(module, function, 0)
+    end
+
+    unless compiled?.(contract, :__schema__),
+      do: fail.("#{at} #{inspect(contract)} is no compiled backend contract")
+
+    unless is_atom(facade) and Code.ensure_compiled(facade) == {:module, facade},
+      do: fail.("#{at} facade: #{inspect(facade)} is not available")
+
+    schema = contract.__schema__()
+    boundary = schema.boundary.__schema__()
+
+    target =
+      case {opts[:target], schema.targets} do
+        {nil, [only]} ->
+          only
+
+        {nil, _several} ->
+          fail.("#{at} the contract has several targets; name one with target:")
+
+        {target_name, targets} ->
+          Enum.find(targets, &(&1.name == target_name)) ||
+            fail.("#{at} the contract has no target #{inspect(target_name)}")
+      end
+
+    if target.streams != [] and is_nil(stream_module),
+      do: fail.("#{at} target #{inspect(target.name)} has a stream; name its loop with stream:")
+
+    capabilities = Map.new(boundary.capabilities, &{&1.name, &1})
+    models = Map.new(boundary.models, &{&1.name, &1})
+    model_module = &Module.concat(facade, Macro.camelize(Atom.to_string(&1)))
+    outcome_module = &Module.concat([facade, Outcome, Macro.camelize(Atom.to_string(&1))])
+
+    exports! = fn module, function, arity, what ->
+      unless Code.ensure_compiled(module) == {:module, module} and
+               function_exported?(module, function, arity),
+             do:
+               fail.(
+                 "#{at} facade #{inspect(facade)} has no #{what} (#{inspect(module)}.#{function}/#{arity})"
+               )
+    end
+
+    mapped =
+      Enum.map(target.resources, & &1.capability) ++ Enum.map(target.streams, & &1.capability)
+
+    for capability_name <- mapped do
+      capability = capabilities[capability_name]
+      arity = if capability.input, do: 2, else: 1
+      exports!.(facade, capability_name, arity, "capability #{capability_name}")
+
+      if capability.input,
+        do: exports!.(model_module.(capability.input), :new, 1, "input #{capability.input}")
+
+      for o <- capability.outcomes,
+          do: exports!.(outcome_module.(o.name), :dump, 1, "outcome #{o.name}")
+    end
+
+    events = Map.new(schema.events, &{&1.name, &1})
+    stream_events = target.streams |> Enum.flat_map(& &1.events) |> Enum.uniq()
+
+    for event_name <- stream_events,
+        do:
+          exports!.(
+            model_module.(events[event_name].model),
+            :dump,
+            1,
+            "event model #{events[event_name].model}"
+          )
+
+    %{
+      name: name,
+      contract: contract,
+      facade: facade,
+      stream: stream_module,
+      schema: schema,
+      target: target,
+      capabilities: capabilities,
+      models: models,
+      model_module: model_module,
+      outcome_module: outcome_module,
+      events: events,
+      stream_events: stream_events,
+      errors: Map.new(target.errors, &{&1.kind, Map.take(&1, [:kind, :status, :type])}),
+      statuses: Map.new(target.statuses, &{&1.outcome, &1})
+    }
+  end
+
+  ## Across the contracts
+
+  defp across!(prepared, fail) do
+    for {key, what} <- [name: "name", contract: "contract", facade: "facade"] do
+      prepared
+      |> Enum.group_by(&Map.fetch!(&1, key), & &1.name)
+      |> Enum.each(fn
+        {_value, [_one]} ->
+          :ok
+
+        {value, names} ->
+          fail.(
+            "contracts: the #{what} #{inspect(value)} is given twice (#{Enum.map_join(names, ", ", &inspect/1)})"
+          )
+      end)
+    end
+
+    streams =
+      for c <- prepared, s <- c.target.streams, do: "#{s.path} (#{c.name})"
+
+    if length(streams) > 1,
+      do:
+        fail.("more than one stream: #{Enum.join(streams, ", ")}; a router has one event stream")
+
+    [first | others] = prepared
+
+    for c <- others, c.errors != first.errors do
+      fail.(
+        "contracts #{first.name} and #{c.name} declare different errors " <>
+          "(#{errors_text(first.errors)} against #{errors_text(c.errors)}); one router answers them alike"
+      )
+    end
+
+    :ok
+  end
+
+  defp errors_text(errors),
+    do:
+      errors
+      |> Map.values()
+      |> Enum.sort()
+      |> Enum.map_join(", ", &"#{&1.kind} #{&1.status} #{&1.type}")
+
+  defp route(c, kind, item, key) do
+    {:ok, segments} = Paths.parse(item.path)
+
+    method =
+      if kind == :stream, do: "GET", else: item.method |> Atom.to_string() |> String.upcase()
+
+    %{
+      key: key,
+      method: method,
+      segments: segments,
+      query: if(kind == :stream, do: [], else: Enum.map(item.query, &elem(&1, 0))),
+      required: if(kind == :stream, do: [], else: item.required),
+      contract: c.name,
+      path: item.path
+    }
+  end
+
+  # Two routes of different contracts overlap when one request could match both: the same
+  # method, as many segments, and at every position the same literal or a parameter.
+  defp overlap!(routes, fail) do
+    for {a, i} <- Enum.with_index(routes),
+        b <- Enum.drop(routes, i + 1),
+        a.contract != b.contract,
+        overlap?(a, b) do
+      fail.(
+        "overlapping paths: #{a.method} #{a.path} (#{a.contract}) and #{b.method} #{b.path} (#{b.contract})"
+      )
+    end
+
+    :ok
+  end
+
+  @doc false
+  def overlap?(a, b) do
+    a.method == b.method and length(a.segments) == length(b.segments) and
+      Enum.all?(Enum.zip(a.segments, b.segments), fn
+        {{:param, _}, _} -> true
+        {_, {:param, _}} -> true
+        {literal, literal} -> true
+        _ -> false
+      end)
+  end
+
+  defp table_row(c, kind, item) do
+    capability = c.capabilities[item.capability]
+
+    outcomes =
+      for o <- capability.outcomes do
+        if kind == :stream do
+          %{
+            outcome: o.name,
+            status: 200,
+            type: nil,
+            by: nil,
+            cases: [],
+            headers: [{"content-type", "text/event-stream"}],
+            opens_with: Keyword.fetch!(item.open, o.name)
+          }
+        else
+          Map.delete(c.statuses[o.name], :outcome) |> Map.put(:outcome, o.name)
+        end
+      end
+
+    %{
+      contract: c.name,
+      method: if(kind == :stream, do: :get, else: item.method),
+      path: item.path,
+      capability: item.capability,
+      stream: kind == :stream,
+      outcomes: outcomes
+    }
+  end
+
+  defp snake?(name),
+    do:
+      is_atom(name) and name not in [nil, true, false] and
+        Regex.match?(~r/^[a-z][a-z0-9_]*$/, Atom.to_string(name))
+
   defp id_expr(nil), do: nil
   defp id_expr(field), do: quote(do: Map.fetch!(value, unquote(field)))
 
   defp resource_handler(key, item, capability, input, modules, facade, field_type) do
     name = capability.name
-    right = capability.right
 
     param_values =
       for p <- item.params do
@@ -439,7 +665,7 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest do
             respond(conn, outcome)
 
           {:called, conn, other} ->
-            other(conn, client, unquote(right), other)
+            refused(conn, other)
 
           {:error, conn, reasons} ->
             error(conn, :invalid, Enum.join(reasons, "; "))
@@ -460,7 +686,6 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest do
          outcome_module
        ) do
     name = capability.name
-    right = capability.right
     into = Atom.to_string(item.into)
     header = item.resume_header
 
@@ -521,7 +746,7 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest do
                 end
 
               other ->
-                other(conn, client, unquote(right), other)
+                refused(conn, other)
             end
           else
             {:error, conn, reasons} -> error(conn, :invalid, Enum.join(reasons, "; "))

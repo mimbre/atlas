@@ -368,7 +368,7 @@ jobs:
           elixir-version: "1.18"
       - name: The generator holds none of the Runtime's values
         run: |
-          if grep -rniE 'AtlasRuntime\b|AtlasRuntimeBoundary|/v1/work|backend\.sock|runtime\.sock|work_id|choose_slot|\.\./contract' lib test mix.exs; then
+          if grep -rniE 'AtlasRuntime\b|AtlasRuntimeBoundary|/v1/work|/v1/runtime|/v1/control|/v1/policy|/v1/slots|/v1/harnesses|operations|history|backend\.sock|runtime\.sock|work_id|choose_slot|\.\./contract' lib test mix.exs; then
             echo "::error::platform/atlas_runtime/backend/generator mentions the Runtime's values. Keep them in platform/atlas_runtime/backend/contract."
             exit 1
           fi
@@ -404,7 +404,7 @@ jobs:
       - run: mix deps.get
       - run: mix compile --warnings-as-errors
       - run: mix format --check-formatted
-      # Fails when a file in platform/atlas_runtime/backend/targets differs from what the contract generates, or is left over (none in S1).
+      # Fails when a file in platform/atlas_runtime/backend/targets differs from what the contracts (work_api, operations_api, history_api) generate, or is left over (none in S2).
       - run: mix runtime_backend.gen --check
       - run: mix test
 
@@ -420,6 +420,23 @@ jobs:
         working-directory: products/software_factory
     steps:
       - uses: actions/checkout@v4
+      # S2 removed read.sock (docs/design 2026-11-16-runtime-backend §11): only design records, tests
+      # (which assert its absence) and the e2e driver under integration/ may name it. Run before
+      # any build, so only tracked files are searched. rg's exit 1 (no match) passes; a match or
+      # an error fails.
+      - name: Nothing names the removed read.sock
+        working-directory: .
+        run: |
+          command -v rg >/dev/null || { sudo apt-get update -q && sudo apt-get install -y -q ripgrep; }
+          status=0
+          rg -n 'read\.sock' platform products skills docs --glob '!docs/design/**' --glob '!**/test/**' --glob '!**/integration/**' --glob '!**/*_test.go' --glob '!**/*.test.mjs' || status=$?
+          if [ "$status" -eq 0 ]; then
+            echo "::error::read.sock was removed in S2. Name backend.sock (work, operations, history) or runtime.sock (guidance, journal) instead."
+            exit 1
+          elif [ "$status" -ne 1 ]; then
+            echo "::error::rg failed with status $status"
+            exit "$status"
+          fi
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "28"

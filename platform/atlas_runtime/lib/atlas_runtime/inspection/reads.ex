@@ -1,27 +1,23 @@
 defmodule AtlasRuntime.Inspection.Reads do
   @moduledoc """
-  runtime.read/1: worker, turn, execution-event and public-output reads for viewers.
+  The Service's reads, `{:read, op, args}`: worker, turn, execution-event and public-output
+  reads for the work core and FlowPasses in-process. Only the journal operations (`events`,
+  `follow`) are admitted from a socket request (`request/1`); no socket serves the others.
 
   Metadata is projected through explicit fields; nothing else from a turn record (its
   assignment, working directory, permissions, repository, native session, artifacts or
   Server configuration) is returned. Public output and the turn's answer are payloads and
   are returned as produced. Reads never change service state, renew output retention or
-  reach Atlas Server. See docs/contracts/runtime-read.md.
+  reach Atlas Server. `runtime.sock` serves only the journal operations, `events` and
+  `follow` (`Entrypoints.Socket`).
   """
   alias AtlasRuntime.{ExecutionEvents, Output}
   alias AtlasRuntime.Persistence.History
   import AtlasRuntime.Execution.Identity
 
   @api "runtime.read/1"
-  @fields %{
-    "workers" => [],
-    "turns" => [],
-    "turn" => ["turn_id"],
-    "events" => ["cursor", "limit"],
-    "follow" => ["cursor"],
-    "output" => ["turn_id", "cursor"]
-  }
-  @required %{"turn" => ["turn_id"], "output" => ["turn_id"]}
+  # The journal operations, the only ones a socket request may name.
+  @fields %{"events" => ["cursor", "limit"], "follow" => ["cursor"]}
   @turn ~w(worker_id state recorded_state backend requested_model model questions_enabled
            source_turn_id started_at ended_at activity result error)
   @event ~w(sequence kind turn_id worker_id backend model operation timestamp question_id
@@ -31,7 +27,7 @@ defmodule AtlasRuntime.Inspection.Reads do
   # Standalone output stays in its own buffer, which no Bus endpoint reads.
   @local AtlasRuntime.LocalOutput
 
-  @doc "Admit a decoded request as `{:ok, op, args}`; anything but a known read is refused."
+  @doc "Admit a decoded request as `{:ok, op, args}`; anything but a journal read is refused."
   def request(%{"op" => op} = request) when is_map_key(@fields, op) do
     args = Map.drop(request, ["api", "op"])
 
@@ -40,9 +36,6 @@ defmodule AtlasRuntime.Inspection.Reads do
         {:error, "unsupported_api"}
 
       Map.keys(args) -- @fields[op] != [] ->
-        {:error, "invalid_request"}
-
-      Enum.any?(Map.get(@required, op, []), &(not Map.has_key?(args, &1))) ->
         {:error, "invalid_request"}
 
       not valid_args?(args) ->
@@ -57,7 +50,6 @@ defmodule AtlasRuntime.Inspection.Reads do
 
   defp valid_args?(args) do
     Enum.all?(args, fn
-      {"turn_id", id} -> is_binary(id)
       {"cursor", cursor} -> is_binary(cursor) and cursor != ""
       {"limit", limit} -> is_integer(limit) and limit in 1..100
     end)
@@ -91,9 +83,6 @@ defmodule AtlasRuntime.Inspection.Reads do
        "events_cursor" => ExecutionEvents.head(state.events)
      }}
   end
-
-  defp run("turns", _args, state),
-    do: {:ok, %{"turns" => Enum.map(History.list(state.dir, state.workers).turns, &turn/1)}}
 
   defp run("turn", %{"turn_id" => id}, state) do
     with {:ok, run} <- saved(id, state) do
@@ -213,7 +202,11 @@ defmodule AtlasRuntime.Inspection.Reads do
       else: utf8_prefix(binary_part(text, 0, byte_size(text) - 1), dropped + 1)
   end
 
-  defp message("not_a_read"), do: "read.sock serves only runtime.read/1 operations"
+  defp message("not_a_read"), do: "Only the runtime.read/1 journal operations are served"
+
+  defp message("not_journal"),
+    do: "runtime.sock serves only the runtime.read/1 journal operations events and follow"
+
   defp message("unsupported_api"), do: "Requests must name api runtime.read/1"
   defp message("invalid_request"), do: "Malformed runtime.read/1 request"
   defp message("unknown_turn"), do: "No turn with this ID"

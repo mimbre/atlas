@@ -3,6 +3,10 @@ alias AtlasRuntime.Integrations.AtlasServer.Lifecycle
 
 [dir] = System.argv()
 
+# This Service's home, for the reads that are not handed it (the history contract's): the
+# host leaves $ATLAS_RUNTIME_HOME unset for the default home.
+Application.put_env(:atlas_runtime, :runtime_home, dir, persistent: true)
+
 # Opt-in Atlas Server lifecycle reporting (`server.json`): its Bus link is configured before
 # anything starts. Without it, nothing connects and the service is unchanged.
 server = Lifecycle.load!(dir)
@@ -24,8 +28,10 @@ if server do
   )
 end
 
-{:ok, _} = Application.ensure_all_started(:atlas_runtime)
-started = Enum.map(Application.started_applications(), &elem(&1, 0))
+# What the Runtime's own start brought up, and only that: a VM that already runs other apps
+# (a test run of the whole umbrella evaluates this file in its own BEAM) is not the
+# Runtime starting them.
+{:ok, started} = Application.ensure_all_started(:atlas_runtime)
 
 if Enum.any?([:atlas_facts, :atlas_flow, :atlas_control], &(&1 in started)),
   do: raise("Runtime must not start Atlas core services")

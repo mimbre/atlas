@@ -48,7 +48,11 @@ defmodule AtlasRuntimeBackend.Generator.Schema do
   - `expose [capability]` and `not_exposed capability_or_list`: every capability of the
     boundary is exactly one of the two. Nothing is left out implicitly.
   - `rights listener, [right]`: the rights a client gets on that listener (a listener
-    with its own identity, such as a socket peer, gets these).
+    with its own identity, such as a socket peer, gets these); for a listener whose
+    clients carry their own rights, such as a token, it is the ceiling those rights are
+    cut to. Every right is a value of the boundary's client rights: the enum of the
+    `rights` field (`{:list, {:enum, values}}`) of its `client` model. A boundary without
+    that model has no rights to name, so a `rights` entry over it is a mistake.
   - `event name, model, id: field`: a notification the boundary's implementation sends
     to a subscriber, carried as event `name`; `model` is a boundary model; `id:` (optional)
     is an integer field of it that identifies the event for resuming.
@@ -84,13 +88,17 @@ defmodule AtlasRuntimeBackend.Generator.Schema do
   - `error kind, code, type:`: the target's own refusals, each needed once: `:invalid`
     (a request that does not decode or does not build its input), `:not_permitted` (the
     boundary refused the client's rights) and `:no_route` (no resource has that method and
-    path).
+    path). A listener's refusals, before the router runs, are optional, each at most once:
+    `:unauthenticated` (no valid credential; always 401) and `:origin_refused` (a request
+    the listener does not take from a browser). A listener sends them, and any other error
+    kind, with the router's `__problem__/2`, so it writes no problem body itself.
 
   Every mistake fails at compile time with a `CompileError` at its line, among them: an
   exposed name that is no boundary capability; a capability neither exposed nor
   `not_exposed`; a target that does not map an exposed capability, or maps one twice; a
   resource naming a capability that is not exposed; an outcome of a mapped capability
-  without a status; a boundary target carried by no backend target.
+  without a status; a boundary target carried by no backend target; a right that is no
+  value of the boundary's client rights.
 
   ## The schema as data
 
@@ -126,6 +134,9 @@ defmodule AtlasRuntimeBackend.Generator.Schema do
   @methods [:get, :post, :put, :patch, :delete]
   @scalars [:string, :integer, :boolean, :datetime]
   @error_kinds [:invalid, :not_permitted, :no_route]
+  # A listener's own refusals: optional, each at most once, with the status they must have
+  # (nil: any status of 400 or more).
+  @listener_error_kinds [unauthenticated: 401, origin_refused: nil]
 
   defmacro __using__(_opts) do
     quote do
@@ -269,7 +280,7 @@ defmodule AtlasRuntimeBackend.Generator.Schema do
     not_exposed_names =
       for c <- boundary_schema.capabilities, Map.has_key?(not_exposed, c.name), do: c.name
 
-    rights = rights!(Map.get(by_kind, :rights, []))
+    rights = rights!(Map.get(by_kind, :rights, []), client_rights(models), boundary)
     events = events!(Map.get(by_kind, :event, []), models)
 
     targets =
@@ -359,7 +370,7 @@ defmodule AtlasRuntimeBackend.Generator.Schema do
     end)
   end
 
-  defp rights!(entries) do
+  defp rights!(entries, known, boundary) do
     {rights, _seen} =
       Enum.map_reduce(entries, MapSet.new(), fn {:rights, {listener, rights}, f, l}, seen ->
         unless snake?(listener), do: __fail__(f, l, "rights: the listener is a snake_case atom")
@@ -370,10 +381,42 @@ defmodule AtlasRuntimeBackend.Generator.Schema do
         unless is_list(rights) and Enum.all?(rights, &snake?/1) and Enum.uniq(rights) == rights,
           do: __fail__(f, l, "rights #{inspect(listener)}: a list of snake_case atoms, each once")
 
+        if is_nil(known),
+          do:
+            __fail__(
+              f,
+              l,
+              "rights #{inspect(listener)}: #{inspect(boundary)} declares no client rights " <>
+                "(a :client model with rights: {:list, {:enum, [right]}})"
+            )
+
+        case Enum.reject(rights, &(&1 in known)) do
+          [] ->
+            :ok
+
+          unknown ->
+            __fail__(
+              f,
+              l,
+              "rights #{inspect(listener)}: #{Enum.map_join(unknown, ", ", &inspect/1)} is no " <>
+                "client right of #{inspect(boundary)} (#{Enum.map_join(known, ", ", &inspect/1)})"
+            )
+        end
+
         {%{listener: listener, rights: rights}, MapSet.put(seen, listener)}
       end)
 
     rights
+  end
+
+  # The values of the boundary's client rights, or nil when it declares none.
+  defp client_rights(models) do
+    with %{fields: fields} <- models[:client],
+         %{type: {:list, {:enum, values}}} <- Enum.find(fields, &(&1.name == :rights)) do
+      values
+    else
+      _ -> nil
+    end
   end
 
   defp events!(entries, models) do
@@ -857,10 +900,12 @@ defmodule AtlasRuntimeBackend.Generator.Schema do
       for {:error, {kind, code, opts}, f, l} <- entries do
         fail = &__fail__(f, l, &1)
 
-        unless kind in @error_kinds,
+        kinds = @error_kinds ++ Keyword.keys(@listener_error_kinds)
+
+        unless kind in kinds,
           do:
             fail.(
-              "error #{inspect(kind)}: the kinds are #{Enum.map_join(@error_kinds, ", ", &inspect/1)}"
+              "error #{inspect(kind)}: the kinds are #{Enum.map_join(kinds, ", ", &inspect/1)}"
             )
 
         unless Keyword.keyword?(opts) and Keyword.keys(opts) == [:type],
@@ -870,6 +915,13 @@ defmodule AtlasRuntimeBackend.Generator.Schema do
           do: fail.("error #{inspect(kind)}: the status is 400 or more")
 
         code!(code, opts[:type], "error #{inspect(kind)}", fail)
+
+        case @listener_error_kinds[kind] do
+          nil -> :ok
+          ^code -> :ok
+          required -> fail.("error #{inspect(kind)}: the status is #{required}")
+        end
+
         %{kind: kind, status: code, type: opts[:type]}
       end
 
@@ -879,6 +931,11 @@ defmodule AtlasRuntimeBackend.Generator.Schema do
         0 -> __fail__(file, line, "the target needs `error #{inspect(kind)}, code, type: ...`")
         _ -> __fail__(file, line, "error #{inspect(kind)} is declared twice")
       end
+    end
+
+    for {kind, _status} <- @listener_error_kinds,
+        Enum.count(errors, &(&1.kind == kind)) > 1 do
+      __fail__(file, line, "error #{inspect(kind)} is declared twice")
     end
 
     errors

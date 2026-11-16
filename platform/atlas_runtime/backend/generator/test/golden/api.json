@@ -60,6 +60,16 @@
           "kind": "no_route",
           "status": 404,
           "type": "no-route"
+        },
+        {
+          "kind": "unauthenticated",
+          "status": 401,
+          "type": "unauthenticated"
+        },
+        {
+          "kind": "origin_refused",
+          "status": 403,
+          "type": "origin-refused"
         }
       ],
       "name": "rest",

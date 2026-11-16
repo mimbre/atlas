@@ -71,6 +71,8 @@ selected.each do |id|
     end
     dir = File.join(root, step['working-directory'] || default_dir)
     print "   run   #{label[0, 90]} … "
+    # Workers run without network: Hex must use its local cache, never the registry.
+    step_env = step_env.merge('HEX_OFFLINE' => '1') if run.include?('deps.get')
     out, status = Open3.capture2e(step_env, 'bash', '-eo', 'pipefail', '-c', run, chdir: dir)
     if status.success?
       puts 'ok'

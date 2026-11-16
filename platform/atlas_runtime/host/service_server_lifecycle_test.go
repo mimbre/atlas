@@ -70,14 +70,12 @@ func TestServiceStartsWithServerLifecycleAndItsModel(t *testing.T) {
 	for lines := bufio.NewScanner(reader); lines.Scan(); {
 		output = append(output, lines.Text())
 		if lines.Text() == "Runtime ready; Atlas core services remain stopped" {
-			status, err := request(dir, map[string]any{"command": "service-status"})
-			if err != nil {
-				t.Fatalf("service-status: %v", err)
+			// runtime.sock keeps guidance only: the operations moved to backend.sock (S2).
+			if _, err := request(dir, map[string]any{"command": "service-status"}); err == nil ||
+				!strings.Contains(err.Error(), "backend.sock") {
+				t.Fatalf("runtime.sock service-status: %v", err)
 			}
-			if status["service"] != "running" {
-				t.Fatalf("service-status = %v", status)
-			}
-			// The work contract is served beside it, on backend.sock.
+			// The work contract is served on backend.sock.
 			capacity, err := callBackend(dir, workCall{method: "GET", path: "/v1/capacity"})
 			if err != nil || capacity["accepting"] != true {
 				t.Fatalf("backend.sock capacity = %v, %v", capacity, err)

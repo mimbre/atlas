@@ -1,22 +1,23 @@
-defmodule AtlasRuntime.ReadApiTest do
+defmodule AtlasRuntime.SocketJournalTest do
+  # The journal on runtime.sock (design 2026-11-16-runtime-backend §13.1 Q3): `events` and
+  # `follow` with the runtime.read/1 protocol, the only socket that serves them since S2.
   # A controlled contract test over the synthetic native CLI; it is not real worker proof.
   use ExUnit.Case, async: false
 
   alias AtlasRuntime.Agent.Native
-  alias AtlasRuntime.{ExecutionEvents, Output, Service}
-  alias AtlasRuntime.Inspection.Reads
+  alias AtlasRuntime.{ExecutionEvents, Service}
 
   @moduletag capture_log: true
-  # Structural and private turn fields that runtime.read/1 must never project.
-  @private ~w(assignment cwd permissions sandbox artifacts repository session_id selection quota
-              request_id server last_answer resume_context id)
+  # A missed signal would only show at a heartbeat, far beyond every receive bound here.
+  @quiet [heartbeat: 60_000]
+  @page ~w(api cursor events more op recording_started_at)
 
   setup do
     # Short: socket paths must fit a Unix socket name.
     dir =
       Path.join(
         System.tmp_dir!(),
-        "arr-#{Base.encode16(:crypto.strong_rand_bytes(4), case: :lower)}"
+        "arj-#{Base.encode16(:crypto.strong_rand_bytes(4), case: :lower)}"
       )
 
     bin = Path.join(dir, "bin")
@@ -33,9 +34,9 @@ defmodule AtlasRuntime.ReadApiTest do
     %{dir: dir}
   end
 
-  defp launch(dir) do
+  defp launch(dir, options \\ [follow: @quiet], start \\ []) do
     File.rm(Path.join(dir, "runtime.sock"))
-    {:ok, pid} = GenServer.start(Service, dir)
+    {:ok, pid} = GenServer.start(Service, {dir, nil, [], options}, start)
     on_exit(fn -> halt(pid) end)
     pid
   end
@@ -63,29 +64,37 @@ defmodule AtlasRuntime.ReadApiTest do
       "command" => "start",
       "worker_id" => worker,
       "cwd" => Path.join(dir, worker),
-      "assignment" => "Synthetic read fixture",
+      "assignment" => "Synthetic journal fixture",
       "backend" => "claude",
       "questions_enabled" => questions
     })
   end
 
-  # One request line per connection on read.sock, exactly as a viewer sends it.
-  defp send_line(dir, line) do
+  defp connect(dir, name) do
     {:ok, socket} =
-      :gen_tcp.connect({:local, Path.join(dir, "read.sock")}, 0, [
+      :gen_tcp.connect({:local, Path.join(dir, name)}, 0, [
         :binary,
         active: false,
         packet: :line,
         buffer: 1_048_576
       ])
 
+    socket
+  end
+
+  # One request line on the named socket; the first reply line as sent, newline included.
+  defp raw(dir, name, line) do
+    socket = connect(dir, name)
     :ok = :gen_tcp.send(socket, line <> "\n")
     {:ok, reply} = :gen_tcp.recv(socket, 0, 5_000)
     :gen_tcp.close(socket)
-    JSON.decode!(reply)
+    reply
   end
 
-  defp read(dir, op, fields \\ %{}),
+  defp send_line(dir, line), do: JSON.decode!(raw(dir, "runtime.sock", line))
+
+  # A runtime.read/1 request on runtime.sock, exactly as the CLI sends it.
+  defp read(dir, op, fields),
     do: send_line(dir, JSON.encode!(Map.merge(%{"api" => "runtime.read/1", "op" => op}, fields)))
 
   defp await(fun, remaining \\ 500) do
@@ -104,16 +113,6 @@ defmodule AtlasRuntime.ReadApiTest do
     end
   end
 
-  defp worker(dir, id) do
-    await(fn -> Enum.find(read(dir, "workers")["workers"], &(&1["worker_id"] == id)) end)
-  end
-
-  defp public!(turn) do
-    assert turn["turn_id"] =~ ~r/\Aturn-[0-9a-f]{16}\z/
-    for key <- @private, do: refute(Map.has_key?(turn, key), "#{key} projected")
-    turn
-  end
-
   # Every regular file under the Runtime home, byte for byte; sockets are skipped.
   defp files(dir) do
     Path.wildcard(Path.join(dir, "**"), match_dot: true)
@@ -121,172 +120,81 @@ defmodule AtlasRuntime.ReadApiTest do
     |> Map.new(&{&1, File.read!(&1)})
   end
 
-  test "a standalone worker's lifecycle, output and results are readable without Server", %{
+  defp appended(dir, count) do
+    Enum.reduce(1..count, ExecutionEvents.open(dir), fn n, store ->
+      ExecutionEvents.append(dir, store, %{
+        id: "turn-" <> String.pad_leading(Integer.to_string(n, 16), 16, "0"),
+        worker_id: "alpha",
+        backend: "codex",
+        state: "running",
+        started_at: "2026-11-09T10:00:00Z"
+      })
+    end)
+  end
+
+  test "events and a follow page on runtime.sock keep the runtime.read/1 lines", %{dir: dir} do
+    store = appended(dir, 5)
+    service = launch(dir)
+
+    # `atlas-runtime events --limit 2`: the line is the Service's own read, as encoded.
+    events = ~s({"api":"runtime.read/1","op":"events","limit":2})
+    golden = JSON.encode!(GenServer.call(service, {:read, "events", %{"limit" => 2}})) <> "\n"
+    assert raw(dir, "runtime.sock", events) == golden
+    page = JSON.decode!(golden)
+    assert Enum.sort(Map.keys(page)) == @page
+
+    assert %{"op" => "events", "events" => [%{"sequence" => 1}, %{"sequence" => 2}]} = page
+    assert %{"more" => true, "cursor" => cursor} = page
+    assert cursor == store["epoch"] <> ":2"
+
+    # One follow page, from that cursor and from another epoch (a reset).
+    other = String.duplicate("0", 32) <> ":1"
+
+    for fields <- [%{"cursor" => cursor}, %{"cursor" => other}] do
+      line = JSON.encode!(Map.merge(%{"api" => "runtime.read/1", "op" => "follow"}, fields))
+      frame = JSON.decode!(raw(dir, "runtime.sock", line))
+      assert %{"op" => "follow", "type" => "page", "more" => false} = frame
+      assert Enum.sort(Map.keys(frame) -- ["reset", "type"]) == @page
+      assert frame["cursor"] == store["epoch"] <> ":5"
+
+      if fields["cursor"] == other,
+        do: assert(%{"reset" => %{"reason" => "epoch_changed"}} = frame),
+        else: assert([%{"sequence" => 3} | _] = frame["events"])
+    end
+  end
+
+  test "runtime.sock serves no history read and leaves state and records unchanged", %{
     dir: dir
   } do
     service = launch(dir)
     run = start(service, dir, "alpha", true)
+    await(fn -> :sys.get_state(service).workers["alpha"].run.pending_question end)
+    before = {:sys.get_state(service), files(dir)}
 
-    alpha =
-      await(fn ->
-        w = worker(dir, "alpha")
-        w["turn"]["pending_question"] && w
-      end)
-
-    turn = public!(alpha["turn"])
-    assert alpha["state"] == "running"
-
-    assert %{
-             "turn_id" => id,
-             "worker_id" => "alpha",
-             "state" => "running",
-             "backend" => "claude",
-             "attempt" => nil,
-             "pending_question" => %{"question_id" => "question-" <> _, "revision" => revision}
-           } = turn
-
-    assert id == run.id and is_integer(revision)
-    assert map_size(turn["pending_question"]) == 2
-    head = read(dir, "workers")["events_cursor"]
-
-    output =
-      await(fn ->
-        o = read(dir, "output", %{"turn_id" => id})
-        o["events"] != [] && o
-      end)
-
-    assert %{"turn_id" => ^id, "worker_id" => "alpha", "ended" => false} = output["stream"]
-    refute Map.has_key?(output["stream"], "execution")
-
-    assert %{"kind" => "tool", "tool_name" => "AskUserQuestion", "status" => "started"} in Enum.map(
-             output["events"],
-             &Map.delete(&1, "sequence")
-           )
-
-    # Local output is only in the local buffer, which no Bus endpoint serves.
-    {buffer, execution} = Reads.output_stream(%{"id" => id, "worker_id" => "alpha"})
-    assert {:ok, _} = Output.snapshot(execution, nil, buffer)
-    assert {:error, "output_unavailable"} = Output.snapshot(execution)
-
-    accepted = read(dir, "events")["events"]
-    assert Enum.any?(accepted, &(&1["kind"] == "execution_accepted" and &1["turn_id"] == id))
-
-    for event <- accepted,
-        do: refute(Map.has_key?(event, "session_id") or Map.has_key?(event, "record_ref"))
-
-    assert %{state: "stopping"} =
-             command(service, %{"command" => "stop", "worker_id" => "alpha", "turn_id" => id})
-
-    await(fn -> read(dir, "turn", %{"turn_id" => id})["turn"]["state"] == "stopped" end)
-    stopped = public!(read(dir, "turn", %{"turn_id" => id})["turn"])
-    assert %{"state" => "stopped", "pending_question" => nil} = stopped
-    assert is_binary(stopped["ended_at"])
-
-    # Resuming from earlier cursors yields only what followed them.
-    later = read(dir, "output", %{"turn_id" => id, "cursor" => output["cursor"]})
-    assert later["stream"]["ended"] and not Map.has_key?(later, "reset")
-    last = List.last(output["events"])["sequence"]
-    assert Enum.all?(later["events"], &(&1["sequence"] > last))
-    after_head = read(dir, "events", %{"cursor" => head})
-    refute Map.has_key?(after_head, "reset")
-
-    assert Enum.any?(
-             after_head["events"],
-             &(&1["kind"] == "execution_stopped" and &1["turn_id"] == id)
-           )
-
-    refute Enum.any?(after_head["events"], &(&1["kind"] == "execution_accepted"))
-
-    finished = start(service, dir, "beta", false)
-    await(fn -> worker(dir, "beta")["state"] == "finished" end)
-    beta = public!(read(dir, "turn", %{"turn_id" => finished.id})["turn"])
-
-    assert %{
-             "state" => "finished",
-             "result" => "done",
-             "answer" => "done",
-             "answer_truncated" => false
-           } = beta
-
-    beta_output = read(dir, "output", %{"turn_id" => finished.id})
-    assert beta_output["stream"]["ended"]
-    assert Enum.any?(beta_output["events"], &(&1["text"] == "done"))
-
-    turns = read(dir, "turns")["turns"]
-    assert Enum.sort(Enum.map(turns, & &1["turn_id"])) == Enum.sort([id, finished.id])
-    Enum.each(turns, &public!/1)
-  end
-
-  test "after a service restart, cursors resume, lost state is explicit and stale read.sock is replaced",
-       %{dir: dir} do
-    service = launch(dir)
-    run = start(service, dir, "alpha", true)
-
-    head =
-      await(fn ->
-        w = worker(dir, "alpha")
-        w["turn"]["pending_question"] && read(dir, "workers")["events_cursor"]
-      end)
-
-    halt(service)
-
-    # Restart reconciliation ends the turn only once its native process is provably gone. The
-    # halt ended it; the probe, asked about exactly the recorded launch, states so without
-    # racing `ps` for the exit.
-    process = Path.join([dir, "turns", run.id, "process.json"])
-    pid = process |> File.read!() |> JSON.decode!() |> Map.fetch!("pid")
-    launched = File.stat!(process, time: :posix).mtime
-
-    probe = fn
-      ^pid, ^launched -> {:gone, "halted with the previous service"}
-      _, _ -> :unknown
+    # Every other runtime.read/1 operation, and one that names none.
+    for request <- [
+          %{"op" => "turns"},
+          %{"op" => "turn", "turn_id" => run.id},
+          %{"op" => "workers"},
+          %{"op" => "output", "turn_id" => run.id},
+          %{"op" => "question"},
+          %{}
+        ] do
+      reply = send_line(dir, JSON.encode!(Map.put(request, "api", "runtime.read/1")))
+      assert %{"api" => "runtime.read/1", "error" => %{"code" => "not_journal"}} = reply
+      assert map_size(reply) == 2
     end
 
-    assert File.exists?(Path.join(dir, "read.sock"))
-    restarted = launch(dir, process_probe: probe)
-    assert read(dir, "workers")["workers"] == []
-    resumed = read(dir, "events", %{"cursor" => head})
-    refute Map.has_key?(resumed, "reset")
+    # A journal operation is still validated as runtime.read/1.
+    assert send_line(dir, ~s({"op":"events"}))["error"]["code"] == "unsupported_api"
+    assert read(dir, "events", %{"turn_id" => run.id})["error"]["code"] == "invalid_request"
+    assert read(dir, "events", %{"limit" => 101})["error"]["code"] == "invalid_request"
 
-    # Recovery invalidates the dead turn's question and reports it, once, as interrupted by
-    # the restart, which no ordinary failure is; nothing before the cursor is repeated.
-    assert [
-             %{"kind" => "question_invalidated", "turn_id" => invalidated},
-             %{
-               "kind" => "execution_failed",
-               "turn_id" => failed,
-               "worker_id" => "alpha",
-               "backend" => "claude",
-               "model" => "claude-sonnet-4-6",
-               "interruption" => "service_restart"
-             }
-           ] = resumed["events"]
+    # The command form of turns is still refused.
+    assert %{"command_error" => refused} = send_line(dir, ~s({"command":"turns"}))
+    assert refused =~ "turns is not served on runtime.sock"
 
-    assert invalidated == run.id and failed == run.id
-
-    assert %{"state" => "failed", "recorded_state" => "running", "error" => "interrupted: " <> _} =
-             read(dir, "turn", %{"turn_id" => run.id})["turn"]
-
-    # A second restart finds the turn terminal and reports nothing again.
-    halt(restarted)
-    launch(dir, process_probe: probe)
-    assert read(dir, "events", %{"cursor" => head})["events"] == resumed["events"]
-
-    # A turn whose output was never retained here, and malformed or unknown targets.
-    saved = "turn-00000000000000aa"
-    File.mkdir_p!(Path.join([dir, "turns", saved]))
-
-    File.write!(
-      Path.join([dir, "turns", saved, "turn.json"]),
-      JSON.encode!(%{"id" => saved, "worker_id" => "gamma", "state" => "finished"})
-    )
-
-    assert read(dir, "output", %{"turn_id" => saved})["error"]["code"] == "output_unavailable"
-
-    assert read(dir, "turn", %{"turn_id" => "turn-00000000000000bb"})["error"]["code"] ==
-             "unknown_turn"
-
-    assert read(dir, "events", %{"cursor" => "not-a-cursor"})["error"]["code"] == "invalid_cursor"
+    assert {:sys.get_state(service), files(dir)} == before
   end
 
   test "events report retention gaps and replaced journals as resets, keeping CLI replies", %{
@@ -331,7 +239,7 @@ defmodule AtlasRuntime.ReadApiTest do
 
     assert {:error, "invalid_cursor"} = ExecutionEvents.read(store, store["epoch"] <> ":999", 1)
 
-    # The existing events command keeps its replies.
+    # The events command keeps its replies.
     assert_raise ArgumentError,
                  ~r/\Astale execution event cursor; earliest usable cursor: /,
                  fn ->
@@ -341,94 +249,9 @@ defmodule AtlasRuntime.ReadApiTest do
     assert ExecutionEvents.query(store, nil, 1)["retention_gap"]
   end
 
-  test "read.sock refuses every mutation and leaves workers and records unchanged", %{dir: dir} do
-    service = launch(dir)
-    run = start(service, dir, "alpha", true)
-    await(fn -> worker(dir, "alpha")["turn"]["pending_question"] end)
-    question = :sys.get_state(service).workers["alpha"].run.pending_question
-    before = {:sys.get_state(service), files(dir)}
-    api = %{"api" => "runtime.read/1"}
-
-    commands = [
-      %{
-        "command" => "start",
-        "worker_id" => "beta",
-        "cwd" => Path.join(dir, "beta"),
-        "assignment" => "x",
-        "backend" => "claude"
-      },
-      %{"command" => "stop", "worker_id" => "alpha"},
-      %{"command" => "continue", "worker_id" => "alpha", "assignment" => "x"},
-      %{
-        "command" => "answer",
-        "worker_id" => "alpha",
-        "turn_id" => run.id,
-        "question_id" => question.id,
-        "answers" => %{"Choose?" => "A"}
-      },
-      %{
-        "command" => "submit-handoff",
-        "worker_id" => "alpha",
-        "turn_id" => run.id,
-        "handoff" => %{}
-      },
-      %{"command" => "preferences", "preferred" => "codex", "fallback" => "claude"},
-      %{"command" => "service-stop"},
-      %{
-        "command" => "stop",
-        "worker_id" => "alpha",
-        "request_id" => "00000000-0000-4000-8000-000000000001"
-      }
-    ]
-
-    for request <- commands do
-      assert send_line(dir, JSON.encode!(request))["error"]["code"] == "not_a_read"
-
-      wrapped =
-        Map.merge(api, request) |> Map.delete("command") |> Map.put("op", request["command"])
-
-      assert send_line(dir, JSON.encode!(wrapped))["error"]["code"] == "not_a_read"
-    end
-
-    for op <- ~w(route-peer-question peer-question bind-peer-reply question handoff status),
-        do:
-          assert(
-            send_line(dir, JSON.encode!(Map.put(api, "op", op)))["error"]["code"] == "not_a_read"
-          )
-
-    smuggled = Map.merge(api, %{"op" => "turn", "turn_id" => run.id, "command" => "stop"})
-    assert send_line(dir, JSON.encode!(smuggled))["error"]["code"] == "invalid_request"
-    assert send_line(dir, "not json")["error"]["code"] == "invalid_request"
-
-    assert {:sys.get_state(service), files(dir)} == before
-    assert worker(dir, "alpha")["state"] == "running"
-  end
-
   describe "follow" do
-    # A missed signal would only show at a heartbeat, far beyond every receive bound here.
-    @quiet [heartbeat: 60_000]
-
-    defp launch(dir, options, start \\ []) do
-      File.rm(Path.join(dir, "runtime.sock"))
-      {:ok, pid} = GenServer.start(Service, {dir, nil, [], options}, start)
-      on_exit(fn -> halt(pid) end)
-      pid
-    end
-
-    defp connect(dir, name) do
-      {:ok, socket} =
-        :gen_tcp.connect({:local, Path.join(dir, name)}, 0, [
-          :binary,
-          active: false,
-          packet: :line,
-          buffer: 1_048_576
-        ])
-
-      socket
-    end
-
     defp follow(dir, fields \\ %{}) do
-      socket = connect(dir, "read.sock")
+      socket = connect(dir, "runtime.sock")
       request = Map.merge(%{"api" => "runtime.read/1", "op" => "follow"}, fields)
       :ok = :gen_tcp.send(socket, JSON.encode!(request) <> "\n")
       socket
@@ -502,7 +325,7 @@ defmodule AtlasRuntime.ReadApiTest do
       first = page(socket)
       assert %{"events" => [], "more" => false, "cursor" => head} = first
       refute Map.has_key?(first, "reset")
-      assert head == read(dir, "workers")["events_cursor"]
+      assert head == ExecutionEvents.head(:sys.get_state(service).events)
 
       # A command append, then question_available from the agent message path, which stores
       # its events before the checkpoint.
@@ -679,26 +502,35 @@ defmodule AtlasRuntime.ReadApiTest do
             "handoff" => declaration()
           })
 
-          if rem(n, 50) == 0, do: status_latency(dir)
+          if rem(n, 50) == 0, do: command_latency(dir, hd(turns))
         end
 
       assert :sys.get_state(service).events["sequence"] == 1_000
       assert Enum.max(Enum.reject(latencies, &is_nil/1)) < 100
       assert_receive {:DOWN, ^ref, :process, ^follower, _}, 5_000
       await(fn -> :sys.get_state(service).followers == %{} end)
-      assert status_latency(dir) < 100
+      assert command_latency(dir, hd(turns)) < 100
     end
 
-    # One service-status round trip over runtime.sock, in milliseconds.
-    defp status_latency(dir) do
+    # One guidance round trip over runtime.sock to the Service, in milliseconds: runtime.sock
+    # serves no operations since S2.
+    defp command_latency(dir, turn) do
       status = connect(dir, "runtime.sock")
       started = System.monotonic_time(:millisecond)
-      :ok = :gen_tcp.send(status, ~s({"command":"service-status"}\n))
+      request = %{"command" => "handoff", "worker_id" => "alpha", "turn_id" => turn}
+      :ok = :gen_tcp.send(status, JSON.encode!(request) <> "\n")
       assert {:ok, line} = :gen_tcp.recv(status, 0, 5_000)
       elapsed = System.monotonic_time(:millisecond) - started
-      assert %{"service" => "running"} = JSON.decode!(line)
+      assert %{"turn_id" => ^turn} = JSON.decode!(line)
       :gen_tcp.close(status)
       elapsed
+    end
+
+    # A service stop as the operations implementation asks for it, in-process (runtime.sock
+    # refuses it since S2): the reply, then the shutdown it requests.
+    defp service_stop do
+      assert {_, true} = GenServer.call(Service, %{"command" => "service-stop"}, 30_000)
+      send(Service, :shutdown)
     end
 
     test "32 followers at most; a closed follower frees its slot", %{dir: dir} do
@@ -717,7 +549,7 @@ defmodule AtlasRuntime.ReadApiTest do
       await(fn -> :sys.get_state(service).followers == %{} end)
     end
 
-    test "heartbeats follow a service answer; a service stop ends the stream; runtime.sock has no follow",
+    test "heartbeats follow a service answer; a service stop ends the stream",
          %{dir: dir} do
       test = self()
 
@@ -736,15 +568,7 @@ defmodule AtlasRuntime.ReadApiTest do
               }
             )
 
-      command = connect(dir, "runtime.sock")
-      :ok = :gen_tcp.send(command, ~s({"api":"runtime.read/1","op":"follow"}\n))
-      assert {:ok, line} = :gen_tcp.recv(command, 0, 5_000)
-      assert %{"command_error" => _} = JSON.decode!(line)
-      closed!(command)
-
-      stop = connect(dir, "runtime.sock")
-      :ok = :gen_tcp.send(stop, ~s({"command":"service-stop"}\n))
-      assert {:ok, _} = :gen_tcp.recv(stop, 0, 5_000)
+      service_stop()
       assert_receive {:halted, 0}, 5_000
 
       assert Enum.find(Stream.repeatedly(fn -> frame(socket) end), &(&1["type"] == "end")) ==
@@ -768,9 +592,7 @@ defmodule AtlasRuntime.ReadApiTest do
       first = follow(dir)
       assert %{"cursor" => cursor} = page(first)
 
-      stop = connect(dir, "runtime.sock")
-      :ok = :gen_tcp.send(stop, ~s({"command":"service-stop"}\n))
-      assert {:ok, _} = :gen_tcp.recv(stop, 0, 5_000)
+      service_stop()
       assert_receive {:halted, 0}, 5_000
       assert %{"type" => "end", "reason" => "service_stopping"} = frame(first)
       closed!(first)

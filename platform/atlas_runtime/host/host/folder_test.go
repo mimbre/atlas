@@ -91,9 +91,12 @@ func TestFolderProfileArgumentsAreTheEnforcementContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	q := func(path string) string { body, _ := json.Marshal(path); return string(body) }
-	filesystem := []string{q(dest) + `="write"`, q(scratch) + `="write"`, q(user) + `="none"`, q(home) + `="none"`,
-		q(scope["record"].(string)) + `="read"`, q(scope["baseline"].(string)) + `="read"`,
-		q(dest+"/.git") + `="none"`, q(dest+"/repo/.git") + `="none"`}
+	filesystem := []string{q(dest) + `="write"`, q(scratch) + `="write"`, q(user) + `="none"`, q(home) + `="none"`}
+	for _, path := range socketPaths(home) {
+		filesystem = append(filesystem, q(path)+`="none"`)
+	}
+	filesystem = append(filesystem, q(scope["record"].(string))+`="read"`, q(scope["baseline"].(string))+`="read"`,
+		q(dest+"/.git")+`="none"`, q(dest+"/repo/.git")+`="none"`)
 	for _, path := range readable {
 		filesystem = append(filesystem, q(path)+`="read"`)
 	}
@@ -398,7 +401,7 @@ func TestClaudeFolderSettingsAreTheEnforcementContract(t *testing.T) {
 	}
 	slices.Sort(roots)
 	record, baseline := scope["record"].(string), scope["baseline"].(string)
-	protected := []string{home, dest + "/.git", dest + "/repo/.git", token, filepath.Dir(token), user + "/.claude"}
+	protected := slices.Concat([]string{home}, socketPaths(home), []string{dest + "/.git", dest + "/repo/.git", token, filepath.Dir(token), user + "/.claude"})
 	for _, name := range credentialPaths {
 		if name != ".claude" {
 			protected = append(protected, filepath.Join(user, name))
@@ -859,9 +862,12 @@ func TestPacketProfileArgumentsAreTheEnforcementContract(t *testing.T) {
 	q := func(path string) string { body, _ := json.Marshal(path); return string(body) }
 	// The tree and the packet files are read, only findings and scratch are written; the rest is the folder profile.
 	filesystem := []string{q(tree) + `="read"`, q(filepath.Join(packet, "packet.json")) + `="read"`, q(filepath.Join(packet, "diff.json")) + `="read"`,
-		q(findings) + `="write"`, q(scratch) + `="write"`, q(user) + `="none"`, q(home) + `="none"`,
-		q(scope["record"].(string)) + `="read"`, q(scope["baseline"].(string)) + `="read"`,
-		q(tree+"/.git") + `="none"`, q(tree+"/repo/.git") + `="none"`}
+		q(findings) + `="write"`, q(scratch) + `="write"`, q(user) + `="none"`, q(home) + `="none"`}
+	for _, path := range socketPaths(home) {
+		filesystem = append(filesystem, q(path)+`="none"`)
+	}
+	filesystem = append(filesystem, q(scope["record"].(string))+`="read"`, q(scope["baseline"].(string))+`="read"`,
+		q(tree+"/.git")+`="none"`, q(tree+"/repo/.git")+`="none"`)
 	for _, path := range readable {
 		filesystem = append(filesystem, q(path)+`="read"`)
 	}
@@ -923,7 +929,7 @@ func TestClaudePacketSettingsAreTheEnforcementContract(t *testing.T) {
 	}
 	slices.Sort(roots)
 	record, baseline := scope["record"].(string), scope["baseline"].(string)
-	protected := []string{home, tree + "/.git", tree + "/repo/.git", user + "/.claude"}
+	protected := slices.Concat([]string{home}, socketPaths(home), []string{tree + "/.git", tree + "/repo/.git", user + "/.claude"})
 	for _, name := range credentialPaths {
 		if name != ".claude" {
 			protected = append(protected, filepath.Join(user, name))
