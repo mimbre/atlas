@@ -6,7 +6,8 @@ defmodule AtlasRuntime.Inspection.Reads do
   assignment, working directory, permissions, repository, native session, artifacts or
   Server configuration) is returned. Public output and the turn's answer are payloads and
   are returned as produced. Reads never change service state, renew output retention or
-  reach Atlas Server. See docs/contracts/runtime-read.md.
+  reach Atlas Server. See docs/contracts/runtime-read.md. `runtime.sock` serves only the
+  journal operations, `events` and `follow` (`Entrypoints.Socket`).
   """
   alias AtlasRuntime.{ExecutionEvents, Output}
   alias AtlasRuntime.Persistence.History
@@ -214,6 +215,10 @@ defmodule AtlasRuntime.Inspection.Reads do
   end
 
   defp message("not_a_read"), do: "read.sock serves only runtime.read/1 operations"
+
+  defp message("not_journal"),
+    do: "runtime.sock serves only the runtime.read/1 journal operations events and follow"
+
   defp message("unsupported_api"), do: "Requests must name api runtime.read/1"
   defp message("invalid_request"), do: "Malformed runtime.read/1 request"
   defp message("unknown_turn"), do: "No turn with this ID"

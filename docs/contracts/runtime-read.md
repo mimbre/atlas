@@ -7,16 +7,21 @@ local Prism viewer (`platform/atlas_runtime/viewer`) and independent macOS clien
 
 ## Transport
 
-- `<runtime home>/read.sock`, a Unix socket with mode `0600`, beside `runtime.sock`.
+- `<runtime home>/read.sock`, a Unix socket with mode `0600`, beside `runtime.sock`, serves
+  every operation below.
+- `<runtime home>/runtime.sock` serves the journal operations `events` and `follow` with
+  the same protocol, byte for byte, and the same cursors. A `runtime.read/1` request there
+  is one without `command`; any other `op`, or none, gets `not_journal`. Its commands
+  are not part of this contract.
 - One JSON object per line, one request per connection; the reply is one JSON line, except
   for `follow`, whose reply is a stream of lines on the same connection (see "Follow").
 - Clients poll with cursors, or `follow` execution events, and reconnect at will.
-- The socket exists while the service runs. Its file mode limits it to the Runtime's user;
+- The sockets exist while the service runs. Their file mode limits them to the Runtime's user;
   it is not an authentication or authorization layer.
 
-`read.sock` cannot change anything: it admits only the operations below, and the service
-answers them from its state without dispatching a command. `runtime.sock`, the CLI and
-Atlas Server reporting are unchanged.
+`runtime.read/1` cannot change anything, on either socket: only the operations below are
+admitted, and the service answers them from its state without dispatching a command. The
+CLI and Atlas Server reporting are unchanged.
 
 ## Requests and replies
 
@@ -36,13 +41,14 @@ Error codes:
 
 | Code | Meaning |
 |---|---|
-| `not_a_read` | No `op`, or an `op` that is not a read, including every `runtime.sock` command |
+| `not_a_read` | On `read.sock`: no `op`, or an `op` that is not a read, including every `runtime.sock` command |
+| `not_journal` | On `runtime.sock`: no `op`, or an `op` other than `events` and `follow` |
 | `unsupported_api` | A read `op` without `api: "runtime.read/1"` |
 | `invalid_request` | Not a JSON object, unknown or missing fields, or invalid values |
 | `unknown_turn` | No turn with this ID |
 | `invalid_cursor` | A malformed cursor, or one past the stream's end |
 | `output_unavailable` | No output is retained for this turn |
-| `too_many_followers` | 32 `follow` connections are already open |
+| `too_many_followers` | 32 `follow` connections are already open, on both sockets together |
 | `read_failed` | Runtime could not read its own records |
 
 ## Projections
@@ -112,13 +118,14 @@ results stay available through `turn`.
 
 A turn reported to Atlas Server keeps its output under its exact Server identity, which the
 Bus output endpoint also serves. Any other turn's output is kept under a local identity in
-a separate buffer that only `read.sock` reads. It is never reported or served over Bus.
+a separate buffer that only `read.sock` `output` reads. It is never reported or served over Bus.
 
 ## Follow
 
 `{"api": "runtime.read/1", "op": "follow", "cursor"?: C}` keeps the connection open and
 pushes execution events as the service records them. There is no `limit`; pages hold up
-to 100 events. Admission is as for the other operations; an error (`invalid_request`,
+to 100 events. It is served on both sockets, which share one limit of 32 open followers.
+Admission is as for the other operations; an error (`invalid_request`,
 `invalid_cursor`, `too_many_followers`) is one error line, then the connection closes.
 
 Each frame is one line with `"api": "runtime.read/1", "op": "follow"` and a `type`:
