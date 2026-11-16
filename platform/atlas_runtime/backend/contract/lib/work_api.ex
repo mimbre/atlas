@@ -9,7 +9,9 @@ defmodule AtlasRuntimeBackend.Work do
   `choose_slot` included; the notifications are the stream's events. The one target in S1
   is `rest` (§8.2–§8.4), carrying the boundary's entities.
 
-  S1 leaves out what comes with S3: the loopback TCP listener and its tokens, `ETag` and
+  S3 adds the loopback TCP listener's rights ceiling (§8.1: a token's rights are cut to
+  it; never `choose_slot`) and its refusals before the router runs: 401
+  `unauthenticated` and 403 `origin-refused`. Still to come in S3: `ETag` and
   `If-None-Match` on `GET /v1/work/{id}`, `Idempotent-Replayed` on `existing` (a plain 200
   here), and the route description and OpenAPI files.
 
@@ -37,6 +39,11 @@ defmodule AtlasRuntimeBackend.Work do
 
   # The socket owner, as local:<user>. Agents cannot reach the socket (I8).
   rights :socket, [:submit, :cancel, :read, :read_all, :choose_slot]
+
+  # Loopback TCP behind the reachability path (§8.1, §9): a client is its Bearer token, and
+  # its token's rights are cut to this ceiling. Never choose_slot: naming a slot is for the
+  # socket only.
+  rights :tcp, [:submit, :cancel, :read, :read_all]
 
   ## Events (§3.6, §8.4): the change sequence is the event id.
 
@@ -112,5 +119,11 @@ defmodule AtlasRuntimeBackend.Work do
     error :invalid, 400, type: "invalid"
     error :not_permitted, 403, type: "not-permitted"
     error :no_route, 404, type: "no-route"
+
+    # The TCP listener's refusals before the router runs (§8.1, §8.3), sent with the
+    # router's __problem__/2: a missing, malformed, unknown or disabled token, and any
+    # request with an Origin header.
+    error :unauthenticated, 401, type: "unauthenticated"
+    error :origin_refused, 403, type: "origin-refused"
   end
 end

@@ -261,6 +261,60 @@ defmodule AtlasRuntimeBackend.Generator.Targets.RestTest do
     end
   end
 
+  describe "__problem__/2: a listener's refusals, before the router runs" do
+    defp refuse(kind, conn \\ conn("GET", "/v1/count")), do: Rest.__problem__(kind, conn)
+
+    test "unauthenticated: 401 problem+json with its type, halted, nothing called" do
+      conn = refuse(:unauthenticated)
+      assert conn.status == 401
+      assert conn.halted
+      assert content_type(conn) == ["application/problem+json"]
+
+      assert json(conn) == %{
+               "type" => "unauthenticated",
+               "title" => "Unauthorized",
+               "status" => 401
+             }
+
+      refute_received {:example_called, _, _, _}
+    end
+
+    test "origin_refused: 403 with its type" do
+      conn = refuse(:origin_refused)
+      assert conn.status == 403
+      assert conn.halted
+      assert content_type(conn) == ["application/problem+json"]
+
+      assert json(conn) == %{
+               "type" => "origin-refused",
+               "title" => "Forbidden",
+               "status" => 403
+             }
+    end
+
+    test "the body never depends on the request" do
+      one = refuse(:unauthenticated, conn("POST", "/v1/books", ~s({"title":"Dune"})))
+
+      other =
+        refuse(
+          :unauthenticated,
+          conn("GET", "/v1/shelves?x=1") |> put_req_header("authorization", "Bearer secret")
+        )
+
+      assert one.resp_body == other.resp_body
+      refute other.resp_body =~ "secret"
+    end
+
+    test "every declared error kind, from the contract" do
+      assert refuse(:no_route).status == 404
+      assert json(refuse(:invalid))["type"] == "invalid"
+    end
+
+    test "a kind the contract does not declare raises" do
+      assert_raise ArgumentError, ~r/declares no error :expired/, fn -> refuse(:expired) end
+    end
+  end
+
   test "__rights__/1 and __routes__/0" do
     assert Rest.__rights__(:socket) == [:lend, :browse]
     assert Rest.__rights__(:guest) == [:browse]
