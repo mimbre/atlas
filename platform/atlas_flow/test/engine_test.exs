@@ -27,7 +27,7 @@ defmodule AtlasFlow.EngineTest do
     assert todo("B-1") == "Sort it"
 
     assert Enum.sort(for {id, _, _, _} <- Supervisor.which_children(AtlasFlow.Root), do: id) ==
-             Enum.sort([AtlasFlow.Activities.Pass.Inbox, AtlasFlow.Activities.Effect.Inbox])
+             [AtlasFlow.Activities.Effect.Inbox]
 
     refute Process.whereis(AtlasFlow.Items)
     refute Process.whereis(AtlasFlow.Supervisor)

@@ -316,47 +316,11 @@ defmodule AtlasFlow.Sorts.Written do
     end
   end
 
-  defmodule Inspect do
-    @moduledoc "Someone's Runtime inspects the box (a pass), routed to its owner's machine."
-    use RelaDSL.Schema
-
-    subflow :sort, subject: :box do
-      run_as("system:depot")
-      owner(relation: :owned_by)
-      start(:create)
-      initial(:working)
-
-      state :working do
-        pass(:inspector,
-          contract: 1,
-          name: "inspect",
-          routing: [machine_field: "node"],
-          fingerprint: [fields: ["revision"], relations: []],
-          request: [
-            mode: "start",
-            assignment: "Inspect this input",
-            cwd: "/private/work",
-            permissions: "read-only",
-            backend: "claude",
-            vendors: ["claude"]
-          ],
-          on: [delivered: :done, failed: :stuck]
-        )
-      end
-
-      state :stuck do
-        wait_for([:clerk], on: :choice, again: :working)
-      end
-
-      final(:done)
-    end
-  end
-
   defmodule Answered do
     @moduledoc """
-    The inspection is shared with the clerk: a clerk with a node is inspected by that node's
-    Runtime, on the frozen packet the box names, and its answer is the clerk's choice; a
-    clerk with no node chooses by hand. A day without a choice: stuck.
+    The clerk answers the inspection by hand: yes or no is their trusted choice, and a day
+    without one makes it stuck. Since F0 Flow has no pass, so no Runtime answers for them;
+    the version that had one is only in the runs it left (the pass retirement tests).
     """
     use RelaDSL.Schema
 
@@ -367,35 +331,6 @@ defmodule AtlasFlow.Sorts.Written do
       initial(:working)
 
       state :working do
-        pass(:inspector,
-          with_person: true,
-          writes: :none,
-          contract: 1,
-          name: "inspect",
-          routing: [machine_field: "node"],
-          fingerprint: [fields: ["revision", "tree", "packet_id", "packet_fp"], relations: []],
-          packet_from: [
-            cwd: "tree",
-            packet_id: "packet_id",
-            fingerprint: "packet_fp",
-            revision: "revision"
-          ],
-          request: [
-            mode: "start",
-            assignment: "Inspect the frozen input",
-            permissions: "review-packet",
-            packet_contract: 1,
-            backend: "claude",
-            vendors: ["claude"]
-          ],
-          answer: [
-            field: "choice",
-            by: "signed_by",
-            role: "clerk",
-            outcomes: [pass: "yes", changes_required: "no"]
-          ]
-        )
-
         wait_for([:clerk], on: :choice, reset: false, yes: :done, no: :discarded)
         timer(:late, "1d", to: :stuck)
       end
@@ -406,42 +341,6 @@ defmodule AtlasFlow.Sorts.Written do
 
       final(:done)
       final(:discarded)
-    end
-  end
-
-  defmodule InspectHeld do
-    @moduledoc "As `Inspect`, owned through the box's holder (an assignment)."
-    use RelaDSL.Schema
-
-    subflow :sort, subject: :box do
-      run_as("system:depot")
-      owner(via: :holder, relation: :owned_by)
-      start(:create)
-      initial(:working)
-
-      state :working do
-        pass(:inspector,
-          contract: 1,
-          name: "inspect",
-          routing: [machine_field: "node"],
-          fingerprint: [fields: ["revision"], relations: []],
-          request: [
-            mode: "start",
-            assignment: "Inspect this input",
-            cwd: "/private/work",
-            permissions: "read-only",
-            backend: "claude",
-            vendors: ["claude"]
-          ],
-          on: [delivered: :done, failed: :stuck]
-        )
-      end
-
-      state :stuck do
-        wait_for([:clerk], on: :choice, again: :working)
-      end
-
-      final(:done)
     end
   end
 
@@ -608,19 +507,9 @@ defmodule AtlasFlow.Sorts.Unbound do
   use AtlasFlow.Sorts, from: AtlasFlow.Sorts.Written.Unbound
 end
 
-defmodule AtlasFlow.Sorts.Inspect do
-  @moduledoc false
-  use AtlasFlow.Sorts, from: AtlasFlow.Sorts.Written.Inspect
-end
-
 defmodule AtlasFlow.Sorts.Answered do
   @moduledoc false
   use AtlasFlow.Sorts, from: AtlasFlow.Sorts.Written.Answered
-end
-
-defmodule AtlasFlow.Sorts.InspectHeld do
-  @moduledoc false
-  use AtlasFlow.Sorts, from: AtlasFlow.Sorts.Written.InspectHeld
 end
 
 defmodule AtlasFlow.Sorts.Handing do

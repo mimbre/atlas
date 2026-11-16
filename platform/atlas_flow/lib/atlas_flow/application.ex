@@ -18,8 +18,7 @@ defmodule AtlasFlow.Application do
         []
       end
 
-    children =
-      [AtlasFlow.Activities.Pass.Inbox, AtlasFlow.Activities.Effect.Inbox] ++ engine
+    children = [AtlasFlow.Activities.Effect.Inbox] ++ engine
 
     Supervisor.start_link(children, strategy: :one_for_one, name: AtlasFlow.Root)
   end

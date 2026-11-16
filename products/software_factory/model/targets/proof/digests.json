@@ -319,10 +319,20 @@
     },
     "pr_review": {
       "prod": {
-        "digest": "05019b5d840dc936ea1f6f59f7be2849967f321a975b62bba01dacde16fa1682",
+        "digest": "2b5680643a5f8b8add93dd9f25d545901110dfe4ef1688ee5d3a6fd4a52ce86b",
         "history": [
           {
             "digest": "05019b5d840dc936ea1f6f59f7be2849967f321a975b62bba01dacde16fa1682",
+            "states": [
+              "approved",
+              "changes_requested",
+              "escalated",
+              "superseded",
+              "working"
+            ]
+          },
+          {
+            "digest": "2b5680643a5f8b8add93dd9f25d545901110dfe4ef1688ee5d3a6fd4a52ce86b",
             "states": [
               "approved",
               "changes_requested",
@@ -361,10 +371,20 @@
         ]
       },
       "test": {
-        "digest": "05019b5d840dc936ea1f6f59f7be2849967f321a975b62bba01dacde16fa1682",
+        "digest": "2b5680643a5f8b8add93dd9f25d545901110dfe4ef1688ee5d3a6fd4a52ce86b",
         "history": [
           {
             "digest": "05019b5d840dc936ea1f6f59f7be2849967f321a975b62bba01dacde16fa1682",
+            "states": [
+              "approved",
+              "changes_requested",
+              "escalated",
+              "superseded",
+              "working"
+            ]
+          },
+          {
+            "digest": "2b5680643a5f8b8add93dd9f25d545901110dfe4ef1688ee5d3a6fd4a52ce86b",
             "states": [
               "approved",
               "changes_requested",
