@@ -124,16 +124,41 @@ func runtimeEntries(home, project string) ([][2]string, error) {
 			return nil, fmt.Errorf("Workspace %s is the Code token directory", project)
 		}
 	}
-	return append([][2]string{{home, "none"}}, token...), nil
+	sockets, err := socketEntries(home, project)
+	if err != nil {
+		return nil, err
+	}
+	return append(append([][2]string{{home, "none"}}, token...), sockets...), nil
+}
+
+// runtimeSockets are the Unix sockets the Runtime serves in its home: runtime.sock (the service
+// commands), read.sock (runtime.read/1) and backend.sock (the work contract, which grants operate).
+// Every worker profile denies each by path, beside whatever denies the home itself, so that no
+// more specific allow inside the home and no profile that cannot deny the home whole re-opens one.
+var runtimeSockets = []string{"runtime.sock", "read.sock", "backend.sock"}
+
+// socketEntries deny the runtimeSockets in home, none of which may contain a project path.
+func socketEntries(home string, projects ...string) ([][2]string, error) {
+	var denied [][2]string
+	for _, name := range runtimeSockets {
+		path := filepath.Join(home, name)
+		for _, project := range projects {
+			if within(path, project) {
+				return nil, fmt.Errorf("Workspace %s is inside the Runtime socket %s", project, path)
+			}
+		}
+		denied = append(denied, [2]string{path, "none"})
+	}
+	return denied, nil
 }
 
 // sensitiveHomeNames are the Runtime home entries a profile denies by path when it cannot deny the
-// whole home, even when they are absent at launch: the service and read sockets, the turn records,
+// whole home, even when they are absent at launch: the runtimeSockets, the turn records,
 // the Code and Server configurations, the backend policy and availability, the daemon log and lock,
 // the passes, the snapshot store, the materialization records and the workers' scratch.
-var sensitiveHomeNames = []string{"runtime.sock", "read.sock", "turns", "code.json", "server.json",
+var sensitiveHomeNames = append(slices.Clone(runtimeSockets), "turns", "code.json", "server.json",
 	"backends.json", "policy.json", "availability.json", "service.log", "service.lock", "passes",
-	"snapshots", "materializations", "scratch"}
+	"snapshots", "materializations", "scratch")
 
 // repositoryRuntimeEntries are the runtimeEntries of a Codex dedicated repository. Codex cannot even
 // lstat below a denied directory, and Git lstats every ancestor of its worktree, so a Runtime home or
@@ -327,8 +352,12 @@ func workerArguments(name string, scope map[string]any, project [][2]string, scr
 	if err != nil {
 		return nil, err
 	}
-	entries := append(slices.Clone(project), [][2]string{{scratch, "write"}, {user, "none"}, {home, "none"}, {record, "read"}, {baseline, "read"},
-		{filepath.Join(root, ".git"), "none"}}...)
+	socketDenies, err := socketEntries(home, append(slices.Clone(paths), scratch)...)
+	if err != nil {
+		return nil, err
+	}
+	entries := slices.Concat(project, [][2]string{{scratch, "write"}, {user, "none"}, {home, "none"}}, socketDenies,
+		[][2]string{{record, "read"}, {baseline, "read"}, {filepath.Join(root, ".git"), "none"}})
 	// Status, diff and submit of a prepared folder read its minimal result, never its diagnostics.
 	for _, file := range []string{snapshot.RebindMarker(home, root), snapshot.PreparationResult(home, root)} {
 		if _, err := os.Lstat(file); err == nil {
