@@ -35,15 +35,26 @@ defmodule AtlasRuntimeBoundary.WorkTest do
         f(:instructions, :string, true),
         f(:profile, :string, true),
         f(:cost_class, {:enum, [:low, :standard, :high]}, true),
-        f(:workspace, {:one_of, [:repository, :folder], tag: :kind}, true),
+        f(:workspace, {:one_of, [:repository, :folder, :base, :from_work], tag: :kind}, true),
         f(:resume_from, :string),
-        f(:slot, :string)
+        f(:slot, :string),
+        f(:after_check, :after_check)
       ],
       repository: [f(:url, :string, true), f(:branch, :string, true), f(:base, :string, true)],
       folder: [
         f(:path, :string, true),
         f(:permissions, {:enum, [:"read-only", :"workspace-write", :"materialized-folder"]}, true)
       ],
+      base: [
+        f(:base_id, :string, true),
+        f(:permissions, {:enum, [:"read-only", :"workspace-write"]}, true)
+      ],
+      from_work: [
+        f(:work_id, :string, true),
+        f(:attempt, :integer),
+        f(:permissions, {:enum, [:"read-only", :"workspace-write"]}, true)
+      ],
+      after_check: [f(:command, {:list, :string}, true), f(:timeout, :integer)],
       capacity: [
         f(:slots, :slot_counts, true),
         f(:buffer, :buffer_counts, true),
@@ -98,7 +109,9 @@ defmodule AtlasRuntimeBoundary.WorkTest do
         f(:cancel_requested_at, :datetime),
         f(:signalled_at, :datetime),
         f(:forced_at, :datetime),
-        f(:ended_at, :datetime)
+        f(:ended_at, :datetime),
+        f(:check_started_at, :datetime),
+        f(:check_ended_at, :datetime)
       ],
       resume_point: [
         f(:turn_id, :string, true),
@@ -129,7 +142,12 @@ defmodule AtlasRuntimeBoundary.WorkTest do
         f(:work_product, :work_product),
         f(:log, :output_log, true)
       ],
-      work_product: [f(:workspace, :work_product_workspace, true)],
+      work_product: [
+        f(:workspace, :work_product_workspace, true),
+        f(:frozen, :frozen_ref),
+        f(:based_on, :based_on),
+        f(:check, :check_result)
+      ],
       work_product_workspace: [
         f(:path, :string, true),
         f(:branch, :string),
@@ -137,6 +155,25 @@ defmodule AtlasRuntimeBoundary.WorkTest do
         f(:head_sha, :string),
         f(:changed, :boolean, true)
       ],
+      root_fingerprint: [f(:root, :string, true), f(:fingerprint, :string, true)],
+      frozen_ref: [f(:base, :string, true), f(:fingerprints, {:list, :root_fingerprint}, true)],
+      based_on: [
+        f(:work_id, :string, true),
+        f(:attempt, :integer, true),
+        f(:fingerprints, {:list, :root_fingerprint}, true)
+      ],
+      check_result: [
+        f(:command, {:list, :string}, true),
+        f(:exit_status, :integer),
+        f(:signal, :string),
+        f(:error, {:enum, [:sandbox_unavailable, :leaves_folder, :not_found]}),
+        f(:timed_out, :boolean, true),
+        f(:cancelled, :boolean, true),
+        f(:interrupted, :boolean, true),
+        f(:duration_ms, :integer, true),
+        f(:output, :check_output, true)
+      ],
+      check_output: [f(:tail, :string, true), f(:complete, :boolean, true)],
       output_log: [
         f(:complete, :boolean, true),
         f(:missing_bytes, :integer, true),
@@ -207,6 +244,16 @@ defmodule AtlasRuntimeBoundary.WorkTest do
       list_work_input: [f(:state, {:enum, @states}), f(:changed_since, :integer)],
       turn_output_input: [f(:turn_id, :string, true), f(:cursor, :string)],
       subscribe_input: [f(:from, :integer)],
+      get_frozen_input: [
+        f(:work_id, :string, true),
+        f(:attempt, :integer),
+        f(:fingerprint, :string)
+      ],
+      get_frozen_blob_input: [
+        f(:work_id, :string, true),
+        f(:attempt, :integer, true),
+        f(:sha256, :string, true)
+      ],
       accepted: [f(:work, :work, true)],
       existing: [f(:work, :work, true)],
       at_capacity: [
@@ -243,7 +290,29 @@ defmodule AtlasRuntimeBoundary.WorkTest do
         f(:more, :boolean, true)
       ],
       subscribed: [],
-      reset: [f(:current_sequence, :integer, true)]
+      reset: [f(:current_sequence, :integer, true)],
+      frozen: [
+        f(:work_id, :string, true),
+        f(:attempt, :integer, true),
+        f(:base, :string, true),
+        f(:roots, {:list, :frozen_root}, true)
+      ],
+      frozen_root: [
+        f(:root, :string, true),
+        f(:fingerprint, :string, true),
+        f(:entries, {:list, :change_entry}, true)
+      ],
+      change_entry: [
+        f(:path, :string, true),
+        f(:op, {:enum, [:write, :delete]}, true),
+        f(:kind, {:enum, [:file, :symlink]}),
+        f(:mode, {:enum, [:"100644", :"100755", :"120000"]}),
+        f(:size, :integer),
+        f(:sha256, :string),
+        f(:target, :string)
+      ],
+      fingerprint_mismatch: [],
+      blob: [f(:sha256, :string, true), f(:size, :integer, true), f(:content, :stream, true)]
     }
   end
 
@@ -251,7 +320,13 @@ defmodule AtlasRuntimeBoundary.WorkTest do
   @capabilities [
     submit:
       {:submit, :work_request,
-       [accepted: :accepted, existing: :existing, at_capacity: :at_capacity, refused: :refused]},
+       [
+         accepted: :accepted,
+         existing: :existing,
+         at_capacity: :at_capacity,
+         refused: :refused,
+         pruned: :pruned
+       ]},
     retry:
       {:submit, :retry_input,
        [accepted: :accepted, at_capacity: :at_capacity, refused: :refused, not_found: :not_found]},
@@ -262,7 +337,17 @@ defmodule AtlasRuntimeBoundary.WorkTest do
     list_work: {:read, :list_work_input, [works: :works]},
     capacity: {:read, nil, [capacity: :capacity]},
     turn_output: {:read, :turn_output_input, [page: :page, not_found: :not_found]},
-    subscribe: {:read, :subscribe_input, [subscribed: :subscribed, reset: :reset]}
+    subscribe: {:read, :subscribe_input, [subscribed: :subscribed, reset: :reset]},
+    get_frozen:
+      {:read, :get_frozen_input,
+       [
+         frozen: :frozen,
+         fingerprint_mismatch: :fingerprint_mismatch,
+         pruned: :pruned,
+         not_found: :not_found
+       ]},
+    get_frozen_blob:
+      {:read, :get_frozen_blob_input, [blob: :blob, pruned: :pruned, not_found: :not_found]}
   ]
 
   # The schema's shape for an outcome is the generator's; accept `%{name:, model:}` or a
@@ -341,7 +426,20 @@ defmodule AtlasRuntimeBoundary.WorkTest do
     refute :artifacts in fields
 
     [workspace] = for %{name: :workspace, type: t} <- models().work_request, do: t
-    assert {:one_of, [:repository, :folder], tag: :kind} = workspace
+    assert {:one_of, [:repository, :folder, :base, :from_work], tag: :kind} = workspace
+
+    # The S5a forms name no path, and folder has no base_id (§3.3, D44).
+    for model <- [:base, :from_work], do: refute(:path in Enum.map(models()[model], & &1.name))
+    refute :base_id in Enum.map(models().folder, & &1.name)
+  end
+
+  test "S5a: get_frozen and get_frozen_blob do not answer found, and a stream is only blob's" do
+    by_name = Map.new(schema().capabilities, &{&1.name, outcomes(&1)})
+    refute Keyword.has_key?(by_name.get_frozen, :found)
+    refute Keyword.has_key?(by_name.get_frozen_blob, :found)
+
+    streams = for {model, fields} <- models(), %{type: :stream} = f <- fields, do: {model, f.name}
+    assert streams == [blob: :content]
   end
 
   test "the contract stays in Runtime vocabulary" do
@@ -362,24 +460,156 @@ defmodule AtlasRuntimeBoundary.WorkTest do
     end
   end
 
-  # S2 changes work.json by one hunk only: runtime_stop in result.reason (§13.1 Q9). The
-  # fixture is work.json as S1 left it; any other change to the work contract fails here.
+  # work.json differs from S1's (the fixture, untouched) by S2's one hunk, runtime_stop in
+  # result.reason (§13.1 Q9), and by S5a's I-B5 additions, written out below as JSON. Any
+  # other change to the work contract fails here.
   @work_json Path.expand("../../targets/json/work.json", __DIR__)
   @s1_work_json Path.expand("fixtures/work.develop.json", __DIR__)
 
-  test "work.json differs from S1's only by runtime_stop in result.reason" do
+  test "work.json differs from S1's only by runtime_stop and the S5a additions" do
     s1 = JSON.decode!(File.read!(@s1_work_json))
     now = JSON.decode!(File.read!(@work_json))
 
     assert reason_values(s1) == reason_values(now) -- ["runtime_stop"]
     assert List.last(reason_values(now)) == "runtime_stop"
 
-    allowed = put_reason_values(s1, reason_values(now))
+    allowed = s1 |> put_reason_values(reason_values(now)) |> s5a()
 
     for key <- Enum.uniq(Map.keys(allowed) ++ Map.keys(now)) do
       assert by_name(Map.get(now, key)) == by_name(Map.get(allowed, key)),
              "work.json #{key} changed"
     end
+
+    for key <- ["models", "capabilities"],
+        {name, value} <- by_name(allowed[key]),
+        do: assert(by_name(now[key])[name] == value, "work.json #{key} #{name}")
+  end
+
+  defp jf(name, type, required \\ false, extra \\ %{}),
+    do: Map.merge(%{"name" => name, "type" => type, "required" => required}, extra)
+
+  defp enum(name, values, required \\ false),
+    do: jf(name, "enum", required, %{"values" => values})
+
+  defp list(name, of, required), do: jf(name, "list of #{of}", required)
+
+  defp time(name), do: jf(name, "datetime", false, %{"format" => "ISO-8601"})
+
+  defp model(name, fields), do: %{"name" => name, "fields" => fields}
+
+  defp outcome(name), do: %{"name" => name, "model" => name}
+
+  # I-B5 (s5a-plan §3), exactly.
+  defp s5a(json) do
+    permissions = enum("permissions", ["read-only", "workspace-write"], true)
+    fingerprints = list("fingerprints", "root_fingerprint", true)
+
+    new_models = [
+      model("base", [jf("base_id", "string", true), permissions]),
+      model("from_work", [jf("work_id", "string", true), jf("attempt", "integer"), permissions]),
+      model("after_check", [list("command", "string", true), jf("timeout", "integer")]),
+      model("root_fingerprint", [jf("root", "string", true), jf("fingerprint", "string", true)]),
+      model("frozen_ref", [jf("base", "string", true), fingerprints]),
+      model("based_on", [
+        jf("work_id", "string", true),
+        jf("attempt", "integer", true),
+        fingerprints
+      ]),
+      model("check_result", [
+        list("command", "string", true),
+        jf("exit_status", "integer"),
+        jf("signal", "string"),
+        enum("error", ["sandbox_unavailable", "leaves_folder", "not_found"]),
+        jf("timed_out", "boolean", true),
+        jf("cancelled", "boolean", true),
+        jf("interrupted", "boolean", true),
+        jf("duration_ms", "integer", true),
+        jf("output", "check_output", true)
+      ]),
+      model("check_output", [jf("tail", "string", true), jf("complete", "boolean", true)]),
+      model("get_frozen_input", [
+        jf("work_id", "string", true),
+        jf("attempt", "integer"),
+        jf("fingerprint", "string")
+      ]),
+      model("get_frozen_blob_input", [
+        jf("work_id", "string", true),
+        jf("attempt", "integer", true),
+        jf("sha256", "string", true)
+      ]),
+      model("frozen", [
+        jf("work_id", "string", true),
+        jf("attempt", "integer", true),
+        jf("base", "string", true),
+        list("roots", "frozen_root", true)
+      ]),
+      model("frozen_root", [
+        jf("root", "string", true),
+        jf("fingerprint", "string", true),
+        list("entries", "change_entry", true)
+      ]),
+      model("change_entry", [
+        jf("path", "string", true),
+        enum("op", ["write", "delete"], true),
+        enum("kind", ["file", "symlink"]),
+        enum("mode", ["100644", "100755", "120000"]),
+        jf("size", "integer"),
+        jf("sha256", "string"),
+        jf("target", "string")
+      ]),
+      model("fingerprint_mismatch", []),
+      model("blob", [
+        jf("sha256", "string", true),
+        jf("size", "integer", true),
+        jf("content", "stream", true, %{"description" => "byte stream"})
+      ])
+    ]
+
+    added_fields = %{
+      "work_request" => [jf("after_check", "after_check")],
+      "attempt_timestamps" => [time("check_started_at"), time("check_ended_at")],
+      "work_product" => [
+        jf("frozen", "frozen_ref"),
+        jf("based_on", "based_on"),
+        jf("check", "check_result")
+      ]
+    }
+
+    models =
+      for m <- json["models"] do
+        fields =
+          for f <- m["fields"] do
+            if m["name"] == "work_request" and f["name"] == "workspace",
+              do: %{f | "models" => f["models"] ++ ["base", "from_work"]},
+              else: f
+          end
+
+        %{m | "fields" => fields ++ Map.get(added_fields, m["name"], [])}
+      end
+
+    capabilities =
+      for c <- json["capabilities"] do
+        if c["name"] == "submit",
+          do: %{c | "outcomes" => c["outcomes"] ++ [outcome("pruned")]},
+          else: c
+      end
+
+    new_capabilities = [
+      %{
+        "name" => "get_frozen",
+        "right" => "read",
+        "input" => "get_frozen_input",
+        "outcomes" => Enum.map(~w(frozen fingerprint_mismatch pruned not_found), &outcome/1)
+      },
+      %{
+        "name" => "get_frozen_blob",
+        "right" => "read",
+        "input" => "get_frozen_blob_input",
+        "outcomes" => Enum.map(~w(blob pruned not_found), &outcome/1)
+      }
+    ]
+
+    %{json | "models" => models ++ new_models, "capabilities" => capabilities ++ new_capabilities}
   end
 
   # Models and capabilities by name, so a failure shows the one that changed.

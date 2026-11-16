@@ -60,14 +60,36 @@ defmodule AtlasRuntimeModel.Work do
       required: true
   end
 
+  # A Code snapshot the Runtime materializes itself, at start, into a folder it chooses
+  # (§3.3, §3.9). Until S5c, base_id is a Code snapshot id.
+  defmodel :base do
+    field :base_id, :string, required: true
+    field :permissions, {:enum, [:read_only, :workspace_write]}, required: true
+  end
+
+  # An earlier work's frozen result, composed onto its base (§3.9). Without attempt, the
+  # latest completed one, resolved at accept and pinned on the record (`source`).
+  defmodel :from_work do
+    field :work_id, :string, required: true
+    field :attempt, :integer
+    field :permissions, {:enum, [:read_only, :workspace_write]}, required: true
+  end
+
+  # A command run in the work's folder once the agent completed (§3.10).
+  defmodel :after_check do
+    field :command, {:list, :string}, required: true
+    field :timeout, :integer
+  end
+
   defmodel :request do
     field :title, :string, required: true
     field :instructions, :string, required: true
     field :profile, :string, required: true
     field :cost_class, :cost_class, required: true
-    field :workspace, {:one_of, [:repository, :folder]}, required: true
+    field :workspace, {:one_of, [:repository, :folder, :base, :from_work]}, required: true
     field :resume_from, :string
     field :slot, :string
+    field :after_check, :after_check
   end
 
   # An attempt and what it produced (§3.5).
@@ -81,6 +103,8 @@ defmodule AtlasRuntimeModel.Work do
     field :signalled_at, :datetime
     field :forced_at, :datetime
     field :ended_at, :datetime
+    field :check_started_at, :datetime
+    field :check_ended_at, :datetime
   end
 
   defmodel :workspace_state do
@@ -143,8 +167,48 @@ defmodule AtlasRuntimeModel.Work do
     field :changed, :boolean, required: true
   end
 
+  # A root's fingerprint (`csf_…`) over its canonical change set (§3.9).
+  defmodel :root_fingerprint do
+    field :root, :string, required: true
+    field :fingerprint, :string, required: true
+  end
+
+  # The frozen result of a completed attempt; its entries are in frozen/ (frozen_result).
+  defmodel :frozen_ref do
+    field :base, :string, required: true
+    field :fingerprints, {:list, :root_fingerprint}, required: true
+  end
+
+  # The frozen result a from_work work was composed from.
+  defmodel :based_on do
+    field :work_id, :string, required: true
+    field :attempt, :integer, required: true
+    field :fingerprints, {:list, :root_fingerprint}, required: true
+  end
+
+  defmodel :check_output do
+    field :tail, :string, required: true
+    field :complete, :boolean, required: true
+  end
+
+  # The after-check's outcome (§3.10). error: it did not run (B28).
+  defmodel :check_result do
+    field :command, {:list, :string}, required: true
+    field :exit_status, :integer
+    field :signal, :string
+    field :error, {:enum, [:sandbox_unavailable, :leaves_folder, :not_found]}
+    field :timed_out, :boolean, required: true
+    field :cancelled, :boolean, required: true
+    field :interrupted, :boolean, required: true
+    field :duration_ms, :integer, required: true
+    field :output, :check_output, required: true
+  end
+
   defmodel :work_product do
     field :workspace, :product_workspace, required: true
+    field :frozen, :frozen_ref
+    field :based_on, :based_on
+    field :check, :check_result
   end
 
   defmodel :log do
@@ -185,6 +249,20 @@ defmodule AtlasRuntimeModel.Work do
     # Private: who released the slot, and when (release_slot, §13.1 Q8).
     field :released_by, :string
     field :released_at, :datetime
+    # Private: the after-check is running, and its process group (§5 checking, B21).
+    field :checking, :boolean
+    field :check_pgid, :integer
+    # Private: the Runtime-chosen folder of a base or from_work work, being prepared, and
+    # the preparer's OS process (B6, B25).
+    field :folder, :string
+    field :preparing, :boolean
+    field :prepare_pid, :integer
+  end
+
+  # Private: the frozen result a from_work work composes from, pinned at accept (B4).
+  defmodel :source do
+    field :work_id, :string, required: true
+    field :attempt, :integer, required: true
   end
 
   # The records.
@@ -204,6 +282,7 @@ defmodule AtlasRuntimeModel.Work do
     field :request, :request, required: true
     # In order; the last is the current one.
     field :attempts, {:list, :attempt}, required: true
+    field :source, :source
   end
 
   defrecord :key_index_entry,

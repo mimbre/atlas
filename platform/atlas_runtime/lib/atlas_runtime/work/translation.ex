@@ -14,8 +14,16 @@ defmodule AtlasRuntime.Work.Translation do
   # (`repository.base`, `result.log` and its `ref`, `resume_point.conversation_id` and
   # `workspace`). `provenance.configured_model` is optional in the model too; the core
   # always sets it (`AtlasRuntime.Work.Server`).
+  #
+  # S5a (I-B5): the `base` and `from_work` workspaces (their `permissions` spelled as a
+  # folder's), `after_check`, the check timestamps and a work product's `frozen`,
+  # `based_on` and `check`. What the core keeps for itself is never projected: the work's
+  # pinned `source` and an attempt's `checking`, `check_pgid`, `folder`, `preparing` and
+  # `prepare_pid`. `frozen/1` gives a frozen result's own record (another model) as the
+  # contract's `frozen`, without its `frozen_id`, `frozen_at` and `pruned`.
 
   alias AtlasRuntime.Boundary.Work, as: B
+  alias AtlasRuntime.Model.FrozenResult, as: F
   alias AtlasRuntime.Model.Work, as: M
 
   @folder %{
@@ -23,6 +31,8 @@ defmodule AtlasRuntime.Work.Translation do
     workspace_write: :"workspace-write",
     materialized_folder: :"materialized-folder"
   }
+  # A change entry's mode is a string in the model and an enum in the contract.
+  @modes %{"100644" => :"100644", "100755" => :"100755", "120000" => :"120000"}
   @result_reasons ~w(time_limit quota launch workspace model_changed cancel superseded runtime_stop)a
   @selection_reasons ~w(preferred fallback continuation)a
   @skip_reasons ~w(not_installed quota)a
@@ -60,6 +70,25 @@ defmodule AtlasRuntime.Work.Translation do
             end)
 
           M.Folder.new!(path: folder.path, permissions: permissions)
+
+        %B.Base{} = base ->
+          M.Base.new!(base_id: base.base_id, permissions: model_permissions(base.permissions))
+
+        %B.FromWork{} = from ->
+          M.FromWork.new!(
+            work_id: from.work_id,
+            attempt: from.attempt,
+            permissions: model_permissions(from.permissions)
+          )
+      end
+
+    after_check =
+      case request.after_check do
+        nil ->
+          nil
+
+        %B.AfterCheck{} = check ->
+          M.AfterCheck.new!(command: check.command, timeout: check.timeout)
       end
 
     M.Request.new!(
@@ -69,8 +98,40 @@ defmodule AtlasRuntime.Work.Translation do
       cost_class: request.cost_class,
       workspace: workspace,
       resume_from: request.resume_from,
-      slot: request.slot
+      slot: request.slot,
+      after_check: after_check
     )
+  end
+
+  @doc false
+  # A frozen result's record as the contract's frozen (§3.9). A tombstone (pruned) is not
+  # a frozen result a caller can read: the core answers pruned for it.
+  def frozen(%F.FrozenResult{pruned: false} = frozen) do
+    %B.Frozen{
+      work_id: frozen.work_id,
+      attempt: frozen.attempt,
+      base: frozen.base,
+      roots:
+        for root <- frozen.roots do
+          %B.FrozenRoot{
+            root: root.root,
+            fingerprint: root.fingerprint,
+            entries: Enum.map(root.entries, &change_entry/1)
+          }
+        end
+    }
+  end
+
+  defp change_entry(%F.ChangeEntry{} = entry) do
+    %B.ChangeEntry{
+      path: entry.path,
+      op: entry.op,
+      kind: entry.kind,
+      mode: entry.mode && Map.fetch!(@modes, entry.mode),
+      size: entry.size,
+      sha256: entry.sha256,
+      target: entry.target
+    }
   end
 
   @doc false
@@ -87,9 +148,15 @@ defmodule AtlasRuntime.Work.Translation do
       cost_class: request.cost_class,
       workspace: workspace(request.workspace),
       resume_from: request.resume_from,
-      slot: request.slot
+      slot: request.slot,
+      after_check: after_check(request.after_check)
     }
   end
+
+  defp after_check(nil), do: nil
+
+  defp after_check(%M.AfterCheck{} = check),
+    do: %B.AfterCheck{command: check.command, timeout: check.timeout}
 
   defp workspace(%M.Repository{} = repository),
     do: %B.Repository{
@@ -100,6 +167,20 @@ defmodule AtlasRuntime.Work.Translation do
 
   defp workspace(%M.Folder{} = folder),
     do: %B.Folder{path: folder.path, permissions: Map.fetch!(@folder, folder.permissions)}
+
+  defp workspace(%M.Base{} = base),
+    do: %B.Base{base_id: base.base_id, permissions: Map.fetch!(@folder, base.permissions)}
+
+  defp workspace(%M.FromWork{} = from),
+    do: %B.FromWork{
+      work_id: from.work_id,
+      attempt: from.attempt,
+      permissions: Map.fetch!(@folder, from.permissions)
+    }
+
+  # base and from_work have read-only and workspace-write only (the contract's enum).
+  defp model_permissions(:"read-only"), do: :read_only
+  defp model_permissions(:"workspace-write"), do: :workspace_write
 
   defp attempt(%M.Attempt{} = attempt) do
     %B.Attempt{
@@ -158,8 +239,45 @@ defmodule AtlasRuntime.Work.Translation do
 
   defp work_product(nil), do: nil
 
-  defp work_product(%M.WorkProduct{workspace: workspace}),
-    do: %B.WorkProduct{workspace: struct!(B.WorkProductWorkspace, Map.from_struct(workspace))}
+  defp work_product(%M.WorkProduct{workspace: workspace} = product),
+    do: %B.WorkProduct{
+      workspace: struct!(B.WorkProductWorkspace, Map.from_struct(workspace)),
+      frozen: frozen_ref(product.frozen),
+      based_on: based_on(product.based_on),
+      check: check(product.check)
+    }
+
+  defp frozen_ref(nil), do: nil
+
+  defp frozen_ref(%M.FrozenRef{} = ref),
+    do: %B.FrozenRef{base: ref.base, fingerprints: fingerprints(ref.fingerprints)}
+
+  defp based_on(nil), do: nil
+
+  defp based_on(%M.BasedOn{} = based_on),
+    do: %B.BasedOn{
+      work_id: based_on.work_id,
+      attempt: based_on.attempt,
+      fingerprints: fingerprints(based_on.fingerprints)
+    }
+
+  defp fingerprints(list),
+    do: for(f <- list, do: %B.RootFingerprint{root: f.root, fingerprint: f.fingerprint})
+
+  defp check(nil), do: nil
+
+  defp check(%M.CheckResult{} = check),
+    do: %B.CheckResult{
+      command: check.command,
+      exit_status: check.exit_status,
+      signal: check.signal,
+      error: check.error,
+      timed_out: check.timed_out,
+      cancelled: check.cancelled,
+      interrupted: check.interrupted,
+      duration_ms: check.duration_ms,
+      output: %B.CheckOutput{tail: check.output.tail, complete: check.output.complete}
+    }
 
   defp provenance(nil), do: nil
 

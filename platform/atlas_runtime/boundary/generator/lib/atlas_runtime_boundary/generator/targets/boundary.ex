@@ -22,6 +22,11 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Boundary do
           implementation: MySystem.Lending
       end
 
+  Option `invalid_detail_right: right` (with either form): the contract's `invalid_input`
+  answer carries its `detail:` text only for a client that holds that right; any other
+  client gets the outcome without it. The contract must declare `invalid_input` with an
+  optional `detail:` field, otherwise it is a `CompileError`.
+
   It defines, in and under that module (the facade, `F` below):
 
   - **A struct per model**, `F.<Model>` (`:lend_input` is `F.LendInput`), with the
@@ -55,14 +60,19 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Boundary do
     3. checks the input: a struct with `validate/1`, a map through `new/1`. When it does
        not validate it answers, without calling the implementation, the contract's
        `invalid_input` outcome if the capability declares that outcome (its `set:` values,
-       and the reasons as text in its `detail:` field), and otherwise
+       and the reasons as text in its `detail:` field, for a client that holds
+       `invalid_detail_right:` when that option is given), and otherwise
        `%AtlasRuntimeBoundary.Generator.InvalidInput{capability, reasons}`;
     4. calls the implementation's function of the same name with the client and the
        built input struct;
     5. returns its result when it is one of the capability's outcome structs and
-       validates, and raises `ContractError` otherwise.
+       validates, and raises `ContractError` otherwise. A `:stream` field is checked by
+       its type only and never enumerated, so the stream reaches the caller unconsumed.
   - `@type client :: {id :: term(), rights :: [atom()] | MapSet.t(atom())}`: an opaque
     caller, as the facade receives it and passes it on.
+
+  A `:stream` field has the type `Enumerable.t()`. Its struct's `dump/1` raises
+  `ContractError`: a stream is sent as bytes, never as JSON.
 
   **Compile-time checks.** The first is `use F.Implementation`'s `@before_compile` check
   above, run whenever the implementation compiles. As a backstop, the facade registers an
@@ -122,14 +132,14 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Boundary do
     fail = &raise(CompileError, file: caller.file, line: caller.line, description: &1)
 
     unless Keyword.keyword?(opts) and
-             Enum.sort(Keyword.keys(opts)) in [
+             Enum.sort(Keyword.keys(opts) -- [:invalid_detail_right]) in [
                [:contract, :implementation],
                [:contract, :implementation, :mappings, :model]
              ],
            do:
              fail.(
                "use #{inspect(__MODULE__)} takes contract: and implementation:, " <>
-                 "and optionally mappings: and model: together"
+                 "optionally mappings: and model: together, and optionally invalid_detail_right:"
              )
 
     contract = Macro.expand(opts[:contract], caller)
@@ -147,6 +157,7 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Boundary do
 
     facade = caller.module
     schema = contract.__schema__()
+    detail_right = invalid_detail_right!(opts, schema, fail)
 
     module_of = fn name ->
       camel = Macro.camelize(Atom.to_string(name))
@@ -210,7 +221,7 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Boundary do
       with %{outcome: name, set: set, detail: detail} <- schema.invalid_input,
            true <- Enum.any?(capability.outcomes, &(&1.name == name)) do
         {module, _model} = outcomes[name]
-        {module, set, detail}
+        {module, set, detail, detail_right}
       else
         _ -> nil
       end
@@ -359,6 +370,39 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Boundary do
             unquote(caller.file),
             unquote(caller.line)
           )
+    end
+  end
+
+  # The right a client needs to see the invalid_input detail, or nil (every client).
+  defp invalid_detail_right!(opts, schema, fail) do
+    case Keyword.fetch(opts, :invalid_detail_right) do
+      :error ->
+        nil
+
+      {:ok, right} ->
+        unless is_atom(right) and right not in [nil, true, false],
+          do: fail.("invalid_detail_right: expects a right (an atom)")
+
+        detail =
+          case schema.invalid_input do
+            %{detail: detail} when detail != nil ->
+              detail
+
+            _ ->
+              fail.("invalid_detail_right: the contract declares no invalid_input with detail:")
+          end
+
+        %{outcome: outcome} = schema.invalid_input
+        model = for c <- schema.capabilities, o <- c.outcomes, o.name == outcome, do: o.model
+        fields = Enum.find(schema.models, &(&1.name == hd(model))).fields
+
+        if Enum.any?(fields, &(&1.name == detail and &1.required)),
+          do:
+            fail.(
+              "invalid_detail_right: #{hd(model)}.#{detail} is required, so it cannot be left out"
+            )
+
+        right
     end
   end
 
@@ -597,7 +641,9 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Boundary do
   defp resolve({:one_of, members, tag: tag}, models),
     do: {:one_of, Enum.map(members, &{Atom.to_string(&1), models[&1]}), tag}
 
-  defp resolve(type, _models) when type in [:string, :integer, :boolean, :datetime], do: type
+  defp resolve(type, _models) when type in [:string, :integer, :boolean, :datetime, :stream],
+    do: type
+
   defp resolve(model, models), do: {:model, Map.fetch!(models, model)}
 
   defp union_type?({:list, inner}), do: union_type?(inner)
@@ -609,6 +655,7 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Boundary do
   defp typespec(:integer), do: quote(do: integer())
   defp typespec(:boolean), do: quote(do: boolean())
   defp typespec(:datetime), do: quote(do: DateTime.t())
+  defp typespec(:stream), do: quote(do: Enumerable.t())
   defp typespec({:enum, values}), do: union(values)
   defp typespec({:model, module}), do: quote(do: unquote(module).t())
 

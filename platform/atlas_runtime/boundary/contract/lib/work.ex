@@ -14,6 +14,13 @@ defmodule AtlasRuntimeBoundary.Work do
   (the `packet` workspace, `independence`, a work product's `packet_id`) are not declared
   yet; the result kind `returned` is declared because the attempt state machine names it,
   though only a drain (S2) produces it.
+
+  S5a (§3.3, §3.9, §3.10) adds the Runtime-chosen workspaces `base` and `from_work`, the
+  `after_check` a work may carry, the frozen result of a completed attempt
+  (`work_product.frozen`, `based_on`, `check`) and the two capabilities that read it,
+  `get_frozen` and `get_frozen_blob`. Their outcomes are named `frozen` and `blob`, not
+  `found`: an outcome name means one model in the whole contract, and `found` is
+  `found(work)`.
   """
   use AtlasRuntimeBoundary.Generator.Schema
 
@@ -59,11 +66,16 @@ defmodule AtlasRuntimeBoundary.Work do
     # An execution profile, such as deep_coding, light_work or independent_review.
     field :profile, :string, required: true
     field :cost_class, {:enum, [:low, :standard, :high]}, required: true
-    field :workspace, {:one_of, [:repository, :folder], tag: :kind}, required: true
+
+    field :workspace, {:one_of, [:repository, :folder, :base, :from_work], tag: :kind},
+      required: true
+
     # Continues that turn's conversation and workspace.
     field :resume_from, :string
     # Needs the right choose_slot.
     field :slot, :string
+    # Run in the work's folder once the agent completed (§3.10).
+    field :after_check, :after_check
   end
 
   # Permission profile dedicated-repository; the base is resolved when the attempt starts.
@@ -78,6 +90,27 @@ defmodule AtlasRuntimeBoundary.Work do
 
     field :permissions, {:enum, [:"read-only", :"workspace-write", :"materialized-folder"]},
       required: true
+  end
+
+  # A base the Runtime materializes itself, at start, into a folder it chooses (§3.3, §3.9).
+  # Until S5c, base_id is a Code snapshot id; the contract treats it as opaque.
+  defmodel :base do
+    field :base_id, :string, required: true
+    field :permissions, {:enum, [:"read-only", :"workspace-write"]}, required: true
+  end
+
+  # Exactly the frozen result of an earlier work, in a folder the Runtime chooses, always
+  # in a fresh conversation (§3.9). Without attempt: the latest completed one.
+  defmodel :from_work do
+    field :work_id, :string, required: true
+    field :attempt, :integer
+    field :permissions, {:enum, [:"read-only", :"workspace-write"]}, required: true
+  end
+
+  # An argv list, never a shell line; timeout in seconds (§3.10).
+  defmodel :after_check do
+    field :command, {:list, :string}, required: true
+    field :timeout, :integer
   end
 
   ## Capacity (§3.4)
@@ -162,6 +195,8 @@ defmodule AtlasRuntimeBoundary.Work do
     field :signalled_at, :datetime
     field :forced_at, :datetime
     field :ended_at, :datetime
+    field :check_started_at, :datetime
+    field :check_ended_at, :datetime
   end
 
   defmodel :resume_point do
@@ -206,6 +241,12 @@ defmodule AtlasRuntimeBoundary.Work do
 
   defmodel :work_product do
     field :workspace, :work_product_workspace, required: true
+    # Once the result is frozen (§3.9).
+    field :frozen, :frozen_ref
+    # When the work started from from_work: the frozen result it was composed from.
+    field :based_on, :based_on
+    # When after_check ran, or could not run (error).
+    field :check, :check_result
   end
 
   defmodel :work_product_workspace do
@@ -214,6 +255,44 @@ defmodule AtlasRuntimeBoundary.Work do
     field :base_sha, :string
     field :head_sha, :string
     field :changed, :boolean, required: true
+  end
+
+  # A root's fingerprint (csf_…) over its canonical change set (§3.9).
+  defmodel :root_fingerprint do
+    field :root, :string, required: true
+    field :fingerprint, :string, required: true
+  end
+
+  defmodel :frozen_ref do
+    field :base, :string, required: true
+    field :fingerprints, {:list, :root_fingerprint}, required: true
+  end
+
+  defmodel :based_on do
+    field :work_id, :string, required: true
+    field :attempt, :integer, required: true
+    field :fingerprints, {:list, :root_fingerprint}, required: true
+  end
+
+  # The after-check's outcome (§3.10). error: the check did not run; then exit_status and
+  # signal are absent.
+  defmodel :check_result do
+    field :command, {:list, :string}, required: true
+    field :exit_status, :integer
+    # Set only for a stop the Runtime sent (timeout, cancel).
+    field :signal, :string
+    field :error, {:enum, [:sandbox_unavailable, :leaves_folder, :not_found]}
+    field :timed_out, :boolean, required: true
+    field :cancelled, :boolean, required: true
+    field :interrupted, :boolean, required: true
+    field :duration_ms, :integer, required: true
+    field :output, :check_output, required: true
+  end
+
+  # The check's output: its last bytes, and whether that is all of it.
+  defmodel :check_output do
+    field :tail, :string, required: true
+    field :complete, :boolean, required: true
   end
 
   # Whether the turn's output is complete, and where to read it (turn_output).
@@ -344,6 +423,20 @@ defmodule AtlasRuntimeBoundary.Work do
     field :from, :integer
   end
 
+  defmodel :get_frozen_input do
+    field :work_id, :string, required: true
+    # Without it, the latest completed attempt.
+    field :attempt, :integer
+    # A root's csf_ fingerprint the client expects.
+    field :fingerprint, :string
+  end
+
+  defmodel :get_frozen_blob_input do
+    field :work_id, :string, required: true
+    field :attempt, :integer, required: true
+    field :sha256, :string, required: true
+  end
+
   ## Outcomes (§3.2): one model per outcome, so no two outcomes of a capability share one.
 
   defmodel :accepted do
@@ -422,6 +515,44 @@ defmodule AtlasRuntimeBoundary.Work do
   defmodel :subscribed do
   end
 
+  # A frozen result: its change set per root, each with its fingerprint (§3.9).
+  defmodel :frozen do
+    field :work_id, :string, required: true
+    field :attempt, :integer, required: true
+    field :base, :string, required: true
+    field :roots, {:list, :frozen_root}, required: true
+  end
+
+  # A top-level folder of the base; a root with no changes has no entries.
+  defmodel :frozen_root do
+    field :root, :string, required: true
+    field :fingerprint, :string, required: true
+    field :entries, {:list, :change_entry}, required: true
+  end
+
+  # A write carries kind, mode, size and sha256 (and target for a symlink); a delete only
+  # its path.
+  defmodel :change_entry do
+    field :path, :string, required: true
+    field :op, {:enum, [:write, :delete]}, required: true
+    field :kind, {:enum, [:file, :symlink]}
+    field :mode, {:enum, [:"100644", :"100755", :"120000"]}
+    field :size, :integer
+    field :sha256, :string
+    field :target, :string
+  end
+
+  # The given fingerprint matches no root's frozen one.
+  defmodel :fingerprint_mismatch do
+  end
+
+  # One blob of a frozen result, as a byte stream.
+  defmodel :blob do
+    field :sha256, :string, required: true
+    field :size, :integer, required: true
+    field :content, :stream, required: true
+  end
+
   # Behind the notification window, or across a restart: re-read with
   # list_work(changed_since:).
   defmodel :reset do
@@ -441,7 +572,9 @@ defmodule AtlasRuntimeBoundary.Work do
       accepted: :accepted,
       existing: :existing,
       at_capacity: :at_capacity,
-      refused: :refused
+      refused: :refused,
+      # from_work on a work whose frozen result was pruned.
+      pruned: :pruned
     ],
     right: :submit
 
@@ -493,5 +626,22 @@ defmodule AtlasRuntimeBoundary.Work do
   defcapability :subscribe,
     input: :subscribe_input,
     outcomes: [subscribed: :subscribed, reset: :reset],
+    right: :read
+
+  # A completed attempt's frozen result; read_all widens it as for get_work.
+  defcapability :get_frozen,
+    input: :get_frozen_input,
+    outcomes: [
+      frozen: :frozen,
+      fingerprint_mismatch: :fingerprint_mismatch,
+      pruned: :pruned,
+      not_found: :not_found
+    ],
+    right: :read
+
+  # Only a blob that is a write entry of that frozen result; any other is not_found.
+  defcapability :get_frozen_blob,
+    input: :get_frozen_blob_input,
+    outcomes: [blob: :blob, pruned: :pruned, not_found: :not_found],
     right: :read
 end

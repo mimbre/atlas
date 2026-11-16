@@ -18,12 +18,21 @@ defmodule AtlasRuntimeBoundary.WorkMappings do
     `skipped_option.why` are strings in the model, cast to the contract's enum values by
     name. `provenance.configured_model` is optional in the model but required in the
     contract, so a provenance without it does not translate (`from_model` refuses it).
+
+  S5a (design §3.9, §3.10) adds the `base` and `from_work` workspaces and `after_check` to
+  the request, and the frozen reference, `based_on` and the check to a work product. What
+  the core keeps for itself is dropped, never projected: a work's pinned `source` (B4),
+  and an attempt's `checking`/`check_pgid` (the check's sub-stage and process group),
+  `folder` (the Runtime-chosen folder), `preparing` and `prepare_pid` (its preparation).
+  The frozen result's own record (`frozen_result`) belongs to another model and is
+  translated by the core.
   """
   use AtlasRuntimeBoundary.Generator.Mappings
 
   # The records.
 
-  defmapping :work_record, :work, supply: [:state]
+  # Private: the frozen result a from_work work composes from, pinned at accept.
+  defmapping :work_record, :work, supply: [:state], drop: [:source]
 
   # A tombstone (I7): the work it named, and how that ended.
   defmapping :key_index_entry, :pruned,
@@ -45,12 +54,32 @@ defmodule AtlasRuntimeBoundary.WorkMappings do
       ]
     ]
 
+  defmapping :base, :base,
+    values: [permissions: [read_only: :"read-only", workspace_write: :"workspace-write"]]
+
+  defmapping :from_work, :from_work,
+    values: [permissions: [read_only: :"read-only", workspace_write: :"workspace-write"]]
+
+  defmapping :after_check, :after_check
+
   # An attempt and what it produced.
 
   defmapping :attempt, :attempt,
     # Private: the turn's folder, its stop latch, and who released its slot and when
     # (release_slot, §13.1 Q8).
-    drop: [:turn_folder, :stop_latch, :released_by, :released_at]
+    # The after-check's sub-stage and process group; the Runtime-chosen folder and its
+    # preparation (S5a).
+    drop: [
+      :turn_folder,
+      :stop_latch,
+      :released_by,
+      :released_at,
+      :checking,
+      :check_pgid,
+      :folder,
+      :preparing,
+      :prepare_pid
+    ]
 
   defmapping :timestamps, :attempt_timestamps
   defmapping :resume_point, :resume_point
@@ -58,6 +87,11 @@ defmodule AtlasRuntimeBoundary.WorkMappings do
   defmapping :result, :result
   defmapping :work_product, :work_product
   defmapping :product_workspace, :work_product_workspace
+  defmapping :frozen_ref, :frozen_ref
+  defmapping :root_fingerprint, :root_fingerprint
+  defmapping :based_on, :based_on
+  defmapping :check_result, :check_result
+  defmapping :check_output, :check_output
   defmapping :log, :output_log
 
   # The provenance of a turn, and the policy selection it records.

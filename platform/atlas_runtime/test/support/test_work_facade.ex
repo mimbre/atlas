@@ -131,6 +131,15 @@ defmodule AtlasRuntime.Test.FakeWork do
     end)
   end
 
+  # S5a: not exposed by the backend yet (P11); answered here because the contract has them.
+  @impl true
+  def get_frozen(client, input),
+    do: call(:get_frozen, client, input, fn -> %F.Outcome.NotFound{} end)
+
+  @impl true
+  def get_frozen_blob(client, input),
+    do: call(:get_frozen_blob, client, input, fn -> %F.Outcome.NotFound{} end)
+
   # The changes a resuming subscriber missed are sent from here, the subscriber's process.
   defp subscribe_window(client, from) do
     caller = self()

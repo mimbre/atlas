@@ -366,6 +366,17 @@ defmodule AtlasRuntime.Work.Server do
       match?(%B.Repository{base: base} when base != "develop", input.workspace) ->
         refused(state, :unsupported_workspace, "a repository's base must be develop")
 
+      # S5a guards (s5a-plan P4), each until its package lands: base (P7a), from_work
+      # (P9), after_check (P10a). Nothing past them knows these forms yet.
+      match?(%B.Base{}, input.workspace) ->
+        refused(state, :unsupported_workspace, "base not available")
+
+      match?(%B.FromWork{}, input.workspace) ->
+        refused(state, :unsupported_workspace, "from_work not available")
+
+      input.after_check != nil ->
+        refused(state, :invalid, "after_check not available")
+
       true ->
         with {:ok, resume} <- resume_from(state, client, input),
              {:ok, _selection} <- check_policy(state, policy, request, resume),

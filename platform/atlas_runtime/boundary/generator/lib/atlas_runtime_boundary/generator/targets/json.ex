@@ -11,10 +11,12 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Json do
   - `"models"` and `"tag"` when its type is or holds a `one_of`: the value is an object
     of one of the models, with the tag as a member naming that model;
   - `"format": "ISO-8601"` when its type is or holds a `datetime`, a string such as
-    `"2026-01-02T03:04:05Z"`.
+    `"2026-01-02T03:04:05Z"`;
+  - `"description": "byte stream"` when its type is `stream`: an opaque byte stream that
+    a transport sends as bytes, never inside a JSON value.
 
-  `"type"` is `string`, `integer`, `boolean`, `datetime`, `enum`, `one_of`, a model's
-  name, `list of <type>` or `map of <type>`. A capability is
+  `"type"` is `string`, `integer`, `boolean`, `datetime`, `stream`, `enum`, `one_of`, a
+  model's name, `list of <type>` or `map of <type>`. A capability is
   `{"name", "right", "outcomes": [{"name", "model"?}], "input"?}`; `input` and an
   outcome's `model` are left out when there is none. An optional field without a value is
   left out of a value.
@@ -93,6 +95,7 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Json do
       {"one_of", %{"models" => Enum.map(models, &Atom.to_string/1), "tag" => Atom.to_string(tag)}}
 
   defp type(:datetime), do: {"datetime", %{"format" => "ISO-8601"}}
+  defp type(:stream), do: {"stream", %{"description" => "byte stream"}}
   defp type(type), do: {Atom.to_string(type), %{}}
 
   defp wrap(prefix, {type, extra}), do: {prefix <> type, extra}
