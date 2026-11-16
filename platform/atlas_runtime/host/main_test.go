@@ -85,54 +85,6 @@ func TestFailedTurnIsInspectableButCommandRefusalFails(t *testing.T) {
 	}
 }
 
-func TestExecuteRejectsInvalidPreferencesBeforeSocketRequest(t *testing.T) {
-	t.Setenv("ATLAS_RUNTIME_HOME", t.TempDir())
-	pair := []string{"preferences", "--preferred", "claude", "--fallback", "codex"}
-	for _, test := range []struct {
-		name string
-		args []string
-		want string
-	}{
-		{"positional", []string{"preferences", "claude"}, "does not accept positional arguments"},
-		{"trailing positional", append(append([]string{}, pair...), "extra"), "does not accept positional arguments"},
-		{"positional after separator", []string{"preferences", "--", "claude"}, "does not accept positional arguments"},
-		{"unknown flag", []string{"preferences", "--model", "sonnet"}, "flag provided but not defined"},
-		{"missing value", []string{"preferences", "--preferred"}, "flag needs an argument"},
-		{"missing fallback", []string{"preferences", "--preferred", "claude"}, "use preferences --preferred"},
-		{"missing preferred", []string{"preferences", "--fallback", "codex"}, "use preferences --preferred"},
-		{"empty preferred", []string{"preferences", "--preferred=", "--fallback", "codex"}, "use preferences --preferred"},
-		{"empty fallback", []string{"preferences", "--preferred", "claude", "--fallback="}, "use preferences --preferred"},
-		{"unknown preferred", []string{"preferences", "--preferred", "other", "--fallback", "codex"}, "use preferences --preferred"},
-		{"unknown fallback", []string{"preferences", "--preferred", "claude", "--fallback", "other"}, "use preferences --preferred"},
-		{"reversed pair", []string{"preferences", "--preferred", "codex", "--fallback", "claude"}, "use preferences --preferred"},
-		{"same backend", []string{"preferences", "--preferred", "claude", "--fallback", "claude"}, "use preferences --preferred"},
-		{"preferred model only", []string{"preferences", "--preferred-model", "sonnet"}, "use preferences --preferred"},
-		{"fallback model only", []string{"preferences", "--fallback-model", "gpt-5"}, "use preferences --preferred"},
-		{"empty preferred model", append(append([]string{}, pair...), "--preferred-model="), "models must be nonempty"},
-		{"blank preferred model", append(append([]string{}, pair...), "--preferred-model", " \t"), "models must be nonempty"},
-		{"empty fallback model", append(append([]string{}, pair...), "--fallback-model="), "models must be nonempty"},
-		{"blank fallback model", append(append([]string{}, pair...), "--fallback-model", "\n "), "models must be nonempty"},
-		{"missing model value", append(append([]string{}, pair...), "--fallback-model"), "flag needs an argument"},
-		{"empty reenable", []string{"preferences", "--reenable="}, "use preferences --reenable"},
-		{"unknown reenable", []string{"preferences", "--reenable", "other"}, "use preferences --reenable"},
-		{"codex reenable", []string{"preferences", "--reenable", "codex"}, "use preferences --reenable"},
-		{"mixed pair", append(append([]string{}, pair...), "--reenable", "claude"), "use preferences --reenable"},
-		{"mixed empty preferred", []string{"preferences", "--reenable", "claude", "--preferred="}, "use preferences --reenable"},
-		{"mixed preferred model", []string{"preferences", "--reenable", "claude", "--preferred-model", "sonnet"}, "use preferences --reenable"},
-		{"mixed empty fallback model", []string{"preferences", "--reenable", "claude", "--fallback-model="}, "use preferences --reenable"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			result, err := execute(test.args)
-			if err == nil || !strings.Contains(err.Error(), test.want) {
-				t.Fatalf("expected argument refusal %q, got result %#v, error %v", test.want, result, err)
-			}
-			if result != nil {
-				t.Fatalf("invalid request returned a result: %#v", result)
-			}
-		})
-	}
-}
-
 func TestExecuteRejectsInvalidEventsBeforeSocketRequest(t *testing.T) {
 	t.Setenv("ATLAS_RUNTIME_HOME", t.TempDir())
 	for _, test := range []struct {
@@ -172,7 +124,7 @@ func TestExecuteRejectsInvalidEventsBeforeSocketRequest(t *testing.T) {
 func TestExecuteRejectsInvalidWorkerTargetsBeforeSocketRequest(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("ATLAS_RUNTIME_HOME", dir)
-	for _, command := range []string{"release", "question", "answer", "handoff"} {
+	for _, command := range []string{"question", "answer", "handoff"} {
 		for _, worker := range []string{"", " ", "Reviewer", "1reviewer", "-reviewer", "_reviewer", "../reviewer", "reviewer/name", "réviewer", "reviewer\n", strings.Repeat("a", 65)} {
 			t.Run(command+"/"+worker, func(t *testing.T) {
 				if _, err := execute([]string{command, "--worker=" + worker}); err == nil || !strings.Contains(err.Error(), "worker must match") {
@@ -185,10 +137,6 @@ func TestExecuteRejectsInvalidWorkerTargetsBeforeSocketRequest(t *testing.T) {
 		args []string
 		want string
 	}{
-		{[]string{"release"}, "use release --worker NAME"},
-		{[]string{"release", "--worker"}, "flag needs an argument"},
-		{[]string{"release", "--worker", "reviewer", "extra"}, "unexpected arguments"},
-		{[]string{"release", "--worker", "reviewer", "--turn", "turn-1"}, "flag provided but not defined"},
 		{[]string{"pause", "--worker", "reviewer"}, "unknown command"},
 		{[]string{"resume", "--worker", "reviewer"}, "unknown command"},
 		{[]string{"turns", "--worker", "reviewer"}, "unexpected arguments"},
@@ -200,18 +148,6 @@ func TestExecuteRejectsInvalidWorkerTargetsBeforeSocketRequest(t *testing.T) {
 				t.Fatalf("expected %q before request, got %v", test.want, err)
 			}
 		})
-	}
-}
-
-func TestReleaseReachesRuntimeSocket(t *testing.T) {
-	dir := socketDirectory(t)
-	t.Setenv("ATLAS_RUNTIME_HOME", dir)
-	for _, worker := range []string{"a", "reviewer-2_main", strings.Repeat("a", 64)} {
-		for _, args := range [][]string{{"release", "--worker", worker}, {"release", "--worker=" + worker}} {
-			if _, err := execute(args); err == nil || err.Error() != "Runtime service is stopped; run atlas-runtime service start" {
-				t.Fatalf("valid arguments %q did not reach request: %v", args, err)
-			}
-		}
 	}
 }
 

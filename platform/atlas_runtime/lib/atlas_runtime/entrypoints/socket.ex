@@ -1,15 +1,16 @@
 defmodule AtlasRuntime.Entrypoints.Socket do
   @moduledoc """
   `runtime.sock`: one JSON line per connection. A command is forwarded to the Service; it
-  keeps the operations (`service-status`, `service-stop`, `preferences`, `release`) and the
-  guidance commands (questions, answers, handoffs, peer correlation). The work commands are
-  refused here (design 2026-11-16-runtime-backend §11): work is submitted, read and
-  cancelled through the work contract on `backend.sock`, and turn history is read on
-  `read.sock`. The Service keeps its own `start`, `continue`, `stop`, `kill` and `status`
-  clauses, because the work core starts and stops turns through them in-process.
+  keeps only the guidance commands (questions, answers, handoffs, peer correlation; design
+  2026-11-16-runtime-backend §13.1 Q10). The work commands are refused here (§11): work is
+  submitted, read and cancelled through the work contract on `backend.sock`, and turns are
+  listed through the history contract there. The operations (`service-status`, `service-stop`,
+  `preferences`, `release`) are refused too: the operations contract serves them on
+  `backend.sock` (S2). The Service keeps its own clauses for both, because the work core and
+  the operations implementation call them in-process.
 
-  The journal is served here too (§13.1 Q3), with the same JSON-lines protocol as on
-  `read.sock`: a `runtime.read/1` request (one without `command`) for `events` or `follow`,
+  The journal is served here too (§13.1 Q3), with the `runtime.read/1` JSON-lines protocol:
+  a `runtime.read/1` request (one without `command`) for `events` or `follow`,
   with the `epoch:sequence` cursor, page `cursor`, `more` and `reset`. Every other
   `runtime.read/1` operation is refused with `not_journal`, so history is not read here.
 
@@ -18,16 +19,24 @@ defmodule AtlasRuntime.Entrypoints.Socket do
   """
   alias AtlasRuntime.Inspection.Reads
 
-  # Each refused work command, and where it went.
+  # Each refused work or history command, and where it went.
   @moved %{
     "start" => "POST /v1/work",
     "continue" => "POST /v1/work with resume_from",
     "stop" => "POST /v1/work/{work_id}/cancel with mode graceful",
     "kill" => "POST /v1/work/{work_id}/cancel with mode force",
     "status" => "GET /v1/work",
-    "output" => "GET /v1/turns/{turn_id}/output"
+    "output" => "GET /v1/turns/{turn_id}/output",
+    "turns" => "GET /v1/turns"
   }
-  @history %{"turns" => "turns"}
+  # Each refused operation: its request on the operations contract, and its CLI command.
+  @operations %{
+    "service-status" => {"GET /v1/runtime", "service status"},
+    "service-stop" => {"POST /v1/control/stop", "service stop"},
+    "preferences" =>
+      {"GET /v1/policy, or POST /v1/harnesses/{harness}/clear-quota-mark", "preferences"},
+    "release" => {"POST /v1/slots/{slot}/release", "release --slot"}
+  }
 
   @api "runtime.read/1"
   @journal ["events", "follow"]
@@ -44,15 +53,17 @@ defmodule AtlasRuntime.Entrypoints.Socket do
         {:ok, %{"command" => command}} when is_map_key(@moved, command) ->
           {%{
              command_error:
-               "#{command} is not served on runtime.sock: use the work contract on " <>
-                 "backend.sock (#{@moved[command]}), or atlas-runtime #{command}"
+               "#{command} is not served on runtime.sock: use backend.sock " <>
+                 "(#{@moved[command]}), or atlas-runtime #{command}"
            }, false}
 
-        {:ok, %{"command" => command}} when is_map_key(@history, command) ->
+        {:ok, %{"command" => command}} when is_map_key(@operations, command) ->
+          {route, cli} = @operations[command]
+
           {%{
              command_error:
-               "#{command} is not served on runtime.sock: read it on read.sock " <>
-                 "(runtime.read/1 #{@history[command]}), or atlas-runtime #{command}"
+               "#{command} is not served on runtime.sock: use the operations contract on " <>
+                 "backend.sock (#{route}), or atlas-runtime #{cli}"
            }, false}
 
         {:ok, %{"command" => _} = request} ->
@@ -135,8 +146,8 @@ defmodule AtlasRuntime.Entrypoints.Socket do
     end
   end
 
-  # A follow connection, as on read.sock. Registration and the first page are one service
-  # call, so no event falls between them.
+  # A follow connection. Registration and the first page are one service call, so no event
+  # falls between them.
   defp follow(socket, server, cursor, timing) do
     :ok =
       :inet.setopts(socket,

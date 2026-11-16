@@ -31,7 +31,7 @@ defmodule AtlasRuntimeBoundary.HistoryTest do
         f(:slot, :string),
         f(:since, :datetime),
         f(:cursor, :string),
-        f(:limit, :integer)
+        Map.put(f(:limit, :integer), :range, {1, 100})
       ],
       get_turn_input: [f(:turn_id, :string, true)],
       turns: [

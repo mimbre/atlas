@@ -120,6 +120,29 @@ defmodule AtlasRuntime.Availability do
     end
   end
 
+  @doc """
+  Clears the quota mark of `harness` (operations `clear_quota_mark`, design §13.1 Q7): its
+  entry, native or a human's, leaves `availability.json` (written atomically, re-read
+  first so a local edit is kept), so the harness is available again. An operational act,
+  not a policy change. `:cleared` when an entry was removed, `:unmarked` when the harness
+  had none (nothing is written), `:not_found` for a harness the Runtime does not know.
+  Called in the Service's process, which also runs `record_quota/5`, so the two writes
+  never interleave.
+  """
+  @spec clear_quota_mark(Path.t(), String.t()) :: :cleared | :unmarked | :not_found
+  def clear_quota_mark(dir, harness) when harness in @harnesses do
+    availability = load(dir)
+
+    if Map.has_key?(availability["quota"], harness) do
+      persist(dir, update_in(availability["quota"], &Map.delete(&1, harness)))
+      :cleared
+    else
+      :unmarked
+    end
+  end
+
+  def clear_quota_mark(_dir, _harness), do: :not_found
+
   @doc "Only a rejected seven-day window without usable overage is weekly quota."
   def weekly_quota?(%{"status" => "rejected", "rateLimitType" => "seven_day"} = info),
     do: info["isUsingOverage"] != true and info["overageStatus"] != "allowed"

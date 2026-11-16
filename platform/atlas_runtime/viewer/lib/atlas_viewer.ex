@@ -1,14 +1,17 @@
 defmodule AtlasViewer do
   @moduledoc """
   Local, read-only browser viewer for a standalone Runtime, over OTP `:inets` httpd bound
-  to 127.0.0.1. It holds no domain state: every `POST /api/read` is one runtime.read/1
-  request to `<home>/read.sock` (`AtlasViewer.ReadClient`). Starting or stopping the viewer
-  never connects to Runtime, and nothing it serves can start, stop, answer or change work.
+  to 127.0.0.1. It holds no domain state: every `POST /api/read` is one read of Runtime
+  (`AtlasViewer.ReadClient`): a `GET` on `<home>/backend.sock`, or the execution-event
+  journal on `<home>/runtime.sock`. Starting or stopping the viewer never connects to
+  Runtime, and nothing it serves can start, stop, answer or change work.
 
   - `GET /`, `/assets/app.js`, `/assets/app.css` and `/assets/prism/…` (the built Prism
     fonts) are the static files in `priv/static`.
-  - `POST /api/read` takes `{"op", …fields}` with `Authorization: Bearer <token>`. The
-    reply is Runtime's own JSON, or `{"viewer_error": {"code", "message"}}`.
+  - `POST /api/read` takes `{"op", …fields}` with `Authorization: Bearer <token>`; the
+    operations are `runtime`, `turns`, `turn`, `output` and `events`. The reply is
+    Runtime's own JSON (a backend refusal as `{"error": {"code", "status", "message"}}`),
+    or `{"viewer_error": {"code", "message"}}`.
 
   The token is random per launch and kept only in this process; the launcher prints it in
   the URL fragment, which browsers never send. Every request must name this server as
@@ -83,7 +86,7 @@ defmodule AtlasViewer do
         modules: [__MODULE__],
         max_body_size: @body_bytes,
         atlas_viewer: %{
-          socket: ReadClient.socket(home),
+          sockets: ReadClient.sockets(home),
           static: static,
           digest: :crypto.hash(:sha256, token),
           read_ms: Keyword.get(opts, :read_ms, @read_ms)
@@ -108,13 +111,13 @@ defmodule AtlasViewer do
     {status, type, body} =
       if host in ["127.0.0.1:#{port}", "localhost:#{port}"] or
            (port == 80 and host in ["127.0.0.1", "localhost"]),
-        do: route(mod(request, :method), path, request, "http://" <> host, settings),
-        else:
-          viewer_error(
-            403,
-            "forbidden_host",
-            "This viewer answers only on 127.0.0.1 or localhost"
-          )
+         do: route(mod(request, :method), path, request, "http://" <> host, settings),
+         else:
+           viewer_error(
+             403,
+             "forbidden_host",
+             "This viewer answers only on 127.0.0.1 or localhost"
+           )
 
     headers =
       [code: status, content_type: type, content_length: Integer.to_charlist(byte_size(body))] ++
@@ -174,8 +177,10 @@ defmodule AtlasViewer do
 
   defp forward(body, settings) do
     with {:ok, %{} = decoded} <- JSON.decode(body),
-         {:ok, request} <- ReadClient.request(decoded) do
-      case ReadClient.read(settings.socket, request, settings.read_ms) do
+         {:ok, read} <- ReadClient.request(decoded) do
+      socket = settings.sockets |> ReadClient.socket(read) |> Path.basename()
+
+      case ReadClient.read(settings.sockets, read, settings.read_ms) do
         {:ok, reply} ->
           {200, ~c"application/json", reply}
 
@@ -183,7 +188,7 @@ defmodule AtlasViewer do
           viewer_error(
             503,
             "runtime_unreachable",
-            "Runtime's read.sock is not accepting connections"
+            "Runtime's #{socket} is not accepting connections"
           )
 
         {:error, :timeout} ->
@@ -204,7 +209,11 @@ defmodule AtlasViewer do
       end
     else
       {:error, "not_a_read"} ->
-        viewer_error(400, "not_a_read", "Only runtime.read/1 operations are available")
+        viewer_error(
+          400,
+          "not_a_read",
+          "Only the reads runtime, turns, turn, output and events pass"
+        )
 
       _ ->
         viewer_error(

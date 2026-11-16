@@ -20,7 +20,6 @@ defmodule AtlasFlow.Runs.Store do
   alias AtlasFlow.Runs.Run
   alias AtlasFlow.Talk
   alias AtlasFlow.Activities.Gate
-  alias AtlasFlow.Activities.Pass
   alias AtlasFlow.Activities.Effect
   alias AtlasFlow.Composition.{Counts, Links, Tallies}
 
@@ -505,7 +504,7 @@ defmodule AtlasFlow.Runs.Store do
   #   stored first, and sent with their stable ids; their acknowledgement is noted in
   #   memory and stored with the next write of the run, so a crash in between replays them
   #   under the same ids, which Facts answers from its ledger;
-  # - before an activity is asked (a gate, a pass, an effect): its frozen request is
+  # - before an activity is asked (a gate, an effect): its frozen request is
   #   stored before it is sent;
   # - before an accepted input is consumed: Facts consumes only the input the stored run
   #   names;
@@ -1145,17 +1144,6 @@ defmodule AtlasFlow.Runs.Store do
     opts = [reopen: config["selection"][run["flow"]]["reopen"]]
 
     cond do
-      match?({:pass, _}, mechanism) and Pass.with_person?(elem(mechanism, 1)) ->
-        # A shared pass: a branch, a choice or a timer comes first and leaves the pass.
-        with {:ok, stepped} <- Run.step(run, flow, subject, now, inputs, opts) do
-          if Map.take(stepped, @moved) != Map.take(run, @moved),
-            do: {:ok, stepped},
-            else: pass_next(stepped, flow, subject, now, elem(mechanism, 1))
-        end
-
-      match?({:pass, _}, mechanism) ->
-        pass_next(run, flow, subject, now, elem(mechanism, 1))
-
       match?({:effect, _}, mechanism) ->
         effect_next(config, run, flow, subject, now, elem(mechanism, 1))
 
@@ -1202,117 +1190,6 @@ defmodule AtlasFlow.Runs.Store do
         Run.step(run, flow, subject, now, inputs, opts)
     end
   end
-
-  defp pass_next(run, flow, subject, now, spec) do
-    with {:ok, assignment, owner} <- pass_owner(flow.owner(), subject) do
-      intent = run["pending"]["pass"]
-
-      cond do
-        intent == nil ->
-          case Pass.freeze(run, spec, subject, assignment, owner) do
-            {:ok, frozen} -> {:ok, put_in(run, ["pending", "pass"], frozen)}
-            {:error, :invalid_pass_binding} -> {:ok, run}
-          end
-
-        # A shared pass is left, not blocked: one for the new binding is another request,
-        # also after a result that answered nothing (kept with the passes it left).
-        Pass.with_person?(spec) and not Pass.current?(intent, subject, assignment, owner) ->
-          {:ok, Run.leave_pass(run)}
-
-        # Done without an answer: the answer comes by hand; this binding is not asked again.
-        intent["result"] != nil ->
-          {:ok, run}
-
-        not Pass.current?(intent, subject, assignment, owner) ->
-          {:ok,
-           Map.merge(run, %{
-             "status" => "blocked",
-             "blocked_reason" => "pass binding changed; reconciliation required"
-           })}
-
-        true ->
-          case Pass.poll(intent, now) do
-            {:waiting, updated} ->
-              {:ok, put_in(run, ["pending", "pass"], updated)}
-
-            {:ok, %{"status" => "completed"} = reply} ->
-              if Pass.with_person?(spec),
-                do: Run.pass_answer(run, flow, subject, now, reply, spec),
-                else: Run.pass_result(run, flow, subject, now, reply)
-
-            {:ok, reply} ->
-              {:ok, put_in(run, ["pending", "pass", "execution"], reply["execution"])}
-
-            # A shared pass ends without an answer: its state still takes the answer by
-            # hand and keeps its timers. Any other pass blocks its run.
-            {:error, {:pass_requires_reconciliation, reason}} ->
-              if Pass.with_person?(spec),
-                do:
-                  {:ok,
-                   put_in(run, ["pending", "pass", "result"], %{
-                     "id" => intent["request"]["id"],
-                     "execution" => intent["execution"],
-                     "status" => "failed",
-                     "requires_reconciliation" => true,
-                     "error" => reason
-                   })},
-                else:
-                  {:ok,
-                   Map.merge(run, %{
-                     "status" => "blocked",
-                     "blocked_reason" => "Runtime pass requires reconciliation"
-                   })}
-
-            {:error, _} ->
-              {:ok, run}
-          end
-      end
-    else
-      # Missing owners or routing data wait, never fall back to another machine.
-      _ -> {:ok, run}
-    end
-  end
-
-  defp pass_owner(binding, subject) do
-    with %{"description" => d} <- Talk.transition_read("_description", %{}),
-         {:ok, assignment} <- pass_assignment(binding, subject, d),
-         [key] <- assignment["links"][binding["relation"]],
-         {:ok, owner} <- one_fact(d["relations"][binding["relation"]]["to"], key) do
-      # Version/position changes alone do not change an assignment binding.
-      {:ok, Map.take(assignment, ~w(key values links)), owner}
-    else
-      _ -> {:error, :owner_unavailable}
-    end
-  end
-
-  # The one fact of `kinds` with `key`: a relation to several kinds says which by the fact
-  # that holds the key; none, more than one, or an unanswered read is no owner.
-  defp one_fact(kinds, key) when is_list(kinds) do
-    found =
-      Enum.map(kinds, fn kind ->
-        case Talk.transition_read(kind, %{"key" => key, "plain" => true}) do
-          %{"fact" => fact} -> fact
-          _ -> :unavailable
-        end
-      end)
-
-    case Enum.reject(found, &is_nil/1) do
-      [%{} = owner] -> {:ok, owner}
-      _ -> {:error, :owner_unavailable}
-    end
-  end
-
-  defp one_fact(_, _), do: {:error, :owner_unavailable}
-
-  defp pass_assignment(%{"via" => via}, subject, d) when is_binary(via) do
-    with [key] <- subject["links"][via],
-         [kind] <- d["relations"][via]["to"],
-         %{"fact" => %{} = assignment} <-
-           Talk.transition_read(kind, %{"key" => key, "plain" => true}),
-         do: {:ok, assignment}
-  end
-
-  defp pass_assignment(_, subject, _), do: {:ok, subject}
 
   defp effect_next(config, run, flow, subject, now, spec) do
     intent = run["pending"]["effect"]

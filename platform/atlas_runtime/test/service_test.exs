@@ -720,7 +720,7 @@ defmodule AtlasRuntime.ServiceTest do
       error(
         state,
         request,
-        "Worker alpha is latched after stopping turn #{id}; run atlas-runtime release --worker alpha first"
+        "Worker alpha is latched after stopping turn #{id}; run atlas-runtime release --slot alpha first"
       )
     end
 
@@ -737,7 +737,7 @@ defmodule AtlasRuntime.ServiceTest do
           %{"command" => "release"},
           %{"command" => "release", "worker_id" => "alpha", "turn_id" => id}
         ] do
-      error(restarted, request, "Release requires exactly --worker")
+      error(restarted, request, "Release requires exactly --slot")
     end
 
     turns = File.ls!(Path.join(state.dir, "turns"))

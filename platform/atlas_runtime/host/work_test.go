@@ -256,48 +256,95 @@ func TestTitleIsTheFirstLineCutOnACharacter(t *testing.T) {
 	}
 }
 
-// readServer answers runtime.read/1 requests on dir/read.sock with reply, recording them.
-func readServer(t *testing.T, dir string, reply map[string]any) chan map[string]any {
+// historyTurn is one turn in the history contract's shape.
+func historyTurn(id, slot, state string) map[string]any {
+	return map[string]any{"turn_id": id, "slot": slot, "state": state, "native_outcome": nil,
+		"started_at": "2026-11-16T10:00:00Z", "ended_at": nil, "harness": "codex",
+		"configured_model": "gpt-5", "reported_model": nil, "conversation_id": nil}
+}
+
+// historyServer serves list_turns on dir/backend.sock from pages, keyed by the cursor the
+// request names ("" for the first page), and records each request.
+func historyServer(t *testing.T, dir string, pages map[string]map[string]any) *[]received {
 	t.Helper()
-	listener, err := net.Listen("unix", filepath.Join(dir, "read.sock"))
+	listener, err := net.Listen("unix", filepath.Join(dir, backendSocket))
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { listener.Close() })
-	seen := make(chan map[string]any, 4)
-	go func() {
-		for {
-			conn, err := listener.Accept()
-			if err != nil {
-				return
-			}
-			var request map[string]any
-			if json.NewDecoder(conn).Decode(&request) == nil {
-				seen <- request
-				json.NewEncoder(conn).Encode(reply)
-			}
-			conn.Close()
+	seen := &[]received{}
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		*seen = append(*seen, received{method: r.Method, path: r.URL.EscapedPath(), query: r.URL.RawQuery})
+		page, ok := pages[r.URL.Query().Get("cursor")]
+		if !ok || r.Method != http.MethodGet || r.URL.Path != "/v1/turns" {
+			w.Header().Set("Content-Type", "application/problem+json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]any{"type": "invalid", "title": "Bad Request", "status": 400})
+			return
 		}
-	}()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(page)
+	}))
+	server.Listener.Close()
+	server.Listener = listener
+	server.Start()
+	t.Cleanup(server.Close)
 	return seen
 }
 
-// Turns stay on read.sock until S2 moves them; the journal (events) is read on runtime.sock
-// (events_follow_test.go).
-func TestHistoryIsReadOnReadSocket(t *testing.T) {
-	turns := []any{map[string]any{"turn_id": "turn-0000000000000001", "worker_id": "default", "state": "finished"}}
+func TestTurnsReadsEveryHistoryPageOnce(t *testing.T) {
+	first := []any{historyTurn("turn-0000000000000001", "dev1", "finished"), historyTurn("turn-0000000000000002", "dev2", "running")}
+	second := []any{historyTurn("turn-0000000000000003", "dev1", "killed")}
 	dir := socketDirectory(t)
 	t.Setenv("ATLAS_RUNTIME_HOME", dir)
-	seen := readServer(t, dir, map[string]any{"api": readAPI, "op": "turns", "turns": turns})
+	seen := historyServer(t, dir, map[string]map[string]any{
+		"":    {"turns": first, "cursor": "h:2", "more": true},
+		"h:2": {"turns": second, "cursor": "h:3", "more": false},
+	})
 	result, err := execute([]string{"turns"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if request, want := <-seen, map[string]any{"api": readAPI, "op": "turns"}; !reflect.DeepEqual(request, want) {
-		t.Fatalf("request %#v, want %#v", request, want)
+	if want := map[string]any{"turns": append(append([]any{}, first...), second...)}; !reflect.DeepEqual(result, want) {
+		t.Fatalf("turns\n got %#v\nwant %#v", result, want)
 	}
-	if want := map[string]any{"turns": turns}; !reflect.DeepEqual(result, want) {
-		t.Fatalf("result %#v, want %#v", result, want)
+	want := []received{{method: "GET", path: "/v1/turns", query: "limit=100"}, {method: "GET", path: "/v1/turns", query: "cursor=h%3A2&limit=100"}}
+	if !reflect.DeepEqual(*seen, want) {
+		t.Fatalf("requests\n got %#v\nwant %#v", *seen, want)
+	}
+}
+
+func TestTurnsRefusesAPageThatCannotEnd(t *testing.T) {
+	for name, pages := range map[string]map[string]map[string]any{
+		"more without a cursor": {"": {"turns": []any{}, "more": true}},
+		"the same cursor again": {"": {"turns": []any{}, "cursor": "h:1", "more": true}, "h:1": {"turns": []any{}, "cursor": "h:1", "more": true}},
+		"no more flag":          {"": {"turns": []any{}, "cursor": "h:1"}},
+		"no turns list":         {"": {"cursor": "h:1", "more": false}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := socketDirectory(t)
+			t.Setenv("ATLAS_RUNTIME_HOME", dir)
+			seen := historyServer(t, dir, pages)
+			if result, err := execute([]string{"turns"}); err == nil || result != nil {
+				t.Fatalf("expected a refusal, got %#v", result)
+			}
+			if len(*seen) > 2 {
+				t.Fatalf("kept paging: %#v", *seen)
+			}
+		})
+	}
+}
+
+func TestTurnsKeepsTheHistoryProblem(t *testing.T) {
+	dir := socketDirectory(t)
+	t.Setenv("ATLAS_RUNTIME_HOME", dir)
+	backendServer(t, dir, http.StatusForbidden, map[string]any{"type": "not-permitted", "title": "Forbidden", "status": float64(403)})
+	_, err := execute([]string{"turns"})
+	var problem *backendProblem
+	if !errors.As(err, &problem) || problem.status != http.StatusForbidden {
+		t.Fatalf("expected the 403 problem, got %v", err)
+	}
+	if _, err := execute([]string{"turns", "--slot", "dev1"}); err == nil {
+		t.Fatal("turns takes no arguments")
 	}
 }
 
@@ -307,13 +354,17 @@ func TestHelpShowsTheWorkCommandsAndNoRemovedFlag(t *testing.T) {
 	help := out.String()
 	for _, removed := range []string{"--backend", "--sandbox", "--questions", "--request-id", "--follow | --turn",
 		"start [--worker", "continue [--worker", "status [--worker", "stop|kill --worker", "output [--worker",
-		"preferences --preferred", "preferences --reenable", "atlas-runtime node"} {
+		"--preferred", "--fallback", "--reenable", "release --worker", "atlas-runtime node", "read.sock"} {
 		if strings.Contains(help, removed) {
 			t.Errorf("help still shows %q", removed)
 		}
 	}
 	for _, shown := range []string{"--profile", "--cost-class", "--slot", "--resume-from", "--key", "--work WORK_ID",
-		"output --turn TURN_ID", "backend.sock", "read.sock", "events --follow", "release --worker NAME"} {
+		"output --turn TURN_ID", "backend.sock", "runtime.sock", "GET /v1/turns", "events --follow", "release --slot SLOT",
+		"service start|status|stop [--force]|pause|resume|drain", "GET /v1/runtime", "POST /v1/slots/SLOT/release",
+		// The guidance commands keep naming the worker (Q10).
+		"question --worker NAME", "answer --worker NAME", "submit-handoff --worker NAME", "handoff --worker NAME",
+		"route-peer-question --worker SENDER", "peer-question --worker SENDER", "bind-peer-reply --worker SENDER"} {
 		if !strings.Contains(help, shown) {
 			t.Errorf("help does not show %q", shown)
 		}

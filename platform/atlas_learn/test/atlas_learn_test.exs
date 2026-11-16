@@ -16,10 +16,12 @@ defmodule AtlasLearnTest do
 
     report = File.read!(out)
     assert report =~ "# Learn report: 2026-11-10T06:00:00Z to 2026-11-11T06:00:00Z"
-    assert report =~ "| Worker passes | Runtime read API (given reader) | read | 6 | 2 |"
+    assert report =~ "| Worker passes | Runtime history (given reader) | read | 6 | 2 |"
 
     assert report =~
-             "Evidence: `turn-00000000000000a1`, `turn-00000000000000a2`, `turn-00000000000000a3`"
+             "- 2 × failed (worker alpha, gamma). Evidence: `turn-00000000000000a3`, `turn-00000000000000a6`"
+
+    assert report =~ "does not return the turn a turn continued"
 
     assert report =~ "Code does not know CI outcomes"
     refute report =~ "never-read-token"
@@ -31,12 +33,12 @@ defmodule AtlasLearnTest do
     AtlasLearn.run(
       out: out,
       until: Fixtures.until(),
-      worker_passes: [read: fn "turns" -> {:error, "cannot reach read.sock"} end],
+      worker_passes: [read: fn _query -> {:error, "cannot reach backend.sock"} end],
       decisions: [kind: "ledger", env: "test", client: Fixtures.atlas_client()]
     )
 
     report = File.read!(out)
-    assert report =~ "unavailable: cannot reach read.sock"
+    assert report =~ "unavailable: cannot reach backend.sock"
     assert report =~ "| Changes through Code | no Code home given | not asked | 0 | 0 |"
     assert report =~ "Evidence: `D-0030`"
   end

@@ -20,7 +20,7 @@ defmodule RelaDSL.RelaTest do
     # States, flows, timers and set properties are named by the definition, not by Rela.
     named =
       ~w(letter draft proofread post sent stuck answered dropped slow) ++
-        ~w(pass_result gate_result post_result choice archived title)
+        ~w(draft_result gate_result post_result choice archived title)
 
     assert Enum.uniq(keys) -- (@rela_keys ++ named) == []
 
@@ -53,7 +53,7 @@ defmodule RelaDSL.RelaTest do
 
     assert schema =~ "  letter:\n"
 
-    for p <- ~w(kind pass_result gate_result post_result reply choice),
+    for p <- ~w(kind draft_result gate_result post_result reply choice),
         do: assert(schema =~ "      #{p}: {type: string}\n")
 
     assert schema =~ "      urgent: {type: boolean}\n"
@@ -62,7 +62,7 @@ defmodule RelaDSL.RelaTest do
     assert schema =~ ~r/  receipt:\n.*\n.*\n    id_type: short\n/
     assert schema =~ "  receipt_of:\n    from: [receipt]\n    to: [letter]\n"
 
-    for role <- ~w(flow-runner atlas-flow editor admin), do: assert(acl =~ "  #{role}:\n")
+    for role <- ~w(flow-runner atlas-flow writer editor admin), do: assert(acl =~ "  #{role}:\n")
     assert acl =~ "  system:post: flow-runner\n"
   end
 

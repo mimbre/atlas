@@ -150,9 +150,20 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest.Runtime do
     ["event: ", event, "\n", id_line, "data: ", JSON.encode!(data), "\n\n"]
   end
 
-  @doc "A client's rights, as the router's assigns carry it (`{id, rights}`)."
-  def rights({_id, rights}) when is_list(rights) or is_struct(rights, MapSet), do: rights
-  def rights(_client), do: []
+  @doc """
+  What a facade's answer that is no outcome means, the same for every contract:
+  `{:not_permitted, right}` for a struct with exactly the fields `capability` and `right`
+  (the client lacks the capability's right), `{:invalid, [reason]}` for one with exactly
+  `capability` and `reasons` (the input does not validate), else `:none`.
+  """
+  def refusal(%{__struct__: _, capability: _, right: right} = value) when map_size(value) == 3,
+    do: {:not_permitted, right}
+
+  def refusal(%{__struct__: _, capability: _, reasons: reasons} = value)
+      when map_size(value) == 3,
+      do: {:invalid, Enum.map(List.wrap(reasons), &to_string/1)}
+
+  def refusal(_value), do: :none
 
   defp encode_segment(value), do: URI.encode(value, &URI.char_unreserved?/1)
 end

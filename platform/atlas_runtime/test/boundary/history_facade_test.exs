@@ -1,13 +1,14 @@
 defmodule AtlasRuntime.Boundary.HistoryFacadeTest do
   @moduledoc """
-  The Runtime's history facade (`AtlasRuntime.Boundary.History`) on its skeleton
-  (`AtlasRuntime.History`): the right and the input are checked by the facade, before the
-  skeleton is reached (§13.1 Q1, Q2), and the skeleton cannot lose a capability.
+  The Runtime's history facade (`AtlasRuntime.Boundary.History`) on its implementation
+  (`AtlasRuntime.History`, HR): the right and the input are checked by the facade, before
+  the implementation is reached (§13.1 Q1, Q2), and the implementation cannot lose a
+  capability. The history reads themselves are `test/history/`.
   """
-  use ExUnit.Case, async: true
+  # The implementation reads the Runtime home from the application environment.
+  use ExUnit.Case, async: false
 
   alias AtlasRuntime.Boundary.History, as: F
-  alias AtlasRuntime.History.NotImplemented
   alias AtlasRuntimeBoundary.Generator.{InvalidInput, NotPermitted}
 
   @moduletag :tmp_dir
@@ -28,17 +29,28 @@ defmodule AtlasRuntime.Boundary.HistoryFacadeTest do
     assert %InvalidInput{capability: :get_turn} = F.get_turn(@reader, %{})
   end
 
-  test "a valid input reaches the skeleton, which answers nothing untrue" do
-    assert_raise NotImplemented, ~r/list_turns/, fn -> F.list_turns(@reader, %{limit: 5}) end
-    assert_raise NotImplemented, ~r/get_turn/, fn -> F.get_turn(@reader, %{turn_id: "t-1"}) end
+  test "a valid input reaches the implementation", %{tmp_dir: dir} do
+    previous = Application.get_env(:atlas_runtime, :runtime_home)
+    Application.put_env(:atlas_runtime, :runtime_home, dir)
+
+    on_exit(fn ->
+      if previous,
+        do: Application.put_env(:atlas_runtime, :runtime_home, previous),
+        else: Application.delete_env(:atlas_runtime, :runtime_home)
+    end)
+
+    # A home with no turns: an empty last page, and no such turn.
+    assert %F.Outcome.Turns{turns: [], more: false} = F.list_turns(@reader, %{limit: 5})
+    assert %F.Outcome.NotFound{} = F.get_turn(@reader, %{turn_id: "t-1"})
   end
 
-  test "the skeleton without a capability fails its own compilation", %{tmp_dir: dir} do
+  test "the implementation without a capability fails its own compilation", %{tmp_dir: dir} do
     source = File.read!(Path.join(@lib, "history.ex"))
     assert {_out, 0} = elixirc(dir, source)
 
     for name <- [:list_turns, :get_turn] do
-      dropped = Regex.replace(~r/\n  @impl true\n  def #{name}\(.*\n/, source, "\n")
+      # The whole function: from its `@impl` to the `end` that closes it.
+      dropped = Regex.replace(~r/\n  @impl true\n  def #{name}\(.*?\n  end\n/s, source, "\n")
       refute dropped == source
       assert {out, status} = elixirc(dir, dropped)
       assert status != 0

@@ -11,15 +11,14 @@ atlas-runtime stop --work "$WORK_ID"
 atlas-runtime service stop
 ```
 
-The service listens on three owner-only Unix sockets in its home:
+The service listens on two owner-only Unix sockets in its home:
 
 | Socket | Serves | Until |
 |---|---|---|
-| `backend.sock` | The work contract over HTTP/1.1 (design "Runtime boundary contracts and Runtime backend", 2026-11-16, §8; `platform/atlas_runtime/backend/contract/lib/work_api.ex`): `start`, `continue`, `status`, `capacity`, `retry`, `stop`, `kill`, `output` | — |
-| `read.sock` | History reads, `runtime.read/1` (`docs/contracts/runtime-read.md`): `turns`; also Learn and the viewer. It still answers `events` and `follow` too. | S2 |
-| `runtime.sock` | Operations (`service status`, `service stop`, `preferences`, `release`), guidance (`question`, `answer`, handoffs, peer correlation) and the journal: `events` and `events --follow`, as the `runtime.read/1` operations `events` and `follow`, the same request and reply lines as on `read.sock`. It refuses the work commands and every other `runtime.read/1` operation (`not_journal`), and names where they went. | S2 (operations and history move); the journal stays |
+| `backend.sock` | The work contract over HTTP/1.1 (design "Runtime boundary contracts and Runtime backend", 2026-11-16, §8; `platform/atlas_runtime/backend/contract/lib/work_api.ex`): `start`, `continue`, `status`, `capacity`, `retry`, `stop`, `kill`, `output`. The operations contract (§13 S2; `backend/contract/lib/operations_api.ex`): `service status`, `service stop`, `service pause`/`resume`/`drain`, `preferences`, `release`. The history contract (`history_api.ex`): `turns`; also Learn and the viewer | — |
+| `runtime.sock` | Guidance (`question`, `answer`, handoffs, peer correlation) and the journal: `events` and `events --follow`, as the `runtime.read/1` operations `events` and `follow`. It refuses the work commands, the operations (`service-status`, `service-stop`, `preferences`, `release`) and every other `runtime.read/1` operation (`not_journal`), and names where each went. | — |
 
-Commands print one JSON response, except `events --follow`, which streams JSON lines. Command failures exit nonzero; a refusal of the work contract prints its problem. `service stop` gracefully stops every running turn, then refuses new work and reports `service: "stopping"` until no owned execution remains; it exits nonzero with turns still pending, and repeating `service stop` completes the shutdown once they ended. A latch-write failure retains the stops already requested and does not enter the stopping state. `service status` exposes a `workers` map, one entry per slot that ran a turn. No automatic daemon startup and no stdin session.
+Commands print one JSON response, except `events --follow`, which streams JSON lines. Command failures exit nonzero; a refusal of the work or operations contract prints its problem. `service status` prints the runtime info (see [Operations commands](#operations-commands-backendsock)); `service stop` returns once `backend.sock` is gone. No automatic daemon startup and no stdin session.
 
 ## Work commands (backend.sock)
 
@@ -32,7 +31,7 @@ Commands print one JSON response, except `events --follow`, which streams JSON l
 | `retry --work WORK_ID [--resume]` | `POST /v1/work/WORK_ID/attempts` | 201 the work with its next attempt |
 | `stop --work WORK_ID` / `kill --work WORK_ID` | `POST /v1/work/WORK_ID/cancel`, `mode` `graceful` / `force` | 202 the work (`cancelling`, the attempt's `cancel_stage`), or 200 when it had already ended |
 | `output --turn TURN_ID [--cursor C]` | `GET /v1/turns/TURN_ID/output` | one page: `events` (`text` or `activity`), `cursor`, `more` |
-| `turns` | `read.sock` `turns` | every saved turn, also from before the cutover |
+| `turns` | `GET /v1/turns?limit=100`, then `&cursor=` until a page's `more` is false | `{"turns": [...]}`, every page in order; each turn `turn_id`, `slot`, `state`, `native_outcome`, `started_at`, `ended_at`, `harness`, `configured_model`, `reported_model`, `conversation_id` |
 | `events [--cursor C] [--limit N] [--follow]` | `runtime.sock` `runtime.read/1` `events` / `follow` | see [Durable execution discovery](#durable-execution-discovery) |
 
 ```sh
@@ -55,8 +54,40 @@ atlas-runtime output --turn TURN_ID [--cursor CURSOR]
 - **Cancel.** `stop` cancels gracefully: the turn's process group gets one SIGINT and is killed after the grace period (30 s); `kill` forces at once. A buffered work never starts. Both answer with the work; its current attempt shows `cancel_stage` (`requested`, `signalled`, `forced`) and ends `cancelled`.
 - **Refusals** print the problem+json body plus `error`, and exit 1: `type` (`invalid`, `not-permitted`, `idempotency-conflict`, `policy-forbids`, `no-permitted-option`, `resume-unavailable`, `unsupported-workspace`, `at-capacity`, `not-found`, `pruned`), `status`, `reason` and `detail`. `not-found` means never seen; `pruned` means it existed, ended with `kind` and was pruned.
 - **Plain HTTP** works the same: `curl --unix-socket "$ATLAS_RUNTIME_HOME/backend.sock" http://localhost/v1/capacity`. Every client of the socket is its owner, `local:<user>`, with every work right.
+- **History.** `turns` is the history contract's `list_turns` (`GET /v1/turns`, also `GET /v1/turns/TURN_ID` for one turn). A turn's `slot` is the worker name `question`, `handoff` and the peer commands take as `--worker`. A turn holds metadata only: no assignment, result, answer, continued turn or pending question; read those with `output`, `handoff` and `question`. A turn from before work moved to `backend.sock` has no work record and is listed only to a client that may read all history, as the socket's owner may.
 
-What still reads `read.sock` until S2: this CLI's `turns`, Learn (`platform/atlas_learn/lib/atlas_learn/worker_passes.ex`) and the viewer (`platform/atlas_runtime/viewer/lib/atlas_viewer/read_client.ex`). This CLI's `events [--follow]` reads the journal on `runtime.sock`. The coordinator watcher (`platform/ops/orchestrator/atlas-watch.mjs`) follows `events --follow` and reads `turns`.
+## Operations commands (backend.sock)
+
+The operations contract (`platform/atlas_runtime/boundary/contract/lib/operations.ex`; design §13 S2, §13.1 Q4–Q9) inspects and operates the Runtime itself. The socket's owner holds both its rights, `inspect` and `operate`. `runtime.sock` refuses these commands and names the request below.
+
+| Command | Request | Answer |
+|---|---|---|
+| `service status` | `GET /v1/runtime` | the runtime info: `mode` (`open`, `paused`, `draining`, `stopping`), `incarnation` (new on every boot), `runtime_build`, `policy_version`, `slots` (`name`, `busy`); `{"service":"stopped"}` when nothing answers on `backend.sock` |
+| `service pause` / `resume` / `drain` | `POST /v1/control/pause` / `resume` / `drain` | 200 the runtime info, also when already in that mode |
+| `service stop [--force]` | `POST /v1/control/stop`, body `{"force": false}` (`true` with `--force`) | 202 the runtime info (`mode: stopping`), also on a repeat; the CLI then waits until `backend.sock` is gone and adds `"service": "stopped"` |
+| `service start` | — | starts the Runtime unless `backend.sock` answers; waits until `GET /v1/runtime` does |
+| `preferences` | `GET /v1/policy` | the policy view: `version`, `changed_by`, `changed_at`, `buffer_size`, `independence`, and per profile its `permissions`, `cost_classes`, `limits` and `options` (`provider`, `harness`, `model`, `availability`) |
+| `preferences --reenable HARNESS` | `POST /v1/harnesses/HARNESS/clear-quota-mark` | 200 `cleared` (also for a harness without a mark); 404 for an unknown harness |
+| `release --slot SLOT` | `POST /v1/slots/SLOT/release` | 200 `released` (also with nothing to release); 404 for a slot not in `policy.json`; 409 `slot-busy` while the slot's process is alive, printed as `slot busy: …` |
+
+```sh
+atlas-runtime service status
+atlas-runtime service pause      # no new work and no new starts; running turns continue
+atlas-runtime service drain      # also returns the buffered work; stays draining until resume
+atlas-runtime service resume
+atlas-runtime service stop [--force]
+atlas-runtime preferences [--reenable HARNESS]
+atlas-runtime release --slot SLOT
+```
+
+- **Modes.** `pause` takes no new work (`at-capacity`, `not_accepting`) and starts no buffered work, while `starting` and `running` turns continue. `drain` also takes no new work, returns every buffered work (`returned`, `never_started`, retryable) and lets running turns finish; the Runtime stays `draining` until `resume`, also with an empty buffer. `drain` while paused returns the buffer; `pause` while draining gives `paused`. `resume` opens the Runtime again. The mode is kept in `mode.json` and outlasts a restart; `service stop` does not change it.
+- **Stop.** The Runtime takes no new work and keeps the buffer. Without `--force` it cancels running turns through the cancel stages (SIGINT, then the kill after the grace period, 30 s); with `--force` it kills them at once. Their attempts end `interrupted`, reason `runtime_stop`, retryable, and the process exits. `service stop` returns 0 only once `backend.sock` is gone, and exits nonzero if it is still there after 60 s; run it again, with `--force` to kill the turns. It holds `service.lock`, as `service start` does. With nothing on `backend.sock` it prints `{"service":"stopped"}`.
+- **Policy.** `preferences` only shows the policy; to change it, edit `policy.json` locally and raise its `version`. `--preferred`, `--fallback` and their model flags are removed and exit nonzero naming `policy.json`. `--reenable HARNESS` clears a quota mark: an operational act, not a policy change.
+- **Release** clears the slot's admission latch. If the slot's turn is `unknown` (a previous service left it without proof that it ended), it also marks the turn gone and its attempt quiescent, so the next buffered work can start there. It refuses with `slot busy` while the slot's process is alive, and starts nothing itself. `--worker` is removed from `release` and exits nonzero naming `--slot`; the guidance commands keep `--worker`.
+- **Refusals** print the problem plus `error` and exit 1, as for the work commands: also `not-permitted` (403) for a missing right and `invalid` (400) for a bad input.
+- **Plain HTTP:** `curl --unix-socket "$ATLAS_RUNTIME_HOME/backend.sock" http://localhost/v1/runtime`.
+
+History readers on `backend.sock`: this CLI's `turns`, Learn (`platform/atlas_learn/lib/atlas_learn/observations/worker_passes.ex`, through OTP `:httpc`) and the viewer (`platform/atlas_runtime/viewer/lib/atlas_viewer/read_client.ex`, which also reads `GET /v1/runtime` and turn output). This CLI's `events [--follow]` reads the journal on `runtime.sock`. The coordinator watcher (`platform/ops/orchestrator/atlas-watch.mjs`) follows `events --follow` and reads `turns` and `events` pages, taking each turn's `slot` as its worker; its `service status` probe is on `backend.sock`.
 
 The sections below describe how the Service runs turns. The work core drives them through the Service's own start, continue, stop and kill, with the slot as the worker and a request ID derived from the work and attempt. Their proof records, and some examples marked as such, come from before the cutover, when the CLI sent those commands on `runtime.sock` with `--worker`, `--backend`, `--sandbox`, `--request-id`, `--questions` and `output --follow`. `runtime.sock` now refuses them.
 
@@ -68,7 +99,7 @@ atlas-runtime start --profile deep_coding --cost-class standard --slot console -
 atlas-runtime status --state running
 ```
 
-Each slot is a Service worker with at most one active execution; slot names match `[a-z][a-z0-9_-]{0,63}` and come from `policy.json`. The work core starts a turn on a slot only once the slot's previous attempt is terminal and quiescent. `release --worker SLOT` (on `runtime.sock`) still names a slot. `turns` lists all slots' history; `events` remains one global ordered stream, with `worker_id` (the slot) on every new event. Older journal entries remain unchanged and unattributed.
+Each slot is a Service worker with at most one active execution; slot names match `[a-z][a-z0-9_-]{0,63}` and come from `policy.json`. The work core starts a turn on a slot only once the slot's previous attempt is terminal and quiescent. `release --slot SLOT` (on `backend.sock`) names a slot. `turns` lists all slots' history; `events` remains one global ordered stream, with `worker_id` (the slot) on every new event. Older journal entries remain unchanged and unattributed.
 
 The proofs below ran before the cutover, with `start --worker NAME`.
 
@@ -81,7 +112,7 @@ After daemon restart, explicit Server continuation `turn-6f4aa53f92af74df` retai
 ```sh
 atlas-runtime stop --work "$WORK_ID"
 atlas-runtime kill --work "$WORK_ID"
-atlas-runtime release --worker SLOT
+atlas-runtime release --slot SLOT
 atlas-runtime continue --resume-from "$TURN_ID" --profile deep_coding --cost-class standard --cwd /abs/folder "Continue from the current files"
 ```
 
@@ -91,11 +122,11 @@ At the Service, a stop asks the turn's native process group to end: the host sen
 
 Both commands need the exact current turn of the named worker. A turn that already ended `stopped` or `killed` repeats idempotently; a finished, failed, replaced, unknown or foreign turn refuses without signalling. Repeated requests keep their first request time. The host signals once per control; a repeat re-attempts only a signal that was refused. The turn's `termination` record holds `mode`, `stop_requested_at`/`kill_requested_at`, `stop_signalled_at`/`kill_signalled_at`, `confirmed_at`, the leader's `exit_code`, `native_result` and the last signalling or termination `error`. A refused signal leaves the execution owned and running. If the host fails while stopping, the turn is `failed` with that error. If the execution ended before the host applied the control, it keeps its natural outcome (`finished` with its result, or `failed`) and the request stays recorded.
 
-Before signalling, Runtime writes the worker's admission latch, `workers/<worker>/admission-latch.json`. While it exists, every new `start` and `continue` for that worker refuses, including after daemon restart. Only `release --worker NAME` removes it. Release refuses while the worker still owns its execution, is idempotent, and starts, resumes or reschedules nothing. A corrupt latch fails closed. `service status` reports each slot's latch.
+Before signalling, Runtime writes the worker's admission latch, `workers/<worker>/admission-latch.json`. While it exists, every new `start` and `continue` for that worker refuses, including after daemon restart. Only `release --slot SLOT` removes it. Release refuses (`slot busy`) while the slot's process is alive, is idempotent, and starts, resumes or reschedules nothing. A corrupt latch fails closed. `service status` shows whether each slot is busy.
 
 `continue` accepts a `finished`, `stopped` or `killed` source turn that has a confirmed native session (and confirmed model and saved context, for Claude). It creates a new turn from the saved provider conversation and the files as they are now, including human edits made before the explicit continuation. It is not a frozen-process restore: the stopped native process is gone, and work that was in flight inside it is lost. After a daemon restart a turn left `stopping` or `killing` shows `state: "unknown"` with its `recorded_state`; nothing is owned or signalled, and the latch remains.
 
-`service stop` sends the same graceful stop to every running turn; their attempts end `interrupted`, and a later `retry --resume` continues them. While it waits, `status`, `output`, `events`, `turns`, `stop` and `kill` keep working; new work is answered `at-capacity` with reason `not_accepting`, and `release` refuses.
+`service stop` cancels every running turn (see [Operations commands](#operations-commands-backendsock)); their attempts end `interrupted` with reason `runtime_stop`, and a later `retry --resume` continues them. Until the process exits, new work is answered `at-capacity` with reason `not_accepting`, and buffered work stays buffered.
 
 Limits:
 
@@ -197,7 +228,7 @@ atlas-runtime events --follow --cursor "$CURSOR"
 atlas-runtime output --turn turn-0123456789abcdef
 ```
 
-`events` and `events --follow` read the journal on `runtime.sock` with the `runtime.read/1` operations `events` and `follow` (`docs/contracts/runtime-read.md`): the request lines, the `epoch:sequence` cursor and the reply lines are the ones `read.sock` serves, and the printed lines are unchanged. Any other `runtime.read/1` operation on `runtime.sock` is refused with `not_journal`; history is not read there.
+`events` and `events --follow` read the journal on `runtime.sock` with the `runtime.read/1` operations `events` and `follow`: the request lines, the `epoch:sequence` cursor, the reply lines and the printed lines are unchanged since S1. Any other `runtime.read/1` operation on `runtime.sock` is refused with `not_journal`; history is not read there.
 
 `events --follow [--cursor C]` streams the same execution events from `runtime.sock` until SIGINT or SIGTERM, which exit with status 0. It prints one JSON line per event as it arrives, `{"reset":{...}}` before the events when the Runtime reports a retention gap or epoch change, and `{"cursor":C}` after each page whose cursor changed. It is the `epoch:sequence` cursor of `events`; save it only after handling the lines before it. It reconnects on its own from the last printed cursor: at once after a connection closes without an `end` frame (or ends `too_slow`), otherwise with back-off from 1 s to 15 s. It prints its own `{"reachable":false,"reason":R}` once when the Runtime is lost (`R` is `connect_failed`, `connection_closed`, `silence` for 45 s without a page or heartbeat, the `end` reason such as `service_stopping`, or a retryable read error code), and `{"reachable":true}` with the next page. Delivery is at least once; duplicates can follow a reconnect. `invalid_cursor` and other refusals exit nonzero, as does a Runtime that answers the journal request with a command error (one from before the journal moved to `runtime.sock`); `--limit` is refused with `--follow`. It never starts the service or any worker.
 
@@ -231,7 +262,7 @@ atlas-runtime start --profile deep_coding --cost-class standard --cwd /path/to/p
 
 Codex web search is explicitly disabled for `read-only`, `workspace-write`, `materialized-folder` and `review-packet` workers, whose profiles block external network access. The network-enabled `dedicated-repository` profile enables live web search. Command networking keeps each profile's existing restrictions.
 
-**Runtime home deny (every profile).** Every worker profile denies the Runtime home (its sockets `runtime.sock` and `read.sock`, turn records, `code.json`) and the Code token file and directory named by `code.json`: no read, no write, no Unix-socket connect. Service passes its home to the native host as `ATLAS_RUNTIME_HOME`; the host removes the variable before the native CLI starts and, when it is absent (direct adapter use), denies the default `~/.local/state/atlas-runtime`. Codex `read-only` and `workspace-write` run as the explicit permission profiles `atlas_read_only` and `atlas_workspace_write`: the built-in `:read-only` and `:workspace` plus these denies, without network. A workspace below the Runtime home (or the token directory) keeps the mode's access to it as the more specific path; one that is the home or the token directory is refused. Claude read-only then omits the rule for the containing directory, and `--restricted` keeps its file tools in the workspace. `dedicated-repository` adds the denies to `atlas_repository` (see below); `materialized-folder` and `review-packet` already had them. Claude read-only adds `Read(//…)` deny rules for its file tools.
+**Runtime home deny (every profile).** Every worker profile denies the Runtime home (its sockets `runtime.sock` and `backend.sock`, each also denied by path, turn records, `code.json`) and the Code token file and directory named by `code.json`: no read, no write, no Unix-socket connect. Service passes its home to the native host as `ATLAS_RUNTIME_HOME`; the host removes the variable before the native CLI starts and, when it is absent (direct adapter use), denies the default `~/.local/state/atlas-runtime`. Codex `read-only` and `workspace-write` run as the explicit permission profiles `atlas_read_only` and `atlas_workspace_write`: the built-in `:read-only` and `:workspace` plus these denies, without network. A workspace below the Runtime home (or the token directory) keeps the mode's access to it as the more specific path; one that is the home or the token directory is refused. Claude read-only then omits the rule for the containing directory, and `--restricted` keeps its file tools in the workspace. `dedicated-repository` adds the denies to `atlas_repository` (see below); `materialized-folder` and `review-packet` already had them. Claude read-only adds `Read(//…)` deny rules for its file tools.
 
 Folder permissions are `read-only`, `workspace-write` (Codex only) and `materialized-folder`; the turn records the selected mode. A read-only denial never automatically escalates permissions. Both standalone backends reuse `AtlasRuntime.Agent.Native` and its owned process-group runner; no credentials are copied, no global native settings change, and no API fallback. Guidance, queues, multi-agent scheduling and Atlas hookup remain outside this step.
 
@@ -568,7 +599,7 @@ Two files in the Runtime home replace `backends.json` (design `2026-11-16-runtim
 - **`policy.json`** is human-owned. Edit it locally and raise `version` on every change; no command writes it. It is read again for every start, so a change applies to every turn not yet started. A missing or invalid file permits no profile start (`policy_forbids`).
 - **`availability.json`** holds quota evidence per harness. Runtime records exact native weekly-quota evidence there; a human may mark a harness out, or re-enable one, by editing it locally while no start is pending.
 
-`atlas-runtime preferences` only reads: it shows both files, any policy error, per-profile availability, the slots and the buffer size. Any write (`--preferred`, `--fallback`, `--reenable`) is refused.
+`atlas-runtime preferences` only reads: it prints the policy view (`GET /v1/policy` on `backend.sock`), with each option's availability. It never writes `policy.json`; `--preferred` and `--fallback` are removed and exit nonzero naming the file. `preferences --reenable HARNESS` clears that harness's quota mark in `availability.json` (`POST /v1/harnesses/HARNESS/clear-quota-mark`).
 
 ### `policy.json`
 
@@ -649,7 +680,7 @@ For an explicitly authorized Git/PR assignment in an **independent clone**, a se
 atlas-runtime start --cwd /canonical/path/to/independent-clone --permissions dedicated-repository "Complete the assigned change and create its PR"   # before the cutover
 ```
 
-It could not be combined with `--sandbox`. It permits writes only beneath the canonical repository root, including its own `.git`, while retaining read-only `.agents`, `.codex` and `.aws` paths. Outside writes, including system temporary directories and home caches, remain denied; tools needing writable caches must use repository-local paths. Existing read access is unchanged, except that the Runtime home and the Code token with its directory are denied (`none`); a managed repository below the home stays writable as the more specific path. Because Codex cannot even `lstat` below a `none` path and Git `lstat`s every ancestor of its worktree, a home (or token directory) containing the repository is not denied whole: every entry existing at launch in it and in each directory down to the repository is denied unless it lies on that ancestor chain, and `runtime.sock`, `read.sock`, `turns`, `code.json`, `server.json`, `backends.json`, `policy.json`, `availability.json`, `service.log`, `service.lock`, `passes`, `snapshots`, `materializations`, `scratch` and the Code token are denied by path even when absent at launch. A repository inside one of those named entries is refused. Every other `workers/<id>` directory, including one created after launch, is also denied by Codex deny-read glob entries, which Codex checks at access time; a Runtime home path containing `\` is refused. Known limits: other entries created after launch directly in the home or inside the worker's own `workers/<id>` are not covered, and the ancestor directories' names, including the worker names in `workers`, stay listable. The globs rely on Codex glob deny-read support, verified with Codex 0.167.1; no minimum Codex version is enforced. Command networking uses Codex's enforced proxy and allows only `github.com` and `api.github.com`; no unrestricted network fallback is provided.
+It could not be combined with `--sandbox`. It permits writes only beneath the canonical repository root, including its own `.git`, while retaining read-only `.agents`, `.codex` and `.aws` paths. Outside writes, including system temporary directories and home caches, remain denied; tools needing writable caches must use repository-local paths. Existing read access is unchanged, except that the Runtime home and the Code token with its directory are denied (`none`); a managed repository below the home stays writable as the more specific path. Because Codex cannot even `lstat` below a `none` path and Git `lstat`s every ancestor of its worktree, a home (or token directory) containing the repository is not denied whole: every entry existing at launch in it and in each directory down to the repository is denied unless it lies on that ancestor chain, and `runtime.sock`, `backend.sock`, `turns`, `code.json`, `server.json`, `backends.json`, `policy.json`, `availability.json`, `service.log`, `service.lock`, `passes`, `snapshots`, `materializations`, `scratch` and the Code token are denied by path even when absent at launch. A repository inside one of those named entries is refused. Every other `workers/<id>` directory, including one created after launch, is also denied by Codex deny-read glob entries, which Codex checks at access time; a Runtime home path containing `\` is refused. Known limits: other entries created after launch directly in the home or inside the worker's own `workers/<id>` are not covered, and the ancestor directories' names, including the worker names in `workers`, stay listable. The globs rely on Codex glob deny-read support, verified with Codex 0.167.1; no minimum Codex version is enforced. Command networking uses Codex's enforced proxy and allows only `github.com` and `api.github.com`; no unrestricted network fallback is provided.
 
 Validation refuses linked worktrees, non-root/aliased paths, external/shared Git metadata, object alternates, metadata symlinks and shared hardlinks. Project/ancestor and system Codex configuration files are refused because legacy sandbox settings can override a native profile; the ignored user config is exempt. Use an independent remote clone, not a local clone with shared objects. Validation runs before launch and again before native execution.
 
@@ -689,14 +720,14 @@ The client talks to owner-only Unix sockets under `~/.local/state/atlas-runtime/
 
 `output --follow` is gone with the cutover: follow progress with `events --follow` and `status`, and read output pages with `output --turn`.
 
-Inspect local turn history through the running daemon (`read.sock`):
+Inspect local turn history through the running daemon (the history contract on `backend.sock`):
 
 ```sh
 atlas-runtime turns
 atlas-runtime output --turn turn-0123456789abcdef
 ```
 
-`turns` returns a `turns` array, newest start first, in the `runtime.read/1` projection: `turn_id`, `worker_id` (the slot), `state`, `recorded_state`, `backend`, `requested_model`, `model`, `questions_enabled`, `source_turn_id`, `started_at`, `ended_at`, `activity`, `result`, `error`, `attempt` and `pending_question`; no assignment, folder, settings or native session. It lists turns from before the cutover too. Each new turn saves `turn.json` atomically beside its existing artifacts at start, native session confirmation, and terminal transition. Unknown/malformed turn IDs fail.
+`turns` returns a `turns` array, every page in order, in the history contract's shape: `turn_id`, `slot`, `state`, `native_outcome`, `started_at`, `ended_at`, `harness`, `configured_model`, `reported_model` and `conversation_id`; no assignment, folder, settings or native session. It lists turns from before the cutover too, to the socket's owner. Each new turn saves `turn.json` atomically beside its existing artifacts at start, native session confirmation, and terminal transition. Unknown/malformed turn IDs fail.
 
 Work and its attempts survive daemon restart (`work/` in the home): a turn that was running becomes `interrupted`, and `retry --resume` continues it. `continue --resume-from ID` selects a saved conversation; failed turns are eligible when their native session ID is confirmed. Older artifact folders without metadata remain readable with state `unknown`; missing assignment/timestamp/session fields are not guessed. A saved `running` turn no longer owned by this daemon is shown as `unknown` with `recorded_state: running`, not claimed to be active or successful. No automatic restart, crash recovery, retention/deletion policy or server connection is introduced.
 
@@ -723,7 +754,7 @@ Without `server.json`, nothing changes: no Bus link, no reporter, no extra `turn
 
 It never sets a Flow outcome or item ownership, and Server gets no start, stop or guidance control over the native agent. Unlisted workers run as before, with no Facts writes.
 
-`status`, `turns` and `turn.json` show what Server confirmed, in `server.report`: `turn` (`unconfirmed`, `running`, `ended`), `execution` (`unconfirmed`, `registered`) and the last failure in `error` (for example `turn not created: Facts did not answer`). Each write is one bounded exchange, so a missing or refusing Server never delays or changes `start`, `output`, `stop` or the local terminal state. `service stop` stops the running workers gracefully and exits only once none remains owned. The daemon then waits up to 5 s for pending reports before it exits, and the command returns once it has. With Server unreachable, a measured `service stop` took about 6 s in total.
+`status`, `turns` and `turn.json` show what Server confirmed, in `server.report`: `turn` (`unconfirmed`, `running`, `ended`), `execution` (`unconfirmed`, `registered`) and the last failure in `error` (for example `turn not created: Facts did not answer`). Each write is one bounded exchange, so a missing or refusing Server never delays or changes `start`, `output`, `stop` or the local terminal state. `service stop` cancels the running turns and returns once `backend.sock` is gone. The daemon waits up to 5 s for pending reports before it exits, and the command returns once it has. With Server unreachable, a measured `service stop` took about 6 s in total.
 
 This is a best-effort mirror. There is no retry queue, replay, crash reconciliation or automatic recovery. A failed write stays failed. If the turn was never created, nothing more is written for it. A turn left `running` by a daemon that died keeps a lease that simply runs out.
 
@@ -765,7 +796,7 @@ ATLAS_CODE_HOME="${ATLAS_CODE_HOME:-/abs/code-home}" exec mix atlas_code.server
 ```sh
 atlas-dev-code               # own terminal; prints "Code ready on 127.0.0.1:PORT"
 atlas-runtime service start
-atlas-runtime service status # "workers" map of the slots that ran a turn
+atlas-runtime service status # runtime info: mode, incarnation, slots with busy
 atlas-runtime turns          # saved history across workers and restarts
 atlas-runtime service stop
 ```

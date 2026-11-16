@@ -58,9 +58,9 @@ defmodule RelaDSL.Schema.Composition do
       subflow runs on the parent subject;
     * an effect that `records: {type, relation}` names a type some subflow starts
       on (`start :create`);
-    * one field on one subject type has one writer: the passes (`pass_result`), the
-      gates (`gate_result`), one effect action, or one link, count or tally; the fields an
-      effect writes `also` and the values people choose are not counted;
+    * one field on one subject type has one writer: the gates (`gate_result`), one
+      effect action, or one link, count or tally; the fields an effect writes `also`
+      and the values people choose are not counted;
     * no two subflows with `per_subject: :one` start on one subject type by the same
       trigger;
     * every listed module defines subflows, and no subflow name is used twice.
@@ -455,8 +455,6 @@ defmodule RelaDSL.Schema.Composition do
     end)
   end
 
-  defp mechanism_writes({:pass, %{writes: :none}}), do: []
-  defp mechanism_writes({:pass, _}), do: [{:pass_result, :pass}]
   defp mechanism_writes({:gate, _}), do: [{:gate_result, :gate}]
   defp mechanism_writes({:effect, spec}), do: [{spec.field, {:effect, spec.action}}]
   defp mechanism_writes(nil), do: []
@@ -538,7 +536,6 @@ defmodule RelaDSL.Schema.Composition do
   defp pre({:count, child}), do: "count #{child}: "
   defp pre({:tally, relation}), do: "tally #{relation}: "
 
-  defp writer(:pass), do: "the passes"
   defp writer(:gate), do: "the gates"
   defp writer({:effect, action}), do: "effect #{action}"
   defp writer({:link, child}), do: "link #{child}"
