@@ -459,9 +459,6 @@ jobs:
     continue-on-error: true
     if: ${{ !cancelled() && needs.tested-tree.outputs.tested != 'true' }}
     runs-on: ubuntu-latest
-    # Informational only while Atlas is not in real production (Melle, 2026-11-16): a failing
-    # e2e never blocks recording the tree, gates or deploys.
-    continue-on-error: true
     env:
       TERM: xterm-256color
       ATLAS_E2E_RELA_BIN: ${{ github.workspace }}/.rela-bin
