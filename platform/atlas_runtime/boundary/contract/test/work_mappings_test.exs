@@ -31,7 +31,9 @@ defmodule AtlasRuntimeBoundary.WorkMappingsTest do
 
   test "an attempt's provenance is translated, with its selection, options and skips" do
     by_model = Map.new(mappings(), &{&1.model, &1})
-    assert %{drop: [:turn_folder, :stop_latch], supply: []} = by_model.attempt
+
+    assert %{drop: [:turn_folder, :stop_latch, :released_by, :released_at], supply: []} =
+             by_model.attempt
 
     for {model, boundary} <- [
           provenance: :provenance,

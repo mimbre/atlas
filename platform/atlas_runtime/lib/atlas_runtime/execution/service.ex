@@ -115,6 +115,12 @@ defmodule AtlasRuntime.Service do
     end
   end
 
+  # The work core's `clear_quota_mark` (operations, design §13.1 Q7): run here, in the process
+  # that records quota evidence (`Availability.record_quota/5`), so neither write loses the
+  # other's. Never a socket command.
+  defp serve_call({:clear_quota_mark, harness}, _from, state) when is_binary(harness),
+    do: {:reply, Availability.clear_quota_mark(state.dir, harness), state}
+
   defp serve_call(request, _from, state) do
     {reply, next, shutdown?} =
       try do

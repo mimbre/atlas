@@ -59,16 +59,23 @@ defmodule AtlasRuntime.Work.Restart do
   as `RestartReconciliation.process_state/2` answers. Without that evidence nothing is
   proven, and only `release` frees the slot.
   """
-  def gone?(dir, turn_id, probe) do
+  def gone?(dir, turn_id, probe), do: match?({:gone, _why}, process(dir, turn_id, probe))
+
+  @doc """
+  Whether a turn's process is provably still there (`probe` answers `:alive`), so its slot
+  is not to be released (§13.1 Q8). Without that evidence it is not.
+  """
+  def alive?(dir, turn_id, probe), do: process(dir, turn_id, probe) == :alive
+
+  defp process(dir, turn_id, probe) do
     path = Path.join([dir, "turns", turn_id, "process.json"])
 
     with {:ok, bytes} <- File.read(path),
          {:ok, %{"pid" => pid}} when is_integer(pid) and pid > 1 <- JSON.decode(bytes),
-         {:ok, %File.Stat{mtime: launched}} <- File.stat(path, time: :posix),
-         {:gone, _why} <- probe.(pid, launched) do
-      true
+         {:ok, %File.Stat{mtime: launched}} <- File.stat(path, time: :posix) do
+      probe.(pid, launched)
     else
-      _ -> false
+      _ -> :unknown
     end
   end
 end

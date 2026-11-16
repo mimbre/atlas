@@ -500,6 +500,16 @@
           "name": "stop_latch",
           "required": false,
           "type": "string"
+        },
+        {
+          "name": "released_by",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "released_at",
+          "required": false,
+          "type": "datetime"
         }
       ],
       "name": "attempt",

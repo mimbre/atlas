@@ -182,6 +182,9 @@ defmodule AtlasRuntimeModel.Work do
     # Private: the turn's folder under the Runtime home, and its stop latch.
     field :turn_folder, :string
     field :stop_latch, :string
+    # Private: who released the slot, and when (release_slot, §13.1 Q8).
+    field :released_by, :string
+    field :released_at, :datetime
   end
 
   # The records.

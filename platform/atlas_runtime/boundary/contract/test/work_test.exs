@@ -111,7 +111,16 @@ defmodule AtlasRuntimeBoundary.WorkTest do
         f(
           :reason,
           {:enum,
-           [:time_limit, :quota, :launch, :workspace, :model_changed, :cancel, :superseded]}
+           [
+             :time_limit,
+             :quota,
+             :launch,
+             :workspace,
+             :model_changed,
+             :cancel,
+             :superseded,
+             :runtime_stop
+           ]}
         ),
         f(:retryable, :boolean, true),
         f(:native_outcome, {:enum, [:finished, :failed, :stopped, :killed]}),
@@ -351,5 +360,52 @@ defmodule AtlasRuntimeBoundary.WorkTest do
     for word <- ~w(Flow Facts HTTP REST JSON Bus SSE token authentication header Engine) do
       refute source =~ ~r/\b#{word}\b/i, "#{word} in the contract source"
     end
+  end
+
+  # S2 changes work.json by one hunk only: runtime_stop in result.reason (§13.1 Q9). The
+  # fixture is work.json as S1 left it; any other change to the work contract fails here.
+  @work_json Path.expand("../../targets/json/work.json", __DIR__)
+  @s1_work_json Path.expand("fixtures/work.develop.json", __DIR__)
+
+  test "work.json differs from S1's only by runtime_stop in result.reason" do
+    s1 = JSON.decode!(File.read!(@s1_work_json))
+    now = JSON.decode!(File.read!(@work_json))
+
+    assert reason_values(s1) == reason_values(now) -- ["runtime_stop"]
+    assert List.last(reason_values(now)) == "runtime_stop"
+
+    allowed = put_reason_values(s1, reason_values(now))
+
+    for key <- Enum.uniq(Map.keys(allowed) ++ Map.keys(now)) do
+      assert by_name(Map.get(now, key)) == by_name(Map.get(allowed, key)),
+             "work.json #{key} changed"
+    end
+  end
+
+  # Models and capabilities by name, so a failure shows the one that changed.
+  defp by_name([%{"name" => _} | _] = list), do: Map.new(list, &{&1["name"], &1})
+  defp by_name(other), do: other
+
+  defp reason_values(json) do
+    [values] =
+      for %{"name" => "result", "fields" => fields} <- json["models"],
+          %{"name" => "reason", "values" => values} <- fields,
+          do: values
+
+    values
+  end
+
+  defp put_reason_values(json, values) do
+    update_in(json["models"], fn models ->
+      for model <- models do
+        if model["name"] == "result",
+          do:
+            update_in(model["fields"], fn fields ->
+              for f <- fields,
+                  do: if(f["name"] == "reason", do: %{f | "values" => values}, else: f)
+            end),
+          else: model
+      end
+    end)
   end
 end

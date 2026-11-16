@@ -660,7 +660,8 @@
             "workspace",
             "model_changed",
             "cancel",
-            "superseded"
+            "superseded",
+            "runtime_stop"
           ]
         },
         {
