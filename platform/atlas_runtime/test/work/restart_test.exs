@@ -5,6 +5,7 @@ defmodule AtlasRuntime.Work.RestartTest do
 
   import AtlasRuntime.WorkHarness
   alias AtlasRuntime.Boundary.Work, as: F
+  alias AtlasRuntime.Work.Restart
 
   @moduletag capture_log: true
 
@@ -212,6 +213,81 @@ defmodule AtlasRuntime.Work.RestartTest do
              notifications(),
              &match?(%F.WorkChanged{work_id: id, state: :interrupted} when id == work.work_id, &1)
            )
+  end
+
+  # §3.6: `alive` is "the process group exists", proven from one listing per heartbeat.
+  test "a heartbeat's alive follows the process check, from one listing per heartbeat",
+       %{bench: bench} do
+    for gate <- ["gate", "gate2"], do: File.write!(Path.join(bench.dir, gate), "")
+    stop_work()
+    verdict = :atomics.new(1, [])
+    listings = :counters.new(1, [])
+
+    processes = fn ->
+      :counters.add(listings, 1, 1)
+      answer = if :atomics.get(verdict, 1) == 1, do: :alive, else: :unknown
+      fn _pid, _launched -> answer end
+    end
+
+    start_work!(bench, processes: processes)
+    first = submit!(bench, "wait gate")
+    second = submit!(bench, "wait gate2")
+    session_recorded(bench, first)
+    session_recorded(bench, second)
+    ids = Enum.sort([first.work_id, second.work_id])
+
+    assert F.subscribe(client(), %{}) == %F.Outcome.Subscribed{}
+    # A turn is not alive without proof: `ps` denied or unreadable.
+    assert [false, false] = await_alive(ids)
+
+    :atomics.put(verdict, 1, 1)
+    assert [true, true] = await_alive(ids, [true, true])
+
+    # One listing per heartbeat, whatever the number of attempts (here two), over 1 s.
+    notifications()
+    before = :counters.get(listings, 1)
+    Process.sleep(1_000)
+    taken = :counters.get(listings, 1) - before
+    beats = Enum.count(notifications(), &match?(%F.Heartbeat{}, &1))
+    assert beats >= 3
+    assert taken <= beats + 1
+
+    for gate <- ["gate", "gate2"], do: File.rm!(Path.join(bench.dir, gate))
+    await_state(first.work_id, :completed)
+    await_state(second.work_id, :completed)
+  end
+
+  @tag skip: AtlasRuntime.TestHost.missing(:process_listing)
+  test "the default listing proves this VM's group alive and an absent PID gone" do
+    probe = Restart.processes()
+    me = String.to_integer(System.pid())
+    {etime, 0} = System.cmd("ps", ["-p", System.pid(), "-o", "etime="])
+    started = System.os_time(:second) - etime_seconds(String.trim(etime))
+    assert probe.(me, started) == :alive
+    assert {:gone, _} = probe.(4_000_000, started)
+  end
+
+  defp etime_seconds(text) do
+    [clock | days] = text |> String.split("-") |> Enum.reverse()
+    days = Enum.map(days, &String.to_integer/1) |> Enum.sum()
+    parts = clock |> String.split(":") |> Enum.map(&String.to_integer/1)
+    Enum.reduce(parts, 0, &(&2 * 60 + &1)) + days * 86_400
+  end
+
+  # The `alive` of each attempt (by work id) in the next heartbeat, or once it is `want`.
+  defp await_alive(ids, want \\ nil) do
+    await(fn ->
+      alive =
+        for %F.Heartbeat{running: running} <- notifications(300), reduce: nil do
+          _ ->
+            running
+            |> Enum.filter(&(&1.work_id in ids))
+            |> Enum.sort_by(& &1.work_id)
+            |> Enum.map(& &1.alive)
+        end
+
+      if alive && length(alive) == length(ids) && (want == nil or alive == want), do: alive
+    end)
   end
 
   test "an unknown turn holds its slot until a human releases it", %{bench: bench} do

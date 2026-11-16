@@ -764,6 +764,27 @@ defmodule AtlasRuntime.ServiceTest do
     error(restarted, %{"command" => "release", "worker_id" => "alpha"}, "Invalid admission latch")
   end
 
+  test "release without a latch leaves a turn this service still runs untouched", %{
+    state: state
+  } do
+    state = worker(state, "alpha", 1)
+    %{agent: agent, run: run} = state.workers["alpha"]
+    record = Path.join([state.dir, "turns", run.id, "turn.json"])
+    before = events(state)
+
+    assert {%{worker_id: "alpha", released: nil, admission_latch: nil}, released, false} =
+             call(state, %{"command" => "release", "worker_id" => "alpha"})
+
+    # The live turn stays owned and running, on disk too, and no failure is recorded for it.
+    assert released.workers["alpha"].agent == agent
+    assert released.workers["alpha"].run.state == "running"
+    assert %{"state" => "running"} = record |> File.read!() |> JSON.decode!()
+    assert events(released) == before
+    refute Enum.any?(events(released), &(&1["kind"] == "execution_failed"))
+    refute_received {:control_write, _, _}
+    assert Process.alive?(agent)
+  end
+
   test "signalling errors stay recorded and the execution stays owned", %{state: state} do
     state = worker(state, "alpha", 1, stop_reply: {:error, :refused})
 

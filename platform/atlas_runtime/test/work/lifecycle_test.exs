@@ -5,9 +5,38 @@ defmodule AtlasRuntime.Work.LifecycleTest do
 
   import AtlasRuntime.WorkHarness
   alias AtlasRuntime.Boundary.Work, as: F
+  alias AtlasRuntime.Work.Turns
   alias AtlasRuntime.WorkHarness.SlowStart
 
   @moduletag capture_log: true
+
+  defmodule LateAnswer do
+    @moduledoc false
+    # In front of the Service: the first start runs at once, but its answer comes only after
+    # its turn has ended and `hold_ms` have passed, so the core gives up waiting and reads
+    # the turn's end events before it learns the turn ID.
+    use GenServer
+
+    @impl true
+    def init({service, dir, hold_ms}), do: {:ok, {service, dir, hold_ms}}
+
+    @impl true
+    def handle_call(%{"command" => "start"} = request, _from, {service, dir, hold_ms})
+        when is_integer(hold_ms) do
+      asked = System.monotonic_time(:millisecond)
+      {%{"turn_id" => turn}, _} = reply = GenServer.call(service, request, :infinity)
+
+      AtlasRuntime.WorkHarness.await(fn ->
+        (t = Turns.read_turn(dir, turn)) && not Turns.live?(t)
+      end)
+
+      Process.sleep(max(hold_ms - (System.monotonic_time(:millisecond) - asked), 0))
+      {:reply, reply, {service, dir, nil}}
+    end
+
+    def handle_call(request, _from, {service, _, _} = state),
+      do: {:reply, GenServer.call(service, request, :infinity), state}
+  end
 
   setup do
     %{bench: start!()}
@@ -31,6 +60,23 @@ defmodule AtlasRuntime.Work.LifecycleTest do
     assert attempt.slot == "s1"
     assert [%{slot: "s2"}] = await_state(second.work_id, :completed).attempts
     assert Enum.count(launches(bench), &(&1["goal"] == first.request.instructions)) == 1
+  end
+
+  test "a start answered only after its turn ended still ends the attempt with that turn",
+       %{bench: bench} do
+    stop_work()
+    {:ok, late} = GenServer.start(LateAnswer, {bench.service, bench.dir, 1_200})
+    on_exit(fn -> Process.exit(late, :kill) end)
+    start_work!(%{bench | service: late}, heartbeat_ms: 60_000, start_timeout_ms: 1_000)
+
+    work = submit!(bench, "complete answered late")
+
+    assert [%{slot: "s1", turn_id: turn} = attempt] =
+             await_state(work.work_id, :completed).attempts
+
+    assert attempt.result.answer == "done: complete answered late"
+    assert turn(bench, turn)["state"] == "finished"
+    assert Enum.count(launches(bench), &(&1["goal"] == "complete answered late")) == 1
   end
 
   test "a submitted work runs to completed, announcing each change with a rising revision",

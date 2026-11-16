@@ -731,9 +731,10 @@ defmodule AtlasRuntime.Service do
 
   # A profile and cost class resolve through policy.json and availability.json (design §7).
   # A named backend (only in-BEAM callers of the Service: since D3 the CLI starts work on
-  # backend.sock, and runtime.sock serves no start) keeps its former meaning: that backend, never falling back; the model is
-  # the policy's for that harness when unambiguous, else the native default. Neither keeps
-  # BackendPolicy's choice (the imported pair).
+  # backend.sock, and runtime.sock serves no start) keeps its former meaning: that
+  # backend, never falling back; the model is the policy's for that harness when
+  # unambiguous, else the native default. Neither keeps BackendPolicy's choice (the
+  # imported pair).
   defp select_backend(request, state) do
     if Map.has_key?(request, "backend") and is_nil(request["backend"]),
       do: raise("Backend must be codex or claude")
