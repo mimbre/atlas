@@ -3,8 +3,9 @@ defmodule AtlasFlow.Runtime.HttpContractTest do
   The contract test of Flow's Runtime client (plan 2026-11-17 §6 F1.1): `Client.Http` and
   `Link` against the Runtime's real backend, started here with only its work core and a
   loopback TCP listener on a temporary `ATLAS_RUNTIME_HOME`, with a test `clients.json` and
-  no `server.json`. The stub harness (`fake_native`, which never launches a provider) is
-  built in `setup_all` with `go build`.
+  no `server.json`. The stub harness (`fake_native`, which never launches a provider) and
+  the Runtime's workspace command (`ATLAS_RUNTIME_EXECUTABLE`) are built in `setup_all`
+  with `go build`.
 
   The Runtime's own TCP listener (S3) is not in the tree yet; its interface is (S3 P1: the
   `:tcp` rights ceiling, `__problem__/2` with `unauthenticated` and `origin-refused`). The
@@ -77,17 +78,30 @@ defmodule AtlasFlow.Runtime.HttpContractTest do
     root = Path.expand("../../..", __DIR__)
     dir = Path.join(System.tmp_dir!(), "afc-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
+    host = Path.join(dir, "atlas-runtime")
     fake = Path.join(dir, "fake-native")
 
-    case System.cmd("go", ["build", "-o", fake, "main.go"],
-           cd: Path.join(root, "atlas_runtime/test/support/fake_native"),
-           stderr_to_stdout: true
-         ) do
-      {_, 0} -> :ok
-      {output, _} -> raise "building the stub harness failed:\n#{output}"
-    end
+    # As the Runtime's own tests do (atlas_runtime/test/test_helper.exs): the workspace
+    # command is built from this tree, never taken from the developer's shell.
+    go!(["build", "-o", host, "."], Path.join(root, "atlas_runtime/host"), "the Runtime host")
 
-    on_exit(fn -> File.rm_rf!(dir) end)
+    go!(
+      ["build", "-o", fake, "main.go"],
+      Path.join(root, "atlas_runtime/test/support/fake_native"),
+      "the stub harness"
+    )
+
+    previous = System.get_env("ATLAS_RUNTIME_EXECUTABLE")
+    System.put_env("ATLAS_RUNTIME_EXECUTABLE", host)
+
+    on_exit(fn ->
+      if previous,
+        do: System.put_env("ATLAS_RUNTIME_EXECUTABLE", previous),
+        else: System.delete_env("ATLAS_RUNTIME_EXECUTABLE")
+
+      File.rm_rf!(dir)
+    end)
+
     %{fake: fake}
   end
 
@@ -165,6 +179,13 @@ defmodule AtlasFlow.Runtime.HttpContractTest do
 
     machinery = %Config{name: "test", url: "http://127.0.0.1:#{port}", token_env: @token_env}
     %{runtime: runtime, port: port, m: machinery, home: home}
+  end
+
+  defp go!(args, cd, what) do
+    case System.cmd("go", args, cd: cd, stderr_to_stdout: true) do
+      {_, 0} -> :ok
+      {output, _} -> raise "building #{what} failed:\n#{output}"
+    end
   end
 
   ## The Runtime, as the test runs it
