@@ -20,7 +20,8 @@ defmodule AtlasRuntime.Service do
   require Logger
   import AtlasRuntime.Execution.Identity
 
-  # Open read.sock follow connections; more are refused with `too_many_followers`.
+  # Open follow connections, on read.sock and runtime.sock together; more are refused with
+  # `too_many_followers`.
   @followers 32
 
   @doc "Start the service; `server` (without its token) opts into Atlas Server lifecycle reporting."
@@ -32,14 +33,15 @@ defmodule AtlasRuntime.Service do
   def init({dir, server, reporting}), do: init({dir, server, reporting, []})
 
   # `reporting` and `options` are explicit dependency injection for tests: bounded Talk
-  # timing; `follow:` read.sock follow timing, `halt:` the exit after a service stop and
-  # `process_probe:` the liveness check of restart reconciliation.
+  # timing; `follow:` the follow timing of both sockets, `halt:` the exit after a service
+  # stop and `process_probe:` the liveness check of restart reconciliation.
   def init({dir, server, reporting, options}) do
     # Policy is read from policy.json for every resolution; only a former backends.json
     # quota record moves, once, into availability.json.
     Availability.import_legacy!(dir)
     events = History.recover(dir)
-    Socket.start(dir, __MODULE__)
+    # runtime.sock also serves the journal; its follow connections take the same timing.
+    Socket.start(dir, self(), Keyword.get(options, :follow, []))
     # The bound socket proves no other service runs here, and this one owns no port yet.
     probe = Keyword.get(options, :process_probe, &RestartReconciliation.process_state/2)
     events = RestartReconciliation.reconcile(dir, events, probe)
@@ -62,8 +64,8 @@ defmodule AtlasRuntime.Service do
     end
   end
 
-  # Every callback that grew the journal signals the read.sock followers afterwards. Decided
-  # here, at the boundary, because some paths store new events before `record_changes/2`.
+  # Every callback that grew the journal signals the followers afterwards. Decided here, at
+  # the boundary, because some paths store new events before `record_changes/2`.
   def handle_call(request, from, state), do: signal(state, serve_call(request, from, state))
   def handle_info(message, state), do: signal(state, serve_info(message, state))
 
@@ -80,13 +82,13 @@ defmodule AtlasRuntime.Service do
 
   defp followers(state), do: Map.get(state, :followers, %{})
 
-  # read.sock's admitted reads: answered from the state, which they never change, and never
-  # dispatched as commands.
+  # Admitted reads (read.sock's, and runtime.sock's journal reads): answered from the state,
+  # which they never change, and never dispatched as commands.
   defp serve_call({:read, op, args}, _from, state),
     do: {:reply, Reads.read(op, args, state), state}
 
-  # A read.sock follow connection: registration and its first page in one call. Followers are
-  # connection bookkeeping, never persisted or returned.
+  # A follow connection (read.sock or runtime.sock): registration and its first page in one
+  # call. Followers are connection bookkeeping, never persisted or returned.
   # Once the shutdown began the service still answers until the exit lands, but a follow
   # started then would report a stopping Runtime reachable: it ends at once instead.
   defp serve_call({:follow, pid, cursor}, _from, state) when is_pid(pid) do

@@ -41,11 +41,52 @@ type eventFollower struct {
 	cursor string
 }
 
-// followEventsCommand runs events --follow against <home>/read.sock until SIGINT or SIGTERM.
+// The journal (events and events --follow) is read on runtime.sock with the runtime.read/1
+// protocol (design 2026-11-16-runtime-backend §13.1 Q3); history stays on read.sock until S2
+// moves it.
+const journalSocket = "runtime.sock"
+
+// journalRequest is one finite runtime.read/1 journal read (events) on <home>/runtime.sock.
+func journalRequest(dir string, args map[string]any) (map[string]any, error) {
+	conn, err := net.DialTimeout("unix", filepath.Join(dir, journalSocket), time.Second)
+	if err != nil {
+		if absent(err) {
+			return nil, errStopped
+		}
+		return nil, err
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(30 * time.Second))
+	request := map[string]any{"api": readAPI, "op": "events"}
+	for key, value := range args {
+		request[key] = value
+	}
+	if err = json.NewEncoder(conn).Encode(request); err != nil {
+		return nil, err
+	}
+	var reply map[string]any
+	if err = json.NewDecoder(io.LimitReader(conn, followMaxLine)).Decode(&reply); err != nil {
+		return nil, err
+	}
+	if failure, ok := reply["error"].(map[string]any); ok {
+		code, _ := failure["code"].(string)
+		message, _ := failure["message"].(string)
+		return nil, &readProblem{code: code, message: message}
+	}
+	// A Runtime from before the journal moved answers a command error.
+	if failure, ok := reply["command_error"]; ok {
+		return nil, fmt.Errorf("Runtime does not serve the journal on runtime.sock: %v", failure)
+	}
+	delete(reply, "api")
+	delete(reply, "op")
+	return reply, nil
+}
+
+// followEventsCommand runs events --follow against <home>/runtime.sock until SIGINT or SIGTERM.
 func followEventsCommand(dir, cursor string, out io.Writer) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	socket := filepath.Join(dir, "read.sock")
+	socket := filepath.Join(dir, journalSocket)
 	follower := &eventFollower{
 		dial:   func() (net.Conn, error) { return net.DialTimeout("unix", socket, time.Second) },
 		clock:  realClock{},
@@ -55,7 +96,7 @@ func followEventsCommand(dir, cursor string, out io.Writer) error {
 	return follower.run(ctx)
 }
 
-// followFrame is one line of the read socket's follow stream, or its admission error.
+// followFrame is one line of the journal's follow stream, or its admission error.
 type followFrame struct {
 	Type   string            `json:"type"`
 	Events []json.RawMessage `json:"events"`
@@ -66,6 +107,8 @@ type followFrame struct {
 		Code    string `json:"code"`
 		Message string `json:"message"`
 	} `json:"error"`
+	// Set only by a Runtime from before the journal moved to runtime.sock.
+	CommandError any `json:"command_error"`
 }
 
 // followEnd says how one connection ended.
@@ -79,6 +122,7 @@ type followEnd struct {
 // fatalReadErrors are refusals that a reconnect cannot fix.
 var fatalReadErrors = map[string]bool{
 	"invalid_cursor": true, "invalid_request": true, "unsupported_api": true, "not_a_read": true,
+	"not_journal": true,
 }
 
 func (f *eventFollower) run(ctx context.Context) error {
@@ -171,7 +215,11 @@ func (f *eventFollower) connect(ctx context.Context, unreachable *bool) followEn
 		}
 		var frame followFrame
 		if err = json.Unmarshal(line, &frame); err != nil {
-			result.err = fmt.Errorf("Runtime read socket sent an invalid follow line: %w", err)
+			result.err = fmt.Errorf("Runtime socket sent an invalid follow line: %w", err)
+			return result
+		}
+		if frame.CommandError != nil {
+			result.err = fmt.Errorf("Runtime does not serve the journal on runtime.sock: %v", frame.CommandError)
 			return result
 		}
 		if frame.Error != nil {
@@ -220,7 +268,7 @@ func (f *eventFollower) page(frame followFrame, recovered bool) error {
 		}
 	}
 	if frame.Cursor == "" {
-		return errors.New("Runtime read socket sent a page without a cursor")
+		return errors.New("Runtime socket sent a page without a cursor")
 	}
 	if frame.Cursor != f.cursor {
 		if err := f.print(map[string]any{"cursor": frame.Cursor}); err != nil {

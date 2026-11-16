@@ -282,48 +282,22 @@ func readServer(t *testing.T, dir string, reply map[string]any) chan map[string]
 	return seen
 }
 
+// Turns stay on read.sock until S2 moves them; the journal (events) is read on runtime.sock
+// (events_follow_test.go).
 func TestHistoryIsReadOnReadSocket(t *testing.T) {
 	turns := []any{map[string]any{"turn_id": "turn-0000000000000001", "worker_id": "default", "state": "finished"}}
-	for _, test := range []struct {
-		name    string
-		args    []string
-		request map[string]any
-		reply   map[string]any
-		result  map[string]any
-	}{
-		{"turns", []string{"turns"}, map[string]any{"api": readAPI, "op": "turns"},
-			map[string]any{"api": readAPI, "op": "turns", "turns": turns}, map[string]any{"turns": turns}},
-		{"events", []string{"events", "--cursor", "e:1:5", "--limit", "5"},
-			map[string]any{"api": readAPI, "op": "events", "cursor": "e:1:5", "limit": float64(5)},
-			map[string]any{"api": readAPI, "op": "events", "events": []any{}, "cursor": "e:1:5", "more": false},
-			map[string]any{"events": []any{}, "cursor": "e:1:5", "more": false}},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			dir := socketDirectory(t)
-			t.Setenv("ATLAS_RUNTIME_HOME", dir)
-			seen := readServer(t, dir, test.reply)
-			result, err := execute(test.args)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if request := <-seen; !reflect.DeepEqual(request, test.request) {
-				t.Fatalf("request %#v, want %#v", request, test.request)
-			}
-			if !reflect.DeepEqual(result, test.result) {
-				t.Fatalf("result %#v, want %#v", result, test.result)
-			}
-		})
-	}
 	dir := socketDirectory(t)
 	t.Setenv("ATLAS_RUNTIME_HOME", dir)
-	readServer(t, dir, map[string]any{"api": readAPI, "error": map[string]any{"code": "invalid_cursor", "message": "Cursor does not identify a position in this stream"}})
-	_, err := execute([]string{"events", "--cursor", "stale"})
-	var out bytes.Buffer
-	writeCommandError(&out, err)
-	var printed map[string]any
-	if json.Unmarshal(out.Bytes(), &printed); printed["code"] != "invalid_cursor" ||
-		printed["error"] != "invalid_cursor: Cursor does not identify a position in this stream" {
-		t.Fatalf("read refusal lost its code: %s", out.String())
+	seen := readServer(t, dir, map[string]any{"api": readAPI, "op": "turns", "turns": turns})
+	result, err := execute([]string{"turns"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request, want := <-seen, map[string]any{"api": readAPI, "op": "turns"}; !reflect.DeepEqual(request, want) {
+		t.Fatalf("request %#v, want %#v", request, want)
+	}
+	if want := map[string]any{"turns": turns}; !reflect.DeepEqual(result, want) {
+		t.Fatalf("result %#v, want %#v", result, want)
 	}
 }
 

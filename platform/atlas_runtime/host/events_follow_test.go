@@ -2,12 +2,14 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
 	"net"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"syscall"
@@ -73,23 +75,24 @@ func (c *fakeClock) advance(d time.Duration) {
 	c.timers = pending
 }
 
-// fakeReadSocket is a scripted read.sock: the test accepts each connection and writes its frames.
-type fakeReadSocket struct {
+// fakeJournalSocket is a scripted runtime.sock journal: the test accepts each connection and
+// writes its frames. Nothing listens on read.sock.
+type fakeJournalSocket struct {
 	path     string
 	listener net.Listener
 	conns    chan net.Conn
 }
 
-func newFakeReadSocket(t *testing.T) (*fakeReadSocket, string) {
+func newFakeJournalSocket(t *testing.T) (*fakeJournalSocket, string) {
 	t.Helper()
 	dir := socketDirectory(t)
-	socket := &fakeReadSocket{path: filepath.Join(dir, "read.sock"), conns: make(chan net.Conn, 16)}
+	socket := &fakeJournalSocket{path: filepath.Join(dir, "runtime.sock"), conns: make(chan net.Conn, 16)}
 	socket.listen(t)
 	t.Cleanup(socket.close)
 	return socket, dir
 }
 
-func (s *fakeReadSocket) listen(t *testing.T) {
+func (s *fakeJournalSocket) listen(t *testing.T) {
 	t.Helper()
 	listener, err := net.Listen("unix", s.path)
 	if err != nil {
@@ -108,7 +111,7 @@ func (s *fakeReadSocket) listen(t *testing.T) {
 }
 
 // close stops listening and removes the socket, so dialing fails as with a stopped Runtime.
-func (s *fakeReadSocket) close() {
+func (s *fakeJournalSocket) close() {
 	if s.listener != nil {
 		s.listener.Close()
 		s.listener = nil
@@ -120,7 +123,7 @@ type fakeFollow struct {
 	request map[string]any
 }
 
-func (s *fakeReadSocket) accept(t *testing.T) *fakeFollow {
+func (s *fakeJournalSocket) accept(t *testing.T) *fakeFollow {
 	t.Helper()
 	select {
 	case conn := <-s.conns:
@@ -144,7 +147,7 @@ func (s *fakeReadSocket) accept(t *testing.T) *fakeFollow {
 	}
 }
 
-func (s *fakeReadSocket) noConnection(t *testing.T) {
+func (s *fakeJournalSocket) noConnection(t *testing.T) {
 	t.Helper()
 	select {
 	case <-s.conns:
@@ -207,7 +210,7 @@ type followRun struct {
 	clock  *fakeClock
 }
 
-func startFollower(t *testing.T, socket *fakeReadSocket, cursor string) *followRun {
+func startFollower(t *testing.T, socket *fakeJournalSocket, cursor string) *followRun {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	run := &followRun{cancel: cancel, done: make(chan error, 1), out: &lineSink{lines: make(chan string, 100)}, clock: newFakeClock()}
@@ -242,7 +245,7 @@ func (r *followRun) stop(t *testing.T) {
 }
 
 func TestEventsFollowPrintsLiveLinesInOrder(t *testing.T) {
-	socket, _ := newFakeReadSocket(t)
+	socket, _ := newFakeJournalSocket(t)
 	run := startFollower(t, socket, "e:1")
 	follow := socket.accept(t)
 	if follow.request["cursor"] != "e:1" {
@@ -257,7 +260,7 @@ func TestEventsFollowPrintsLiveLinesInOrder(t *testing.T) {
 }
 
 func TestEventsFollowReconnectsAtOnceFromLastCursorAfterCloseWithoutEnd(t *testing.T) {
-	socket, _ := newFakeReadSocket(t)
+	socket, _ := newFakeJournalSocket(t)
 	run := startFollower(t, socket, "")
 	first := socket.accept(t)
 	if _, ok := first.request["cursor"]; ok {
@@ -283,7 +286,7 @@ func TestEventsFollowReconnectsAtOnceFromLastCursorAfterCloseWithoutEnd(t *testi
 }
 
 func TestEventsFollowReportsUnreachableOnlyWhenTheReconnectFails(t *testing.T) {
-	socket, _ := newFakeReadSocket(t)
+	socket, _ := newFakeJournalSocket(t)
 	run := startFollower(t, socket, "")
 	first := socket.accept(t)
 	first.send(t, page("e:1", 1))
@@ -305,7 +308,7 @@ func TestEventsFollowReportsUnreachableOnlyWhenTheReconnectFails(t *testing.T) {
 }
 
 func TestEventsFollowServiceStoppingIsUnreachableUntilAReconnectPages(t *testing.T) {
-	socket, _ := newFakeReadSocket(t)
+	socket, _ := newFakeJournalSocket(t)
 	run := startFollower(t, socket, "")
 	first := socket.accept(t)
 	first.send(t, page("e:1", 1))
@@ -336,7 +339,7 @@ func TestEventsFollowServiceStoppingIsUnreachableUntilAReconnectPages(t *testing
 // service_stopping before any page: the follower stays unreachable through the exit and never
 // prints reachable in between.
 func TestEventsFollowReconnectDuringServiceStopStaysUnreachable(t *testing.T) {
-	socket, _ := newFakeReadSocket(t)
+	socket, _ := newFakeJournalSocket(t)
 	run := startFollower(t, socket, "")
 	first := socket.accept(t)
 	first.send(t, page("e:1", 1))
@@ -357,7 +360,7 @@ func TestEventsFollowReconnectDuringServiceStopStaysUnreachable(t *testing.T) {
 }
 
 func TestEventsFollowSilenceIsUnreachable(t *testing.T) {
-	socket, _ := newFakeReadSocket(t)
+	socket, _ := newFakeJournalSocket(t)
 	run := startFollower(t, socket, "")
 	first := socket.accept(t)
 	first.send(t, page("e:1", 1))
@@ -390,7 +393,7 @@ func TestEventsFollowSilenceIsUnreachable(t *testing.T) {
 }
 
 func TestEventsFollowPassesResetNoticesThrough(t *testing.T) {
-	socket, _ := newFakeReadSocket(t)
+	socket, _ := newFakeJournalSocket(t)
 	run := startFollower(t, socket, "e:1")
 	follow := socket.accept(t)
 	gap := page("e:9", 8, 9)
@@ -405,7 +408,7 @@ func TestEventsFollowPassesResetNoticesThrough(t *testing.T) {
 }
 
 func TestEventsFollowWithoutServiceStartsUnreachable(t *testing.T) {
-	socket, _ := newFakeReadSocket(t)
+	socket, _ := newFakeJournalSocket(t)
 	socket.close()
 	run := startFollower(t, socket, "")
 	run.out.expect(t, `{"reachable":false,"reason":"connect_failed"}`)
@@ -413,7 +416,7 @@ func TestEventsFollowWithoutServiceStartsUnreachable(t *testing.T) {
 }
 
 func TestEventsFollowStopsOnInvalidCursor(t *testing.T) {
-	socket, _ := newFakeReadSocket(t)
+	socket, _ := newFakeJournalSocket(t)
 	run := startFollower(t, socket, "bogus")
 	follow := socket.accept(t)
 	json.NewEncoder(follow.conn).Encode(map[string]any{"api": "runtime.read/1", "error": map[string]any{"code": "invalid_cursor", "message": "malformed cursor"}})
@@ -430,7 +433,7 @@ func TestEventsFollowStopsOnInvalidCursor(t *testing.T) {
 }
 
 func TestEventsFollowExitsCleanlyOnSignal(t *testing.T) {
-	socket, dir := newFakeReadSocket(t)
+	socket, dir := newFakeJournalSocket(t)
 	t.Setenv("ATLAS_RUNTIME_HOME", dir)
 	out := &lineSink{lines: make(chan string, 100)}
 	done := make(chan error, 1)
@@ -455,5 +458,136 @@ func TestEventsFollowExitsCleanlyOnSignal(t *testing.T) {
 		}
 	case <-time.After(wait):
 		t.Fatal("events --follow kept running after SIGTERM")
+	}
+}
+
+// The CLI path itself, which dials <home>/runtime.sock (nothing serves read.sock): after a
+// Runtime restart (a new listener, then the old connection closes) it resumes from the last
+// printed cursor at once, and passes the new epoch's reset through.
+func TestEventsFollowOnRuntimeSocketResumesAcrossARestart(t *testing.T) {
+	socket, dir := newFakeJournalSocket(t)
+	t.Setenv("ATLAS_RUNTIME_HOME", dir)
+	out := &lineSink{lines: make(chan string, 100)}
+	done := make(chan error, 1)
+	go func() {
+		_, err := executeTo([]string{"events", "--follow", "--cursor", "e:1"}, out)
+		done <- err
+	}()
+	first := socket.accept(t)
+	if first.request["cursor"] != "e:1" {
+		t.Fatalf("follow did not start from --cursor: %#v", first.request)
+	}
+	first.send(t, page("e:3", 2, 3))
+	out.expect(t, event(2), event(3), `{"cursor":"e:3"}`)
+	// Restart: the old listener goes, a new one binds, then the old connection drops.
+	socket.close()
+	socket.listen(t)
+	first.conn.Close()
+	second := socket.accept(t)
+	if second.request["cursor"] != "e:3" {
+		t.Fatalf("reconnect did not resume from the last printed cursor: %#v", second.request)
+	}
+	epoch := page("f:1", 1)
+	epoch["reset"] = map[string]any{"reason": "epoch_changed"}
+	second.send(t, epoch)
+	out.expect(t, `{"reset":{"reason":"epoch_changed"}}`, event(1), `{"cursor":"f:1"}`)
+	if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("events --follow did not exit cleanly: %v", err)
+		}
+	case <-time.After(wait):
+		t.Fatal("events --follow kept running after SIGTERM")
+	}
+}
+
+// journalServer answers each runtime.read/1 request on dir/runtime.sock with reply, recording
+// the requests; nothing listens on read.sock.
+func journalServer(t *testing.T, dir string, reply map[string]any) chan map[string]any {
+	t.Helper()
+	listener, err := net.Listen("unix", filepath.Join(dir, "runtime.sock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { listener.Close() })
+	seen := make(chan map[string]any, 4)
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			var request map[string]any
+			if json.NewDecoder(conn).Decode(&request) == nil {
+				seen <- request
+				json.NewEncoder(conn).Encode(reply)
+			}
+			conn.Close()
+		}
+	}()
+	return seen
+}
+
+func TestEventsPageIsReadOnRuntimeSocket(t *testing.T) {
+	dir := socketDirectory(t)
+	t.Setenv("ATLAS_RUNTIME_HOME", dir)
+	seen := journalServer(t, dir, map[string]any{"api": readAPI, "op": "events", "events": []any{}, "cursor": "e:1:5", "more": false})
+	result, err := execute([]string{"events", "--cursor", "e:1:5", "--limit", "5"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request, want := <-seen, map[string]any{"api": readAPI, "op": "events", "cursor": "e:1:5", "limit": float64(5)}; !reflect.DeepEqual(request, want) {
+		t.Fatalf("request %#v, want %#v", request, want)
+	}
+	if want := map[string]any{"events": []any{}, "cursor": "e:1:5", "more": false}; !reflect.DeepEqual(result, want) {
+		t.Fatalf("result %#v, want %#v", result, want)
+	}
+
+	// A refusal keeps its code, as on read.sock.
+	dir = socketDirectory(t)
+	t.Setenv("ATLAS_RUNTIME_HOME", dir)
+	journalServer(t, dir, map[string]any{"api": readAPI, "error": map[string]any{"code": "invalid_cursor", "message": "Cursor does not identify a position in this stream"}})
+	_, err = execute([]string{"events", "--cursor", "stale"})
+	var out bytes.Buffer
+	writeCommandError(&out, err)
+	var printed map[string]any
+	if json.Unmarshal(out.Bytes(), &printed); printed["code"] != "invalid_cursor" ||
+		printed["error"] != "invalid_cursor: Cursor does not identify a position in this stream" {
+		t.Fatalf("journal refusal lost its code: %s", out.String())
+	}
+
+	// A Runtime that answers the journal request as a command refuses it visibly.
+	dir = socketDirectory(t)
+	t.Setenv("ATLAS_RUNTIME_HOME", dir)
+	journalServer(t, dir, map[string]any{"command_error": "Unknown command"})
+	if _, err = execute([]string{"events"}); err == nil || !strings.Contains(err.Error(), "Unknown command") {
+		t.Fatalf("a command error was not reported: %v", err)
+	}
+
+	// No Runtime: stopped, as for every other command.
+	dir = socketDirectory(t)
+	t.Setenv("ATLAS_RUNTIME_HOME", dir)
+	if _, err = execute([]string{"events"}); err != errStopped {
+		t.Fatalf("events without a Runtime: %v", err)
+	}
+}
+
+func TestEventsFollowStopsOnACommandErrorReply(t *testing.T) {
+	socket, _ := newFakeJournalSocket(t)
+	run := startFollower(t, socket, "")
+	follow := socket.accept(t)
+	json.NewEncoder(follow.conn).Encode(map[string]any{"command_error": "Unknown command"})
+	follow.conn.Close()
+	select {
+	case err := <-run.done:
+		run.done <- err
+		if err == nil || !strings.Contains(err.Error(), "Unknown command") {
+			t.Fatalf("expected the command error, got %v", err)
+		}
+	case <-time.After(wait):
+		t.Fatal("follower kept running after a command error")
 	}
 }
