@@ -1,26 +1,27 @@
 # Gate activity and decider timeout proof
 
-Run from the repository root after merge. Use test throughout. Production's generated pair contains `48h`; test's separate pair contains `5m`. Both carry the digest of their own YAML. Flow reads the selected pair without rewriting YAML. The explicit migration in `rela/flow-runtime.json` admits only the exact previous status-bridge definition, with no pending writes or deadlines. Historical final runs keep their cursor; a waiting bridge run enters `deciding` once. Back up the environment before deployment, as for other durable-run changes. Any other definition drift still refuses execution.
+Run from the repository root after merge. Use test throughout. Production's generated pair contains `48h`; test's separate pair contains `5m`. Both carry the digest of their own YAML. Flow reads the selected pair without rewriting YAML. The explicit migration in `products/software_factory/model/targets/rela/flow-runtime.json` admits only the exact previous status-bridge definition, with no pending writes or deadlines. Historical final runs keep their cursor; a waiting bridge run enters `deciding` once. Back up the environment before deployment, as for other durable-run changes. Any other definition drift still refuses execution.
 
-The additional `based_on` review entry and the decision's own red flag live in the runtime sidecar (`rela/flow-runtime.json`, generated from the model since Rela DSL slice 2) and are applied by Facts after the description is loaded. The confirmation relation and immutable-field exception live in foundation schema and metadata.
+The additional `based_on` review entry and the decision's own red flag live in the runtime sidecar (`products/software_factory/model/targets/rela/flow-runtime.json`, generated from the model since Rela DSL slice 2) and are applied by Facts after the description is loaded. The confirmation relation and immutable-field exception live in foundation schema and metadata.
 
 ## Local checks and private native proof
 
-Use the pinned, already installed Rela 26.11.3 and a Python with `rela/scripts/requirements.txt` installed:
+Use the pinned, already installed Rela 26.11.3 and a Python with `platform/atlas_facts/rela/scripts/requirements.txt` installed:
 
 ```sh
 export ATLAS_RELA_BIN="$PWD/.rela-bin"
 export ATLAS_E2E_RELA_BIN="$ATLAS_RELA_BIN"
-(cd model/dsl && MIX_ENV=test mix test --warnings-as-errors)
-(cd model/contract && mix model.gen --check && mix test)
-python3 -m unittest discover -s rela/tests -v
-(cd beam && mix test apps/atlas_bus/test/boundary_test.exs \
-  apps/atlas_flow/test/runs apps/atlas_flow/test/activities \
-  apps/atlas_gates/test apps/atlas_facts/test/flow_inputs_test.exs \
-  apps/atlas_facts/test/flow_runtime_test.exs apps/atlas_facts/test/guards_test.exs \
-  apps/atlas_facts/test/review_test.exs apps/atlas_facts/test/subflows_test.exs)
-(cd beam && MIX_ENV=test mix run integration/flow_gate.exs)
-(cd e2e && mix test test/flow_run_test.exs)
+(cd products/software_factory/model/generator && MIX_ENV=test mix test --warnings-as-errors)
+(cd products/software_factory/model/contract && mix model.gen --check && mix test)
+python3 -m unittest discover -s platform/atlas_facts/rela/tests -v
+(cd products/software_factory && MIX_ENV=test mix compile)
+(cd platform/atlas_bus && mix test test/boundary_test.exs)
+(cd platform/atlas_flow && mix test test/runs test/activities)
+(cd platform/atlas_gates && mix test test)
+(cd platform/atlas_facts && mix test test/flow_inputs_test.exs test/flow_runtime_test.exs \
+  test/guards_test.exs test/review_test.exs test/subflows_test.exs)
+(cd products/software_factory && MIX_ENV=test mix run integration/flow_gate.exs)
+(cd products/software_factory/e2e && mix test test/flow_run_test.exs)
 ```
 
 The last command owns a private Rela process, Facts, Gates and a manual clock. It restarts Facts before the deadline, advances from 299,999 ms to 300,000 ms, checks the second verdict and `follows`, accepts through Facts' trusted input path, checks both review flags, confirms, supersedes, and checks that the fixed-rule wait has no timer. It stops its server on success and failure. It also retains the neutral trusted-input persistence proof. No test sleeps until a deadline.
@@ -122,60 +123,60 @@ An earlier broader Facts run reported three failures in connector_test.exs: the 
 
 Paths are relative to the repository root.
 
-- `beam/apps/atlas_facts/lib/atlas_facts/flow_inputs.ex`
-- `beam/apps/atlas_facts/lib/atlas_facts/flow_runtime.ex`
-- `beam/apps/atlas_facts/lib/atlas_facts/guards.ex`
-- `beam/apps/atlas_facts/lib/atlas_facts/review.ex`
-- `beam/apps/atlas_facts/lib/atlas_facts/server.ex`
-- `beam/apps/atlas_facts/lib/atlas_facts/subflows.ex`
-- `beam/apps/atlas_facts/test/flow_inputs_test.exs`
-- `beam/apps/atlas_facts/test/review_test.exs`
-- `beam/apps/atlas_facts/test/subflows_test.exs`
-- `beam/apps/atlas_flow/lib/atlas_flow/activities/gate.ex`
-- `beam/apps/atlas_flow/lib/atlas_flow/generated.ex`
-- `beam/apps/atlas_flow/lib/atlas_flow/runs/run.ex`
-- `beam/apps/atlas_flow/lib/atlas_flow/runs/store.ex`
-- `beam/apps/atlas_flow/lib/atlas_flow/talk.ex`
-- `beam/apps/atlas_flow/test/activities/gate_test.exs`
-- `beam/apps/atlas_flow/test/runs/run_test.exs`
-- `beam/apps/atlas_gates/lib/atlas_gates/application.ex`
-- `beam/apps/atlas_gates/lib/atlas_gates/endpoint.ex`
-- `beam/apps/atlas_gates/lib/atlas_gates/facts/bus.ex`
-- `beam/apps/atlas_gates/lib/atlas_gates/record.ex`
-- `beam/apps/atlas_gates/lib/atlas_gates/request.ex`
-- `beam/apps/atlas_gates/mix.exs`
-- `beam/apps/atlas_gates/test/endpoint_test.exs`
-- `beam/config/runtime.exs`
-- `beam/config/test.exs`
-- `beam/integration/flow_gate.exs`
-- `beam/integration/flow_gate_native.exs`
-- `beam/mix.exs`
+- `platform/atlas_facts/lib/atlas_facts/flow_inputs.ex`
+- `platform/atlas_facts/lib/atlas_facts/flow_runtime.ex`
+- `platform/atlas_facts/lib/atlas_facts/guards.ex`
+- `platform/atlas_facts/lib/atlas_facts/review.ex`
+- `platform/atlas_facts/lib/atlas_facts/server.ex`
+- `platform/atlas_facts/lib/atlas_facts/subflows.ex`
+- `platform/atlas_facts/test/flow_inputs_test.exs`
+- `platform/atlas_facts/test/review_test.exs`
+- `platform/atlas_facts/test/subflows_test.exs`
+- `platform/atlas_flow/lib/atlas_flow/activities/gate.ex`
+- `platform/atlas_flow/lib/atlas_flow/generated.ex`
+- `platform/atlas_flow/lib/atlas_flow/runs/run.ex`
+- `platform/atlas_flow/lib/atlas_flow/runs/store.ex`
+- `platform/atlas_flow/lib/atlas_flow/talk.ex`
+- `platform/atlas_flow/test/activities/gate_test.exs`
+- `platform/atlas_flow/test/runs/run_test.exs`
+- `platform/atlas_gates/lib/atlas_gates/application.ex`
+- `platform/atlas_gates/lib/atlas_gates/endpoint.ex`
+- `platform/atlas_gates/lib/atlas_gates/facts/bus.ex`
+- `platform/atlas_gates/lib/atlas_gates/record.ex`
+- `platform/atlas_gates/lib/atlas_gates/request.ex`
+- `platform/atlas_gates/mix.exs`
+- `platform/atlas_gates/test/endpoint_test.exs`
+- `products/software_factory/config/runtime.exs`
+- `products/software_factory/config/test.exs`
+- `products/software_factory/integration/flow_gate.exs`
+- `products/software_factory/integration/flow_gate_native.exs`
+- `products/software_factory/mix.exs`
 - `docs/guides/flow-gate-timeout-proof.md`
-- `e2e/test/flow_run_test.exs`
-- `model/contract/config/config.exs`
-- `model/contract/lib/decision.ex`
-- `model/contract/lib/gates.ex`
-- `model/contract/test/decider_test.exs`
-- `model/contract/test/golden/decision.flows.yaml`
-- `model/contract/test/golden_test.exs`
-- `model/contract/test/presentation_test.exs`
-- `model/dsl/lib/limits.ex`
-- `model/dsl/lib/mix/tasks/model.gen.ex`
-- `model/dsl/lib/rela.ex`
-- `model/dsl/lib/schema.ex`
-- `model/dsl/test/limits_test.exs`
-- `model/targets/atlas/flows.json`
-- `model/targets/diagrams/decide.md`
-- `model/targets/rela/flows.yaml`
-- `model/targets/test/atlas/flows.json`
-- `model/targets/test/rela/flows.yaml`
-- `fly/core.Dockerfile`
-- `rela/atlas.json`
-- `rela/atlas.manifest.json`
-- `rela/flow-runtime.json`
-- `rela/flows.yaml`
-- `rela/modules/foundation/atlas.json`
-- `rela/modules/foundation/schema.yaml`
-- `rela/tests/fixtures/baseline-schema.yaml`
-- `rela/tests/test_assembly.py`
-- `rela/tests/test_config.py`
+- `products/software_factory/e2e/test/flow_run_test.exs`
+- `products/software_factory/model/contract/config/config.exs`
+- `products/software_factory/model/contract/lib/decision.ex`
+- `products/software_factory/model/contract/lib/gates.ex`
+- `products/software_factory/model/contract/test/decider_test.exs`
+- `products/software_factory/model/contract/test/golden/decision.flows.yaml`
+- `products/software_factory/model/contract/test/golden_test.exs`
+- `products/software_factory/model/contract/test/presentation_test.exs`
+- `products/software_factory/model/generator/lib/limits.ex`
+- `products/software_factory/model/generator/lib/mix/tasks/model.gen.ex`
+- `products/software_factory/model/generator/lib/rela.ex`
+- `products/software_factory/model/generator/lib/schema.ex`
+- `products/software_factory/model/generator/test/limits_test.exs`
+- `products/software_factory/model/targets/atlas/flows.json`
+- `products/software_factory/model/targets/diagrams/decide.md`
+- `products/software_factory/model/targets/rela/flows.yaml`
+- `products/software_factory/model/targets/test/atlas/flows.json`
+- `products/software_factory/model/targets/test/rela/flows.yaml`
+- `platform/ops/core.Dockerfile`
+- `products/software_factory/model/targets/rela/atlas.json`
+- `products/software_factory/model/targets/rela/atlas.manifest.json`
+- `products/software_factory/model/targets/rela/flow-runtime.json`
+- `products/software_factory/model/targets/rela/flows.yaml`
+- `products/software_factory/model/targets/rela/modules/foundation/atlas.json`
+- `products/software_factory/model/targets/rela/modules/foundation/schema.yaml`
+- `platform/atlas_facts/rela/tests/fixtures/baseline-schema.yaml`
+- `platform/atlas_facts/rela/tests/test_assembly.py`
+- `platform/atlas_facts/rela/tests/test_config.py`

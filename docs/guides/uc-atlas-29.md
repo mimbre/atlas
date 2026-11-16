@@ -20,7 +20,7 @@ atlas tui --env test
 
 ## How it works
 
-- **The answers are data:** each state's `todo.answers` in `rela/atlas.json` (`flows`), `[{key, label, set | remove}]`:
+- **The answers are data:** each state's `todo.answers` in `products/software_factory/model/targets/rela/atlas.json` (`flows`), `[{key, label, set | remove}]`:
   - `set: accepted_by` is an action to the association's set page, IS-Atlas-64's Accept;
   - `remove: accepted_by` is one to its remove page (a note, as its cause).
   - The to_test state has `a Accept` and `f Reject`. A key or label is a one-line change there.
@@ -33,7 +33,7 @@ atlas tui --env test
 
 ## What changed for this
 
-- **rela/atlas.json:** `set`/`remove` on the to_test answers, and `f Reject`.
+- **products/software_factory/model/targets/rela/atlas.json:** `set`/`remove` on the to_test answers, and `f Reject`.
 - **Control:** the owner's answers as actions; the remove page for an answer.
-- **The end-to-end test:** `e2e/scenarios/uc-atlas-29.exs`.
+- **The end-to-end test:** `products/software_factory/e2e/scenarios/uc-atlas-29.exs`.
 - **Prod at merge:** restart the core; rela needs nothing.

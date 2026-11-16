@@ -1,0 +1,34 @@
+defmodule AtlasFacts.MixProject do
+  use Mix.Project
+
+  def project do
+    [
+      app: :atlas_facts,
+      version: "0.1.0",
+      build_path: "../../products/software_factory/_build",
+      config_path: "../../products/software_factory/config/config.exs",
+      deps_path: "../../products/software_factory/deps",
+      lockfile: "../../products/software_factory/mix.lock",
+      elixir: "~> 1.18",
+      elixirc_paths: elixirc_paths(Mix.env()),
+      start_permanent: Mix.env() == :prod,
+      deps: deps()
+    ]
+  end
+
+  def application do
+    [extra_applications: [:logger, :inets, :ssl, :public_key], mod: {AtlasFacts.Application, []}]
+  end
+
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_), do: ["lib"]
+
+  # Facts reaches the other layers only over the Bus. Its write rules, what it works out
+  # on a read and its connectors are the model's (AtlasFacts.Model), wired at boot; the
+  # tests write neutral models in the Rela DSL.
+  defp deps,
+    do: [
+      {:atlas_bus, in_umbrella: true},
+      {:rela_dsl, path: "../../products/software_factory/model/generator", only: :test}
+    ]
+end

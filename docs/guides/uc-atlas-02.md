@@ -10,7 +10,7 @@ In TUI 1:
 
 | Step | Keys | What you should see |
 |---|---|---|
-| A scene | `c`, a title, `ctrl-s` | The scene (say `SC-Atlas-01`), and under it **Use cases**: `No use cases yet. Press c to create one.` |
+| A scene | `c`, a title, `ctrl-s` | The scene (say `SC-Atlas-01`), and under it **Use cases**: `No use cases yet.` |
 | Create | `c`, a title, ↓, a description, `ctrl-s` | The form asks only for a title and a description. `✓ Stored as UC-Atlas-01 …`: the code is made for you. The use case opens and shows `In scene SC-Atlas-01`. |
 | Back | `esc` | The scene, with the use case in its list. Create a second one with `c`. |
 | Open | ↑/↓ in the list, `enter` | The use case with its fields (status Refine, by default). |

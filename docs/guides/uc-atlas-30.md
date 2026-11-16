@@ -16,9 +16,9 @@ Run it again in a second terminal for TUI 2 (see `docs/guides/uc-atlas-01.md` fo
 
 | Where | Keys | What you should see |
 |---|---|---|
-| The scenes list | `?` | The key legend includes `c Create scene`. With no scenes: `No scenes yet. Press c to create one.` Close the legend with Esc before acting. |
+| The scenes list | `?` | The key legend includes `c Create scene`. With no scenes: `No scenes yet.` Close the legend with Esc before acting. |
 | Create | `c` | The form is called `Create scene`, its button `[ Create ]`. |
-| A scene | `enter` on a row, then `?` | The key legend offers `u Update scene`, `d Delete scene` and `c Create use case`. The empty list says `Press c to create one.` Close the legend with Esc before acting. |
+| A scene | `enter` on a row, then `?` | The key legend offers `u Update scene`, `d Delete scene` and `c Create use case`. The empty list says `No use cases yet.` Close the legend with Esc before acting. |
 | Update | `u` | The form is called `Update SC-Atlas-NN`, its button `[ Update ]`. |
 | A use case, an issue | `enter` | The same words: `u Update use case`, `d Delete use case`, `c Create issue`; on an issue `c Create pull request`. |
 
@@ -52,8 +52,8 @@ Also try:
 
 ## What changed for this
 
-- **rela's description:** nothing. The choices are the relations with `max_outgoing: 1` that a kind has (`in_scene`, `in_use_case`, `in_issue`), read from `rela/schema.yaml`.
+- **rela's description:** nothing. The choices are the relations with `max_outgoing: 1` that a kind has (`in_scene`, `in_use_case`, `in_issue`), read from `products/software_factory/model/targets/rela/schema.yaml`.
 - **Facts:** a change may carry links, as a create does. Each relation named is replaced in rela, in the same write as the fields; Facts checks first that the new parent exists. The move is stored with its cause (`Moved from UC-Atlas-01 to UC-Atlas-30 (in_use_case), by a change in Control`), and its hint goes to every page that lists the kind: the old parent's and the new one's.
 - **Control:** the change form offers a choice per parent relation, of every item of the parent's kind; only a parent that differs is sent. `/_kinds` lists the relation among the fields, so `atlas help` and `atlas tools` offer it.
 - **Action names (IS-Atlas-58):** one function in Control, `AtlasControl.Pages.operation/3`, gives every action its words and key from the operation and the kind (`{"Create use case", "c"}`); lists, item pages, forms and buttons take them from it. `/_kinds` carries each kind's actions, and `atlas tools` takes its titles from there. A page with a second related list creates there with `s`, `x` or `z`; `a` and `r` stay free for Accept and Reopen.
-- **The end-to-end test:** `e2e/scenarios/uc-atlas-30.exs` follows this guide.
+- **The end-to-end test:** `products/software_factory/e2e/scenarios/uc-atlas-30.exs` follows this guide.

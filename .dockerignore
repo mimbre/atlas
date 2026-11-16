@@ -1,12 +1,25 @@
-# The Fly images (fly/*.Dockerfile) are built from the repository root.
+# The Fly images (platform/ops/*.Dockerfile) are built from the repository root. Left out:
+# what neither image builds or carries (the e2e test, the clients, the Runtime host and
+# viewer, and the tools beside the ops scripts in platform/ops).
 .git
 .github
 .herdr-project
 **/_build
 **/deps
-e2e
-clients
-tools
+products/software_factory/e2e
+platform/clients/tui
+platform/clients/agent
+platform/clients/apple
+platform/atlas_runtime/viewer
+platform/atlas_runtime/host
+platform/ops/ci
+platform/ops/tests
+platform/ops/plan
+platform/ops/orchestrator
+platform/ops/process_identity.py
+platform/ops/runtime.py
+platform/ops/runtime_process.py
+platform/ops/runtime_status.exs
 docs
 
 **/__pycache__

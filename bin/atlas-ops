@@ -107,7 +107,7 @@ stop_core() {
 }
 
 start_core() {
-  "${ATLAS_CONFIG_PYTHON:-python3}" "$root/rela/scripts/verify.py" "$root/rela"
+  "${ATLAS_CONFIG_PYTHON:-python3}" "$root/platform/atlas_facts/rela/scripts/verify.py" "$root/products/software_factory/model/targets/rela"
   echo "atlas-ops: starting the core from $root at $(head_now) (a first start compiles, about half a minute)..."
   mkdir -p "$state"
   nohup "$root/bin/atlas-ops" up --env "$env" >"$log" 2>&1 </dev/null &
@@ -127,13 +127,13 @@ start_core() {
 clean_build() { "$root/bin/clean-build" "$root" >&2; }
 
 # rela keeps the description it started with. When this build's differs (a merge changed
-# rela/schema.yaml), rela is restarted on it first, its data kept (IS-Atlas-73). When the
+# products/software_factory/model/targets/rela/schema.yaml), rela is restarted on it first, its data kept (IS-Atlas-73). When the
 # new description would leave data without a description (a removed kind or field that
 # still has data), nothing is started: that needs a migration first.
 ensure_rela() {
-  local description="$root/rela/scripts/description.sh" orphans holder
+  local description="$root/platform/atlas_facts/rela/scripts/description.sh" orphans holder
   if ! curl -fsS -o /dev/null "$rela_url/_schema" 2>/dev/null; then
-    "$root/rela/scripts/start-bg.sh"
+    "$root/platform/atlas_facts/rela/scripts/start-bg.sh"
     return
   fi
   "$description" same && return 0
@@ -145,13 +145,13 @@ ensure_rela() {
     exit 1
   fi
 
-  if ! "$root/rela/scripts/stop.sh" >/dev/null 2>&1; then
+  if ! "$root/platform/atlas_facts/rela/scripts/stop.sh" >/dev/null 2>&1; then
     holder="$(lsof -nP -t -iTCP:"$ATLAS_RELA_PORT" -sTCP:LISTEN 2>/dev/null | head -1 || true)"
     echo "atlas-ops: rela $env runs an older description than this build, and atlas-ops did not start it, so it cannot restart it." >&2
     echo "atlas-ops: stop it (kill ${holder:-<pid>}), then: atlas-ops restart --env $env" >&2
     exit 1
   fi
-  "$root/rela/scripts/start-bg.sh" >/dev/null
+  "$root/platform/atlas_facts/rela/scripts/start-bg.sh" >/dev/null
   echo "atlas-ops: rela $env ran an older description; restarted it on this build's (its data stays)"
 }
 
@@ -185,7 +185,7 @@ case "$cmd" in
       exit 1
     fi
     if [ "$cmd" = move-to-fly ]; then export ATLAS_MOVE_FROM="$(setting fly.move_from)"; fi
-    exec "$root/fly/$cmd.sh" ${args[@]+"${args[@]}"} ;;
+    exec "$root/platform/ops/$cmd.sh" ${args[@]+"${args[@]}"} ;;
   where) echo "$root"; exit 0 ;;
   main-clone) main_clone; exit 0 ;;
   env) echo "$env $settings"; exit 0 ;;
@@ -232,14 +232,14 @@ case "$cmd" in
     ensure_rela
     echo "rela $env: answering at $rela_url"
     clean_build
-    cd "$root/beam"
+    cd "$root/products/software_factory"
     exec mix run --no-halt
     ;;
   stop)
     stop_core
     if [ -z "$rela" ]; then echo "atlas-ops: core stopped (rela keeps running)"; exit 0; fi
     echo "atlas-ops: core stopped"
-    exec "$root/rela/scripts/stop.sh"
+    exec "$root/platform/atlas_facts/rela/scripts/stop.sh"
     ;;
   restart)
     stop_core
@@ -256,8 +256,8 @@ case "$cmd" in
     else
       echo "core:   not running"
     fi
-    "$root/rela/scripts/status.sh" 2>&1 | sed 's/^/rela:   /' || true
-    if "$root/rela/scripts/description.sh" same; then
+    "$root/platform/atlas_facts/rela/scripts/status.sh" 2>&1 | sed 's/^/rela:   /' || true
+    if "$root/platform/atlas_facts/rela/scripts/description.sh" same; then
       echo "rela:   description: this build's"
     else
       echo "rela:   description: older than this build's; atlas-ops restart --env $env restarts rela on it"

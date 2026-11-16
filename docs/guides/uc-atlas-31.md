@@ -23,9 +23,9 @@ Also try:
 
 ## What changed for this
 
-- **rela's description:** `rela/atlas.json` gives the relation `in_issue` a `limit`: at most 1 pull request, counting only those whose `state` is `open` or `merged`, with the refusal's text (`{parent}`, `{child}`, `{value}` filled in). It is data: no code names a kind.
+- **rela's description:** `products/software_factory/model/targets/rela/atlas.json` gives the relation `in_issue` a `limit`: at most 1 pull request, counting only those whose `state` is `open` or `merged`, with the refusal's text (`{parent}`, `{child}`, `{value}` filled in). It is data: no code names a kind.
 - **Control:** before a create under a parent, or a move to one, Control reads the facts that point at it through a limited relation and counts those whose field is one of the limit's values, never the fact itself. When the parent is full, nothing goes to Facts, and the form, or `atlas put` / `atlas set`, says why.
-- **The end-to-end test:** `e2e/scenarios/uc-atlas-26.exs` links a second pull request to the issue whose first is merged, in the TUI and with `atlas put`, and sees both refused. Its flaky pull request now goes to a second issue.
+- **The end-to-end test:** `products/software_factory/e2e/scenarios/uc-atlas-26.exs` links a second pull request to the issue whose first is merged, in the TUI and with `atlas put`, and sees both refused. Its flaky pull request now goes to a second issue.
 
 ## An issue shows Development while its pull request is open (IS-Atlas-61)
 
@@ -38,7 +38,7 @@ Nobody runs `atlas set … stage=` for this any more. Facts works it out from th
 | Merged | merge it on GitHub | After a connector round: `Done · PR-… merged` (UC-Atlas-32). |
 | Closed without merging | close it on GitHub | After a connector round it counts no more: the stored stage shows again. |
 
-The rule is data in `rela/atlas.json`, next to `completion`: the issue's `progress.while` is `[{ "over": "in_issue", "field": "state", "value": "open", "shows": "development" }]`. A draft is an open pull request, so it counts. `AtlasFacts.Progress` applies it with the same matching as completion. A pull request's change is a hint to the issue's page and to the pages above it. `e2e/scenarios/uc-atlas-31.exs` follows these steps on the stand-in GitHub.
+The rule is data in `products/software_factory/model/targets/rela/atlas.json`, next to `completion`: the issue's `progress.while` is `[{ "over": "in_issue", "field": "state", "value": "open", "shows": "development" }]`. A draft is an open pull request, so it counts. `AtlasFacts.Progress` applies it with the same matching as completion. A pull request's change is a hint to the issue's page and to the pages above it. `products/software_factory/e2e/scenarios/uc-atlas-31.exs` follows these steps on the stand-in GitHub.
 ## A merged pull request that names other issues makes them Done too (IS-Atlas-69)
 
 A pull request is in one issue. When its title names more issue keys, as #33 named IS-Atlas-44 and IS-Atlas-45, its work is merged for those issues too. Once it is merged, the GitHub connector records `done_in` for each other issue key in its title. That is the same history link the UC-Atlas-32 migration set, so those issues show Done and "Also done in". Bundling stays the exception: one issue, one pull request.
@@ -48,4 +48,4 @@ A pull request is in one issue. When its title names more issue keys, as #33 nam
 | Prod | `atlas get IS-Atlas-45 --env prod` | `Also done in: PR-eyra-atlas-33 (since …, by connector/github: GitHub connector: PR-eyra-atlas-33 names IS-Atlas-45)`, and `Progress: Done · PR-eyra-atlas-33 merged`. |
 | A new one | merge a pull request whose title names another existing issue | Within a connector round (5 minutes in prod) that issue shows Done. |
 
-The rule is data in `rela/atlas.json`, in the pull request's `connector`: `"names": { "field": "title", "relation": "done_in", "when": { "state": ["merged"] } }`. The keys are those that fit the id prefix of `done_in`'s `from` kind. A key for an issue that does not exist, or the pull request's own issue, is left alone. `done_in` is `set_by: ["migration", "connector"]`, so no person or agent sets it. Each round looks at every merged pull request, also those merged before this, and links only what is missing. `e2e/scenarios/uc-atlas-26.exs` does it on the stand-in GitHub.
+The rule is data in `products/software_factory/model/targets/rela/atlas.json`, in the pull request's `connector`: `"names": { "field": "title", "relation": "done_in", "when": { "state": ["merged"] } }`. The keys are those that fit the id prefix of `done_in`'s `from` kind. A key for an issue that does not exist, or the pull request's own issue, is left alone. `done_in` is `set_by: ["migration", "connector"]`, so no person or agent sets it. Each round looks at every merged pull request, also those merged before this, and links only what is missing. `products/software_factory/e2e/scenarios/uc-atlas-26.exs` does it on the stand-in GitHub.

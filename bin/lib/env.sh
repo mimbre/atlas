@@ -31,7 +31,7 @@ resolve_env() {
   settings="${ATLAS_ENV_FILE:-}"
   if [ -z "$settings" ]; then
     env="${env:-prod}"
-    settings="$root/env/$env.json"
+    settings="$root/products/software_factory/environments/$env.json"
   fi
   [ -f "$settings" ] || { echo "$prog: no environment '$env' (no $settings)" >&2; exit 1; }
   # Absolute, so the core and the clients find it from their own folders.

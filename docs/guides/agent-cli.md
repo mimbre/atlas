@@ -22,7 +22,7 @@ Runtime transport. Optional server activation requires the separate policy revie
 [prod.md](prod.md#optional-control-tls-ingress-not-activated); real Fly certificates,
 enrollment and Serve ingress remain unverified.
 
-An agent that plans gets the same actions as tools: `atlas tools` lists them, made from rela's description through Control. `atlas plan --on <code> "<request>"` asks the environment's planner (`agent.planner` in `env/<env>.json`: a local `claude -p` that may only read, or any command) what it would do on that page. It answers steps, each checked against the form it would fill, and writes nothing ([uc-atlas-16.md](uc-atlas-16.md)). In the TUI, `:` asks the same agent (`atlas steer`, which the TUI starts) about the page you are on; you keep, edit or drop each step, and the kept ones run through Control ([uc-atlas-17.md](uc-atlas-17.md)).
+An agent that plans gets the same actions as tools: `atlas tools` lists them, made from rela's description through Control. `atlas plan --on <code> "<request>"` asks the environment's planner (`agent.planner` in `products/software_factory/environments/<env>.json`: a local `claude -p` that may only read, or any command) what it would do on that page. It answers steps, each checked against the form it would fill, and writes nothing ([uc-atlas-16.md](uc-atlas-16.md)). In the TUI, `:` asks the same agent (`atlas steer`, which the TUI starts) about the page you are on; you keep, edit or drop each step, and the kept ones run through Control ([uc-atlas-17.md](uc-atlas-17.md)).
 
 `atlas put <kind> ... --link <association>=<key>[,<key>]` (repeatable) links the new fact right after it is made, each through its association's own form. When a link is refused, the fact stays made and the refusal names its key (`GV-0007 is made, but not linked`), so `atlas set GV-0007 about=PR-12` finishes it.
 
@@ -38,18 +38,18 @@ An accepted request starts a fresh generation of that subflow from its initial s
 
 Every gate decision is a `gate_verdict` in Rela: which gate (`gate`, `gate_version`, `flavor` rule or smart, `purpose` flow or decider), what it decided on (`subject` and its `fingerprint`, `evidence` references and the `evidence_digest` of the immutable evidence snapshot), how it came about (`rule_outcome`, `rule_version`; for a smart gate also `advisor`, `model`, `rationale` and `scores` per outcome), the outcome (`verdict`, `allowed_outcomes`, `unsettled` when uncertain or an error), `cost`, `duration_ms` and `decided_at`. A rule gate must give its rule outcome and version; a smart gate also its advice. Its links are `about` (the fact it decided on), `follows` (the previous verdict on the same subject, so an episode can be read as a whole) and, later, `overruled_by` (the person who overruled it, in the TUI, as themselves).
 
-Facts keeps it as a record (`sealed` on the gate verdict in `model/contract/foundation/gate_verdict.ex`, generated into `rela/atlas.json`): never deleted or edited; record a new verdict that `follows` it instead. Only the later outcomes stay open, each set once and never changed: `overrule_reason`, `rework_after`, `defect_after`, `effort`, and every link while it is empty. Sending a value that is there already changes nothing.
+Facts keeps it as a record (`sealed` on the gate verdict in `products/software_factory/model/contract/foundation/gate_verdict.ex`, generated into `products/software_factory/model/targets/rela/atlas.json`): never deleted or edited; record a new verdict that `follows` it instead. Only the later outcomes stay open, each set once and never changed: `overrule_reason`, `rework_after`, `defect_after`, `effort`, and every link while it is empty. Sending a value that is there already changes nothing.
 
-Gates (`beam/apps/atlas_gates`) evaluates a gate and records its verdict; nobody writes a verdict by hand. Until Flow asks Gates itself, the coordinator asks it for today's rule gate, integrate (green CI on the integrated head and a matching fingerprint), once per decision:
+Gates (`platform/atlas_gates`) evaluates a gate and records its verdict; nobody writes a verdict by hand. Until Flow asks Gates itself, the coordinator asks it for today's rule gate, integrate (green CI on the integrated head and a matching fingerprint), once per decision:
 
 ```sh
-cd beam && mix atlas.gates.evaluate --gate integrate --subject PR-12 \
+cd products/software_factory && mix atlas.gates.evaluate --gate integrate --subject PR-12 \
   --fingerprint "$fingerprint" --evidence-file /abs/evidence.json --env test \
   --link about=PR-12 --link follows=GV-0006            # [--allowed integrate,refuse] [--json]
 atlas set GV-0007 rework_after="CI failed on main after integrating (run 4711)"   # later, once
 ```
 
-The evidence file is one JSON object of named fields, as the coordinator collects them (`ci_conclusion`, `ci_head`, `integration_head`, `review_fingerprint`, `integration_fingerprint`, …); keep it, its `sha256:` digest is recorded. Gates applies the gate's definition from the model it is wired to (`model/contract`, compiled into the umbrella; its rule, decide map and version: data, not code), records the verdict through Control with the `atlas` client, and prints it with its key:
+The evidence file is one JSON object of named fields, as the coordinator collects them (`ci_conclusion`, `ci_head`, `integration_head`, `review_fingerprint`, `integration_fingerprint`, …); keep it, its `sha256:` digest is recorded. Gates applies the gate's definition from the model it is wired to (`products/software_factory/model/contract`, compiled into the umbrella; its rule, decide map and version: data, not code), records the verdict through Control with the `atlas` client, and prints it with its key:
 
 ```
 integrate: GV-0007 recorded now
@@ -79,6 +79,6 @@ Guidelines and guardrails that apply:
 - D-0066 Screaming architecture (guideline, Accepted): Code is structured by what it does …
 ```
 
-What it reads is data, not code: `read_first` in `model/contract/compositions/atlas_eyra.ex` (generated into `rela/atlas.json`) names the relations, the standing values (status, force, scope) and the fields shown.
+What it reads is data, not code: `read_first` in `products/software_factory/model/contract/compositions/atlas_eyra.ex` (generated into `products/software_factory/model/targets/rela/atlas.json`) names the relations, the standing values (status, force, scope) and the fields shown.
 
 Two more things follow from `based_on`. An accepted decision that no work is based on yet waits in Open work, with its consequences as what is expected, until a scene or use case is `based_on` it, or someone records that none is needed (`atlas set D-0040 no_work=true`, the one change an accepted decision still takes). Work based on a superseded decision shows `Review: based on a superseded decision` with that decision's id on its page and in lists; it is worked out on every read and never stored, so it goes once the work is based on the new decision instead.

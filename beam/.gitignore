@@ -1,7 +1,0 @@
-/_build/
-/deps/
-/apps/*/_build/
-/apps/*/deps/
-erl_crash.dump
-*.ez
-/apps/*/tmp/

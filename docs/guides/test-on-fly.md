@@ -40,7 +40,7 @@ upstream as unavailable even if flyctl still listens locally. This restarts no F
 machine and replays no client writes. A hello refusal is left to the client to
 report; a handshake alone does not prove Facts/rela health.
 
-`atlas-ops up`, `stop` and `restart` refuse for test: a merge to develop deploys test (CI job `deploy-test`, which runs `fly/deploy.sh test`):
+`atlas-ops up`, `stop` and `restart` refuse for test: a merge to develop deploys test (CI job `deploy-test`, which runs `platform/ops/deploy.sh test`):
 
 Test deployment waits for the focused generator, contract, core, TUI and agent jobs,
 not the full native end-to-end suite. End-to-end checks still run independently;
@@ -51,11 +51,11 @@ skipped and test deploys right away; see `docs/guides/prod.md`, "CI tests a tree
 
 1. On rela's machine, on a copy of its data: does this build's description describe all of it? When it does not, nothing is deployed and test keeps its build; that data needs a migration first (below).
 2. rela, then the core.
-3. A smoke check that reads only (`fly/smoke.sh test`).
+3. A smoke check that reads only (`platform/ops/smoke.sh test`).
 
 The test deployment job serializes the entire rela/core pair without cancelling
 an in-flight update. Pending jobs queue instead of replacing one another. After
-acquiring its slot, `fly/deploy-test-current.sh` compares the checkout/build label
+acquiring its slot, `platform/ops/deploy-test-current.sh` compares the checkout/build label
 with the current authenticated `origin/develop` head. A stale job exits successfully
 without any Fly operations; unresolved or inconsistent identities fail closed.
 If develop advances after admission, the admitted pair finishes normally, and a
@@ -67,7 +67,7 @@ image labels, manifest checks and positive smoke result in the deployment log.
 
 The deployment verifies the packaged description manifest on both apps before smoke.
 
-Compatibility preflight uses the same `rela/scripts/fits.sh` and data snapshot helper as local startup. A first-upgrade image with legacy files and only `/app/bin/rela` needs no `sqlite3`, SQLite CLI or package installation: the flat-schema check uses that existing filesystem CLI. For a SQLite store, preflight requires native `sqlite3` and stages the hash-pinned current tools in `/tmp/next/bin`, leaving the old image's installed binaries untouched. If native `sqlite3` is absent, deployment refuses with a prerequisite error. Provision it through a reviewed image/held-store operations path before retrying; preflight never installs live packages. New images include Debian's `sqlite3` package.
+Compatibility preflight uses the same `platform/atlas_facts/rela/scripts/fits.sh` and data snapshot helper as local startup. A first-upgrade image with legacy files and only `/app/bin/rela` needs no `sqlite3`, SQLite CLI or package installation: the flat-schema check uses that existing filesystem CLI. For a SQLite store, preflight requires native `sqlite3` and stages the hash-pinned current tools in `/tmp/next/bin`, leaving the old image's installed binaries untouched. If native `sqlite3` is absent, deployment refuses with a prerequisite error. Provision it through a reviewed image/held-store operations path before retrying; preflight never installs live packages. New images include Debian's `sqlite3` package.
 
 SQLite fits/counts use read-only native online backup, then native export from a private project containing the original description. They do not directly export the active server or copy its DB/WAL/SHM independently. Validation applies the proposed schema to the exported view and refuses removed populated fields, kinds or relations. Transfer counts therefore count real SQLite entities/links rather than empty markdown directories. Moving SQLite data also requires a headless SQLite destination image with its native tools. Archive transfer itself still uses the existing stopped-service holds/ownership protocol and complete file manifests; the private view is only for checking/counting, never a replacement archive.
 
@@ -94,8 +94,8 @@ the optional field keep working; smoke fails closed if an older server drops the
 ## Test-only worker access
 
 Test's settings add them, not the model: `control.tabs` (the generic Workers tab,
-after the model's tabs) and `control.workers` (the grants) in `fly/test/core.json`,
-which test's core runs on, and in `env/test.json` for a local test instance;
+after the model's tabs) and `control.workers` (the grants) in `products/software_factory/environments/test/core.json`,
+which test's core runs on, and in `products/software_factory/environments/test.json` for a local test instance;
 `config/runtime.exs` hands both to Control. Production's settings add the same tab
 with only `melle` as reader and submitter (`docs/guides/prod.md`). In test, named actors `melle` and `releasewriter` may read and
 submit; `releaseviewer` may only read. All other actors remain denied. A listed actor must still exist in
@@ -150,14 +150,14 @@ A migration command (today `atlas migrate-done-owner`) reads rela on the Mac, so
 
 1. **Hold and copy.** `atlas-ops fetch-from-fly --env test --to <folder> --hold`. Test on Fly now serves nothing, so nothing writes to it during the migration. The TUI says Control does not answer.
 2. **Migrate the copy on a private instance.**
-   - Write a settings file like `env/test.json` without `"fly"`, with `rela.data`, `rela.bin` and `facts.data` pointing into `<folder>`, and with free ports.
+   - Write a settings file like `products/software_factory/environments/test.json` without `"fly"`, with `rela.data`, `rela.bin` and `facts.data` pointing into `<folder>`, and with free ports.
    - Run the migration with `ATLAS_ENV_FILE=<that file>`, exactly as its guide says, for example `atlas migrate-done-owner --env test --dry-run`, then the real run.
    - It runs on the build the migration expects; a private instance never meets the Mac's or Fly's.
    - Start that instance first with `atlas-ops restart --env test`, and stop it after with `atlas-ops stop --rela --env test`, with the same `ATLAS_ENV_FILE`.
 3. **Deploy the build the migrated data needs.** Merge its pull request (or re-run `deploy-test`). A held environment is deployed without health checks or smoke check, and serves nothing yet.
 4. **Bring it back.** `atlas-ops move-to-fly --env test --from <folder> --replace-live`. That checks every file and count, and ends the hold: test serves the migrated data on the new build.
 
-If the deploy in step 3 comes first while test is not held, `fly/deploy.sh` refuses it: it names the data the new description does not describe, and test keeps its build. Then start at step 1.
+If the deploy in step 3 comes first while test is not held, `platform/ops/deploy.sh` refuses it: it names the data the new description does not describe, and test keeps its build. Then start at step 1.
 
 A hold ends without a move with `fly ssh console -a <app> -C "rm /data/hold"` on both apps, then `fly machine restart` (rela first).
 

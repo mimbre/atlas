@@ -8,7 +8,7 @@ Control discovers exact machine endpoints for failure actions. A node with no
 configured agents starts no Runtime engine, but still starts its output endpoint.
 
 Tracked core settings enable the private Bus listener on `::`: test on port `7694`
-(`fly/test/core.json`), prod on port `7594` (`fly/prod/core.json`, activated
+(`products/software_factory/environments/test/core.json`), prod on port `7594` (`products/software_factory/environments/prod/core.json`, activated
 2026-11-13). The Fly configurations declare no public service for it. The coordinator
 must install each environment's machine-token secret before deploying its
 configuration: missing or malformed `ATLAS_BUS_LINK_TOKEN` prevents core startup.
@@ -51,17 +51,17 @@ waiting to reconnect; process status proves neither authenticated remote registr
 nor a running worker. Consult its log for link progress and, when work is running,
 the turn's lease in Control.
 `atlas-runtime node` only launches the node lifecycle in an Atlas checkout
-(`tools/runtime.py`); it holds no Fly or keychain logic. The checkout is `--checkout <path>`,
+(`platform/ops/runtime.py`); it holds no Fly or keychain logic. The checkout is `--checkout <path>`,
 else `ATLAS_ROOT`, else a `"checkout": "<path>"` field in this `runtime.json`; with none of
 them it exits 2. The checkout resolves the environment as `atlas` does: `ATLAS_ENV_FILE`,
-else its `env/<env>.json`, prod by default, and `--env` must agree with the file's `"env"`.
+else its `products/software_factory/environments/<env>.json`, prod by default, and `--env` must agree with the file's `"env"`.
 The node is this machine as part of an Atlas environment; the rest of `atlas-runtime` is
 the standalone service below.
 The token is removed from Runtime's process environment before agent ports start.
 Agents' CLI calls still use the ordinary environment file and reach Control.
 
 The separate standalone `atlas-runtime` CLI runs native workers through a local Runtime
-service and Unix socket ([service guide](../../tools/runtime/README.md)). By default it
+service and Unix socket ([service guide](../../platform/atlas_runtime/host/README.md)). By default it
 has no Atlas Server connection. Optional `server.json` configuration reports allowlisted
 workers' lifecycle to Server for Console visibility. It also serves those turns' live public
 output: the existing bounded output ring, keyed by each turn's exact persisted Server
@@ -86,7 +86,7 @@ codecs and validators; exact worker identity remains separate.
 
 Status creates no Runtime directories or bytecode cache, starts no service, opens
 no Control/Bus/Fly connection and reads no keychain token. Shared contract codecs
-must already be built; run `mix compile` in bff/contract as explicit setup. Missing
+must already be built; run `mix compile` in platform/atlas_control/bff/contract as explicit setup. Missing
 codecs fail visibly. JSON reports absent, stale, unverified or unsupported with
 exact target, evidence basis and optional PID/log. A live legacy PID is unverified,
 because PID existence cannot establish Runtime role/instance/start ownership or
@@ -157,7 +157,7 @@ turn endpoint nor `runtime@machine/output` alone counts. Thus a connection-only
 node with `agents: {}` can be authenticated and connected while discovery returns
 `registered: false`. This is a point-in-time endpoint observation, not a probe
 of link responsiveness, worker lifecycle, models or leases. There is no global
-machine enumeration. Typed refusals, registry failure and transport/malformed or
+machine enumeration. Typed refusals, registry failure and platform/clients/transport/malformed or
 identity-mismatched replies are distinct from a successful unregistered result.
 Result/error correlation and nested target are checked; ordinary hint traffic
 remains independent under one fixed request deadline. The CLI may compile its

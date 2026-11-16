@@ -114,8 +114,8 @@ or redirects guidance to a replacement.
 
 Access is an environment setting and defaults to denied. Configure separate named
 admitted actor keys, not actor kinds, under `control.workers` in the environment's
-settings (`env/<env>.json`, or the settings file an instance runs on, such as
-`fly/test/core.json`); `config/runtime.exs` hands them to Control:
+settings (`products/software_factory/environments/<env>.json`, or the settings file an instance runs on, such as
+`products/software_factory/environments/test/core.json`); `config/runtime.exs` hands them to Control:
 
 ```json
 {
@@ -173,9 +173,9 @@ more; typed history/receipt operations traverse all retained evidence. Full
 conversation rendering and live token output are separate client work.
 Shell configuration may include a `/workers` tab without introducing a new block.
 
-`beam/integration/worker_control.exs` exercises actual TCP Control sessions,
+`products/software_factory/integration/worker_control.exs` exercises actual TCP Control sessions,
 Bus and Facts with a private durable synthetic backend. Its e2e entry point is
-`e2e/test/worker_control_test.exs`. It proves named grants, exact fencing, literal
+`products/software_factory/e2e/test/worker_control_test.exs`. It proves named grants, exact fencing, literal
 form submission, two-client history, duplicate conflicts, scoped paging, reconnect,
 unsupported adapters and recovery after a real post-commit lost acknowledgement.
 This is an automated test fixture, not a required local Runtime installation.
@@ -245,7 +245,7 @@ it must still bind receipts only to a selected loaded record for the exact execu
 
 Focused Control output tests cover ownership, revoked access, reset facts, missing
 rings, invalid cursors, correlation and admission cleanup. The private
-`beam/integration/worker_control.exs` path also exercises real TCP Control, Bus,
+`products/software_factory/integration/worker_control.exs` path also exercises real TCP Control, Bus,
 Facts and Runtime output store/endpoint delivery with two viewers, retention gaps,
 forbidden-view suppression, invalid-cursor refusal, continued production after
 unsubscribe, and explicit epoch reset after replacing only the private output

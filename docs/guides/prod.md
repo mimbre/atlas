@@ -26,7 +26,7 @@ The owned daemon uses userspace networking, a dedicated persisted node directory
 `/var/run/atlas-control-tailscale`. Do not share this state with another service.
 `ATLAS_CONTROL_TS_STATE_DIR` and `ATLAS_CONTROL_TS_SOCKET_DIR` override these paths.
 `ATLAS_CONTROL_TLS_PORT` defaults to 443. Startup reads the same `ATLAS_ENV_FILE`
-(or `$ATLAS_ROOT/env/$ATLAS_ENV.json`) as the core and forwards only its configured
+(or `$ATLAS_ROOT/products/software_factory/environments/$ATLAS_ENV.json`) as the core and forwards only its configured
 Control port, after checking that localhost can reach it. The existing Fly Control
 listener/private path stays intact; Bus and Runtime are unchanged.
 
@@ -91,7 +91,7 @@ separately from a closed tunnel.
 
 The probe proves transport, not Facts/rela health. An explicit hello refusal (for
 example an outdated client) also proves transport works; the client reports that
-refusal without a pointless proxy restart. Use `fly/smoke.sh prod` for read-only
+refusal without a pointless proxy restart. Use `platform/ops/smoke.sh prod` for read-only
 application checks. Persistent private-DNS or WireGuard failures still require
 Fly connectivity to recover; no public address is needed.
 
@@ -103,9 +103,9 @@ A deploy first checks that the build's description describes all of prod's data 
 
 One change reaches prod through four CI runs on the same git tree: its pull request (on GitHub's merge of it into develop), develop after the integration merge, the release pull request develop → master, and master. The tests (every job of `.github/workflows/ci.yml` except the deploys and the base job) run on the first, and on the others only when the tree is new.
 
-- **The records.** When every test job of a run passed, job `record-tested-tree` uploads the artifact `tested-tree-<tree>` (`git rev-parse HEAD^{tree}`). The base job `model-base` (`mix model.gen --check --base`) is recorded on its own, as `tested-base-<tree>-<base key>` (job `record-tested-base`), because its result also depends on the base: the base key is the blob of `model/targets/proof/digests.json` at the base commit, or `none` when the base has none. The files inside name the run, commit and ref. Artifacts, not caches: caches are scoped to a branch, but the repository's artifact list (`GET /repos/{owner}/{repo}/actions/artifacts?name=…`) shows a pull request's artifact to a later run on develop or master. They live as long as the repository's artifact retention.
+- **The records.** When every test job of a run passed, job `record-tested-tree` uploads the artifact `tested-tree-<tree>` (`git rev-parse HEAD^{tree}`). The base job `model-base` (`mix model.gen --check --base`) is recorded on its own, as `tested-base-<tree>-<base key>` (job `record-tested-base`), because its result also depends on the base: the base key is the blob of `products/software_factory/model/targets/proof/digests.json` at the base commit, or `none` when the base has none. The files inside name the run, commit and ref. Artifacts, not caches: caches are scoped to a branch, but the repository's artifact list (`GET /repos/{owner}/{repo}/actions/artifacts?name=…`) shows a pull request's artifact to a later run on develop or master. They live as long as the repository's artifact retention.
 - **The base.** A pull request's base is its base branch; a push's is its branch as it was before the push (`github.event.before`). So the pull request into develop and the push to develop that integrates it check against the same develop, and the release pull request and the push to master against the same master. A base that is no commit of the repository (a force push) fails `model-base`.
-- **The lookup.** On a push to develop or master, and on a pull request into master, job `tested-tree` looks both up (`tools/ci/tested-tree.mjs find`). It trusts a record only when it is not expired and its run is a completed, successful run of this same workflow file in this repository, not from a fork, and not this run. With the tree's record the test jobs report *skipped*; with the base record as well, `model-base` too. The base job is skipped only together with the tests, so every skipped job of a run is explained by the tree's record. The deploys run as before, with their description check and smoke check: test on develop, prod on master. A pull request into develop never looks up: it always runs, and records, everything.
+- **The lookup.** On a push to develop or master, and on a pull request into master, job `tested-tree` looks both up (`platform/ops/ci/tested-tree.mjs find`). It trusts a record only when it is not expired and its run is a completed, successful run of this same workflow file in this repository, not from a fork, and not this run. With the tree's record the test jobs report *skipped*; with the base record as well, `model-base` too. The base job is skipped only together with the tests, so every skipped job of a run is explained by the tree's record. The deploys run as before, with their description check and smoke check: test on develop, prod on master. A pull request into develop never looks up: it always runs, and records, everything.
 - **Otherwise everything runs.** No record (develop moved before the integration, so the merge is another tree; a change pushed directly; an expired record), an untrusted one, or a failed lookup: everything runs as before. The lookup never fails a run. The run summary has one line for the tests and one for the base job, for example `tests skipped: tree <hash> passed in run <id>` or `full suite: no record for tree <hash>` with the reason.
 
 In practice, on the release pull request the tests are skipped but `model-base` runs against master's `digests.json` (prod's history), unless master's file is the same blob as develop's; the push to master then finds that record and skips it.
@@ -132,15 +132,15 @@ Prod gets the same two apps as test, on a private network of its own (`eyra-atla
 
 | | App | Machine | Data |
 |---|---|---|---|
-| Core | `eyra-atlas` | shared-cpu-1x, 512 MB, ams (`fly/prod/core.toml`) | volume `core_data` at `/data` (Facts' own: `/data/beam`) |
-| rela | `eyra-atlas-rela` | performance-1x, 2048 MB, ams (`fly/prod/rela.toml`) | volume `rela_data` at `/data` (`/data/rela`) |
+| Core | `eyra-atlas` | shared-cpu-1x, 512 MB, ams (`products/software_factory/environments/prod/core.toml`) | volume `core_data` at `/data` (Facts' own: `/data/beam`) |
+| rela | `eyra-atlas-rela` | performance-1x, 2048 MB, ams (`products/software_factory/environments/prod/rela.toml`) | volume `rela_data` at `/data` (`/data/rela`) |
 
-A merge to master deploys prod (CI job `deploy-prod`, `fly/deploy.sh prod`). It works as test's:
+A merge to master deploys prod (CI job `deploy-prod`, `platform/ops/deploy.sh prod`). It works as test's:
 1. The description check on rela's machine; nothing is deployed when the data does not fit.
 2. rela, then the core.
 3. The smoke check, which reads only.
 
-`env/prod.json` names the apps in its `"fly"` section. Until the switch below it said `"in_use": false`: `atlas` kept using this Mac's prod core and rela, and only `move-to-fly` and `fetch-from-fly` (today `atlas-ops move-to-fly --env prod` and `atlas-ops fetch-from-fly --env prod`) went to Fly.
+`products/software_factory/environments/prod.json` names the apps in its `"fly"` section. Until the switch below it said `"in_use": false`: `atlas` kept using this Mac's prod core and rela, and only `move-to-fly` and `fetch-from-fly` (today `atlas-ops move-to-fly --env prod` and `atlas-ops fetch-from-fly --env prod`) went to Fly.
 
 ### Secrets
 
@@ -148,10 +148,10 @@ A merge to master deploys prod (CI job `deploy-prod`, `fly/deploy.sh prod`). It 
 |---|---|---|---|
 | eyra/atlas, repository secret | `FLY_API_TOKEN_PROD` | `fly tokens create deploy -a eyra-atlas` | CI's per-app deploy token |
 | eyra/atlas, repository secret | `FLY_API_TOKEN_PROD_RELA` | `fly tokens create deploy -a eyra-atlas-rela` | CI's per-app deploy token |
-| Fly app `eyra-atlas`, `fly secrets set -a eyra-atlas GITHUB_TOKEN=…` | `GITHUB_TOKEN` | shared by the GitHub connector and Code's integrate receiver on eyra/atlas (private) | `gh auth token`: `connectors.github.token_command` in `env/prod.json`, the local gh keyring |
+| Fly app `eyra-atlas`, `fly secrets set -a eyra-atlas GITHUB_TOKEN=…` | `GITHUB_TOKEN` | shared by the GitHub connector and Code's integrate receiver on eyra/atlas (private) | `gh auth token`: `connectors.github.token_command` in `products/software_factory/environments/prod.json`, the local gh keyring |
 
 On Fly the connector and Code's integrate receiver read the same secret
-(`connectors.github.token_env` in `fly/prod/core.json`). Restrict the fine-grained token
+(`connectors.github.token_env` in `products/software_factory/environments/prod/core.json`). Restrict the fine-grained token
 to eyra/atlas. Integration needs **Pull requests: read and write**, **Contents: read and
 write**, **Checks: read**, **Commit statuses: read**, and **Metadata: read**. Also grant
 **Workflows: write** if an update from the base can bring in `.github/workflows` changes.
@@ -170,7 +170,7 @@ token is missing, each connector round logs `no token: GITHUB_TOKEN is not set` 
 the stored values.
 
 Fly test keeps the integrate receiver selected so the shared subflow can run, but
-`fly/test/core.json` allows no repositories (`code.repositories: []`). Requests are
+`products/software_factory/environments/test/core.json` allows no repositories (`code.repositories: []`). Requests are
 refused locally as `repository_not_allowed` and the run reaches `blocked` without any
 GitHub read, credential lookup or write. Private e2e instances use their local GitHub
 stand-in instead. An unfinished request already in the journal is paused as `working`
@@ -182,7 +182,7 @@ There is no Flux connector yet: `flux_id` and `flux_ref` are described as set by
 ### Back up prod's data
 
 `atlas-ops fetch-from-fly` is prod's backup route. It reads the app names from
-`env/prod.json`, so it follows every release; it needs flyctl, logged in (`fly auth login`)
+`products/software_factory/environments/prod.json`, so it follows every release; it needs flyctl, logged in (`fly auth login`)
 with access to both prod apps.
 
 ```sh
@@ -262,7 +262,7 @@ Preserve both `rela/` and `beam/`, including Facts' provenance and answered-fact
    Compare the code/configuration trees: source and master can have different commit
    IDs because the release preserves merge history. Check source data with that
    build's description. Before pulling an operational Mac
-   checkout, inspect `rela/` changes and follow backup-before-pull: stop the old rela,
+   checkout, inspect `products/software_factory/model/targets/rela/` changes and follow backup-before-pull: stop the old rela,
    copy the complete environment to a new timestamped backup, then restart the old
    build. Never start new-schema rela over data that still needs a migration.
 1. **Freeze every source writer using the OLD client settings.** Keep the operational
@@ -308,7 +308,7 @@ Preserve both `rela/` and `beam/`, including Facts' provenance and answered-fact
    Flow and connectors may already have reconciled. Investigate mismatches against
    arrival evidence and later facts; save a fresh consistent snapshot if needed.
    Do not start Runtime during these checks.
-6. **Verify through Control on Fly:** `fly/smoke.sh prod` lists kinds and counts;
+6. **Verify through Control on Fly:** `platform/ops/smoke.sh prod` lists kinds and counts;
    it is not a semantic comparison of every item. Also compare known scene/use-case/
    issue/PR records, Assignment/ownership and acceptance links, including provenance.
    Account for expected Flow and GitHub changes from the baseline. Confirm the build,
@@ -326,8 +326,8 @@ independent process with its own PID, log and optional Bus proxy. Core stop/rest
 does not stop it. A disconnected node retries its configured endpoint; it does not
 retarget automatically from the Mac to Fly. Settings are read when the node starts.
 
-Activated on 2026-11-13 (IS-91 approval). `fly/prod/core.json` enables the private Bus
-listener on `::`, port `7594`; `fly/prod/core.toml` declares no public service for it.
+Activated on 2026-11-13 (IS-91 approval). `products/software_factory/environments/prod/core.json` enables the private Bus
+listener on `::`, port `7594`; `products/software_factory/environments/prod/core.toml` declares no public service for it.
 The core secret `ATLAS_BUS_LINK_TOKEN` (a JSON object from machine name to a distinct
 random token) must be set on `eyra-atlas` before this configuration deploys: the core
 refuses to boot when it is missing or malformed. The first node is machine
@@ -376,7 +376,7 @@ previous worktrees, branches and backups; cleanup needs separate authorization.
 Run from this worktree, with a NEW output folder and the pinned rela executables:
 
 ```sh
-python3 fly/rehearse-transfer.py --output <new-private-folder> --rela-bin <pinned-rela-bin-folder>
+python3 platform/ops/rehearse-transfer.py --output <new-private-folder> --rela-bin <pinned-rela-bin-folder>
 ```
 
 The harness copies only the executables, starts real Atlas/rela instances on free

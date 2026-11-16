@@ -11,7 +11,7 @@ Optional server ingress is disabled by default and unverified on live Fly. See t
 [activation prerequisites and rollback](docs/guides/prod.md#optional-control-tls-ingress-not-activated)
 before considering it; this does not change Bus or Runtime transport.
 
-The BEAM side runs the system. rela describes it. Entities, schemas, flows and the organisation are written in the model (`model/contract`), which generates rela's description. The BEAM code names no entity.
+The BEAM side runs the system. rela describes it. Entities, schemas, flows and the organisation are written in the model (`products/software_factory/model/contract`), which generates rela's description. The BEAM code names no entity.
 
 ## Main parts
 
@@ -27,19 +27,18 @@ The BEAM side runs the system. rela describes it. Entities, schemas, flows and t
 
 | Path | What |
 |---|---|
-| `beam/` | The BEAM umbrella: one application per layer (`atlas_bus`, `atlas_facts`, `atlas_flow`, `atlas_control`, `atlas_runtime`, `atlas_code`). |
-| `bff/` | Control's contract: the generator, the contract itself, and the generated targets. See [bff/README.md](bff/README.md). |
-| `rela/` | rela's description of every entity Atlas knows, generated from the model. See [rela/README.md](rela/README.md). |
-| `model/` | The model: the Rela DSL (`dsl/`), Atlas's domain written in it, by module and concept: kinds, relations, subflows and gates (`contract/`), and the files generated from it besides `rela/` (`targets/`). |
-| `clients/` | The Console (`tui/`), the agents' command line (`agent/`) and the Runtime viewer (`viewer/`, see [its README](clients/viewer/README.md)). |
-| `transport/` | Optional verified TLS socket transport shared only by the Control CLI and TUI clients. |
-| `env/` | One settings file per environment. |
-| `fly/` | Images and deploy scripts for the hosted environments. |
+| `platform/atlas_*/` | The platform's parts, one application per layer (`atlas_bus`, `atlas_facts`, `atlas_flow`, `atlas_control`, `atlas_gates`, `atlas_runtime`, `atlas_code`, `atlas_learn`), apps of the umbrella in `products/software_factory/`. |
+| `platform/atlas_control/bff/` | Control's contract: the generator, the contract itself, and the generated targets. See [platform/atlas_control/bff/README.md](platform/atlas_control/bff/README.md). |
+| `platform/atlas_facts/rela/` | How Facts runs rela: its scripts and their tests. See [platform/atlas_facts/rela/README.md](platform/atlas_facts/rela/README.md). |
+| `platform/atlas_runtime/host/` | The Runtime CLI in Go ([platform/atlas_runtime/host/README.md](platform/atlas_runtime/host/README.md)). |
+| `platform/atlas_runtime/viewer/` | The Runtime viewer ([its README](platform/atlas_runtime/viewer/README.md)). |
+| `platform/clients/` | The Console (`tui/`), the agents' command line (`agent/`), the Apple clients (`apple/`) and the optional verified TLS socket transport shared only by the Control CLI and TUI clients (`platform/clients/transport/`). |
+| `platform/ops/` | Images and deploy scripts for the hosted environments, and supporting tools (CI's tested-tree record in `ci/`, the local Runtime node helpers, `plan/`, `orchestrator/`, `tests/`). |
+| `products/software_factory/` | The software factory: the umbrella that builds the release (`mix.exs`, `config/`, `integration/`), the model (`model/`, below), the settings per environment (`environments/`) and the end-to-end test (`products/software_factory/e2e/`). |
+| `products/software_factory/model/` | The model, one intent folder: `generator/` (the Rela DSL), `contract/` (Atlas's domain written in the Rela DSL, by module and concept: kinds, relations, subflows and gates) and `targets/`, the files generated from it (`targets/rela/`: rela's description of every entity Atlas knows, see `platform/atlas_facts/rela/README.md`; `targets/{atlas,diagrams,proof,test}/`). |
 | `bin/atlas` | The `atlas` command, Control's client: the Console, the commands on facts during a turn, and provisioning. `atlas help` lists them. |
 | `bin/atlas-ops` | The `atlas-ops` command: operating an environment (status, logs, restart, the tunnel, data moves, install). |
 | `bin/atlas-dev` | Development and test tooling, run from the checkout and never installed. |
-| `e2e/` | The end-to-end test: only the flows that must never break, driving real Consoles. |
-| `tools/` | Supporting tools, such as the Runtime CLI in Go ([tools/runtime/README.md](tools/runtime/README.md)). |
 | `skills/` | Instructions for the agent roles that work on Atlas. |
 | `docs/` | Architecture, guides, contracts and decisions. |
 
@@ -48,17 +47,17 @@ The BEAM side runs the system. rela describes it. Entities, schemas, flows and t
 You need Erlang and Elixir at the versions in `.tool-versions`, and Go for the Runtime CLI. The end-to-end test also needs tmux, `python3` and `curl`.
 
 ```sh
-cd beam && mix test              # the BEAM layers
-go -C tools/runtime test ./...   # the Runtime CLI
-cd clients/tui && mix test       # the Console
-cd clients/agent && mix test     # the agents' command line
-cd bff/generator && mix test     # the contract generator
-cd bff/contract && mix atlas.gen # after changing the contract: regenerate bff/targets/
-cd model/dsl && mix test         # the Rela DSL
-cd model/contract && mix model.gen # after changing the model: regenerate rela/ and model/targets/
-cd e2e && mix test               # the atlas launcher's own rules
-bin/atlas-dev e2e --env test     # the end-to-end test, on a private instance
-node --test tools/ci/tested-tree.test.mjs # CI's tested-tree record (Node 18+)
+cd products/software_factory && mix test                   # the BEAM layers
+go -C platform/atlas_runtime/host test ./...               # the Runtime CLI
+cd platform/clients/tui && mix test                        # the Console
+cd platform/clients/agent && mix test                      # the agents' command line
+cd platform/atlas_control/bff/generator && mix test        # the contract generator
+cd platform/atlas_control/bff/contract && mix atlas.gen    # after changing the contract: regenerate platform/atlas_control/bff/targets/
+cd products/software_factory/model/generator && mix test   # the Rela DSL
+cd products/software_factory/model/contract && mix model.gen # after changing the model: regenerate products/software_factory/model/targets/
+cd products/software_factory/e2e && mix test               # the atlas launcher's own rules
+bin/atlas-dev e2e --env test                               # the end-to-end test, on a private instance
+node --test platform/ops/ci/tested-tree.test.mjs           # CI's tested-tree record (Node 18+)
 ```
 
 Four commands, each with its own purpose:
@@ -66,7 +65,7 @@ Four commands, each with its own purpose:
 - `atlas`: Control's client. The Console (`atlas tui`), the agents' commands on facts, and provisioning (`atlas help`).
 - `atlas-ops`: operating an environment: its processes, logs, tunnel and data.
 - `bin/atlas-dev`: development and test tooling, from the checkout.
-- `atlas-runtime`: the Runtime CLI ([tools/runtime/README.md](tools/runtime/README.md)); `atlas-runtime node` runs this machine as a node of an environment.
+- `atlas-runtime`: the Runtime CLI ([platform/atlas_runtime/host/README.md](platform/atlas_runtime/host/README.md)); `atlas-runtime node` runs this machine as a node of an environment.
 
 They work on prod by default. Pass `--env test` to work on test. Scripts, tests and agents must always pass `--env test` or a private `ATLAS_ENV_FILE`.
 
