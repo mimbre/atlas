@@ -131,11 +131,13 @@ defmodule Mix.Tasks.RuntimeBoundary.GenTest do
       )
     end
 
-    test "refuses several contracts, an unknown key, or no contract", %{tmp_dir: dir} do
+    test "refuses an unknown key, or no contract", %{tmp_dir: dir} do
       example = AtlasRuntimeBoundary.Generator.Example
 
-      in_project([contracts: [a: example, b: example], targets: [json: dir]], fn ->
-        assert_raise Mix.Error, ~r/one contract per project/, fn -> gen() end
+      in_project([contracts: [], targets: [json: dir]], fn ->
+        assert_raise Mix.Error, ~r/expected contracts: \[name: Module\], got \[\]/, fn ->
+          gen()
+        end
       end)
 
       in_project([contracts: [a: example], targets: [json: dir], contract: example], fn ->
@@ -145,6 +147,101 @@ defmodule Mix.Tasks.RuntimeBoundary.GenTest do
       in_project([targets: [json: dir]], fn ->
         assert_raise Mix.Error, ~r/expected contracts: \[name: Module\], got nil/, fn -> gen() end
       end)
+
+      assert File.ls!(dir) == []
+    end
+  end
+
+  describe "several contracts in the project's mix.exs" do
+    @example AtlasRuntimeBoundary.Generator.Example
+    @catalogue AtlasRuntimeBoundary.Generator.Catalogue
+
+    test "each contract writes its own file, whose header names its own contract file",
+         %{tmp_dir: dir} do
+      in_project(
+        [contracts: [lending: @example, reading: @catalogue], targets: [json: dir]],
+        fn ->
+          gen()
+          assert File.ls!(dir) |> Enum.sort() == ["lending.json", "reading.json"]
+
+          lending = File.read!(Path.join(dir, "lending.json"))
+          reading = File.read!(Path.join(dir, "reading.json"))
+          assert Header.generated?(".json", lending) and Header.generated?(".json", reading)
+          assert lending =~ "change test/support/example.ex and regenerate."
+          assert reading =~ "change test/support/catalogue.ex and regenerate."
+          assert lending =~ ~s("shortage") and not (lending =~ ~s("hold"))
+          assert reading =~ ~s("hold") and not (reading =~ ~s("shortage"))
+
+          gen(["--check"])
+          assert_received {:mix_shell, :info, ["generated files are up to date"]}
+        end
+      )
+    end
+
+    test "--check fails on a stale or missing file of any contract", %{tmp_dir: dir} do
+      in_project(
+        [contracts: [lending: @example, reading: @catalogue], targets: [json: dir]],
+        fn ->
+          gen()
+          reading = Path.join(dir, "reading.json")
+          File.write!(reading, String.replace(File.read!(reading), "waitlist", "queue"))
+          assert_raise Mix.Error, ~r/out of date.*reading.json/, fn -> gen(["--check"]) end
+          File.rm!(reading)
+          assert_raise Mix.Error, ~r/out of date.*reading.json/, fn -> gen(["--check"]) end
+        end
+      )
+    end
+
+    test "a removed contract's file is left over; gen removes it", %{tmp_dir: dir} do
+      in_project(
+        [contracts: [lending: @example, reading: @catalogue], targets: [json: dir]],
+        fn ->
+          gen()
+        end
+      )
+
+      in_project([contracts: [lending: @example], targets: [json: dir]], fn ->
+        assert_raise Mix.Error, ~r/reading.json \(left over\)/, fn -> gen(["--check"]) end
+        gen()
+        assert File.ls!(dir) == ["lending.json"]
+        gen(["--check"])
+      end)
+    end
+
+    test "only the files no contract writes are left over", %{tmp_dir: dir} do
+      in_project(
+        [contracts: [lending: @example, reading: @catalogue], targets: [json: dir]],
+        fn ->
+          gen()
+          File.write!(Path.join(dir, "old.json"), File.read!(Path.join(dir, "reading.json")))
+          error = assert_raise Mix.Error, fn -> gen(["--check"]) end
+          assert error.message =~ "old.json (left over)"
+          refute error.message =~ "lending.json"
+          refute error.message =~ "reading.json"
+        end
+      )
+    end
+
+    test "refuses two contracts with one name, or writing one file, before writing",
+         %{tmp_dir: dir} do
+      in_project(
+        [contracts: [lending: @example, lending: @catalogue], targets: [json: dir]],
+        fn ->
+          assert_raise Mix.Error, ~r/two contracts are named lending/, fn -> gen() end
+        end
+      )
+
+      in_project(
+        [
+          contracts: [lending: @example, reading: @catalogue],
+          targets: [json: {dir, name: "all"}]
+        ],
+        fn ->
+          assert_raise Mix.Error, ~r/contracts lending and reading both write .*all.json/, fn ->
+            gen()
+          end
+        end
+      )
 
       assert File.ls!(dir) == []
     end
