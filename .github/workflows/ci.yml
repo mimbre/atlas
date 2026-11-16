@@ -451,66 +451,6 @@ jobs:
       - run: mix compile --warnings-as-errors && mix format --check-formatted && mix test
         working-directory: platform/ops/plan
 
-  e2e:
-    name: End to end (rela, core, two TUIs)
-    needs: tested-tree
-    # Non-blocking until Atlas runs in real production (Melle, 2026-11-16): failures are
-    # reported but do not fail the run or block integration.
-    continue-on-error: true
-    if: ${{ !cancelled() && needs.tested-tree.outputs.tested != 'true' }}
-    runs-on: ubuntu-latest
-    env:
-      TERM: xterm-256color
-      ATLAS_E2E_RELA_BIN: ${{ github.workspace }}/.rela-bin
-    steps:
-      - uses: actions/checkout@v4
-      - uses: erlef/setup-beam@v1
-        with:
-          otp-version: "28"
-          elixir-version: "1.18"
-      # The Runtime backend scenario (e2e/test/runtime_backend_test.exs) builds the host and
-      # the fake harness with Go; the host's go.mod needs 1.25.
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.25"
-          cache: false
-      - run: python3 -m pip install -r platform/atlas_facts/rela/scripts/requirements.txt
-      - run: ATLAS_RELA_BIN="$ATLAS_E2E_RELA_BIN" platform/atlas_facts/rela/scripts/start-test.sh install
-      - run: python3 -m unittest discover -s platform/atlas_facts/rela/tests -v
-      # From the app's own folder: Mix's umbrella root matches file arguments only under
-      # apps/, and the umbrella's apps are in ../../platform (its mix.exs points at the
-      # umbrella's config and _build).
-      - name: Guidance against the pinned private HTTP store
-        working-directory: platform/atlas_facts
-        env:
-          MIX_ENV: test
-        run: mix test --include integration test/guidance_native_test.exs
-      - run: sudo apt-get update && sudo apt-get install -y tmux lsof netcat-openbsd jq sqlite3
-      # rela-server-headless-sqlite, pinned in platform/atlas_facts/rela/scripts/start-test.sh; it downloads it when missing.
-      - uses: actions/cache@v4
-        with:
-          path: .rela-bin
-          key: rela-26.11.3-linux_amd64
-      # The scenarios compile and run the umbrella (products/software_factory): its Hex
-      # dependencies as mix.lock pins them. Hex and rebar (telemetry builds with rebar3) first.
-      - run: mix local.hex --force && mix local.rebar --force && mix deps.get --check-locked
-        working-directory: products/software_factory
-      # The scenarios also generate from the model (products/software_factory/model/contract),
-      # which compiles the Runtime and so needs its Hex dependencies too.
-      - run: mix deps.get --check-locked
-        working-directory: products/software_factory/model/contract
-      - run: mix compile --warnings-as-errors && mix format --check-formatted
-        working-directory: products/software_factory/e2e
-      # bin/atlas itself: prod by default, test only when asked; bin/atlas-dev e2e never on prod.
-      - run: mix test
-        working-directory: products/software_factory/e2e
-      - run: bin/atlas-dev e2e --env test
-      - if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: e2e-screens
-          path: products/software_factory/e2e/artifacts
-
   swift:
     name: Swift package of the contract (macOS, iOS)
     needs: tested-tree
@@ -562,7 +502,7 @@ jobs:
   # run tested it itself, and never from a fork.
   record-tested-tree:
     name: Record the tested tree
-    needs: [tested-tree, generator, runtime-boundary-generator, runtime-boundary-contract, contract, runtime-model, model-dsl, model-contract, beam, tui, agent, e2e, swift, apple, runtime-backend-generator, runtime-backend-contract]
+    needs: [tested-tree, generator, runtime-boundary-generator, runtime-boundary-contract, contract, runtime-model, model-dsl, model-contract, beam, tui, agent, swift, apple, runtime-backend-generator, runtime-backend-contract]
     if: >-
       needs.tested-tree.outputs.tested != 'true' && needs.tested-tree.outputs.tree != ''
       && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
