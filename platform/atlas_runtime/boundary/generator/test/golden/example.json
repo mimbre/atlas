@@ -45,6 +45,20 @@
         }
       ],
       "right": "browse"
+    },
+    {
+      "input": "download_input",
+      "name": "download",
+      "outcomes": [
+        {
+          "model": "scan",
+          "name": "downloaded"
+        },
+        {
+          "name": "missing"
+        }
+      ],
+      "right": "browse"
     }
   ],
   "invalid_input": {
@@ -200,6 +214,32 @@
         }
       ],
       "name": "tally"
+    },
+    {
+      "fields": [
+        {
+          "name": "title",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "byte stream",
+          "name": "content",
+          "required": true,
+          "type": "stream"
+        }
+      ],
+      "name": "scan"
+    },
+    {
+      "fields": [
+        {
+          "name": "title",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "name": "download_input"
     }
   ],
   "version": "1.0.0"

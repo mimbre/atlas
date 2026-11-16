@@ -12,11 +12,11 @@ defmodule AtlasRuntime.Entrypoints.SocketTest do
     try do
       assert Bitwise.band(File.stat!(path).mode, 0o777) == 0o600
       {:ok, socket} = :gen_tcp.connect({:local, path}, 0, [:binary, active: false, packet: :line])
-      :ok = :gen_tcp.send(socket, "{\"command\":\"service-status\"}\n")
-      assert_receive {:"$gen_call", from, %{"command" => "service-status"}}
-      GenServer.reply(from, {%{service: "running"}, false})
+      :ok = :gen_tcp.send(socket, "{\"command\":\"handoff\"}\n")
+      assert_receive {:"$gen_call", from, %{"command" => "handoff"}}
+      GenServer.reply(from, {%{handoff: "recorded"}, false})
       assert {:ok, reply} = :gen_tcp.recv(socket, 0, 1_000)
-      assert JSON.decode!(reply) == %{"service" => "running"}
+      assert JSON.decode!(reply) == %{"handoff" => "recorded"}
       assert String.ends_with?(reply, "\n")
       assert {:error, :closed} = :gen_tcp.recv(socket, 0, 1_000)
 
@@ -32,8 +32,9 @@ defmodule AtlasRuntime.Entrypoints.SocketTest do
       end
 
       {:ok, socket} = :gen_tcp.connect({:local, path}, 0, [:binary, active: false, packet: :line])
-      :ok = :gen_tcp.send(socket, "{\"command\":\"service-stop\"}\n")
-      assert_receive {:"$gen_call", from, %{"command" => "service-stop"}}
+      # The Service may ask for shutdown with its reply; the socket sends the reply first.
+      :ok = :gen_tcp.send(socket, "{\"command\":\"question\"}\n")
+      assert_receive {:"$gen_call", from, %{"command" => "question"}}
       GenServer.reply(from, {%{service: "stopping"}, true})
       assert {:ok, reply} = :gen_tcp.recv(socket, 0, 1_000)
       assert JSON.decode!(reply) == %{"service" => "stopping"}
@@ -45,7 +46,7 @@ defmodule AtlasRuntime.Entrypoints.SocketTest do
     end
   end
 
-  test "runtime.sock refuses the work commands and still forwards operations and guidance" do
+  test "runtime.sock refuses the work commands and the operations, and forwards guidance" do
     dir = TestHost.short_dir!("ars", "/runtime.sock")
     acceptor = Socket.start(dir, self())
     path = Path.join(dir, "runtime.sock")
@@ -64,7 +65,12 @@ defmodule AtlasRuntime.Entrypoints.SocketTest do
             {"kill", "backend.sock"},
             {"status", "backend.sock"},
             {"output", "backend.sock"},
-            {"turns", "read.sock"}
+            {"turns", "backend.sock (GET /v1/turns)"},
+            # The operations contract (S2): runtime.sock keeps only guidance (Q10).
+            {"service-status", "backend.sock (GET /v1/runtime)"},
+            {"service-stop", "backend.sock (POST /v1/control/stop)"},
+            {"preferences", "backend.sock (GET /v1/policy"},
+            {"release", "backend.sock (POST /v1/slots/{slot}/release)"}
           ] do
         socket = send_line.(%{"command" => command, "worker_id" => "w1"})
         assert {:ok, reply} = :gen_tcp.recv(socket, 0, 1_000)
@@ -76,16 +82,42 @@ defmodule AtlasRuntime.Entrypoints.SocketTest do
         refute_received {:"$gen_call", _, _}
       end
 
+      # Each operation also as the CLI sent it before S2.
       for request <- [
             %{"command" => "service-status"},
-            %{"command" => "preferences"},
-            %{"command" => "release", "worker_id" => "w1"},
-            %{
-              "command" => "question",
-              "worker_id" => "w1",
-              "turn_id" => "t",
-              "question_id" => "q"
-            }
+            %{"command" => "service-stop"},
+            %{"command" => "preferences", "reenable" => "claude"},
+            %{"command" => "release", "worker_id" => "w1"}
+          ] do
+        socket = send_line.(request)
+        assert {:ok, reply} = :gen_tcp.recv(socket, 0, 1_000)
+        assert %{"command_error" => error} = JSON.decode!(reply)
+
+        assert error =~
+                 "is not served on runtime.sock: use the operations contract on backend.sock"
+
+        refute_received {:"$gen_call", _, _}
+      end
+
+      target = %{"worker_id" => "w1", "turn_id" => "t"}
+      question = Map.put(target, "question_id", "q")
+
+      # Every guidance command (Q10) still reaches the Service.
+      for request <- [
+            Map.put(question, "command", "question"),
+            Map.merge(question, %{"command" => "answer", "answers" => %{"Which?" => "A"}}),
+            Map.put(target, "command", "handoff"),
+            Map.merge(target, %{
+              "command" => "submit-handoff",
+              "handoff" => %{"kind" => "completion"}
+            }),
+            Map.put(question, "command", "peer-question"),
+            Map.merge(question, %{
+              "command" => "route-peer-question",
+              "peer_worker_id" => "w2",
+              "peer_source_turn_id" => "p"
+            }),
+            Map.merge(question, %{"command" => "bind-peer-reply", "response_turn_id" => "r"})
           ] do
         socket = send_line.(request)
         assert_receive {:"$gen_call", from, ^request}
@@ -153,8 +185,6 @@ defmodule AtlasRuntime.Entrypoints.SocketTest do
   end
 
   describe "streams" do
-    alias AtlasRuntime.Entrypoints.ReadSocket
-
     setup do
       # Short: socket paths must fit a Unix socket name.
       dir =
@@ -190,21 +220,17 @@ defmodule AtlasRuntime.Entrypoints.SocketTest do
         "recording_started_at" => "2026-11-10T00:00:00Z"
       }
 
-    # The follow socket `name` against this test process as the service; `timing` in
-    # milliseconds. read.sock and runtime.sock serve the same follow stream.
-    defp follow(name, dir, timing, fields \\ %{}) do
-      acceptor =
-        case name do
-          "read.sock" -> ReadSocket.start(dir, self(), timing)
-          "runtime.sock" -> Socket.start(dir, self(), timing)
-        end
+    # runtime.sock's follow stream against this test process as the service; `timing` in
+    # milliseconds.
+    defp follow(dir, timing, fields \\ %{}) do
+      acceptor = Socket.start(dir, self(), timing)
 
       on_exit(fn ->
         Process.unlink(acceptor)
         Process.exit(acceptor, :kill)
       end)
 
-      socket = connect(Path.join(dir, name))
+      socket = connect(Path.join(dir, "runtime.sock"))
       request = Map.merge(%{"api" => "runtime.read/1", "op" => "follow"}, fields)
       :ok = :gen_tcp.send(socket, JSON.encode!(request) <> "\n")
       socket
@@ -243,96 +269,92 @@ defmodule AtlasRuntime.Entrypoints.SocketTest do
       end
     end
 
-    for name <- ["read.sock", "runtime.sock"] do
-      @name name
+    test "signals coalesce into one read; pages continue while more; a slow service ends the stream",
+         %{dir: dir} do
+      socket = follow(dir, [heartbeat: 60_000, service: 100], %{"cursor" => "e:0"})
+      assert_receive {:"$gen_call", from, {:follow, follower, "e:0"}}, 5_000
+      GenServer.reply(from, page([%{"sequence" => 1}], "e:1", true))
+      # `more`: the follower reads on by itself before it waits.
+      GenServer.reply(read_call("e:1"), page([%{"sequence" => 2}], "e:2"))
 
-      test "#{name}: signals coalesce into one read; pages continue while more; a slow service ends the stream",
-           %{dir: dir} do
-        socket = follow(@name, dir, [heartbeat: 60_000, service: 100], %{"cursor" => "e:0"})
-        assert_receive {:"$gen_call", from, {:follow, follower, "e:0"}}, 5_000
-        GenServer.reply(from, page([%{"sequence" => 1}], "e:1", true))
-        # `more`: the follower reads on by itself before it waits.
-        GenServer.reply(read_call("e:1"), page([%{"sequence" => 2}], "e:2"))
-
-        assert [
-                 %{
-                   "type" => "page",
-                   "op" => "follow",
-                   "events" => [%{"sequence" => 1}],
-                   "more" => true
-                 },
-                 %{"type" => "page", "events" => [%{"sequence" => 2}], "cursor" => "e:2"}
-               ] = lines(socket, 2)
-
-        for sequence <- 3..5, do: send(follower, {:events_appended, sequence})
-        from = read_call("e:2")
-        # Signals that arrive while a read is pending are drained into the next single read.
-        for sequence <- 6..8, do: send(follower, {:events_appended, sequence})
-        GenServer.reply(from, page([%{"sequence" => 3}], "e:3"))
-        assert [%{"events" => [%{"sequence" => 3}]}] = lines(socket, 1)
-        GenServer.reply(read_call("e:3"), page([], "e:3"))
-        refute_received {:"$gen_call", _, _}
-
-        # Unanswered beyond the service timeout: `end`, then EOF.
-        send(follower, {:events_appended, 9})
-        read_call("e:3")
-
-        assert line(socket) == %{
-                 "api" => "runtime.read/1",
+      assert [
+               %{
+                 "type" => "page",
                  "op" => "follow",
-                 "type" => "end",
-                 "reason" => "service_unresponsive"
-               }
+                 "events" => [%{"sequence" => 1}],
+                 "more" => true
+               },
+               %{"type" => "page", "events" => [%{"sequence" => 2}], "cursor" => "e:2"}
+             ] = lines(socket, 2)
 
-        assert {:error, :closed} = :gen_tcp.recv(socket, 0, 5_000)
-      end
+      for sequence <- 3..5, do: send(follower, {:events_appended, sequence})
+      from = read_call("e:2")
+      # Signals that arrive while a read is pending are drained into the next single read.
+      for sequence <- 6..8, do: send(follower, {:events_appended, sequence})
+      GenServer.reply(from, page([%{"sequence" => 3}], "e:3"))
+      assert [%{"events" => [%{"sequence" => 3}]}] = lines(socket, 1)
+      GenServer.reply(read_call("e:3"), page([], "e:3"))
+      refute_received {:"$gen_call", _, _}
 
-      test "#{name}: heartbeats come only after the service answered; input after the request closes",
-           %{dir: dir} do
-        socket = follow(@name, dir, heartbeat: 10, service: 5_000)
-        assert_receive {:"$gen_call", from, {:follow, follower, nil}}, 5_000
-        ref = Process.monitor(follower)
-        GenServer.reply(from, page([], "e:4"))
-        assert [%{"type" => "page"}] = lines(socket, 1)
+      # Unanswered beyond the service timeout: `end`, then EOF.
+      send(follower, {:events_appended, 9})
+      read_call("e:3")
 
-        GenServer.reply(read_call("e:4"), page([], "e:4"))
+      assert line(socket) == %{
+               "api" => "runtime.read/1",
+               "op" => "follow",
+               "type" => "end",
+               "reason" => "service_unresponsive"
+             }
 
-        assert line(socket) == %{
-                 "api" => "runtime.read/1",
-                 "op" => "follow",
-                 "type" => "heartbeat",
-                 "cursor" => "e:4"
-               }
+      assert {:error, :closed} = :gen_tcp.recv(socket, 0, 5_000)
+    end
 
-        # A tick that finds events sends them as a page instead.
-        GenServer.reply(read_call("e:4"), page([%{"sequence" => 5}], "e:5"))
-        assert [%{"type" => "page", "cursor" => "e:5"}] = lines(socket, 1)
+    test "heartbeats come only after the service answered; input after the request closes",
+         %{dir: dir} do
+      socket = follow(dir, heartbeat: 10, service: 5_000)
+      assert_receive {:"$gen_call", from, {:follow, follower, nil}}, 5_000
+      ref = Process.monitor(follower)
+      GenServer.reply(from, page([], "e:4"))
+      assert [%{"type" => "page"}] = lines(socket, 1)
 
-        from = read_call("e:5")
-        :ok = :gen_tcp.send(socket, "{}\n")
-        GenServer.reply(from, page([], "e:5"))
-        assert %{"type" => "heartbeat"} = line(socket)
-        assert_receive {:DOWN, ^ref, :process, ^follower, _}, 5_000
-        assert {:error, :closed} = :gen_tcp.recv(socket, 0, 5_000)
-      end
+      GenServer.reply(read_call("e:4"), page([], "e:4"))
 
-      test "#{name}: a refused follow is one error line; a stopping service ends the stream",
-           %{dir: dir} do
-        refused = follow(@name, dir, [], %{"cursor" => "e:9"})
-        assert_receive {:"$gen_call", from, {:follow, _, "e:9"}}, 5_000
-        GenServer.reply(from, AtlasRuntime.Inspection.Reads.error("invalid_cursor"))
-        assert %{"error" => %{"code" => "invalid_cursor"}} = line(refused)
-        assert {:error, :closed} = :gen_tcp.recv(refused, 0, 5_000)
+      assert line(socket) == %{
+               "api" => "runtime.read/1",
+               "op" => "follow",
+               "type" => "heartbeat",
+               "cursor" => "e:4"
+             }
 
-        socket = connect(Path.join(dir, @name))
-        :ok = :gen_tcp.send(socket, ~s({"api":"runtime.read/1","op":"follow"}\n))
-        assert_receive {:"$gen_call", from, {:follow, follower, nil}}, 5_000
-        GenServer.reply(from, page([], "e:0"))
-        assert [%{"type" => "page"}] = lines(socket, 1)
-        send(follower, :service_stopping)
-        assert %{"type" => "end", "reason" => "service_stopping"} = line(socket)
-        assert {:error, :closed} = :gen_tcp.recv(socket, 0, 5_000)
-      end
+      # A tick that finds events sends them as a page instead.
+      GenServer.reply(read_call("e:4"), page([%{"sequence" => 5}], "e:5"))
+      assert [%{"type" => "page", "cursor" => "e:5"}] = lines(socket, 1)
+
+      from = read_call("e:5")
+      :ok = :gen_tcp.send(socket, "{}\n")
+      GenServer.reply(from, page([], "e:5"))
+      assert %{"type" => "heartbeat"} = line(socket)
+      assert_receive {:DOWN, ^ref, :process, ^follower, _}, 5_000
+      assert {:error, :closed} = :gen_tcp.recv(socket, 0, 5_000)
+    end
+
+    test "a refused follow is one error line; a stopping service ends the stream",
+         %{dir: dir} do
+      refused = follow(dir, [], %{"cursor" => "e:9"})
+      assert_receive {:"$gen_call", from, {:follow, _, "e:9"}}, 5_000
+      GenServer.reply(from, AtlasRuntime.Inspection.Reads.error("invalid_cursor"))
+      assert %{"error" => %{"code" => "invalid_cursor"}} = line(refused)
+      assert {:error, :closed} = :gen_tcp.recv(refused, 0, 5_000)
+
+      socket = connect(Path.join(dir, "runtime.sock"))
+      :ok = :gen_tcp.send(socket, ~s({"api":"runtime.read/1","op":"follow"}\n))
+      assert_receive {:"$gen_call", from, {:follow, follower, nil}}, 5_000
+      GenServer.reply(from, page([], "e:0"))
+      assert [%{"type" => "page"}] = lines(socket, 1)
+      send(follower, :service_stopping)
+      assert %{"type" => "end", "reason" => "service_stopping"} = line(socket)
+      assert {:error, :closed} = :gen_tcp.recv(socket, 0, 5_000)
     end
   end
 end

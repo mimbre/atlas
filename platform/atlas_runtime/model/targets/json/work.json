@@ -50,6 +50,59 @@
     {
       "fields": [
         {
+          "name": "base_id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "permissions",
+          "required": true,
+          "type": "enum read_only | workspace_write"
+        }
+      ],
+      "name": "base",
+      "persistence": null
+    },
+    {
+      "fields": [
+        {
+          "name": "work_id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "attempt",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "permissions",
+          "required": true,
+          "type": "enum read_only | workspace_write"
+        }
+      ],
+      "name": "from_work",
+      "persistence": null
+    },
+    {
+      "fields": [
+        {
+          "name": "command",
+          "required": true,
+          "type": "list of string"
+        },
+        {
+          "name": "timeout",
+          "required": false,
+          "type": "integer"
+        }
+      ],
+      "name": "after_check",
+      "persistence": null
+    },
+    {
+      "fields": [
+        {
           "name": "title",
           "required": true,
           "type": "string"
@@ -72,7 +125,7 @@
         {
           "name": "workspace",
           "required": true,
-          "type": "one of repository | folder"
+          "type": "one of repository | folder | base | from_work"
         },
         {
           "name": "resume_from",
@@ -83,6 +136,11 @@
           "name": "slot",
           "required": false,
           "type": "string"
+        },
+        {
+          "name": "after_check",
+          "required": false,
+          "type": "after_check"
         }
       ],
       "name": "request",
@@ -127,6 +185,16 @@
         },
         {
           "name": "ended_at",
+          "required": false,
+          "type": "datetime"
+        },
+        {
+          "name": "check_started_at",
+          "required": false,
+          "type": "datetime"
+        },
+        {
+          "name": "check_ended_at",
           "required": false,
           "type": "datetime"
         }
@@ -359,9 +427,144 @@
     {
       "fields": [
         {
+          "name": "root",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "fingerprint",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "name": "root_fingerprint",
+      "persistence": null
+    },
+    {
+      "fields": [
+        {
+          "name": "base",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "fingerprints",
+          "required": true,
+          "type": "list of root_fingerprint"
+        }
+      ],
+      "name": "frozen_ref",
+      "persistence": null
+    },
+    {
+      "fields": [
+        {
+          "name": "work_id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "attempt",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "fingerprints",
+          "required": true,
+          "type": "list of root_fingerprint"
+        }
+      ],
+      "name": "based_on",
+      "persistence": null
+    },
+    {
+      "fields": [
+        {
+          "name": "tail",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "complete",
+          "required": true,
+          "type": "boolean"
+        }
+      ],
+      "name": "check_output",
+      "persistence": null
+    },
+    {
+      "fields": [
+        {
+          "name": "command",
+          "required": true,
+          "type": "list of string"
+        },
+        {
+          "name": "exit_status",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "signal",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "error",
+          "required": false,
+          "type": "enum sandbox_unavailable | leaves_folder | not_found"
+        },
+        {
+          "name": "timed_out",
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "name": "cancelled",
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "name": "interrupted",
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "name": "duration_ms",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "output",
+          "required": true,
+          "type": "check_output"
+        }
+      ],
+      "name": "check_result",
+      "persistence": null
+    },
+    {
+      "fields": [
+        {
           "name": "workspace",
           "required": true,
           "type": "product_workspace"
+        },
+        {
+          "name": "frozen",
+          "required": false,
+          "type": "frozen_ref"
+        },
+        {
+          "name": "based_on",
+          "required": false,
+          "type": "based_on"
+        },
+        {
+          "name": "check",
+          "required": false,
+          "type": "check_result"
         }
       ],
       "name": "work_product",
@@ -510,9 +713,50 @@
           "name": "released_at",
           "required": false,
           "type": "datetime"
+        },
+        {
+          "name": "checking",
+          "required": false,
+          "type": "boolean"
+        },
+        {
+          "name": "check_pgid",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "folder",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "preparing",
+          "required": false,
+          "type": "boolean"
+        },
+        {
+          "name": "prepare_pid",
+          "required": false,
+          "type": "integer"
         }
       ],
       "name": "attempt",
+      "persistence": null
+    },
+    {
+      "fields": [
+        {
+          "name": "work_id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "attempt",
+          "required": true,
+          "type": "integer"
+        }
+      ],
+      "name": "source",
       "persistence": null
     },
     {
@@ -556,6 +800,11 @@
           "name": "attempts",
           "required": true,
           "type": "list of attempt"
+        },
+        {
+          "name": "source",
+          "required": false,
+          "type": "source"
         }
       ],
       "name": "work_record",

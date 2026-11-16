@@ -323,9 +323,28 @@ func claudePacketSettings(scope map[string]any, temporary, user, inspector strin
 		[]string{root, filepath.Join(packet, "packet.json"), filepath.Join(packet, "diff.json")}, false)
 }
 
+// runtimeWorkName is the name of a Runtime-chosen folder below <home>/workers: "work-" and a
+// worker-id-shaped name (the work folder of §3.9 is work-<work_id>, so work-work-<hex>).
+var runtimeWorkName = regexp.MustCompile(`\Awork-[a-z][a-z0-9_-]{0,63}\z`)
+
+// runtimeWorkFolder reports whether root is exactly <home>/workers/work-<name>, the one place below the
+// Runtime home where a materialized-folder worker may run.
+func runtimeWorkFolder(home, root string) bool {
+	name := filepath.Base(root)
+	return home != "" && root == filepath.Join(home, "workers", name) && runtimeWorkName.MatchString(name)
+}
+
+// workerHomeNames are the Runtime home entries a worker in a Runtime-chosen folder is denied by path,
+// even when they are absent at launch: the sensitiveHomeNames and the frozen results.
+var workerHomeNames = append(slices.Clone(sensitiveHomeNames), "frozen")
+
 // claudeWorkerSettings is the policy described at claudeFolderSettings with writable as the written
 // project paths, frozen as project paths that are read but never written, and pty whether Bash may
-// open pseudo-terminals.
+// open pseudo-terminals. A root that is exactly <home>/workers/work-<name> lies below the Runtime home:
+// as in claudeRepositorySettings, the home is then denied to Bash reads only (a denyWrite or Read rule
+// on it would deny the folder), and every entry of the home and of <home>/workers off the chain to the
+// folder, the workerHomeNames, the sockets and the Code token are denied by path to Bash reads and
+// writes and to the file tools. Any other project path inside the home stays refused.
 func claudeWorkerSettings(scope map[string]any, temporary, user, inspector string, writable, frozen []string, pty bool) (string, error) {
 	root, _ := scope["root"].(string)
 	home, _ := scope["home"].(string)
@@ -347,13 +366,36 @@ func claudeWorkerSettings(scope map[string]any, temporary, user, inspector strin
 	if err = writableInspector(inspector, append(slices.Clone(writable), temporary)...); err != nil {
 		return "", err
 	}
+	worker := runtimeWorkFolder(home, root)
 	protected := []string{home}
+	if worker {
+		protected = nil
+	}
 	sockets, err := socketEntries(home, append(slices.Clone(project), temporary)...)
 	if err != nil {
 		return "", err
 	}
 	for _, socket := range sockets {
 		protected = append(protected, socket[0])
+	}
+	// Each other worker existing at launch is denied by path; one created later stays under the home's
+	// Bash read deny and outside --restricted.
+	protect := func(path string) {
+		if !slices.Contains(protected, path) {
+			protected = append(protected, path)
+		}
+	}
+	if worker {
+		entries, err := offChainEntries(home, root)
+		if err != nil {
+			return "", err
+		}
+		for _, name := range workerHomeNames {
+			entries = append(entries, [2]string{filepath.Join(home, name), "none"})
+		}
+		for _, entry := range entries {
+			protect(entry[0])
+		}
 	}
 	protected = append(protected, filepath.Join(root, ".git"))
 	for _, repository := range repositories {
@@ -367,7 +409,10 @@ func claudeWorkerSettings(scope map[string]any, temporary, user, inspector strin
 	if err != nil {
 		return "", err
 	}
-	if token != "" {
+	if token != "" && worker {
+		protect(token)
+		protect(filepath.Dir(token))
+	} else if token != "" {
 		protected = append(protected, token, filepath.Dir(token))
 	}
 	configuration := os.Getenv("CLAUDE_CONFIG_DIR")
@@ -386,6 +431,11 @@ func claudeWorkerSettings(scope map[string]any, temporary, user, inspector strin
 		if err != nil {
 			return "", err
 		}
+		// A credential location that is the home itself (the default ~/.local/state/atlas-runtime) is the
+		// home's Bash read deny.
+		if worker && path == home {
+			continue
+		}
 		if !slices.Contains(protected, path) {
 			protected = append(protected, path)
 		}
@@ -397,6 +447,16 @@ func claudeWorkerSettings(scope map[string]any, temporary, user, inspector strin
 				return "", fmt.Errorf("Protected path %s contains %s", path, allowed)
 			}
 		}
+	}
+	// The home denies Bash reads only, and that only around the work folder: no other path below it is allowed.
+	denied := protected
+	if worker {
+		for _, allowed := range append(slices.Clone(project), temporary) {
+			if within(home, allowed) && !within(root, allowed) {
+				return "", fmt.Errorf("Protected path %s contains %s", home, allowed)
+			}
+		}
+		denied = append(slices.Clone(protected), home)
 	}
 	// shortcut: absolute paths go into rules unescaped; a path with glob characters or
 	// parentheses would need Claude's rule escaping, add it if Runtime homes ever contain them.
@@ -430,19 +490,23 @@ func claudeWorkerSettings(scope map[string]any, temporary, user, inspector strin
 	// The home is denied to the Bash sandbox only: a Read rule or denyWrite on it would also deny the
 	// folder below it. The file tools stay confined to the folder by --restricted. A protected path
 	// inside a re-allowed one stays denied: the sandbox re-applies a nested deny after its allows.
-	readable, err := homeReadable(user, protected, append(slices.Clone(project), temporary))
+	readable, err := homeReadable(user, denied, append(slices.Clone(project), temporary))
 	if err != nil {
 		return "", err
 	}
 	allowRead = append(append(append(allowRead, project...), temporary), readable...)
 	// The sandbox's allowRead wins over its denyRead; grant only the inspector itself.
-	if within(user, inspector) || slices.ContainsFunc(protected, func(path string) bool { return within(path, inspector) }) {
+	if within(user, inspector) || slices.ContainsFunc(denied, func(path string) bool { return within(path, inspector) }) {
 		allowRead = append(allowRead, inspector)
+	}
+	denyRead := append([]string{user}, protected...)
+	if worker {
+		denyRead = append([]string{user, home}, protected...)
 	}
 	settings := claudeSettings{
 		Sandbox: claudeSandbox{true, true, false, []string{},
 			claudeFilesystem{AllowWrite: append(slices.Clone(writable), temporary),
-				DenyWrite: append(append(roots, protected...), readOnly...), DenyRead: append([]string{user}, protected...), AllowRead: allowRead},
+				DenyWrite: append(append(roots, protected...), readOnly...), DenyRead: denyRead, AllowRead: allowRead},
 			claudeNetwork{AllowedDomains: []string{}, StrictAllowlist: true, AllowUnixSockets: []string{temporary},
 				AllowLocalBinding: true}, pty},
 		Permissions: &claudePermissions{rules},

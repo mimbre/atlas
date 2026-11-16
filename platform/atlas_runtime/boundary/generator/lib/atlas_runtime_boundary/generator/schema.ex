@@ -44,6 +44,9 @@ defmodule AtlasRuntimeBoundary.Generator.Schema do
 
   - `defmodel`: a value a capability takes or gives, with its fields.
   - `field`: a snake_case name, a type and `required: true | false` (default `false`).
+    An `:integer` field may also take `range: min..max` (integer literals, `min <= max`):
+    a value outside it does not validate, so the facade refuses it as an invalid input and
+    the implementation never sees it. Nothing is clamped.
     Types:
     - `:string`, `:integer`, `:boolean`;
     - `:datetime`: a point in time (an Elixir `DateTime`; ISO-8601 text in JSON);
@@ -55,7 +58,12 @@ defmodule AtlasRuntimeBoundary.Generator.Schema do
       no member model may have a field named like the tag;
     - `{:list, type}`;
     - `{:map, primitive}`: an object of names to `:string`, `:integer`, `:boolean` or
-      `:datetime` values.
+      `:datetime` values;
+    - `:stream`: an opaque byte stream, an `Enumerable` of binary chunks that the facade
+      passes on without enumerating it. It is allowed only as a direct field of a model
+      that is carried by an outcome and used nowhere else: not as or in a capability's
+      input, not in a `list`, a `map` or a `one_of`, and not in a model held by another
+      model. Anywhere else it is a `CompileError` at the field's line.
   - `defcapability`: an operation the system offers, by name, with options:
     - `input:` the model it takes, or `nil` / left out when it takes none;
     - `outcomes:` `[outcome: model]`, at least one, in order: each outcome by name, with
@@ -81,7 +89,9 @@ defmodule AtlasRuntimeBoundary.Generator.Schema do
       %{
         version: "1.0.0",
         file: "/abs/path/to/the/contract.ex",
-        models: [%{name: atom, fields: [%{name: atom, type: type, required: boolean}]}],
+        models: [
+          %{name: atom, fields: [%{name: atom, type: type, required: boolean, range?: {min, max}}]}
+        ],
         capabilities: [
           %{name: atom, input: atom | nil, right: atom,
             outcomes: [%{name: atom, model: atom | nil}]}
@@ -90,10 +100,14 @@ defmodule AtlasRuntimeBoundary.Generator.Schema do
       }
 
   Models, fields, capabilities and outcomes are in the order written. A type is as written
-  in `field`; a `one_of` is always `{:one_of, [model], tag: atom}`.
+  in `field`; a `one_of` is always `{:one_of, [model], tag: atom}`. `range` is present only
+  on a field that declares one.
   """
 
   @primitives [:string, :integer, :boolean, :datetime]
+
+  # Not a primitive: it may not be listed, mapped or held (see the moduledoc).
+  @stream :stream
 
   defmacro __using__(_opts) do
     quote do
@@ -193,10 +207,47 @@ defmodule AtlasRuntimeBoundary.Generator.Schema do
   defmacro field(name, type, opts \\ []) do
     %{file: file, line: line} = __CALLER__
 
-    unless Keyword.keyword?(opts) and Keyword.keys(opts) -- [:required] == [] and
+    unless Keyword.keyword?(opts) and Keyword.keys(opts) -- [:required, :range] == [] and
              is_boolean(Keyword.get(opts, :required, false)) do
-      __fail__(file, line, "field #{inspect(name)}: the only option is required: true | false")
+      __fail__(
+        file,
+        line,
+        "field #{inspect(name)}: the options are required: true | false and range: min..max"
+      )
     end
+
+    range =
+      case Keyword.fetch(opts, :range) do
+        :error ->
+          nil
+
+        {:ok, {:.., _, [min, max]}} when is_integer(min) and is_integer(max) and min <= max ->
+          if type != :integer,
+            do: __fail__(file, line, "field #{inspect(name)}: range: is only for :integer fields")
+
+          {min, max}
+
+        {:ok, other} ->
+          __fail__(
+            file,
+            line,
+            "field #{inspect(name)}: range must be min..max with integer literals and " <>
+              "min <= max, got #{Macro.to_string(other)}"
+          )
+      end
+
+    entry =
+      quote do
+        %{
+          name: unquote(name),
+          type: unquote(type),
+          required: unquote(Keyword.get(opts, :required, false)),
+          file: unquote(file),
+          line: unquote(line)
+        }
+      end
+
+    entry = if range, do: quote(do: Map.put(unquote(entry), :range, unquote(range))), else: entry
 
     quote do
       unless Module.get_attribute(__MODULE__, :spec_open) do
@@ -207,13 +258,7 @@ defmodule AtlasRuntimeBoundary.Generator.Schema do
         )
       end
 
-      @spec_fields %{
-        name: unquote(name),
-        type: unquote(type),
-        required: unquote(Keyword.get(opts, :required, false)),
-        file: unquote(file),
-        line: unquote(line)
-      }
+      @spec_fields unquote(entry)
     end
   end
 
@@ -230,8 +275,9 @@ defmodule AtlasRuntimeBoundary.Generator.Schema do
 
     {invalid_inputs, entries} = Enum.split_with(entries, &(&1.type == :invalid_input))
     {capabilities, models} = Enum.split_with(entries, &(&1.type == :capability))
-    models = validate_models!(models)
+    {models, streams} = validate_models!(models)
     capabilities = validate_capabilities!(capabilities, Enum.map(models, & &1.name))
+    validate_streams!(streams, models, capabilities)
     invalid_input = validate_invalid_input!(invalid_inputs, capabilities, models)
 
     spec = %{
@@ -257,7 +303,7 @@ defmodule AtlasRuntimeBoundary.Generator.Schema do
         unless snake?(model.name), do: fail.("#{inspect(model.name)} is not a snake_case atom")
         if model.name in seen, do: fail.("#{inspect(model.name)} is defined twice")
 
-        if model.name in @primitives,
+        if model.name in [@stream | @primitives],
           do: fail.("#{inspect(model.name)} clashes with a primitive type")
 
         {fields, _names} =
@@ -293,13 +339,54 @@ defmodule AtlasRuntimeBoundary.Generator.Schema do
       )
     end
 
-    for model <- models do
-      %{
-        name: model.name,
-        fields: Enum.map(model.fields, &Map.take(&1, [:name, :type, :required]))
-      }
-    end
+    # The direct :stream fields, with their lines, for validate_streams!/3.
+    streams =
+      for model <- models, %{type: @stream} = field <- model.fields, do: {model.name, field}
+
+    models =
+      for model <- models do
+        %{
+          name: model.name,
+          fields: Enum.map(model.fields, &Map.take(&1, [:name, :type, :required, :range]))
+        }
+      end
+
+    {models, streams}
   end
+
+  # A :stream is a direct field of a model that only outcomes carry (§1.3, S5a): not an
+  # input, not held by another model (directly, in a list or in a one_of), and carried by
+  # at least one outcome.
+  defp validate_streams!(streams, models, capabilities) do
+    for {model, field} <- streams do
+      fail =
+        &__fail__(
+          field.file,
+          field.line,
+          "#{model}.#{field.name}: a :stream is allowed only as a direct field of an " <>
+            "outcome model; " <> &1
+        )
+
+      for %{name: capability, input: ^model} <- capabilities,
+          do: fail.("#{inspect(model)} is the input of capability #{inspect(capability)}")
+
+      for holder <- models,
+          holding <- holder.fields,
+          model in held(holding.type),
+          do: fail.("#{inspect(model)} is held by #{holder.name}.#{holding.name}")
+
+      unless Enum.any?(capabilities, fn c -> Enum.any?(c.outcomes, &(&1.model == model)) end),
+        do: fail.("no outcome carries #{inspect(model)}")
+    end
+
+    :ok
+  end
+
+  # The models a field type holds.
+  defp held({:list, inner}), do: held(inner)
+  defp held({:one_of, members, _opts}), do: members
+  defp held(type) when is_atom(type), do: [type]
+  defp held(_type), do: []
 
   defp validate_capabilities!(capabilities, models) do
     {capabilities, _seen} =
@@ -429,6 +516,12 @@ defmodule AtlasRuntimeBoundary.Generator.Schema do
   defp fixed_value?(_type, _value), do: false
 
   # The type as kept in the schema; fails on an unknown or malformed one.
+  defp check_type!({:list, @stream}, _models, at, fail),
+    do:
+      fail.(
+        "#{at} is a list of :stream; a :stream is allowed only as a direct field of an outcome model"
+      )
+
   defp check_type!({:list, inner}, models, at, fail),
     do: {:list, check_type!(inner, models, at, fail)}
 
@@ -471,6 +564,7 @@ defmodule AtlasRuntimeBoundary.Generator.Schema do
     do: fail.("#{at}: a one_of is {:one_of, [model], tag: atom}")
 
   defp check_type!(type, _models, _at, _fail) when type in @primitives, do: type
+  defp check_type!(@stream, _models, _at, _fail), do: @stream
 
   defp check_type!(type, models, at, fail) do
     if is_atom(type) and type in models,

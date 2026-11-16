@@ -20,6 +20,10 @@
         {
           "model": "refused",
           "name": "refused"
+        },
+        {
+          "model": "pruned",
+          "name": "pruned"
         }
       ],
       "right": "submit"
@@ -58,6 +62,10 @@
         {
           "model": "ended",
           "name": "ended"
+        },
+        {
+          "model": "refused",
+          "name": "refused"
         },
         {
           "model": "not_found",
@@ -154,6 +162,48 @@
         }
       ],
       "right": "read"
+    },
+    {
+      "input": "get_frozen_input",
+      "name": "get_frozen",
+      "outcomes": [
+        {
+          "model": "frozen",
+          "name": "frozen"
+        },
+        {
+          "model": "fingerprint_mismatch",
+          "name": "fingerprint_mismatch"
+        },
+        {
+          "model": "pruned",
+          "name": "pruned"
+        },
+        {
+          "model": "not_found",
+          "name": "not_found"
+        }
+      ],
+      "right": "read"
+    },
+    {
+      "input": "get_frozen_blob_input",
+      "name": "get_frozen_blob",
+      "outcomes": [
+        {
+          "model": "blob",
+          "name": "blob"
+        },
+        {
+          "model": "pruned",
+          "name": "pruned"
+        },
+        {
+          "model": "not_found",
+          "name": "not_found"
+        }
+      ],
+      "right": "read"
     }
   ],
   "invalid_input": {
@@ -180,7 +230,8 @@
             "cancel",
             "read",
             "read_all",
-            "choose_slot"
+            "choose_slot",
+            "choose_path"
           ]
         }
       ],
@@ -221,7 +272,9 @@
         {
           "models": [
             "repository",
-            "folder"
+            "folder",
+            "base",
+            "from_work"
           ],
           "name": "workspace",
           "required": true,
@@ -237,6 +290,11 @@
           "name": "slot",
           "required": false,
           "type": "string"
+        },
+        {
+          "name": "after_check",
+          "required": false,
+          "type": "after_check"
         }
       ],
       "name": "work_request"
@@ -265,7 +323,7 @@
       "fields": [
         {
           "name": "path",
-          "required": true,
+          "required": false,
           "type": "string"
         },
         {
@@ -280,6 +338,64 @@
         }
       ],
       "name": "folder"
+    },
+    {
+      "fields": [
+        {
+          "name": "base_id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "permissions",
+          "required": true,
+          "type": "enum",
+          "values": [
+            "read-only",
+            "workspace-write"
+          ]
+        }
+      ],
+      "name": "base"
+    },
+    {
+      "fields": [
+        {
+          "name": "work_id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "attempt",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "permissions",
+          "required": true,
+          "type": "enum",
+          "values": [
+            "read-only",
+            "workspace-write"
+          ]
+        }
+      ],
+      "name": "from_work"
+    },
+    {
+      "fields": [
+        {
+          "name": "command",
+          "required": true,
+          "type": "list of string"
+        },
+        {
+          "name": "timeout",
+          "required": false,
+          "type": "integer"
+        }
+      ],
+      "name": "after_check"
     },
     {
       "fields": [
@@ -590,6 +706,18 @@
           "name": "ended_at",
           "required": false,
           "type": "datetime"
+        },
+        {
+          "format": "ISO-8601",
+          "name": "check_started_at",
+          "required": false,
+          "type": "datetime"
+        },
+        {
+          "format": "ISO-8601",
+          "name": "check_ended_at",
+          "required": false,
+          "type": "datetime"
         }
       ],
       "name": "attempt_timestamps"
@@ -618,7 +746,7 @@
       "fields": [
         {
           "name": "path",
-          "required": true,
+          "required": false,
           "type": "string"
         },
         {
@@ -709,6 +837,21 @@
           "name": "workspace",
           "required": true,
           "type": "work_product_workspace"
+        },
+        {
+          "name": "frozen",
+          "required": false,
+          "type": "frozen_ref"
+        },
+        {
+          "name": "based_on",
+          "required": false,
+          "type": "based_on"
+        },
+        {
+          "name": "check",
+          "required": false,
+          "type": "check_result"
         }
       ],
       "name": "work_product"
@@ -717,7 +860,7 @@
       "fields": [
         {
           "name": "path",
-          "required": true,
+          "required": false,
           "type": "string"
         },
         {
@@ -742,6 +885,126 @@
         }
       ],
       "name": "work_product_workspace"
+    },
+    {
+      "fields": [
+        {
+          "name": "root",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "fingerprint",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "name": "root_fingerprint"
+    },
+    {
+      "fields": [
+        {
+          "name": "base",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "fingerprints",
+          "required": true,
+          "type": "list of root_fingerprint"
+        }
+      ],
+      "name": "frozen_ref"
+    },
+    {
+      "fields": [
+        {
+          "name": "work_id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "attempt",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "fingerprints",
+          "required": true,
+          "type": "list of root_fingerprint"
+        }
+      ],
+      "name": "based_on"
+    },
+    {
+      "fields": [
+        {
+          "name": "command",
+          "required": true,
+          "type": "list of string"
+        },
+        {
+          "name": "exit_status",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "signal",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "error",
+          "required": false,
+          "type": "enum",
+          "values": [
+            "sandbox_unavailable",
+            "leaves_folder",
+            "not_found"
+          ]
+        },
+        {
+          "name": "timed_out",
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "name": "cancelled",
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "name": "interrupted",
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "name": "duration_ms",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "output",
+          "required": true,
+          "type": "check_output"
+        }
+      ],
+      "name": "check_result"
+    },
+    {
+      "fields": [
+        {
+          "name": "tail",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "complete",
+          "required": true,
+          "type": "boolean"
+        }
+      ],
+      "name": "check_output"
     },
     {
       "fields": [
@@ -1181,6 +1444,46 @@
     {
       "fields": [
         {
+          "name": "work_id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "attempt",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "fingerprint",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "name": "get_frozen_input"
+    },
+    {
+      "fields": [
+        {
+          "name": "work_id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "attempt",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "sha256",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "name": "get_frozen_blob_input"
+    },
+    {
+      "fields": [
+        {
           "name": "work",
           "required": true,
           "type": "work"
@@ -1352,6 +1655,129 @@
     {
       "fields": [],
       "name": "subscribed"
+    },
+    {
+      "fields": [
+        {
+          "name": "work_id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "attempt",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "base",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "roots",
+          "required": true,
+          "type": "list of frozen_root"
+        }
+      ],
+      "name": "frozen"
+    },
+    {
+      "fields": [
+        {
+          "name": "root",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "fingerprint",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "entries",
+          "required": true,
+          "type": "list of change_entry"
+        }
+      ],
+      "name": "frozen_root"
+    },
+    {
+      "fields": [
+        {
+          "name": "path",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "op",
+          "required": true,
+          "type": "enum",
+          "values": [
+            "write",
+            "delete"
+          ]
+        },
+        {
+          "name": "kind",
+          "required": false,
+          "type": "enum",
+          "values": [
+            "file",
+            "symlink"
+          ]
+        },
+        {
+          "name": "mode",
+          "required": false,
+          "type": "enum",
+          "values": [
+            "100644",
+            "100755",
+            "120000"
+          ]
+        },
+        {
+          "name": "size",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "sha256",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "target",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "name": "change_entry"
+    },
+    {
+      "fields": [],
+      "name": "fingerprint_mismatch"
+    },
+    {
+      "fields": [
+        {
+          "name": "sha256",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "size",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "description": "byte stream",
+          "name": "content",
+          "required": true,
+          "type": "stream"
+        }
+      ],
+      "name": "blob"
     },
     {
       "fields": [

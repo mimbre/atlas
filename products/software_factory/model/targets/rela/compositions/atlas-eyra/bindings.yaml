@@ -29,6 +29,18 @@ relations:
     inverse:
       id: work
       label: work
+  task_of:
+    label: task of
+    description: A task belongs to one package or issue; they have their tasks.
+    from:
+    - task
+    to:
+    - package
+    - issue
+    max_outgoing: 1
+    inverse:
+      id: tasks
+      label: tasks
   about:
     label: about
     description: The fact a gate verdict decided on; any kind the composition has.

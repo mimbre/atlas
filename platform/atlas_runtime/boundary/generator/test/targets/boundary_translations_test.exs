@@ -344,6 +344,62 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.BoundaryTranslationsTest do
     end
   end
 
+  describe "a :stream field" do
+    test "is supplied, and from_model passes it on unconsumed" do
+      facade = stream_facade("supply: [:content]")
+      lazy = Stream.map(["a"], fn chunk -> send(self(), :enumerated) && chunk end)
+      scan = Module.concat(facade, Scan)
+
+      assert {:ok, %{__struct__: ^scan, row: 4, content: ^lazy}} =
+               facade.from_model(M.ShelfSpot.new!(row: 4), supply: [content: lazy])
+
+      refute_received :enumerated
+    end
+
+    test "takes no model field" do
+      assert_raise CompileError,
+                   ~r/shelf_spot.row -> scan.content: a boundary :stream takes no model field; supply it/,
+                   fn -> stream_facade("rename: [row: :content], supply: [:row]") end
+    end
+  end
+
+  defp stream_facade(options) do
+    n = System.unique_integer([:positive])
+
+    Code.compile_string("""
+    defmodule StreamContract#{n} do
+      use AtlasRuntimeBoundary.Generator.Schema
+      version "0"
+      defmodel :scan do
+        field :row, :integer, required: true
+        field :content, :stream, required: true
+      end
+      defcapability :get, outcomes: [got: :scan], right: :r
+    end
+
+    defmodule StreamMappings#{n} do
+      use AtlasRuntimeBoundary.Generator.Mappings
+      defmapping :shelf_spot, :scan, direction: :from_model, #{options}
+    end
+
+    defmodule StreamFacade#{n} do
+      use AtlasRuntimeBoundary.Generator.Targets.Boundary,
+        contract: StreamContract#{n},
+        implementation: StreamDesk#{n},
+        mappings: StreamMappings#{n},
+        model: AtlasRuntimeBoundary.Generator.FixtureModel
+    end
+
+    defmodule StreamDesk#{n} do
+      use StreamFacade#{n}.Implementation
+      @impl true
+      def get(_client), do: %StreamFacade#{n}.Outcome.Got{row: 1, content: []}
+    end
+    """)
+
+    Module.concat([:"StreamFacade#{n}"])
+  end
+
   defp copy_mapping,
     do: """
     defmapping :copy_record, :copy,

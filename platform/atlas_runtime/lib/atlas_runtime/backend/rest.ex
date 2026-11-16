@@ -1,14 +1,15 @@
 defmodule AtlasRuntime.Backend.Rest do
   @moduledoc """
-  The Runtime backend's `rest` router (design 2026-11-16-runtime-backend §1.8, §8),
-  generated from the backend contract `AtlasRuntimeBackend.Work` on the work facade
-  `AtlasRuntime.Boundary.Work`: its routes, status codes and serialization are declared
-  there, not written here. It is a Plug; `AtlasRuntime.Backend.Listener` serves it and
-  puts the client in `conn.assigns`, and `AtlasRuntime.Backend.Events` keeps its event
-  stream open.
+  The backend's one router (design §8, §13.1 Q11), generated from the backend contracts on
+  the boundary's facades: the work contract, with the event stream, the operations
+  contract and the history contract. No route, status or serialization is written here.
   """
   use AtlasRuntimeBackend.Generator.Targets.Rest,
-    contract: AtlasRuntimeBackend.Work,
-    facade: AtlasRuntime.Boundary.Work,
-    stream: AtlasRuntime.Backend.Events
+    contracts: [
+      work:
+        {AtlasRuntimeBackend.Work,
+         facade: AtlasRuntime.Boundary.Work, stream: AtlasRuntime.Backend.Events},
+      operations: {AtlasRuntimeBackend.Operations, facade: AtlasRuntime.Boundary.Operations},
+      history: {AtlasRuntimeBackend.History, facade: AtlasRuntime.Boundary.History}
+    ]
 end

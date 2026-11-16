@@ -737,46 +737,8 @@
           ],
           "creates": [],
           "final": false,
-          "kind": "pass",
           "label": "PR review in progress",
           "set": [],
-          "spec": {
-            "answer": {
-              "by": "verdict_by",
-              "field": "verdict",
-              "outcomes": {
-                "changes_required": "changes_requested",
-                "pass": "approved"
-              },
-              "role": "reviewer"
-            },
-            "contract": 1,
-            "fingerprint": {
-              "fields": ["revision", "packet_tree", "packet_id", "packet_fingerprint"],
-              "relations": []
-            },
-            "name": "review",
-            "packet_from": {
-              "cwd": "packet_tree",
-              "fingerprint": "packet_fingerprint",
-              "packet_id": "packet_id",
-              "revision": "revision"
-            },
-            "profile": "reviewer",
-            "request": {
-              "assignment": "Review the pull request revision frozen in this folder (a review packet: the\ntree, ../packet.json and ../diff.json). Write your findings to\n../findings/findings.json as the review-packet findings contract says: version\n1, this packet's packet_id and fingerprint, your verdict (pass,\nchanges_required or uncertain), a summary, the findings, and what you checked\nand did not check. Then end.\n",
-              "backend": "claude",
-              "mode": "start",
-              "packet_contract": 1,
-              "permissions": "review-packet",
-              "vendors": ["claude"]
-            },
-            "routing": {
-              "machine_field": "machine"
-            },
-            "with_person": true,
-            "writes": "none"
-          },
           "status": "input_required",
           "timers": [
             {

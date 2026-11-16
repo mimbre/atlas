@@ -1,0 +1,781 @@
+{
+  "rows": {
+    "empty": {
+      "listing": []
+    },
+    "error_absolute_outside": {
+      "error": "fs[0]: invalid path: /etc/x"
+    },
+    "error_dir_over_file": {
+      "error": "fs[1]: duplicate path: a"
+    },
+    "error_duplicate": {
+      "error": "fs[1]: duplicate path: {tmp}/a"
+    },
+    "error_escape": {
+      "error": "fs[0]: invalid path: ../x"
+    },
+    "error_field_not_allowed": {
+      "error": "fs[0]: field content is not allowed for type dir"
+    },
+    "error_field_type": {
+      "error": "fs[0]: field mode is not a string"
+    },
+    "error_git_twice": {
+      "error": "fs[1]: duplicate path: r"
+    },
+    "error_hardlink_target_dir": {
+      "error": "fs[1]: hardlink target is not a file: d"
+    },
+    "error_hardlink_target_missing": {
+      "error": "fs[0]: hardlink target is not a file: nope"
+    },
+    "error_hardlink_target_outside": {
+      "error": "fs[0]: invalid target: /etc/hosts"
+    },
+    "error_hardlink_through_symlink": {
+      "error": "fs[2]: hardlink target is not a file: l/f"
+    },
+    "error_hardlink_without_target": {
+      "error": "fs[0]: type hardlink requires a target"
+    },
+    "error_head": {
+      "error": "fs[0]: invalid head: a b"
+    },
+    "error_later_entry": {
+      "error": "fs[2]: invalid mode: 1777"
+    },
+    "error_missing_path": {
+      "error": "fs[0]: path is required"
+    },
+    "error_missing_type": {
+      "error": "fs[0]: type is required"
+    },
+    "error_mode_format": {
+      "error": "fs[0]: invalid mode: 644"
+    },
+    "error_mode_range": {
+      "error": "fs[0]: invalid mode: 0989"
+    },
+    "error_mode_symlink": {
+      "error": "fs[0]: field mode is not allowed for type symlink"
+    },
+    "error_not_object": {
+      "error": "fs[0]: entry is not an object"
+    },
+    "error_parent_file": {
+      "error": "fs[1]: parent is not a directory: a"
+    },
+    "error_parent_symlink": {
+      "error": "fs[2]: parent is not a directory: l"
+    },
+    "error_path_exists": {
+      "error": "fs[1]: path exists: a"
+    },
+    "error_root_itself": {
+      "error": "fs[0]: invalid path: {tmp}"
+    },
+    "error_symlink_without_target": {
+      "error": "fs[0]: type symlink requires a target"
+    },
+    "error_unclean": {
+      "error": "fs[1]: invalid path: a/./b"
+    },
+    "error_unknown_field": {
+      "error": "fs[0]: unknown field: owner"
+    },
+    "error_unknown_type": {
+      "error": "fs[0]: unknown type: fifo"
+    },
+    "git_stub": {
+      "listing": [
+        {
+          "path": "nested",
+          "type": "dir",
+          "mode": "0755",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "nested/w",
+          "type": "dir",
+          "mode": "0755",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "nested/w/.git",
+          "type": "dir",
+          "mode": "0755",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "nested/w/.git/HEAD",
+          "type": "file",
+          "mode": "0644",
+          "target": null,
+          "nlink": 1,
+          "size": 26,
+          "sha256": "739b4b91b715942f9df70bd593303bedebdb2c0b2e2be855136d834d85521134"
+        },
+        {
+          "path": "nested/w/.git/config",
+          "type": "file",
+          "mode": "0644",
+          "target": null,
+          "nlink": 1,
+          "size": 67,
+          "sha256": "49a60a640f2f35518e2f2acac73e7649d66623d6df38a959094f2978d1e3747e"
+        },
+        {
+          "path": "nested/w/.git/objects",
+          "type": "dir",
+          "mode": "0755",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "nested/w/.git/refs",
+          "type": "dir",
+          "mode": "0755",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "nested/w/.git/refs/heads",
+          "type": "dir",
+          "mode": "0755",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "nested/w/.git/refs/tags",
+          "type": "dir",
+          "mode": "0755",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "private",
+          "type": "dir",
+          "mode": "0700",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "private/.git",
+          "type": "dir",
+          "mode": "0755",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "private/.git/HEAD",
+          "type": "file",
+          "mode": "0644",
+          "target": null,
+          "nlink": 1,
+          "size": 24,
+          "sha256": "8dd7e69cf77bff3e6717335270c85d60f7aee7f9e917566d94e0afd8c9d31317"
+        },
+        {
+          "path": "private/.git/config",
+          "type": "file",
+          "mode": "0644",
+          "target": null,
+          "nlink": 1,
+          "size": 67,
+          "sha256": "49a60a640f2f35518e2f2acac73e7649d66623d6df38a959094f2978d1e3747e"
+        },
+        {
+          "path": "private/.git/objects",
+          "type": "dir",
+          "mode": "0755",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "private/.git/refs",
+          "type": "dir",
+          "mode": "0755",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "private/.git/refs/heads",
+          "type": "dir",
+          "mode": "0755",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "private/.git/refs/tags",
+          "type": "dir",
+          "mode": "0755",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "repo",
+          "type": "dir",
+          "mode": "0755",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "repo/.git",
+          "type": "dir",
+          "mode": "0755",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "repo/.git/HEAD",
+          "type": "file",
+          "mode": "0644",
+          "target": null,
+          "nlink": 1,
+          "size": 24,
+          "sha256": "8dd7e69cf77bff3e6717335270c85d60f7aee7f9e917566d94e0afd8c9d31317"
+        },
+        {
+          "path": "repo/.git/config",
+          "type": "file",
+          "mode": "0644",
+          "target": null,
+          "nlink": 1,
+          "size": 67,
+          "sha256": "49a60a640f2f35518e2f2acac73e7649d66623d6df38a959094f2978d1e3747e"
+        },
+        {
+          "path": "repo/.git/objects",
+          "type": "dir",
+          "mode": "0755",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "repo/.git/objects/info",
+          "type": "dir",
+          "mode": "0755",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "repo/.git/objects/info/alternates",
+          "type": "file",
+          "mode": "0644",
+          "target": null,
+          "nlink": 1,
+          "size": 19,
+          "sha256": "6e331022a4e018f02631b317a00fe29530ada9f4ee41699accc05ae58c77212a"
+        },
+        {
+          "path": "repo/.git/refs",
+          "type": "dir",
+          "mode": "0755",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "repo/.git/refs/heads",
+          "type": "dir",
+          "mode": "0755",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "repo/.git/refs/tags",
+          "type": "dir",
+          "mode": "0755",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        }
+      ]
+    },
+    "hardlinks": {
+      "listing": [
+        {
+          "path": "one",
+          "type": "file",
+          "mode": "0640",
+          "target": null,
+          "nlink": 3,
+          "size": 10,
+          "sha256": "a1bab6368b420a77bc08ff86f1ea7414c9ae8ca89a44d1dc0d592d4d4b569c20"
+        },
+        {
+          "path": "repo",
+          "type": "dir",
+          "mode": "0755",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "repo/.git",
+          "type": "dir",
+          "mode": "0755",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "repo/.git/HEAD",
+          "type": "file",
+          "mode": "0644",
+          "target": null,
+          "nlink": 1,
+          "size": 24,
+          "sha256": "8dd7e69cf77bff3e6717335270c85d60f7aee7f9e917566d94e0afd8c9d31317"
+        },
+        {
+          "path": "repo/.git/config",
+          "type": "file",
+          "mode": "0644",
+          "target": null,
+          "nlink": 1,
+          "size": 67,
+          "sha256": "49a60a640f2f35518e2f2acac73e7649d66623d6df38a959094f2978d1e3747e"
+        },
+        {
+          "path": "repo/.git/objects",
+          "type": "dir",
+          "mode": "0755",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "repo/.git/objects/blob",
+          "type": "file",
+          "mode": "0640",
+          "target": null,
+          "nlink": 3,
+          "size": 10,
+          "sha256": "a1bab6368b420a77bc08ff86f1ea7414c9ae8ca89a44d1dc0d592d4d4b569c20"
+        },
+        {
+          "path": "repo/.git/refs",
+          "type": "dir",
+          "mode": "0755",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "repo/.git/refs/heads",
+          "type": "dir",
+          "mode": "0755",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "repo/.git/refs/tags",
+          "type": "dir",
+          "mode": "0755",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "two",
+          "type": "file",
+          "mode": "0640",
+          "target": null,
+          "nlink": 3,
+          "size": 10,
+          "sha256": "a1bab6368b420a77bc08ff86f1ea7414c9ae8ca89a44d1dc0d592d4d4b569c20"
+        }
+      ]
+    },
+    "home_layout": {
+      "listing": [
+        {
+          "path": "home",
+          "type": "dir",
+          "mode": "0700",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "home/backend.sock",
+          "type": "socket",
+          "mode": "0600",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "home/runtime.sock",
+          "type": "socket",
+          "mode": "0755",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "home/turns",
+          "type": "dir",
+          "mode": "0700",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "home/workers",
+          "type": "dir",
+          "mode": "0755",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "home/workers/w1",
+          "type": "dir",
+          "mode": "0755",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "home/workers/w1/repositories",
+          "type": "dir",
+          "mode": "0755",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "temporary",
+          "type": "dir",
+          "mode": "0700",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "user",
+          "type": "dir",
+          "mode": "0755",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "user/.codex",
+          "type": "dir",
+          "mode": "0755",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "user/.codex/config.toml",
+          "type": "file",
+          "mode": "0600",
+          "target": null,
+          "nlink": 1,
+          "size": 12,
+          "sha256": "5676dc800ff66ac87669b7b7e6ebb78f94c7f523fae07a7a5545536a511b6613"
+        }
+      ]
+    },
+    "long_row_id_keeps_the_home_backend_socket_within_the_socket_path_budget": {
+      "listing": [
+        {
+          "path": "home",
+          "type": "dir",
+          "mode": "0700",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "home/backend.sock",
+          "type": "socket",
+          "mode": "0600",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        }
+      ]
+    },
+    "modes": {
+      "listing": [
+        {
+          "path": "a",
+          "type": "dir",
+          "mode": "0700",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "a/b",
+          "type": "dir",
+          "mode": "0755",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "a/b/c.txt",
+          "type": "file",
+          "mode": "0600",
+          "target": null,
+          "nlink": 1,
+          "size": 6,
+          "sha256": "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"
+        },
+        {
+          "path": "a/ro",
+          "type": "file",
+          "mode": "0444",
+          "target": null,
+          "nlink": 1,
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "a/run.sh",
+          "type": "file",
+          "mode": "0755",
+          "target": null,
+          "nlink": 1,
+          "size": 17,
+          "sha256": "306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb"
+        },
+        {
+          "path": "group",
+          "type": "dir",
+          "mode": "0750",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "group/shared",
+          "type": "file",
+          "mode": "0640",
+          "target": null,
+          "nlink": 1,
+          "size": 17,
+          "sha256": "f695bc85dcf3f1ec97ecb01136015188e1f524bbe8342f95a348b5e032299f23"
+        },
+        {
+          "path": "locked",
+          "type": "dir",
+          "mode": "0500",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "locked/inside",
+          "type": "file",
+          "mode": "0400",
+          "target": null,
+          "nlink": 1,
+          "size": 4,
+          "sha256": "79f076abdd19a752db7267bfff2f9022161d120dea919fdaca2ffdfc24ca8c96"
+        },
+        {
+          "path": "plain",
+          "type": "file",
+          "mode": "0644",
+          "target": null,
+          "nlink": 1,
+          "size": 1,
+          "sha256": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881"
+        }
+      ]
+    },
+    "placeholders": {
+      "input": {
+        "boundary": "{tmp}/homework",
+        "flag": true,
+        "home": "{home}/backend.sock",
+        "list": [
+          "{user}",
+          "{temporary}/y",
+          "text {home} more",
+          "pre:{tmp}"
+        ],
+        "none": null,
+        "number": 3,
+        "unknown": "{unknown}/z"
+      },
+      "listing": []
+    },
+    "symlinks": {
+      "listing": [
+        {
+          "path": "data",
+          "type": "dir",
+          "mode": "0755",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "data/f",
+          "type": "file",
+          "mode": "0644",
+          "target": null,
+          "nlink": 1,
+          "size": 1,
+          "sha256": "252f10c83610ebca1a059c0bae8255eba2f95be4d1d7bcfa89d7248a82d9f111"
+        },
+        {
+          "path": "data/rel",
+          "type": "symlink",
+          "mode": null,
+          "target": "f",
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "data/up",
+          "type": "symlink",
+          "mode": null,
+          "target": "../data/f",
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "links",
+          "type": "dir",
+          "mode": "0755",
+          "target": null,
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "links/abs",
+          "type": "symlink",
+          "mode": null,
+          "target": "{tmp}/data/f",
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "links/dangling",
+          "type": "symlink",
+          "mode": null,
+          "target": "../missing/nowhere",
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "links/dir",
+          "type": "symlink",
+          "mode": null,
+          "target": "../data",
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "links/home",
+          "type": "symlink",
+          "mode": null,
+          "target": "{home}/workers",
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "links/homework",
+          "type": "symlink",
+          "mode": null,
+          "target": "{tmp}/homework",
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        },
+        {
+          "path": "links/outside",
+          "type": "symlink",
+          "mode": null,
+          "target": "/etc/hosts",
+          "nlink": null,
+          "size": null,
+          "sha256": null
+        }
+      ]
+    }
+  },
+  "version": 1
+}

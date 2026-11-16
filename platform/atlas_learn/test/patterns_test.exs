@@ -18,26 +18,19 @@ defmodule AtlasLearn.PatternsTest do
 
   defp findings(patterns, title), do: patterns[title].findings
 
-  test "follow-up chains with their depth and worker, including a start Runtime no longer lists",
-       %{patterns: patterns} do
-    [deepest, partial] = findings(patterns, "Passes that needed follow-up turns")
-
-    assert deepest.text =~ "depth 2 (3 turns) on worker alpha"
-    assert deepest.text =~ "last turn failed"
-
-    assert deepest.evidence ==
-             ["turn-00000000000000a1", "turn-00000000000000a2", "turn-00000000000000a3"]
-
-    assert partial.text =~ "depth 1 (1 turn)"
-    assert partial.evidence == ["turn-00000000000000ff", "turn-00000000000000a7"]
+  # Runtime's history gives no continued turn or error (RQ1): no chains, and failures are
+  # grouped by their state alone.
+  test "no follow-up chains without the continued turn", %{patterns: patterns} do
+    assert patterns["Passes that needed follow-up turns"].status == :read
+    assert findings(patterns, "Passes that needed follow-up turns") == []
   end
 
-  test "failed turns grouped by reason, most frequent first", %{patterns: patterns} do
-    assert [codex, lost] = findings(patterns, "Failed turns and their reasons")
-    assert codex.text =~ "2 × failed: codex exited with status 1 (worker alpha, gamma)"
-    assert codex.evidence == ["turn-00000000000000a3", "turn-00000000000000a6"]
-    assert lost.text =~ "the service ended while the turn was running"
-    assert lost.evidence == ["turn-00000000000000a5"]
+  test "failed turns grouped by state, most frequent first", %{patterns: patterns} do
+    assert [failed, unknown] = findings(patterns, "Failed turns and their reasons")
+    assert failed.text == "2 × failed (worker alpha, gamma)"
+    assert failed.evidence == ["turn-00000000000000a3", "turn-00000000000000a6"]
+    assert unknown.text == "1 × unknown (worker beta)"
+    assert unknown.evidence == ["turn-00000000000000a5"]
   end
 
   test "work reviewed twice, a retried integration and refusals", %{patterns: patterns} do

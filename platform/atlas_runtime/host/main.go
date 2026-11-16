@@ -92,110 +92,6 @@ func serviceCommands(dir, executable string) (build, run *exec.Cmd) {
 	return build, run
 }
 
-func service(dir, action string) (map[string]any, error) {
-	if action == "status" {
-		result, err := request(dir, map[string]any{"command": "service-status"})
-		if absent(err) {
-			return map[string]any{"service": "stopped"}, nil
-		}
-		return result, err
-	}
-	if action != "start" && action != "stop" {
-		return nil, errors.New("use service start|status|stop")
-	}
-	lock, err := os.OpenFile(filepath.Join(dir, "service.lock"), os.O_CREATE|os.O_RDWR, 0600)
-	if err != nil {
-		return nil, err
-	}
-	defer lock.Close()
-	if err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
-		return nil, err
-	}
-	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
-	result, err := request(dir, map[string]any{"command": "service-status"})
-	if action == "stop" {
-		if absent(err) {
-			return map[string]any{"service": "stopped"}, nil
-		}
-		if err != nil {
-			return nil, err
-		}
-		result, err = request(dir, map[string]any{"command": "service-stop"})
-		if err != nil {
-			return nil, err
-		}
-		for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); {
-			conn, dialErr := net.DialTimeout("unix", filepath.Join(dir, "runtime.sock"), time.Second)
-			if absent(dialErr) {
-				result["service"] = "stopped"
-				return result, nil
-			}
-			if conn != nil {
-				conn.Close()
-			}
-			time.Sleep(100 * time.Millisecond)
-		}
-		return nil, errors.New("service stop acknowledged but exit not confirmed")
-	}
-	if err == nil {
-		return result, nil
-	}
-	if !absent(err) {
-		return nil, fmt.Errorf("existing service is not responding: %w", err)
-	}
-	if repoRoot == "" {
-		return nil, errors.New("CLI was not built with the Atlas checkout location")
-	}
-	// Only remove a socket when no process is listening. Never signal saved PIDs.
-	if err = os.Remove(filepath.Join(dir, "runtime.sock")); err != nil && !os.IsNotExist(err) {
-		return nil, err
-	}
-	executable, err := os.Executable()
-	if err != nil {
-		return nil, err
-	}
-	build, cmd := serviceCommands(dir, executable)
-	build.Stdout = os.Stderr
-	build.Stderr = os.Stderr
-	if err = build.Run(); err != nil {
-		return nil, fmt.Errorf("Runtime build: %w", err)
-	}
-	log, err := os.OpenFile(filepath.Join(dir, "service.log"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
-	if err != nil {
-		return nil, err
-	}
-	defer log.Close()
-	cmd.Stdout = log
-	cmd.Stderr = log
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	if err = cmd.Start(); err != nil {
-		return nil, err
-	}
-	ended := make(chan error, 1)
-	go func() { ended <- cmd.Wait() }()
-	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); {
-		select {
-		case exit := <-ended:
-			return nil, fmt.Errorf("Runtime exited (%v); inspect %s", exit, filepath.Join(dir, "service.log"))
-		default:
-		}
-		result, err = request(dir, map[string]any{"command": "service-status"})
-		if err == nil {
-			return result, nil
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	// This is the child started by this invocation, not a PID read from disk.
-	cmd.Process.Signal(syscall.SIGTERM)
-	select {
-	case <-ended:
-	case <-time.After(5 * time.Second):
-		cmd.Process.Kill()
-		<-ended
-	}
-	return nil, fmt.Errorf("Runtime startup timed out; inspect %s", filepath.Join(dir, "service.log"))
-}
-
 var workerName = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
 
 func workerFlag(flags *flag.FlagSet, command map[string]any) {
@@ -294,7 +190,7 @@ func execute(args []string) (map[string]any, error) {
 
 func executeTo(args []string, out io.Writer) (map[string]any, error) {
 	if len(args) == 0 {
-		return nil, errors.New("use service start|status|stop, start|continue --profile PROFILE --cost-class CLASS (--cwd PATH [--permissions P] | --repo URL --branch BRANCH) [--key KEY] [--slot SLOT] [--resume-from TURN_ID] ASSIGNMENT, status [--work WORK_ID | --key KEY | --state STATE --changed-since SEQUENCE], capacity, retry --work WORK_ID [--resume], stop|kill --work WORK_ID [--reason TEXT], output --turn TURN_ID [--cursor CURSOR], turns, events [--cursor CURSOR] [--limit N | --follow], answer --worker NAME --turn TURN_ID --question QUESTION_ID --answers JSON_OBJECT, preferences, release --worker NAME, snapshot materialize --snapshot sha256:HEX --dest NEW_PATH, snapshot prepare --dest PATH --npm-ci REPO_PATH[/SUBDIR] | --npm-run REPO_PATH[/SUBDIR] --script NAME --output REPO_PATH/OUT..., snapshot status|diff --dest PATH [--path REPO_PATH]..., snapshot submit --dest PATH [--path REPO_PATH] --change-id UUID [--fingerprint fpr_HEX], snapshot freeze --dest PATH --turn TURN_ID --packet NEW_PATH --packet-id UUID [--previous PACKET_ID] [--revision REVISION], snapshot findings --packet PATH --turn TURN_ID, snapshot packets --dest PATH, snapshot discard --packet PATH | --packet-id UUID, or snapshot rebind --dest PATH")
+		return nil, errors.New("use service start|status|stop [--force]|pause|resume|drain, start|continue --profile PROFILE --cost-class CLASS (--cwd PATH [--permissions P] | --repo URL --branch BRANCH) [--key KEY] [--slot SLOT] [--resume-from TURN_ID] ASSIGNMENT, status [--work WORK_ID | --key KEY | --state STATE --changed-since SEQUENCE], capacity, retry --work WORK_ID [--resume], stop|kill --work WORK_ID [--reason TEXT], output --turn TURN_ID [--cursor CURSOR], turns, events [--cursor CURSOR] [--limit N | --follow], answer --worker NAME --turn TURN_ID --question QUESTION_ID --answers JSON_OBJECT, preferences, release --slot SLOT, snapshot materialize --snapshot sha256:HEX --dest NEW_PATH [--read-only], snapshot changes --dest PATH --blobs DIR, snapshot compose --base-id sha256:HEX --change-set FILE --blobs DIR --dest NEW_PATH [--read-only], snapshot prepare --dest PATH --npm-ci REPO_PATH[/SUBDIR] | --npm-run REPO_PATH[/SUBDIR] --script NAME --output REPO_PATH/OUT..., snapshot status|diff --dest PATH [--path REPO_PATH]..., snapshot submit --dest PATH [--path REPO_PATH] --change-id UUID [--fingerprint fpr_HEX], snapshot freeze --dest PATH --turn TURN_ID --packet NEW_PATH --packet-id UUID [--previous PACKET_ID] [--revision REVISION], snapshot findings --packet PATH --turn TURN_ID, snapshot packets --dest PATH, snapshot discard --packet PATH | --packet-id UUID, or snapshot rebind --dest PATH")
 	}
 	dir, err := home()
 	if err != nil {
@@ -319,15 +215,18 @@ func executeTo(args []string, out io.Writer) (map[string]any, error) {
 			return nil, err
 		}
 	}
-	if args[0] == "service" {
-		if len(args) != 2 {
-			return nil, errors.New("use service start|status|stop")
-		}
-		return service(dir, args[1])
+	// Operations go to the operations contract on backend.sock (S2).
+	switch args[0] {
+	case "service":
+		return service(dir, args[1:])
+	case "preferences":
+		return preferences(dir, args[1:])
+	case "release":
+		return release(dir, args[1:])
 	}
 	if args[0] == "snapshot" {
-		usage := errors.New("use snapshot materialize --snapshot sha256:HEX --dest NEW_PATH, snapshot prepare --dest PATH --npm-ci REPO_PATH[/SUBDIR] | --npm-run REPO_PATH[/SUBDIR] --script NAME --output REPO_PATH/OUT..., snapshot status|diff --dest PATH [--path REPO_PATH]..., snapshot submit --dest PATH [--path REPO_PATH] --change-id UUID [--fingerprint fpr_HEX], snapshot freeze --dest PATH --turn TURN_ID --packet NEW_PATH --packet-id UUID [--previous PACKET_ID] [--revision REVISION], snapshot findings --packet PATH --turn TURN_ID, snapshot packets --dest PATH, snapshot discard --packet PATH | --packet-id UUID, or snapshot rebind --dest PATH")
-		if len(args) < 2 || args[1] != "materialize" && args[1] != "prepare" && args[1] != "status" && args[1] != "diff" && args[1] != "submit" && args[1] != "rebind" && args[1] != "freeze" && args[1] != "findings" && args[1] != "packets" && args[1] != "discard" {
+		usage := errors.New("use snapshot materialize --snapshot sha256:HEX --dest NEW_PATH [--read-only], snapshot changes --dest PATH --blobs DIR, snapshot compose --base-id sha256:HEX --change-set FILE --blobs DIR --dest NEW_PATH [--read-only], snapshot prepare --dest PATH --npm-ci REPO_PATH[/SUBDIR] | --npm-run REPO_PATH[/SUBDIR] --script NAME --output REPO_PATH/OUT..., snapshot status|diff --dest PATH [--path REPO_PATH]..., snapshot submit --dest PATH [--path REPO_PATH] --change-id UUID [--fingerprint fpr_HEX], snapshot freeze --dest PATH --turn TURN_ID --packet NEW_PATH --packet-id UUID [--previous PACKET_ID] [--revision REVISION], snapshot findings --packet PATH --turn TURN_ID, snapshot packets --dest PATH, snapshot discard --packet PATH | --packet-id UUID, or snapshot rebind --dest PATH")
+		if len(args) < 2 || args[1] != "materialize" && args[1] != "changes" && args[1] != "compose" && args[1] != "prepare" && args[1] != "status" && args[1] != "diff" && args[1] != "submit" && args[1] != "rebind" && args[1] != "freeze" && args[1] != "findings" && args[1] != "packets" && args[1] != "discard" {
 			return nil, usage
 		}
 		flags := flag.NewFlagSet("snapshot "+args[1], flag.ContinueOnError)
@@ -338,9 +237,18 @@ func executeTo(args []string, out io.Writer) (map[string]any, error) {
 		id, path, paths := new(string), new(string), []string{}
 		run, script, approved := new(string), new(string), new(string)
 		turn, previous, revision := new(string), new(string), new(string)
+		blobs, changeSet, readOnly := new(string), new(string), new(bool)
 		switch args[1] {
 		case "materialize":
 			id = flags.String("snapshot", "", "Code snapshot ID")
+			readOnly = flags.Bool("read-only", false, "seal the folder: files without write bits, directories 0555")
+		case "changes":
+			blobs = flags.String("blobs", "", "folder that keeps every written file's content as <sha256>")
+		case "compose":
+			id = flags.String("base-id", "", "snapshot whose baseline under the Runtime home the folder starts from")
+			changeSet = flags.String("change-set", "", "change set file, as snapshot changes reports it, with base equal to --base-id")
+			blobs = flags.String("blobs", "", "folder holding every written file's content as <sha256>")
+			readOnly = flags.Bool("read-only", false, "seal the folder: files without write bits, directories 0555")
 		case "prepare":
 			path = flags.String("npm-ci", "", "tracked package folder whose package-lock.json npm ci installs")
 			run = flags.String("npm-run", "", "package folder, after its --npm-ci, whose tracked script runs offline")
@@ -376,7 +284,8 @@ func executeTo(args []string, out io.Writer) (map[string]any, error) {
 		if err = flags.Parse(args[2:]); err != nil {
 			return nil, err
 		}
-		if flags.NArg() != 0 || *dest == "" && args[1] != "findings" && args[1] != "discard" || args[1] == "findings" && (*path == "" || *turn == "") || args[1] == "discard" && (*path == "") == (*id == "") || (args[1] == "materialize" || args[1] == "submit" || args[1] == "freeze") && *id == "" || args[1] == "freeze" && (*turn == "" || *path == "") {
+		if flags.NArg() != 0 || *dest == "" && args[1] != "findings" && args[1] != "discard" || args[1] == "findings" && (*path == "" || *turn == "") || args[1] == "discard" && (*path == "") == (*id == "") || (args[1] == "materialize" || args[1] == "compose" || args[1] == "submit" || args[1] == "freeze") && *id == "" ||
+			(args[1] == "changes" || args[1] == "compose") && *blobs == "" || args[1] == "compose" && *changeSet == "" || args[1] == "freeze" && (*turn == "" || *path == "") {
 			return nil, usage
 		}
 		// A preparation is exactly one npm-ci, or one npm-run with its script and outputs.
@@ -385,7 +294,14 @@ func executeTo(args []string, out io.Writer) (map[string]any, error) {
 		}
 		switch args[1] {
 		case "materialize":
+			if *readOnly {
+				return snapshot.MaterializeReadOnly(dir, *id, *dest)
+			}
 			return snapshot.Materialize(dir, *id, *dest)
+		case "changes":
+			return snapshot.Changes(dir, *dest, *blobs)
+		case "compose":
+			return snapshot.Compose(dir, *id, *changeSet, *blobs, *dest, *readOnly)
 		case "prepare":
 			if *run != "" {
 				return host.PrepareRun(dir, *dest, *run, *script, paths)
@@ -415,51 +331,6 @@ func executeTo(args []string, out io.Writer) (map[string]any, error) {
 	}
 	command := map[string]any{"command": args[0]}
 	switch args[0] {
-	case "preferences":
-		flags := flag.NewFlagSet("preferences", flag.ContinueOnError)
-		preferred := flags.String("preferred", "", "preferred backend: claude")
-		fallback := flags.String("fallback", "", "fallback backend: codex")
-		preferredModel := flags.String("preferred-model", "", "optional Claude model")
-		fallbackModel := flags.String("fallback-model", "", "optional Codex model")
-		reenable := flags.String("reenable", "", "reenable backend: claude")
-		if err = flags.Parse(args[1:]); err != nil {
-			return nil, err
-		}
-		if flags.NArg() != 0 {
-			return nil, errors.New("preferences does not accept positional arguments")
-		}
-		supplied := map[string]bool{}
-		flags.Visit(func(f *flag.Flag) { supplied[f.Name] = true })
-		if supplied["reenable"] {
-			if len(supplied) != 1 || *reenable != "claude" {
-				return nil, errors.New("use preferences --reenable claude without other flags")
-			}
-			command["reenable"] = *reenable
-		} else if len(supplied) != 0 {
-			if *preferred != "claude" || *fallback != "codex" {
-				return nil, errors.New("use preferences --preferred claude --fallback codex [--preferred-model MODEL] [--fallback-model MODEL]")
-			}
-			for _, selection := range []struct {
-				name  string
-				model string
-			}{
-				{"preferred", *preferredModel},
-				{"fallback", *fallbackModel},
-			} {
-				var model any
-				if supplied[selection.name+"-model"] {
-					if strings.TrimSpace(selection.model) == "" {
-						return nil, errors.New("explicit preference models must be nonempty")
-					}
-					model = selection.model
-				}
-				backend := *preferred
-				if selection.name == "fallback" {
-					backend = *fallback
-				}
-				command[selection.name] = map[string]any{"backend": backend, "model": model}
-			}
-		}
 	case "answer", "question":
 		flags := flag.NewFlagSet(args[0], flag.ContinueOnError)
 		workerFlag(flags, command)
@@ -577,23 +448,11 @@ func executeTo(args []string, out io.Writer) (map[string]any, error) {
 		// The journal is read on runtime.sock (runtime.read/1 events).
 		delete(command, "command")
 		return journalRequest(dir, command)
-	case "release":
-		flags := flag.NewFlagSet(args[0], flag.ContinueOnError)
-		workerFlag(flags, command)
-		if err = flags.Parse(args[1:]); err != nil {
-			return nil, err
-		}
-		if flags.NArg() != 0 {
-			return nil, errors.New("unexpected arguments")
-		}
-		if command["worker_id"] == nil {
-			return nil, errors.New("use release --worker NAME; it clears the stop latch and starts nothing")
-		}
 	case "turns":
 		if len(args) != 1 {
 			return nil, errors.New("unexpected arguments")
 		}
-		return readRequest(dir, "turns", nil)
+		return listTurns(dir)
 	default:
 		return nil, errors.New("unknown command")
 	}
@@ -615,13 +474,21 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "native-host" {
 		host.Main(os.Args[2:])
 	}
+	// The after-check runner streams its events on stdout and reads stop controls on stdin.
+	if len(os.Args) > 1 && os.Args[1] == "host" {
+		if len(os.Args) > 2 && os.Args[2] == "check" {
+			host.CheckMain(os.Args[3:])
+		}
+		writeCommandError(os.Stderr, errors.New("use host check --cwd DIR (--scope JSON | --sandbox read-only) --scratch DIR --timeout SEC --grace SEC --tail BYTES -- ARGV..."))
+		os.Exit(1)
+	}
 	if len(os.Args) == 2 && (os.Args[1] == "--help" || os.Args[1] == "-h") {
 		printHelp(os.Stdout)
 		return
 	}
 	result, err := executeTo(os.Args[1:], os.Stdout)
 	if err != nil {
-		writeCommandError(os.Stdout, err)
+		writeCommandError(errorStream(os.Args[1:], os.Stdout, os.Stderr), err)
 		os.Exit(1)
 	}
 	if result != nil {
@@ -631,12 +498,13 @@ func main() {
 
 // printHelp writes the CLI help.
 func printHelp(out io.Writer) {
-	fmt.Fprintln(out, "atlas-runtime service start|status|stop\natlas-runtime start --profile PROFILE --cost-class low|standard|high --cwd PATH [--permissions read-only|workspace-write|materialized-folder] [--title TITLE] [--key KEY] [--slot SLOT] [--resume-from TURN_ID] \"assignment\"\natlas-runtime start --profile PROFILE --cost-class low|standard|high --repo https://github.com/OWNER/REPO.git --branch NEW_BRANCH [--base develop] [--title TITLE] [--key KEY] [--slot SLOT] \"assignment\"\natlas-runtime continue --resume-from TURN_ID --profile PROFILE --cost-class CLASS (--cwd PATH [--permissions P] | --repo URL --branch BRANCH) [--title TITLE] [--key KEY] [--slot SLOT] \"next assignment\"\natlas-runtime status [--work WORK_ID | --key KEY | [--state STATE] [--changed-since SEQUENCE]]\natlas-runtime capacity\natlas-runtime retry --work WORK_ID [--resume]\natlas-runtime stop|kill --work WORK_ID [--reason TEXT]\natlas-runtime output --turn TURN_ID [--cursor CURSOR]\natlas-runtime turns\natlas-runtime preferences\natlas-runtime release --worker NAME\nWork commands are HTTP requests to the work contract on backend.sock in the Runtime home (start and continue: POST /v1/work; status: GET /v1/work; capacity: GET /v1/capacity; retry: POST /v1/work/WORK_ID/attempts; stop and kill: POST /v1/work/WORK_ID/cancel; output: GET /v1/turns/TURN_ID/output). Each prints the Runtime's answer: the work, the list of work with its change sequence, the capacity or one output page. The Runtime validates every request; a refusal prints its problem (type, status, reason, detail; at-capacity, HTTP 503, also retry_after and capacity) and exits nonzero. A work states its needs, an execution profile and a cost class, never a backend or model: the Runtime picks the slot and the harness from its human-owned policy.json, queues the work in a small buffer and runs one attempt at a time. Start answers once the work is recorded, not when its turn ends; read progress with status and output, or follow events. --title defaults to the assignment's first line; --permissions defaults to read-only; --base must be develop. --key is the client key, sent as Idempotency-Key: the same key with the same request returns the same work, with another request it is a conflict, so a lost reply is safe to repeat. --slot is for a human at this machine. Continue is start with --resume-from: it continues that turn's conversation and workspace, on its slot. Stop cancels gracefully (the turn gets SIGINT, and is killed after the grace period); kill forces at once; both answer with the work, whose current attempt shows the cancel stage. Retry starts the next attempt of a work; --resume continues an interrupted attempt's conversation. Flags precede the assignment; use -- before an assignment starting with a dash. Turns reads the history on read.sock, including turns from before work moved to backend.sock; events reads the journal on runtime.sock. Preferences only shows policy.json, availability.json, the slots and the buffer; edit policy.json locally. Release clears a slot's stop latch and tells the Runtime that nothing of the slot's turn is left; it starts nothing. Service status lists the slots' states. Service stop stops every running turn and exits only once no owned execution remains; repeat it, or kill the remaining turns.")
+	fmt.Fprintln(out, "atlas-runtime service start|status|stop [--force]|pause|resume|drain\natlas-runtime start --profile PROFILE --cost-class low|standard|high --cwd PATH [--permissions read-only|workspace-write|materialized-folder] [--title TITLE] [--key KEY] [--slot SLOT] [--resume-from TURN_ID] \"assignment\"\natlas-runtime start --profile PROFILE --cost-class low|standard|high --repo https://github.com/OWNER/REPO.git --branch NEW_BRANCH [--base develop] [--title TITLE] [--key KEY] [--slot SLOT] \"assignment\"\natlas-runtime continue --resume-from TURN_ID --profile PROFILE --cost-class CLASS (--cwd PATH [--permissions P] | --repo URL --branch BRANCH) [--title TITLE] [--key KEY] [--slot SLOT] \"next assignment\"\natlas-runtime status [--work WORK_ID | --key KEY | [--state STATE] [--changed-since SEQUENCE]]\natlas-runtime capacity\natlas-runtime retry --work WORK_ID [--resume]\natlas-runtime stop|kill --work WORK_ID [--reason TEXT]\natlas-runtime output --turn TURN_ID [--cursor CURSOR]\natlas-runtime turns\natlas-runtime preferences\natlas-runtime release --slot SLOT\nWork commands are HTTP requests to the work contract on backend.sock in the Runtime home (start and continue: POST /v1/work; status: GET /v1/work; capacity: GET /v1/capacity; retry: POST /v1/work/WORK_ID/attempts; stop and kill: POST /v1/work/WORK_ID/cancel; output: GET /v1/turns/TURN_ID/output). Each prints the Runtime's answer: the work, the list of work with its change sequence, the capacity or one output page. The Runtime validates every request; a refusal prints its problem (type, status, reason, detail; at-capacity, HTTP 503, also retry_after and capacity) and exits nonzero. A work states its needs, an execution profile and a cost class, never a backend or model: the Runtime picks the slot and the harness from its human-owned policy.json, queues the work in a small buffer and runs one attempt at a time. Start answers once the work is recorded, not when its turn ends; read progress with status and output, or follow events. --title defaults to the assignment's first line; --permissions defaults to read-only; --base must be develop. --key is the client key, sent as Idempotency-Key: the same key with the same request returns the same work, with another request it is a conflict, so a lost reply is safe to repeat. --slot is for a human at this machine. Continue is start with --resume-from: it continues that turn's conversation and workspace, on its slot. Stop cancels gracefully (the turn gets SIGINT, and is killed after the grace period); kill forces at once; both answer with the work, whose current attempt shows the cancel stage. Retry starts the next attempt of a work; --resume continues an interrupted attempt's conversation. Flags precede the assignment; use -- before an assignment starting with a dash. Turns lists the history (GET /v1/turns on backend.sock, every page): each turn's turn_id, slot, state, native_outcome, started_at, ended_at, harness, configured_model, reported_model and conversation_id; the socket's client reads all history, so turns from before work moved to backend.sock are listed too. Events read the journal on runtime.sock. Operations are HTTP requests to the operations contract on backend.sock too (service status: GET /v1/runtime; service pause, resume and drain: POST /v1/control/ACTION; service stop: POST /v1/control/stop; preferences: GET /v1/policy; release: POST /v1/slots/SLOT/release). Service status prints the runtime info: mode (open, paused, draining or stopping), incarnation, runtime_build, policy_version and the slots, each with busy; a stopped Runtime prints {\"service\":\"stopped\"}. Pause takes no new work and starts no buffered work, while running turns continue; drain also returns the buffered work, and the Runtime stays draining until resume, which opens it again. The mode outlasts a restart. Service stop takes no new work and keeps the buffer, cancels the running turns (--force kills them at once), whose attempts end interrupted and retryable, and returns once backend.sock is gone; it exits nonzero if that takes over 60 s. Preferences prints the policy view, with each option's availability; edit policy.json locally to change the policy. Release clears a slot's stop latch and tells the Runtime that nothing of the slot's turn is left; it starts nothing, and refuses as slot busy while the slot's process is alive. runtime.sock keeps only questions, answers, handoffs, peer correlation and the journal (events).")
 	fmt.Fprintln(out, "atlas-runtime events [--cursor CURSOR] [--limit N]\natlas-runtime events --follow [--cursor CURSOR]\nEvents returns one finite page of durable execution events, not native output or task-success claims. Limit defaults to 50 (1..100). Follow streams events from runtime.sock as JSON lines, one per event, plus {\"reset\":...} for a retention gap or epoch change and {\"cursor\":...} after each page; it reconnects from the last printed cursor and reports {\"reachable\":false,\"reason\":...} and {\"reachable\":true} itself. It never starts the service and exits 0 on SIGINT or SIGTERM.")
 	fmt.Fprintln(out, "Claude questions, for a turn that recorded the questions capability (the work contract does not offer it in S1):\natlas-runtime question --worker NAME --turn TURN_ID --question QUESTION_ID\natlas-runtime answer --worker NAME --turn TURN_ID --question QUESTION_ID --answers JSON_OBJECT\nAnswers map exact question texts to strings. Identical repeats return recorded admission without resending; conflicting answers refuse. Admission, delivery, native processing and verified task success are distinct. Codex does not support questions.")
 	fmt.Fprintln(out, "Explicit coordinator handoff:\natlas-runtime submit-handoff --worker NAME --turn TURN_ID --handoff JSON_OBJECT\natlas-runtime handoff --worker NAME --turn TURN_ID\nDeclaration fields: kind (completion|pull_request), repository_url, branch, base_sha, head_sha, result, verification, limits, remaining_processes; pull_request requires pr_url, completion forbids it. The last three fields are arrays of strings. Stored provenance is coordinator_submitted_declaration, not authenticated native submission or verified task/PR acceptance. Identical repeats return the original record; replacement conflicts. Execution, merge and next assignment remain separate.")
 	fmt.Fprintln(out, "Explicit coordinator peer correlation (records only; never dispatches work or answers):\natlas-runtime route-peer-question --worker SENDER --turn TURN --question QUESTION --peer-worker PEER --peer-turn SOURCE\natlas-runtime peer-question --worker SENDER --turn TURN --question QUESTION\natlas-runtime bind-peer-reply --worker SENDER --turn TURN --question QUESTION --response-turn RESPONSE\nContinue and answer remain separate explicit commands. New transitions require the exact live pending sender question; reply binding requires the peer's successful continuation of the recorded source. Provenance is coordinator_routed_declaration, not authenticated native peer delivery. Identical routing repeats return original routed evidence; inspection returns current evidence. Conflicting targets or replies refuse.")
-	fmt.Fprintln(out, "Snapshot materialization (Code service required, Runtime service not):\natlas-runtime snapshot materialize --snapshot sha256:HEX --dest NEW_PATH\nVerifies the manifest identity and every archive entry, then publishes the new folder atomically and never replaces an existing path. Keeps a read-only baseline under the Runtime home in snapshots/HEX/ and records the destination in materializations/. No Git runs and no Git metadata is written.")
+	fmt.Fprintln(out, "Snapshot materialization (Code service required, Runtime service not):\natlas-runtime snapshot materialize --snapshot sha256:HEX --dest NEW_PATH [--read-only]\nVerifies the manifest identity and every archive entry, then publishes the new folder atomically and never replaces an existing path. Keeps a read-only baseline under the Runtime home in snapshots/HEX/ and records the destination in materializations/. No Git runs and no Git metadata is written. With --read-only the folder is sealed like the baseline: files without write bits, directories 0555; the record and baseline are the same. The result names snapshot_id, destination, baseline, repositories and read_only.")
+	fmt.Fprintln(out, "Snapshot change sets (no Code, Runtime service or Git):\natlas-runtime snapshot changes --dest PATH --blobs DIR\nReports a materialized or composed folder as a change set against its recorded baseline: {snapshot_id, roots: [{root, entries}], outside}. Every repository path of the baseline is a root, in manifest order, with entries [] when it is unchanged; entries are exactly what submit sends (write: path, op, kind, mode, size, sha256 and target for a symlink; delete: path, op), with paths relative to the root. outside lists the paths outside every repository. Every written file's content is kept as DIR/SHA256 (read-only; an existing blob is kept). Takes the folder lock workers and submissions take and scans twice; the result is printed only when both scans agree. Works on a read-only folder and writes to neither it nor its baseline. On failure it exits nonzero and writes {code, error} to stderr: code not_materialized (no record for PATH), busy (an owner holds the lock), changed_during_scan, unsupported_entry (what submit refuses: a FIFO, socket, device, .git path, symlink leaving its repository or a file over 64 MiB) or io.\natlas-runtime snapshot compose --base-id sha256:HEX --change-set FILE --blobs DIR --dest NEW_PATH [--read-only]\nBuilds the new folder NEW_PATH from the baseline of HEX under the Runtime home plus exactly the change set in FILE ({base, roots}, as snapshot changes prints it, with base equal to --base-id): deletes remove baseline files and symlinks, writes take their content from DIR/SHA256, and every blob's size and sha256 are checked on the copy. Files are APFS clones where the filesystem allows. With --read-only, files lose their write bits and directories are 0555. NEW_PATH must not exist; its parent must. Inside the Runtime home only RUNTIME_HOME/workers/work-NAME is accepted, NAME starting with a lowercase letter, then lowercase letters, digits, _ or -. Publishes by an exclusive rename and records NEW_PATH as a materialization of HEX, so status, diff, submit and changes of it are relative to the same baseline. Never contacts Code. The result is {snapshot_id, destination, read_only}. On failure it exits nonzero, leaves no NEW_PATH and writes {code, error} to stderr: code baseline_missing, invalid_change_set, blob_mismatch, destination_exists, destination_not_allowed or io.")
 	fmt.Fprintln(out, "Snapshot preparation (Runtime service, Code and Git not; npm and the installed Codex sandbox required):\natlas-runtime snapshot prepare --dest PATH --npm-ci REPO_PATH[/SUBDIR]\nRuns the one explicit preparation of a freshly materialized, unchanged folder: npm ci --ignore-scripts --no-audit --no-fund in that tracked package folder, from its tracked package-lock.json, which must pin every package to https://registry.npmjs.org/ with a sha512 integrity. No project .npmrc. Runs in the Codex sandbox, which writes only the folder's node_modules and an owned scratch and reaches only registry.npmjs.org, with a scrubbed environment and empty npm user and global configuration. Holds the folder lock that workers and submissions take; refuses while either runs. Kills the process group after 10 minutes and keeps 1 MiB of each of stdout and stderr; nothing is retried. Records a minimal result workers can read and private diagnostics they cannot under the Runtime home in preparations/. Status, diff and submit then skip the node_modules directory. A failed or interrupted preparation keeps the folder and diagnostics and makes the folder not ready: workers refuse it, status, diff and submit still work, and the recovery is a fresh materialization. A repeat reports the recorded result without running again; a result that is not ready exits nonzero.\natlas-runtime snapshot prepare --dest PATH --npm-run REPO_PATH[/SUBDIR] --script NAME --output REPO_PATH/OUT [--output REPO_PATH/OUT]...\nRuns, at most once and only after a succeeded --npm-ci of the same package in an otherwise unchanged folder, npm run --ignore-scripts --offline NAME for a script in the tracked package.json: no pre- or post-scripts. Runs in the Codex sandbox with no network, writing only the declared outputs and an owned scratch; node_modules and the rest of the folder are read-only. Outputs are paths in the package's repository, outside node_modules and the package manifests, not nested and not containing the package folder; an existing one, and every folder above it, is a real directory or, for the output itself, a regular file. Afterwards every tracked file, regenerated ones included, must be byte- and mode-identical to the snapshot, or the preparation fails (changed). Status, diff and submit skip only declared outputs that hold no tracked path, while they are real directories. Same lock, timeout, log cap, environment, records (diagnostics in private/npm-run) and readiness as --npm-ci; node must be on PATH.")
 	fmt.Fprintln(out, "Offline snapshot inspection (no Code, Runtime service or Git):\natlas-runtime snapshot status --dest PATH [--path REPO_PATH]...\natlas-runtime snapshot diff --dest PATH [--path REPO_PATH]...\nCompares a materialized folder with its verified baseline and writes to neither. Reports added, deleted, modified (binary flagged), mode, symlink and kind changes sorted by path; diff adds a unified diff per text content change. Symlinks are compared, never followed. --path selects repository paths; without it, files outside every repository are reported as added. Files over 1 MiB are not classified or diffed. Missing or invalid records or baselines fail.")
 	fmt.Fprintln(out, "Snapshot change submission (Code service required, Runtime service and Git not):\natlas-runtime snapshot submit --dest PATH [--path REPO_PATH] --change-id UUID [--fingerprint fpr_HEX]\nSends one materialized repository's changes from its verified baseline to Code as a change based on the snapshot's revision and seals it; the result names the sealed revision, nothing is reviewed or integrated. --path may be omitted only with one repository. A clean repository returns state clean and sends nothing. Written files are captured into a private copy and the folder is scanned again before anything is sent; a folder that changed meanwhile is refused. FIFOs, sockets, devices, .git paths, symlinks leaving the repository and files over 64 MiB are refused; empty directories cannot be represented. Repeating the same command and change ID resumes an incomplete submission or returns the sealed revision; different content under the same ID is a conflict. Writes to neither the folder nor its baseline. Every result reports the repository fingerprint: fpr_ plus the SHA-256 of the canonical change request without its change ID, {base_revision, entries, repository, snapshot_id} with sorted keys and entries, so a clean repository has the fingerprint of entries []. With --fingerprint, content with any other fingerprint on either scan exits nonzero before Code is contacted.")
@@ -644,6 +512,15 @@ func printHelp(out io.Writer) {
 	fmt.Fprintln(out, "Review findings (no Code, Runtime service or Git):\natlas-runtime snapshot findings --packet PATH --turn TURN_ID\nRecords the findings a review pass wrote to PATH/findings/findings.json. PATH is a packet folder made by snapshot freeze; TURN_ID is a review-packet turn of that packet that ran in PATH/tree and is finished, stopped or killed. Takes the tree's lock and refuses while an owner holds it. The tree, packet.json and diff.json must still match the packet (code packet_modified). The file is at most 65536 bytes (64 KiB) of UTF-8 JSON with exactly the fields version 1, packet_id and fingerprint of this packet, verdict (pass, changes_required or uncertain), summary, findings, checked and not_checked (arrays of strings), with no repeated keys; each finding has exactly id (unique), severity (blocking, should-fix or note), repository, path, lines, problem, evidence and direction. repository, path and lines may be null; repository and path are as diff.json names them, the path must be in the tree or its baseline and in that repository, and lines {side: new|old, start, end} must lie within the tree's (new) or baseline's (old) file. pass with a blocking finding is invalid. A missing file is refused with code findings_missing, any other invalid one with findings_invalid; Runtime never writes a verdict and a refusal is never a pass. The result, also written read-only to packets/PACKET_ID/findings/TURN_ID.json in the Runtime home, holds the file (compacted) as findings, the sha256 of its original bytes, review_turn, reviewer {worker_id, backend, model, selection} from the review turn, author {turn_id, worker_id, backend, model, selection} from the packet and its author turn, packet_id, fingerprint and recorded_at, plus state recorded and the record path. A repeat for the same turn with an unchanged file returns the record with state existing; a changed or removed file is a conflict.\natlas-runtime snapshot packets --dest PATH\nLists the packets frozen from PATH, oldest first along their previous links: packet_id, fingerprint, previous, snapshot_id, created_at, author, the packet folder and every findings record. Reads only; PATH need not still exist.")
 	fmt.Fprintln(out, "Review packet discard (no Code, Runtime service or Git):\natlas-runtime snapshot discard --packet PATH | --packet-id UUID\nRemoves the folder of a packet made by snapshot freeze, named by its path or its packet ID, with its tree's materialization record and preparation copy. Takes the tree's folder lock and refuses while a review pass or another command holds it. Removes only the folder the packet's record names while its tree is still recorded as that packet: read-only directories and files are made writable first, symbolic links are never followed, and nothing outside the folder is changed. The Runtime home keeps packets/PACKET_ID/ (packet.json, diff.json and the findings records) and stamps discarded.json there with discarded_at. The result is state discarded, the packet ID, packet folder, tree, fingerprint, discarded_at and the kept record. A repeat, by path or ID, reports the same discard; by path it selects the packet not yet discarded when a later freeze reused the path.")
 	fmt.Fprintln(out, "Snapshot rebind (Code required, Runtime service stopped):\natlas-runtime snapshot rebind --dest PATH\nMoves a folder materialized before revision handles to the successor snapshot Code names for it, which must have exactly the same entries, repositories and paths. Copies a new baseline from the old one with every file re-hashed, then switches the saved turns bound to the folder's exact old scope, their Claude contexts and the materialization record, so they still continue; admissions, process logs, events and other turns are untouched. Never writes the folder. Backs up every original and journals each step under rebinds/; an interrupted rebind resumes when repeated, and until then the folder's status, diff, submit and scope refuse. Refuses while the Runtime service runs or may be starting, or while a worker owns the folder. A folder that already uses revision handles reports state current. Status, diff and submit of an older folder refuse until it is rebound.")
+}
+
+// errorStream is where a failed command reports its error: stderr for snapshot changes and
+// compose, whose stdout carries only a result; stdout for every other command, as before.
+func errorStream(args []string, stdout, stderr io.Writer) io.Writer {
+	if len(args) > 1 && args[0] == "snapshot" && (args[1] == "changes" || args[1] == "compose") {
+		return stderr
+	}
+	return stdout
 }
 
 // Preserve typed command results across the CLI boundary, including findings refusal

@@ -15,13 +15,33 @@ defmodule AtlasRuntimeBackend.MixProject do
         {:atlas_runtime_backend_generator, path: "../generator"},
         {:atlas_runtime_boundary, path: "../../boundary/contract"}
       ],
-      # What `mix runtime_backend.gen` generates, and where. S1 has no file target: the
-      # route description (../targets/rest/routes.json) and OpenAPI come with S3, so
-      # --check only compiles the contract. Headers name the contract file from the
+      # What `mix runtime_backend.gen` generates, and where (§1.8, §8.5): per contract of
+      # the one router (S2), its route description and OpenAPI document, for clients in
+      # other languages, in ../targets/rest/<contract>/. Clients of the tcp listener send a
+      # bearer token (§8.1); only the work contract declares that listener, and naming a
+      # listener a contract declares no rights for fails generation. The OpenAPI has no
+      # servers: the host is configuration. Headers name the contract file from the
       # repository's root.
       runtime_backend: [
-        contracts: [work_api: AtlasRuntimeBackend.Work],
-        targets: [],
+        contracts: [
+          work_api: AtlasRuntimeBackend.Work,
+          operations_api: AtlasRuntimeBackend.Operations,
+          history_api: AtlasRuntimeBackend.History
+        ],
+        targets: [
+          routes: "../targets/rest",
+          openapi:
+            {"../targets/rest",
+             contracts: [:work_api],
+             title: "Atlas Runtime backend: work",
+             security: [tcp: :bearer]},
+          openapi:
+            {"../targets/rest",
+             contracts: [:operations_api], title: "Atlas Runtime backend: operations"},
+          openapi:
+            {"../targets/rest",
+             contracts: [:history_api], title: "Atlas Runtime backend: history"}
+        ],
         root: "../../../.."
       ]
     ]

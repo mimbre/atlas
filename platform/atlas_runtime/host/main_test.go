@@ -1,15 +1,23 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/eyra/atlas/platform/atlas_runtime/host/snapshot"
 )
 
 // socketDirectory is a fresh Runtime home under TMPDIR for runtime.sock. It skips when the socket
@@ -77,54 +85,6 @@ func TestFailedTurnIsInspectableButCommandRefusalFails(t *testing.T) {
 	}
 }
 
-func TestExecuteRejectsInvalidPreferencesBeforeSocketRequest(t *testing.T) {
-	t.Setenv("ATLAS_RUNTIME_HOME", t.TempDir())
-	pair := []string{"preferences", "--preferred", "claude", "--fallback", "codex"}
-	for _, test := range []struct {
-		name string
-		args []string
-		want string
-	}{
-		{"positional", []string{"preferences", "claude"}, "does not accept positional arguments"},
-		{"trailing positional", append(append([]string{}, pair...), "extra"), "does not accept positional arguments"},
-		{"positional after separator", []string{"preferences", "--", "claude"}, "does not accept positional arguments"},
-		{"unknown flag", []string{"preferences", "--model", "sonnet"}, "flag provided but not defined"},
-		{"missing value", []string{"preferences", "--preferred"}, "flag needs an argument"},
-		{"missing fallback", []string{"preferences", "--preferred", "claude"}, "use preferences --preferred"},
-		{"missing preferred", []string{"preferences", "--fallback", "codex"}, "use preferences --preferred"},
-		{"empty preferred", []string{"preferences", "--preferred=", "--fallback", "codex"}, "use preferences --preferred"},
-		{"empty fallback", []string{"preferences", "--preferred", "claude", "--fallback="}, "use preferences --preferred"},
-		{"unknown preferred", []string{"preferences", "--preferred", "other", "--fallback", "codex"}, "use preferences --preferred"},
-		{"unknown fallback", []string{"preferences", "--preferred", "claude", "--fallback", "other"}, "use preferences --preferred"},
-		{"reversed pair", []string{"preferences", "--preferred", "codex", "--fallback", "claude"}, "use preferences --preferred"},
-		{"same backend", []string{"preferences", "--preferred", "claude", "--fallback", "claude"}, "use preferences --preferred"},
-		{"preferred model only", []string{"preferences", "--preferred-model", "sonnet"}, "use preferences --preferred"},
-		{"fallback model only", []string{"preferences", "--fallback-model", "gpt-5"}, "use preferences --preferred"},
-		{"empty preferred model", append(append([]string{}, pair...), "--preferred-model="), "models must be nonempty"},
-		{"blank preferred model", append(append([]string{}, pair...), "--preferred-model", " \t"), "models must be nonempty"},
-		{"empty fallback model", append(append([]string{}, pair...), "--fallback-model="), "models must be nonempty"},
-		{"blank fallback model", append(append([]string{}, pair...), "--fallback-model", "\n "), "models must be nonempty"},
-		{"missing model value", append(append([]string{}, pair...), "--fallback-model"), "flag needs an argument"},
-		{"empty reenable", []string{"preferences", "--reenable="}, "use preferences --reenable"},
-		{"unknown reenable", []string{"preferences", "--reenable", "other"}, "use preferences --reenable"},
-		{"codex reenable", []string{"preferences", "--reenable", "codex"}, "use preferences --reenable"},
-		{"mixed pair", append(append([]string{}, pair...), "--reenable", "claude"), "use preferences --reenable"},
-		{"mixed empty preferred", []string{"preferences", "--reenable", "claude", "--preferred="}, "use preferences --reenable"},
-		{"mixed preferred model", []string{"preferences", "--reenable", "claude", "--preferred-model", "sonnet"}, "use preferences --reenable"},
-		{"mixed empty fallback model", []string{"preferences", "--reenable", "claude", "--fallback-model="}, "use preferences --reenable"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			result, err := execute(test.args)
-			if err == nil || !strings.Contains(err.Error(), test.want) {
-				t.Fatalf("expected argument refusal %q, got result %#v, error %v", test.want, result, err)
-			}
-			if result != nil {
-				t.Fatalf("invalid request returned a result: %#v", result)
-			}
-		})
-	}
-}
-
 func TestExecuteRejectsInvalidEventsBeforeSocketRequest(t *testing.T) {
 	t.Setenv("ATLAS_RUNTIME_HOME", t.TempDir())
 	for _, test := range []struct {
@@ -164,7 +124,7 @@ func TestExecuteRejectsInvalidEventsBeforeSocketRequest(t *testing.T) {
 func TestExecuteRejectsInvalidWorkerTargetsBeforeSocketRequest(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("ATLAS_RUNTIME_HOME", dir)
-	for _, command := range []string{"release", "question", "answer", "handoff"} {
+	for _, command := range []string{"question", "answer", "handoff"} {
 		for _, worker := range []string{"", " ", "Reviewer", "1reviewer", "-reviewer", "_reviewer", "../reviewer", "reviewer/name", "réviewer", "reviewer\n", strings.Repeat("a", 65)} {
 			t.Run(command+"/"+worker, func(t *testing.T) {
 				if _, err := execute([]string{command, "--worker=" + worker}); err == nil || !strings.Contains(err.Error(), "worker must match") {
@@ -177,10 +137,6 @@ func TestExecuteRejectsInvalidWorkerTargetsBeforeSocketRequest(t *testing.T) {
 		args []string
 		want string
 	}{
-		{[]string{"release"}, "use release --worker NAME"},
-		{[]string{"release", "--worker"}, "flag needs an argument"},
-		{[]string{"release", "--worker", "reviewer", "extra"}, "unexpected arguments"},
-		{[]string{"release", "--worker", "reviewer", "--turn", "turn-1"}, "flag provided but not defined"},
 		{[]string{"pause", "--worker", "reviewer"}, "unknown command"},
 		{[]string{"resume", "--worker", "reviewer"}, "unknown command"},
 		{[]string{"turns", "--worker", "reviewer"}, "unexpected arguments"},
@@ -192,18 +148,6 @@ func TestExecuteRejectsInvalidWorkerTargetsBeforeSocketRequest(t *testing.T) {
 				t.Fatalf("expected %q before request, got %v", test.want, err)
 			}
 		})
-	}
-}
-
-func TestReleaseReachesRuntimeSocket(t *testing.T) {
-	dir := socketDirectory(t)
-	t.Setenv("ATLAS_RUNTIME_HOME", dir)
-	for _, worker := range []string{"a", "reviewer-2_main", strings.Repeat("a", 64)} {
-		for _, args := range [][]string{{"release", "--worker", worker}, {"release", "--worker=" + worker}} {
-			if _, err := execute(args); err == nil || err.Error() != "Runtime service is stopped; run atlas-runtime service start" {
-				t.Fatalf("valid arguments %q did not reach request: %v", args, err)
-			}
-		}
 	}
 }
 
@@ -321,13 +265,22 @@ func TestPeerCorrelationRequiresExactTargetsAndNoDispatchOptions(t *testing.T) {
 func TestSnapshotMaterializeNeedsExactFlagsAndNoRuntimeService(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("ATLAS_RUNTIME_HOME", dir)
-	usage := "use snapshot materialize --snapshot sha256:HEX --dest NEW_PATH, snapshot prepare --dest PATH --npm-ci REPO_PATH[/SUBDIR] | --npm-run REPO_PATH[/SUBDIR] --script NAME --output REPO_PATH/OUT..., snapshot status|diff --dest PATH [--path REPO_PATH]..., snapshot submit --dest PATH [--path REPO_PATH] --change-id UUID [--fingerprint fpr_HEX], snapshot freeze --dest PATH --turn TURN_ID --packet NEW_PATH --packet-id UUID [--previous PACKET_ID] [--revision REVISION], snapshot findings --packet PATH --turn TURN_ID, snapshot packets --dest PATH, snapshot discard --packet PATH | --packet-id UUID, or snapshot rebind --dest PATH"
+	usage := "use snapshot materialize --snapshot sha256:HEX --dest NEW_PATH [--read-only], snapshot changes --dest PATH --blobs DIR, snapshot compose --base-id sha256:HEX --change-set FILE --blobs DIR --dest NEW_PATH [--read-only], snapshot prepare --dest PATH --npm-ci REPO_PATH[/SUBDIR] | --npm-run REPO_PATH[/SUBDIR] --script NAME --output REPO_PATH/OUT..., snapshot status|diff --dest PATH [--path REPO_PATH]..., snapshot submit --dest PATH [--path REPO_PATH] --change-id UUID [--fingerprint fpr_HEX], snapshot freeze --dest PATH --turn TURN_ID --packet NEW_PATH --packet-id UUID [--previous PACKET_ID] [--revision REVISION], snapshot findings --packet PATH --turn TURN_ID, snapshot packets --dest PATH, snapshot discard --packet PATH | --packet-id UUID, or snapshot rebind --dest PATH"
 	for _, args := range [][]string{
 		{"snapshot"},
 		{"snapshot", "download"},
 		{"snapshot", "materialize", "--snapshot", "sha256:x"},
 		{"snapshot", "materialize", "--dest", filepath.Join(dir, "work")},
 		{"snapshot", "materialize", "--snapshot", "sha256:x", "--dest", filepath.Join(dir, "work"), "extra"},
+		{"snapshot", "materialize", "--snapshot", "sha256:x", "--dest", filepath.Join(dir, "work"), "--read-only", "extra"},
+		{"snapshot", "changes", "--dest", dir},
+		{"snapshot", "changes", "--blobs", dir},
+		{"snapshot", "changes", "--dest", dir, "--blobs", dir, "extra"},
+		{"snapshot", "compose", "--change-set", "c.json", "--blobs", dir, "--dest", filepath.Join(dir, "work")},
+		{"snapshot", "compose", "--base-id", "sha256:x", "--blobs", dir, "--dest", filepath.Join(dir, "work")},
+		{"snapshot", "compose", "--base-id", "sha256:x", "--change-set", "c.json", "--dest", filepath.Join(dir, "work")},
+		{"snapshot", "compose", "--base-id", "sha256:x", "--change-set", "c.json", "--blobs", dir},
+		{"snapshot", "compose", "--base-id", "sha256:x", "--change-set", "c.json", "--blobs", dir, "--dest", filepath.Join(dir, "work"), "extra"},
 		{"snapshot", "status"},
 		{"snapshot", "diff", "--path", "beta"},
 		{"snapshot", "status", "--dest", dir, "extra"},
@@ -364,6 +317,11 @@ func TestSnapshotMaterializeNeedsExactFlagsAndNoRuntimeService(t *testing.T) {
 	for _, args := range [][]string{
 		{"snapshot", "status", "--snapshot", "sha256:x", "--dest", dir},
 		{"snapshot", "materialize", "--path", "beta", "--dest", dir},
+		{"snapshot", "status", "--dest", dir, "--read-only"},
+		{"snapshot", "changes", "--dest", dir, "--blobs", dir, "--read-only"},
+		{"snapshot", "changes", "--dest", dir, "--blobs", dir, "--path", "beta"},
+		{"snapshot", "compose", "--snapshot", "sha256:x", "--change-set", "c.json", "--blobs", dir, "--dest", filepath.Join(dir, "work")},
+		{"snapshot", "submit", "--dest", dir, "--change-id", "x", "--read-only"},
 		{"snapshot", "submit", "--snapshot", "sha256:x", "--dest", dir, "--change-id", "x"},
 		{"snapshot", "rebind", "--path", "beta", "--dest", dir},
 		{"snapshot", "prepare", "--path", "beta", "--dest", dir, "--npm-ci", "repo/app"},
@@ -385,6 +343,20 @@ func TestSnapshotMaterializeNeedsExactFlagsAndNoRuntimeService(t *testing.T) {
 	_, err := execute([]string{"snapshot", "materialize", "--snapshot", id, "--dest", filepath.Join(dir, "work")})
 	if err == nil || !strings.HasPrefix(err.Error(), "Code service unavailable: not configured; write ") {
 		t.Fatalf("got %v", err)
+	}
+	// So does --read-only, and changes and compose reach their folder and baseline without Code.
+	_, err = execute([]string{"snapshot", "materialize", "--snapshot", id, "--dest", filepath.Join(dir, "work"), "--read-only"})
+	if err == nil || !strings.HasPrefix(err.Error(), "Code service unavailable: not configured; write ") {
+		t.Fatalf("read-only: %v", err)
+	}
+	var failure *snapshot.Failure
+	_, err = execute([]string{"snapshot", "changes", "--dest", t.TempDir(), "--blobs", filepath.Join(dir, "blobs")})
+	if !errors.As(err, &failure) || failure.Code != "not_materialized" {
+		t.Fatalf("changes: %v", err)
+	}
+	_, err = execute([]string{"snapshot", "compose", "--base-id", id, "--change-set", filepath.Join(dir, "c.json"), "--blobs", filepath.Join(dir, "blobs"), "--dest", filepath.Join(dir, "work")})
+	if !errors.As(err, &failure) || failure.Code != "baseline_missing" {
+		t.Fatalf("compose: %v", err)
 	}
 	// Findings and packets run without the Runtime socket or Code.
 	if _, err = execute([]string{"snapshot", "findings", "--packet", t.TempDir(), "--turn", "turn-0000000000000000"}); err == nil || !strings.Contains(err.Error(), "is not a review packet folder") {
@@ -480,5 +452,168 @@ func TestSnapshotInspectionLeavesTheHomeUntouched(t *testing.T) {
 	t.Setenv("ATLAS_RUNTIME_HOME", "relative")
 	if _, err := execute([]string{"snapshot", "diff", "--dest", dest}); err == nil || err.Error() != "ATLAS_RUNTIME_HOME must be an absolute path" {
 		t.Fatalf("got %v", err)
+	}
+}
+
+// snapshot changes and compose print only their result on stdout; a failure goes to stderr as
+// {code, error}, while every other command keeps reporting failures on stdout.
+func TestChangesAndComposeReportFailuresOnStderr(t *testing.T) {
+	_, err := snapshot.Changes(t.TempDir(), t.TempDir(), filepath.Join(t.TempDir(), "blobs"))
+	for _, command := range []string{"changes", "compose", "status", "materialize"} {
+		var stdout, stderr bytes.Buffer
+		writeCommandError(errorStream([]string{"snapshot", command, "--dest", "x"}, &stdout, &stderr), err)
+		written, quiet := &stderr, &stdout
+		if command == "status" || command == "materialize" {
+			written, quiet = &stdout, &stderr
+		}
+		var reply map[string]any
+		if quiet.Len() != 0 || json.Unmarshal(written.Bytes(), &reply) != nil || reply["code"] != "not_materialized" || reply["error"] == nil {
+			t.Fatalf("%s: stdout %q, stderr %q", command, stdout.String(), stderr.String())
+		}
+	}
+}
+
+// codeStandIn serves the snapshot package's recorded Code snapshot on loopback, writes
+// <home>/code.json for it and returns the snapshot ID.
+func codeStandIn(t *testing.T, home string) string {
+	t.Helper()
+	read := func(name string) []byte {
+		data, err := os.ReadFile(filepath.Join("snapshot", "testdata", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return data
+	}
+	manifest := read("code-manifest.json")
+	archives := map[string][]byte{"repos/alpha": read("code-alpha.tar"), "beta": read("code-beta.tar")}
+	var reply struct {
+		SnapshotID string `json:"snapshot_id"`
+	}
+	if err := json.Unmarshal(manifest, &reply); err != nil {
+		t.Fatal(err)
+	}
+	const secret = "main-test-secret"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		archive, ok := archives[r.URL.Query().Get("path")]
+		switch {
+		case r.Header.Get("Authorization") != "Bearer "+secret:
+			w.WriteHeader(http.StatusUnauthorized)
+		case r.URL.Path == "/v1/snapshots/"+reply.SnapshotID+"/manifest":
+			w.Write(manifest)
+		case r.URL.Path == "/v1/snapshots/"+reply.SnapshotID+"/archive" && ok:
+			w.Header().Set("Content-Length", strconv.Itoa(len(archive)))
+			w.Write(archive)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+	tokenFile := filepath.Join(t.TempDir(), "runtime.token")
+	config, _ := json.Marshal(map[string]string{"url": server.URL, "token_file": tokenFile})
+	if os.WriteFile(tokenFile, []byte(secret+"\n"), 0600) != nil || os.WriteFile(filepath.Join(home, "code.json"), config, 0600) != nil {
+		t.Fatal("cannot write the Code configuration")
+	}
+	return reply.SnapshotID
+}
+
+// unsealedTempDir is a t.TempDir whose sealed content (baselines, read-only folders) is made
+// writable again before the test framework removes it.
+func unsealedTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+			if err == nil && d.IsDir() {
+				os.Chmod(path, 0700)
+			}
+			return nil
+		})
+	})
+	return dir
+}
+
+// sealing reports as sealed whether nothing below root, root included, has a write bit and every
+// directory is 0555, and as writable whether every directory, root included, is writable.
+func sealing(t *testing.T, root string) (sealed, writable bool) {
+	t.Helper()
+	sealed, writable = true, true
+	if err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		info, err := os.Lstat(path)
+		if err != nil {
+			return err
+		}
+		if info.Mode()&fs.ModeSymlink == 0 && info.Mode().Perm()&0222 != 0 || info.IsDir() && info.Mode().Perm() != 0555 {
+			sealed = false
+		}
+		if info.IsDir() && info.Mode().Perm()&0200 == 0 {
+			writable = false
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return sealed, writable
+}
+
+// The CLI's --read-only flags reach the helper: materialize and compose seal the folder with
+// the flag and leave it writable without it, and report which in read_only.
+func TestSnapshotReadOnlyFlagsSealTheFolder(t *testing.T) {
+	home := unsealedTempDir(t)
+	t.Setenv("ATLAS_RUNTIME_HOME", home)
+	id := codeStandIn(t, home)
+	parent := unsealedTempDir(t)
+	flags := map[bool][]string{false: nil, true: {"--read-only"}}
+	check := func(command, dest string, result map[string]any, readOnly bool) {
+		t.Helper()
+		if result["read_only"] != readOnly || result["destination"] != dest || result["snapshot_id"] != id {
+			t.Fatalf("%s read-only=%v: result %v", command, readOnly, result)
+		}
+		if sealed, writable := sealing(t, dest); sealed != readOnly || writable == readOnly {
+			t.Fatalf("%s read-only=%v: sealed=%v writable=%v", command, readOnly, sealed, writable)
+		}
+	}
+	for _, readOnly := range []bool{false, true} {
+		dest := filepath.Join(parent, "materialized-"+strconv.FormatBool(readOnly))
+		result, err := execute(append([]string{"snapshot", "materialize", "--snapshot", id, "--dest", dest}, flags[readOnly]...))
+		if err != nil {
+			t.Fatal(err)
+		}
+		check("materialize", dest, result, readOnly)
+	}
+
+	// A change set of the writable folder, with one written file, composed both ways.
+	source := filepath.Join(parent, "materialized-false")
+	if err := os.WriteFile(filepath.Join(source, "beta", "README.md"), []byte("composed\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	blobs := filepath.Join(t.TempDir(), "blobs")
+	set, err := execute([]string{"snapshot", "changes", "--dest", source, "--blobs", blobs})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(map[string]any{"base": set["snapshot_id"], "roots": set["roots"]})
+	if err != nil {
+		t.Fatal(err)
+	}
+	changeSet := filepath.Join(t.TempDir(), "change-set.json")
+	if err = os.WriteFile(changeSet, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, readOnly := range []bool{false, true} {
+		dest := filepath.Join(parent, "composed-"+strconv.FormatBool(readOnly))
+		result, err := execute(append([]string{"snapshot", "compose", "--base-id", id, "--change-set", changeSet, "--blobs", blobs, "--dest", dest}, flags[readOnly]...))
+		if err != nil {
+			t.Fatal(err)
+		}
+		check("compose", dest, result, readOnly)
+		if written, err := os.ReadFile(filepath.Join(dest, "beta", "README.md")); err != nil || string(written) != "composed\n" {
+			t.Fatalf("compose read-only=%v: %q %v", readOnly, written, err)
+		}
 	}
 }

@@ -21,7 +21,8 @@ defmodule AtlasRuntimeBackend.Generator.Example.Api do
       body: :input,
       header: ["Request-Key": :request_key]
 
-    resource :get, "/v1/books/:book_id", capability: :find_book
+    # A conditional GET: ETag from the book's edition, If-None-Match → 304.
+    resource :get, "/v1/books/:book_id", capability: :find_book, etag: :edition
     resource :get, "/v1/books", capability: :search, query: [title: :title]
 
     resource :get, "/v1/books",

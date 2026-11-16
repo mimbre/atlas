@@ -213,7 +213,9 @@
         "choice_states": ["working", "escalated"],
         "migrations": [
           {"from":"ee1314e80a41b4d4102923cc46d08126403ea5fc3c58bcf49d88617823acd86b","to":"7291ab5579991c4083ad2d1f18c211a7cc7c85ec27735c8d00d0d99e8752542e","states":{"approved":"approved","changes_requested":"changes_requested","escalated":"escalated","superseded":"superseded","working":"working"},"reason":"Slice 7: selected without its pass; superseded taken as written"},
-          {"from":"7291ab5579991c4083ad2d1f18c211a7cc7c85ec27735c8d00d0d99e8752542e","to":"05019b5d840dc936ea1f6f59f7be2849967f321a975b62bba01dacde16fa1682","states":{"approved":"approved","changes_requested":"changes_requested","escalated":"escalated","superseded":"superseded","working":"working"},"preserve_entry":true,"reason":"The review pass for a reviewer with a Runtime; live entries and timers kept"}
+          {"from":"7291ab5579991c4083ad2d1f18c211a7cc7c85ec27735c8d00d0d99e8752542e","to":"05019b5d840dc936ea1f6f59f7be2849967f321a975b62bba01dacde16fa1682","states":{"approved":"approved","changes_requested":"changes_requested","escalated":"escalated","superseded":"superseded","working":"working"},"preserve_entry":true,"reason":"The review pass for a reviewer with a Runtime; live entries and timers kept"},
+          {"from":"05019b5d840dc936ea1f6f59f7be2849967f321a975b62bba01dacde16fa1682","to":"2b5680643a5f8b8add93dd9f25d545901110dfe4ef1688ee5d3a6fd4a52ce86b","states":{"approved":"approved","changes_requested":"changes_requested","escalated":"escalated","superseded":"superseded","working":"working"},"preserve_entry":true,"reason":"F0: the review pass removed; verdict by hand; live entries and timers kept"},
+          {"from":"7291ab5579991c4083ad2d1f18c211a7cc7c85ec27735c8d00d0d99e8752542e","to":"2b5680643a5f8b8add93dd9f25d545901110dfe4ef1688ee5d3a6fd4a52ce86b","states":{"approved":"approved","changes_requested":"changes_requested","escalated":"escalated","superseded":"superseded","working":"working"},"preserve_entry":true,"reason":"F0: from before the review pass straight to without it; entries and timers kept"}
         ],
         "subject": "pr_review",
         "admission": [],

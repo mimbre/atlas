@@ -30,7 +30,7 @@ defmodule RelaDSL.Flow.Subflow do
       one of `roles` takes, on a field in `changed`, whose condition holds. `{:to, state}`
       or `:stay`;
     * `timers(state)`: `[%{"name", "period", "to", "since"}]`, in the order written;
-    * `mechanism(state)`: nil or `{:pass | :gate | :effect, spec}`;
+    * `mechanism(state)`: nil or `{:gate | :effect, spec}`;
     * `waiting_for(state)`, `final?(state)`;
     * `owner()`: the subflow's owner; `owner(state)`: the state's own, else the subflow's;
     * `present(state, values)`: nil, or `%{"expected", "why", "todo", "deadline"}` with
@@ -152,7 +152,7 @@ defmodule RelaDSL.Flow.Subflow do
     end
   end
 
-  defp mechanism(%{"kind" => kind, "spec" => spec}) when kind in ["pass", "gate", "effect"],
+  defp mechanism(%{"kind" => kind, "spec" => spec}) when kind in ["gate", "effect"],
     do: {String.to_atom(kind), spec}
 
   defp mechanism(_), do: nil

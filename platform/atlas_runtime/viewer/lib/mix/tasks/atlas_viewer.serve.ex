@@ -4,8 +4,9 @@ defmodule Mix.Tasks.AtlasViewer.Serve do
   `mix atlas_viewer.serve [--home DIR] [--port N]`
 
   Serves the viewer for the Runtime at `DIR` (default `$ATLAS_RUNTIME_HOME`, else
-  `~/.local/state/atlas-runtime`, as `atlas-runtime` uses). It reads only `DIR/read.sock`
-  and does not start, stop or connect to Runtime until the page reads. `--port 0`, the
+  `~/.local/state/atlas-runtime`, as `atlas-runtime` uses). It reads only `DIR/backend.sock`
+  (runtime info, history and output) and `DIR/runtime.sock` (the journal), and does not
+  start, stop or connect to Runtime until the page reads. `--port 0`, the
   default, picks a free port. Prints the URL with this launch's access token in its
   fragment; the token is never written anywhere. Ctrl-C stops the viewer, not Runtime.
   """
@@ -27,7 +28,7 @@ defmodule Mix.Tasks.AtlasViewer.Serve do
       )
 
     {:ok, _pid, port, token} = AtlasViewer.start(home: home, port: Keyword.get(opts, :port, 0))
-    IO.puts("Atlas Runtime viewer (read-only) for #{AtlasViewer.ReadClient.socket(home)}")
+    IO.puts("Atlas Runtime viewer (read-only) for the Runtime home #{home}")
     IO.puts("Open: http://127.0.0.1:#{port}/#token=#{token}")
 
     IO.puts(

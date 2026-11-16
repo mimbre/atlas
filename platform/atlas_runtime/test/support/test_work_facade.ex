@@ -10,11 +10,19 @@ defmodule AtlasRuntime.Test.WorkFacade do
 end
 
 defmodule AtlasRuntime.Test.WorkRest do
-  @moduledoc "The backend's router, generated on the test facade."
+  @moduledoc """
+  The backend's one router, generated as `AtlasRuntime.Backend.Rest` is but on the test
+  facades: the work contract (with the event stream), the operations contract and the
+  history contract.
+  """
   use AtlasRuntimeBackend.Generator.Targets.Rest,
-    contract: AtlasRuntimeBackend.Work,
-    facade: AtlasRuntime.Test.WorkFacade,
-    stream: AtlasRuntime.Backend.Events
+    contracts: [
+      work:
+        {AtlasRuntimeBackend.Work,
+         facade: AtlasRuntime.Test.WorkFacade, stream: AtlasRuntime.Backend.Events},
+      operations: {AtlasRuntimeBackend.Operations, facade: AtlasRuntime.Test.OperationsFacade},
+      history: {AtlasRuntimeBackend.History, facade: AtlasRuntime.Test.HistoryFacade}
+    ]
 end
 
 defmodule AtlasRuntime.Test.FakeWork do
@@ -130,6 +138,15 @@ defmodule AtlasRuntime.Test.FakeWork do
         else: %F.Outcome.Subscribed{}
     end)
   end
+
+  # S5a: not exposed by the backend yet (P11); answered here because the contract has them.
+  @impl true
+  def get_frozen(client, input),
+    do: call(:get_frozen, client, input, fn -> %F.Outcome.NotFound{} end)
+
+  @impl true
+  def get_frozen_blob(client, input),
+    do: call(:get_frozen_blob, client, input, fn -> %F.Outcome.NotFound{} end)
 
   # The changes a resuming subscriber missed are sent from here, the subscriber's process.
   defp subscribe_window(client, from) do

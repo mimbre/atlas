@@ -110,7 +110,6 @@ defmodule AtlasRuntime.WorkHarness do
   @doc "A Service on the home; `probe` is its restart reconciliation's process check."
   def start_service!(context, probe \\ nil) do
     File.rm(Path.join(context.dir, "runtime.sock"))
-    File.rm(Path.join(context.dir, "read.sock"))
     options = if probe, do: [process_probe: probe], else: []
     {:ok, pid} = GenServer.start(Service, {context.dir, nil, [], options})
     pid
@@ -186,8 +185,11 @@ defmodule AtlasRuntime.WorkHarness do
     )
   end
 
-  @doc "A client with the work rights, without read_all or choose_slot."
-  def client(id \\ "c1", extra \\ []), do: {id, [:submit, :cancel, :read | extra]}
+  @doc """
+  A local client with the work rights and choose_path (the harness's requests name a
+  folder, D44), without read_all or choose_slot.
+  """
+  def client(id \\ "c1", extra \\ []), do: {id, [:submit, :cancel, :read, :choose_path | extra]}
 
   @doc "Submits through the facade and asserts `accepted`."
   def submit!(context, instructions, extra \\ %{}, client \\ client()) do

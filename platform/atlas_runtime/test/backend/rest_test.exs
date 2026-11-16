@@ -11,7 +11,7 @@ defmodule AtlasRuntime.Backend.RestTest do
   alias AtlasRuntime.Test.{FakeWork, WorkRest}
   alias AtlasRuntime.Test.WorkFacade, as: F
 
-  @rights [:submit, :cancel, :read, :read_all, :choose_slot]
+  @rights [:submit, :cancel, :read, :read_all, :choose_slot, :choose_path]
   @client {"local:test", @rights}
 
   @request %{
@@ -116,14 +116,17 @@ defmodule AtlasRuntime.Backend.RestTest do
       conn = request("GET", "/v1/work/w-1")
       assert conn.status == 200
       assert json(conn) == work_json()
-      # S1: no ETag.
-      assert get_resp_header(conn, "etag") == []
+      # S3: tagged with the work's revision.
+      assert get_resp_header(conn, "etag") == [~s("1")]
       assert {@client, %F.GetWorkInput{work_id: "w-1"}} = called(:get_work)
     end
 
-    test "GET /v1/work?key=: find_work" do
+    test "GET /v1/work?key=: find_work, with no ETag" do
       answer(:find_work, %F.Outcome.Found{work: work()})
-      assert request("GET", "/v1/work?key=k-1").status == 200
+      conn = request("GET", "/v1/work?key=k-1", nil, [{"if-none-match", ~s("1")}])
+      assert conn.status == 200
+      assert get_resp_header(conn, "etag") == []
+      assert json(conn) == work_json()
       assert {_, %F.FindWorkInput{client_key: "k-1"}} = called(:find_work)
     end
 
@@ -136,6 +139,10 @@ defmodule AtlasRuntime.Backend.RestTest do
 
       assert request("GET", "/v1/work").status == 200
       assert {_, %F.ListWorkInput{state: nil, changed_since: nil}} = called(:list_work)
+
+      conn = request("GET", "/v1/work", nil, [{"if-none-match", "*"}])
+      assert conn.status == 200
+      assert get_resp_header(conn, "etag") == []
     end
 
     test "POST /v1/work/{id}/attempts: retry, body {resume}" do
@@ -206,13 +213,36 @@ defmodule AtlasRuntime.Backend.RestTest do
       assert {201, ["/v1/work/w%202"]} = {conn.status, get_resp_header(conn, "location")}
     end
 
-    test "existing → 200 OK, S1 without Idempotent-Replayed" do
+    test "existing → 200 OK with Idempotent-Replayed: true" do
       answer(:submit, %F.Outcome.Existing{work: work()})
       conn = request("POST", "/v1/work", @request, [{"idempotency-key", "k-1"}])
       assert conn.status == 200
-      assert get_resp_header(conn, "idempotent-replayed") == []
+      assert get_resp_header(conn, "idempotent-replayed") == ["true"]
       assert get_resp_header(conn, "location") == []
       assert json(conn) == work_json()
+    end
+
+    test "accepted (201) never carries Idempotent-Replayed, for submit or retry" do
+      answer(:submit, %F.Outcome.Accepted{work: work()})
+      conn = request("POST", "/v1/work", @request, [{"idempotency-key", "k-1"}])
+      assert conn.status == 201
+      assert get_resp_header(conn, "idempotent-replayed") == []
+
+      answer(:retry, %F.Outcome.Accepted{work: work()})
+      conn = request("POST", "/v1/work/w-1/attempts", %{"resume" => true})
+      assert conn.status == 201
+      assert get_resp_header(conn, "idempotent-replayed") == []
+    end
+
+    test "only existing has Idempotent-Replayed among all routes" do
+      replayed =
+        for route <- WorkRest.__routes__(),
+            outcome <- route.outcomes,
+            {"idempotent-replayed", _} <- outcome.headers,
+            uniq: true,
+            do: outcome.outcome
+
+      assert replayed == [:existing]
     end
 
     test "at_capacity → 503 with Retry-After, type at-capacity with reason and capacity" do
@@ -353,6 +383,85 @@ defmodule AtlasRuntime.Backend.RestTest do
           if Enum.any?(statuses, &(&1 >= 400)), do: refute(retry_after?)
         end
       end
+    end
+  end
+
+  describe "§8.2 (S3) GET /v1/work/{id}: ETag and If-None-Match" do
+    defp get_work(revision, sequence, if_none_match) do
+      answer(:get_work, %F.Outcome.Found{work: work(revision: revision, sequence: sequence)})
+      headers = if if_none_match, do: [{"if-none-match", if_none_match}], else: []
+      request("GET", "/v1/work/w-1", nil, headers)
+    end
+
+    test "unchanged work → 304, no body, the same ETag" do
+      first = get_work(3, 7, nil)
+      assert first.status == 200
+      [tag] = get_resp_header(first, "etag")
+      assert tag == ~s("3")
+
+      conn = get_work(3, 7, tag)
+      assert conn.status == 304
+      assert conn.resp_body == ""
+      assert get_resp_header(conn, "etag") == [tag]
+      assert get_resp_header(conn, "content-type") == []
+      # The boundary still answered: the tag is the work's, read through the facade.
+      assert {@client, %F.GetWorkInput{work_id: "w-1"}} = called(:get_work)
+    end
+
+    test "the tag is the revision, never the sequence: a sequence-only move keeps the tag" do
+      # A capacity change moves the change sequence (and work the client cannot see may
+      # move it too); the work's revision stays, so the cached copy is still current.
+      assert get_work(3, 7, nil) |> get_resp_header("etag") == [~s("3")]
+
+      conn = get_work(3, 12, ~s("3"))
+      assert conn.status == 304
+      assert get_resp_header(conn, "etag") == [~s("3")]
+    end
+
+    test "any change → a new tag and 200 with the work" do
+      conn = get_work(4, 8, ~s("3"))
+      assert conn.status == 200
+      assert get_resp_header(conn, "etag") == [~s("4")]
+      assert json(conn) == F.Work.dump(work(revision: 4, sequence: 8))
+    end
+
+    test "a mismatched tag → 200, never 304" do
+      for given <- [~s("2"), ~s("30"), ~s("7"), "3", ~s("3-")] do
+        conn = get_work(3, 7, given)
+        assert conn.status == 200, "If-None-Match: #{given}"
+        assert get_resp_header(conn, "etag") == [~s("3")]
+        assert json(conn)["revision"] == 3
+      end
+    end
+
+    test "a list holding the tag, a weak tag, and * → 304" do
+      for given <- [~s("1", "3"), ~s(W/"3"), "*"] do
+        assert get_work(3, 7, given).status == 304, "If-None-Match: #{given}"
+      end
+    end
+
+    test "If-None-Match on pruned or not_found → 410/404, never 304, and no ETag" do
+      for {outcome, status, type} <- [
+            {%F.Outcome.Pruned{work_id: "w-1", kind: :completed}, 410, "pruned"},
+            {%F.Outcome.NotFound{}, 404, "not-found"}
+          ],
+          given <- [~s("3"), "*"] do
+        answer(:get_work, outcome)
+        conn = request("GET", "/v1/work/w-1", nil, [{"if-none-match", given}])
+        problem(conn, status, type)
+        assert get_resp_header(conn, "etag") == []
+      end
+    end
+
+    test "a client without the right is refused, whatever its If-None-Match" do
+      conn = request("GET", "/v1/work/w-1", nil, [{"if-none-match", "*"}], {"nobody", []})
+      problem(conn, 403, "not-permitted")
+      assert get_resp_header(conn, "etag") == []
+    end
+
+    test "only get_work is tagged among all routes" do
+      assert for(r <- WorkRest.__routes__(), r.etag, do: {r.capability, r.etag}) ==
+               [get_work: :revision]
     end
   end
 

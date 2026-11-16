@@ -29,6 +29,12 @@ defmodule AtlasBus.BoundaryTest do
   # client), never over the Bus or by calling them: it depends on no app, names no layer
   # and knows no entity.
   @readers [{"platform/atlas_learn", "AtlasLearn"}]
+  # A remote client's contract test against the real backend it calls (ADR 0006: remote
+  # clients call a backend, not the Bus). The client app may depend on the backend's app for
+  # its tests only, and only this test file may name it; the client's own code reaches it
+  # over HTTP (plan 2026-11-17 §3.4, F1.1).
+  @test_only_dependencies %{atlas_flow: ["atlas_runtime"]}
+  @contract_tests %{"platform/atlas_flow/test/runtime/http_contract_test.exs" => ["AtlasRuntime"]}
   # Clients of Control: the TUI, and the command line agents drive Atlas with.
   @clients [{"platform/clients/tui", "AtlasTui"}, {"platform/clients/agent", "AtlasAgent"}]
 
@@ -214,10 +220,18 @@ defmodule AtlasBus.BoundaryTest do
       for {app, _} <- @layers do
         mix = File.read!(Path.join([@root, "platform", Atom.to_string(app), "mix.exs"]))
         deps = umbrella_dependencies(mix)
-        expected = if app == :atlas_bus, do: [], else: ["atlas_bus"]
+        test_only = Map.get(@test_only_dependencies, app, [])
+        expected = if app == :atlas_bus, do: [], else: ["atlas_bus" | test_only]
 
         assert deps == expected,
                "#{app} depends on #{inspect(deps)}; layers may depend on the Bus only"
+
+        for dep <- test_only,
+            do:
+              assert(
+                mix =~ ~r/\{:#{dep}, in_umbrella: true, only: :test\}/,
+                "#{app} may depend on #{dep} for its tests only"
+              )
       end
     end
 
@@ -271,11 +285,20 @@ defmodule AtlasBus.BoundaryTest do
         Enum.map(@layers, fn {app, ns} -> {"platform/#{app}", ns} end) ++ @clients ++ @readers
 
       for {dir, own} <- dirs, file <- sources(dir, own) do
-        names = foreign_names(File.read!(file), own)
+        names =
+          foreign_names(File.read!(file), own) --
+            Map.get(@contract_tests, Path.relative_to(file, @root), [])
 
         assert names == [],
                "#{Path.relative_to(file, @root)} names #{inspect(names)}; layers talk only over the Bus"
       end
+
+      for {relative, _} <- @contract_tests,
+          do:
+            assert(
+              File.exists?(Path.join(@root, relative)),
+              "#{relative} is gone; drop its exemption"
+            )
     end
 
     test "nothing on the BEAM side or in a client names an entity" do

@@ -20,7 +20,8 @@ defmodule RelaDSL.AtlasTest do
              "spec" => %{"gate" => "proofread", "version" => 2}
            }
 
-    assert %{"kind" => "pass", "spec" => %{"profile" => "writer"}} = states["draft"]
+    refute Map.has_key?(states["draft"], "kind")
+    assert states["draft"]["waiting_for"] == ["writer"]
     assert states["dropped"]["final"] == true
     assert states["dropped"]["branches"] == []
     assert states["dropped"]["set"] == []

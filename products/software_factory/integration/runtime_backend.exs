@@ -1208,7 +1208,7 @@ defmodule RuntimeBackendE2E.RestartTest do
     goal = "wait case-5c-release"
     {rt, work, slot, _launch} = unknown_n!(rt, goal)
 
-    released = cli(rt, ["release", "--worker", slot])
+    released = cli(rt, ["release", "--slot", slot])
     assert released.status == 0, released.out
 
     running = await_launch(rt, work, 2)
@@ -1272,7 +1272,7 @@ defmodule RuntimeBackendE2E.RestartTest do
     # human ends the orphaned turn's process group, then releases its slot.
     System.cmd("kill", ["-KILL", "-#{first["pid"]}"], stderr_to_stdout: true)
     await(fn -> not alive?(first["pid"]) end)
-    released = cli(rt, ["release", "--worker", attempt["slot"]])
+    released = cli(rt, ["release", "--slot", attempt["slot"]])
     assert released.status == 0, released.out
     await_work(rt, work["work_id"], &current(&1)["quiescent"])
 
