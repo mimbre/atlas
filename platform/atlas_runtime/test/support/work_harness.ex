@@ -61,7 +61,8 @@ defmodule AtlasRuntime.WorkHarness do
     previous =
       for name <- ["PATH", "CODEX_HOME", "GIT_CONFIG_GLOBAL"], do: {name, System.get_env(name)}
 
-    System.put_env("PATH", bin)
+    # The fakes first; /usr/bin:/bin keep `ps` for the work core's process listing.
+    System.put_env("PATH", bin <> ":/usr/bin:/bin")
     System.put_env("CODEX_HOME", Path.join(dir, "codex-home"))
     System.put_env("GIT_CONFIG_GLOBAL", "/dev/null")
     write_policy!(dir, policy)

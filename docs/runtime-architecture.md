@@ -621,6 +621,7 @@ platform/atlas_runtime/lib/atlas_runtime/
   entrypoints/{socket,read_socket}.ex
   backend/{rest,listener,events}.ex
   boundary/work.ex
+  model/work.ex
   work.ex, work/{server,store,queue,turns,notifications,restart,prune,translation}.ex
   inspection/reads.ex
   execution/{service,command_admissions,backend_policy,identity,restart_reconciliation,settings}.ex

@@ -16,8 +16,9 @@ defmodule AtlasRuntime.Work.Server do
 
   **Options** (tests): `name`, `service` (the Service process, default `AtlasRuntime.Service`),
   `heartbeat_ms`, `cancel_grace_ms` (default the policy's 30 s), `retention` (seconds, 30
-  days), `window` (notifications kept, 10 000), `probe` (`RestartReconciliation.process_state/2`),
-  `start_timeout_ms` (how long a start may take, 120 s) and `after_write` (called with each
+  days), `window` (notifications kept, 10 000), `processes` (taken once per heartbeat, gives the
+  probe that heartbeat uses; `AtlasRuntime.Work.Restart.processes/0`), `probe` (a fixed
+  probe instead), `start_timeout_ms` (how long a start may take, 120 s) and `after_write` (called with each
   record just written, before anything mentions it).
   """
   use GenServer
@@ -25,7 +26,6 @@ defmodule AtlasRuntime.Work.Server do
 
   alias AtlasRuntime.{Availability, CommandAdmissions, Policy, Provenance}
   alias AtlasRuntime.Boundary.Work, as: B
-  alias AtlasRuntime.Execution.RestartReconciliation
   alias AtlasRuntime.Model.Work, as: M
   alias AtlasRuntime.Persistence.History
   alias AtlasRuntime.Work.{Notifications, Prune, Queue, Restart, Store, Translation, Turns}
@@ -68,7 +68,7 @@ defmodule AtlasRuntime.Work.Server do
       heartbeat_ms: Keyword.get(opts, :heartbeat_ms, 15_000),
       cancel_grace_ms: Keyword.get(opts, :cancel_grace_ms),
       retention: Keyword.get(opts, :retention, Prune.default_retention()),
-      probe: Keyword.get(opts, :probe, &RestartReconciliation.process_state/2),
+      processes: processes(opts),
       after_write: Keyword.get(opts, :after_write, fn _record -> :ok end),
       start_timeout_ms: Keyword.get(opts, :start_timeout_ms, 120_000),
       context: Provenance.context()
@@ -312,15 +312,18 @@ defmodule AtlasRuntime.Work.Server do
   end
 
   def handle_info(:heartbeat, state) do
+    # One process listing per heartbeat serves the probe and every attempt's `alive`.
+    processes = state.processes.()
+
     state =
       state
-      |> probe()
+      |> probe(processes)
       |> ask_unanswered()
       |> prune()
       |> Map.put(:blocked, MapSet.new())
       |> dispatch()
 
-    heartbeat(state)
+    heartbeat(state, processes)
     schedule_heartbeat(state)
     {:noreply, state}
   end
@@ -1091,9 +1094,16 @@ defmodule AtlasRuntime.Work.Server do
         do: {id, attempt}
   end
 
-  defp probe(state) do
+  defp processes(opts) do
+    case Keyword.fetch(opts, :probe) do
+      {:ok, probe} -> fn -> probe end
+      :error -> Keyword.get(opts, :processes, &Restart.processes/0)
+    end
+  end
+
+  defp probe(state, processes) do
     Enum.reduce(unsettled(state), state, fn {id, attempt}, state ->
-      if attempt.turn_id && Restart.gone?(state.dir, attempt.turn_id, state.probe),
+      if attempt.turn_id && Restart.gone?(state.dir, attempt.turn_id, processes),
         do: settle(state, id, attempt.attempt),
         else: state
     end)
@@ -1215,7 +1225,7 @@ defmodule AtlasRuntime.Work.Server do
     end
   end
 
-  defp heartbeat(state) do
+  defp heartbeat(state, processes) do
     activity =
       case Turns.read(state.service, {:read, "workers", %{}}) do
         %{"workers" => workers} ->
@@ -1236,7 +1246,8 @@ defmodule AtlasRuntime.Work.Server do
            work_id: id,
            attempt: attempt.attempt,
            state: attempt.state,
-           alive: attempt.turn_id != nil,
+           alive:
+             attempt.turn_id != nil and Restart.alive?(state.dir, attempt.turn_id, processes),
            last_progress_at: attempt.turn_id && progress(state.dir, attempt.turn_id),
            activity: attempt.turn_id && activity[attempt.turn_id]
          }}

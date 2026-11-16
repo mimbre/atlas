@@ -17,11 +17,13 @@ defmodule AtlasRuntime.Work.Restart do
 
   `quiescent` is false when the turn is `unknown` (its process may still exist) and true
   otherwise. **The probe** re-checks such a turn on every heartbeat with the Service's own
-  process check (`RestartReconciliation.process_state/2`, the `classify` of its
-  `process.json` leader); it only reads. When the process is provably gone the attempt
-  becomes quiescent. A human `release` of the slot does the same.
+  process check (`RestartReconciliation.classify/5` of its `process.json` leader); it only
+  reads. When the process is provably gone the attempt becomes quiescent. A human `release`
+  of the slot does the same. The same check, from one `ps` listing per heartbeat
+  (`processes/0`), is the heartbeat's `alive` (§3.6).
   """
 
+  alias AtlasRuntime.Execution.RestartReconciliation
   alias AtlasRuntime.Work.{Queue, Turns}
 
   @doc "What becomes of an attempt at boot: `:keep` or `{:end, outcome}` (see `Turns.outcome/2`)."
@@ -59,16 +61,45 @@ defmodule AtlasRuntime.Work.Restart do
   as `RestartReconciliation.process_state/2` answers. Without that evidence nothing is
   proven, and only `release` frees the slot.
   """
-  def gone?(dir, turn_id, probe) do
+  def gone?(dir, turn_id, probe), do: match?({:gone, _why}, process(dir, turn_id, probe))
+
+  @doc """
+  Whether a turn's process group provably exists: `:alive` only on that evidence. A turn
+  not yet launched, or a listing that proves nothing, is not alive.
+  """
+  def alive?(dir, turn_id, probe), do: process(dir, turn_id, probe) == :alive
+
+  defp process(dir, turn_id, probe) do
     path = Path.join([dir, "turns", turn_id, "process.json"])
 
     with {:ok, bytes} <- File.read(path),
          {:ok, %{"pid" => pid}} when is_integer(pid) and pid > 1 <- JSON.decode(bytes),
-         {:ok, %File.Stat{mtime: launched}} <- File.stat(path, time: :posix),
-         {:gone, _why} <- probe.(pid, launched) do
-      true
+         {:ok, %File.Stat{mtime: launched}} <- File.stat(path, time: :posix) do
+      probe.(pid, launched)
     else
-      _ -> false
+      _ -> :unknown
     end
+  end
+
+  @doc """
+  One `ps` listing, taken now, as a probe `(pid, launched) -> :alive | {:gone, why} |
+  :unknown` that classifies against it (`RestartReconciliation.classify/5`). A failed or
+  denied `ps` gives a probe that proves nothing.
+  """
+  def processes do
+    with executable when is_binary(executable) <- System.find_executable("ps"),
+         {listing, 0} <-
+           System.cmd(executable, ["-A", "-o", "pid=,pgid=,etime="],
+             env: [{"LC_ALL", "C"}],
+             stderr_to_stdout: true
+           ) do
+      own = String.to_integer(System.pid())
+      now = System.os_time(:second)
+      &RestartReconciliation.classify(listing, own, &1, &2, now)
+    else
+      _ -> fn _pid, _launched -> :unknown end
+    end
+  rescue
+    _ -> fn _pid, _launched -> :unknown end
   end
 end

@@ -122,6 +122,12 @@ defmodule AtlasRuntime.BackendTest.OnlyBoundary do
              ])
   end
 
+  # Not calling the core, `AtlasRuntime.Backend.Events` receives notifications under a
+  # literal tag; it must stay the one the core sends them with.
+  test "the core sends notifications under the tag the backend receives" do
+    assert AtlasRuntime.Work.Notifications.tag() == :atlas_runtime_work
+  end
+
   test "no source of the backend names the model or the work core" do
     for path <- Path.wildcard(Path.expand("../../lib/atlas_runtime/backend/**/*.ex", __DIR__)) do
       code = path |> File.read!() |> String.replace(~r/@(module)?doc\s+"""(?s:.*?)"""/, "")
