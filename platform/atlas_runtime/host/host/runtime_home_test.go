@@ -128,7 +128,9 @@ func TestCodexManagedRepositoryDeniesTheRuntimeHomeBesideItsAncestors(t *testing
 	sensitive := func(skip ...string) []string {
 		var paths []string
 		for _, name := range []string{"runtime.sock", "read.sock", "backend.sock", "turns", "code.json", "server.json", "backends.json", "policy.json", "availability.json", "service.log",
-			"service.lock", "passes", "snapshots", "materializations", "scratch"} {
+			"service.lock", "passes", "snapshots", "materializations", "scratch", "work", "admissions", "preparations", "packets", "submissions", "rebinds",
+			"execution-events.json", "mode.json", "clients.json", "code.json.tmp", "server.json.tmp", "backends.json.tmp", "policy.json.tmp",
+			"availability.json.tmp", "execution-events.json.tmp", "mode.json.tmp", "clients.json.tmp"} {
 			if !slices.Contains(skip, name) {
 				paths = append(paths, filepath.Join(home, name))
 			}
@@ -192,6 +194,26 @@ func TestCodexManagedRepositoryDeniesTheRuntimeHomeBesideItsAncestors(t *testing
 	for _, name := range []string{"service.lock", "passes", "snapshots", "materializations", "scratch"} {
 		if path := filepath.Join(home, name); !strings.Contains(args[3], quoted(path)+`="none"`) {
 			t.Fatalf("absent %s is not denied: %s", path, args[3])
+		}
+	}
+	// S6 P0: the entries the deny list used to miss, every one absent when the argv is built, are denied
+	// by path, so the backend socket, the work and admission records, the preparation, packet, submission
+	// and rebind stores, the execution-event outbox and the reserved mode and client files stay out of reach
+	// when the service, freeze, submit or rebind creates them after launch. So are the atomic-write
+	// siblings (<file>.tmp, renamed over <file>) of the outbox, the availability and the other home files,
+	// which hold the whole new content until the rename.
+	for _, name := range []string{"backend.sock", "work", "admissions", "preparations", "packets", "submissions", "rebinds",
+		"execution-events.json", "mode.json", "clients.json", "execution-events.json.tmp", "availability.json.tmp",
+		"mode.json.tmp", "clients.json.tmp", "code.json.tmp", "server.json.tmp", "backends.json.tmp", "policy.json.tmp"} {
+		path := filepath.Join(home, name)
+		if _, err := os.Lstat(path); !os.IsNotExist(err) {
+			t.Fatalf("%s exists before launch, so this row does not test an absent entry: %v", path, err)
+		}
+		for _, root := range []string{managed, fresh} {
+			arguments, err := repositoryArguments(map[string]any{"root": root}, home)
+			if err != nil || strings.Count(arguments[3], quoted(path)+`="none"`) != 1 {
+				t.Fatalf("absent %s is not denied exactly once for the managed repository %s: %v %s", path, root, err, arguments)
+			}
 		}
 	}
 	// A repository inside a sensitive entry is refused rather than re-opening it.
@@ -463,13 +485,30 @@ func TestRepositoryAndPlainProfilesDenyTheRuntimeHomeUnderInstalledCodexSandbox(
 		gitIn(t, user, "init", "-q", root)
 	}
 	socket := listenInRuntimeHome(t, user, "runtime.sock")
+	// S6 P0: the work contract's socket, which grants operate, and the read socket are dialled too.
+	sockets := []string{socket, listenInRuntimeHome(t, user, "read.sock"), listenInRuntimeHome(t, user, "backend.sock")}
 	sentinel := filepath.Join(home, "sentinel")
 	if err := os.WriteFile(sentinel, []byte("HOME-SENTINEL"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	// Relative to user, which these profiles leave readable, so the socket path fits the limit.
-	dial := fmt.Sprintf("cd -P %q && %q dial %q", user, probe, socket)
+	var dials []string
+	for _, socket := range sockets {
+		dials = append(dials, fmt.Sprintf("cd -P %q && %q dial %q", user, probe, socket))
+	}
 	late := filepath.Join(home, "service.log")
+	// S6 P0: entries the managed repository's deny list used to miss, created only after its argv is built.
+	lateEntries := map[string]string{
+		filepath.Join(home, "execution-events.json"):             "EVENTS-SENTINEL",
+		filepath.Join(home, "execution-events.json.tmp"):         "EVENTS-TMP-SENTINEL",
+		filepath.Join(home, "availability.json.tmp"):             "AVAILABILITY-TMP-SENTINEL",
+		filepath.Join(home, "rebinds", "r1", "journal.json"):     "REBIND-SENTINEL",
+		filepath.Join(home, "packets", "p1", "packet.json"):      "PACKET-SENTINEL",
+		filepath.Join(home, "submissions", "s1.json"):            "SUBMISSION-SENTINEL",
+		filepath.Join(home, "work", "w1.json"):                   "WORK-SENTINEL",
+		filepath.Join(home, "admissions", "a1.json"):             "ADMISSION-SENTINEL",
+		filepath.Join(home, "preparations", "d1", "result.json"): "PREPARATION-SENTINEL",
+	}
 	listHome := fmt.Sprintf("ls %q", home)
 	denied := []string{
 		fmt.Sprintf("cat %q", sentinel),
@@ -480,8 +519,20 @@ func TestRepositoryAndPlainProfilesDenyTheRuntimeHomeUnderInstalledCodexSandbox(
 		fmt.Sprintf("cat %q", token),
 		fmt.Sprintf("ls %q", filepath.Dir(token)),
 		fmt.Sprintf("touch %q", filepath.Join(home, "planted")),
-		dial,
 	}
+	var lateFiles []string
+	for path := range lateEntries {
+		lateFiles = append(lateFiles, path)
+	}
+	slices.Sort(lateFiles)
+	for _, path := range lateFiles {
+		denied = append(denied, fmt.Sprintf("cat %q", path))
+		// The late directory itself, never the home, whose names a managed repository's profile leaves listable.
+		if entry := filepath.Join(home, strings.SplitN(strings.TrimPrefix(path, home+"/"), "/", 2)[0]); entry != path {
+			denied = append(denied, fmt.Sprintf("ls %q", entry))
+		}
+	}
+	denied = append(denied, dials...)
 	run := func(arguments []string, profile, cwd, script string) (string, error) {
 		command := exec.Command(codex, append(append([]string{"sandbox", "-P", profile, "-C", cwd}, arguments...), "--", "sh", "-c", script)...)
 		command.Dir = cwd
@@ -502,6 +553,14 @@ func TestRepositoryAndPlainProfilesDenyTheRuntimeHomeUnderInstalledCodexSandbox(
 			// A sensitive entry the service creates after launch stays denied.
 			if err == nil {
 				err = os.WriteFile(late, []byte("LOG-SENTINEL"), 0600)
+			}
+			for path, body := range lateEntries {
+				if err == nil {
+					err = os.MkdirAll(filepath.Dir(path), 0700)
+				}
+				if err == nil {
+					err = os.WriteFile(path, []byte(body), 0600)
+				}
 			}
 			return arguments, err
 		}, []string{"echo edit > new.txt && cat new.txt", "git add new.txt && git status --porcelain"}, true},
@@ -535,12 +594,21 @@ func TestRepositoryAndPlainProfilesDenyTheRuntimeHomeUnderInstalledCodexSandbox(
 		})
 	}
 	// Positive controls: the same reads and the socket connection succeed outside the sandbox.
-	for _, script := range []string{fmt.Sprintf("cat %q %q %q %q", sentinel, turn, token, late), dial} {
+	for _, script := range append([]string{fmt.Sprintf("cat %q %q %q %q", sentinel, turn, token, late), "cat" + quotedArguments(lateFiles)}, dials...) {
 		command := exec.Command("sh", "-c", script)
 		if out, err := command.CombinedOutput(); err != nil {
 			t.Fatalf("unsandboxed control %q failed: %v %s", script, err, out)
 		}
 	}
+}
+
+// quotedArguments renders paths as shell arguments, each prefixed by a space.
+func quotedArguments(paths []string) string {
+	var rendered strings.Builder
+	for _, path := range paths {
+		rendered.WriteString(fmt.Sprintf(" %q", path))
+	}
+	return rendered.String()
 }
 
 // globRegexp approximates globset's translation of a Codex deny-read glob: * and ? cross / unless
@@ -697,6 +765,150 @@ func TestManagedRepositoryDeniesLateSiblingWorkerUnderInstalledCodexSandbox(t *t
 	for _, secret := range late {
 		if body, err := os.ReadFile(secret); err != nil || string(body) != "WORKER-SENTINEL" {
 			t.Fatalf("unsandboxed control %s: %v %q", secret, err, body)
+		}
+	}
+}
+
+// atomicHomeFiles are the Runtime home files whose atomic write (or an editor's) fills <file>.tmp beside
+// them before the rename (execution_events.ex and availability.ex do so for the outbox and the
+// availability). Written out rather than taken from sensitiveHomeNames, so a dropped sibling fails.
+var atomicHomeFiles = []string{"execution-events.json", "availability.json", "code.json", "server.json", "backends.json",
+	"policy.json", "mode.json", "clients.json"}
+
+var codexFilesystemEntry = regexp.MustCompile(`("(?:[^"\\]|\\.)*")="(none|read|write)"`)
+
+// codexDenies reports whether the Codex permission profile args leaves path unreadable: the most
+// specific filesystem entry at or above path is none.
+func codexDenies(t *testing.T, args []string, path string) bool {
+	t.Helper()
+	best, access := "", ""
+	for _, match := range codexFilesystemEntry.FindAllStringSubmatch(args[3], -1) {
+		var entry string
+		if err := json.Unmarshal([]byte(match[1]), &entry); err != nil {
+			t.Fatal(err)
+		}
+		if within(entry, path) && len(entry) > len(best) {
+			best, access = entry, match[2]
+		}
+	}
+	return access == "none"
+}
+
+// claudeDenies reports whether the Claude settings deny path to the file tools (a Read rule at or above
+// it, unless restricted: a workspace inside the home, where --restricted confines them instead) and, with a
+// Bash sandbox, to its reads (a denyRead at or above it that no allowRead re-opens).
+func claudeDenies(t *testing.T, encoded, path string, sandbox, restricted bool) bool {
+	t.Helper()
+	var settings struct {
+		Sandbox struct {
+			Filesystem struct{ DenyRead, AllowRead []string }
+		}
+		Permissions struct{ Deny []string }
+	}
+	if err := json.Unmarshal([]byte(encoded), &settings); err != nil {
+		t.Fatal(err)
+	}
+	above := func(entry string) bool { return within(entry, path) }
+	rule := slices.ContainsFunc(settings.Permissions.Deny, func(rule string) bool {
+		entry, ok := strings.CutPrefix(rule, "Read(/")
+		return ok && above(strings.TrimSuffix(entry, ")"))
+	})
+	filesystem := settings.Sandbox.Filesystem
+	return (rule || restricted) && (!sandbox || slices.ContainsFunc(filesystem.DenyRead, above) && !slices.ContainsFunc(filesystem.AllowRead, above))
+}
+
+// TestEveryProfileDeniesTheAtomicWriteSiblingsOfTheHomeFiles (S6 P0 fix, R1): in every Codex and Claude
+// profile, every atomicHomeFiles entry and its <file>.tmp sibling (absent at launch) are denied. A Claude
+// workspace inside the home has no Read rule on the home (it would deny the workspace): --restricted keeps
+// the file tools out of both, and the Bash sandbox, where there is one, must deny both. A Claude read-only
+// turn there has no Bash, so its sibling must only not be more reachable than its file.
+func TestEveryProfileDeniesTheAtomicWriteSiblingsOfTheHomeFiles(t *testing.T) {
+	type check struct {
+		name   string
+		home   string
+		denies func(path string) bool
+		exempt bool // the Claude read-only workspace inside the home
+	}
+	var checks []check
+	codex := func(name, home string, args []string, err error) {
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		checks = append(checks, check{"codex " + name, home, func(path string) bool { return codexDenies(t, args, path) }, false})
+	}
+	claude := func(name, home, workspace, encoded string, err error, sandbox bool) {
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		restricted := within(home, workspace)
+		checks = append(checks, check{"claude " + name, home, func(path string) bool { return claudeDenies(t, encoded, path, sandbox, restricted) },
+			restricted && !sandbox})
+	}
+	{
+		user := isolatedHome(t)
+		home, _ := runtimeHomeWithToken(t, user)
+		for _, workspace := range []string{filepath.Join(user, "project"), filepath.Join(home, "workspace")} {
+			for _, mode := range []string{"read-only", "workspace-write"} {
+				args, err := sandboxArguments(mode, workspace, home)
+				codex(mode+" "+workspace, home, args, err)
+			}
+		}
+		for _, root := range []string{filepath.Join(user, "repo"), filepath.Join(home, "workers", "w1", "repo"), filepath.Join(home, "workers", "w9", "repo")} {
+			args, err := permissionArguments(map[string]any{"profile": "dedicated-repository", "root": root}, "", "", home)
+			codex("dedicated-repository "+root, home, args, err)
+		}
+	}
+	{
+		user := isolatedHome(t)
+		home, dest := filepath.Join(user, "runtime"), filepath.Join(user, "work")
+		scope := materialize(t, home, dest)
+		inspector := filepath.Join(user, "bin", "atlas-runtime")
+		args, err := permissionArguments(scope, filepath.Join(home, "scratch", "turn-1"), inspector, "")
+		codex("materialized-folder", home, args, err)
+		packet := freeze(t, home, dest, filepath.Join(user, "packet"), packetID)
+		args, err = permissionArguments(packet, filepath.Join(home, "scratch", "turn-1"), inspector, "")
+		codex("review-packet", home, args, err)
+	}
+	{
+		user := claudeUser(t)
+		home, _ := runtimeHomeWithToken(t, user)
+		for _, workspace := range []string{filepath.Join(user, "project"), filepath.Join(home, "workspace")} {
+			encoded, err := claudeReadOnlySettings(workspace, home)
+			claude("read-only "+workspace, home, workspace, encoded, err, false)
+		}
+		for _, root := range []string{filepath.Join(user, "repo"), filepath.Join(home, "workers", "w1", "repo")} {
+			encoded, err := claudeRepositorySettings(testScope(root), "/u/.ac-12345678", home)
+			claude("dedicated-repository "+root, home, root, encoded, err, true)
+		}
+	}
+	{
+		user := claudeUser(t)
+		home, dest := filepath.Join(user, "runtime"), filepath.Join(user, "work")
+		scope := materialize(t, home, dest)
+		inspector := filepath.Join(user, "bin", "atlas-runtime")
+		encoded, err := claudeFolderSettings(scope, "/u/.ac-12345678", user, inspector)
+		claude("materialized-folder", home, dest, encoded, err, true)
+		packet := freeze(t, home, dest, filepath.Join(user, "packet"), packetID)
+		encoded, err = claudePacketSettings(packet, "/u/.ac-12345678", user, inspector)
+		claude("review-packet", home, packet["root"].(string), encoded, err, true)
+	}
+	if len(checks) != 15 {
+		t.Fatalf("%d profile checks, want 15", len(checks))
+	}
+	for _, check := range checks {
+		for _, name := range atomicHomeFiles {
+			file := filepath.Join(check.home, name)
+			if _, err := os.Lstat(file + ".tmp"); !os.IsNotExist(err) {
+				t.Fatalf("%s.tmp exists before launch, so this row does not test an absent entry: %v", file, err)
+			}
+			switch denied, sibling := check.denies(file), check.denies(file+".tmp"); {
+			case check.exempt && denied && !sibling:
+				t.Errorf("%s denies %s but not its atomic-write sibling %s.tmp", check.name, file, file)
+			case !check.exempt && !denied:
+				t.Errorf("%s does not deny the home file %s", check.name, file)
+			case !check.exempt && !sibling:
+				t.Errorf("%s does not deny the atomic-write sibling %s.tmp, which holds the content of %s before the rename", check.name, file, name)
+			}
 		}
 	}
 }

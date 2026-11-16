@@ -155,10 +155,30 @@ func socketEntries(home string, projects ...string) ([][2]string, error) {
 // sensitiveHomeNames are the Runtime home entries a profile denies by path when it cannot deny the
 // whole home, even when they are absent at launch: the runtimeSockets, the turn records,
 // the Code and Server configurations, the backend policy and availability, the daemon log and lock,
-// the passes, the snapshot store, the materialization records and the workers' scratch.
+// the passes, the snapshot store, the materialization records and the workers' scratch, and:
+//   - work: the work core's records, key index and change sequence (work/store.ex);
+//   - admissions: the immutable command admissions (execution/command_admissions.ex);
+//   - preparations: each folder's preparation request, result and private logs (snapshot/prepare.go);
+//   - packets: the frozen review packets and their findings (snapshot/freeze.go, discard.go, findings.go);
+//   - submissions: the snapshot-submit records (snapshot/submit.go);
+//   - rebinds: the rebind journals and destination backups (snapshot/rebind.go);
+//   - execution-events.json: the durable execution-event outbox (persistence/execution_events.ex);
+//   - mode.json: the persisted Runtime mode (model/contract runtime_mode, S2);
+//   - clients.json: the backend clients and their tokens (S3), reserved before it has a code site;
+//   - <name>.json.tmp for each <name>.json above: the sibling an atomic write (write <path>.tmp, then
+//     rename) fills before the rename, with the whole new content (execution_events.ex and
+//     availability.ex write execution-events.json and availability.json so on every change). A
+//     sibling is not below the denied file, so it is denied by its own path.
+//
+// Every name the Runtime joins to its home is classified by TestS6HomeCensus
+// (runtime_home_census_test.go): a new one fails that test until it is listed here or shown not to be
+// a home entry.
 var sensitiveHomeNames = append(slices.Clone(runtimeSockets), "turns", "code.json", "server.json",
 	"backends.json", "policy.json", "availability.json", "service.log", "service.lock", "passes",
-	"snapshots", "materializations", "scratch")
+	"snapshots", "materializations", "scratch", "work", "admissions", "preparations", "packets",
+	"submissions", "rebinds", "execution-events.json", "mode.json", "clients.json",
+	"code.json.tmp", "server.json.tmp", "backends.json.tmp", "policy.json.tmp", "availability.json.tmp",
+	"execution-events.json.tmp", "mode.json.tmp", "clients.json.tmp")
 
 // repositoryRuntimeEntries are the runtimeEntries of a Codex dedicated repository. Codex cannot even
 // lstat below a denied directory, and Git lstats every ancestor of its worktree, so a Runtime home or
