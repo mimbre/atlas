@@ -850,7 +850,10 @@ defmodule AtlasRuntime.Work.Server do
 
     state = commit(state, put_attempt(state.works[id], attempt))
     deadline(state, state.works[id], attempt)
-    state
+    # A start answered late (asked again after a timeout) may name a turn that has already
+    # ended: its end events were pulled while the attempt had no turn ID, so only
+    # `turn.json` still tells.
+    refresh(state, turn)
   end
 
   # max_duration counts from running_at.
