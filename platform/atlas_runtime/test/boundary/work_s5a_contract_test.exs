@@ -389,7 +389,7 @@ defmodule AtlasRuntime.Boundary.WorkS5aContractTest do
                detail: "after_check runs only in a base or from_work workspace"
              } = F.submit(client(), folder)
 
-      # S3 (D44): the TCP ceiling has no choose_path, so the same refusals carry no detail.
+      # D44: a client without choose_path gets the same refusals with no detail.
       tcp = {"token:t", [:submit, :cancel, :read, :read_all]}
 
       assert %F.Outcome.Refused{reason: :not_permitted, detail: nil} =

@@ -13,7 +13,7 @@ defmodule AtlasRuntime.Boundary.ChoosePathTest do
 
   @moduletag capture_log: true
 
-  # The most a TCP token can hold (§8.1): no choose_slot, no choose_path.
+  # A client without choose_slot and choose_path (D44; any client but the socket owner).
   @remote {"token:flow", [:submit, :cancel, :read, :read_all]}
 
   defp paths(%F.Work{attempts: attempts}) do

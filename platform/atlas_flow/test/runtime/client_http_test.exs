@@ -2,8 +2,7 @@ defmodule AtlasFlow.Runtime.ClientHttpTest do
   @moduledoc """
   `AtlasFlow.Runtime.Client.Http`'s translation (Runtime design §8.3, plan §6 F1.1) against
   a stub HTTP server that answers what each test scripts: every status and problem type,
-  the headers it sends, one request per call, and the configuration. The contract test
-  (`http_contract_test.exs`) runs the same client against the real Runtime.
+  the headers it sends, one request per call, and the configuration.
   """
   use ExUnit.Case, async: false
 

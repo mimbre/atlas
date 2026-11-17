@@ -5,9 +5,7 @@ defmodule AtlasRuntime.BackendTest.OnlyBoundary do
   (`AtlasRuntime.Boundary.{Work,Operations,History}` and their structs), Plug, Bandit and
   the standard library,
   plus its own modules and the generated router's support module in the backend
-  generator. The TCP listener (S3) may also call what its token check and bound address
-  need: OTP's `:crypto` (SHA-256), `Plug.Crypto` (constant-time compare) and Bandit's
-  ThousandIsland (the listener's address). Checked on the remote calls in each module's BEAM (`:imports`), like
+  generator. Checked on the remote calls in each module's BEAM (`:imports`), like
   `AtlasBus.BoundaryTest` checks the layers.
   """
   use ExUnit.Case, async: true
@@ -24,10 +22,7 @@ defmodule AtlasRuntime.BackendTest.OnlyBoundary do
     :kernel,
     :erts,
     :plug,
-    :bandit,
-    :crypto,
-    :plug_crypto,
-    :thousand_island
+    :bandit
   ]
 
   @doc "The modules `beam` (a path or a binary) calls that the backend may not, with `facades`."
