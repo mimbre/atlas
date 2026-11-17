@@ -17,7 +17,7 @@
     "ipv6": true
   },
   "facts": { "data": "/data/beam" },
-  "code": { "data": "/data/code", "repositories": ["eyra/atlas"] },
+  "code": { "data": "/data/code", "repositories": ["mimbre/atlas"] },
   "connectors": {
     "github": {
       "api": "https://api.github.com",

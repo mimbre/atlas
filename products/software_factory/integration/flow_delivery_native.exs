@@ -110,7 +110,7 @@ try do
   code = %{
     "dir" => Path.join(dir, "code"),
     "github" => {FakeGitHub, FakeGitHub.config(gh)},
-    "repositories" => ["eyra/atlas"]
+    "repositories" => ["mimbre/atlas"]
   }
 
   {:ok, _code} =
@@ -169,12 +169,12 @@ try do
       do: put.("person", %{"op" => "create", "key" => key, "values" => %{"name" => name}})
 
   pull_request = fn number, values ->
-    key = "PR-eyra-atlas-#{number}"
+    key = "PR-mimbre-atlas-#{number}"
 
     put.("pull_request", %{
       "op" => "create",
       "key" => key,
-      "values" => Map.merge(%{"url" => "https://github.com/eyra/atlas/pull/#{number}"}, values)
+      "values" => Map.merge(%{"url" => "https://github.com/mimbre/atlas/pull/#{number}"}, values)
     })
 
     key
@@ -420,7 +420,7 @@ try do
     Effects.new(
       dir: Path.join(dir, "code-probe"),
       github: {FakeGitHub, FakeGitHub.config(probe_gh)},
-      repositories: ["eyra/atlas"]
+      repositories: ["mimbre/atlas"]
     )
 
   {:effect, spec} = flows["pull_request"].mechanism("integrating")
@@ -557,7 +557,7 @@ try do
   assert [{:update_branch, 9104, ^r3}] = FakeGitHub.writes(gh)
   FakeGitHub.apply_updates(gh)
   update = FakeGitHub.get_pull(gh, 9104)["head"]
-  assert {:ok, [^r3, ^base2]} = FakeGitHub.parents(FakeGitHub.config(gh), "eyra/atlas", update)
+  assert {:ok, [^r3, ^base2]} = FakeGitHub.parents(FakeGitHub.config(gh), "mimbre/atlas", update)
   # CI on r3 alone (green above) is not CI on the update: still integrating.
   assert {:ok, runs} = ask.()
   assert summary.(pr_run.(runs, open)) == {"integrating", "active", 7}

@@ -114,12 +114,12 @@ try do
   for {key, name} <- [{"reviewer-1", "Reviewer"}, {"tester-1", "Tester"}],
       do: put.("person", %{"op" => "create", "key" => key, "values" => %{"name" => name}})
 
-  pr = "PR-eyra-atlas-9001"
+  pr = "PR-mimbre-atlas-9001"
 
   put.("pull_request", %{
     "op" => "create",
     "key" => pr,
-    "values" => %{"url" => "https://github.com/eyra/atlas/pull/9001", "revision" => "r1"}
+    "values" => %{"url" => "https://github.com/mimbre/atlas/pull/9001", "revision" => "r1"}
   })
 
   # pr_review and pr_test have short ids: rela makes the id and refuses one given, and
@@ -279,12 +279,12 @@ try do
   # for it or sent to a Runtime, however the review names its packet; it gives its verdict.
   :ok = AtlasBus.attach("runtime@proof-desk/passes")
   put.("agent", %{"op" => "create", "key" => "revbot", "values" => %{"name" => "Revbot"}})
-  pr_a = "PR-eyra-atlas-9002"
+  pr_a = "PR-mimbre-atlas-9002"
 
   put.("pull_request", %{
     "op" => "create",
     "key" => pr_a,
-    "values" => %{"url" => "https://github.com/eyra/atlas/pull/9002", "revision" => "a1"}
+    "values" => %{"url" => "https://github.com/mimbre/atlas/pull/9002", "revision" => "a1"}
   })
 
   body =
