@@ -2,7 +2,9 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"os"
 	"path/filepath"
@@ -80,9 +82,10 @@ func TestServiceStartsWithServerLifecycleAndItsModel(t *testing.T) {
 			if err != nil || capacity["accepting"] != true {
 				t.Fatalf("backend.sock capacity = %v, %v", capacity, err)
 			}
-			// Flow's pass receiver runs beside it, its journal under the same home.
-			if info, err := os.Stat(filepath.Join(dir, "passes")); err != nil || !info.IsDir() {
-				t.Fatalf("no pass receiver journal: %v", err)
+			// Flow no longer delivers passes: no pass receiver runs beside it, so nothing
+			// creates a pass journal under the home.
+			if _, err := os.Lstat(filepath.Join(dir, "passes")); !errors.Is(err, fs.ErrNotExist) {
+				t.Fatalf("pass journal present after start: %v", err)
 			}
 			return
 		}

@@ -54,7 +54,7 @@ var censusHome = map[string]censusEntry{
 	"availability.json":     {"denied", "the harness availability", false},
 	"service.log":           {"denied", "the daemon log", false},
 	"service.lock":          {"denied", "the daemon lock", false},
-	"passes":                {"denied", "the flow pass bindings", false},
+	"passes":                {"denied", "the flow pass bindings; no code site since S5b B1, deny kept", true},
 	"snapshots":             {"denied", "the snapshot store and baselines", false},
 	"materializations":      {"denied", "the materialization records", false},
 	"scratch":               {"denied", "the workers' scratch (each turn's own is re-allowed)", false},

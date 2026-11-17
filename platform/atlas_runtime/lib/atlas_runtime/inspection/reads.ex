@@ -1,8 +1,8 @@
 defmodule AtlasRuntime.Inspection.Reads do
   @moduledoc """
   The Service's reads, `{:read, op, args}`: worker, turn, execution-event and public-output
-  reads for the work core and FlowPasses in-process. Only the journal operations (`events`,
-  `follow`) are admitted from a socket request (`request/1`); no socket serves the others.
+  reads for the work core in-process. Only the journal operations (`events`, `follow`) are
+  admitted from a socket request (`request/1`); no socket serves the others.
 
   Metadata is projected through explicit fields; nothing else from a turn record (its
   assignment, working directory, permissions, repository, native session, artifacts or

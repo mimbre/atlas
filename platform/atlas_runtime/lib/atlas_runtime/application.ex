@@ -12,17 +12,9 @@ defmodule AtlasRuntime.Application do
         output_endpoint(
           Application.get_env(:atlas_runtime, :server_lifecycle, false),
           AtlasRuntime.Settings.get()
-        ) ++ flow_passes() ++ AtlasRuntime.Remote.Config.child_specs()
+        ) ++ AtlasRuntime.Remote.Config.child_specs()
 
     Supervisor.start_link(children, strategy: :one_for_one, name: AtlasRuntime.Root)
-  end
-
-  # Explicit opt-in: the directory must be the native Service's durable home.
-  defp flow_passes do
-    case Application.get_env(:atlas_runtime, :flow_passes) do
-      nil -> []
-      opts -> [{AtlasRuntime.FlowPasses, opts}]
-    end
   end
 
   # Standalone turns' public output, read only through the work contract's turn output;

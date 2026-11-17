@@ -393,9 +393,8 @@ Prod's settings also add the Workers tab and its grants (`control.tabs`,
 
 What the link does: for each turn of a listed worker, the service creates the Server turn
 `TU-<machine>-<local turn ID>`, registers that attempt's execution, renews its activity and
-lease while it runs, and ends it as `finished`, `failed: …` or `stopped`. It also serves
-Flow's passes for the machine at `runtime@<machine>/passes`. It sets no item and no Flow
-outcome, and it gives Server no start, stop or guidance over the native agent.
+lease while it runs, and ends it as `finished`, `failed: …` or `stopped`. It sets no item
+and no Flow outcome, and it gives Server no start, stop or guidance over the native agent.
 
 This is a best-effort mirror. Each write is one bounded exchange, and the native turn never
 waits for it. The outcome of each write, confirmed or the last failure, is kept on the turn
