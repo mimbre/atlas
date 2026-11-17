@@ -151,6 +151,7 @@ defmodule AtlasRuntimeBackend.Generator.Example.Facade do
       use(S,
         book_id: {:string, true},
         title: {:string, true},
+        edition: {:integer, true},
         condition: {T.condition(), true},
         place: {T.place(), false},
         due_at: {:datetime, false}
@@ -252,11 +253,17 @@ defmodule AtlasRuntimeBackend.Generator.Example.Facade do
     end)
   end
 
+  # "reprinted" is in its second edition; every other book in its first.
   def find_book(client, input) do
     permitted(client, :find_book, input, fn ->
-      if input.book_id == "missing",
-        do: %Outcome.Missing{},
-        else: %Outcome.Found{book: book(input.book_id, "Dune", %Shelf{row: 3}, nil)}
+      case input.book_id do
+        "missing" ->
+          %Outcome.Missing{}
+
+        id ->
+          book = book(id, "Dune", %Shelf{row: 3}, nil)
+          %Outcome.Found{book: %{book | edition: if(id == "reprinted", do: 2, else: 1)}}
+      end
     end)
   end
 
@@ -314,5 +321,12 @@ defmodule AtlasRuntimeBackend.Generator.Example.Facade do
   end
 
   defp book(id, title, place, due_at),
-    do: %Book{book_id: id, title: title, condition: :new, place: place, due_at: due_at}
+    do: %Book{
+      book_id: id,
+      title: title,
+      edition: 1,
+      condition: :new,
+      place: place,
+      due_at: due_at
+    }
 end

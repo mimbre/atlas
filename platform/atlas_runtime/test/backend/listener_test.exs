@@ -55,7 +55,17 @@ defmodule AtlasRuntime.BackendTest.Listener do
     assert %{"accepting" => false, "slots" => %{"total" => 2}} = JSON.decode!(body)
 
     assert_received {:fake_work, :capacity, {"local:" <> _user, rights}, nil}
-    assert rights == [:submit, :cancel, :read, :read_all, :choose_slot, :inspect, :operate]
+
+    assert rights == [
+             :submit,
+             :cancel,
+             :read,
+             :read_all,
+             :choose_slot,
+             :choose_path,
+             :inspect,
+             :operate
+           ]
   end
 
   @tag :curl

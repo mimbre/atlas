@@ -11,6 +11,6 @@ defmodule AtlasRuntime.BackendTest.RestContract do
     assert AtlasRuntime.Backend.Rest.__routes__() == AtlasRuntime.Test.WorkRest.__routes__()
 
     assert AtlasRuntime.Backend.Rest.__rights__(:socket) ==
-             [:submit, :cancel, :read, :read_all, :choose_slot, :inspect, :operate]
+             [:submit, :cancel, :read, :read_all, :choose_slot, :choose_path, :inspect, :operate]
   end
 end

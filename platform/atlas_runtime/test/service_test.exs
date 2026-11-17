@@ -1486,3 +1486,119 @@ defmodule AtlasRuntime.ServiceTest do
     refute_received {:answer_write, _, _}
   end
 end
+
+defmodule AtlasRuntime.ServiceTest.Tcp do
+  @moduledoc """
+  The service's loopback TCP listener (S3 plan P2): what `host/service.exs` does with
+  `$ATLAS_RUNTIME_HOME/clients.json`, on the Runtime's own router. No file: no listener.
+  An invalid file, or a bad mode, stops the start loudly. A valid one listens on 127.0.0.1
+  at its port and guards every request before the work core is reached.
+  """
+  use ExUnit.Case, async: false
+
+  alias AtlasRuntime.Backend.{Clients, Rest, TcpListener}
+
+  @moduletag :tmp_dir
+  @service Path.expand("../host/service.exs", __DIR__)
+
+  defp free_port do
+    {:ok, socket} = :gen_tcp.listen(0, ip: {127, 0, 0, 1})
+    {:ok, port} = :inet.port(socket)
+    :gen_tcp.close(socket)
+    port
+  end
+
+  defp write!(dir, port, rights, mode \\ 0o600) do
+    hash = :crypto.hash(:sha256, "service-token") |> Base.encode16(case: :lower)
+    clients = [%{"name" => "core", "token_sha256" => hash, "rights" => rights}]
+
+    File.write!(
+      Clients.path(dir),
+      JSON.encode!(%{"version" => 1, "listen" => %{"port" => port}, "clients" => clients})
+    )
+
+    File.chmod!(Clients.path(dir), mode)
+  end
+
+  defp get(port, headers) do
+    {:ok, socket} = :gen_tcp.connect({127, 0, 0, 1}, port, [:binary, active: false], 2_000)
+    lines = for {k, v} <- headers, do: [k, ": ", v, "\r\n"]
+
+    :ok =
+      :gen_tcp.send(socket, [
+        "GET /v1/capacity HTTP/1.1\r\nhost: localhost\r\nconnection: close\r\n",
+        lines,
+        "\r\n"
+      ])
+
+    raw = recv(socket, "")
+    :gen_tcp.close(socket)
+    [head, body] = String.split(raw, "\r\n\r\n", parts: 2)
+    {head, JSON.decode!(body)}
+  end
+
+  defp recv(socket, seen) do
+    case :gen_tcp.recv(socket, 0, 5_000) do
+      {:ok, data} -> recv(socket, seen <> data)
+      {:error, _} -> seen
+    end
+  end
+
+  test "service.exs serves TCP through TcpListener.serve!/2 on the Runtime's router, after backend.sock" do
+    script = File.read!(@service)
+    socket = :binary.match(script, "AtlasRuntime.Backend.Listener.start_link") |> elem(0)
+
+    tcp =
+      :binary.match(
+        script,
+        "AtlasRuntime.Backend.TcpListener.serve!(dir, AtlasRuntime.Backend.Rest)"
+      )
+      |> elem(0)
+
+    ready = :binary.match(script, ~s(IO.puts("Runtime ready)) |> elem(0)
+    assert socket < tcp and tcp < ready
+  end
+
+  test "no clients.json: no TCP listener, and the port stays closed", %{tmp_dir: dir} do
+    port = free_port()
+    assert TcpListener.serve!(dir, Rest) == :none
+    assert {:error, :econnrefused} = :gen_tcp.connect({127, 0, 0, 1}, port, [], 1_000)
+  end
+
+  test "an invalid file, or one not mode 0600, fails the start loudly", %{tmp_dir: dir} do
+    port = free_port()
+
+    write!(dir, port, ["read", "choose_slot"])
+
+    assert_raise RuntimeError, ~r/not listening on loopback TCP: clients.json is invalid/, fn ->
+      TcpListener.serve!(dir, Rest)
+    end
+
+    write!(dir, port, ["read"], 0o644)
+
+    assert_raise RuntimeError, ~r/not listening on loopback TCP: clients.json has mode 644/, fn ->
+      TcpListener.serve!(dir, Rest)
+    end
+
+    assert {:error, :econnrefused} = :gen_tcp.connect({127, 0, 0, 1}, port, [], 1_000)
+  end
+
+  test "a valid file: 127.0.0.1 at its port, guarded before the work core", %{tmp_dir: dir} do
+    port = free_port()
+    write!(dir, port, ["read"])
+    {:ok, pid} = TcpListener.serve!(dir, Rest)
+    on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+    Process.unlink(pid)
+
+    assert TcpListener.address(pid) == {{127, 0, 0, 1}, port}
+
+    {head, body} = get(port, [{"authorization", "Bearer unknown"}])
+    assert head =~ "HTTP/1.1 401"
+    assert head =~ ~r/www-authenticate: Bearer/i
+    assert body["type"] == "unauthenticated"
+
+    {head, body} = get(port, [{"authorization", "Bearer service-token"}, {"origin", "x"}])
+    assert head =~ "HTTP/1.1 403"
+    assert body["type"] == "origin-refused"
+  end
+end

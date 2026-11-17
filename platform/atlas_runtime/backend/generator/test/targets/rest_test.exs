@@ -42,6 +42,7 @@ defmodule AtlasRuntimeBackend.Generator.Targets.RestTest do
       assert json(conn) == %{
                "book_id" => "k1",
                "title" => "Dune",
+               "edition" => 1,
                "condition" => "new",
                "place" => %{"kind" => "shelf", "row" => 2},
                "due_at" => "2026-03-01T10:00:00Z"
@@ -187,6 +188,81 @@ defmodule AtlasRuntimeBackend.Generator.Targets.RestTest do
     end
   end
 
+  describe "a conditional GET (etag:)" do
+    test "the success outcome carries ETag: \"<field>\"; the body is unchanged" do
+      conn = request("GET", "/v1/books/b1")
+      assert conn.status == 200
+      assert get_resp_header(conn, "etag") == [~s("1")]
+      assert %{"book_id" => "b1", "edition" => 1} = json(conn)
+    end
+
+    test "If-None-Match with the tag → 304, the same ETag and no body" do
+      for given <- [~s("1"), ~s("0", "1"), ~s(W/"1"), "*"] do
+        conn = request("GET", "/v1/books/b1", "", [{"if-none-match", given}])
+        assert conn.status == 304, "If-None-Match: #{given}"
+        assert get_resp_header(conn, "etag") == [~s("1")]
+        assert conn.resp_body == ""
+        assert content_type(conn) == []
+        # The facade still answers: the tag is the outcome's.
+        assert {:find_book, _, %Facade.FindBookInput{book_id: "b1"}} = called()
+      end
+    end
+
+    test "a tag that does not match → 200 with the body and the current tag" do
+      for given <- [~s("2"), ~s("1-"), "1", ~s("11"), ""] do
+        conn = request("GET", "/v1/books/b1", "", [{"if-none-match", given}])
+        assert conn.status == 200, "If-None-Match: #{given}"
+        assert get_resp_header(conn, "etag") == [~s("1")]
+        assert %{"edition" => 1} = json(conn)
+      end
+    end
+
+    test "a change gives a new tag, and the old one no longer matches" do
+      conn = request("GET", "/v1/books/reprinted", "", [{"if-none-match", ~s("1")}])
+      assert conn.status == 200
+      assert get_resp_header(conn, "etag") == [~s("2")]
+      assert %{"edition" => 2} = json(conn)
+
+      conn = request("GET", "/v1/books/reprinted", "", [{"if-none-match", ~s("2")}])
+      assert conn.status == 304
+    end
+
+    test "never 304 and no ETag for another outcome of the resource" do
+      for given <- [~s("1"), "*"] do
+        conn = request("GET", "/v1/books/missing", "", [{"if-none-match", given}])
+        assert conn.status == 404
+        assert get_resp_header(conn, "etag") == []
+        assert %{"type" => "not-found"} = json(conn)
+      end
+    end
+
+    test "no ETag on a resource without etag:, even for the same outcome" do
+      # search answers found, as find_book does.
+      conn = request("GET", "/v1/books?title=Emma", "", [{"if-none-match", "*"}])
+      assert conn.status == 200
+      assert get_resp_header(conn, "etag") == []
+      assert %{"title" => "Emma"} = json(conn)
+    end
+
+    test "refused rights are refused, whatever the If-None-Match" do
+      conn = request("GET", "/v1/books/b1", "", [{"if-none-match", "*"}], {"nobody", []})
+      assert conn.status == 403
+      assert get_resp_header(conn, "etag") == []
+    end
+
+    test "Runtime.not_modified?/2 and etag/1" do
+      alias AtlasRuntimeBackend.Generator.Targets.Rest.Runtime
+      assert Runtime.etag(42) == ~s("42")
+      assert Runtime.not_modified?([~s("42")], ~s("42"))
+      assert Runtime.not_modified?([~s("1"), ~s(W/"42")], ~s("42"))
+      assert Runtime.not_modified?([~s( "1" ,"42" )], ~s("42"))
+      assert Runtime.not_modified?(["*"], ~s("42"))
+      refute Runtime.not_modified?([], ~s("42"))
+      refute Runtime.not_modified?([~s("4"), ~s("420")], ~s("42"))
+      refute Runtime.not_modified?(["42"], ~s("42"))
+    end
+  end
+
   describe "the target's own errors" do
     test "no route" do
       for {method, path} <- [
@@ -321,7 +397,9 @@ defmodule AtlasRuntimeBackend.Generator.Targets.RestTest do
 
     routes = Rest.__routes__()
     lend = Enum.find(routes, &(&1.capability == :lend))
-    assert %{method: :post, path: "/v1/books", stream: false} = lend
+    assert %{method: :post, path: "/v1/books", stream: false, etag: nil} = lend
+
+    assert for(r <- routes, r.etag, do: {r.capability, r.etag}) == [find_book: :edition]
 
     assert [
              %{outcome: :lent, status: 201, headers: [{"location", _}]},

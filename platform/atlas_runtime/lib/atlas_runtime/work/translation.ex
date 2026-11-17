@@ -14,6 +14,11 @@ defmodule AtlasRuntime.Work.Translation do
   # (`repository.base`, `result.log` and its `ref`, `resume_point.conversation_id` and
   # `workspace`). `provenance.configured_model` is optional in the model too; the core
   # always sets it (`AtlasRuntime.Work.Server`).
+  #
+  # `from_model/2` takes the caller's rights: `request.workspace.path` (a folder),
+  # `work_product.workspace.path` and `resume_point.workspace.path` are paths on the
+  # Runtime's machine, kept only for a client holding `choose_path` (D44). There is no
+  # translation without the rights.
 
   alias AtlasRuntime.Boundary.Work, as: B
   alias AtlasRuntime.Model.Work, as: M
@@ -28,9 +33,10 @@ defmodule AtlasRuntime.Work.Translation do
   @skip_reasons ~w(not_installed quota)a
 
   @doc false
-  # A work record as the boundary's work.
-  def from_model(%M.WorkRecord{} = record) do
-    attempts = Enum.map(record.attempts, &attempt/1)
+  # A work record as the boundary's work, as a client with these rights sees it.
+  def from_model(%M.WorkRecord{} = record, rights) when is_list(rights) do
+    paths? = :choose_path in rights
+    attempts = Enum.map(record.attempts, &attempt(&1, paths?))
 
     %B.Work{
       work_id: record.work_id,
@@ -39,7 +45,7 @@ defmodule AtlasRuntime.Work.Translation do
       idempotency_key: record.idempotency_key,
       revision: record.revision,
       sequence: record.sequence,
-      request: request(record.request, record.client_key),
+      request: request(record.request, record.client_key, paths?),
       state: List.last(attempts).state,
       attempts: attempts
     }
@@ -78,30 +84,33 @@ defmodule AtlasRuntime.Work.Translation do
   def model_option(%{"provider" => provider, "harness" => harness, "model" => model}),
     do: M.Option.new!(provider: provider, harness: harness, model: model)
 
-  defp request(%M.Request{} = request, client_key) do
+  defp request(%M.Request{} = request, client_key, paths?) do
     %B.WorkRequest{
       client_key: client_key,
       title: request.title,
       instructions: request.instructions,
       profile: request.profile,
       cost_class: request.cost_class,
-      workspace: workspace(request.workspace),
+      workspace: workspace(request.workspace, paths?),
       resume_from: request.resume_from,
       slot: request.slot
     }
   end
 
-  defp workspace(%M.Repository{} = repository),
+  defp workspace(%M.Repository{} = repository, _paths?),
     do: %B.Repository{
       url: repository.url,
       branch: repository.branch,
       base: repository.base || "develop"
     }
 
-  defp workspace(%M.Folder{} = folder),
-    do: %B.Folder{path: folder.path, permissions: Map.fetch!(@folder, folder.permissions)}
+  defp workspace(%M.Folder{} = folder, paths?),
+    do: %B.Folder{
+      path: if(paths?, do: folder.path),
+      permissions: Map.fetch!(@folder, folder.permissions)
+    }
 
-  defp attempt(%M.Attempt{} = attempt) do
+  defp attempt(%M.Attempt{} = attempt, paths?) do
     %B.Attempt{
       attempt: attempt.attempt,
       state: attempt.state,
@@ -111,33 +120,34 @@ defmodule AtlasRuntime.Work.Translation do
       slot: attempt.slot,
       turn_id: attempt.turn_id,
       provenance: provenance(attempt.provenance),
-      resume_point: resume_point(attempt.resume_point),
+      resume_point: resume_point(attempt.resume_point, paths?),
       quiescent: attempt.quiescent,
-      result: result(attempt.result)
+      result: result(attempt.result, paths?)
     }
   end
 
   defp resume_point(
          %M.ResumePoint{conversation_id: conversation, workspace: %M.WorkspaceState{} = workspace} =
-           point
+           point,
+         paths?
        )
        when is_binary(conversation) do
     %B.ResumePoint{
       turn_id: point.turn_id,
       conversation_id: conversation,
       workspace: %B.ResumeWorkspace{
-        path: workspace.path,
+        path: if(paths?, do: workspace.path),
         branch: workspace.branch,
         commit: workspace.commit
       }
     }
   end
 
-  defp resume_point(_), do: nil
+  defp resume_point(_, _paths?), do: nil
 
-  defp result(nil), do: nil
+  defp result(nil, _paths?), do: nil
 
-  defp result(%M.Result{} = result) do
+  defp result(%M.Result{} = result, paths?) do
     log = result.log
 
     %B.Result{
@@ -147,7 +157,7 @@ defmodule AtlasRuntime.Work.Translation do
       native_outcome: result.native_outcome,
       never_started: result.never_started,
       answer: result.answer,
-      work_product: work_product(result.work_product),
+      work_product: work_product(result.work_product, paths?),
       log: %B.OutputLog{
         complete: (log && log.complete) || false,
         missing_bytes: (log && log.missing_bytes) || 0,
@@ -156,10 +166,13 @@ defmodule AtlasRuntime.Work.Translation do
     }
   end
 
-  defp work_product(nil), do: nil
+  defp work_product(nil, _paths?), do: nil
 
-  defp work_product(%M.WorkProduct{workspace: workspace}),
-    do: %B.WorkProduct{workspace: struct!(B.WorkProductWorkspace, Map.from_struct(workspace))}
+  defp work_product(%M.WorkProduct{workspace: workspace}, paths?) do
+    workspace = struct!(B.WorkProductWorkspace, Map.from_struct(workspace))
+
+    %B.WorkProduct{workspace: if(paths?, do: workspace, else: %{workspace | path: nil})}
+  end
 
   defp provenance(nil), do: nil
 

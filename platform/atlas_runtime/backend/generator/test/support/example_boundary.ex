@@ -25,6 +25,8 @@ defmodule AtlasRuntimeBackend.Generator.Example.Boundary do
         fields: [
           %{name: :book_id, type: :string, required: true},
           %{name: :title, type: :string, required: true},
+          # +1 on every reprint: what a conditional GET tags.
+          %{name: :edition, type: :integer, required: true},
           %{name: :condition, type: {:enum, @conditions}, required: true},
           %{name: :place, type: {:one_of, [:shelf, :branch], tag: :kind}, required: false},
           %{name: :due_at, type: :datetime, required: false}

@@ -150,6 +150,24 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest.Runtime do
     ["event: ", event, "\n", id_line, "data: ", JSON.encode!(data), "\n\n"]
   end
 
+  @doc "An entity tag (RFC 9110 §8.8.3) for an integer field: its decimal text, quoted."
+  def etag(value) when is_integer(value), do: ~s("#{value}")
+
+  @doc """
+  Whether `If-None-Match` (the request's header values) holds `tag`, so the answer is
+  304: a list of tags, compared weakly (RFC 9110 §13.1.2: `W/` is ignored), or `*`.
+  No header is never a match.
+  """
+  def not_modified?(values, tag) do
+    values
+    |> Enum.flat_map(&String.split(&1, ","))
+    |> Enum.map(&String.trim/1)
+    |> Enum.any?(&(&1 == "*" or opaque(&1) == opaque(tag)))
+  end
+
+  defp opaque("W/" <> tag), do: tag
+  defp opaque(tag), do: tag
+
   @doc """
   What a facade's answer that is no outcome means, the same for every contract:
   `{:not_permitted, right}` for a struct with exactly the fields `capability` and `right`
