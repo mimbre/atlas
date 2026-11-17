@@ -79,13 +79,6 @@ defmodule AtlasRuntime.Work.AfterCheckTest do
     work
   end
 
-  defp jsonl(bench, name) do
-    case File.read(Path.join(bench.dir, name)) do
-      {:ok, bytes} -> bytes |> String.split("\n", trim: true) |> Enum.map(&JSON.decode!/1)
-      {:error, :enoent} -> []
-    end
-  end
-
   defp checks(bench), do: jsonl(bench, "check-launches.jsonl")
 
   # The core's own `completed` write is the event, not a time-bounded poll of the boundary

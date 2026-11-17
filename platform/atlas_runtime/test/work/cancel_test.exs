@@ -229,18 +229,8 @@ defmodule AtlasRuntime.Work.CancelTest do
     launch
   end
 
-  defp leader_ended?(bench, work) do
-    case File.read(Path.join(bench.dir, "work-ends.jsonl")) do
-      {:ok, bytes} ->
-        bytes
-        |> String.split("\n", trim: true)
-        |> Enum.map(&JSON.decode!/1)
-        |> Enum.any?(&(&1["goal"] == work.request.instructions))
-
-      {:error, :enoent} ->
-        false
-    end
-  end
+  defp leader_ended?(bench, work),
+    do: Enum.any?(jsonl(bench, "work-ends.jsonl"), &(&1["goal"] == work.request.instructions))
 
   defp alive?(pid),
     do: match?({_, 0}, System.cmd("/bin/kill", ["-0", "#{pid}"], stderr_to_stdout: true))
