@@ -676,6 +676,136 @@ defmodule AtlasCode.ChangesReviewsTest do
     end
   end
 
+  # K3: Code's own integrate (AtlasCode.Effects, its journal in Code's home) updates a review's
+  # pull from its base before it refuses; the next update moves the review on from that head.
+  describe "update_review after Code's own integrate (K3)" do
+    @describetag :k3
+
+    test "moves the review on from a head a refused integrate of its pull produced",
+         %{home: home, remote: remote} = context do
+      {review_id, revision, head} = app_review(context, 300)
+      ref = "refs/heads/work/review-" <> review_id
+      {base2, merged} = behind(remote, head)
+      git(remote, ["update-ref", ref, merged])
+
+      # Integrated by its handle (B-1): updated from its base by "GitHub", then red CI.
+      assert %{"status" => "refused", "reason" => "ci_failed", "details" => %{"head" => ^merged}} =
+               integrate(context, 300, 7, revision, base2, merged, {:failure, ["unit"]})
+
+      sealed(context, uuid(302), "github.com/test/app", %{"README.md" => "fix\n"})
+      input = update(uuid(303), review_id, uuid(302), revision, fingerprint_of(home, uuid(302)))
+
+      assert %Outcome.Updated{previous_revision: ^revision, revision: moved} =
+               updated = Boundary.update_review(@client, input)
+
+      # The location holds the update, built on the review's revision; the review follows it.
+      child = commit_of(home, moved)
+      assert git(remote, ["rev-parse", ref]) == child <> "\n"
+      assert git(remote, ["rev-parse", child <> "^"]) == head <> "\n"
+      assert record(home, review_id)["revision"] == moved
+      assert Boundary.update_review(@client, input) == updated
+
+      # That head was produced from the earlier revision: put back now, it is someone else's.
+      git(remote, ["update-ref", ref, merged])
+      sealed(context, uuid(304), "github.com/test/app", %{"README.md" => "fix 2\n"})
+      again = update(uuid(305), review_id, uuid(304), moved, fingerprint_of(home, uuid(304)))
+      assert %Outcome.LocationMoved{current: current} = Boundary.update_review(@client, again)
+      assert current == AtlasCode.handle("github.com/test/app", merged)
+      assert git(remote, ["rev-parse", ref]) == merged <> "\n"
+    end
+
+    test "any other move is location_moved, never overwritten",
+         %{home: home, remote: remote} = context do
+      {review_id, revision, head} = app_review(context, 310)
+      ref = "refs/heads/work/review-" <> review_id
+      base = remote |> git(["rev-parse", "develop"]) |> String.trim()
+      {base2, merged} = behind(remote, head)
+      sealed(context, uuid(312), "github.com/test/app", %{"README.md" => "fix\n"})
+      fingerprint = fingerprint_of(home, uuid(312))
+
+      refused_at = fn n, at ->
+        input = update(uuid(n), review_id, uuid(312), revision, fingerprint)
+        assert %Outcome.LocationMoved{current: current} = Boundary.update_review(@client, input)
+        assert current == AtlasCode.handle("github.com/test/app", at)
+        assert git(remote, ["rev-parse", ref]) == at <> "\n"
+      end
+
+      # Someone else pushed on top of the review's revision; no integrate of it at all.
+      pushed = commit_tree(remote, head, [head], "someone else")
+      git(remote, ["update-ref", ref, pushed])
+      refused_at.(320, pushed)
+
+      # Code's integrate updated it but is still waiting for CI: not refused (yet).
+      git(remote, ["update-ref", ref, merged])
+
+      assert %{"status" => "working", "phase" => "checking"} =
+               integrate(context, 321, 7, revision, base2, merged, :pending)
+
+      refused_at.(322, merged)
+
+      # A refused integrate with that line, but of another pull.
+      assert %{"status" => "refused"} =
+               integrate(context, 323, 8, revision, base2, merged, {:failure, ["unit"]})
+
+      refused_at.(324, merged)
+
+      # Code's integrate of this pull with that very line, but done: GitHub merged that head.
+      # Only a refused integrate's head is moved on from; a merged one is never overwritten.
+      assert %{"status" => "done", "outputs" => %{"head" => ^merged}} =
+               integrate(context, 327, 7, revision, base2, merged, :success)
+
+      refused_at.(328, merged)
+
+      # A refused integrate of this pull whose line only starts at the moved head (asked about
+      # the pushed commit itself, by its commit): Code's integrate did not produce it.
+      git(remote, ["update-ref", ref, pushed])
+
+      assert %{"status" => "refused", "reason" => "ci_failed"} =
+               integrate(context, 325, 7, pushed, base, nil, {:failure, ["unit"]})
+
+      refused_at.(326, pushed)
+    end
+
+    test "a remote that refuses the leased push is update_refused, pushed once",
+         %{dir: dir, home: home, remote: remote} = context do
+      {review_id, revision, head} = app_review(context, 330)
+      ref = "refs/heads/work/review-" <> review_id
+      {base2, merged} = behind(remote, head)
+      git(remote, ["update-ref", ref, merged])
+
+      assert %{"status" => "refused", "reason" => "ci_failed"} =
+               integrate(context, 330, 7, revision, base2, merged, {:failure, ["unit"]})
+
+      # The remote refuses the first push it receives (as a rule against force pushes on work
+      # branches would) and takes any later one: a retry of the refused push would land.
+      pushes = Path.join(dir, "pushes")
+      hook = Path.join([remote, "hooks", "pre-receive"])
+      File.mkdir_p!(Path.dirname(hook))
+
+      File.write!(hook, """
+      #!/bin/sh
+      echo push >> '#{pushes}'
+      [ -e '#{pushes}.refused' ] && exit 0
+      : > '#{pushes}.refused'
+      exit 1
+      """)
+
+      File.chmod!(hook, 0o755)
+      sealed(context, uuid(332), "github.com/test/app", %{"README.md" => "fix\n"})
+      input = update(uuid(333), review_id, uuid(332), revision, fingerprint_of(home, uuid(332)))
+
+      assert %Outcome.UpdateRefused{} = refused = Boundary.update_review(@client, input)
+      assert File.read!(pushes) == "push\n"
+      assert git(remote, ["rev-parse", ref]) == merged <> "\n"
+      assert record(home, review_id)["revision"] == revision
+
+      # Terminal: a repeat answers the same and pushes nothing.
+      assert Boundary.update_review(@client, input) == refused
+      assert File.read!(pushes) == "push\n"
+      assert git(remote, ["rev-parse", ref]) == merged <> "\n"
+    end
+  end
+
   describe "draft, mark_ready and review_status (K2)" do
     @describetag :k2
 
@@ -1011,6 +1141,96 @@ defmodule AtlasCode.ChangesReviewsTest do
       assert response == Service.create_review(AtlasCode.settings(), stringify(bad))
     end
   end
+
+  # K3: a review `uuid(n + 1)` of a new sealed change `uuid(n)` on github.com/test/app (its pull is
+  # the fixture's pull 7): its ID, revision and commit.
+  defp app_review(context, n) do
+    sealed(context, uuid(n), "github.com/test/app", %{"README.md" => "k3 #{n}\n"})
+
+    %Outcome.Review{revision: revision} =
+      Boundary.create_review(@client, review(uuid(n + 1), uuid(n)))
+
+    {uuid(n + 1), revision, commit_of(context.home, revision)}
+  end
+
+  defp commit_of(home, handle),
+    do: JSON.decode!(File.read!(Path.join([home, "revisions", handle <> ".json"])))["commit"]
+
+  # The remote's develop moves on to `base2`, and `merged` is GitHub's update of `head` from it.
+  defp behind(remote, head) do
+    base = remote |> git(["rev-parse", "develop"]) |> String.trim()
+    base2 = commit_tree(remote, base, [base], "base 2")
+    git(remote, ["update-ref", "refs/heads/develop", base2])
+    {base2, commit_tree(remote, head, [head, base2], "Merge develop")}
+  end
+
+  defp commit_tree(remote, tree, parents, message) do
+    args = ["-c", "user.name=t", "-c", "user.email=t@t", "commit-tree", tree <> "^{tree}"]
+    remote |> git(args ++ Enum.flat_map(parents, &["-p", &1]) ++ ["-m", message]) |> String.trim()
+  end
+
+  # Code's integrate of pull `number` at `revision` (a handle or a commit), journaled in Code's
+  # home, against a stand-in GitHub that mirrors the remote's commits, with `base` as the pull's
+  # base. Behind it, an update is asked for, which "GitHub" makes as `update`; `ci` is CI on the
+  # pull's last head. Its answer once the update (if any) is seen.
+  defp integrate(context, n, number, revision, base, update, ci) do
+    gh = start_supervised!(Supervisor.child_spec(AtlasCode.FakeGitHub, id: {:github, n}))
+
+    for line <- context.remote |> git(["rev-list", "--parents", "--all"]) |> String.split("\n"),
+        [commit | parents] <- [String.split(line)],
+        do: AtlasCode.FakeGitHub.commit(gh, commit, parents)
+
+    head = commit_or(context.home, revision)
+    AtlasCode.FakeGitHub.branch(gh, "develop", base)
+    AtlasCode.FakeGitHub.put_pull(gh, number, %{"head" => head, "base" => "develop"})
+    AtlasCode.FakeGitHub.ci(gh, update || head, ci)
+
+    receiver =
+      AtlasCode.Effects.new(
+        dir: context.home,
+        github: {AtlasCode.FakeGitHub, AtlasCode.FakeGitHub.config(gh)},
+        repositories: ["test/app"]
+      )
+
+    definition = %{"fields" => ["revision"], "relations" => []}
+    payload = %{"revision" => revision}
+    fingerprint = AtlasBus.SubjectFingerprint.of(%{"values" => payload}, definition)
+
+    request = %{
+      "version" => 1,
+      "id" => sha256("k3 #{n}"),
+      "run" => "run-#{n}",
+      "entry" => 1,
+      "name" => "integrate",
+      "subject" => "S-#{n}",
+      "service" => "code",
+      "operation" => "integrate",
+      "fingerprint_definition" => definition,
+      "fingerprint" => fingerprint,
+      "payload" => payload,
+      "target" => "https://github.com/test/app/pull/#{number}",
+      "approved" => fingerprint
+    }
+
+    call = fn operation ->
+      AtlasCode.Effects.handle(receiver, %{
+        "operation" => operation,
+        "request" => request,
+        "digest" => AtlasBus.Digest.of_term(request)
+      })
+    end
+
+    if update do
+      assert %{"status" => "working", "phase" => "updating"} = call.("submit")
+      AtlasCode.FakeGitHub.set_pull(gh, number, %{"head" => update})
+      call.("lookup")
+    else
+      call.("submit")
+    end
+  end
+
+  defp commit_or(home, "rev_" <> _ = handle), do: commit_of(home, handle)
+  defp commit_or(_home, commit), do: commit
 
   # A draft review `id` of a new sealed change `change` on github.com/test/app.
   defp draft(context, change, id) do

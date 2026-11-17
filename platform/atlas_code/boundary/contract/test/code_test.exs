@@ -304,8 +304,8 @@ defmodule AtlasCodeBoundary.CodeTest do
     assert actual == @capabilities
   end
 
-  test "is version 0.4.0: draft, mark_ready and review_status (K2)" do
-    assert schema().version == "0.4.0"
+  test "is version 0.5.0: update_review moves on from Code's own integrate (K3)" do
+    assert schema().version == "0.5.0"
   end
 
   test "refusals are outcomes; the facade answers malformed input itself" do

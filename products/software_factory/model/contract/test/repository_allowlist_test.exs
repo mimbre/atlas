@@ -1,4 +1,4 @@
-defmodule AtlasE2E.RepositoryAllowlistTest do
+defmodule Model.RepositoryAllowlistTest do
   @moduledoc """
   Every allow-list of Code's integrate receiver (`code.repositories`) holds the repository the
   model's work tasks build from (the package's `author` task, `input: [repository: …]` in
@@ -6,13 +6,16 @@ defmodule AtlasE2E.RepositoryAllowlistTest do
   on one repository and its receiver refuses every pull request of it as
   `repository_not_allowed` (`AtlasCode.Effects`, an exact owner/repo match).
 
+  A static check of the files only (no Atlas started), so it runs with the model's tests, in
+  CI's `model-contract` job.
+
   An environment may instead allow no repository at all, on purpose: then its receiver refuses
   every request offline (test on Fly, `docs/guides/prod.md`). Only those named in
   `@allows_none` may.
   """
   use ExUnit.Case, async: true
 
-  @factory Path.expand("../..", __DIR__)
+  @factory Path.expand("../../..", __DIR__)
   @allows_none ["test"]
 
   # {flows file, flow, owner/repo} of every task input that names a repository.
@@ -25,10 +28,18 @@ defmodule AtlasE2E.RepositoryAllowlistTest do
         do: {Path.relative_to(file, @factory), flow, owner_repo(url)}
   end
 
-  defp owner_repo(url) do
-    case Regex.run(~r{\Ahttps://github\.com/([^/]+)/([^/]+?)(?:\.git)?/?\z}, url) do
+  defp owner_repo(input), do: github_repo(input) || flunk("#{input} names no GitHub repository")
+
+  # The owner/repo of a repository input: Code's repository name, `github.com/<owner>/<repo>`
+  # (the keys of Code's config.json, as the package task names it), or a GitHub HTTPS URL of it.
+  # nil for anything else.
+  defp github_repo(input) do
+    case Regex.run(
+           ~r{\A(?:https://)?github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/?\z},
+           input
+         ) do
       [_, owner, repo] -> owner <> "/" <> repo
-      _ -> flunk("#{url} is no GitHub repository URL")
+      _ -> nil
     end
   end
 
@@ -37,6 +48,30 @@ defmodule AtlasE2E.RepositoryAllowlistTest do
   defp environments do
     for file <- Path.wildcard(Path.join(@factory, "environments/*/core.json")) do
       {file |> Path.dirname() |> Path.basename(), JSON.decode!(File.read!(file))}
+    end
+  end
+
+  test "a repository input is Code's repository name or a GitHub HTTPS URL, nothing else" do
+    for input <- [
+          "github.com/mimbre/atlas",
+          "https://github.com/mimbre/atlas",
+          "https://github.com/mimbre/atlas.git"
+        ] do
+      assert github_repo(input) == "mimbre/atlas", input
+    end
+
+    for input <- [
+          "gitlab.com/mimbre/atlas",
+          "https://gitlab.com/mimbre/atlas",
+          "github.com.evil/mimbre/atlas",
+          "evilgithub.com/mimbre/atlas",
+          "http://github.com/mimbre/atlas",
+          "github.com/mimbre",
+          "github.com/mimbre/atlas/extra",
+          "mimbre/atlas",
+          ""
+        ] do
+      assert github_repo(input) == nil, input
     end
   end
 
@@ -79,10 +114,5 @@ defmodule AtlasE2E.RepositoryAllowlistTest do
     # Prod integrates, so it must be among the checked environments, with a non-empty list.
     assert "prod" in checked
     assert "prod" not in @allows_none
-  end
-
-  test "the e2e instance allows the repository the work tasks build from" do
-    allowed = AtlasE2E.Instance.code("unused")["repositories"]
-    assert repositories() -- allowed == []
   end
 end

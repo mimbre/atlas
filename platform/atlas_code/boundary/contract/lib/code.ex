@@ -9,6 +9,11 @@ defmodule AtlasCodeBoundary.Code do
   publications, F3), which is marked ready once it is approved and green; its status reports
   the provider's approvals, requested changes and CI on the review's head (K2).
 
+  Code's own `integrate` effect may move a review's head itself: it updates the head from the
+  target, and may then refuse to merge it. An update still starts at the review's revision; it
+  moves on from a head that a refused integrate produced from that revision, and any other move
+  is `location_moved` (K3).
+
   A draft review is Flow's: Code opens it at a location of its own (`work/flow-review-<id>`, not
   the `work/review-<id>` of other reviews), so nothing but Flow, through Code's `integrate`
   effect, merges it, also after it is marked ready.
@@ -22,7 +27,7 @@ defmodule AtlasCodeBoundary.Code do
   """
   use AtlasCodeBoundary.Generator.Schema
 
-  version "0.4.0"
+  version "0.5.0"
 
   ## Values
 
@@ -404,7 +409,8 @@ defmodule AtlasCodeBoundary.Code do
     ],
     right: :review
 
-  # Moves an open review to a sealed change; never overwrites a location someone else moved.
+  # Moves an open review to a sealed change; never overwrites a location someone else moved. A head
+  # that Code's own integrate produced from the review's revision is not someone else's (K3).
   defcapability :update_review,
     input: :update_review_input,
     outcomes: [
