@@ -10,11 +10,14 @@ defmodule AtlasFlow.WorkSource.Translate do
         "work" => %{"title", "instructions", "profile", "cost_class",
                     "after_check" => %{"command" => [...]} (only with a check),
                     "input" => %{"base" => %{"base_id", "manifest"},
+                                 "change_set" => %{"manifest", "fingerprints"} (F2 only),
                                  "permissions" => "workspace-write" | "read-only"}}}
 
   Title and instructions are built as `AtlasFlow.Activities.Task.request/3` builds them;
-  the base comes from `AtlasFlow.Bases`. No `slot`, `folder`, `resume_from`, `repository` or
-  path is ever in it, so none can reach `offered_work/1`.
+  the base comes from `AtlasFlow.Bases`. A review, fix or diagnose (F2) also gets a frozen
+  change set: the reviewed task's `result_manifest` and `result_fingerprints`, whose blobs
+  Delivery scopes the lease to (`get_blob`, from the result store). No `slot`, `folder`,
+  `resume_from`, `repository` or path is ever in it, so none can reach `offered_work/1`.
 
   **Reports.** A report arrives in contract terms (atom keys, atoms, structs or plain
   maps); `normal/1` turns it into JSON terms (string keys, strings, no nil values), the
@@ -26,24 +29,35 @@ defmodule AtlasFlow.WorkSource.Translate do
   alias AtlasFlow.Activities.Task
 
   @answer_bytes 8192
-  @read_only ~w(review)
+  @read_only ~w(review diagnose)
 
   # -- Task → offered work ---------------------------------------------------------------
 
+  @doc "The version-2 intent of task `key` without a change set: `intent/7` with nil."
+  def intent(spec, subject, key, base, machinery, %DateTime{} = now),
+    do: intent(spec, subject, key, base, nil, machinery, now)
+
   @doc """
   The version-2 intent of task `key` (`spec`, the subject fact, its `base`
-  (`%{base_id, manifest, snapshot_id}`), the machinery name and when it was made).
+  (`%{base_id, manifest, snapshot_id}`), its `change_set` or nil, the machinery name and
+  when it was made). `change_set` is `%{manifest, fingerprints}` (atom or string keys):
+  the sha256 of a stored result manifest and its roots' `csf_` fingerprints (a list of
+  `%{root, fingerprint}`, or the task fact's `result_fingerprints` JSON).
   """
-  def intent(spec, subject, key, base, machinery, %DateTime{} = now) do
+  def intent(spec, subject, key, base, change_set, machinery, %DateTime{} = now) do
     request = Task.request(spec, subject, key)
+
+    input =
+      %{
+        "base" => %{"base_id" => base.base_id, "manifest" => base.manifest},
+        "permissions" => permissions(spec["kind"])
+      }
+      |> put_change_set(change_set)
 
     work =
       request
       |> Map.take(["title", "instructions", "profile", "cost_class", "after_check"])
-      |> Map.put("input", %{
-        "base" => %{"base_id" => base.base_id, "manifest" => base.manifest},
-        "permissions" => permissions(spec["kind"])
-      })
+      |> Map.put("input", input)
 
     %{
       "version" => 2,
@@ -55,7 +69,33 @@ defmodule AtlasFlow.WorkSource.Translate do
     }
   end
 
-  @doc "The permissions a task kind's work runs with: read-only for a review."
+  defp put_change_set(input, nil), do: input
+
+  defp put_change_set(input, change_set) do
+    change_set = normal(change_set)
+
+    fingerprints =
+      case change_set["fingerprints"] do
+        text when is_binary(text) ->
+          case JSON.decode(text) do
+            {:ok, list} when is_list(list) -> list
+            _ -> []
+          end
+
+        list when is_list(list) ->
+          list
+
+        _ ->
+          []
+      end
+
+    Map.put(input, "change_set", %{
+      "manifest" => change_set["manifest"],
+      "fingerprints" => for(%{} = f <- fingerprints, do: Map.take(f, ["root", "fingerprint"]))
+    })
+  end
+
+  @doc "The permissions a task kind's work runs with: read-only for a review or a diagnose."
   def permissions(kind) when kind in @read_only, do: "read-only"
   def permissions(_kind), do: "workspace-write"
 
@@ -64,6 +104,7 @@ defmodule AtlasFlow.WorkSource.Translate do
     text?(key) and text?(intent["created_at"]) and text?(work["title"]) and
       text?(work["instructions"]) and text?(work["profile"]) and text?(work["cost_class"]) and
       base?(get_in(work, ["input", "base"])) and
+      change_set_input?(Map.get(work["input"], "change_set", :none)) and
       get_in(work, ["input", "permissions"]) in ["read-only", "workspace-write"]
   end
 
@@ -71,6 +112,15 @@ defmodule AtlasFlow.WorkSource.Translate do
 
   defp base?(%{"base_id" => id, "manifest" => manifest}), do: text?(id) and text?(manifest)
   defp base?(_), do: false
+
+  defp change_set_input?(:none), do: true
+
+  defp change_set_input?(%{"manifest" => manifest, "fingerprints" => [_ | _] = fingerprints}),
+    do:
+      text?(manifest) and
+        Enum.all?(fingerprints, &(text?(&1["root"]) and text?(&1["fingerprint"])))
+
+  defp change_set_input?(_), do: false
 
   @doc """
   The `offered_work` of an intent (atom keys, the contract's fields only): `work_key` is
@@ -85,15 +135,31 @@ defmodule AtlasFlow.WorkSource.Translate do
       instructions: work["instructions"],
       profile: work["profile"],
       cost_class: work["cost_class"],
-      input: %{
-        base: %{base_id: input["base"]["base_id"], manifest: input["base"]["manifest"]},
-        permissions: input["permissions"]
-      }
+      input: offered_input(input)
     }
 
     case work["after_check"] do
       %{"command" => [_ | _] = command} -> Map.put(offered, :after_check, %{command: command})
       _ -> offered
+    end
+  end
+
+  defp offered_input(input) do
+    offered = %{
+      base: %{base_id: input["base"]["base_id"], manifest: input["base"]["manifest"]},
+      permissions: input["permissions"]
+    }
+
+    case input["change_set"] do
+      %{"manifest" => manifest, "fingerprints" => fingerprints} ->
+        Map.put(offered, :change_set, %{
+          manifest: manifest,
+          fingerprints:
+            for(f <- fingerprints, do: %{root: f["root"], fingerprint: f["fingerprint"]})
+        })
+
+      _ ->
+        offered
     end
   end
 
@@ -206,10 +272,20 @@ defmodule AtlasFlow.WorkSource.Translate do
   def change_set?(_), do: false
 
   @doc """
-  The change set Flow stores as the result's manifest: the report's roots on top of the
-  lease's base (`base`), so its `csf_` fingerprints can be computed again.
+  Whether a report's change set, when it has one, declares its `base` as text (work_source
+  0.2.0: required). A report without a change set has nothing to declare.
   """
-  def manifest(%{"change_set" => %{"roots" => roots}}, base),
+  def base_declared?(%{"change_set" => %{} = change_set}), do: text?(change_set["base"])
+  def base_declared?(%{"change_set" => _}), do: false
+  def base_declared?(_report), do: true
+
+  @doc """
+  The change set Flow stores as the result's manifest: the report's roots on the base the
+  report declares, **as reported** (Main's ruling, option A). That base is the Runtime's
+  content-derived id of the baseline it imported and froze on, not the lease's `base_id`;
+  every root's `csf_` is computed on it, and a later work's input must sit on it again.
+  """
+  def manifest(%{"change_set" => %{"base" => base, "roots" => roots}}),
     do: %{"base" => base, "roots" => roots}
 
   @doc "Every blob a change set references: the sha256 of each write entry, sorted."
@@ -225,7 +301,7 @@ defmodule AtlasFlow.WorkSource.Translate do
 
   @doc """
   Whether every root's reported `csf_` fingerprint is the one `AtlasChangeset` computes
-  for its entries on the manifest's base (the work's `base_id`, as the Runtime freezes it).
+  for its entries on the manifest's base (the base the report declared, `manifest/1`).
   """
   def fingerprints_hold?(%{"base" => base, "roots" => roots} = manifest) when is_binary(base) do
     plain = %{"base" => base, "roots" => Enum.map(roots, &Map.delete(&1, "fingerprint"))}

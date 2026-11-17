@@ -767,7 +767,8 @@ defmodule AtlasFlow.FakeFacts.Leasing do
         AtlasChangeset.fingerprint(base_id, "repo", Translate.normal(entries))
       end)
 
-    %{roots: [%{root: "repo", fingerprint: fingerprint, entries: entries}]}
+    # work_source 0.2.0: the change set declares the base its roots sit on.
+    %{base: base_id, roots: [%{root: "repo", fingerprint: fingerprint, entries: entries}]}
   end
 
   @doc "An `ended` report: `kind` (completed), its change set and check, and one turn's provenance."
