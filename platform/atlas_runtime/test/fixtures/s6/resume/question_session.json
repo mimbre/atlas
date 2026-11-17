@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "rows": [
+    {
+      "id": "zero-bytes",
+      "input": {
+        "random": "00000000000000000000000000000000"
+      },
+      "expect": {
+        "question_session": "00000000-0000-4000-8000-000000000000"
+      }
+    },
+    {
+      "id": "all-bits",
+      "input": {
+        "random": "ffffffffffffffffffffffffffffffff"
+      },
+      "expect": {
+        "question_session": "ffffffff-ffff-4fff-bfff-ffffffffffff"
+      }
+    },
+    {
+      "id": "mixed-bytes",
+      "input": {
+        "random": "0123456789abcdeffedcba9876543210"
+      },
+      "expect": {
+        "question_session": "01234567-89ab-4def-bedc-ba9876543210"
+      }
+    },
+    {
+      "id": "version-nibble-already-set",
+      "input": {
+        "random": "15113671a0b94677cb2bc6c1180db993"
+      },
+      "expect": {
+        "question_session": "15113671-a0b9-4677-8b2b-c6c1180db993"
+      }
+    }
+  ]
+}

@@ -1,0 +1,1844 @@
+{
+  "version": 1,
+  "rows": [
+    {
+      "id": "pre.codex-renders",
+      "input": {
+        "launch": {
+          "dest": "{tmp}/proj"
+        },
+        "render": "codex",
+        "spec": {
+          "codex": {
+            "base": ":read-only",
+            "entries": [
+              [
+                "{tmp}/proj",
+                "write"
+              ],
+              [
+                "{home}",
+                "none"
+              ]
+            ],
+            "network": {
+              "domains": [],
+              "local_binding": false,
+              "mode": "none",
+              "unix_sockets": []
+            },
+            "network_proxy": false,
+            "profile": "atlas_s6",
+            "web_search": ""
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "codex",
+          "runtime_home": "{home}",
+          "scratch": "",
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/proj"
+          }
+        }
+      },
+      "expect": {
+        "rendered": {
+          "codex": [
+            "-c",
+            "default_permissions=\"atlas_s6\"",
+            "-c",
+            "permissions={atlas_s6={extends=\":read-only\",filesystem={\"{tmp}/proj\"=\"write\",\"{home}\"=\"none\"},network={enabled=false}}}"
+          ]
+        }
+      },
+      "elixir": "skip:helper-precondition"
+    },
+    {
+      "id": "pre.codex-home-not-denied",
+      "input": {
+        "launch": {
+          "dest": "{tmp}/proj"
+        },
+        "render": "codex",
+        "spec": {
+          "codex": {
+            "base": ":read-only",
+            "entries": [
+              [
+                "{tmp}/proj",
+                "write"
+              ]
+            ],
+            "network": {
+              "domains": [],
+              "local_binding": false,
+              "mode": "none",
+              "unix_sockets": []
+            },
+            "network_proxy": false,
+            "profile": "atlas_s6",
+            "web_search": ""
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "codex",
+          "runtime_home": "{home}",
+          "scratch": "",
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/proj"
+          }
+        }
+      },
+      "expect": {
+        "rendered": {
+          "error": "Runtime spec does not deny the Runtime home"
+        }
+      },
+      "elixir": "skip:helper-precondition"
+    },
+    {
+      "id": "pre.codex-home-read-first",
+      "input": {
+        "launch": {
+          "dest": "{tmp}/proj"
+        },
+        "render": "codex",
+        "spec": {
+          "codex": {
+            "base": ":read-only",
+            "entries": [
+              [
+                "{home}",
+                "read"
+              ],
+              [
+                "{home}",
+                "none"
+              ]
+            ],
+            "network": {
+              "domains": [],
+              "local_binding": false,
+              "mode": "none",
+              "unix_sockets": []
+            },
+            "network_proxy": false,
+            "profile": "atlas_s6",
+            "web_search": ""
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "codex",
+          "runtime_home": "{home}",
+          "scratch": "",
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/proj"
+          }
+        }
+      },
+      "expect": {
+        "rendered": {
+          "error": "Runtime spec does not deny the Runtime home"
+        }
+      },
+      "elixir": "skip:helper-precondition",
+      "note": "the first occurrence decides: a read before the none is not a deny"
+    },
+    {
+      "id": "pre.codex-home-names-all-denied",
+      "input": {
+        "launch": {
+          "dest": "{home}/workers/w1/repositories/r"
+        },
+        "render": "codex",
+        "spec": {
+          "codex": {
+            "base": ":read-only",
+            "entries": [
+              [
+                "{home}/workers/w1/repositories/r",
+                "write"
+              ],
+              [
+                "{home}/runtime.sock",
+                "none"
+              ],
+              [
+                "{home}/turns",
+                "none"
+              ]
+            ],
+            "network": {
+              "domains": [],
+              "local_binding": false,
+              "mode": "none",
+              "unix_sockets": []
+            },
+            "network_proxy": false,
+            "profile": "atlas_s6",
+            "web_search": ""
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "codex",
+          "home_names": [
+            "runtime.sock",
+            "turns"
+          ],
+          "runtime_home": "{home}",
+          "scratch": "",
+          "version": 1,
+          "workspace": {
+            "origin": "runtime_chosen",
+            "root": "{home}/workers/w1/repositories/r"
+          }
+        }
+      },
+      "expect": {
+        "rendered": {
+          "codex": [
+            "-c",
+            "default_permissions=\"atlas_s6\"",
+            "-c",
+            "permissions={atlas_s6={extends=\":read-only\",filesystem={\"{home}/workers/w1/repositories/r\"=\"write\",\"{home}/runtime.sock\"=\"none\",\"{home}/turns\"=\"none\"},network={enabled=false}}}"
+          ]
+        }
+      },
+      "elixir": "skip:helper-precondition"
+    },
+    {
+      "id": "pre.codex-home-name-missing",
+      "input": {
+        "launch": {
+          "dest": "{home}/workers/w1/repositories/r"
+        },
+        "render": "codex",
+        "spec": {
+          "codex": {
+            "base": ":read-only",
+            "entries": [
+              [
+                "{home}/workers/w1/repositories/r",
+                "write"
+              ],
+              [
+                "{home}/runtime.sock",
+                "none"
+              ]
+            ],
+            "network": {
+              "domains": [],
+              "local_binding": false,
+              "mode": "none",
+              "unix_sockets": []
+            },
+            "network_proxy": false,
+            "profile": "atlas_s6",
+            "web_search": ""
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "codex",
+          "home_names": [
+            "runtime.sock",
+            "turns"
+          ],
+          "runtime_home": "{home}",
+          "scratch": "",
+          "version": 1,
+          "workspace": {
+            "origin": "runtime_chosen",
+            "root": "{home}/workers/w1/repositories/r"
+          }
+        }
+      },
+      "expect": {
+        "rendered": {
+          "error": "Runtime spec does not deny the Runtime home"
+        }
+      },
+      "elixir": "skip:helper-precondition"
+    },
+    {
+      "id": "pre.codex-home-names-workspace-outside",
+      "input": {
+        "launch": {
+          "dest": "{tmp}/proj"
+        },
+        "render": "codex",
+        "spec": {
+          "codex": {
+            "base": ":read-only",
+            "entries": [
+              [
+                "{home}/runtime.sock",
+                "none"
+              ],
+              [
+                "{home}/turns",
+                "none"
+              ]
+            ],
+            "network": {
+              "domains": [],
+              "local_binding": false,
+              "mode": "none",
+              "unix_sockets": []
+            },
+            "network_proxy": false,
+            "profile": "atlas_s6",
+            "web_search": ""
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "codex",
+          "home_names": [
+            "runtime.sock",
+            "turns"
+          ],
+          "runtime_home": "{home}",
+          "scratch": "",
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/proj"
+          }
+        }
+      },
+      "expect": {
+        "rendered": {
+          "error": "Runtime spec does not deny the Runtime home"
+        }
+      },
+      "elixir": "skip:helper-precondition",
+      "note": "home names stand for the home only when the home contains the workspace"
+    },
+    {
+      "id": "pre.claude-renders",
+      "input": {
+        "launch": {
+          "dest": "{tmp}/proj",
+          "temporary": "{user}/.ac-s6s6s6s6"
+        },
+        "render": "claude",
+        "spec": {
+          "claude": {
+            "allowed_tools": [
+              "Bash",
+              "Read"
+            ],
+            "permission_mode": "dontAsk",
+            "settings": {
+              "permissions": {
+                "deny": []
+              },
+              "sandbox": {
+                "allowUnsandboxedCommands": false,
+                "enabled": true,
+                "excludedCommands": [],
+                "failIfUnavailable": true,
+                "filesystem": {
+                  "allowWrite": [
+                    "{tmp}/proj",
+                    "$TEMPORARY"
+                  ],
+                  "denyRead": [
+                    "{home}"
+                  ],
+                  "denyWrite": []
+                },
+                "network": {
+                  "allowAllUnixSockets": false,
+                  "allowLocalBinding": false,
+                  "allowedDomains": []
+                }
+              }
+            },
+            "tools": [
+              "Bash",
+              "Read"
+            ]
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "claude",
+          "runtime_home": "{home}",
+          "scratch": "",
+          "temporary": {
+            "parent": "{user}"
+          },
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/proj"
+          }
+        }
+      },
+      "expect": {
+        "rendered": {
+          "claude": {
+            "args": [
+              "--tools",
+              "Bash,Read",
+              "--allowedTools",
+              "Bash,Read",
+              "--permission-mode",
+              "dontAsk",
+              "--permission-prompts",
+              "none"
+            ],
+            "settings": "{\"sandbox\":{\"enabled\":true,\"failIfUnavailable\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[],\"filesystem\":{\"allowWrite\":[\"{tmp}/proj\",\"{user}/.ac-s6s6s6s6\"],\"denyWrite\":[],\"denyRead\":[\"{home}\"]},\"network\":{\"allowedDomains\":[],\"allowAllUnixSockets\":false,\"allowLocalBinding\":false}},\"permissions\":{\"deny\":[]}}"
+          }
+        }
+      },
+      "elixir": "skip:helper-precondition"
+    },
+    {
+      "id": "pre.claude-home-not-denied",
+      "input": {
+        "launch": {
+          "dest": "{tmp}/proj"
+        },
+        "render": "claude",
+        "spec": {
+          "claude": {
+            "allowed_tools": [
+              "Bash",
+              "Read"
+            ],
+            "permission_mode": "dontAsk",
+            "settings": {
+              "permissions": {
+                "deny": [
+                  "Read(/{tmp}/other)"
+                ]
+              },
+              "sandbox": {
+                "allowUnsandboxedCommands": false,
+                "enabled": true,
+                "excludedCommands": [],
+                "failIfUnavailable": true,
+                "filesystem": {
+                  "allowWrite": [
+                    "{tmp}/proj"
+                  ],
+                  "denyRead": [],
+                  "denyWrite": []
+                },
+                "network": {
+                  "allowAllUnixSockets": false,
+                  "allowLocalBinding": false,
+                  "allowedDomains": []
+                }
+              }
+            },
+            "tools": [
+              "Bash",
+              "Read"
+            ]
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "claude",
+          "runtime_home": "{home}",
+          "scratch": "",
+          "temporary": {
+            "parent": "{user}"
+          },
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/proj"
+          }
+        }
+      },
+      "expect": {
+        "rendered": {
+          "error": "Runtime spec does not deny the Runtime home"
+        }
+      },
+      "elixir": "skip:helper-precondition"
+    },
+    {
+      "id": "pre.claude-home-read-rule",
+      "input": {
+        "launch": {
+          "dest": "{tmp}/proj"
+        },
+        "render": "claude",
+        "spec": {
+          "claude": {
+            "allowed_tools": [
+              "Bash",
+              "Read"
+            ],
+            "permission_mode": "dontAsk",
+            "settings": {
+              "permissions": {
+                "deny": [
+                  "Read(/{home})"
+                ]
+              },
+              "sandbox": {
+                "allowUnsandboxedCommands": false,
+                "enabled": true,
+                "excludedCommands": [],
+                "failIfUnavailable": true,
+                "filesystem": {
+                  "allowWrite": [
+                    "{tmp}/proj"
+                  ],
+                  "denyRead": [],
+                  "denyWrite": []
+                },
+                "network": {
+                  "allowAllUnixSockets": false,
+                  "allowLocalBinding": false,
+                  "allowedDomains": []
+                }
+              }
+            },
+            "tools": [
+              "Bash",
+              "Read"
+            ]
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "claude",
+          "runtime_home": "{home}",
+          "scratch": "",
+          "temporary": {
+            "parent": "{user}"
+          },
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/proj"
+          }
+        }
+      },
+      "expect": {
+        "rendered": {
+          "error": "Runtime spec does not deny the Runtime home"
+        }
+      },
+      "elixir": "skip:helper-precondition",
+      "note": "S2: with a Bash sandbox a file-tool Read rule alone does not deny the home; it must be in denyRead"
+    },
+    {
+      "id": "pre.claude-temporary-not-created",
+      "input": {
+        "launch": {
+          "dest": "{tmp}/proj"
+        },
+        "render": "claude",
+        "spec": {
+          "claude": {
+            "allowed_tools": [
+              "Bash",
+              "Read"
+            ],
+            "permission_mode": "dontAsk",
+            "settings": {
+              "permissions": {
+                "deny": []
+              },
+              "sandbox": {
+                "allowUnsandboxedCommands": false,
+                "enabled": true,
+                "excludedCommands": [],
+                "failIfUnavailable": true,
+                "filesystem": {
+                  "allowWrite": [
+                    "{tmp}/proj",
+                    "$TEMPORARY"
+                  ],
+                  "denyRead": [
+                    "{home}"
+                  ],
+                  "denyWrite": []
+                },
+                "network": {
+                  "allowAllUnixSockets": false,
+                  "allowLocalBinding": false,
+                  "allowedDomains": []
+                }
+              }
+            },
+            "tools": [
+              "Bash",
+              "Read"
+            ]
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "claude",
+          "runtime_home": "{home}",
+          "scratch": "",
+          "temporary": {
+            "parent": "{user}"
+          },
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/proj"
+          }
+        }
+      },
+      "expect": {
+        "rendered": {
+          "error": "Runtime spec names a private temp the helper did not create"
+        }
+      },
+      "elixir": "skip:helper-precondition"
+    },
+    {
+      "id": "pre.codex-writes-turns",
+      "input": {
+        "launch": {
+          "dest": "{tmp}/proj"
+        },
+        "render": "codex",
+        "spec": {
+          "codex": {
+            "base": ":read-only",
+            "entries": [
+              [
+                "{tmp}/proj",
+                "write"
+              ],
+              [
+                "{home}/turns",
+                "write"
+              ],
+              [
+                "{home}",
+                "none"
+              ]
+            ],
+            "network": {
+              "domains": [],
+              "local_binding": false,
+              "mode": "none",
+              "unix_sockets": []
+            },
+            "network_proxy": false,
+            "profile": "atlas_s6",
+            "web_search": ""
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "codex",
+          "runtime_home": "{home}",
+          "scratch": "",
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/proj"
+          }
+        }
+      },
+      "expect": {
+        "rendered": {
+          "error": "Runtime spec writes inside the Runtime home"
+        }
+      },
+      "elixir": "skip:helper-precondition"
+    },
+    {
+      "id": "pre.claude-writes-turns",
+      "input": {
+        "launch": {
+          "dest": "{tmp}/proj"
+        },
+        "render": "claude",
+        "spec": {
+          "claude": {
+            "allowed_tools": [
+              "Bash",
+              "Read"
+            ],
+            "permission_mode": "dontAsk",
+            "settings": {
+              "permissions": {
+                "deny": []
+              },
+              "sandbox": {
+                "allowUnsandboxedCommands": false,
+                "enabled": true,
+                "excludedCommands": [],
+                "failIfUnavailable": true,
+                "filesystem": {
+                  "allowWrite": [
+                    "{tmp}/proj",
+                    "{home}/turns"
+                  ],
+                  "denyRead": [
+                    "{home}"
+                  ],
+                  "denyWrite": []
+                },
+                "network": {
+                  "allowAllUnixSockets": false,
+                  "allowLocalBinding": false,
+                  "allowedDomains": []
+                }
+              }
+            },
+            "tools": [
+              "Bash",
+              "Read"
+            ]
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "claude",
+          "runtime_home": "{home}",
+          "scratch": "",
+          "temporary": {
+            "parent": "{user}"
+          },
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/proj"
+          }
+        }
+      },
+      "expect": {
+        "rendered": {
+          "error": "Runtime spec writes inside the Runtime home"
+        }
+      },
+      "elixir": "skip:helper-precondition"
+    },
+    {
+      "id": "pre.runtime-chosen-own-root",
+      "input": {
+        "launch": {
+          "dest": "{home}/workers/w1/repositories/r"
+        },
+        "render": "codex",
+        "spec": {
+          "codex": {
+            "base": ":read-only",
+            "entries": [
+              [
+                "{home}/workers/w1/repositories/r",
+                "write"
+              ],
+              [
+                "{home}/workers/w1/repositories/r/.git",
+                "write"
+              ],
+              [
+                "{home}/runtime.sock",
+                "none"
+              ],
+              [
+                "{home}/turns",
+                "none"
+              ]
+            ],
+            "network": {
+              "domains": [],
+              "local_binding": false,
+              "mode": "none",
+              "unix_sockets": []
+            },
+            "network_proxy": false,
+            "profile": "atlas_s6",
+            "web_search": ""
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "codex",
+          "home_names": [
+            "runtime.sock",
+            "turns"
+          ],
+          "runtime_home": "{home}",
+          "scratch": "",
+          "version": 1,
+          "workspace": {
+            "origin": "runtime_chosen",
+            "root": "{home}/workers/w1/repositories/r"
+          }
+        }
+      },
+      "expect": {
+        "rendered": {
+          "codex": [
+            "-c",
+            "default_permissions=\"atlas_s6\"",
+            "-c",
+            "permissions={atlas_s6={extends=\":read-only\",filesystem={\"{home}/workers/w1/repositories/r\"=\"write\",\"{home}/workers/w1/repositories/r/.git\"=\"write\",\"{home}/runtime.sock\"=\"none\",\"{home}/turns\"=\"none\"},network={enabled=false}}}"
+          ]
+        }
+      },
+      "elixir": "skip:helper-precondition"
+    },
+    {
+      "id": "pre.runtime-chosen-other-work",
+      "input": {
+        "launch": {
+          "dest": "{home}/workers/w1/repositories/r"
+        },
+        "render": "codex",
+        "spec": {
+          "codex": {
+            "base": ":read-only",
+            "entries": [
+              [
+                "{home}/workers/w1/repositories/r",
+                "write"
+              ],
+              [
+                "{home}/workers/w2",
+                "write"
+              ],
+              [
+                "{home}/runtime.sock",
+                "none"
+              ],
+              [
+                "{home}/turns",
+                "none"
+              ]
+            ],
+            "network": {
+              "domains": [],
+              "local_binding": false,
+              "mode": "none",
+              "unix_sockets": []
+            },
+            "network_proxy": false,
+            "profile": "atlas_s6",
+            "web_search": ""
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "codex",
+          "home_names": [
+            "runtime.sock",
+            "turns"
+          ],
+          "runtime_home": "{home}",
+          "scratch": "",
+          "version": 1,
+          "workspace": {
+            "origin": "runtime_chosen",
+            "root": "{home}/workers/w1/repositories/r"
+          }
+        }
+      },
+      "expect": {
+        "rendered": {
+          "error": "Runtime spec writes inside the Runtime home"
+        }
+      },
+      "elixir": "skip:helper-precondition",
+      "note": "B8 (b): a write into another work's folder"
+    },
+    {
+      "id": "pre.client-named-root-in-home",
+      "input": {
+        "launch": {
+          "dest": "{home}/workers/w1/repositories/r"
+        },
+        "render": "codex",
+        "spec": {
+          "codex": {
+            "base": ":read-only",
+            "entries": [
+              [
+                "{home}/workers/w1/repositories/r",
+                "write"
+              ],
+              [
+                "{home}/runtime.sock",
+                "none"
+              ],
+              [
+                "{home}/turns",
+                "none"
+              ]
+            ],
+            "network": {
+              "domains": [],
+              "local_binding": false,
+              "mode": "none",
+              "unix_sockets": []
+            },
+            "network_proxy": false,
+            "profile": "atlas_s6",
+            "web_search": ""
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "codex",
+          "home_names": [
+            "runtime.sock",
+            "turns"
+          ],
+          "runtime_home": "{home}",
+          "scratch": "",
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{home}/workers/w1/repositories/r"
+          }
+        }
+      },
+      "expect": {
+        "rendered": {
+          "error": "Runtime spec writes inside the Runtime home"
+        }
+      },
+      "elixir": "skip:helper-precondition",
+      "note": "B8 (b): the same spec with origin client_named"
+    },
+    {
+      "id": "pre.runtime-chosen-root-not-dest",
+      "input": {
+        "launch": {
+          "dest": "{home}/workers/w2/repositories/r"
+        },
+        "render": "codex",
+        "spec": {
+          "codex": {
+            "base": ":read-only",
+            "entries": [
+              [
+                "{home}/workers/w1/repositories/r",
+                "write"
+              ],
+              [
+                "{home}/runtime.sock",
+                "none"
+              ],
+              [
+                "{home}/turns",
+                "none"
+              ]
+            ],
+            "network": {
+              "domains": [],
+              "local_binding": false,
+              "mode": "none",
+              "unix_sockets": []
+            },
+            "network_proxy": false,
+            "profile": "atlas_s6",
+            "web_search": ""
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "codex",
+          "home_names": [
+            "runtime.sock",
+            "turns"
+          ],
+          "runtime_home": "{home}",
+          "scratch": "",
+          "version": 1,
+          "workspace": {
+            "origin": "runtime_chosen",
+            "root": "{home}/workers/w1/repositories/r"
+          }
+        }
+      },
+      "expect": {
+        "rendered": {
+          "error": "Runtime spec writes inside the Runtime home"
+        }
+      },
+      "elixir": "skip:helper-precondition"
+    },
+    {
+      "id": "pre.own-scratch",
+      "input": {
+        "launch": {
+          "dest": "{tmp}/proj",
+          "scratch": "{home}/scratch/t1"
+        },
+        "render": "codex",
+        "spec": {
+          "codex": {
+            "base": ":read-only",
+            "entries": [
+              [
+                "{tmp}/proj",
+                "write"
+              ],
+              [
+                "{home}/scratch/t1",
+                "write"
+              ],
+              [
+                "{home}",
+                "none"
+              ]
+            ],
+            "network": {
+              "domains": [],
+              "local_binding": false,
+              "mode": "none",
+              "unix_sockets": []
+            },
+            "network_proxy": false,
+            "profile": "atlas_s6",
+            "web_search": ""
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "codex",
+          "runtime_home": "{home}",
+          "scratch": "{home}/scratch/t1",
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/proj"
+          }
+        }
+      },
+      "expect": {
+        "rendered": {
+          "codex": [
+            "-c",
+            "default_permissions=\"atlas_s6\"",
+            "-c",
+            "permissions={atlas_s6={extends=\":read-only\",filesystem={\"{tmp}/proj\"=\"write\",\"{home}/scratch/t1\"=\"write\",\"{home}\"=\"none\"},network={enabled=false}}}"
+          ]
+        }
+      },
+      "elixir": "skip:helper-precondition"
+    },
+    {
+      "id": "pre.other-turn-scratch",
+      "input": {
+        "launch": {
+          "dest": "{tmp}/proj",
+          "scratch": "{home}/scratch/t1"
+        },
+        "render": "codex",
+        "spec": {
+          "codex": {
+            "base": ":read-only",
+            "entries": [
+              [
+                "{tmp}/proj",
+                "write"
+              ],
+              [
+                "{home}/scratch/t2",
+                "write"
+              ],
+              [
+                "{home}",
+                "none"
+              ]
+            ],
+            "network": {
+              "domains": [],
+              "local_binding": false,
+              "mode": "none",
+              "unix_sockets": []
+            },
+            "network_proxy": false,
+            "profile": "atlas_s6",
+            "web_search": ""
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "codex",
+          "runtime_home": "{home}",
+          "scratch": "{home}/scratch/t2",
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/proj"
+          }
+        }
+      },
+      "expect": {
+        "rendered": {
+          "error": "Runtime spec writes inside the Runtime home"
+        }
+      },
+      "elixir": "skip:helper-precondition"
+    },
+    {
+      "id": "pre.other-home",
+      "input": {
+        "launch": {
+          "dest": "{tmp}/proj"
+        },
+        "render": "codex",
+        "spec": {
+          "codex": {
+            "base": ":read-only",
+            "entries": [
+              [
+                "{tmp}/proj",
+                "write"
+              ],
+              [
+                "{tmp}/other-home",
+                "none"
+              ]
+            ],
+            "network": {
+              "domains": [],
+              "local_binding": false,
+              "mode": "none",
+              "unix_sockets": []
+            },
+            "network_proxy": false,
+            "profile": "atlas_s6",
+            "web_search": ""
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "codex",
+          "runtime_home": "{tmp}/other-home",
+          "scratch": "",
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/proj"
+          }
+        }
+      },
+      "expect": {
+        "rendered": {
+          "error": "Runtime spec denies another home"
+        }
+      },
+      "elixir": "skip:helper-precondition"
+    },
+    {
+      "id": "pre.symlinked-own-home",
+      "fs": [
+        {
+          "path": "{tmp}/home-link",
+          "target": "{home}",
+          "type": "symlink"
+        }
+      ],
+      "env": {
+        "ATLAS_RUNTIME_HOME": "{tmp}/home-link"
+      },
+      "input": {
+        "launch": {
+          "dest": "{tmp}/proj"
+        },
+        "render": "codex",
+        "spec": {
+          "codex": {
+            "base": ":read-only",
+            "entries": [
+              [
+                "{tmp}/proj",
+                "write"
+              ],
+              [
+                "{home}",
+                "none"
+              ]
+            ],
+            "network": {
+              "domains": [],
+              "local_binding": false,
+              "mode": "none",
+              "unix_sockets": []
+            },
+            "network_proxy": false,
+            "profile": "atlas_s6",
+            "web_search": ""
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "codex",
+          "runtime_home": "{home}",
+          "scratch": "",
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/proj"
+          }
+        }
+      },
+      "expect": {
+        "rendered": {
+          "codex": [
+            "-c",
+            "default_permissions=\"atlas_s6\"",
+            "-c",
+            "permissions={atlas_s6={extends=\":read-only\",filesystem={\"{tmp}/proj\"=\"write\",\"{home}\"=\"none\"},network={enabled=false}}}"
+          ]
+        }
+      },
+      "elixir": "skip:helper-precondition",
+      "note": "B8 (c) compares the resolved own home"
+    },
+    {
+      "id": "pre.own-home-relative",
+      "env": {
+        "ATLAS_RUNTIME_HOME": "relative"
+      },
+      "input": {
+        "launch": {
+          "dest": "{tmp}/proj"
+        },
+        "render": "codex",
+        "spec": {
+          "codex": {
+            "base": ":read-only",
+            "entries": [
+              [
+                "{tmp}/proj",
+                "write"
+              ],
+              [
+                "{home}",
+                "none"
+              ]
+            ],
+            "network": {
+              "domains": [],
+              "local_binding": false,
+              "mode": "none",
+              "unix_sockets": []
+            },
+            "network_proxy": false,
+            "profile": "atlas_s6",
+            "web_search": ""
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "codex",
+          "runtime_home": "{home}",
+          "scratch": "",
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/proj"
+          }
+        }
+      },
+      "expect": {
+        "rendered": {
+          "error": "ATLAS_RUNTIME_HOME must be an absolute path"
+        }
+      },
+      "elixir": "skip:helper-precondition"
+    },
+    {
+      "id": "pre.setup-codex-absent",
+      "input": {
+        "argv": [
+          "npm",
+          "ci"
+        ],
+        "dir": "{tmp}/proj",
+        "launch": {
+          "dest": "{tmp}/proj"
+        },
+        "render": "codex_sandbox",
+        "spec": {
+          "codex": {
+            "base": ":read-only",
+            "entries": [
+              [
+                "{tmp}/proj/out",
+                "write"
+              ],
+              [
+                "{home}",
+                "none"
+              ]
+            ],
+            "network": {
+              "domains": [],
+              "local_binding": false,
+              "mode": "none",
+              "unix_sockets": []
+            },
+            "network_proxy": false,
+            "profile": "atlas_s6",
+            "web_search": ""
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "codex",
+          "kind": "setup",
+          "runner": "codex-sandbox",
+          "runtime_home": "{home}",
+          "scratch": "",
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/proj"
+          }
+        }
+      },
+      "expect": {
+        "rendered": {
+          "error": "Preparation requires the installed Codex sandbox (codex on PATH)"
+        }
+      },
+      "elixir": "skip:helper-precondition"
+    },
+    {
+      "id": "pre.setup-codex-present",
+      "fs": [
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/bin/codex",
+          "type": "file"
+        }
+      ],
+      "input": {
+        "argv": [
+          "npm",
+          "ci"
+        ],
+        "dir": "{tmp}/proj",
+        "launch": {
+          "dest": "{tmp}/proj"
+        },
+        "render": "codex_sandbox",
+        "spec": {
+          "codex": {
+            "base": ":read-only",
+            "entries": [
+              [
+                "{tmp}/proj/out",
+                "write"
+              ],
+              [
+                "{home}",
+                "none"
+              ]
+            ],
+            "network": {
+              "domains": [],
+              "local_binding": false,
+              "mode": "none",
+              "unix_sockets": []
+            },
+            "network_proxy": false,
+            "profile": "atlas_s6",
+            "web_search": ""
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "codex",
+          "kind": "setup",
+          "runner": "codex-sandbox",
+          "runtime_home": "{home}",
+          "scratch": "",
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/proj"
+          }
+        }
+      },
+      "expect": {
+        "rendered": {
+          "codex_sandbox": [
+            "{tmp}/bin/codex",
+            "sandbox",
+            "-P",
+            "atlas_s6",
+            "-C",
+            "{tmp}/proj",
+            "-c",
+            "default_permissions=\"atlas_s6\"",
+            "-c",
+            "permissions={atlas_s6={extends=\":read-only\",filesystem={\"{tmp}/proj/out\"=\"write\",\"{home}\"=\"none\"},network={enabled=false}}}",
+            "--",
+            "npm",
+            "ci"
+          ]
+        }
+      },
+      "elixir": "skip:helper-precondition"
+    },
+    {
+      "id": "pre.setup-codex-not-executable",
+      "fs": [
+        {
+          "content": "",
+          "mode": "0644",
+          "path": "{tmp}/bin/codex",
+          "type": "file"
+        }
+      ],
+      "input": {
+        "argv": [
+          "npm",
+          "ci"
+        ],
+        "dir": "{tmp}/proj",
+        "launch": {
+          "dest": "{tmp}/proj"
+        },
+        "render": "codex_sandbox",
+        "spec": {
+          "codex": {
+            "base": ":read-only",
+            "entries": [
+              [
+                "{tmp}/proj/out",
+                "write"
+              ],
+              [
+                "{home}",
+                "none"
+              ]
+            ],
+            "network": {
+              "domains": [],
+              "local_binding": false,
+              "mode": "none",
+              "unix_sockets": []
+            },
+            "network_proxy": false,
+            "profile": "atlas_s6",
+            "web_search": ""
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "codex",
+          "kind": "setup",
+          "runner": "codex-sandbox",
+          "runtime_home": "{home}",
+          "scratch": "",
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/proj"
+          }
+        }
+      },
+      "expect": {
+        "rendered": {
+          "error": "Preparation requires the installed Codex sandbox (codex on PATH)"
+        }
+      },
+      "elixir": "skip:helper-precondition"
+    },
+    {
+      "id": "pre.pre-exec-codex-absent",
+      "input": {
+        "argv": [],
+        "dir": "{home}/workers/w1/repositories/r",
+        "launch": {
+          "dest": "{home}/workers/w1/repositories/r"
+        },
+        "render": "codex_sandbox",
+        "spec": {
+          "codex": {
+            "base": ":read-only",
+            "entries": [
+              [
+                "{home}/workers/w1/repositories/r",
+                "write"
+              ],
+              [
+                "{home}/runtime.sock",
+                "none"
+              ],
+              [
+                "{home}/turns",
+                "none"
+              ]
+            ],
+            "network": {
+              "domains": [],
+              "local_binding": false,
+              "mode": "none",
+              "unix_sockets": []
+            },
+            "network_proxy": false,
+            "profile": "atlas_s6",
+            "web_search": ""
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "codex",
+          "home_names": [
+            "runtime.sock",
+            "turns"
+          ],
+          "kind": "pre_exec",
+          "runner": "codex-sandbox",
+          "runtime_home": "{home}",
+          "scratch": "",
+          "version": 1,
+          "workspace": {
+            "origin": "runtime_chosen",
+            "root": "{home}/workers/w1/repositories/r"
+          }
+        }
+      },
+      "expect": {
+        "rendered": {
+          "error": "Managed repository preparation requires the installed Codex sandbox"
+        }
+      },
+      "elixir": "skip:helper-precondition"
+    },
+    {
+      "id": "pre.codex-sandbox-spec-as-agent",
+      "input": {
+        "launch": {
+          "dest": "{tmp}/proj"
+        },
+        "render": "codex",
+        "spec": {
+          "codex": {
+            "base": ":read-only",
+            "entries": [
+              [
+                "{tmp}/proj",
+                "write"
+              ],
+              [
+                "{home}",
+                "none"
+              ]
+            ],
+            "network": {
+              "domains": [],
+              "local_binding": false,
+              "mode": "none",
+              "unix_sockets": []
+            },
+            "network_proxy": false,
+            "profile": "atlas_s6",
+            "web_search": ""
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "codex",
+          "kind": "setup",
+          "runner": "codex-sandbox",
+          "runtime_home": "{home}",
+          "scratch": "",
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/proj"
+          }
+        }
+      },
+      "expect": {
+        "rendered": {
+          "error": "Runtime spec is not a Codex agent spec"
+        }
+      },
+      "elixir": "skip:helper-precondition"
+    },
+    {
+      "id": "pre.decode-unknown-field",
+      "input": {
+        "decode": "{\"version\": 1, \"harness\": \"codex\", \"runtime_home\": \"{home}\", \"codex\": {\"profile\": \"atlas_s6\", \"base\": \":read-only\", \"entries\": [[\"{home}\", \"none\"]], \"network\": {\"mode\": \"none\", \"domains\": [], \"unix_sockets\": [], \"local_binding\": false}, \"network_proxy\": false, \"web_search\": \"\"}, \"env\": {\"set\": [], \"unset\": [\"ATLAS_RUNTIME_HOME\"], \"prefix_path\": \"\", \"mkdirs\": []}, \"scratch\": \"\", \"workspace\": {\"root\": \"{tmp}/proj\", \"origin\": \"client_named\"}, \"extra\": true}"
+      },
+      "expect": {
+        "rendered": {
+          "error": "Runtime spec: json: unknown field \"extra\""
+        }
+      },
+      "elixir": "skip:helper-precondition"
+    },
+    {
+      "id": "pre.decode-unknown-nested-field",
+      "input": {
+        "decode": "{\"version\": 1, \"harness\": \"codex\", \"runtime_home\": \"{home}\", \"codex\": {\"profile\": \"p\", \"base\": \":read-only\", \"entries\": [], \"network\": {\"mode\": \"none\"}, \"network_proxy\": false, \"web_search\": \"\", \"sandbox\": \"x\"}, \"env\": {\"set\": [], \"unset\": [\"ATLAS_RUNTIME_HOME\"], \"prefix_path\": \"\", \"mkdirs\": []}, \"scratch\": \"\", \"workspace\": {\"root\": \"{tmp}/proj\", \"origin\": \"client_named\"}}"
+      },
+      "expect": {
+        "rendered": {
+          "error": "Runtime spec: json: unknown field \"sandbox\""
+        }
+      },
+      "elixir": "skip:helper-precondition"
+    },
+    {
+      "id": "pre.decode-version-2",
+      "input": {
+        "decode": "{\"version\": 2, \"harness\": \"codex\", \"runtime_home\": \"{home}\", \"codex\": {\"profile\": \"atlas_s6\", \"base\": \":read-only\", \"entries\": [[\"{home}\", \"none\"]], \"network\": {\"mode\": \"none\", \"domains\": [], \"unix_sockets\": [], \"local_binding\": false}, \"network_proxy\": false, \"web_search\": \"\"}, \"env\": {\"set\": [], \"unset\": [\"ATLAS_RUNTIME_HOME\"], \"prefix_path\": \"\", \"mkdirs\": []}, \"scratch\": \"\", \"workspace\": {\"root\": \"{tmp}/proj\", \"origin\": \"client_named\"}}"
+      },
+      "expect": {
+        "rendered": {
+          "error": "Runtime spec version must be 1"
+        }
+      },
+      "elixir": "skip:helper-precondition"
+    },
+    {
+      "id": "pre.decode-entry-three-elements",
+      "input": {
+        "decode": "{\"version\": 1, \"harness\": \"codex\", \"runtime_home\": \"{home}\", \"codex\": {\"profile\": \"atlas_s6\", \"base\": \":read-only\", \"entries\": [[\"{home}\", \"none\", \"read\"]], \"network\": {\"mode\": \"none\", \"domains\": [], \"unix_sockets\": [], \"local_binding\": false}, \"network_proxy\": false, \"web_search\": \"\"}, \"env\": {\"set\": [], \"unset\": [\"ATLAS_RUNTIME_HOME\"], \"prefix_path\": \"\", \"mkdirs\": []}, \"scratch\": \"\", \"workspace\": {\"root\": \"{tmp}/proj\", \"origin\": \"client_named\"}}"
+      },
+      "expect": {
+        "rendered": {
+          "error": "Runtime spec entry is invalid"
+        }
+      },
+      "elixir": "skip:helper-precondition"
+    },
+    {
+      "id": "pre.decode-entry-access",
+      "input": {
+        "decode": "{\"version\": 1, \"harness\": \"codex\", \"runtime_home\": \"{home}\", \"codex\": {\"profile\": \"atlas_s6\", \"base\": \":read-only\", \"entries\": [[\"{home}\", \"deny\"]], \"network\": {\"mode\": \"none\", \"domains\": [], \"unix_sockets\": [], \"local_binding\": false}, \"network_proxy\": false, \"web_search\": \"\"}, \"env\": {\"set\": [], \"unset\": [\"ATLAS_RUNTIME_HOME\"], \"prefix_path\": \"\", \"mkdirs\": []}, \"scratch\": \"\", \"workspace\": {\"root\": \"{tmp}/proj\", \"origin\": \"client_named\"}}"
+      },
+      "expect": {
+        "rendered": {
+          "error": "Runtime spec entry is invalid"
+        }
+      },
+      "elixir": "skip:helper-precondition"
+    },
+    {
+      "id": "pre.decode-two-values",
+      "input": {
+        "decode": "{\"version\": 1, \"harness\": \"codex\", \"runtime_home\": \"{home}\", \"codex\": {\"profile\": \"atlas_s6\", \"base\": \":read-only\", \"entries\": [[\"{home}\", \"none\"]], \"network\": {\"mode\": \"none\", \"domains\": [], \"unix_sockets\": [], \"local_binding\": false}, \"network_proxy\": false, \"web_search\": \"\"}, \"env\": {\"set\": [], \"unset\": [\"ATLAS_RUNTIME_HOME\"], \"prefix_path\": \"\", \"mkdirs\": []}, \"scratch\": \"\", \"workspace\": {\"root\": \"{tmp}/proj\", \"origin\": \"client_named\"}} {}"
+      },
+      "expect": {
+        "rendered": {
+          "error": "Runtime spec must be one JSON value"
+        }
+      },
+      "elixir": "skip:helper-precondition"
+    },
+    {
+      "id": "pre.decode-check-kind",
+      "input": {
+        "decode": "{\"version\": 1, \"harness\": \"codex\", \"runtime_home\": \"{home}\", \"codex\": {\"profile\": \"atlas_s6\", \"base\": \":read-only\", \"entries\": [[\"{home}\", \"none\"]], \"network\": {\"mode\": \"none\", \"domains\": [], \"unix_sockets\": [], \"local_binding\": false}, \"network_proxy\": false, \"web_search\": \"\"}, \"env\": {\"set\": [], \"unset\": [\"ATLAS_RUNTIME_HOME\"], \"prefix_path\": \"\", \"mkdirs\": []}, \"scratch\": \"\", \"workspace\": {\"root\": \"{tmp}/proj\", \"origin\": \"client_named\"}, \"runner\": \"codex-sandbox\", \"kind\": \"check\"}"
+      },
+      "expect": {
+        "rendered": {
+          "error": "Runtime spec runner is invalid"
+        }
+      },
+      "elixir": "skip:helper-precondition",
+      "note": "check specs are added with C0"
+    },
+    {
+      "id": "pre.decode-claude-runner",
+      "input": {
+        "decode": "{\"version\": 1, \"harness\": \"claude\", \"runtime_home\": \"{home}\", \"claude\": {\"tools\": [\"Bash\", \"Read\"], \"allowed_tools\": [\"Bash\", \"Read\"], \"permission_mode\": \"dontAsk\", \"settings\": {\"sandbox\": {\"enabled\": true, \"failIfUnavailable\": true, \"allowUnsandboxedCommands\": false, \"excludedCommands\": [], \"filesystem\": {\"allowWrite\": [], \"denyWrite\": [], \"denyRead\": [\"{home}\"]}, \"network\": {\"allowedDomains\": [], \"allowAllUnixSockets\": false, \"allowLocalBinding\": false}}, \"permissions\": {\"deny\": []}}}, \"env\": {\"set\": [], \"unset\": [\"ATLAS_RUNTIME_HOME\"], \"prefix_path\": \"\", \"mkdirs\": []}, \"scratch\": \"\", \"temporary\": {\"parent\": \"{user}\"}, \"workspace\": {\"root\": \"{tmp}/proj\", \"origin\": \"client_named\"}, \"runner\": \"codex-sandbox\", \"kind\": \"setup\"}"
+      },
+      "expect": {
+        "rendered": {
+          "error": "Runtime spec must carry the settings of exactly its harness"
+        }
+      },
+      "elixir": "skip:helper-precondition"
+    },
+    {
+      "id": "pre.decode-network-domains-in-none",
+      "input": {
+        "decode": "{\"version\": 1, \"harness\": \"codex\", \"runtime_home\": \"{home}\", \"codex\": {\"profile\": \"p\", \"base\": \":read-only\", \"entries\": [], \"network\": {\"mode\": \"none\", \"domains\": [\"x\"], \"unix_sockets\": [], \"local_binding\": false}, \"network_proxy\": false, \"web_search\": \"\"}, \"env\": {\"set\": [], \"unset\": [\"ATLAS_RUNTIME_HOME\"], \"prefix_path\": \"\", \"mkdirs\": []}, \"scratch\": \"\", \"workspace\": {\"root\": \"{tmp}/proj\", \"origin\": \"client_named\"}}"
+      },
+      "expect": {
+        "rendered": {
+          "error": "Runtime spec network is invalid"
+        }
+      },
+      "elixir": "skip:helper-precondition"
+    },
+    {
+      "id": "pre.decode-relative-home",
+      "input": {
+        "decode": "{\"version\": 1, \"harness\": \"codex\", \"runtime_home\": \"home\", \"codex\": {\"profile\": \"atlas_s6\", \"base\": \":read-only\", \"entries\": [[\"{home}\", \"none\"]], \"network\": {\"mode\": \"none\", \"domains\": [], \"unix_sockets\": [], \"local_binding\": false}, \"network_proxy\": false, \"web_search\": \"\"}, \"env\": {\"set\": [], \"unset\": [\"ATLAS_RUNTIME_HOME\"], \"prefix_path\": \"\", \"mkdirs\": []}, \"scratch\": \"\", \"workspace\": {\"root\": \"{tmp}/proj\", \"origin\": \"client_named\"}}"
+      },
+      "expect": {
+        "rendered": {
+          "error": "Runtime spec runtime_home must be an absolute path"
+        }
+      },
+      "elixir": "skip:helper-precondition"
+    },
+    {
+      "id": "pre.decode-origin",
+      "input": {
+        "decode": "{\"version\": 1, \"harness\": \"codex\", \"runtime_home\": \"{home}\", \"codex\": {\"profile\": \"atlas_s6\", \"base\": \":read-only\", \"entries\": [[\"{home}\", \"none\"]], \"network\": {\"mode\": \"none\", \"domains\": [], \"unix_sockets\": [], \"local_binding\": false}, \"network_proxy\": false, \"web_search\": \"\"}, \"env\": {\"set\": [], \"unset\": [\"ATLAS_RUNTIME_HOME\"], \"prefix_path\": \"\", \"mkdirs\": []}, \"scratch\": \"\", \"workspace\": {\"root\": \"{tmp}/proj\", \"origin\": \"chosen\"}}"
+      },
+      "expect": {
+        "rendered": {
+          "error": "Runtime spec workspace is invalid"
+        }
+      },
+      "elixir": "skip:helper-precondition"
+    }
+  ]
+}
