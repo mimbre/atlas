@@ -59,7 +59,8 @@ defmodule AtlasRuntimeBoundary.FacadesTest do
       assert %OperationsFacade.Outcome.Refused{reason: :invalid, detail: detail} =
                OperationsFacade.release_slot(@operator, %{"slot" => "dev1", "worker" => "dev1"})
 
-      assert detail =~ "worker"
+      # An unknown key is named generically, never repeated (D44).
+      assert detail =~ "input has an unknown field"
 
       assert %InvalidInput{capability: :stop} =
                OperationsFacade.stop(@operator, %{"force" => "yes"})

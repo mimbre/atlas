@@ -139,7 +139,8 @@ defmodule AtlasRuntime.Test.FakeWork do
     end)
   end
 
-  # S5a: not exposed by the backend yet (P11); answered here because the contract has them.
+  # S5a (§8.2): the frozen-result reads, exposed by the backend (P11). A test sets the
+  # answer, a blob's content an Enumerable the router streams; the default is not_found.
   @impl true
   def get_frozen(client, input),
     do: call(:get_frozen, client, input, fn -> %F.Outcome.NotFound{} end)

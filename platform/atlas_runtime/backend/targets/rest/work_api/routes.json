@@ -470,6 +470,85 @@
       "right": "read"
     },
     {
+      "capability": "get_frozen",
+      "headers": {},
+      "method": "GET",
+      "outcomes": [
+        {
+          "headers": {},
+          "outcome": "frozen",
+          "status": 200
+        },
+        {
+          "headers": {},
+          "outcome": "fingerprint_mismatch",
+          "status": 409,
+          "type": "fingerprint-mismatch"
+        },
+        {
+          "headers": {},
+          "outcome": "pruned",
+          "status": 410,
+          "type": "pruned"
+        },
+        {
+          "headers": {},
+          "outcome": "not_found",
+          "status": 404,
+          "type": "not-found"
+        }
+      ],
+      "params": [
+        "work_id",
+        "attempt"
+      ],
+      "path": "/v1/work/{work_id}/attempts/{attempt}/frozen",
+      "query": {
+        "fingerprint": {
+          "field": "fingerprint",
+          "required": false
+        }
+      },
+      "right": "read"
+    },
+    {
+      "capability": "get_frozen_blob",
+      "headers": {},
+      "method": "GET",
+      "outcomes": [
+        {
+          "content_type": "application/octet-stream",
+          "headers": {
+            "blob-sha256": "sha256",
+            "blob-size": "size"
+          },
+          "outcome": "blob",
+          "status": 200,
+          "stream": "content"
+        },
+        {
+          "headers": {},
+          "outcome": "pruned",
+          "status": 410,
+          "type": "pruned"
+        },
+        {
+          "headers": {},
+          "outcome": "not_found",
+          "status": 404,
+          "type": "not-found"
+        }
+      ],
+      "params": [
+        "work_id",
+        "attempt",
+        "sha256"
+      ],
+      "path": "/v1/work/{work_id}/attempts/{attempt}/frozen/blobs/{sha256}",
+      "query": {},
+      "right": "read"
+    },
+    {
       "capability": "subscribe",
       "headers": {},
       "method": "GET",
