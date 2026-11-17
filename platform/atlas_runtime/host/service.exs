@@ -48,5 +48,12 @@ case AtlasRuntime.Backend.Listener.start_link(home: dir, router: AtlasRuntime.Ba
   {:error, reason} -> raise("Runtime backend not listening on backend.sock: #{inspect(reason)}")
 end
 
+# No network listener on an agent machine (the pull design): a TCP listen socket in this VM,
+# whatever opened it, fails the start before ready is reported (AtlasRuntime.ListenerCheck).
+case AtlasRuntime.ListenerCheck.verify() do
+  :ok -> :ok
+  {:error, refusal} -> raise("Runtime not ready: " <> JSON.encode!(refusal))
+end
+
 IO.puts("Runtime ready; Atlas core services remain stopped")
 Process.sleep(:infinity)

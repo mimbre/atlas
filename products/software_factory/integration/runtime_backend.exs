@@ -2,8 +2,9 @@
 #
 # The Runtime backend end to end (design 2026-11-16-runtime-backend §13 S1d, cases 1–9),
 # with a stub harness: the real Service, `AtlasRuntime.Work` and the backend listener run
-# as a separate OS process (`mix run platform/atlas_runtime/host/service.exs HOME`, in a
-# session of its own, as `atlas-runtime service start` runs it), with the host built from
+# as a separate OS process (`elixir … -r platform/atlas_runtime/host/boot.exs
+# platform/atlas_runtime/host/service.exs HOME` without Mix, in a session of its own, as
+# `atlas-runtime service start` runs it), with the host built from
 # this tree as `ATLAS_RUNTIME_EXECUTABLE` and a fake `codex` and `claude` on `PATH`
 # (`fake-native work`, test/support/fake_native, which never launches a provider). Every
 # case is driven over plain HTTP/1.1 on `$ATLAS_RUNTIME_HOME/backend.sock`, and cases 1–4,
@@ -61,6 +62,7 @@ defmodule RuntimeBackendE2E do
   @root Path.expand("../../..", __DIR__)
   @project Path.join(@root, "products/software_factory")
   @service Path.join(@root, "platform/atlas_runtime/host/service.exs")
+  @boot Path.join(@root, "platform/atlas_runtime/host/boot.exs")
   @terminal ~w(completed failed crashed interrupted cancelled returned)
   @wait 20_000
 
@@ -246,6 +248,7 @@ defmodule RuntimeBackendE2E do
     env =
       for {k, v} <- [
             {"MIX_ENV", "test"},
+            {"MIX_BUILD_PATH", Mix.Project.build_path()},
             {"ATLAS_RUNTIME_EXECUTABLE", build().host},
             {"ATLAS_RUNTIME_HOME", rt.home},
             {"PATH", path},
@@ -254,13 +257,17 @@ defmodule RuntimeBackendE2E do
           ],
           do: {String.to_charlist(k), String.to_charlist(v)}
 
+    # As host/main.go runs it: without Mix, whose PubSub would be a TCP listener in the
+    # Runtime's VM, which service.exs refuses to report ready with.
     args = [
       "detach",
-      mix(),
-      "run",
-      "--no-start",
-      "--no-compile",
-      "--no-deps-check",
+      elixir(),
+      "-pz",
+      Path.join(Mix.Project.build_path(), "lib/*/ebin"),
+      "-pa",
+      Path.join(Mix.Project.build_path(), "consolidated"),
+      "-r",
+      @boot,
       Path.join(rt.run, "boot.exs"),
       rt.home
     ]
@@ -329,7 +336,6 @@ defmodule RuntimeBackendE2E do
     end
   end
 
-  defp mix, do: Path.join(Path.dirname(elixir()), "mix")
   defp elixir, do: Path.join(:code.lib_dir(:elixir), "../../bin/elixir") |> Path.expand()
   defp erl, do: Path.join(:code.root_dir(), "bin/erl")
 
