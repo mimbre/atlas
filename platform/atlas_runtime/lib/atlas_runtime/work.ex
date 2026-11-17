@@ -13,7 +13,8 @@ defmodule AtlasRuntime.Work do
   `AtlasRuntime.Application`. While it is not running every capability answers with a
   declared outcome meaning "not running": `submit`/`retry` `at_capacity: not_accepting`,
   `get_work`/`find_work`/`turn_output`/`cancel` `not_found`, `list_work` empty, `capacity`
-  not accepting, `subscribe` `subscribed` with no notifications.
+  not accepting, `subscribe` `subscribed` with no notifications. `get_frozen` and
+  `get_frozen_blob` (S5a) answer `not_found` until frozen results are read (s5a-plan P8).
 
   A subscriber receives `{:atlas_runtime_work, notification}` messages, where
   `notification` is a `AtlasRuntime.Boundary.Work.WorkChanged`, `CapacityAvailable` or
@@ -135,6 +136,14 @@ defmodule AtlasRuntime.Work do
   @impl true
   def subscribe(client, input),
     do: call({:subscribe, client, input, self()}, fn -> %B.Outcome.Subscribed{} end)
+
+  # S5a skeletons (s5a-plan P4): no attempt is frozen before P7b, so there is no frozen
+  # result to read yet. P8 gives these their bodies (reads, visibility and retention).
+  @impl true
+  def get_frozen(_client, %B.GetFrozenInput{}), do: not_found()
+
+  @impl true
+  def get_frozen_blob(_client, %B.GetFrozenBlobInput{}), do: not_found()
 
   defp call(message, stopped) do
     case GenServer.whereis(Server) do

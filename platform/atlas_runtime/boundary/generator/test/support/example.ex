@@ -47,6 +47,16 @@ defmodule AtlasRuntimeBoundary.Generator.Example do
     field :counted_at, :datetime, required: true
   end
 
+  # A scanned copy as a byte stream: a :stream is a direct field of an outcome model.
+  defmodel :scan do
+    field :title, :string, required: true
+    field :content, :stream, required: true
+  end
+
+  defmodel :download_input do
+    field :title, :string, required: true
+  end
+
   defcapability :lend,
     input: :lend_input,
     outcomes: [lent: :book, short: :shortage, declined: :refusal, missing: nil],
@@ -56,6 +66,11 @@ defmodule AtlasRuntimeBoundary.Generator.Example do
 
   # An input, but no outcome for an invalid one: the facade answers InvalidInput.
   defcapability :find, input: :find_input, outcomes: [lent: :book, missing: nil], right: :browse
+
+  defcapability :download,
+    input: :download_input,
+    outcomes: [downloaded: :scan, missing: nil],
+    right: :browse
 
   invalid_input :declined, set: [why: :unreadable], detail: :note
 end
@@ -91,10 +106,71 @@ defmodule AtlasRuntimeBoundary.Generator.Example.Library do
   @impl true
   def find(_client, %B.FindInput{}), do: %B.Outcome.Missing{}
 
+  # The client's id is the process told when the stream is opened, so a test sees whether
+  # anything enumerated it.
+  @impl true
+  def download(_client, %B.DownloadInput{title: "missing"}), do: %B.Outcome.Missing{}
+
+  def download(_client, %B.DownloadInput{title: "map"}),
+    do: %B.Outcome.Downloaded{title: "map", content: %{}}
+
+  def download(_client, %B.DownloadInput{title: "one-arity"}),
+    do: %B.Outcome.Downloaded{title: "one-arity", content: fn _ -> :ok end}
+
+  def download(_client, %B.DownloadInput{title: "text"}),
+    do: %B.Outcome.Downloaded{title: "text", content: "not a stream"}
+
+  def download({owner, _rights}, %B.DownloadInput{title: title}) do
+    content =
+      Stream.resource(
+        fn ->
+          if is_pid(owner), do: send(owner, {:opened, title})
+          ["page 1\n", "page 2\n"]
+        end,
+        fn
+          [] -> {:halt, []}
+          [chunk | rest] -> {[chunk], rest}
+        end,
+        fn _ -> :ok end
+      )
+
+    %B.Outcome.Downloaded{title: title, content: content}
+  end
+
   @impl true
   def count({id, _rights}),
     do: %B.Outcome.Counted{
       books: [%B.Book{title: id, condition: :new, place: %B.Branch{city: "Delft"}}],
       counted_at: ~U[2026-01-02 03:04:05Z]
     }
+end
+
+defmodule AtlasRuntimeBoundary.Generator.Example.Guarded do
+  @moduledoc false
+  # The same contract, with the invalid_input detail told only to clients holding
+  # :see_reasons.
+  use AtlasRuntimeBoundary.Generator.Targets.Boundary,
+    contract: AtlasRuntimeBoundary.Generator.Example,
+    implementation: AtlasRuntimeBoundary.Generator.Example.GuardedLibrary,
+    invalid_detail_right: :see_reasons
+end
+
+defmodule AtlasRuntimeBoundary.Generator.Example.GuardedLibrary do
+  @moduledoc false
+  # Answers every valid input with an outcome; the tests use it for invalid inputs.
+  use AtlasRuntimeBoundary.Generator.Example.Guarded.Implementation
+
+  alias AtlasRuntimeBoundary.Generator.Example.Guarded, as: G
+
+  @impl true
+  def lend(_client, _input), do: %G.Outcome.Missing{}
+
+  @impl true
+  def find(_client, _input), do: %G.Outcome.Missing{}
+
+  @impl true
+  def download(_client, _input), do: %G.Outcome.Missing{}
+
+  @impl true
+  def count(_client), do: %G.Outcome.Counted{books: [], counted_at: ~U[2026-01-02 03:04:05Z]}
 end

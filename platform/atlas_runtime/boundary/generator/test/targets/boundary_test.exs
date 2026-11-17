@@ -3,6 +3,7 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.BoundaryTest do
 
   alias AtlasRuntimeBoundary.Generator.{ContractError, InvalidInput, NotPermitted}
   alias AtlasRuntimeBoundary.Generator.Example.Boundary, as: B
+  alias AtlasRuntimeBoundary.Generator.Example.Guarded, as: G
 
   @member {"ann", [:lend, :browse]}
   @until ~U[2026-03-01 10:00:00Z]
@@ -107,6 +108,139 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.BoundaryTest do
         B.lend(@member, %{input | title: "invalid"})
       end
     end
+  end
+
+  describe "a :stream field" do
+    test "reaches the caller unconsumed: the facade checks it without enumerating it" do
+      # The client's id is told when the stream is opened (Example.Library.download/2).
+      assert %B.Outcome.Downloaded{title: "Dune", content: content} =
+               B.download({self(), [:browse]}, %{"title" => "Dune"})
+
+      refute_received {:opened, _}
+      assert Enum.join(content) == "page 1\npage 2\n"
+      assert_received {:opened, "Dune"}
+
+      assert %B.Outcome.Missing{} = B.download({self(), [:browse]}, %{title: "missing"})
+    end
+
+    test "the outcome check refuses a map, a function of another arity, and no Enumerable" do
+      for {title, got} <- [
+            {"map", "got a map"},
+            {"one-arity", "got a function of another arity"},
+            {"text", ~s(got "not a stream")}
+          ] do
+        assert_raise ContractError,
+                     ~r/invalid outcome: outcome.content must be a stream \(an Enumerable\), #{Regex.escape(got)}/,
+                     fn -> B.download(@member, %{title: title}) end
+      end
+    end
+
+    test "new/1 and validate/1 take any Enumerable but a map, and never enumerate it" do
+      lazy = Stream.map(["a", "b"], fn chunk -> send(self(), :enumerated) && chunk end)
+      file = File.stream!(__ENV__.file, 64)
+
+      for content <- [lazy, file, ["a", "b"], [], fn _acc, _fun -> {:done, nil} end] do
+        assert {:ok, %B.Scan{content: ^content}} = B.Scan.new(%{title: "t", content: content})
+        assert :ok = B.Scan.validate(%B.Scan{title: "t", content: content})
+
+        assert {:ok, %B.Outcome.Downloaded{content: ^content}} =
+                 B.Outcome.Downloaded.new(title: "t", content: content)
+      end
+
+      refute_received :enumerated
+
+      for {content, got} <- [
+            {%{}, "got a map"},
+            {%{"a" => 1}, "got a map"},
+            {%B.Shelf{row: 1},
+             "got %AtlasRuntimeBoundary.Generator.Example.Boundary.Shelf{row: 1}"},
+            {42, "got 42"},
+            {"bytes", ~s(got "bytes")}
+          ] do
+        assert {:error, [reason]} = B.Scan.new(%{title: "t", content: content})
+        assert reason == "scan.content must be a stream (an Enumerable), " <> got
+      end
+
+      assert {:error, ["scan.content is required"]} = B.Scan.new(%{title: "t"})
+    end
+
+    test "dump/1 refuses to dump a stream as JSON" do
+      assert_raise ContractError, ~r/Scan.content is a :stream; a stream is sent as bytes/, fn ->
+        B.Scan.dump(%B.Scan{title: "t", content: ["a"]})
+      end
+    end
+
+    test "its type is Enumerable.t()" do
+      {:ok, types} = Code.Typespec.fetch_types(B.Scan)
+      {:type, t} = Enum.find(types, &match?({:type, {:t, _, _}}, &1))
+      assert Code.Typespec.type_to_quoted(t) |> Macro.to_string() =~ "content: Enumerable.t()"
+    end
+  end
+
+  describe "invalid_detail_right:" do
+    test "the invalid_input detail goes only to a client that holds the right" do
+      told = {"ann", [:lend, :browse, :see_reasons]}
+      untold = {"bo", MapSet.new([:lend, :browse])}
+
+      for input <- [%{"title" => "Dune", "colour" => "red"}, %G.LendInput{title: 1, until: nil}] do
+        assert %G.Outcome.Declined{why: :unreadable, note: "input" <> _} = G.lend(told, input)
+        assert G.lend(untold, input) == %G.Outcome.Declined{why: :unreadable, note: nil}
+      end
+
+      # A valid input still reaches the implementation, whatever the client holds.
+      assert %G.Outcome.Missing{} = G.lend(untold, %{title: "Dune", until: @until})
+
+      # Without the option, every client is told.
+      assert %B.Outcome.Declined{note: "input has no field" <> _} =
+               B.lend(untold, %{"title" => "Dune", "colour" => "red"})
+    end
+
+    test "needs an invalid_input with an optional detail: field, and a right" do
+      for {contract, message} <- [
+            {"AtlasRuntimeBoundary.Generator.Catalogue",
+             "invalid_detail_right: the contract declares no invalid_input with detail:"},
+            {required_detail_contract(), "invalid_detail_right: no.text is required"}
+          ] do
+        assert_raise CompileError, ~r/#{Regex.escape(message)}/, fn ->
+          guarded_facade(contract, ":see")
+        end
+      end
+
+      assert_raise CompileError, ~r/invalid_detail_right: expects a right/, fn ->
+        guarded_facade("AtlasRuntimeBoundary.Generator.Example", ~s("see"))
+      end
+    end
+  end
+
+  defp required_detail_contract do
+    module = "RequiredDetail#{System.unique_integer([:positive])}"
+
+    Code.compile_string("""
+    defmodule #{module} do
+      use AtlasRuntimeBoundary.Generator.Schema
+      version "0"
+      defmodel :ask do field :q, :string, required: true end
+      defmodel :no do
+        field :why, {:enum, [:bad]}, required: true
+        field :text, :string, required: true
+      end
+      defcapability :go, input: :ask, outcomes: [no: :no], right: :r
+      invalid_input :no, set: [why: :bad], detail: :text
+    end
+    """)
+
+    module
+  end
+
+  defp guarded_facade(contract, right) do
+    Code.compile_string("""
+    defmodule GuardedFacade#{System.unique_integer([:positive])} do
+      use AtlasRuntimeBoundary.Generator.Targets.Boundary,
+        contract: #{contract},
+        implementation: Nobody,
+        invalid_detail_right: #{right}
+    end
+    """)
   end
 
   describe "constructors" do
@@ -216,7 +350,7 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.BoundaryTest do
   describe "types and the behaviour" do
     test "the behaviour has one callback per capability, with its arity" do
       assert Enum.sort(B.Implementation.behaviour_info(:callbacks)) ==
-               [count: 1, find: 2, lend: 2]
+               [count: 1, download: 2, find: 2, lend: 2]
     end
 
     test "callbacks and specs carry the input struct and the union of outcome structs" do

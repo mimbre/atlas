@@ -16,7 +16,7 @@ defmodule AtlasRuntimeBoundary.WorkMappingsTest do
   test "S1: work_record both ways with work, key_index_entry one way to pruned" do
     by_model = Map.new(mappings(), &{&1.model, &1})
 
-    assert %{boundary: :work, direction: :both, supply: [:state], rename: [], drop: []} =
+    assert %{boundary: :work, direction: :both, supply: [:state], rename: [], drop: [:source]} =
              by_model.work_record
 
     assert %{
@@ -32,7 +32,7 @@ defmodule AtlasRuntimeBoundary.WorkMappingsTest do
   test "an attempt's provenance is translated, with its selection, options and skips" do
     by_model = Map.new(mappings(), &{&1.model, &1})
 
-    assert %{drop: [:turn_folder, :stop_latch, :released_by, :released_at], supply: []} =
+    assert %{drop: [:turn_folder, :stop_latch, :released_by, :released_at | _], supply: []} =
              by_model.attempt
 
     for {model, boundary} <- [
@@ -42,6 +42,47 @@ defmodule AtlasRuntimeBoundary.WorkMappingsTest do
           skipped_option: :skipped_option
         ],
         do: assert(%{boundary: ^boundary, direction: :both} = by_model[model], "#{model}")
+  end
+
+  # S5a (I-B5): what the core keeps for itself is dropped, never renamed onto a public field.
+  @private_s5a [:checking, :check_pgid, :folder, :preparing, :prepare_pid]
+
+  test "S5a: the private additions are dropped, and the new entities are mapped one to one" do
+    by_model = Map.new(mappings(), &{&1.model, &1})
+
+    assert by_model.work_record.drop == [:source]
+
+    assert by_model.attempt.drop -- [:turn_folder, :stop_latch, :released_by, :released_at] ==
+             @private_s5a
+
+    for {model, boundary} <- [
+          base: :base,
+          from_work: :from_work,
+          after_check: :after_check,
+          frozen_ref: :frozen_ref,
+          root_fingerprint: :root_fingerprint,
+          based_on: :based_on,
+          check_result: :check_result,
+          check_output: :check_output
+        ] do
+      assert %{boundary: ^boundary, direction: :both, rename: [], drop: [], supply: []} =
+               by_model[model],
+             "#{model}"
+    end
+
+    for model <- [:base, :from_work],
+        do:
+          assert(
+            by_model[model].values == [
+              permissions: [read_only: :"read-only", workspace_write: :"workspace-write"]
+            ]
+          )
+
+    # The frozen result's own record is another model's; the core translates it.
+    refute Map.has_key?(by_model, :frozen_result)
+
+    names = for {_m, fields} <- models(), name <- fields, uniq: true, do: name
+    for name <- [:source | @private_s5a], do: refute(name in names, "#{name} is public")
   end
 
   test "renames and drops only: every name is an atom" do

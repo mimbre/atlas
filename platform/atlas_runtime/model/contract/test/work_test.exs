@@ -4,6 +4,7 @@ defmodule AtlasRuntimeModel.WorkTest do
   alias AtlasRuntimeModel.Generator.{Header, Targets.Json}
   alias AtlasRuntimeModel.Test.Work
   alias Work.{Attempt, Folder, KeyIndexEntry, Option, Provenance, Repository, WorkRecord}
+  alias Work.{Base, CheckResult, FromWork, Source}
 
   @t0 ~U[2026-11-16 09:00:00.000000Z]
   @t1 ~U[2026-11-16 09:00:05.250000Z]
@@ -143,7 +144,7 @@ defmodule AtlasRuntimeModel.WorkTest do
       assert %{type: {:enum, [:low, :standard, :high]}} =
                Enum.find(request.fields, &(&1.name == :cost_class))
 
-      assert %{type: {:one_of, [:repository, :folder]}} =
+      assert %{type: {:one_of, [:repository, :folder, :base, :from_work]}} =
                Enum.find(request.fields, &(&1.name == :workspace))
     end
 
@@ -172,6 +173,77 @@ defmodule AtlasRuntimeModel.WorkTest do
       assert Mix.Project.config()[:deps] == [
                {:atlas_runtime_model_generator, path: "../generator"}
              ]
+    end
+
+    # S5a (I-M5): the new entities and fields, with their types and whether required.
+    test "the S5a additions have exactly the planned shape" do
+      entities = Map.new(AtlasRuntimeModel.Work.__schema__().entities, &{&1.name, &1})
+      shape = fn name -> Enum.map(entities[name].fields, &{&1.name, &1.type, &1.required}) end
+      access = {:enum, [:read_only, :workspace_write]}
+      fingerprints = {:list, :root_fingerprint}
+
+      assert shape.(:base) == [{:base_id, :string, true}, {:permissions, access, true}]
+
+      assert shape.(:from_work) == [
+               {:work_id, :string, true},
+               {:attempt, :integer, false},
+               {:permissions, access, true}
+             ]
+
+      assert shape.(:after_check) == [
+               {:command, {:list, :string}, true},
+               {:timeout, :integer, false}
+             ]
+
+      assert shape.(:root_fingerprint) == [{:root, :string, true}, {:fingerprint, :string, true}]
+      assert shape.(:frozen_ref) == [{:base, :string, true}, {:fingerprints, fingerprints, true}]
+
+      assert shape.(:based_on) == [
+               {:work_id, :string, true},
+               {:attempt, :integer, true},
+               {:fingerprints, fingerprints, true}
+             ]
+
+      assert shape.(:check_output) == [{:tail, :string, true}, {:complete, :boolean, true}]
+
+      assert shape.(:check_result) == [
+               {:command, {:list, :string}, true},
+               {:exit_status, :integer, false},
+               {:signal, :string, false},
+               {:error, {:enum, [:sandbox_unavailable, :leaves_folder, :not_found]}, false},
+               {:timed_out, :boolean, true},
+               {:cancelled, :boolean, true},
+               {:interrupted, :boolean, true},
+               {:duration_ms, :integer, true},
+               {:output, :check_output, true}
+             ]
+
+      assert shape.(:source) == [{:work_id, :string, true}, {:attempt, :integer, true}]
+      assert {:after_check, :after_check, false} in shape.(:request)
+
+      assert Enum.take(shape.(:timestamps), -2) == [
+               {:check_started_at, :datetime, false},
+               {:check_ended_at, :datetime, false}
+             ]
+
+      assert Enum.take(shape.(:work_product), -3) == [
+               {:frozen, :frozen_ref, false},
+               {:based_on, :based_on, false},
+               {:check, :check_result, false}
+             ]
+
+      assert Enum.take(shape.(:attempt), -5) == [
+               {:checking, :boolean, false},
+               {:check_pgid, :integer, false},
+               {:folder, :string, false},
+               {:preparing, :boolean, false},
+               {:prepare_pid, :integer, false}
+             ]
+
+      assert List.last(shape.(:work_record)) == {:source, :source, false}
+      # r2's folder.base_id is not added (r3, G1).
+      assert Enum.map(entities.folder.fields, & &1.name) == [:path, :permissions]
+      assert entities.work_record.persistence.format_version == 1
     end
 
     test "targets/json/work.json is what the contract generates (golden)" do
@@ -319,6 +391,269 @@ defmodule AtlasRuntimeModel.WorkTest do
       refute function_exported?(KeyIndexEntry, :encode, 1)
       refute function_exported?(KeyIndexEntry, :decode, 1)
       assert function_exported?(KeyIndexEntry, :encode_file, 1)
+    end
+  end
+
+  describe "S5a additions (I-M5)" do
+    @fixture Path.expand("support/fixtures/work.pre_s5a.json", __DIR__)
+    @s5a_attempt ~w(checking check_pgid folder preparing prepare_pid)
+    @s5a_timestamps ~w(check_started_at check_ended_at)
+    @s5a_product ~w(frozen based_on check)
+
+    defp round_trip(record),
+      do: record |> WorkRecord.encode() |> JSON.encode!() |> JSON.decode!() |> WorkRecord.decode()
+
+    defp with_workspace(workspace),
+      do: WorkRecord.new!(%{record() | request: %{record().request | workspace: workspace}})
+
+    defp check(fields) do
+      Map.merge(
+        %{
+          command: ["mix", "test"],
+          exit_status: 0,
+          timed_out: false,
+          cancelled: false,
+          interrupted: false,
+          duration_ms: 1500,
+          output: %{tail: "ok\n", complete: true}
+        },
+        Map.new(fields)
+      )
+    end
+
+    defp fingerprints, do: [%{root: "atlas", fingerprint: "csf_" <> String.duplicate("a", 64)}]
+
+    # Every new optional field set, on a base work (a work's workspace is one form).
+    defp full do
+      [first, second] = record().attempts
+
+      second = %{
+        Map.from_struct(second)
+        | timestamps: %{
+            Map.from_struct(second.timestamps)
+            | check_started_at: @t1,
+              check_ended_at: @t2
+          },
+          checking: false,
+          check_pgid: 4242,
+          folder: "/home/workers/work-work-0123456789abcdef",
+          preparing: false,
+          prepare_pid: 4241,
+          result: %{
+            Map.from_struct(second.result)
+            | work_product: %{
+                workspace: %{path: "/w", changed: true},
+                frozen: %{
+                  base: "sha256:" <> String.duplicate("b", 64),
+                  fingerprints: fingerprints()
+                },
+                based_on: %{
+                  work_id: "work-fedcba9876543210",
+                  attempt: 3,
+                  fingerprints: fingerprints()
+                },
+                check: check(signal: "SIGINT", exit_status: nil, cancelled: true)
+              }
+          }
+      }
+
+      WorkRecord.new!(%{
+        Map.from_struct(record())
+        | request: %{
+            Map.from_struct(record().request)
+            | workspace: %{
+                kind: :base,
+                base_id: "sha256:" <> String.duplicate("b", 64),
+                permissions: :workspace_write
+              },
+              after_check: %{command: ["mix", "test"], timeout: 120}
+          },
+          attempts: [first, second],
+          source: %{work_id: "work-fedcba9876543210", attempt: 3}
+      })
+    end
+
+    test "a record with every new optional field set round-trips" do
+      record = full()
+      assert {:ok, ^record} = round_trip(record)
+      encoded = WorkRecord.encode(record)
+      assert encoded["format_version"] == 1
+      assert encoded["source"] == %{"work_id" => "work-fedcba9876543210", "attempt" => 3}
+
+      assert encoded["request"]["after_check"] == %{
+               "command" => ["mix", "test"],
+               "timeout" => 120
+             }
+
+      last = List.last(encoded["attempts"])
+      assert Map.take(last, @s5a_attempt) |> Map.keys() |> Enum.sort() == Enum.sort(@s5a_attempt)
+      assert last["checking"] == false and last["preparing"] == false
+      assert last["timestamps"]["check_ended_at"] == "2026-11-16T09:42:10.000000Z"
+      product = last["result"]["work_product"]
+
+      assert product["frozen"]["fingerprints"] == [
+               %{"root" => "atlas", "fingerprint" => "csf_" <> String.duplicate("a", 64)}
+             ]
+
+      assert product["based_on"]["attempt"] == 3
+
+      assert %{"signal" => "SIGINT", "cancelled" => true, "output" => %{"complete" => true}} =
+               product["check"]
+
+      refute Map.has_key?(product["check"], "exit_status")
+      refute Map.has_key?(product["check"], "error")
+    end
+
+    # format_version stays 1 (P3's finding): an absent optional field is left out, so a
+    # record without any S5a field is written exactly as before S5a.
+    test "a record with none of the new fields is written as before (format_version 1)" do
+      encoded = WorkRecord.encode(record())
+      assert encoded["format_version"] == 1
+      refute Map.has_key?(encoded, "source")
+      refute Map.has_key?(encoded["request"], "after_check")
+
+      for attempt <- encoded["attempts"] do
+        assert Map.take(attempt, @s5a_attempt) == %{}
+        assert Map.take(attempt["timestamps"], @s5a_timestamps) == %{}
+        assert Map.take(get_in(attempt, ["result", "work_product"]) || %{}, @s5a_product) == %{}
+      end
+
+      assert {:ok, decoded} = round_trip(record())
+      assert decoded == record() and decoded.source == nil
+      assert Enum.all?(decoded.attempts, &(&1.checking == nil and &1.preparing == nil))
+    end
+
+    test "a pre-S5a work file (develop's encode) decodes, and is written back unchanged" do
+      file = @fixture |> File.read!() |> JSON.decode!()
+      assert file["format_version"] == 1
+      assert {:ok, %WorkRecord{source: nil} = record} = WorkRecord.decode(file)
+      assert %Folder{path: "/f", permissions: :materialized_folder} = record.request.workspace
+      assert record.request.after_check == nil
+
+      for attempt <- record.attempts do
+        assert {attempt.checking, attempt.check_pgid, attempt.folder} == {nil, nil, nil}
+        assert {attempt.preparing, attempt.prepare_pid} == {nil, nil}
+
+        assert {attempt.timestamps.check_started_at, attempt.timestamps.check_ended_at} ==
+                 {nil, nil}
+      end
+
+      assert %{frozen: nil, based_on: nil, check: nil} =
+               List.last(record.attempts).result.work_product
+
+      assert WorkRecord.encode(record) == file
+    end
+
+    test "a base request round-trips, stored with kind base" do
+      record =
+        with_workspace(%Base{
+          base_id: "sha256:" <> String.duplicate("c", 64),
+          permissions: :read_only
+        })
+
+      assert {:ok, ^record} = round_trip(record)
+
+      assert WorkRecord.encode(record)["request"]["workspace"] == %{
+               "kind" => "base",
+               "base_id" => "sha256:" <> String.duplicate("c", 64),
+               "permissions" => "read_only"
+             }
+    end
+
+    test "a from_work request round-trips, with its attempt and with it absent" do
+      for attempt <- [2, nil] do
+        workspace = %{
+          kind: :from_work,
+          work_id: "work-fedcba9876543210",
+          attempt: attempt,
+          permissions: :workspace_write
+        }
+
+        record = with_workspace(workspace)
+        assert %FromWork{attempt: ^attempt} = record.request.workspace
+        assert {:ok, ^record} = round_trip(record)
+        encoded = WorkRecord.encode(record)["request"]["workspace"]
+        assert encoded["kind"] == "from_work"
+        assert Map.has_key?(encoded, "attempt") == (attempt != nil)
+      end
+    end
+
+    test "a check without error round-trips, and one that did not run carries its error" do
+      [first, second] = record().attempts
+
+      for {fields, error} <- [
+            {[], nil},
+            {[
+               exit_status: nil,
+               duration_ms: 0,
+               output: %{tail: "", complete: true},
+               error: :sandbox_unavailable
+             ], :sandbox_unavailable},
+            {[
+               exit_status: nil,
+               duration_ms: 0,
+               output: %{tail: "", complete: true},
+               error: :leaves_folder
+             ], :leaves_folder},
+            {[
+               exit_status: nil,
+               duration_ms: 0,
+               output: %{tail: "", complete: true},
+               error: :not_found
+             ], :not_found}
+          ] do
+        product = %{workspace: %{path: "/w", changed: false}, check: check(fields)}
+
+        second =
+          put_in(Map.from_struct(second), [:result], %{
+            Map.from_struct(second.result)
+            | work_product: product
+          })
+
+        record = WorkRecord.new!(%{record() | attempts: [first, second]})
+        assert %CheckResult{error: ^error} = List.last(record.attempts).result.work_product.check
+        assert {:ok, ^record} = round_trip(record)
+      end
+    end
+
+    test "the private additions hold what the core keeps: source, checking, folder, preparer" do
+      record = full()
+      assert %Source{work_id: "work-fedcba9876543210", attempt: 3} = record.source
+
+      assert %Attempt{checking: false, check_pgid: 4242, preparing: false, prepare_pid: 4241} =
+               List.last(record.attempts)
+
+      [first, second] = record.attempts
+      preparing = %{second | checking: nil, preparing: true, result: nil, state: :starting}
+      checking = %{second | checking: true, preparing: nil, result: nil, state: :running}
+
+      for attempt <- [preparing, checking] do
+        changed = WorkRecord.new!(%{record | attempts: [first, attempt]})
+        assert {:ok, ^changed} = round_trip(changed)
+      end
+    end
+
+    test "new values outside their enum, or a check without its booleans, are refused" do
+      encoded = WorkRecord.encode(full())
+      ws = ["request", "workspace"]
+
+      assert {:error, {:invalid, "work_record.request.workspace.permissions", _}} =
+               WorkRecord.decode(put_in(encoded, ws ++ ["permissions"], "materialized_folder"))
+
+      assert {:error, {:missing_field, "work_record.request.workspace.base_id"}} =
+               WorkRecord.decode(update_in(encoded, ws, &Map.delete(&1, "base_id")))
+
+      at = ["attempts", Access.at(1), "result", "work_product", "check"]
+      path = "work_record.attempts[1].result.work_product.check"
+
+      assert {:error, {:invalid, ^path <> ".error", _}} =
+               WorkRecord.decode(put_in(encoded, at ++ ["error"], "crashed"))
+
+      assert {:error, {:missing_field, ^path <> ".timed_out"}} =
+               WorkRecord.decode(update_in(encoded, at, &Map.delete(&1, "timed_out")))
+
+      assert {:error, {:missing_field, "work_record.source.attempt"}} =
+               WorkRecord.decode(update_in(encoded, ["source"], &Map.delete(&1, "attempt")))
     end
   end
 

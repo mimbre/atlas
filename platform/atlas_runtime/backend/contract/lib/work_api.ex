@@ -4,7 +4,8 @@ defmodule AtlasRuntimeBackend.Work do
   S1): how `AtlasRuntimeBoundary.Work` is carried to clients in other processes. It
   decides nothing about work; every decision sits behind the boundary.
 
-  Shared by every target: all nine work capabilities are exposed; a client on the Unix
+  Shared by every target: the nine S1 work capabilities are exposed (S5a's `get_frozen` and
+  `get_frozen_blob` are not yet); a client on the Unix
   socket (`$ATLAS_RUNTIME_HOME/backend.sock`, §8.1) is its owner and gets every work right,
   `choose_slot` included; the notifications are the stream's events. The one target in S1
   is `rest` (§8.2–§8.4), carrying the boundary's entities.
@@ -34,6 +35,10 @@ defmodule AtlasRuntimeBackend.Work do
     :turn_output,
     :subscribe
   ]
+
+  # S5a: the frozen-result reads are in the boundary before their resources exist; S5a P11
+  # exposes them (§8.2: GET …/attempts/{n}/frozen and …/frozen/blobs/{sha256}).
+  not_exposed [:get_frozen, :get_frozen_blob]
 
   ## Listeners (§8.1)
 

@@ -5,15 +5,21 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Boundary.Values do
   a facade's call. Every struct module has `__fields__/0`: `[{name, type, required}]`,
   with a type of `:string`, `:integer`, `{:integer, min, max}` (a `range:` field),
   `:boolean`, `:datetime`, `{:enum, [atom]}`,
-  `{:model, module}`, `{:one_of, [{name, module}], tag}`, `{:list, type}` or
-  `{:map, type}`.
+  `{:model, module}`, `{:one_of, [{name, module}], tag}`, `{:list, type}`,
+  `{:map, type}` or `:stream`.
+
+  A `:stream` value is anything that implements `Enumerable` (a list, a `Stream`, a
+  `File.Stream`, a function of arity 2), except a plain map. It is checked without being
+  enumerated, and passed on as it is. `dump/1` refuses to dump a struct with a stream in
+  it: a stream is sent as bytes, never as JSON.
   """
 
   alias AtlasRuntimeBoundary.Generator.{ContractError, InvalidInput, NotPermitted}
 
   @doc false
   # `input` is nil for a capability without input, else `{module, given, invalid}`, where
-  # `invalid` is `{outcome module, set, detail field}` or nil (see `Targets.Boundary`).
+  # `invalid` is `{outcome module, set, detail field, detail right}` or nil (see
+  # `Targets.Boundary`).
   def call(facade, implementation, capability, right, client, input, outcomes) do
     at = "#{inspect(facade)}.#{capability}"
 
@@ -35,7 +41,7 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Boundary.Values do
 
         case input(module, given) do
           {:ok, built} -> answer(at, implementation, capability, [client, built], outcomes)
-          {:error, reasons} -> invalid(capability, invalid, reasons)
+          {:error, reasons} -> invalid(capability, invalid, reasons, rights)
         end
     end
   end
@@ -54,11 +60,13 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Boundary.Values do
 
   defp input(module, given), do: new(module, "input", given)
 
-  defp invalid(capability, nil, reasons),
+  defp invalid(capability, nil, reasons, _rights),
     do: %InvalidInput{capability: capability, reasons: reasons}
 
-  defp invalid(_capability, {module, set, detail}, reasons) do
-    fields = if detail, do: [{detail, Enum.join(reasons, "; ")} | set], else: set
+  # With a detail right, only a client holding it gets the reasons as text.
+  defp invalid(_capability, {module, set, detail, detail_right}, reasons, rights) do
+    told = detail != nil and (detail_right == nil or Enum.member?(rights, detail_right))
+    fields = if told, do: [{detail, Enum.join(reasons, "; ")} | set], else: set
     struct!(module, fields)
   end
 
@@ -108,8 +116,17 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Boundary.Values do
     for {field, type, _required} <- module.__fields__(),
         (item = Map.fetch!(value, field)) != nil,
         into: %{},
-        do: {Atom.to_string(field), dump(type, item)}
+        do: {Atom.to_string(field), dump(type, item, module, field)}
   end
+
+  defp dump(:stream, _value, module, field),
+    do:
+      raise(
+        ContractError,
+        "#{inspect(module)}.#{field} is a :stream; a stream is sent as bytes, never dumped as JSON"
+      )
+
+  defp dump(type, value, _module, _field), do: dump(type, value)
 
   defp dump(:datetime, value), do: DateTime.to_iso8601(value)
   defp dump({:enum, _values}, value), do: Atom.to_string(value)
@@ -213,6 +230,23 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Boundary.Values do
     case DateTime.from_iso8601(value) do
       {:ok, datetime, _offset} -> {:ok, datetime}
       {:error, _} -> {:error, ["#{at} must be an ISO-8601 datetime, got #{inspect(value)}"]}
+    end
+  end
+
+  # Never enumerated: only its type is looked at.
+  defp value(:stream, value, at, _mode) do
+    cond do
+      is_map(value) and not is_struct(value) ->
+        {:error, ["#{at} must be a stream (an Enumerable), got a map"]}
+
+      is_function(value) and not is_function(value, 2) ->
+        {:error, ["#{at} must be a stream (an Enumerable), got a function of another arity"]}
+
+      Enumerable.impl_for(value) != nil ->
+        {:ok, value}
+
+      true ->
+        {:error, ["#{at} must be a stream (an Enumerable), got #{inspect(value)}"]}
     end
   end
 

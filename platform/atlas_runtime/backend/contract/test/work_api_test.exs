@@ -4,11 +4,12 @@ defmodule AtlasRuntimeBackend.WorkTest do
   @schema AtlasRuntimeBackend.Work.__schema__()
   @rest hd(@schema.targets)
 
-  test "carries the work boundary, exposing every capability" do
+  test "carries the work boundary, exposing every capability but S5a's frozen reads" do
     assert @schema.boundary == AtlasRuntimeBoundary.Work
     capabilities = for c <- AtlasRuntimeBoundary.Work.__schema__().capabilities, do: c.name
-    assert @schema.exposed == capabilities
-    assert @schema.not_exposed == []
+    # S5a P4: not exposed until S5a P11 gives them resources.
+    assert @schema.not_exposed == [:get_frozen, :get_frozen_blob]
+    assert @schema.exposed == capabilities -- @schema.not_exposed
     assert [%{name: :rest, carries: :entities}] = @schema.targets
   end
 
@@ -40,7 +41,16 @@ defmodule AtlasRuntimeBackend.WorkTest do
 
     assert routes == [
              {:post, "/v1/work", :submit, [], [{"idempotency-key", :client_key}],
-              [:title, :instructions, :profile, :cost_class, :workspace, :resume_from, :slot]},
+              [
+                :title,
+                :instructions,
+                :profile,
+                :cost_class,
+                :workspace,
+                :resume_from,
+                :slot,
+                :after_check
+              ]},
              {:get, "/v1/work/:work_id", :get_work, [], [], nil},
              {:get, "/v1/work", :find_work, [{"key", :client_key}], [], nil},
              {:get, "/v1/work", :list_work,

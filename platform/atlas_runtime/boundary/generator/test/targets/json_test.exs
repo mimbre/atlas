@@ -44,7 +44,7 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.JsonTest do
     assert %{"type" => "datetime", "format" => "ISO-8601", "required" => false} = fields["due_at"]
     assert %{"type" => "list of enum", "values" => ["large_print", "audio"]} = fields["labels"]
 
-    assert [lend, count, _find] = json["capabilities"]
+    assert [lend, count, _find, download] = json["capabilities"]
 
     assert lend == %{
              "name" => "lend",
@@ -59,6 +59,22 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.JsonTest do
            }
 
     refute Map.has_key?(count, "input")
+
+    scan = Enum.find(json["models"], &(&1["name"] == "scan"))
+
+    assert Enum.find(scan["fields"], &(&1["name"] == "content")) == %{
+             "name" => "content",
+             "type" => "stream",
+             "description" => "byte stream",
+             "required" => true
+           }
+
+    assert download == %{
+             "name" => "download",
+             "input" => "download_input",
+             "right" => "browse",
+             "outcomes" => [%{"name" => "downloaded", "model" => "scan"}, %{"name" => "missing"}]
+           }
 
     assert json["invalid_input"] ==
              %{"outcome" => "declined", "set" => %{"why" => "unreadable"}, "detail" => "note"}
