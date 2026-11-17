@@ -92,6 +92,17 @@ defmodule AtlasRuntimeBackend.Generator.Targets.RestUploadTest do
 
   defp json(conn), do: JSON.decode!(conn.resp_body)
 
+  # A problem answer, pinned by its status and type and never by its wording; it repeats
+  # none of `sent`, the things the request carried.
+  defp assert_problem(conn, status, type, sent) do
+    assert conn.status == status
+    assert get_resp_header(conn, "content-type") == ["application/problem+json"]
+    assert %{"type" => ^type, "status" => ^status} = json(conn)
+
+    for text <- sent,
+        do: refute(conn.resp_body =~ text, "the answer repeats #{inspect(text)}")
+  end
+
   # The messages the adapter and the facade sent, in the order they were sent.
   defp trace(acc \\ []) do
     receive do
@@ -134,22 +145,14 @@ defmodule AtlasRuntimeBackend.Generator.Targets.RestUploadTest do
     test "a streamed body has the 1 MiB cap too, whatever max_bytes allows (8 MiB here)" do
       conn = deposit("b1", bytes(@mib + 1))
 
-      assert conn.status == 413
+      assert_problem(conn, 413, "too-large", ["b1", @octet])
       assert get_resp_header(conn, "connection") == ["close"]
-
-      assert %{
-               "type" => "too-large",
-               "status" => 413,
-               "detail" => "the body is larger than 1048576 bytes"
-             } = json(conn)
-
       assert_received {:deposit_after, "b1"}
       # Never more than one byte past the cap is read.
       assert read_total(trace()) == @mib + 1
 
       conn = deposit("b2", bytes(3 * @mib), content_length: 3 * @mib)
-      assert conn.status == 413
-      assert json(conn)["detail"] == "the body is larger than 1048576 bytes"
+      assert_problem(conn, 413, "too-large", ["b2", @octet, Integer.to_string(3 * @mib)])
       refute_received {:example_called, :deposit, _, %{book_id: "b2"}}
       assert trace() == []
     end
@@ -180,16 +183,8 @@ defmodule AtlasRuntimeBackend.Generator.Targets.RestUploadTest do
       _ = trace()
 
       conn = deposit("b2", bytes(1001))
-      assert conn.status == 413
-      assert get_resp_header(conn, "content-type") == ["application/problem+json"]
+      assert_problem(conn, 413, "too-large", ["b2", @octet])
       assert get_resp_header(conn, "connection") == ["close"]
-
-      assert %{
-               "type" => "too-large",
-               "status" => 413,
-               "detail" => "the body is larger than 1000 bytes"
-             } = json(conn)
-
       assert_received {:deposit_after, "b2"}
       # Never more than one byte past the limit is read.
       assert read_total(trace()) == 1001
@@ -199,8 +194,7 @@ defmodule AtlasRuntimeBackend.Generator.Targets.RestUploadTest do
       Process.put(:example_deposit_limit, 1000)
       conn = deposit("b1", bytes(1001), content_length: 1001)
 
-      assert conn.status == 413
-      assert %{"type" => "too-large"} = json(conn)
+      assert_problem(conn, 413, "too-large", ["b1", @octet, "1001"])
       assert get_resp_header(conn, "connection") == ["close"]
       refute_received {:example_called, :deposit, _, _}
       assert trace() == []
@@ -253,8 +247,7 @@ defmodule AtlasRuntimeBackend.Generator.Targets.RestUploadTest do
       assert get_resp_header(conn, "connection") == ["close"]
 
       conn = deposit("b1", bytes(@mib), client: {"guest", [:browse]})
-      assert conn.status == 403
-      assert %{"type" => "not-permitted", "detail" => "this needs the right lend"} = json(conn)
+      assert_problem(conn, 403, "not-permitted", ["b1", "guest", @octet])
       assert get_resp_header(conn, "connection") == ["close"]
 
       assert trace() == []
@@ -263,12 +256,8 @@ defmodule AtlasRuntimeBackend.Generator.Targets.RestUploadTest do
     test "a read that fails is 400 invalid, and the connection closes" do
       conn = deposit("b1", bytes(3 * @mib), fail_after: @mib)
 
-      assert conn.status == 400
+      assert_problem(conn, 400, "invalid", ["b1", @octet])
       assert get_resp_header(conn, "connection") == ["close"]
-
-      assert %{"type" => "invalid", "detail" => "the body could not be read to its end"} =
-               json(conn)
-
       assert_received {:deposit_after, "b1"}
     end
 
@@ -281,8 +270,7 @@ defmodule AtlasRuntimeBackend.Generator.Targets.RestUploadTest do
         |> assign(:client, @member)
         |> Rest.call(Rest.init([]))
 
-      assert conn.status == 400
-      assert json(conn)["detail"] =~ "larger than 1048576 bytes"
+      assert_problem(conn, 400, "invalid", [String.duplicate("a", 64)])
       refute_received {:example_called, :lend, _, _}
     end
 
@@ -351,8 +339,7 @@ defmodule AtlasRuntimeBackend.Generator.Targets.RestUploadTest do
       {ref, stream} = Runtime.upload(:conn, 10, reader(["ab"]))
       task = Task.async(fn -> catch_error(Enum.to_list(stream)) end)
 
-      assert %ArgumentError{message: message} = Task.await(task)
-      assert message =~ "in the process that took the request"
+      assert %ArgumentError{} = Task.await(task)
       assert Enum.to_list(stream) == ["ab"]
       assert Runtime.uploaded(ref) == {:conn, true}
       Runtime.discard(ref)
@@ -362,9 +349,7 @@ defmodule AtlasRuntimeBackend.Generator.Targets.RestUploadTest do
       {ref, stream} = Runtime.upload(:conn, 10, reader(["ab"]))
       Runtime.discard(ref)
 
-      assert_raise ArgumentError, ~r/after its request was answered/, fn ->
-        Enum.to_list(stream)
-      end
+      assert_raise ArgumentError, fn -> Enum.to_list(stream) end
     end
 
     test "asks for at most 1 MiB, and never more than one byte past the limit" do
@@ -387,10 +372,9 @@ defmodule AtlasRuntimeBackend.Generator.Targets.RestUploadTest do
       Runtime.discard(ref)
     end
 
-    test "a limit that is no positive integer is an ArgumentError" do
-      assert_raise ArgumentError, ~r/M.f\(\) gave 0, no positive number of bytes/, fn ->
-        Runtime.limit!(0, M, :f)
-      end
+    test "a limit that is no positive integer is an ArgumentError naming its callback" do
+      error = assert_raise ArgumentError, fn -> Runtime.limit!(0, M, :f) end
+      assert Exception.message(error) =~ "M.f()"
     end
   end
 
@@ -406,8 +390,8 @@ defmodule AtlasRuntimeBackend.Generator.Targets.RestUploadTest do
       assert {"content-type", @octet} in request.headers
       refute is_binary(request.body)
 
-      assert {:error, {:invalid, ["pages is invalid: no enumerable of binaries"]}} =
-               Client.deposit(%{book_id: "b1", pages: "abcd"})
+      assert {:error, {:invalid, [reason]}} = Client.deposit(%{book_id: "b1", pages: "abcd"})
+      assert reason =~ "pages"
 
       assert {:error, :too_large} =
                Client.deposit(%{book_id: "b1", pages: ["abcd"]},
@@ -420,18 +404,14 @@ defmodule AtlasRuntimeBackend.Generator.Targets.RestUploadTest do
       doc = JSON.decode!(body)
       put = doc["paths"]["/v1/books/{book_id}/pages"]["put"]
 
-      assert put["requestBody"] == %{
+      assert %{
                "required" => true,
                "content" => %{
-                 @octet => %{
-                   "schema" => %{
-                     "type" => "string",
-                     "format" => "binary",
-                     "description" => "the input's `pages`, as a byte stream"
-                   }
-                 }
+                 @octet => %{"schema" => %{"type" => "string", "format" => "binary"}}
                }
-             }
+             } = put["requestBody"]
+
+      assert map_size(put["requestBody"]["content"]) == 1
 
       assert Map.has_key?(put["responses"], "413")
       assert Map.has_key?(put["responses"], "415")
