@@ -276,6 +276,13 @@ defmodule AtlasRuntime.NativeClaudeTest do
     for settings <- [
           %{"sandbox" => "workspace-write"},
           %{"sandbox" => nil, "permissions" => %{"root" => dir}},
+          # The removed review-packet profile, for both harnesses.
+          %{"sandbox" => nil, "permissions" => %{"profile" => "review-packet", "root" => dir}},
+          %{
+            "backend" => "codex",
+            "sandbox" => nil,
+            "permissions" => %{"profile" => "review-packet", "root" => dir}
+          },
           %{"repository" => %{"url" => "https://github.com/eyra/atlas.git"}},
           %{"session_id" => "existing-session"},
           %{"backend" => "unknown"},

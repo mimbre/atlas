@@ -17,6 +17,8 @@ var afterChangesCapture = func() {}
 // code beside the error text, so a caller branches on the code and never on the text.
 type Failure struct {
 	Code string
+	// Rule is the broken rule of an invalid uploaded base (code invalid, S5c P6); empty otherwise.
+	Rule string
 	err  error
 }
 
@@ -24,10 +26,19 @@ func (f *Failure) Error() string { return f.err.Error() }
 
 func (f *Failure) Unwrap() error { return f.err }
 
-// Result is the code the CLI reports with the error.
-func (f *Failure) Result() map[string]any { return map[string]any{"code": f.Code} }
+// Result is the code, and the rule when there is one, that the CLI reports with the error.
+func (f *Failure) Result() map[string]any {
+	result := map[string]any{"code": f.Code}
+	if f.Rule != "" {
+		result["rule"] = f.Rule
+	}
+	return result
+}
 
 func fail(kind string, err error) error { return &Failure{Code: kind, err: err} }
+
+// Fail is a refusal with code for the workspace commands, which share this package's codes.
+func Fail(kind string, err error) error { return fail(kind, err) }
 
 func failf(kind, format string, args ...any) error { return fail(kind, fmt.Errorf(format, args...)) }
 

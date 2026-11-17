@@ -14,6 +14,7 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Routes do
        "routes": [{"method", "path", "capability", "right", "params": [name],
                    "query": {param: {"field", "required"}},
                    "headers": {header: {"field", "required"}}, "body": [field]?,
+                   "upload": {"field", "content_type"}?,
                    "etag": {"field", "request_header", "not_modified"}?,
                    "stream": {"events", "resume_header", "into"}?,
                    "outcomes": [{"outcome", "status"?, "type"?, "by"?,
@@ -29,7 +30,10 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Routes do
   `If-None-Match`. A stream route's outcomes are 200 `text/event-stream`, opened by the
   event `opens_with` (or none). An outcome with `"stream": field` is sent as bytes: its
   body is that field's byte stream with the outcome's `content_type` (chunked, no JSON),
-  and its other fields are only in its `headers`.
+  and its other fields are only in its `headers`. A route with `upload` takes its request
+  body as it is, with that `Content-Type`, as the input field `field` (a byte stream, no
+  JSON); it may answer the errors `too_large` (413, more bytes than the server's limit)
+  and `unsupported_media_type` (415, another `Content-Type`).
 
   Options: `target:` the target block (default: the contract's only one). `name:` (the
   contract's name, as `mix runtime_backend.gen` gives it) puts the file in a folder of
@@ -118,11 +122,22 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Routes do
       "outcomes" => Enum.map(capability.outcomes, &outcome(statuses[&1.name]))
     }
     |> put("body", r.body && texts(r.body))
+    |> put("upload", upload(r))
     |> put(
       "etag",
       etag &&
         %{"field" => text(etag), "request_header" => "if-none-match", "not_modified" => 304}
     )
+  end
+
+  @doc false
+  # A streamed request body as file data: its field and content type (the limit is the
+  # server's, asked at run time, so no file holds it). nil for any other resource.
+  def upload(r) do
+    case Map.get(r, :upload) do
+      nil -> nil
+      u -> %{"field" => text(u.field), "content_type" => u.content_type}
+    end
   end
 
   defp stream(s, capabilities) do

@@ -23,7 +23,7 @@ import (
 
 func Run(args []string, output io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("use workspace path|scope|folder-scope|packet-scope|request|facts")
+		return errors.New("use workspace path|scope|folder-scope|request|facts")
 	}
 	var result any
 	var err error
@@ -44,11 +44,6 @@ func Run(args []string, output io.Writer) error {
 			return errors.New("workspace folder-scope requires destination and Runtime home")
 		}
 		result, err = FolderScope(args[1], args[2])
-	case "packet-scope":
-		if len(args) != 3 {
-			return errors.New("workspace packet-scope requires packet tree and Runtime home")
-		}
-		result, err = PacketScope(args[1], args[2])
 	case "base-import":
 		var values map[string]string
 		if values, err = options(args[1:], "home", "staging"); err == nil {
@@ -105,17 +100,19 @@ func options(args []string, names ...string) (map[string]string, error) {
 // called only by the core). dest must be exactly the Runtime work folder <home>/workers/work-<work_id>
 // (RuntimeWorkFolder of the canonical home, spelled as its canonical path, the shape of the core's
 // Folders.path/2) and must not exist yet; anything else is refused before anything is written.
+// Every refusal is a *snapshot.Failure with MaterializeBaseline's codes: destination_not_allowed,
+// destination_exists, baseline_missing or io.
 func Materialize(home, id, dest string) (map[string]any, error) {
 	if !filepath.IsAbs(home) || !filepath.IsAbs(dest) {
-		return nil, errors.New("workspace materialize requires an absolute Runtime home and destination")
+		return nil, snapshot.Fail("destination_not_allowed", errors.New("workspace materialize requires an absolute Runtime home and destination"))
 	}
 	home, err := filepath.EvalSymlinks(home)
 	if err != nil {
-		return nil, fmt.Errorf("Runtime home: %v", err)
+		return nil, snapshot.Fail("io", fmt.Errorf("Runtime home: %v", err))
 	}
 	parent, err := filepath.EvalSymlinks(filepath.Dir(dest))
 	if err != nil || dest != filepath.Join(parent, filepath.Base(dest)) || !RuntimeWorkFolder(home, dest) {
-		return nil, fmt.Errorf("destination %s is not the Runtime work folder %s/workers/work-<work_id>", dest, home)
+		return nil, snapshot.Fail("destination_not_allowed", fmt.Errorf("destination %s is not the Runtime work folder %s/workers/work-<work_id>", dest, home))
 	}
 	return snapshot.MaterializeBaseline(home, id, dest)
 }
@@ -493,11 +490,11 @@ func FolderScope(dest, home string) (map[string]any, error) {
 		return nil, err
 	}
 	home, root := scope["home"].(string), scope["root"].(string)
-	// A packet tree stays as frozen: only the review-packet profile runs in it.
+	// A packet tree stays as frozen: no worker runs in it.
 	if id, err := snapshot.RecordedPacket(home, root); err != nil {
 		return nil, err
 	} else if id != "" {
-		return nil, fmt.Errorf("Materialized folder %s is the tree of review packet %s; review it with --permissions review-packet", root, id)
+		return nil, fmt.Errorf("Materialized folder %s is the tree of frozen packet %s; it cannot be a worker folder", root, id)
 	}
 	return readyScope(scope)
 }
@@ -585,29 +582,6 @@ func FolderScopeBeforePreparation(dest, home string) (map[string]any, error) {
 		return nil, err
 	}
 	scope["profile"], scope["version"], scope["home"] = "materialized-folder", json.Number("1"), home
-	return scope, nil
-}
-
-// PacketScope is the review-packet permission scope of the packet tree dest: its materialized-folder
-// scope plus the packet folder, its findings folder, the packet ID and the fingerprint. It refuses a
-// tree, packet.json or diff.json that changed after the freeze, so a review never runs on other
-// content than the packet it names.
-func PacketScope(dest, home string) (map[string]any, error) {
-	scope, err := FolderScopeBeforePreparation(dest, home)
-	if err != nil {
-		return nil, err
-	}
-	if scope, err = readyScope(scope); err != nil {
-		return nil, err
-	}
-	packet, err := snapshot.VerifiedPacket(scope["home"].(string), scope["root"].(string))
-	if err != nil {
-		return nil, err
-	}
-	for key, value := range packet {
-		scope[key] = value
-	}
-	scope["profile"] = "review-packet"
 	return scope, nil
 }
 

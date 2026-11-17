@@ -56,13 +56,13 @@ defmodule AtlasRuntime.Sandbox.HomeLayoutTest do
              &(&1 != "" and &1 not in [".", ".."] and not String.contains?(&1, "/"))
            )
 
-    assert Enum.map(names, &HomeLayout.class/1) |> Enum.frequencies() == %{denied: 33, chain: 1}
+    assert Enum.map(names, &HomeLayout.class/1) |> Enum.frequencies() == %{denied: 35, chain: 1}
     assert HomeLayout.class("not-a-home-name") == nil
   end
 
   test "the reserved and recently found names are denied (P0, SP5)" do
     for name <-
-          ~w(backend.sock work admissions preparations packets submissions rebinds frozen execution-events.json mode.json clients.json bases availability.json.tmp execution-events.json.tmp),
+          ~w(backend.sock work admissions preparations packets submissions rebinds frozen execution-events.json mode.json clients.json sources local-source bases availability.json.tmp execution-events.json.tmp),
         do: assert(HomeLayout.class(name) == :denied, name)
   end
 

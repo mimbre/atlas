@@ -14,8 +14,7 @@ defmodule AtlasRuntimeBoundary.OperationsTest do
     :"dedicated-repository",
     :"materialized-folder",
     :"workspace-write",
-    :"read-only",
-    :"review-packet"
+    :"read-only"
   ]
 
   defp expected_models do

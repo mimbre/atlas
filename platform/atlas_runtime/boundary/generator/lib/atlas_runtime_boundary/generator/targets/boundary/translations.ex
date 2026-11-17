@@ -53,6 +53,7 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Boundary.Translations do
     contract_models = Map.new(schema.models, &{&1.name, &1})
     mappings = mappings_module.__mappings__()
     by_entity = Map.new(mappings, &{&1.model, &1})
+    inputs = for %{input: input} <- schema.capabilities, input != nil, do: input
 
     model_module_of = fn name ->
       Module.concat(model_module, Macro.camelize(Atom.to_string(name)))
@@ -76,6 +77,15 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Boundary.Translations do
         boundary =
           contract_models[mapping.boundary] ||
             fail_at.("#{at}: the contract has no model #{inspect(mapping.boundary)}")
+
+        # An input's stream goes to the implementation as it came: no mapping translates it.
+        for %{type: :stream, name: field} <- boundary.fields,
+            mapping.boundary in inputs,
+            do:
+              fail_at.(
+                "#{at}: #{mapping.boundary}.#{field} is the :stream of an input; " <>
+                  "an input's stream reaches the implementation unread, so no mapping takes it"
+              )
 
         fields =
           fields!(mapping, entity, boundary, by_entity, entities, contract_models, at, fail_at)

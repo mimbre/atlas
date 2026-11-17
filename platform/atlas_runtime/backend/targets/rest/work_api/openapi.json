@@ -411,7 +411,8 @@
             "enum": [
               "sandbox_unavailable",
               "leaves_folder",
-              "not_found"
+              "not_found",
+              "helper_failed"
             ],
             "type": "string"
           },

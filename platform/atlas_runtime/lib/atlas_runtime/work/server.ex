@@ -20,9 +20,12 @@ defmodule AtlasRuntime.Work.Server do
   probe that heartbeat uses; `AtlasRuntime.Work.Restart.processes/0`), `probe` (a fixed
   probe instead), `start_timeout_ms` (how long a start may take, 120 s), `prepare_timeout_ms`
   (how long preparing a Runtime-chosen folder may take, 600 s), `prepare_hook` (called by a
-  preparer with `:moved_aside`, tests), `after_write` (called with each record just written,
-  before anything mentions it) and `stop_exit_ms` (how long after the last attempt of a stop
-  ended the Service exits, 200 ms, so the stop's answer is out first).
+  preparer with `:moved_aside`, and with `:composing` for `from_work`, tests), `freeze_hook` (called with each frozen result once it
+  is written and before the `completed` commit names it, tests), `after_write` (called with
+  each record just written, before anything mentions it), `stop_exit_ms` (how long after the last attempt of a stop
+  ended the Service exits, 200 ms, so the stop's answer is out first) and `check_helper`
+  (`{executable, leading_args}` that runs `host check`, default `$ATLAS_RUNTIME_EXECUTABLE`;
+  tests pass a stand-in).
 
   **Runtime-chosen folders (s5a-plan B6, B25, B30).** A `base` work runs in
   `<home>/workers/work-<work_id>` (`AtlasRuntime.Work.Folders`). `launch/4` commits `starting`
@@ -38,6 +41,70 @@ defmodule AtlasRuntime.Work.Server do
   once every earlier attempt is terminal and quiescent (`Queue.previous_settled?/1`), so no
   process of an earlier attempt can still write the folder. A `retry resume: true` continues
   in the same folder without preparing it.
+
+  **New work based on an earlier result (design §3.9; s5a-plan B2–B5, P9).** A `from_work`
+  work names a work the caller may read (unknown or unreadable: `refused: not_permitted`, one
+  detail for both) and, optionally, one of its attempts; without one, the latest `completed`
+  attempt, resolved at accept and pinned on the record as `source` (the stored request stays
+  the submitted one). A work without a frozen result there is `unsupported_workspace`, a pruned
+  one `pruned` (a result another work still names is retained and accepted). Its folder is
+  the same `<home>/workers/work-<work_id>`, composed at start by a preparer from the source's
+  frozen result: the base it was frozen against plus exactly its change set, read-only on disk
+  or writable (`snapshot compose`, never Code). Every attempt composes from the pinned source,
+  so a fresh retry rebuilds the same starting tree. It always runs in a fresh conversation:
+  `resume_from` is `invalid`, `retry resume: true` is `resume_unavailable`. A completed
+  attempt is frozen against the original base (cumulative) and records `based_on`, the
+  source's attempt and fingerprints.
+
+  **Frozen results (design §3.9; s5a-plan B8–B11).** An attempt that ends `completed` in a
+  `base` folder (or a `folder{materialized-folder}` with a materialization record) is frozen
+  first (`AtlasRuntime.Work.Frozen`): the frozen record is written, and only then the
+  `completed` commit names it in `work_product` (`workspace`, `frozen`), so nothing reports
+  `completed` before the frozen result exists (I2). A freeze that is refused (a change outside
+  every root, a helper refusal, a missing baseline of a Runtime-chosen folder) ends the
+  attempt `failed: workspace`, not retryable, with its answer and log; it never ends
+  `completed` without its frozen result. At boot, a frozen record whose attempt was never
+  committed `completed` is deleted (`Restart.orphans/2`), and that attempt ends
+  `interrupted`, not `completed`.
+
+  **After-check (design §3.10; s5a-plan B16–B18, B23, B24, B28; P10a).** A work may carry
+  `after_check: {command, timeout}`. At submit it is checked in this order: only a `base` or
+  `from_work` work (the folder the Runtime chose, whose turn ran as `materialized-folder` or
+  read-only, the two profiles the check can carry; otherwise `unsupported_workspace`), the
+  argv rules and the timeout cap (`invalid`), the profile's `allow_after_check`
+  (`policy_forbids`), and `codex` on the core's `PATH` (`AtlasRuntime.Work.Check.available?/0`,
+  never cached; without it `policy_forbids`, detail `after_check_unavailable`). When the turn
+  ends with a result that would make the attempt `completed` (and no cancel was asked for), the
+  frozen result is written first, then the agent's result is committed with the private
+  `checking: true` and `check_started_at`; the attempt stays `running` at the boundary and its
+  result is not projected. The `max_duration` timer is cancelled. The check then runs beside
+  the server (`Check.start/2`) with the turn's own sandbox (from its `turn.json`), in the
+  work's folder, its scratch `<home>/scratch/check-<work_id>.<n>`, and the only write that
+  reports `completed` carries `work_product.check` and `check_ended_at` (I2). Whatever the
+  check does, the attempt ends `completed`: a helper refusal and a `codex` gone at check time
+  (`sandbox_unavailable`, nothing started) are `check.error`, as is a helper that failed
+  after starting the check (`helper_failed`, I-H3 amendment (c)). A check whose group was not
+  confirmed gone (that failure, or `group_gone: false`) leaves the attempt not `quiescent`
+  until the probe finds the group gone. A client without `choose_path` reads the check's
+  output tail with the work folder as `.` and any other Runtime home path as `<runtime-home>`
+  (designer decision 2026-11-17).
+
+  **Checking under cancel, deadline, restart (design §5, §6 step 2; s5a-plan B19–B21, P10b).**
+  `checking` is a sub-stage of `running`: whatever stops the check, the attempt ends
+  `completed`, never `cancelling`, `cancelled`, `failed` or `interrupted`. A `cancel` (or a
+  `retry` that supersedes it) runs the cancel stages on the check's group: `cancel_stage:
+  requested` and `cancel_requested_at` are committed, then the helper is told
+  `{"stop":"signal"}` (`signalled`, `signalled_at`) or, with `force`, `{"stop":"kill"}`
+  (`forced`, `forced_at`), and after `cancel_grace` a check still running is killed. The
+  answer is `cancelling(stage, work)` while the attempt stays `running`; it ends `completed`
+  with `check.cancelled: true`. A `max_duration` deadline that reaches the core during the
+  check is ignored. At boot a `checking` attempt is not checked again: it ends `completed`
+  with `check.interrupted: true` and `check_ended_at` = the boot time, its frozen result kept
+  (B9), and not `quiescent` while a recorded `check_pgid` may live (the old helper lost its
+  stdin and stops the group itself). The heartbeat probe settles it once that group is
+  provably gone, and only then removes the check's scratch (B24); the same holds for a check
+  that ended without its group confirmed gone. While checking, the heartbeat's `alive` is the
+  check group's.
 
   **Stop (design §13.1 Q9).** From `{:stop, force, by}` on the core is `stopping` (in memory
   only, never persisted): it takes no new work and starts nothing; buffered work stays.
@@ -56,7 +123,10 @@ defmodule AtlasRuntime.Work.Server do
   alias AtlasRuntime.Persistence.History
 
   alias AtlasRuntime.Work.{
+    Check,
     Folders,
+    Frozen,
+    FrozenStore,
     Mode,
     Notifications,
     Prune,
@@ -117,12 +187,20 @@ defmodule AtlasRuntime.Work.Server do
       retention: Keyword.get(opts, :retention, Prune.default_retention()),
       processes: processes(opts),
       after_write: Keyword.get(opts, :after_write, fn _record -> :ok end),
+      freeze_hook: Keyword.get(opts, :freeze_hook, fn _frozen -> :ok end),
+      # At boot: the attempts whose frozen record a crash left uncommitted (B9).
+      orphaned: MapSet.new(),
       start_timeout_ms: Keyword.get(opts, :start_timeout_ms, 120_000),
       prepare_timeout_ms: Keyword.get(opts, :prepare_timeout_ms, 600_000),
       prepare_hook: Keyword.get(opts, :prepare_hook),
       # The running preparers (B25): their monitor ref => {work_id, attempt}.
       preparers: %{},
       stop_exit_ms: Keyword.get(opts, :stop_exit_ms, 200),
+      check_helper: Keyword.get(opts, :check_helper),
+      # The running after-checks (P10a): their monitor ref => {work_id, attempt, pid}.
+      checks: %{},
+      # The max_duration timers: {work_id, attempt} => timer ref, cancelled when checking starts.
+      deadlines: %{},
       # nil, or the stop: %{force, by, exiting} (exiting: the Service is asked to exit).
       stopping: nil,
       context: Provenance.context()
@@ -137,6 +215,10 @@ defmodule AtlasRuntime.Work.Server do
   def handle_continue(:boot, state) do
     # Before any attempt starts: a rebuild's moved-aside folder a crash left (B30).
     Folders.sweep(state.dir)
+    # Before any attempt ends: a frozen record its attempt never committed (B9).
+    state = %{state | orphaned: Restart.orphans(state.dir, state.works)}
+    # Retention of frozen results, after the orphans are gone (B12).
+    state = prune_frozen(state)
     owned = owned_turns(state)
 
     state =
@@ -145,6 +227,7 @@ defmodule AtlasRuntime.Work.Server do
       |> Enum.sort()
       |> Enum.reduce(state, &boot_work(&2, &1, owned))
 
+    state = %{state | orphaned: MapSet.new()}
     state = follow(state)
     state = refresh_all(state)
 
@@ -172,6 +255,10 @@ defmodule AtlasRuntime.Work.Server do
     owned? = turn_id != nil and MapSet.member?(owned, turn_id)
 
     case Restart.classify(attempt, turn, owned?) do
+      :checking ->
+        # The check is never run again (B21): completed, interrupted, its frozen result kept.
+        finish_check(state, id, attempt.attempt, Restart.interrupted_check(attempt, now()))
+
       :keep when owned? and is_nil(attempt.turn_id) and attempt.state == :starting ->
         running(state, id, attempt.attempt, turn_id)
 
@@ -182,11 +269,15 @@ defmodule AtlasRuntime.Work.Server do
       :keep ->
         # Only the core restarted: the turn runs on, and so does its time limit.
         if attempt.state == :running and attempt.timestamps.running_at,
-          do: deadline(state, record, attempt)
-
-        state
+          do: deadline(state, record, attempt),
+          else: state
 
       {:end, outcome} ->
+        outcome =
+          if MapSet.member?(state.orphaned, {id, attempt.attempt}),
+            do: Restart.unfrozen(outcome),
+            else: outcome
+
         end_attempt(state, id, attempt.attempt, turn, outcome, turn_id)
     end
   end
@@ -241,7 +332,7 @@ defmodule AtlasRuntime.Work.Server do
     outcome =
       case visible(state, client, id) do
         nil ->
-          case Enum.find(Map.values(state.index), &(&1.work_id == id and &1.pruned)) do
+          case Store.tombstone(state.index, id) do
             %{client: owner} = entry ->
               if Notifications.sees?(client, owner),
                 do: %B.Outcome.Pruned{work_id: id, kind: entry.final_kind},
@@ -252,7 +343,7 @@ defmodule AtlasRuntime.Work.Server do
           end
 
         record ->
-          %B.Outcome.Found{work: view(record, client)}
+          %B.Outcome.Found{work: project(state, client, record)}
       end
 
     {:reply, outcome, state}
@@ -274,7 +365,7 @@ defmodule AtlasRuntime.Work.Server do
         entry ->
           case state.works[entry.work_id] do
             nil -> %B.Outcome.NotFound{}
-            record -> %B.Outcome.Found{work: view(record, client)}
+            record -> %B.Outcome.Found{work: project(state, client, record)}
           end
       end
 
@@ -287,7 +378,7 @@ defmodule AtlasRuntime.Work.Server do
       |> Map.values()
       |> Enum.filter(&Notifications.sees?(client, &1.client))
       |> Enum.filter(&(is_nil(input.changed_since) or &1.sequence > input.changed_since))
-      |> Enum.map(&view(&1, client))
+      |> Enum.map(&project(state, client, &1))
       |> Enum.filter(&(is_nil(input.state) or &1.state == input.state))
       |> Enum.sort_by(& &1.sequence)
 
@@ -320,6 +411,12 @@ defmodule AtlasRuntime.Work.Server do
   end
 
   ## Operations (design §13.1 Q8, Q9; `AtlasRuntime.Work`'s I-K functions)
+
+  def handle_call({:get_frozen, client, %B.GetFrozenInput{} = input}, _from, state),
+    do: {:reply, get_frozen(state, client, input), state}
+
+  def handle_call({:get_frozen_blob, client, %B.GetFrozenBlobInput{} = input}, _from, state),
+    do: {:reply, get_frozen_blob(state, client, input), state}
 
   def handle_call(:mode, _from, state), do: {:reply, mode(state), state}
 
@@ -429,6 +526,9 @@ defmodule AtlasRuntime.Work.Server do
   def handle_info({:grace, id, n}, state) do
     state =
       case attempt_of(state, id, n) do
+        %{checking: true, cancel_stage: stage} when stage in [:requested, :signalled] ->
+          signal(state, id, n, "kill")
+
         %{state: :cancelling, cancel_stage: stage} when stage in [:requested, :signalled] ->
           signal(state, id, n, "kill")
 
@@ -464,9 +564,42 @@ defmodule AtlasRuntime.Work.Server do
         {:noreply,
          state |> folder_ready(ref, {:error, "preparer ended: #{inspect(reason)}"}) |> dispatch()}
 
+  def handle_info({:check_started, pid, pgid}, state),
+    do: {:noreply, check_started(state, pid, pgid)}
+
+  def handle_info({:check_ended, pid, result}, state) do
+    case Enum.find(state.checks, fn {_ref, {_id, _n, check}} -> check == pid end) do
+      {ref, {id, n, _pid}} ->
+        Process.demonitor(ref, [:flush])
+        state = %{state | checks: Map.delete(state.checks, ref)}
+        {:noreply, state |> finish_check(id, n, result) |> dispatch()}
+
+      nil ->
+        {:noreply, state}
+    end
+  end
+
+  # A check process that ended without its result: its helper may have started the group.
+  def handle_info({:DOWN, ref, :process, _pid, reason}, %{checks: checks} = state)
+      when is_map_key(checks, ref) do
+    {{id, n, _pid}, checks} = Map.pop(checks, ref)
+    Logger.warning("runtime work: #{id} attempt #{n}: the check ended early: #{inspect(reason)}")
+
+    pgid =
+      case attempt_of(state, id, n) do
+        %{check_pgid: pgid} -> pgid
+        nil -> nil
+      end
+
+    result = %{Check.refused(:helper_failed) | pgid: pgid, quiescent: is_nil(pgid)}
+    {:noreply, %{state | checks: checks} |> finish_check(id, n, result) |> dispatch()}
+  end
+
   def handle_info({:deadline, id, n}, state) do
     state =
       case attempt_of(state, id, n) do
+        # The check is not counted in max_duration (§3.10, B20): a deadline that raced it is late.
+        %{checking: true} -> state
         %{state: :running} -> request_cancel(state, id, n, :time_limit, :graceful)
         _ -> state
       end
@@ -530,7 +663,7 @@ defmodule AtlasRuntime.Work.Server do
       entry ->
         case state.works[entry.work_id] do
           %{request: ^request} = record ->
-            {:reply, %B.Outcome.Existing{work: view(record, client)}, state}
+            {:reply, %B.Outcome.Existing{work: project(state, client, record)}, state}
 
           _ ->
             refused(state, :conflict, "client key #{key} names another request")
@@ -554,27 +687,99 @@ defmodule AtlasRuntime.Work.Server do
       match?(%B.Base{}, input.workspace) and input.resume_from != nil ->
         refused(state, :invalid, "resume_from cannot continue into a base workspace")
 
-      # S5a guards (s5a-plan P4), each until its package lands: from_work (P9),
-      # after_check (P10a). Nothing past them knows these forms yet.
+      # A from_work work always runs in a fresh conversation (§3.9, B5).
+      match?(%B.FromWork{}, input.workspace) and input.resume_from != nil ->
+        refused(state, :invalid, "resume_from cannot be combined with from_work")
 
-      match?(%B.FromWork{}, input.workspace) ->
-        refused(state, :unsupported_workspace, "from_work not available")
+      # The after-check runs in the Runtime-chosen folder only, whose turn ran under one of
+      # the two profiles `host check` carries (materialized-folder, read-only; B18, P10a).
+      input.after_check != nil and
+          not match?(%kind{} when kind in [B.Base, B.FromWork], input.workspace) ->
+        refused(
+          state,
+          :unsupported_workspace,
+          "after_check runs only in a base or from_work workspace"
+        )
 
-      input.after_check != nil ->
-        refused(state, :invalid, "after_check not available")
+      input.after_check != nil and after_check(policy, input) != :ok ->
+        {reason, detail} = after_check(policy, input)
+        refused(state, reason, detail)
 
       true ->
-        with {:ok, resume} <- resume_from(state, client, input),
+        with {:ok, source} <- source(state, client, input.workspace),
+             {:ok, resume} <- resume_from(state, client, input),
              {:ok, _selection} <- check_policy(state, policy, request, resume),
              true <- room?(state) || {:full} do
-          create(state, client, key, request, resume)
+          create(state, client, key, request, resume, source)
         else
           {:refused, reason, detail} -> refused(state, reason, detail)
+          {:pruned, outcome} -> {:reply, outcome, state}
           {:at_capacity, reason, _} -> {:reply, at_capacity(state, reason), state}
           {:full} -> {:reply, at_capacity(state, :full), state}
         end
     end
   end
+
+  # B16, in order: the argv and timeout (invalid), the profile (policy_forbids), and a
+  # `codex` on the core's PATH, looked up now (B23: never cached).
+  defp after_check(policy, %B.WorkRequest{after_check: check, profile: profile}) do
+    rules = Policy.after_check(policy, profile)
+
+    with :ok <- Check.validate(check, rules.max_timeout) do
+      cond do
+        not rules.allowed -> {:policy_forbids, "after_check not allowed by profile"}
+        not Check.available?() -> {:policy_forbids, "after_check_unavailable"}
+        true -> :ok
+      end
+    end
+  end
+
+  # The frozen result a from_work work composes from (§3.9; B2–B4): `{:ok, %M.Source{}}`
+  # (nil for every other workspace), `{:refused, …}` or `{:pruned, outcome}`. Visibility is
+  # get_work's (read_all widens); an unknown work and one the caller may not read get the same
+  # answer, so nothing tells them apart. Without `attempt`, the latest completed one, resolved
+  # now and pinned. Once the work record is pruned, its key tombstone decides visibility and a
+  # result another work still names is retained (B12), so it is accepted; otherwise `pruned`.
+  defp source(state, client, %B.FromWork{work_id: id, attempt: n}) do
+    hidden = {:refused, :not_permitted, "from_work names no work this client may read"}
+
+    case state.works[id] do
+      %M.WorkRecord{client: owner} = record ->
+        n = n || latest_completed(record)
+
+        cond do
+          not Notifications.sees?(client, owner) ->
+            hidden
+
+          Frozen.kind(record) == :never ->
+            {:refused, :unsupported_workspace,
+             "work #{id} has no frozen result: its workspace has no base"}
+
+          is_integer(n) and match?(%{state: :completed}, attempt_of(state, id, n)) and
+              match?({:ok, %{pruned: false}}, FrozenStore.read(state.dir, id, n)) ->
+            {:ok, M.Source.new!(work_id: id, attempt: n)}
+
+          true ->
+            {:refused, :unsupported_workspace,
+             "work #{id} has no completed attempt#{n && " #{n}"} with a frozen result"}
+        end
+
+      nil ->
+        with %M.KeyIndexEntry{client: owner} = entry <- Store.tombstone(state.index, id),
+             true <- Notifications.sees?(client, owner) do
+          n = n || List.last(FrozenStore.attempts(state.dir, id))
+
+          case is_integer(n) && FrozenStore.read(state.dir, id, n) do
+            {:ok, %{pruned: false}} -> {:ok, M.Source.new!(work_id: id, attempt: n)}
+            _ -> {:pruned, %B.Outcome.Pruned{work_id: id, kind: entry.final_kind}}
+          end
+        else
+          _ -> hidden
+        end
+    end
+  end
+
+  defp source(_state, _client, _workspace), do: {:ok, nil}
 
   defp resume_from(_state, _client, %{resume_from: nil}), do: {:ok, nil}
 
@@ -595,7 +800,7 @@ defmodule AtlasRuntime.Work.Server do
     end
   end
 
-  defp create(state, {client_id, _rights} = client, key, request, resume) do
+  defp create(state, {client_id, _rights} = client, key, request, resume, source) do
     id = "work-" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
     now = now()
 
@@ -619,7 +824,8 @@ defmodule AtlasRuntime.Work.Server do
         revision: 0,
         sequence: 0,
         request: request,
-        attempts: [attempt]
+        attempts: [attempt],
+        source: source
       )
 
     state = commit(state, record)
@@ -636,7 +842,7 @@ defmodule AtlasRuntime.Work.Server do
         state
       end
 
-    {:reply, %B.Outcome.Accepted{work: view(state.works[id], client)}, state}
+    {:reply, %B.Outcome.Accepted{work: project(state, client, state.works[id])}, state}
   end
 
   ## Retry (§3.2 retry table)
@@ -657,6 +863,11 @@ defmodule AtlasRuntime.Work.Server do
 
         check =
           cond do
+            # A from_work work always runs in a fresh conversation (§3.9, B5).
+            input.resume && match?(%M.FromWork{}, record.request.workspace) ->
+              {:refused, :resume_unavailable,
+               "a from_work work always runs in a fresh conversation"}
+
             input.resume && is_nil(resume) ->
               {:refused, :resume_unavailable,
                "no earlier attempt left a conversation to continue"}
@@ -682,7 +893,8 @@ defmodule AtlasRuntime.Work.Server do
           true ->
             state = add_attempt(state, record, current, rule, resume)
 
-            {%B.Outcome.Accepted{work: view(state.works[record.work_id], client)}, state}
+            {%B.Outcome.Accepted{work: project(state, client, state.works[record.work_id])},
+             state}
         end
     end
   end
@@ -747,7 +959,7 @@ defmodule AtlasRuntime.Work.Server do
         id = record.work_id
 
         state =
-          case Queue.cancel_rule(current) do
+          case cancel_rule(current) do
             :ended ->
               state
 
@@ -765,16 +977,27 @@ defmodule AtlasRuntime.Work.Server do
 
         record = state.works[id]
         current = Queue.current(record)
-        work = view(record, client)
+        work = project(state, client, record)
 
         outcome =
-          if current.state == :cancelling,
+          if current.state == :cancelling or check_cancelling?(current),
             do: %B.Outcome.Cancelling{stage: current.cancel_stage, work: work},
             else: %B.Outcome.Ended{work: work}
 
         {outcome, state}
     end
   end
+
+  # A check being cancelled stays `running` at the boundary (B20): a second cancel only
+  # escalates its stage, as for a `cancelling` attempt.
+  defp cancel_rule(attempt) do
+    if check_cancelling?(attempt),
+      do: {:escalate, attempt.cancel_stage},
+      else: Queue.cancel_rule(attempt)
+  end
+
+  defp check_cancelling?(attempt),
+    do: Map.get(attempt, :checking) == true and attempt.cancel_stage != nil
 
   defp never_started(attempt, reason, now) do
     %{
@@ -793,13 +1016,23 @@ defmodule AtlasRuntime.Work.Server do
     }
   end
 
-  # requested is durable before the Service is asked; the signal then moves it on.
+  # requested is durable before the Service is asked; the signal then moves it on. During the
+  # check the attempt stays running (B20): the stages apply to the check's group, and the end
+  # is the check's, completed.
   defp request_cancel(state, id, n, reason, mode) do
-    attempt = attempt_of(state, id, n)
+    case attempt_of(state, id, n) do
+      %{checking: true, cancel_stage: stage} when stage != nil ->
+        if mode == :force and stage != :forced, do: signal(state, id, n, "kill"), else: state
 
+      attempt ->
+        request_stage(state, id, n, attempt, reason, mode)
+    end
+  end
+
+  defp request_stage(state, id, n, attempt, reason, mode) do
     attempt = %{
       attempt
-      | state: :cancelling,
+      | state: if(attempt.checking == true, do: attempt.state, else: :cancelling),
         cancel_stage: :requested,
         cancel_reason: reason,
         timestamps: %{attempt.timestamps | cancel_requested_at: now()}
@@ -814,7 +1047,37 @@ defmodule AtlasRuntime.Work.Server do
   defp signal(state, id, n, name) do
     case attempt_of(state, id, n) do
       %{preparing: true} -> state
+      %{checking: true} -> signal_check(state, id, n, name)
       _ -> signal_turn(state, id, n, name)
+    end
+  end
+
+  # The cancel stages on a check (B19, B20): the helper signals the group (SIGINT) or kills it
+  # (SIGKILL); the stage and its time are committed once the helper was told, and a signal is
+  # followed by the kill after cancel_grace.
+  defp signal_check(state, id, n, name) do
+    case Enum.find(state.checks, fn {_ref, {i, m, _pid}} -> i == id and m == n end) do
+      {_ref, {_id, _n, pid}} ->
+        Check.stop(pid, if(name == "kill", do: :kill, else: :signal))
+
+        {stage, field} =
+          if name == "kill", do: {:forced, :forced_at}, else: {:signalled, :signalled_at}
+
+        attempt = attempt_of(state, id, n)
+
+        attempt = %{
+          attempt
+          | cancel_stage: stage,
+            timestamps: Map.put(attempt.timestamps, field, now())
+        }
+
+        state = commit(state, put_attempt(state.works[id], attempt))
+        if name == "stop", do: grace(state, id, n)
+        state
+
+      nil ->
+        # No check process (it is ending): its end completes the attempt.
+        state
     end
   end
 
@@ -986,9 +1249,11 @@ defmodule AtlasRuntime.Work.Server do
     end
   end
 
-  defp launch(state, %{request: %{workspace: %M.Base{}}} = record, attempt, slot) do
+  defp launch(state, %{request: %{workspace: %kind{}}} = record, attempt, slot)
+       when kind in [M.Base, M.FromWork] do
     folder = Folders.path(state.dir, record.work_id)
-    # A resume continues the conversation in the folder as its turn left it (B29).
+    # A resume continues the conversation in the folder as its turn left it (B29); a
+    # from_work attempt never resumes (B5), so it is always composed.
     preparing = is_nil(attempt.resume_point)
 
     attempt = %{
@@ -1023,19 +1288,26 @@ defmodule AtlasRuntime.Work.Server do
   # The preparer runs beside the server (F17); its deadline counts from the start, as the
   # turn's will count from running_at (B25).
   defp prepare(state, record, attempt) do
-    %M.Base{base_id: base_id, permissions: permissions} = record.request.workspace
-
     spec = %{
       home: state.dir,
       work_id: record.work_id,
       attempt: attempt.attempt,
-      base_id: base_id,
-      read_only: permissions == :read_only,
+      read_only: record.request.workspace.permissions == :read_only,
       timeout_ms: state.prepare_timeout_ms,
       hook: state.prepare_hook
     }
 
-    {_pid, ref} = Folders.prepare(:materialize, spec, self())
+    # base: materialized from base_id; from_work: composed from the pinned source (B4).
+    {kind, spec} =
+      case record.request.workspace do
+        %M.Base{base_id: base_id} ->
+          {:materialize, Map.put(spec, :base_id, base_id)}
+
+        %M.FromWork{} ->
+          {:compose, Map.put(spec, :source, {record.source.work_id, record.source.attempt})}
+      end
+
+    {_pid, ref} = Folders.prepare(kind, spec, self())
     limits = Policy.limits(Policy.load(state.dir), record.request.profile)
 
     Process.send_after(
@@ -1252,19 +1524,41 @@ defmodule AtlasRuntime.Work.Server do
     }
 
     state = commit(state, put_attempt(state.works[id], attempt))
-    deadline(state, state.works[id], attempt)
+    state = deadline(state, state.works[id], attempt)
     # A start answered late (asked again after a timeout) may name a turn that has already
     # ended: its end events were pulled while the attempt had no turn ID, so only
     # `turn.json` still tells.
     refresh(state, turn)
   end
 
-  # max_duration counts from running_at.
+  # max_duration counts from running_at. Its timer is kept so that the check can cancel it
+  # (P10a: the check is not counted in max_duration, §3.10).
   defp deadline(state, record, attempt) do
     limits = Policy.limits(Policy.load(state.dir), record.request.profile)
     elapsed = DateTime.diff(now(), attempt.timestamps.running_at, :millisecond)
     remaining = max(limits.max_duration * 1000 - elapsed, 0)
-    Process.send_after(self(), {:deadline, record.work_id, attempt.attempt}, remaining)
+    key = {record.work_id, attempt.attempt}
+    timer = Process.send_after(self(), {:deadline, record.work_id, attempt.attempt}, remaining)
+    %{state | deadlines: Map.put(state.deadlines, key, timer)}
+  end
+
+  defp cancel_deadline(state, id, n) do
+    case Map.pop(state.deadlines, {id, n}) do
+      {nil, _} ->
+        state
+
+      {timer, deadlines} ->
+        # A timer that already fired has its message queued: it is taken back too.
+        if Process.cancel_timer(timer) == false do
+          receive do
+            {:deadline, ^id, ^n} -> :ok
+          after
+            0 -> :ok
+          end
+        end
+
+        %{state | deadlines: deadlines}
+    end
   end
 
   defp back_to_buffer(state, id, slot) do
@@ -1367,7 +1661,17 @@ defmodule AtlasRuntime.Work.Server do
 
   defp refresh(state, _turn_id), do: state
 
+  # An attempt in its checking sub-stage has its agent's end persisted already: only the
+  # check's end moves it on (P10a; the turn's events, a refresh or a signal's answer never
+  # end it again, and so never freeze or check it twice).
   defp end_attempt(state, id, n, turn, outcome, turn_id \\ nil) do
+    case attempt_of(state, id, n) do
+      %{checking: true} -> state
+      _ -> agent_ended(state, id, n, turn, outcome, turn_id)
+    end
+  end
+
+  defp agent_ended(state, id, n, turn, outcome, turn_id) do
     # A turn a stop ended is the stop's (§13.1 Q9): interrupted, runtime_stop.
     outcome =
       if state.stopping && outcome.kind == :interrupted,
@@ -1376,6 +1680,8 @@ defmodule AtlasRuntime.Work.Server do
 
     record = state.works[id]
     attempt = attempt_of(state, id, n)
+    # Frozen before the commit that reports completed (I2, B9); refused, it is failed (B10).
+    {outcome, work_product} = freeze(state, record, attempt, outcome)
     turn_id = turn_id || attempt.turn_id
     now = now()
     ended_at = (turn && time(turn["ended_at"])) || now
@@ -1388,6 +1694,7 @@ defmodule AtlasRuntime.Work.Server do
         native_outcome: outcome.native_outcome,
         never_started: false,
         answer: outcome.answer,
+        work_product: work_product,
         log:
           turn_id &&
             M.Log.new!(
@@ -1397,7 +1704,7 @@ defmodule AtlasRuntime.Work.Server do
             )
       )
 
-    attempt = %{
+    ended = %{
       attempt
       | state: outcome.kind,
         turn_id: turn_id,
@@ -1410,8 +1717,220 @@ defmodule AtlasRuntime.Work.Server do
         timestamps: %{attempt.timestamps | ended_at: ended_at}
     }
 
-    state = commit(state, put_attempt(record, attempt))
-    if attempt.quiescent and attempt.slot, do: maybe_release(state, attempt.slot), else: state
+    cond do
+      check?(record, attempt, outcome, work_product) and attempt.cancel_stage != nil ->
+        # A cancel asked for before this result, which the result wins (§5): the cancel stops
+        # only the check (§3.10, B20, D43), here before it starts. One write, completed, carries
+        # the check as cancelled; nothing is run (P10a fix M1).
+        check = check_record(record, Check.cancelled())
+        product = %{work_product | check: check}
+
+        ended = %{
+          ended
+          | result: %{result | work_product: product},
+            timestamps: %{
+              ended.timestamps
+              | check_started_at: now,
+                check_ended_at: now,
+                ended_at: now
+            }
+        }
+
+        state = commit(state, put_attempt(record, ended))
+        if ended.quiescent and ended.slot, do: maybe_release(state, ended.slot), else: state
+
+      check?(record, attempt, outcome, work_product) ->
+        # The agent's result, work_product.workspace and the frozen result are persisted before
+        # the check starts (§3.10, I2); the attempt stays running until the check's end.
+        checking = %{
+          ended
+          | state: attempt.state,
+            checking: true,
+            check_pgid: nil,
+            timestamps: %{attempt.timestamps | check_started_at: now()}
+        }
+
+        state = commit(state, put_attempt(record, checking))
+        state |> cancel_deadline(id, n) |> start_check(id, n)
+
+      true ->
+        state = commit(state, put_attempt(record, ended))
+        if ended.quiescent and ended.slot, do: maybe_release(state, ended.slot), else: state
+    end
+  end
+
+  # Only an attempt that ends completed (its result frozen: a base or from_work folder) has a
+  # check (§3.10). One whose cancel was asked for before its result records the check as
+  # cancelled without running it (`agent_ended/6`).
+  defp check?(
+         %{request: %{after_check: %M.AfterCheck{}}},
+         _attempt,
+         %{kind: :completed},
+         product
+       ),
+       do: product != nil
+
+  defp check?(_record, _attempt, _outcome, _product), do: false
+
+  defp check_record(record, result) do
+    M.CheckResult.new!(
+      command: record.request.after_check.command,
+      exit_status: result.exit_status,
+      signal: result.signal,
+      error: result.error,
+      timed_out: result.timed_out,
+      cancelled: result.cancelled,
+      interrupted: Map.get(result, :interrupted, false),
+      duration_ms: result.duration_ms,
+      output: M.CheckOutput.new!(tail: result.output.tail, complete: result.output.complete)
+    )
+  end
+
+  ## After-check (§3.10; s5a-plan B18, B23, B24, B28)
+
+  # codex gone since submit: the check is not run, and nothing is started (B23).
+  defp start_check(state, id, n) do
+    record = state.works[id]
+    attempt = attempt_of(state, id, n)
+    sandbox = Check.sandbox(Turns.read_turn(state.dir, attempt.turn_id) || %{})
+
+    cond do
+      not Check.available?() ->
+        finish_check(state, id, n, Check.unavailable())
+
+      sandbox == :unsupported ->
+        Logger.warning(
+          "runtime work: #{id} attempt #{n}: its turn's sandbox cannot run the check; not run"
+        )
+
+        finish_check(state, id, n, Check.unavailable())
+
+      true ->
+        rules = Policy.after_check(Policy.load(state.dir), record.request.profile)
+        check = record.request.after_check
+
+        spec = %{
+          home: state.dir,
+          cwd: Frozen.folder(record, attempt),
+          sandbox: sandbox,
+          scratch: Check.scratch(state.dir, id, n),
+          timeout: check.timeout || rules.default_timeout,
+          grace: max(div(grace_ms(state) + 999, 1000), 1),
+          command: check.command,
+          helper: state.check_helper
+        }
+
+        {:ok, pid} = Check.start(spec, self())
+        ref = Process.monitor(pid)
+        %{state | checks: Map.put(state.checks, ref, {id, n, pid})}
+    end
+  end
+
+  defp check_started(state, pid, pgid) do
+    case Enum.find(state.checks, fn {_ref, {_id, _n, check}} -> check == pid end) do
+      {_ref, {id, n, _pid}} ->
+        case attempt_of(state, id, n) do
+          %{checking: true} = attempt ->
+            commit(state, put_attempt(state.works[id], %{attempt | check_pgid: pgid}))
+
+          _ ->
+            state
+        end
+
+      nil ->
+        state
+    end
+  end
+
+  # The one write that reports completed carries the check (I2). The attempt is quiescent once
+  # its turn was and the check's group is confirmed gone; otherwise the probe settles it.
+  defp finish_check(state, id, n, result) do
+    case attempt_of(state, id, n) do
+      %{checking: true} = attempt ->
+        record = state.works[id]
+        now = now()
+
+        check = check_record(record, result)
+        product = %{attempt.result.work_product | check: check}
+
+        attempt = %{
+          attempt
+          | state: :completed,
+            checking: false,
+            check_pgid: result.pgid || attempt.check_pgid,
+            quiescent: attempt.quiescent and result.quiescent,
+            result: %{attempt.result | work_product: product},
+            timestamps: %{attempt.timestamps | check_ended_at: now, ended_at: now}
+        }
+
+        state = commit(state, put_attempt(record, attempt))
+        if attempt.quiescent and attempt.slot, do: maybe_release(state, attempt.slot), else: state
+
+      _ ->
+        state
+    end
+  end
+
+  # Only a completed attempt is frozen; every other end keeps no work product (B8).
+  defp freeze(state, record, attempt, %{kind: :completed} = outcome) do
+    folder = Frozen.folder(record, attempt)
+
+    with {:ok, based_on} <- based_on(state, record),
+         {:ok, frozen} <- Frozen.freeze(state.dir, record, attempt, folder) do
+      state.freeze_hook.(frozen)
+
+      product =
+        M.WorkProduct.new!(
+          workspace:
+            M.ProductWorkspace.new!(
+              path: folder,
+              changed: Enum.any?(frozen.roots, &(&1.entries != []))
+            ),
+          frozen:
+            M.FrozenRef.new!(
+              base: frozen.base,
+              fingerprints:
+                for(root <- frozen.roots, do: %{root: root.root, fingerprint: root.fingerprint})
+            ),
+          based_on: based_on
+        )
+
+      {outcome, product}
+    else
+      :not_frozen ->
+        {outcome, nil}
+
+      {:error, detail} ->
+        Logger.warning(
+          "runtime work: #{record.work_id} attempt #{attempt.attempt} failed (workspace), " <>
+            "its result could not be frozen: #{detail}"
+        )
+
+        {%{outcome | kind: :failed, reason: "workspace"}, nil}
+    end
+  end
+
+  defp freeze(_state, _record, _attempt, outcome), do: {outcome, nil}
+
+  # A from_work result records the frozen result it was composed from: the pinned source's
+  # attempt and fingerprints (§3.9). That result is retained while this work exists (B12),
+  # and a tombstone keeps its fingerprints too.
+  defp based_on(_state, %M.WorkRecord{source: nil}), do: {:ok, nil}
+
+  defp based_on(state, %M.WorkRecord{source: %{work_id: id, attempt: n}}) do
+    case FrozenStore.read(state.dir, id, n) do
+      {:ok, source} ->
+        {:ok,
+         M.BasedOn.new!(
+           work_id: id,
+           attempt: n,
+           fingerprints:
+             for(root <- source.roots, do: %{root: root.root, fingerprint: root.fingerprint})
+         )}
+
+      :not_found ->
+        {:error, "the frozen result #{id}.#{n} it was composed from is gone"}
+    end
   end
 
   # One record per turn, written once, when the attempt ends.
@@ -1512,12 +2031,27 @@ defmodule AtlasRuntime.Work.Server do
   # interrupted, once provably gone.
   defp probe(state, processes) do
     Enum.reduce(unsettled(state), state, fn {id, attempt}, state ->
+      # A check whose group was not confirmed gone (P10a) must be gone too.
       gone? =
         if attempt.turn_id,
-          do: Restart.gone?(state.dir, attempt.turn_id, processes),
+          do:
+            Restart.gone?(state.dir, attempt.turn_id, processes) and
+              Check.gone?(attempt, processes),
           else: Restart.prepare_gone?(attempt, processes)
 
-      if gone?, do: settle(state, id, attempt.attempt), else: state
+      cond do
+        not gone? ->
+          state
+
+        attempt.timestamps.check_started_at ->
+          # The check's group is provably gone: its scratch may go now, never before (B21,
+          # B24); the helper keeps it when it could not confirm that itself.
+          Restart.remove_check_scratch(state.dir, id, attempt.attempt)
+          settle(state, id, attempt.attempt)
+
+        true ->
+          settle(state, id, attempt.attempt)
+      end
     end)
   end
 
@@ -1698,43 +2232,208 @@ defmodule AtlasRuntime.Work.Server do
   # The tombstone is written, then the record deleted, then the change mentioned (I2, I7).
   # A work without a client key keeps its tombstone under `{:pruned, work_id}`, which no
   # client key looks up (`Store`).
+  # Once works are pruned, the frozen results nothing retains any longer become tombstones
+  # and their unshared blobs go (B12, `prune_frozen/1`).
   defp prune(state) do
-    Enum.reduce(Prune.due(state.works, now(), state.retention), state, fn id, state ->
-      record = state.works[id]
-      final = Queue.current(record).state
+    case Prune.due(state.works, now(), state.retention) do
+      [] -> state
+      due -> due |> Enum.reduce(state, &prune_work(&2, &1)) |> prune_frozen()
+    end
+  end
 
-      entry =
-        M.KeyIndexEntry.new!(
-          client: record.client,
-          client_key: record.client_key || id,
-          work_id: id,
-          final_kind: final,
-          pruned: true
+  # Frozen results' retention (B12): after the works are pruned, and once at boot (a crash
+  # between a work's deletion and this step leaves nothing behind). It runs inside this
+  # process, so no freeze is between its helper's blobs and its record meanwhile.
+  defp prune_frozen(state) do
+    for {id, n} <- FrozenStore.prune(state.dir, state.works, state.index),
+        do: Logger.info("runtime work: frozen result #{id}.#{n} pruned (tombstone kept)")
+
+    state
+  end
+
+  defp prune_work(state, id) do
+    record = state.works[id]
+    final = Queue.current(record).state
+
+    entry =
+      M.KeyIndexEntry.new!(
+        client: record.client,
+        client_key: record.client_key || id,
+        work_id: id,
+        final_kind: final,
+        pruned: true
+      )
+
+    key = if record.client_key, do: {record.client, record.client_key}, else: {:pruned, id}
+    index = Map.put(state.index, key, entry)
+    Store.put_index!(state.dir, index)
+    Store.delete_work!(state.dir, id)
+
+    sequence = state.sequence + 1
+    Store.put_sequence!(state.dir, sequence)
+
+    change = %B.WorkChanged{
+      sequence: sequence,
+      work_id: id,
+      revision: record.revision + 1,
+      state: final
+    }
+
+    %{
+      state
+      | index: index,
+        works: Map.delete(state.works, id),
+        sequence: sequence,
+        notifications: Notifications.work_changed(state.notifications, change, record.client)
+    }
+  end
+
+  ## Reading frozen results (design §3.9; s5a-plan B1, B12, B13)
+
+  # get_frozen: the change set with each root's fingerprint; a given fingerprint must be one
+  # root's (else fingerprint_mismatch). Reads only: nothing is written.
+  defp get_frozen(state, client, %B.GetFrozenInput{} = input) do
+    case frozen_result(state, client, input.work_id, input.attempt) do
+      {:ok, frozen} ->
+        if input.fingerprint &&
+             not Enum.any?(frozen.roots, &(&1.fingerprint == input.fingerprint)),
+           do: %B.Outcome.FingerprintMismatch{},
+           else:
+             struct!(
+               B.Outcome.Frozen,
+               Map.from_struct(Translation.frozen(frozen, redaction(state, client, frozen)))
+             )
+
+      {:pruned, outcome} ->
+        outcome
+
+      :not_found ->
+        %B.Outcome.NotFound{}
+    end
+  end
+
+  # get_frozen_blob: only the content of a write entry of that very frozen result (B13); a
+  # blob of any other result is not_found here even if the store holds it. A file's blob is
+  # streamed from the store in chunks of at most 64 KiB, opened only when the caller reads
+  # it (FrozenStore.blob/2); a symlink's content is its target.
+  defp get_frozen_blob(state, client, %B.GetFrozenBlobInput{} = input) do
+    with {:ok, frozen} <- frozen_result(state, client, input.work_id, input.attempt),
+         %{} = entry <- write_entry(frozen, input.sha256),
+         content when content != nil <- blob_content(state, client, frozen, entry) do
+      %B.Outcome.Blob{sha256: entry.sha256, size: entry.size, content: content}
+    else
+      {:pruned, outcome} -> outcome
+      _ -> %B.Outcome.NotFound{}
+    end
+  end
+
+  # Attempt n (default: the latest completed one) of a work the client may read:
+  # `{:ok, frozen}`, `{:pruned, outcome}` for a tombstone, or `:not_found`. While the work
+  # record exists it decides visibility (read_all widens, as for get_work), and only a
+  # `completed` attempt's result is readable. Once the record is pruned the key tombstone's
+  # client decides visibility, and the store the default attempt (only completed attempts are
+  # ever frozen, B9): a retained result still answers `frozen` (B12).
+  defp frozen_result(state, client, id, n) do
+    case state.works[id] do
+      %M.WorkRecord{client: owner} = record ->
+        with true <- Notifications.sees?(client, owner),
+             n when is_integer(n) <- n || latest_completed(record),
+             %{state: :completed} <- Enum.find(record.attempts, &(&1.attempt == n)) do
+          stored(state, id, n, :completed)
+        else
+          _ -> :not_found
+        end
+
+      nil ->
+        with %M.KeyIndexEntry{client: owner} = entry <- Store.tombstone(state.index, id),
+             true <- Notifications.sees?(client, owner),
+             n when is_integer(n) <- n || List.last(FrozenStore.attempts(state.dir, id)) do
+          stored(state, id, n, entry.final_kind)
+        else
+          _ -> :not_found
+        end
+    end
+  end
+
+  defp stored(state, id, n, kind) do
+    case FrozenStore.read(state.dir, id, n) do
+      {:ok, %{pruned: true}} -> {:pruned, %B.Outcome.Pruned{work_id: id, kind: kind}}
+      {:ok, frozen} -> {:ok, frozen}
+      :not_found -> :not_found
+    end
+  end
+
+  defp latest_completed(record) do
+    record.attempts
+    |> Enum.filter(&(&1.state == :completed))
+    |> List.last()
+    |> case do
+      nil -> nil
+      attempt -> attempt.attempt
+    end
+  end
+
+  defp write_entry(frozen, sha256) do
+    Enum.find_value(frozen.roots, fn root ->
+      Enum.find(root.entries, &(&1.op == :write and &1.sha256 == sha256))
+    end)
+  end
+
+  defp blob_content(state, _client, _frozen, %{kind: :file, sha256: sha}),
+    do: FrozenStore.blob(state.dir, sha)
+
+  defp blob_content(state, client, frozen, %{kind: :symlink, target: target}),
+    do: [redaction(state, client, frozen).(target)]
+
+  # D44 (designer's open item on frozen-result paths): a client without choose_path never
+  # sees a path on the Runtime's machine. A symlink target is the one free text a change set
+  # carries; as for a check's output tail, the work's folder becomes `.` and any other path
+  # under the Runtime home `<runtime-home>`, by plain prefix replacement. The fingerprint and
+  # sha256 stay those of the frozen content. A client with choose_path sees the target as is.
+  defp redaction(state, client, %{work_id: id}), do: redaction(state, client, id, nil)
+
+  # `folder`: a client-named folder the work ran in (a socket client's `folder` work), also `.`.
+  defp redaction(state, {_id, rights}, work_id, folder) do
+    if :choose_path in rights do
+      & &1
+    else
+      home = Path.expand(state.dir)
+      real_home = Folders.real(home)
+      own = Folders.path(state.dir, work_id)
+
+      prefixes =
+        Enum.uniq(
+          for(path <- [folder], is_binary(path), do: {path, "."}) ++
+            [
+              {own, "."},
+              {Path.join([home, "workers", "work-" <> work_id]), "."},
+              {real_home, "<runtime-home>"},
+              {home, "<runtime-home>"}
+            ]
         )
 
-      key = if record.client_key, do: {record.client, record.client_key}, else: {:pruned, id}
-      index = Map.put(state.index, key, entry)
-      Store.put_index!(state.dir, index)
-      Store.delete_work!(state.dir, id)
+      fn text ->
+        Enum.reduce(prefixes, text, fn {from, to}, text -> String.replace(text, from, to) end)
+      end
+    end
+  end
 
-      sequence = state.sequence + 1
-      Store.put_sequence!(state.dir, sequence)
+  # A work as this client may see it: paths on this machine only with choose_path (D44); and
+  # (designer decision 2026-11-17 on the check's output tail) for a client without choose_path
+  # the tail names its work folder `.` and any other Runtime home path `<runtime-home>`; exit
+  # status, signal and the flags are unchanged.
+  defp project(state, {_id, rights} = client, %M.WorkRecord{} = record) do
+    folder =
+      case record.request.workspace do
+        %M.Folder{path: path} -> path
+        _ -> nil
+      end
 
-      change = %B.WorkChanged{
-        sequence: sequence,
-        work_id: id,
-        revision: record.revision + 1,
-        state: final
-      }
-
-      %{
-        state
-        | index: index,
-          works: Map.delete(state.works, id),
-          sequence: sequence,
-          notifications: Notifications.work_changed(state.notifications, change, record.client)
-      }
-    end)
+    Translation.from_model_redacting(
+      record,
+      rights,
+      redaction(state, client, record.work_id, folder)
+    )
   end
 
   ## Persisting and notifying
@@ -1795,8 +2494,7 @@ defmodule AtlasRuntime.Work.Server do
            work_id: id,
            attempt: attempt.attempt,
            state: attempt.state,
-           alive:
-             attempt.turn_id != nil and Restart.alive?(state.dir, attempt.turn_id, processes),
+           alive: alive?(state, attempt, processes),
            last_progress_at: attempt.turn_id && progress(state.dir, attempt.turn_id),
            activity: attempt.turn_id && activity[attempt.turn_id]
          }}
@@ -1804,6 +2502,13 @@ defmodule AtlasRuntime.Work.Server do
 
     Notifications.heartbeat(state.notifications, now(), capacity(state), running)
   end
+
+  # While checking, the check's group is what runs (B21); otherwise the turn's.
+  defp alive?(_state, %{checking: true} = attempt, processes),
+    do: Restart.check_alive?(attempt, processes)
+
+  defp alive?(state, attempt, processes),
+    do: attempt.turn_id != nil and Restart.alive?(state.dir, attempt.turn_id, processes)
 
   # The time of the turn's last harness event or output byte: its newest file.
   defp progress(dir, turn_id) do
@@ -1969,9 +2674,6 @@ defmodule AtlasRuntime.Work.Server do
       nil -> nil
     end
   end
-
-  # A work as this client may see it: paths on this machine only with choose_path (D44).
-  defp view(record, {_id, rights}), do: Translation.from_model(record, rights)
 
   defp refused(state, reason, detail),
     do: {:reply, %B.Outcome.Refused{reason: reason, detail: detail}, state}

@@ -5,7 +5,9 @@
 //	fake-native admission ROOT ARGV0 ARGS...  Codex/Claude admission fixture (backend from ARGV0)
 //	fake-native protocol MODE CAPTURE         Claude SDK protocol projection fixture
 //	fake-native detach COMMAND ARGS...        COMMAND in a new session (the e2e's Runtime, so it can be killed as a group)
-//	fake-native work ROOT ARGV0 ARGS...       Codex/Claude turn for the work core (goal: complete|hang|stubborn|linger|wait NAME|fail|model_change|subagent_model|resume ...)
+//	fake-native work ROOT ARGV0 ARGS...       Codex/Claude turn for the work core (goal: complete|hang|stubborn|linger|wait NAME|fail|model_change|subagent_model|resume ...);
+//	                                          as codex, `sandbox -P PROFILE -C DIR ARGS... -- ARGV` runs ARGV in DIR (passthrough)
+//	fake-native hostcheck host check ...      Stand-in for P6's `atlas-runtime host check` (I-H3 as amended), for the work core
 package main
 
 import (
@@ -21,9 +23,11 @@ import (
 	"os/signal"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf8"
 )
 
 var (
@@ -56,7 +60,15 @@ func main() {
 		if len(args) < 2 {
 			fail("work requires ROOT and ARGV0")
 		}
+		if filepath.Base(args[1]) == "codex" && len(args) > 2 && args[2] == "sandbox" {
+			sandbox(args[0], args[1:])
+		}
 		work(args[0], args[1:])
+	case "hostcheck":
+		if len(args) < 2 || args[0] != "host" || args[1] != "check" || os.Getenv("ATLAS_RUNTIME_HOME") == "" {
+			fail("hostcheck requires host check ... and ATLAS_RUNTIME_HOME")
+		}
+		hostCheck(os.Getenv("ATLAS_RUNTIME_HOME"), args[2:])
 	default:
 		fail("unknown fixture mode " + mode)
 	}
@@ -375,7 +387,11 @@ func detach(argv []string) {
 // without a result, and for Claude "model_change" reports a second top-level model (then
 // runs until it is signalled), "subagent_model" reports another model only in a subagent
 // record (then completes), and "resume" runs until it is signalled unless it was launched
-// as a resume, which completes with "resumed: SESSION".
+// as a resume, which completes with "resumed: SESSION". A goal whose first word is "write",
+// "delete", "chmod" or "symlink" is a list of edits separated by ";", made in the turn's
+// folder before it completes: "write PATH TEXT" (parents created, TEXT plus a newline, 0644),
+// "delete PATH", "chmod PATH MODE" (octal) and "symlink PATH TARGET"; a last item "fail" or
+// "hang" then ends the turn as those goals do.
 func work(root string, argv []string) {
 	goal, backend := argv[len(argv)-1], filepath.Base(argv[0])
 	resumed := slices.Contains(argv, "resume")
@@ -437,6 +453,9 @@ func work(root string, argv []string) {
 	if mode == "resume" && !resumed {
 		mode = "hang"
 	}
+	if mode == "write" || mode == "delete" || mode == "chmod" || mode == "symlink" {
+		mode = edit(goal)
+	}
 	switch mode {
 	case "stubborn":
 		signal.Ignore(syscall.SIGINT, syscall.SIGTERM)
@@ -490,6 +509,36 @@ func work(root string, argv []string) {
 		emit(map[string]any{"type": "turn.completed"})
 	}
 	ended("result")
+}
+
+// edit makes a goal's edits in the current folder and returns how the turn then ends.
+func edit(goal string) string {
+	end := "complete"
+	for _, item := range strings.Split(goal, ";") {
+		words := strings.Fields(item)
+		if len(words) == 0 {
+			continue
+		}
+		switch {
+		case words[0] == "write" && len(words) >= 2:
+			check(os.MkdirAll(filepath.Dir(words[1]), 0755))
+			check(os.WriteFile(words[1], []byte(strings.Join(words[2:], " ")+"\n"), 0644))
+		case words[0] == "delete" && len(words) == 2:
+			check(os.Remove(words[1]))
+		case words[0] == "chmod" && len(words) == 3:
+			mode, err := strconv.ParseUint(words[2], 8, 32)
+			check(err)
+			check(os.Chmod(words[1], os.FileMode(mode)))
+		case words[0] == "symlink" && len(words) == 3:
+			check(os.MkdirAll(filepath.Dir(words[1]), 0755))
+			check(os.Symlink(words[2], words[1]))
+		case words[0] == "fail" || words[0] == "hang":
+			end = words[0]
+		default:
+			fail("unknown edit: " + item)
+		}
+	}
+	return end
 }
 
 // protocol captures one bounded request line and answers with a synthetic SDK projection.
@@ -566,4 +615,270 @@ func protocol(args []string) {
 	if mode == "duplicate" {
 		stdout.Write(encode(echo))
 	}
+}
+
+// sandbox stands in for `codex sandbox -P PROFILE -C DIR ARGS... -- ARGV` the way
+// host/host/prepare_test.go does: it logs its own path and argv to ROOT/check-sandbox.jsonl
+// and execs ARGV in DIR with its environment unchanged. It enforces nothing.
+func sandbox(root string, argv []string) {
+	dir, rest := "", []string(nil)
+	for i := 2; i < len(argv); i++ {
+		if argv[i] == "-C" && i+1 < len(argv) {
+			dir = argv[i+1]
+		}
+		if argv[i] == "--" {
+			rest = argv[i+1:]
+			break
+		}
+	}
+	appendFile(filepath.Join(root, "check-sandbox.jsonl"), encode(map[string]any{
+		"codex": argv[0], "argv": argv[1:], "tmpdir": os.Getenv("TMPDIR"),
+		"runtime_home": os.Getenv("ATLAS_RUNTIME_HOME")}))
+	if dir == "" || len(rest) == 0 {
+		fail("sandbox requires -C DIR and -- ARGV")
+	}
+	check(os.Chdir(dir))
+	program := rest[0]
+	if !strings.Contains(program, "/") {
+		found, err := exec.LookPath(program)
+		check(err)
+		program = found
+	}
+	check(syscall.Exec(program, rest, os.Environ()))
+}
+
+// hostCheck stands in for P6's `atlas-runtime host check` (I-H3, with the coordinator's
+// amendment of 2026-11-17), which this tree does not have yet:
+//
+//	--cwd D (--scope JSON | --sandbox read-only) --scratch S --timeout SEC --grace SEC --tail BYTES -- ARGV
+//
+// ROOT is the Runtime home the core names in ATLAS_RUNTIME_HOME. It logs its argv to
+// ROOT/check-launches.jsonl, refuses (one `refused` line, no `started`)
+// a codex that LookPath does not find as an absolute path (sandbox_unavailable), a command[0]
+// that leaves D (leaves_folder) and an unknown name (not_found); otherwise it recreates S
+// (0700), runs `<codex> sandbox -P <profile> -C D <args> -- ARGV` in its own process group with
+// TMPDIR in S, stops the group on timeout, on a stdin stop line and at stdin EOF (SIGINT, then
+// SIGKILL after the grace), and reports `ended` once the group is gone and S removed.
+//
+// ROOT/check-fault selects a deviation of the amendment: `setup_error` (exit 1, an error on
+// stderr, no stdout event: (b)), `die_after_started` (exit 1 right after `started`, no
+// `ended`: (c)) or `group_kept` (`group_gone: false`, S kept: (a)).
+func hostCheck(root string, argv []string) {
+	appendFile(filepath.Join(root, "check-launches.jsonl"), encode(map[string]any{
+		"argv": argv, "pid": os.Getpid(), "path": os.Getenv("PATH"),
+		"runtime_home": os.Getenv("ATLAS_RUNTIME_HOME")}))
+	// Every end is logged too, so a test can wait for each helper it started to be done.
+	checkRoot = root
+	options := map[string]string{}
+	var command []string
+	for i := 0; i < len(argv); i++ {
+		if argv[i] == "--" {
+			command = argv[i+1:]
+			break
+		}
+		if !strings.HasPrefix(argv[i], "--") || i+1 >= len(argv) {
+			setupError("unexpected argument " + argv[i])
+		}
+		options[argv[i][2:]] = argv[i+1]
+		i++
+	}
+	fault := ""
+	if data, err := os.ReadFile(filepath.Join(root, "check-fault")); err == nil {
+		fault = strings.TrimSpace(string(data))
+	}
+	dir, scratch := options["cwd"], options["scratch"]
+	timeout, err1 := strconv.Atoi(options["timeout"])
+	grace, err2 := strconv.Atoi(options["grace"])
+	tail, err3 := strconv.Atoi(options["tail"])
+	if fault == "setup_error" || dir == "" || scratch == "" || len(command) == 0 ||
+		err1 != nil || err2 != nil || err3 != nil ||
+		(options["scope"] == "") == (options["sandbox"] != "read-only") {
+		setupError("usage: host check --cwd D (--scope JSON | --sandbox read-only) ...")
+	}
+	codex, err := exec.LookPath("codex")
+	if err != nil || !filepath.IsAbs(codex) {
+		refuse("sandbox_unavailable")
+	}
+	if why := program(dir, command[0]); why != "" {
+		refuse(why)
+	}
+	check(os.RemoveAll(scratch))
+	check(os.Mkdir(scratch, 0o700))
+	profile, args := "atlas_read_only", []string{"-c", `default_permissions="atlas_read_only"`}
+	if options["scope"] != "" {
+		profile = "atlas_folder"
+		args = []string{"-c", `default_permissions="atlas_folder"`,
+			"-c", `permissions={scope=` + options["scope"] + `,unix_sockets="` + scratch + `"}`}
+	}
+	full := append(append([]string{"sandbox", "-P", profile, "-C", dir}, args...), "--")
+	child := exec.Command(codex, append(full, command...)...)
+	child.Dir = dir
+	child.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + os.Getenv("HOME"),
+		"TMPDIR=" + scratch, "XDG_CACHE_HOME=" + scratch}
+	child.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	reader, writer, err := os.Pipe()
+	check(err)
+	child.Stdout, child.Stderr = writer, writer
+	started := time.Now()
+	check(child.Start())
+	writer.Close()
+	pgid := child.Process.Pid
+	emit(map[string]any{"event": "started", "pgid": pgid})
+	if fault == "die_after_started" {
+		checkEnded("died")
+		stdout.Flush()
+		os.Exit(1)
+	}
+	type tailed struct {
+		data     []byte
+		complete bool
+	}
+	output := make(chan tailed, 1)
+	go func() {
+		var kept []byte
+		total, buffer := 0, make([]byte, 32*1024)
+		for {
+			n, err := reader.Read(buffer)
+			total += n
+			kept = append(kept, buffer[:n]...)
+			if len(kept) > tail {
+				kept = kept[len(kept)-tail:]
+			}
+			if err != nil {
+				break
+			}
+		}
+		for len(kept) > 0 && !utf8.RuneStart(kept[0]) {
+			kept = kept[1:]
+		}
+		output <- tailed{kept, total == len(kept)}
+	}()
+	stops := make(chan string, 4)
+	go func() {
+		for {
+			line, ok := readLine()
+			if !ok {
+				stops <- "eof"
+				return
+			}
+			var stop map[string]string
+			if json.Unmarshal(line, &stop) == nil && (stop["stop"] == "signal" || stop["stop"] == "kill") {
+				stops <- stop["stop"]
+			}
+		}
+	}()
+	done := make(chan error, 1)
+	go func() { done <- child.Wait() }()
+	signalled, timedOut, stopped := "", false, false
+	send := func(name string) {
+		number := syscall.SIGINT
+		if name == "SIGKILL" {
+			number = syscall.SIGKILL
+		}
+		signalled = name
+		syscall.Kill(-pgid, number)
+	}
+	limit := time.After(time.Duration(timeout) * time.Second)
+	var force <-chan time.Time
+	var waited error
+loop:
+	for {
+		select {
+		case waited = <-done:
+			break loop
+		case <-limit:
+			timedOut = true
+			send("SIGINT")
+			force = time.After(time.Duration(grace) * time.Second)
+		case how := <-stops:
+			stopped = true
+			if how == "kill" {
+				send("SIGKILL")
+			} else {
+				send("SIGINT")
+				force = time.After(time.Duration(grace) * time.Second)
+			}
+		case <-force:
+			send("SIGKILL")
+		}
+	}
+	gone := false
+	for i := 0; i < 50 && !gone; i++ {
+		if syscall.Kill(-pgid, 0) == syscall.ESRCH {
+			gone = true
+		} else {
+			syscall.Kill(-pgid, syscall.SIGKILL)
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	got := <-output
+	var exitStatus any
+	if status, ok := child.ProcessState.Sys().(syscall.WaitStatus); ok && status.Exited() {
+		exitStatus = status.ExitStatus()
+	} else if waited == nil {
+		exitStatus = 0
+	}
+	var signalName any
+	if signalled != "" {
+		signalName = signalled
+	}
+	if fault == "group_kept" {
+		gone = false
+	}
+	removed := false
+	if gone {
+		removed = os.RemoveAll(scratch) == nil
+	}
+	emit(map[string]any{"event": "ended", "exit_status": exitStatus, "signal": signalName,
+		"timed_out": timedOut, "stopped": stopped,
+		"duration_ms": time.Since(started).Milliseconds(),
+		"output":      map[string]any{"tail": string(got.data), "complete": got.complete},
+		"group_gone":  gone, "scratch_removed": removed})
+	checkEnded("ended")
+	exit(0)
+}
+
+var checkRoot string
+
+func checkEnded(how string) {
+	if checkRoot != "" {
+		appendFile(filepath.Join(checkRoot, "check-ends.jsonl"), encode(map[string]any{
+			"pid": os.Getpid(), "how": how}))
+	}
+}
+
+// program: "" when command[0] may run, else the refusal (leaves_folder, not_found).
+func program(dir, name string) string {
+	if !strings.Contains(name, "/") {
+		if _, err := exec.LookPath(name); err != nil {
+			return "not_found"
+		}
+		return ""
+	}
+	if filepath.IsAbs(name) || slices.Contains(strings.Split(name, "/"), "..") {
+		return "leaves_folder"
+	}
+	folder, err := filepath.EvalSymlinks(dir)
+	check(err)
+	target, err := filepath.EvalSymlinks(filepath.Join(folder, name))
+	if err != nil {
+		return "not_found"
+	}
+	if target != folder && !strings.HasPrefix(target, folder+string(filepath.Separator)) {
+		return "leaves_folder"
+	}
+	return ""
+}
+
+func refuse(why string) {
+	emit(map[string]any{"event": "refused", "why": why})
+	checkEnded("refused")
+	exit(0)
+}
+
+func setupError(message string) {
+	checkEnded("setup_error")
+	stdout.Flush()
+	fmt.Fprintln(os.Stderr, string(encode(map[string]any{"error": message})))
+	os.Exit(1)
 }

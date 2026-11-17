@@ -25,6 +25,23 @@ import (
 // maxBaseLine bounds entries.json, line 1 of a base stream (B7: at most 64 MiB).
 const maxBaseLine int64 = 64 << 20
 
+// invalidBase is ImportBase's refusal of a base that breaks rule: code invalid and the rule id, so
+// the core answers refused: invalid without reading the text. Its detail names only what the base
+// itself names (roots, paths, sizes, hashes), never a Runtime path (B17).
+func invalidBase(rule, format string, args ...any) error {
+	return &Failure{Code: "invalid", Rule: rule, err: fmt.Errorf("invalid base: "+format, args...)}
+}
+
+// importFailure is ImportBase's code io for a failed step that is not the base's fault. It keeps
+// only the error number, so the detail names no Runtime path.
+func importFailure(step string, err error) error {
+	var errno syscall.Errno
+	if errors.As(err, &errno) {
+		return failf("io", "cannot %s: %v", step, errno)
+	}
+	return failf("io", "cannot %s", step)
+}
+
 // beforeMaterializePublish runs between MaterializeBaseline's destination check and its exclusive
 // rename; the race test creates the destination there. Like afterFolderScan, only tests change it.
 var beforeMaterializePublish = func(string) {}
@@ -116,25 +133,26 @@ func (b *baseManifest) internal(id string) *manifest {
 
 // uploaded checks the safety rules of an uploaded base's internal manifest m (B8): every root one
 // normalized name, every path normalized without a .git segment, nothing inside a file or symlink,
-// every symlink resolving inside its root, and no two names that differ only in case.
+// every symlink resolving inside its root, and no two names that differ only in case. A refusal is
+// code invalid with the rule no_roots, unsafe_root, unsafe_tree or case_fold.
 func uploaded(m *manifest) (map[string]*entry, error) {
 	if len(m.Repositories) == 0 {
-		return nil, errors.New("base has no roots")
+		return nil, invalidBase("no_roots", "base has no roots")
 	}
 	for _, r := range m.Repositories {
 		if !safe(r.Path) || strings.Contains(r.Path, "/") {
-			return nil, fmt.Errorf("unsafe root %q: a root is one normalized name, without .git, backslashes or control characters", r.Path)
+			return nil, invalidBase("unsafe_root", "unsafe root %q: a root is one normalized name, without .git, backslashes or control characters", r.Path)
 		}
 	}
 	entries, err := m.safety()
 	if err != nil {
-		return nil, err
+		return nil, invalidBase("unsafe_tree", "%v", err)
 	}
 	folded := map[string]string{}
 	name := func(path string) error {
 		key := strings.ToLower(path)
 		if other, ok := folded[key]; ok && other != path {
-			return fmt.Errorf("unsafe base: %q and %q differ only in case", other, path)
+			return invalidBase("case_fold", "%q and %q differ only in case", other, path)
 		}
 		folded[key] = path
 		return nil
@@ -185,14 +203,18 @@ func loadBaseManifest(raw []byte, id string) (*manifest, map[string]*entry, erro
 // blob, and publishes <home>/snapshots/<hex>/{tree/, manifest.json (version 3), complete} with an
 // exclusive rename, or reuses a complete baseline of the same manifest. It writes nothing outside
 // <home>/snapshots and never writes to staging.
+//
+// Every refusal is a *Failure, and its text never names a Runtime path: code invalid, with the
+// broken rule (Failure.Rule), when the base itself breaks a rule, so the core answers refused:
+// invalid (B17); code io for anything that is not the base's fault.
 func ImportBase(home, staging string) (map[string]any, error) {
 	home, err := canonicalDirectory(home)
 	if err != nil {
-		return nil, fmt.Errorf("Runtime home: %v", err)
+		return nil, importFailure("open the Runtime home", err)
 	}
 	staging, err = canonicalDirectory(staging)
 	if err != nil {
-		return nil, fmt.Errorf("staging: %v", err)
+		return nil, importFailure("open the staging folder", err)
 	}
 	b, err := readBaseLine(filepath.Join(staging, "entries.json"))
 	if err != nil {
@@ -204,7 +226,7 @@ func ImportBase(home, staging string) (map[string]any, error) {
 	m := b.internal(id)
 	entries, err := uploaded(m)
 	if err != nil {
-		return nil, fmt.Errorf("invalid base: %v", err)
+		return nil, err
 	}
 	blobs := filepath.Join(staging, "blobs")
 	var files, size int64
@@ -216,7 +238,7 @@ func ImportBase(home, staging string) (map[string]any, error) {
 		files, size = files+1, size+e.Size
 		if !verified[e.SHA256] {
 			if err = checkFile(filepath.Join(blobs, e.SHA256), &e); err != nil {
-				return nil, fmt.Errorf("invalid base: blob %s of %q: %v", e.SHA256, e.Path, err)
+				return nil, err
 			}
 			verified[e.SHA256] = true
 		}
@@ -224,20 +246,21 @@ func ImportBase(home, staging string) (map[string]any, error) {
 	result := map[string]any{"baseline_id": id, "files": files, "bytes": size}
 
 	baseline := filepath.Join(home, "snapshots", hex.EncodeToString(sum[:]))
+	unmarked := failf("io", "cannot publish baseline %s: its folder exists without the completion marker", id)
 	if reuse, err := complete(baseline); err != nil {
-		return nil, err
+		return nil, unmarked
 	} else if reuse {
 		if _, _, err = loadBaseline(baseline, id); err != nil {
-			return nil, err
+			return nil, failf("io", "the stored baseline %s does not verify", id)
 		}
 		return result, nil
 	}
 	if err = os.MkdirAll(filepath.Dir(baseline), 0700); err != nil {
-		return nil, err
+		return nil, importFailure("build the baseline", err)
 	}
 	building, err := os.MkdirTemp(filepath.Dir(baseline), ".staging-*")
 	if err != nil {
-		return nil, err
+		return nil, importFailure("build the baseline", err)
 	}
 	defer func() {
 		if building != "" {
@@ -246,67 +269,69 @@ func ImportBase(home, staging string) (map[string]any, error) {
 	}()
 	t, err := newTree(filepath.Join(building, "tree"), true)
 	if err != nil {
-		return nil, err
+		return nil, importFailure("build the baseline", err)
 	}
 	for _, r := range m.Repositories {
 		if err = t.mkdirs(r.Path); err != nil {
-			return nil, err
+			return nil, importFailure("build the baseline", err)
 		}
 	}
 	for _, e := range m.Entries {
 		if e.Kind == "symlink" {
-			err = t.symlink(e.Path, *e.Target)
-		} else {
-			err = t.importBlob(filepath.Join(blobs, e.SHA256), entries[e.Path])
-		}
-		if err != nil {
+			if err = t.symlink(e.Path, *e.Target); err != nil {
+				return nil, importFailure("build the baseline", err)
+			}
+		} else if err = t.importBlob(filepath.Join(blobs, e.SHA256), entries[e.Path]); err != nil {
 			return nil, err
 		}
 	}
 	if err = t.finish(); err != nil {
-		return nil, err
+		return nil, importFailure("build the baseline", err)
 	}
 	if err = readOnly(filepath.Join(building, "manifest.json"), canonical); err != nil {
-		return nil, err
+		return nil, importFailure("build the baseline", err)
 	}
 	if err = readOnly(filepath.Join(building, "complete"), []byte(id+"\n")); err != nil {
-		return nil, err
+		return nil, importFailure("build the baseline", err)
 	}
 	err = renameExclusive(building, baseline)
 	if err == nil {
 		building = ""
 	} else if !errors.Is(err, fs.ErrExist) {
-		return nil, err
-	} else if ok, cerr := complete(baseline); !ok {
+		return nil, importFailure("publish the baseline", err)
+	} else if ok, _ := complete(baseline); !ok {
 		// Otherwise a concurrent import published the same baseline first.
-		return nil, errors.Join(err, cerr)
+		return nil, unmarked
 	}
 	if err = seal(baseline); err != nil {
-		return nil, err
+		return nil, importFailure("seal the baseline", err)
 	}
 	return result, nil
 }
 
 // readBaseLine reads and checks the line 1 file name: one JSON object of the B3 shape, with
 // nothing after its newline, every entry a write. The roots and entries come back canonically sorted.
+// A refusal is code invalid with the rule line_too_large, more_than_one_line, not_a_base_object,
+// wrong_format, duplicate_root, entry_shape, writes_only, duplicate_path, unsafe_path or
+// unsafe_entry; a file that cannot be read is code io (the core staged it).
 func readBaseLine(name string) (*baseManifest, error) {
-	invalid := func(format string, args ...any) error {
-		return fmt.Errorf("invalid base: entries.json: "+format, args...)
+	invalid := func(rule, format string, args ...any) error {
+		return invalidBase(rule, "entries.json: "+format, args...)
 	}
 	file, err := os.OpenFile(name, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
-		return nil, fmt.Errorf("cannot read entries.json: %v", reason(err))
+		return nil, importFailure("read entries.json", err)
 	}
 	defer file.Close()
 	data, err := io.ReadAll(io.LimitReader(file, maxBaseLine+1))
 	if err != nil {
-		return nil, fmt.Errorf("cannot read entries.json: %v", reason(err))
+		return nil, importFailure("read entries.json", err)
 	}
 	if int64(len(data)) > maxBaseLine {
-		return nil, invalid("larger than %d bytes", maxBaseLine)
+		return nil, invalid("line_too_large", "larger than %d bytes", maxBaseLine)
 	}
 	if i := bytes.IndexByte(data, '\n'); i >= 0 && i != len(data)-1 {
-		return nil, invalid("more than one line")
+		return nil, invalid("more_than_one_line", "more than one line")
 	}
 	var line struct {
 		Format  string `json:"format"`
@@ -319,16 +344,16 @@ func readBaseLine(name string) (*baseManifest, error) {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err = decoder.Decode(&line); err != nil || decoder.More() {
-		return nil, invalid("not one base object: %v", err)
+		return nil, invalid("not_a_base_object", "not one base object: %v", err)
 	}
 	if line.Format != "atlas-base" || line.Version != 1 || line.Roots == nil {
-		return nil, invalid(`format must be "atlas-base", version 1, with roots`)
+		return nil, invalid("wrong_format", `format must be "atlas-base", version 1, with roots`)
 	}
 	b := &baseManifest{Version: 3, Entries: []baseEntry{}}
 	roots := map[string]bool{}
 	for _, root := range line.Roots {
 		if roots[root.Root] {
-			return nil, invalid("duplicate root %q", root.Root)
+			return nil, invalid("duplicate_root", "duplicate root %q", root.Root)
 		}
 		roots[root.Root] = true
 		b.Roots = append(b.Roots, struct {
@@ -338,21 +363,21 @@ func readBaseLine(name string) (*baseManifest, error) {
 		for _, raw := range root.Entries {
 			e, op, err := changeSetEntry(raw)
 			if err != nil {
-				return nil, invalid("root %q: %v", root.Root, err)
+				return nil, invalid("entry_shape", "root %q: %v", root.Root, err)
 			}
 			if op != "write" {
-				return nil, invalid("root %q: entry %q: a base holds writes only", root.Root, e.Path)
+				return nil, invalid("writes_only", "root %q: entry %q: a base holds writes only", root.Root, e.Path)
 			}
 			if seen[e.Path] {
-				return nil, invalid("root %q: duplicate path %q", root.Root, e.Path)
+				return nil, invalid("duplicate_path", "root %q: duplicate path %q", root.Root, e.Path)
 			}
 			seen[e.Path] = true
 			if !safe(e.Path) {
-				return nil, invalid("root %q: unsafe path %q", root.Root, e.Path)
+				return nil, invalid("unsafe_path", "root %q: unsafe path %q", root.Root, e.Path)
 			}
 			full := entry{Kind: e.Kind, Mode: e.Mode, Path: root.Root + "/" + e.Path, SHA256: e.SHA256, Size: e.Size, Target: e.Target}
 			if why := full.problem(root.Root); why != "" {
-				return nil, invalid("root %q: entry %q: %s", root.Root, e.Path, why)
+				return nil, invalid("unsafe_entry", "root %q: entry %q: %s", root.Root, e.Path, why)
 			}
 			b.Entries = append(b.Entries, baseEntry{Kind: e.Kind, Mode: e.Mode, Path: e.Path, Root: root.Root, SHA256: e.SHA256, Size: e.Size, Target: e.Target})
 		}
@@ -361,37 +386,41 @@ func readBaseLine(name string) (*baseManifest, error) {
 	return b, nil
 }
 
-// checkFile hashes the regular file name, never following a symlink, and refuses it unless its
-// size and sha256 are e's.
+// checkFile hashes the regular file name, the blob of e, never following a symlink, and refuses it
+// unless its size and sha256 are e's: code invalid with the rule blob_missing, blob_not_regular or
+// blob_mismatch, or code io when it cannot be read.
 func checkFile(name string, e *entry) error {
 	file, err := os.OpenFile(name, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
-		return fmt.Errorf("missing or unreadable: %v", reason(err))
+		return invalidBase("blob_missing", "blob %s of %q is missing or unreadable: %v", e.SHA256, e.Path, reason(err))
 	}
 	defer file.Close()
 	info, err := file.Stat()
 	if err != nil {
-		return err
+		return importFailure(fmt.Sprintf("read blob %s of %q", e.SHA256, e.Path), err)
 	}
 	if !info.Mode().IsRegular() {
-		return errors.New("not a regular file")
+		return invalidBase("blob_not_regular", "blob %s of %q is not a regular file", e.SHA256, e.Path)
 	}
 	hash := sha256.New()
 	n, err := io.Copy(hash, file)
 	if err != nil {
-		return err
+		return importFailure(fmt.Sprintf("read blob %s of %q", e.SHA256, e.Path), err)
 	}
 	if n != e.Size || hex.EncodeToString(hash.Sum(nil)) != e.SHA256 {
-		return fmt.Errorf("content has %d bytes and sha256 %x, not the entry's %d and %s", n, hash.Sum(nil), e.Size, e.SHA256)
+		return invalidBase("blob_mismatch", "blob %s of %q: content has %d bytes and sha256 %x, not the entry's %d and %s",
+			e.SHA256, e.Path, n, hash.Sum(nil), e.Size, e.SHA256)
 	}
 	return nil
 }
 
 // importBlob copies the verified blob name into the tree at e's path, as a clone where possible,
-// and checks the copy itself, so the baseline holds exactly what was checked.
+// and checks the copy itself, so the baseline holds exactly what was checked: a copy that differs
+// is code invalid with the rule blob_mismatch; any other failure is code io.
 func (t *tree) importBlob(name string, e *entry) error {
+	copying := fmt.Sprintf("copy blob %s of %q", e.SHA256, e.Path)
 	if err := t.mkdirs(parent(e.Path)); err != nil {
-		return err
+		return importFailure(copying, err)
 	}
 	out := filepath.Join(t.root, filepath.FromSlash(e.Path))
 	err := cloneFile(name, out)
@@ -399,12 +428,18 @@ func (t *tree) importBlob(name string, e *entry) error {
 		_, err = t.stream(e.Path, name)
 	}
 	if err != nil {
-		return fmt.Errorf("cannot copy blob %s of %q: %v", e.SHA256, e.Path, err)
+		return importFailure(copying, err)
 	}
 	if err = checkFile(out, e); err != nil {
-		return fmt.Errorf("invalid base: blob %s of %q: %v", e.SHA256, e.Path, err)
+		if failure := (*Failure)(nil); errors.As(err, &failure) && failure.Rule == "blob_mismatch" {
+			return err
+		}
+		return importFailure(copying, err)
 	}
-	return chmodEntry(out, t, e)
+	if err = chmodEntry(out, t, e); err != nil {
+		return importFailure(copying, err)
+	}
+	return nil
 }
 
 // MaterializeBaseline builds the new work folder dest from the complete baseline id under
@@ -473,8 +508,8 @@ func MaterializeBaseline(home, id, dest string) (map[string]any, error) {
 }
 
 // uploadedBase refuses op on dest when its recorded baseline is an uploaded base (version 3): the
-// Code-shaped review packets do not apply to it (B13). Anything else, an unrecorded or unreadable
-// folder included, is left to op's own checks.
+// Code-shaped review packets do not apply to it (B13): code uploaded_base, with a detail that names
+// no path. Anything else, an unrecorded or unreadable folder included, is left to op's own checks.
 func uploadedBase(home, dest, op string) error {
 	canonical, err := materialized(dest)
 	if err != nil {
@@ -492,7 +527,7 @@ func uploadedBase(home, dest, op string) error {
 		Version *int `json:"version"`
 	}
 	if json.Unmarshal(raw, &version) == nil && version.Version != nil && *version.Version == 3 {
-		return fmt.Errorf("cannot %s %s: it is built from an uploaded base; use from_work / get_frozen", op, canonical)
+		return failf("uploaded_base", "cannot %s this folder: it is built from an uploaded base; use from_work / get_frozen", op)
 	}
 	return nil
 }

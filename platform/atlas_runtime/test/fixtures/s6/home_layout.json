@@ -30,6 +30,8 @@
     "execution-events.json",
     "mode.json",
     "clients.json",
+    "sources",
+    "local-source",
     "bases"
   ],
   "atomic_temps": [

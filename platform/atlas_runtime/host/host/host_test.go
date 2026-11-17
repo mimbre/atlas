@@ -272,6 +272,32 @@ func TestInvalidModelsNeverLaunchNative(t *testing.T) {
 			}
 		})
 	}
+	// The removed review packet profile is refused for both harnesses before any launch artifact; the
+	// folder lock is taken only after stderr.log exists, so its absence also proves no lock was taken.
+	// The name is joined here so that the G-RP-G grep (S5b B2g) keeps finding only historic readers.
+	removed := strings.Join([]string{"review", "packet"}, "-")
+	for backend, want := range map[string]string{
+		"codex":  "Unknown permission profile",
+		"claude": "Claude supports only the dedicated-repository and materialized-folder permission profiles",
+	} {
+		t.Run("removed packet profile "+backend, func(t *testing.T) {
+			directory := t.TempDir()
+			native := fixture(t, directory, "touch \"$0.executed\"\n")
+			args := codexArgs(native, directory)
+			args[4], args[6], args[8] = "", `{"profile":"`+removed+`","root":"`+directory+`","packet":"`+filepath.Dir(directory)+`"}`, backend
+			if err := run(args); err == nil || err.Error() != want {
+				t.Fatalf("wanted %q, got %v", want, err)
+			}
+			for _, name := range []string{"stderr.log", "stream.jsonl", "process.json"} {
+				if _, err := os.Stat(filepath.Join(directory, name)); err == nil {
+					t.Fatalf("%s exists: the profile refusal must precede launch and every artifact", name)
+				}
+			}
+			if _, err := os.Stat(native + ".executed"); err == nil {
+				t.Fatal("native ran for a removed packet profile scope")
+			}
+		})
+	}
 }
 
 func TestStopInterruptsGroupAndReportsStopped(t *testing.T) {

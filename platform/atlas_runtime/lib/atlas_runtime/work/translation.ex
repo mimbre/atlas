@@ -26,10 +26,21 @@ defmodule AtlasRuntime.Work.Translation do
   # `work_product.workspace.path` and `resume_point.workspace.path` are paths on the
   # Runtime's machine, kept only for a client holding `choose_path` (D44). There is no
   # translation without the rights.
+  #
+  # S5a P10a (§3.10): a live attempt has no result at the boundary. While it is `checking`
+  # (private) its agent's result is persisted, but the attempt is `running` until the
+  # `completed` write that carries the check (I2), so that result is not projected.
+  # `from_model_redacting/3`'s `redact` is applied to a check's output tail, the one free text
+  # of a work product (designer decision 2026-11-17, (A)): the core passes the D44 path
+  # redaction for a client without choose_path, the identity otherwise. It takes the rights
+  # as `from_model/2` does and has no default, so neither the rights nor the redaction can be
+  # forgotten; every reply of the core goes through it. `from_model/2` (I-D44) is the same
+  # projection with the tail as stored.
 
   alias AtlasRuntime.Boundary.Work, as: B
   alias AtlasRuntime.Model.FrozenResult, as: F
   alias AtlasRuntime.Model.Work, as: M
+  alias AtlasRuntime.Work.Queue
 
   @folder %{
     read_only: :"read-only",
@@ -43,10 +54,17 @@ defmodule AtlasRuntime.Work.Translation do
   @skip_reasons ~w(not_installed quota)a
 
   @doc false
-  # A work record as the boundary's work, as a client with these rights sees it.
-  def from_model(%M.WorkRecord{} = record, rights) when is_list(rights) do
+  # A work record as the boundary's work, as a client with these rights sees it; a check's
+  # output tail as stored.
+  def from_model(%M.WorkRecord{} = record, rights) when is_list(rights),
+    do: from_model_redacting(record, rights, & &1)
+
+  @doc false
+  # As `from_model/2`; `redact` rewrites a check's output tail.
+  def from_model_redacting(%M.WorkRecord{} = record, rights, redact)
+      when is_list(rights) and is_function(redact, 1) do
     paths? = :choose_path in rights
-    attempts = Enum.map(record.attempts, &attempt(&1, paths?))
+    attempts = Enum.map(record.attempts, &attempt(&1, paths?, redact))
 
     %B.Work{
       work_id: record.work_id,
@@ -111,8 +129,10 @@ defmodule AtlasRuntime.Work.Translation do
 
   @doc false
   # A frozen result's record as the contract's frozen (§3.9). A tombstone (pruned) is not
-  # a frozen result a caller can read: the core answers pruned for it.
-  def frozen(%F.FrozenResult{pruned: false} = frozen) do
+  # a frozen result a caller can read: the core answers pruned for it. `redact` is applied
+  # to every symlink `target` (the one free-text path a change set carries): the core passes
+  # the D44 path redaction for a client without choose_path, the identity otherwise.
+  def frozen(%F.FrozenResult{pruned: false} = frozen, redact \\ & &1) do
     %B.Frozen{
       work_id: frozen.work_id,
       attempt: frozen.attempt,
@@ -122,13 +142,13 @@ defmodule AtlasRuntime.Work.Translation do
           %B.FrozenRoot{
             root: root.root,
             fingerprint: root.fingerprint,
-            entries: Enum.map(root.entries, &change_entry/1)
+            entries: Enum.map(root.entries, &change_entry(&1, redact))
           }
         end
     }
   end
 
-  defp change_entry(%F.ChangeEntry{} = entry) do
+  defp change_entry(%F.ChangeEntry{} = entry, redact) do
     %B.ChangeEntry{
       path: entry.path,
       op: entry.op,
@@ -136,7 +156,7 @@ defmodule AtlasRuntime.Work.Translation do
       mode: entry.mode && Map.fetch!(@modes, entry.mode),
       size: entry.size,
       sha256: entry.sha256,
-      target: entry.target
+      target: entry.target && redact.(entry.target)
     }
   end
 
@@ -191,7 +211,7 @@ defmodule AtlasRuntime.Work.Translation do
   defp model_permissions(:"read-only"), do: :read_only
   defp model_permissions(:"workspace-write"), do: :workspace_write
 
-  defp attempt(%M.Attempt{} = attempt, paths?) do
+  defp attempt(%M.Attempt{} = attempt, paths?, redact) do
     %B.Attempt{
       attempt: attempt.attempt,
       state: attempt.state,
@@ -203,7 +223,7 @@ defmodule AtlasRuntime.Work.Translation do
       provenance: provenance(attempt.provenance),
       resume_point: resume_point(attempt.resume_point, paths?),
       quiescent: attempt.quiescent,
-      result: result(attempt.result, paths?)
+      result: if(Queue.live?(attempt), do: nil, else: result(attempt.result, paths?, redact))
     }
   end
 
@@ -226,9 +246,9 @@ defmodule AtlasRuntime.Work.Translation do
 
   defp resume_point(_, _paths?), do: nil
 
-  defp result(nil, _paths?), do: nil
+  defp result(nil, _paths?, _redact), do: nil
 
-  defp result(%M.Result{} = result, paths?) do
+  defp result(%M.Result{} = result, paths?, redact) do
     log = result.log
 
     %B.Result{
@@ -238,7 +258,7 @@ defmodule AtlasRuntime.Work.Translation do
       native_outcome: result.native_outcome,
       never_started: result.never_started,
       answer: result.answer,
-      work_product: work_product(result.work_product, paths?),
+      work_product: work_product(result.work_product, paths?, redact),
       log: %B.OutputLog{
         complete: (log && log.complete) || false,
         missing_bytes: (log && log.missing_bytes) || 0,
@@ -247,16 +267,16 @@ defmodule AtlasRuntime.Work.Translation do
     }
   end
 
-  defp work_product(nil, _paths?), do: nil
+  defp work_product(nil, _paths?, _redact), do: nil
 
-  defp work_product(%M.WorkProduct{workspace: workspace} = product, paths?) do
+  defp work_product(%M.WorkProduct{workspace: workspace} = product, paths?, redact) do
     workspace = struct!(B.WorkProductWorkspace, Map.from_struct(workspace))
 
     %B.WorkProduct{
       workspace: if(paths?, do: workspace, else: %{workspace | path: nil}),
       frozen: frozen_ref(product.frozen),
       based_on: based_on(product.based_on),
-      check: check(product.check)
+      check: check(product.check, redact)
     }
   end
 
@@ -277,9 +297,9 @@ defmodule AtlasRuntime.Work.Translation do
   defp fingerprints(list),
     do: for(f <- list, do: %B.RootFingerprint{root: f.root, fingerprint: f.fingerprint})
 
-  defp check(nil), do: nil
+  defp check(nil, _redact), do: nil
 
-  defp check(%M.CheckResult{} = check),
+  defp check(%M.CheckResult{} = check, redact),
     do: %B.CheckResult{
       command: check.command,
       exit_status: check.exit_status,
@@ -289,7 +309,7 @@ defmodule AtlasRuntime.Work.Translation do
       cancelled: check.cancelled,
       interrupted: check.interrupted,
       duration_ms: check.duration_ms,
-      output: %B.CheckOutput{tail: check.output.tail, complete: check.output.complete}
+      output: %B.CheckOutput{tail: redact.(check.output.tail), complete: check.output.complete}
     }
 
   defp provenance(nil), do: nil

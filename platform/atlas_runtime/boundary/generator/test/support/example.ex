@@ -57,6 +57,12 @@ defmodule AtlasRuntimeBoundary.Generator.Example do
     field :title, :string, required: true
   end
 
+  # A returned copy's pages as a byte stream: an input model takes at most one :stream.
+  defmodel :upload_input do
+    field :title, :string, required: true
+    field :pages, :stream, required: true
+  end
+
   defcapability :lend,
     input: :lend_input,
     outcomes: [lent: :book, short: :shortage, declined: :refusal, missing: nil],
@@ -71,6 +77,11 @@ defmodule AtlasRuntimeBoundary.Generator.Example do
     input: :download_input,
     outcomes: [downloaded: :scan, missing: nil],
     right: :browse
+
+  defcapability :upload,
+    input: :upload_input,
+    outcomes: [received: nil, declined: :refusal],
+    right: :lend
 
   invalid_input :declined, set: [why: :unreadable], detail: :note
 end
@@ -137,6 +148,14 @@ defmodule AtlasRuntimeBoundary.Generator.Example.Library do
     %B.Outcome.Downloaded{title: title, content: content}
   end
 
+  # The client's id is told the input's stream as received, so a test sees it is the term
+  # it gave, unread.
+  @impl true
+  def upload({owner, _rights}, %B.UploadInput{pages: pages}) do
+    if is_pid(owner), do: send(owner, {:received, pages})
+    %B.Outcome.Received{}
+  end
+
   @impl true
   def count({id, _rights}),
     do: %B.Outcome.Counted{
@@ -170,6 +189,9 @@ defmodule AtlasRuntimeBoundary.Generator.Example.GuardedLibrary do
 
   @impl true
   def download(_client, _input), do: %G.Outcome.Missing{}
+
+  @impl true
+  def upload(_client, _input), do: %G.Outcome.Received{}
 
   @impl true
   def count(_client), do: %G.Outcome.Counted{books: [], counted_at: ~U[2026-01-02 03:04:05Z]}

@@ -703,7 +703,7 @@ func (t *tree) mkdirs(dir string) error {
 			continue
 		}
 		if err := os.Mkdir(filepath.Join(t.root, dir[:i]), 0700); err != nil {
-			return fmt.Errorf("cannot create directory %q: %v", dir[:i], err)
+			return fmt.Errorf("cannot create directory %q: %w", dir[:i], err)
 		}
 		t.dirs[dir[:i]] = true
 	}

@@ -49,6 +49,8 @@ defmodule AtlasRuntime.Sandbox.HomeLayout do
               "execution-events.json",
               "mode.json",
               "clients.json",
+              "sources",
+              "local-source",
               "bases"
             ]
 

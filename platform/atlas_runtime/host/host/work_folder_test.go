@@ -234,9 +234,12 @@ func codexAccess(entries map[string]string, path string) string {
 }
 
 // lateHomeNames are entries the Runtime creates at the top of its home while a turn runs: the atomic
-// temps of availability.ex, work/mode.ex and the policy, first-use records and a new store directory.
+// temps of availability.ex, work/mode.ex and the policy, first-use records, a new store directory and a
+// work source's credential (sources/<name>/token) and a local work source queue record (local-source/,
+// work acquisition M2 F4).
 var lateHomeNames = []string{"late.json.tmp", "mode.json.tmp", "availability.json.tmp", "policy.json.tmp", "mode.json",
-	"clients.json", "submissions/tmp-1/blob", "packets/p/packet.json", ".record-123"}
+	"clients.json", "submissions/tmp-1/blob", "packets/p/packet.json", ".record-123", "sources/late/token",
+	"local-source/late.json"}
 
 // TestWorkFolderProfilesDenyHomeEntriesCreatedDuringTheTurn is review B1: an entry created at the top of
 // the Runtime home after the profiles were rendered is denied, and neither the home nor <home>/workers
@@ -414,6 +417,14 @@ func TestWorkFolderClaudeSettingsDenyHomeEntriesCreatedDuringTheTurn(t *testing.
 				t.Errorf("%s: %s created during the turn has no Read rule", label, name)
 			}
 		}
+		// Work acquisition M2 (F4): no top pattern matches the sources or local-source directory, so the enumerated
+		// workerHomeNames rule (the materialized folder) or the home rule (read-only) must deny it.
+		for _, path := range []string{filepath.Join(home, "sources"), filepath.Join(home, "sources", "late", "token"),
+			filepath.Join(home, "local-source"), filepath.Join(home, "local-source", "late.json")} {
+			if !matches(rules, path) {
+				t.Errorf("%s: the work source path %s has no Read rule", label, path)
+			}
+		}
 		for _, path := range []string{home, filepath.Join(home, "workers"), work, filepath.Join(work, "repo", "a.json")} {
 			if matches(rules, path) {
 				t.Errorf("%s: a Read rule denies %s", label, path)
@@ -513,8 +524,9 @@ func TestWorkFolderClaudeSettingsDenyTheChain(t *testing.T) {
 // and the preparation (setup) profile, it runs real commands with the installed `codex sandbox`: the
 // folder is read (all three) and written (materialized-folder only); runtime.sock, read.sock and
 // backend.sock accept no connection; a sibling work folder, a sibling created after launch, a slot, the
-// frozen store, a base, the work store, another baseline and the entries created at the top of the home
-// after the profiles were rendered (the atomic temps, a new store) leak no sentinel; neither the home
+// frozen store, a base, the work store, another baseline, a work source's credential (sources/), the local
+// work source's queue (local-source/, work acquisition M2 F4) and the entries created at the top of the home after the profiles were rendered
+// (the atomic temps, a new store, a new source) leak no sentinel; neither the home
 // nor <home>/workers can be listed; nothing is written beside the folder (review B1, S1).
 func TestWorkFolderProfileIsEnforcedByInstalledCodexSandbox(t *testing.T) {
 	if os.Getenv("ATLAS_RUNTIME_NATIVE_SANDBOX") != "1" {
@@ -551,6 +563,8 @@ func TestWorkFolderProfileIsEnforcedByInstalledCodexSandbox(t *testing.T) {
 		filepath.Join(home, "work", "work-1.json"):                  "WORKSTORE-" + token,
 		filepath.Join(home, "snapshots", "other", "tree", "secret"): "BASELINE-" + token,
 		filepath.Join(home, "policy.json"):                          "POLICY-" + token,
+		filepath.Join(home, "sources", "s1", "token"):               "SOURCE-" + token,
+		filepath.Join(home, "local-source", "queue.json"):           "LOCAL-SOURCE-" + token,
 	}
 	for path, body := range sentinels {
 		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {

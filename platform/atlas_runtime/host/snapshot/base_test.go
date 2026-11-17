@@ -4,14 +4,17 @@ package snapshot
 // code.json is a directory, so a path that tried to use Code would fail.
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -95,6 +98,24 @@ func imported(t *testing.T, home string) string {
 	result, err := ImportBase(home, stage(t, home, line, fixtureBase))
 	must(t, err)
 	return result["baseline_id"].(string)
+}
+
+// refusedWith reports, as a test error, unless err is a *Failure with code and rule (empty: none)
+// whose text names no path below the temporary folders roots (a Runtime home, a packet's parent).
+func refusedWith(t *testing.T, what string, err error, code, rule string, roots ...string) bool {
+	t.Helper()
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Code != code || failure.Rule != rule {
+		t.Errorf("%s: got %v (%+v); want code %q, rule %q", what, err, failure, code, rule)
+		return false
+	}
+	for _, root := range roots {
+		if strings.Contains(err.Error(), root) {
+			t.Errorf("%s: the refusal names a path below %s: %v", what, root, err)
+			return false
+		}
+	}
+	return true
 }
 
 // listing is describe plus every entry's modification time, to show nothing was written.
@@ -182,81 +203,176 @@ func TestBaseImportMaterializeAndStatusRoundTrip(t *testing.T) {
 func TestBaseImportRefusesUnsafeTrees(t *testing.T) {
 	file := func(root, path, data string) baseFile { return baseFile{root, path, "file", "100644", data} }
 	link := func(root, path, target string) baseFile { return baseFile{root, path, "symlink", "120000", target} }
+	alpha := `{"kind":"file","mode":"100644","op":"write","path":"a.txt","sha256":"` + sum("alpha") + `","size":5}`
+	// Each case breaks exactly one rule; the refusal is code invalid with that rule's id (R1).
 	for _, c := range []struct {
 		name  string
 		files []baseFile
 		line  func(line []byte) []byte
 		blob  func(staging string)
-		want  string
+		rule  string
 	}{
-		{name: "traversal", files: []baseFile{file("atlas", "../x", "x")}, want: `unsafe path "../x"`},
-		{name: "git segment", files: []baseFile{file("atlas", "a/.git/config", "x")}, want: `unsafe path "a/.git/config"`},
-		{name: "git root", files: []baseFile{file(".git", "config", "x")}, want: `root ".git"`},
-		{name: "nested root", files: []baseFile{file("a/b", "x", "x")}, want: `unsafe root "a/b"`},
-		{name: "entry under a symlink", files: []baseFile{link("atlas", "l", "d"), file("atlas", "l/x", "x")}, want: `inside file or symlink "atlas/l"`},
-		{name: "entry under a file", files: []baseFile{file("atlas", "f", "x"), file("atlas", "f/x", "x")}, want: `inside file or symlink "atlas/f"`},
-		{name: "symlink leaving its root", files: []baseFile{link("atlas", "out", "../tools/x")}, want: `symlink target "../tools/x" leaves its repository`},
-		{name: "absolute symlink", files: []baseFile{link("atlas", "out", "/etc/passwd")}, want: "symlink target must be relative"},
-		{name: "case collision", files: []baseFile{file("atlas", "A", "x"), file("atlas", "a", "y")}, want: `"atlas/A" and "atlas/a" differ only in case`},
-		{name: "case collision of directories", files: []baseFile{file("atlas", "D/x", "x"), file("atlas", "d/y", "y")}, want: `"atlas/D" and "atlas/d" differ only in case`},
-		{name: "case collision of roots", files: []baseFile{file("Atlas", "x", "x"), file("atlas", "y", "y")}, want: `"Atlas" and "atlas" differ only in case`},
+		{name: "traversal", files: []baseFile{file("atlas", "../x", "x")}, rule: "unsafe_path"},
+		{name: "git segment", files: []baseFile{file("atlas", "a/.git/config", "x")}, rule: "unsafe_path"},
+		{name: "git root", files: []baseFile{file(".git", "config", "x")}, rule: "unsafe_entry"},
+		{name: "git root without entries", files: []baseFile{},
+			line: func([]byte) []byte {
+				return []byte(`{"format":"atlas-base","roots":[{"entries":[],"root":".git"}],"version":1}` + "\n")
+			}, rule: "unsafe_root"},
+		{name: "nested root", files: []baseFile{file("a/b", "x", "x")}, rule: "unsafe_root"},
+		{name: "entry under a symlink", files: []baseFile{link("atlas", "l", "d"), file("atlas", "l/x", "x")}, rule: "unsafe_tree"},
+		{name: "entry under a file", files: []baseFile{file("atlas", "f", "x"), file("atlas", "f/x", "x")}, rule: "unsafe_tree"},
+		{name: "symlink leaving its root", files: []baseFile{link("atlas", "out", "../tools/x")}, rule: "unsafe_tree"},
+		{name: "absolute symlink", files: []baseFile{link("atlas", "out", "/etc/passwd")}, rule: "unsafe_entry"},
+		{name: "case collision", files: []baseFile{file("atlas", "A", "x"), file("atlas", "a", "y")}, rule: "case_fold"},
+		{name: "case collision of directories", files: []baseFile{file("atlas", "D/x", "x"), file("atlas", "d/y", "y")}, rule: "case_fold"},
+		{name: "case collision of roots", files: []baseFile{file("Atlas", "x", "x"), file("atlas", "y", "y")}, rule: "case_fold"},
 		{name: "wrong blob hash", files: []baseFile{file("atlas", "a.txt", "alpha")},
 			blob: func(staging string) {
 				must(t, os.WriteFile(filepath.Join(staging, "blobs", sum("alpha")), []byte("alphA"), 0600))
 			},
-			want: "blob " + sum("alpha") + ` of "atlas/a.txt": content has 5 bytes and sha256`},
+			rule: "blob_mismatch"},
 		{name: "short blob", files: []baseFile{file("atlas", "a.txt", "alpha")},
 			blob: func(staging string) {
 				must(t, os.WriteFile(filepath.Join(staging, "blobs", sum("alpha")), []byte("alph"), 0600))
 			},
-			want: "content has 4 bytes"},
+			rule: "blob_mismatch"},
 		{name: "missing blob", files: []baseFile{file("atlas", "a.txt", "alpha")},
 			blob: func(staging string) { must(t, os.Remove(filepath.Join(staging, "blobs", sum("alpha")))) },
-			want: "missing or unreadable"},
+			rule: "blob_missing"},
 		{name: "blob is a symlink", files: []baseFile{file("atlas", "a.txt", "alpha")},
 			blob: func(staging string) {
 				name := filepath.Join(staging, "blobs", sum("alpha"))
 				must(t, os.Rename(name, name+".real"))
 				must(t, os.Symlink(name+".real", name))
 			},
-			want: "missing or unreadable"},
+			rule: "blob_missing"},
+		{name: "blob is a directory", files: []baseFile{file("atlas", "a.txt", "alpha")},
+			blob: func(staging string) {
+				name := filepath.Join(staging, "blobs", sum("alpha"))
+				must(t, os.Remove(name))
+				must(t, os.Mkdir(name, 0700))
+			},
+			rule: "blob_not_regular"},
 		{name: "delete", files: []baseFile{file("atlas", "a.txt", "alpha")},
 			line: func(line []byte) []byte {
-				return []byte(strings.Replace(string(line), `{"kind":"file","mode":"100644","op":"write","path":"a.txt","sha256":"`+sum("alpha")+`","size":5}`, `{"op":"delete","path":"a.txt"}`, 1))
+				return []byte(strings.Replace(string(line), alpha, `{"op":"delete","path":"a.txt"}`, 1))
 			},
-			want: "a base holds writes only"},
-		{name: "duplicate path", files: []baseFile{file("atlas", "a.txt", "alpha"), file("atlas", "a.txt", "alpha")}, want: `duplicate path "a.txt"`},
+			rule: "writes_only"},
+		{name: "entry with an extra key", files: []baseFile{file("atlas", "a.txt", "alpha")},
+			line: func(line []byte) []byte {
+				return []byte(strings.Replace(string(line), `"op":"write",`, `"op":"write","x":1,`, 1))
+			},
+			rule: "entry_shape"},
+		{name: "duplicate path", files: []baseFile{file("atlas", "a.txt", "alpha"), file("atlas", "a.txt", "alpha")}, rule: "duplicate_path"},
+		{name: "duplicate root", files: []baseFile{file("atlas", "a.txt", "alpha")},
+			line: func(line []byte) []byte {
+				root := `{"entries":[` + alpha + `],"root":"atlas"}`
+				return []byte(strings.Replace(string(line), root, root+","+root, 1))
+			},
+			rule: "duplicate_root"},
 		{name: "unknown field", files: []baseFile{file("atlas", "a.txt", "alpha")},
 			line: func(line []byte) []byte {
 				return []byte(strings.Replace(string(line), `"version":1`, `"version":1,"extra":true`, 1))
 			},
-			want: "not one base object"},
+			rule: "not_a_base_object"},
+		{name: "wrong version", files: []baseFile{file("atlas", "a.txt", "alpha")},
+			line: func(line []byte) []byte {
+				return []byte(strings.Replace(string(line), `"version":1`, `"version":2`, 1))
+			},
+			rule: "wrong_format"},
 		{name: "trailing line", files: []baseFile{file("atlas", "a.txt", "alpha")},
-			line: func(line []byte) []byte { return append(line, "{}\n"...) }, want: "more than one line"},
-		{name: "no roots", files: []baseFile{}, want: "base has no roots"},
+			line: func(line []byte) []byte { return append(line, "{}\n"...) }, rule: "more_than_one_line"},
+		{name: "no roots", files: []baseFile{}, rule: "no_roots"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			home := baseHome(t)
 			line := baseLineOf(t, c.files)
 			if c.line != nil {
-				line = c.line(line)
+				before := string(line)
+				if line = c.line(line); string(line) == before {
+					t.Fatalf("the case did not change line 1: %s", line)
+				}
 			}
 			staging := stage(t, home, line, c.files)
 			if c.blob != nil {
 				c.blob(staging)
 			}
 			result, err := ImportBase(home, staging)
-			if err == nil || !strings.Contains(err.Error(), c.want) {
-				t.Fatalf("got %v, %v; want an error containing %q", result, err, c.want)
+			if result != nil {
+				t.Errorf("an invalid base was imported: %v", result)
 			}
-			if strings.Contains(err.Error(), home) {
-				t.Errorf("the refusal names a Runtime path: %v", err)
-			}
+			refusedWith(t, "import", err, "invalid", c.rule, filepath.Dir(home))
 			if left, _ := os.ReadDir(filepath.Join(home, "snapshots")); len(left) != 0 {
 				t.Fatalf("a refused import left %v under snapshots", left)
 			}
 		})
 	}
+}
+
+// TestBaseImportCapsLineOne (B7): an entries.json of more than 64 MiB is refused as line_too_large,
+// even when it is otherwise a valid base line (one object padded with spaces); one of exactly
+// 64 MiB is imported.
+func TestBaseImportCapsLineOne(t *testing.T) {
+	files := []baseFile{{"atlas", "a.txt", "file", "100644", "alpha"}}
+	line := bytes.TrimSuffix(baseLineOf(t, files), []byte("\n"))
+	padded := func(size int64) []byte {
+		out := bytes.Repeat([]byte(" "), int(size))
+		copy(out, line)
+		out[size-1] = '\n'
+		return out
+	}
+	home := baseHome(t)
+	result, err := ImportBase(home, stage(t, home, padded(maxBaseLine+1), files))
+	if result != nil {
+		t.Fatalf("an oversized line 1 was imported: %v", result)
+	}
+	refusedWith(t, "import", err, "invalid", "line_too_large", filepath.Dir(home))
+	if left, _ := os.ReadDir(filepath.Join(home, "snapshots")); len(left) != 0 {
+		t.Fatalf("a refused import left %v under snapshots", left)
+	}
+	result, err = ImportBase(home, stage(t, home, padded(maxBaseLine), files))
+	must(t, err)
+	if result["files"] != int64(1) || result["bytes"] != int64(5) {
+		t.Fatalf("a line 1 of exactly the cap: %v", result)
+	}
+}
+
+// TestBaseImportChecksTheCopyItself: the blob is checked again after it is copied into the
+// baseline, so a copy that differs from the verified blob is refused as blob_mismatch and nothing
+// is published. The copy is replaced through the cloneFile seam.
+func TestBaseImportChecksTheCopyItself(t *testing.T) {
+	home := baseHome(t)
+	files := []baseFile{{"atlas", "a.txt", "file", "100644", "alpha"}}
+	staging := stage(t, home, baseLineOf(t, files), files)
+	cloneFile = func(from, to string) error { return os.WriteFile(to, []byte("alphA"), 0600) }
+	t.Cleanup(func() { cloneFile = clone })
+	result, err := ImportBase(home, staging)
+	if result != nil {
+		t.Fatalf("a baseline with a changed copy was imported: %v", result)
+	}
+	refusedWith(t, "import", err, "invalid", "blob_mismatch", filepath.Dir(home))
+	if left, _ := os.ReadDir(filepath.Join(home, "snapshots")); len(left) != 0 {
+		t.Fatalf("a refused import left %v under snapshots", left)
+	}
+}
+
+// TestBaseImportReportsAFailureThatIsNotTheBasesAsIO: a step that fails for a reason of its own
+// is code io without a rule, never invalid, and names no Runtime path.
+func TestBaseImportReportsAFailureThatIsNotTheBasesAsIO(t *testing.T) {
+	home := baseHome(t)
+	files := []baseFile{{"atlas", "a.txt", "file", "100644", "alpha"}}
+	staging := stage(t, home, baseLineOf(t, files), files)
+	cloneFile = func(from, to string) error { return &os.PathError{Op: "clonefileat", Path: to, Err: syscall.EIO} }
+	t.Cleanup(func() { cloneFile = clone })
+	_, err := ImportBase(home, staging)
+	refusedWith(t, "a failed copy", err, "io", "", filepath.Dir(home))
+	cloneFile = clone
+	_, err = ImportBase(home, filepath.Join(home, "bases", "absent"))
+	refusedWith(t, "an absent staging folder", err, "io", "", filepath.Dir(home))
+	must(t, os.Remove(filepath.Join(staging, "entries.json")))
+	_, err = ImportBase(home, staging)
+	refusedWith(t, "no entries.json", err, "io", "", filepath.Dir(home))
 }
 
 func TestBaseReimportReusesTheBaselineAndWritesNothing(t *testing.T) {
@@ -292,9 +408,11 @@ func TestBaseReimportReusesTheBaselineAndWritesNothing(t *testing.T) {
 	must(t, os.WriteFile(filepath.Join(baseline, "manifest.json"), []byte(`{"entries":[],"roots":[{"root":"atlas"}],"version":3}`), 0444))
 	line2, err := os.ReadFile(filepath.Join("testdata", "base-entries.json"))
 	must(t, err)
-	if _, err = ImportBase(home, stage(t, home, line2, fixtureBase)); err == nil || !strings.Contains(err.Error(), "hashes to") {
-		t.Fatalf("a tampered baseline was reused: %v", err)
+	result, err = ImportBase(home, stage(t, home, line2, fixtureBase))
+	if result != nil {
+		t.Fatalf("a tampered baseline was reused: %v", result)
 	}
+	refusedWith(t, "a tampered baseline", err, "io", "", filepath.Dir(home))
 }
 
 func TestMaterializeBaselineRefusesAnExistingOrWrongDestination(t *testing.T) {
@@ -305,21 +423,23 @@ func TestMaterializeBaselineRefusesAnExistingOrWrongDestination(t *testing.T) {
 	must(t, os.Mkdir(existing, 0700))
 	must(t, os.WriteFile(filepath.Join(existing, "keep"), []byte("mine"), 0600))
 	before := listing(t, home)
-	for dest, want := range map[string]string{
-		existing:                              "already exists",
-		filepath.Join(home, "snapshots", "x"): "is not a folder directly in",
-		filepath.Join(workers, "w1", "b"):     "is not a folder directly in",
-		filepath.Join(home, "elsewhere"):      "is not a folder directly in",
-		"relative/work-work-0123456789abcdef": "is not a folder directly in",
-		workers + "/./" + baseWork + "x":      "is not a folder directly in",
+	for dest, code := range map[string]string{
+		existing:                              "destination_exists",
+		filepath.Join(home, "snapshots", "x"): "destination_not_allowed",
+		filepath.Join(workers, "w1", "b"):     "destination_not_allowed",
+		filepath.Join(home, "elsewhere"):      "destination_not_allowed",
+		"relative/work-work-0123456789abcdef": "destination_not_allowed",
+		workers + "/./" + baseWork + "x":      "destination_not_allowed",
 	} {
-		if result, err := MaterializeBaseline(home, id, dest); err == nil || !strings.Contains(err.Error(), want) {
-			t.Errorf("%s: got %v, %v; want %q", dest, result, err, want)
+		result, err := MaterializeBaseline(home, id, dest)
+		if result != nil {
+			t.Errorf("%s: materialized %v", dest, result)
 		}
+		refusedWith(t, dest, err, code, "")
 	}
-	if _, err := MaterializeBaseline(home, "sha256:"+strings.Repeat("0", 64), filepath.Join(workers, "work-work-1111111111111111")); err == nil ||
-		!strings.Contains(err.Error(), "no usable baseline") {
-		t.Errorf("a missing baseline: %v", err)
+	for _, missing := range []string{"sha256:" + strings.Repeat("0", 64), "sha256:x"} {
+		_, err := MaterializeBaseline(home, missing, filepath.Join(workers, "work-work-1111111111111111"))
+		refusedWith(t, missing, err, "baseline_missing", "")
 	}
 	equal(t, listing(t, home), before)
 }
@@ -333,7 +453,7 @@ func TestMaterializeNeverReplacesAPathCreatedMeanwhile(t *testing.T) {
 	beforeMaterializePublish = func(path string) { must(t, os.Mkdir(path, 0700)) }
 	t.Cleanup(func() { beforeMaterializePublish = func(string) {} })
 	result, err := MaterializeBaseline(home, id, dest)
-	if err == nil || !strings.Contains(err.Error(), "already exists") {
+	if result != nil || !refusedWith(t, "materialize", err, "destination_exists", "") {
 		t.Fatalf("got %v, %v; want the destination refused", result, err)
 	}
 	if entries, err := os.ReadDir(dest); err != nil || len(entries) != 0 {
@@ -427,7 +547,8 @@ func TestChangesAreTheSameForAV2AndAV3BaselineOfOneTree(t *testing.T) {
 }
 
 // TestPacketCommandsRefuseAnUploadedBase: freeze, findings and discard are Code-shaped review
-// packets; on a v3 folder they refuse before writing anything (B13).
+// packets; on a v3 folder they refuse with code uploaded_base before writing anything (B13). The
+// freeze is of a folder whose author turn is recorded and ended, so only the guard stops it.
 func TestPacketCommandsRefuseAnUploadedBase(t *testing.T) {
 	home := baseHome(t)
 	id := imported(t, home)
@@ -450,9 +571,9 @@ func TestPacketCommandsRefuseAnUploadedBase(t *testing.T) {
 	must(t, os.MkdirAll(PacketDir(home, packetID), 0700))
 	must(t, os.WriteFile(filepath.Join(PacketDir(home, packetID), "packet.json"),
 		[]byte(jsonString(t, map[string]any{"packet_id": packetID, "fingerprint": "fpr_" + strings.Repeat("d", 64), "tree": filepath.Join(packet, "tree")})), 0600))
+	turn := authorTurn(t, home, dest, "finished")
 	homeBefore, packetBefore := listing(t, home), listing(t, packet)
 
-	turn := "turn-0123456789abcdef"
 	for name, run := range map[string]func() (map[string]any, error){
 		"freeze": func() (map[string]any, error) {
 			return Freeze(home, dest, turn, filepath.Join(outside, "new-packet"), "00000000-0000-4000-8000-000000000002", "", "")
@@ -461,9 +582,10 @@ func TestPacketCommandsRefuseAnUploadedBase(t *testing.T) {
 		"discard":  func() (map[string]any, error) { return Discard(home, "", packetID) },
 	} {
 		result, err := run()
-		if err == nil || !strings.Contains(err.Error(), "it is built from an uploaded base; use from_work / get_frozen") {
-			t.Errorf("%s: got %v, %v; want the uploaded-base refusal", name, result, err)
+		if result != nil {
+			t.Errorf("%s: answered %v", name, result)
 		}
+		refusedWith(t, name, err, "uploaded_base", "", filepath.Dir(home), outside)
 	}
 	equal(t, listing(t, home), homeBefore)
 	equal(t, listing(t, packet), packetBefore)

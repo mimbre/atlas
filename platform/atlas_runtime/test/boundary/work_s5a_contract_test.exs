@@ -8,8 +8,10 @@ defmodule AtlasRuntime.Boundary.WorkS5aContractTest do
     of the core's private S5a fields reaches the public structs.
   - `submit` declares `pruned`; `get_frozen` and `get_frozen_blob` answer `not_found` until
     frozen results exist (P8).
-  - Until their packages land, the core refuses `from_work` (P9) and `after_check` (P10a),
-    and writes nothing. (`base` landed with P7a.)
+  - `after_check` landed with P10a (test/work/after_check_test.exs): it runs only in a `base`
+    or `from_work` workspace, so on a `folder` it is `unsupported_workspace`, and nothing is
+    written. (`base` landed with P7a, `from_work` with P9: a `from_work` naming no work it can
+    read is `not_permitted`, and writes nothing either.)
   """
   use ExUnit.Case, async: false
 
@@ -362,8 +364,9 @@ defmodule AtlasRuntime.Boundary.WorkS5aContractTest do
       refute match?(%F.Outcome.NotFound{}, F.get_frozen({"c9", [:submit]}, %{work_id: "w"}))
     end
 
-    # base landed with P7a (test/work/base_workspace_test.exs).
-    test "from_work and after_check are refused until their packages land, and nothing is written",
+    # base landed with P7a (test/work/base_workspace_test.exs), from_work with P9
+    # (test/work/from_work_test.exs), after_check with P10a (test/work/after_check_test.exs).
+    test "after_check on a folder is unsupported_workspace, a from_work on no readable work is not_permitted, and nothing is written",
          %{bench: bench} do
       before = files(bench.dir)
 
@@ -371,28 +374,25 @@ defmodule AtlasRuntime.Boundary.WorkS5aContractTest do
       # detail (S3, D44); a client without it gets the reason only (below).
       assert :choose_path in elem(client(), 1)
 
-      assert %F.Outcome.Refused{
-               reason: :unsupported_workspace,
-               detail: "from_work not available"
-             } = F.submit(client(), req(from_work()))
+      assert %F.Outcome.Refused{reason: :not_permitted} = F.submit(client(), req(from_work()))
 
-      assert %F.Outcome.Refused{
-               reason: :unsupported_workspace,
-               detail: "from_work not available"
-             } = F.submit(client(), req(from_work(%{attempt: 1})))
+      assert %F.Outcome.Refused{reason: :not_permitted} =
+               F.submit(client(), req(from_work(%{attempt: 1})))
 
       folder =
         bench
         |> AtlasRuntime.WorkHarness.request("after check")
         |> Map.put(:after_check, %{command: ["bin/check"]})
 
-      assert %F.Outcome.Refused{reason: :invalid, detail: "after_check not available"} =
-               F.submit(client(), folder)
+      assert %F.Outcome.Refused{
+               reason: :unsupported_workspace,
+               detail: "after_check runs only in a base or from_work workspace"
+             } = F.submit(client(), folder)
 
       # S3 (D44): the TCP ceiling has no choose_path, so the same refusals carry no detail.
       tcp = {"token:t", [:submit, :cancel, :read, :read_all]}
 
-      assert %F.Outcome.Refused{reason: :unsupported_workspace, detail: nil} =
+      assert %F.Outcome.Refused{reason: :not_permitted, detail: nil} =
                F.submit(tcp, req(from_work()))
 
       repository = %{
@@ -402,7 +402,7 @@ defmodule AtlasRuntime.Boundary.WorkS5aContractTest do
         base: "develop"
       }
 
-      assert %F.Outcome.Refused{reason: :invalid, detail: nil} =
+      assert %F.Outcome.Refused{reason: :unsupported_workspace, detail: nil} =
                F.submit(tcp, req(repository, %{after_check: %{command: ["bin/check"]}}))
 
       assert files(bench.dir) == before

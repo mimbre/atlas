@@ -39,6 +39,8 @@ defmodule AtlasRuntime.MixProject do
       {:atlas_runtime_boundary, path: "boundary/contract", override: true},
       {:atlas_runtime_model, path: "model/contract"},
       {:atlas_runtime_backend, path: "backend/contract"},
+      # The neutral change set (D42): the frozen result's shape and its csf_ fingerprints.
+      {:atlas_changeset, path: "../frameworks/changeset"},
       {:plug, "~> 1.19"},
       {:bandit, "~> 1.10"},
       {:rela_dsl, path: "../../products/software_factory/model/generator", only: :test}

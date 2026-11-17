@@ -75,13 +75,15 @@ defmodule AtlasRuntime.Work.Turns do
         |> Map.merge(workspace(request.workspace, attempt))
   end
 
-  # A base work runs in the folder the Runtime chose for it (`attempt.folder`, B6, B7):
-  # read-only on disk with the read-only sandbox, or writable as a materialized folder.
-  defp workspace(%M.Base{permissions: :read_only}, %{folder: folder}) when is_binary(folder),
-    do: %{"cwd" => folder, "sandbox" => "read-only"}
+  # A base or from_work work runs in the folder the Runtime chose for it (`attempt.folder`,
+  # B6, B7), materialized or composed: read-only on disk with the read-only sandbox, or
+  # writable as a materialized folder (its record names the original base, §3.9).
+  defp workspace(%kind{permissions: :read_only}, %{folder: folder})
+       when kind in [M.Base, M.FromWork] and is_binary(folder),
+       do: %{"cwd" => folder, "sandbox" => "read-only"}
 
-  defp workspace(%M.Base{permissions: :workspace_write}, %{folder: folder})
-       when is_binary(folder),
+  defp workspace(%kind{permissions: :workspace_write}, %{folder: folder})
+       when kind in [M.Base, M.FromWork] and is_binary(folder),
        do: %{"cwd" => folder, "permissions" => "materialized-folder"}
 
   defp workspace(workspace, _attempt), do: workspace(workspace)
@@ -101,6 +103,8 @@ defmodule AtlasRuntime.Work.Turns do
   @doc "The workspace permission a request's policy check uses (design §7 step 1)."
   def permission(%M.Base{permissions: :read_only}), do: "read-only"
   def permission(%M.Base{permissions: :workspace_write}), do: "workspace-write"
+  def permission(%M.FromWork{permissions: :read_only}), do: "read-only"
+  def permission(%M.FromWork{permissions: :workspace_write}), do: "workspace-write"
   def permission(%{url: _}), do: "dedicated-repository"
   def permission(%{permissions: :read_only}), do: "read-only"
   def permission(%{permissions: :workspace_write}), do: "workspace-write"

@@ -12,13 +12,13 @@ defmodule AtlasRuntime.Policy do
   """
 
   @file_name "policy.json"
-  @permissions ~w(dedicated-repository materialized-folder workspace-write read-only review-packet)
+  @permissions ~w(dedicated-repository materialized-folder workspace-write read-only)
   @cost_classes ~w(low standard high)
   @harnesses ~w(claude codex)
   # What each harness can serve; an option that cannot serve the request's permission is
   # skipped, never weakened (the former `BackendPolicy` capability check).
   @capabilities %{
-    "claude" => ~w(dedicated-repository materialized-folder read-only review-packet),
+    "claude" => ~w(dedicated-repository materialized-folder read-only),
     "codex" => @permissions
   }
   @default_slots ["default"]
@@ -27,6 +27,10 @@ defmodule AtlasRuntime.Policy do
   @default_max_duration 14_400
   @cancel_grace 30
   @retry_after 60
+  # After-check (design §3.10, §4; s5a-plan B17): allowed unless a profile says
+  # `allow_after_check: false`; `timeout` 120 s by default, capped by `limits.max_check_timeout`.
+  @max_check_timeout 600
+  @check_timeout 120
   @model ~r/\A[A-Za-z0-9][A-Za-z0-9._:\/\[\]-]{0,199}\z/
   @provider ~r/\A[a-z][a-z0-9_-]{0,63}\z/
   @profile ~r/\A[a-z][a-z0-9_]{0,63}\z/
@@ -93,6 +97,33 @@ defmodule AtlasRuntime.Policy do
       end
 
     %{max_duration: configured, cancel_grace: @cancel_grace, retry_after: @retry_after}
+  end
+
+  @doc """
+  A profile's after-check rules (design §3.10; s5a-plan B17): `allowed` (`allow_after_check`,
+  default true), `max_timeout` (`limits.max_check_timeout`, default 600 s) and
+  `default_timeout` (120 s, or `max_timeout` when that is lower). An unknown profile or no
+  valid policy gives the defaults; its request is refused by `resolve/5` anyway.
+  """
+  @spec after_check(loaded(), String.t()) :: %{
+          allowed: boolean(),
+          max_timeout: pos_integer(),
+          default_timeout: pos_integer()
+        }
+  def after_check(loaded, profile) do
+    settings =
+      case loaded do
+        {:ok, %{"profiles" => %{^profile => %{} = settings}}} -> settings
+        _ -> %{}
+      end
+
+    max = get_in(settings, ["limits", "max_check_timeout"]) || @max_check_timeout
+
+    %{
+      allowed: Map.get(settings, "allow_after_check", true),
+      max_timeout: max,
+      default_timeout: min(@check_timeout, max)
+    }
   end
 
   @doc "Whether a harness can serve a workspace permission at all."
@@ -372,7 +403,8 @@ defmodule AtlasRuntime.Policy do
   end
 
   @top ~w(version changed_by changed_at buffer_size slots independence profiles)
-  @profile_keys ~w(permissions cost_classes options limits)
+  @profile_keys ~w(permissions cost_classes options limits allow_after_check)
+  @limit_keys ~w(max_duration max_check_timeout)
 
   defp validate(policy) do
     checks = [
@@ -410,8 +442,10 @@ defmodule AtlasRuntime.Policy do
          "cost_classes must be a non-empty list of #{Enum.join(@cost_classes, ", ")}"},
         {options?(profile["options"]),
          "options must be a non-empty list of distinct {provider, harness, model}"},
+        {optional(profile, "allow_after_check", &is_boolean/1),
+         "allow_after_check must be a boolean"},
         {optional(profile, "limits", &limits?/1),
-         "limits may hold only a positive integer max_duration"}
+         "limits may hold only positive integers max_duration and max_check_timeout"}
       ],
       "profile #{inspect(name)}: "
     )
@@ -455,8 +489,8 @@ defmodule AtlasRuntime.Policy do
 
   defp option?(_), do: false
 
-  defp limits?(%{"max_duration" => seconds} = limits),
-    do: map_size(limits) == 1 and positive?(seconds)
+  defp limits?(limits) when is_map(limits) and map_size(limits) > 0,
+    do: Map.keys(limits) -- @limit_keys == [] and Enum.all?(Map.values(limits), &positive?/1)
 
   defp limits?(_), do: false
 end

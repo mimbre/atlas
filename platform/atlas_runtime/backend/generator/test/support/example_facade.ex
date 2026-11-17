@@ -190,6 +190,7 @@ defmodule AtlasRuntimeBackend.Generator.Example.Facade do
   defmodule WatchInput, do: use(S, from: {:integer, false})
   defmodule AuditInput, do: use(S, [])
   defmodule ScanInput, do: use(S, book_id: {:string, true})
+  defmodule DepositInput, do: use(S, book_id: {:string, true}, pages: {:stream, true})
   defmodule Counts, do: use(S, total: {:integer, true}, wait: {:integer, false})
   defmodule BookChanged, do: use(S, sequence: {:integer, true}, book_id: {:string, true})
   defmodule Restart, do: use(S, current_sequence: {:integer, true})
@@ -215,6 +216,9 @@ defmodule AtlasRuntimeBackend.Generator.Example.Facade do
     defmodule Watching, do: use(S, [])
     defmodule Restart, do: use(S, current_sequence: {:integer, true})
     defmodule Audited, do: use(S, [])
+
+    defmodule Deposited,
+      do: use(S, book_id: {:string, true}, bytes: {:integer, true}, sha256: {:string, true})
 
     defmodule Scanned,
       do:
@@ -245,8 +249,58 @@ defmodule AtlasRuntimeBackend.Generator.Example.Facade do
     count: :browse,
     watch: :browse,
     scan: :browse,
+    deposit: :lend,
     audit: :audit
   }
+
+  @doc """
+  The most bytes `deposit`'s body may have: the calling process's `:example_deposit_limit`
+  (`Process.put/2`), else 8 MiB. Asked by the router for each request.
+  """
+  def deposit_limit, do: Process.get(:example_deposit_limit, 8 * 1_048_576)
+
+  # The pages are read here, chunk by chunk, as they arrive; each chunk's size goes to the
+  # calling process (`{:deposit_chunk, bytes}`), and `{:deposit_after, book_id}` once the
+  # reading has stopped, however it stopped. "missing" reads nothing; "early" reads one
+  # chunk, looks at its first 10 bytes and refuses; "ignored" answers without reading.
+  def deposit(client, input) do
+    permitted(client, :deposit, input, fn ->
+      case input.book_id do
+        "missing" ->
+          %Outcome.Missing{}
+
+        "ignored" ->
+          %Outcome.Deposited{book_id: "ignored", bytes: 0, sha256: ""}
+
+        "early" ->
+          try do
+            [first] = Enum.take(input.pages, 1)
+            send(self(), {:deposit_chunk, byte_size(first)})
+
+            %Outcome.Refused{
+              reason: :invalid,
+              detail: "starts with #{byte_size(binary_part(first, 0, 10))} bad bytes"
+            }
+          after
+            send(self(), {:deposit_after, "early"})
+          end
+
+        id ->
+          try do
+            {bytes, hash} =
+              Enum.reduce(input.pages, {0, :crypto.hash_init(:sha256)}, fn chunk, {n, hash} ->
+                send(self(), {:deposit_chunk, byte_size(chunk)})
+                {n + byte_size(chunk), :crypto.hash_update(hash, chunk)}
+              end)
+
+            sha256 = hash |> :crypto.hash_final() |> Base.encode16(case: :lower)
+            %Outcome.Deposited{book_id: id, bytes: bytes, sha256: sha256}
+          after
+            send(self(), {:deposit_after, id})
+          end
+      end
+    end)
+  end
 
   def lend(client, input) do
     permitted(client, :lend, input, fn ->

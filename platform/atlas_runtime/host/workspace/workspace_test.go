@@ -17,6 +17,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+
+	"github.com/eyra/atlas/platform/atlas_runtime/host/snapshot"
 )
 
 func workspaceTestRoot(t *testing.T) string {
@@ -523,6 +525,63 @@ func TestWorkspaceFolderScopeVerifiesMaterializationWithoutGit(t *testing.T) {
 	workspaceTestRefuse(t, "missing or incomplete", "folder-scope", dest, home)
 }
 
+// TestWorkspaceRunRefusesTheRemovedPacketOp: the packet-scope operation left with the review
+// packet profile (S5b B2g); it is an unknown operation, emits nothing, and the usage omits it.
+func TestWorkspaceRunRefusesTheRemovedPacketOp(t *testing.T) {
+	root := workspaceTestRoot(t)
+	var output bytes.Buffer
+	err := Run([]string{"packet-scope", filepath.Join(root, "packet", "tree"), filepath.Join(root, "runtime")}, &output)
+	if err == nil || err.Error() != "unknown workspace operation: packet-scope" || output.Len() != 0 {
+		t.Fatalf("packet-scope: %v %q", err, output.String())
+	}
+	if err := Run(nil, &output); err == nil || err.Error() != "use workspace path|scope|folder-scope|request|facts" {
+		t.Fatalf("usage: %v", err)
+	}
+}
+
+// TestWorkspaceFolderScopeRefusesAFrozenPacketTree: a tree frozen by snapshot.Freeze is recorded as a
+// packet tree (snapshot.RecordedPacket), and FolderScope refuses it as a worker folder, so no
+// materialized-folder worker can write the frozen content.
+func TestWorkspaceFolderScopeRefusesAFrozenPacketTree(t *testing.T) {
+	root := workspaceTestRoot(t)
+	home, dest := filepath.Join(root, "runtime"), filepath.Join(root, "work")
+	workspaceTestMaterialize(t, home, dest)
+	workspaceTestWrite(t, filepath.Join(dest, "repo", "new.txt"), "frozen\n")
+	const turn, id = "turn-00000000000000aa", "11111111-2222-4333-8444-555555555555"
+	if err := os.MkdirAll(filepath.Join(home, "turns", turn), 0700); err != nil {
+		t.Fatal(err)
+	}
+	workspaceTestWrite(t, filepath.Join(home, "turns", turn, "turn.json"),
+		fmt.Sprintf(`{"id":%q,"cwd":%q,"state":"finished","worker_id":"author","backend":"codex"}`, turn, dest))
+	packet := filepath.Join(root, "packet")
+	if _, err := snapshot.Freeze(home, dest, turn, packet, id, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	// The packet is read-only; make it removable again for the test's temp folders.
+	t.Cleanup(func() {
+		for _, path := range []string{packet, snapshot.PacketDir(home, id)} {
+			filepath.WalkDir(path, func(name string, entry fs.DirEntry, err error) error {
+				if err == nil {
+					os.Chmod(name, 0700)
+				}
+				return nil
+			})
+		}
+	})
+	tree := filepath.Join(packet, "tree")
+	if recorded, err := snapshot.RecordedPacket(home, tree); err != nil || recorded != id {
+		t.Fatalf("packet tree not recorded: %q %v", recorded, err)
+	}
+	if _, err := FolderScope(tree, home); err == nil ||
+		err.Error() != "Materialized folder "+tree+" is the tree of frozen packet "+id+"; it cannot be a worker folder" {
+		t.Fatalf("materialized-folder scope of a packet tree: %v", err)
+	}
+	// The folder it was frozen from keeps its scope.
+	if _, err := FolderScope(dest, home); err != nil {
+		t.Fatalf("source folder: %v", err)
+	}
+}
+
 func TestWorkspaceContextIdentityAndUnfinishedFiles(t *testing.T) {
 	root := workspaceTestRoot(t)
 	repo := filepath.Join(root, "repo")
@@ -898,7 +957,7 @@ func TestWorkspaceMaterializeAcceptsOnlyTheRuntimeWorkFolder(t *testing.T) {
 	if err := os.Symlink(workers, filepath.Join(workers, "link")); err != nil {
 		t.Fatal(err)
 	}
-	snapshot := func() []string {
+	paths := func() []string {
 		var names []string
 		filepath.WalkDir(home, func(path string, d fs.DirEntry, err error) error {
 			names = append(names, path)
@@ -906,9 +965,9 @@ func TestWorkspaceMaterializeAcceptsOnlyTheRuntimeWorkFolder(t *testing.T) {
 		})
 		return names
 	}
-	before := snapshot()
-	notWorkFolder := "is not the Runtime work folder"
-	for dest, refusal := range map[string]string{
+	before := paths()
+	notWorkFolder := "destination_not_allowed"
+	for dest, code := range map[string]string{
 		filepath.Join(workers, "w1"):                                 notWorkFolder, // a slot folder
 		filepath.Join(workers, "w2"):                                 notWorkFolder, // a slot folder not yet created
 		filepath.Join(home, "snapshots", "x"):                        notWorkFolder,
@@ -921,19 +980,27 @@ func TestWorkspaceMaterializeAcceptsOnlyTheRuntimeWorkFolder(t *testing.T) {
 		workers + "/./work-work-0123456789abcdef":                    notWorkFolder,
 		workers + "//work-work-0123456789abcdef":                     notWorkFolder,
 		filepath.Join(workers, "link", "work-work-0123456789abcdef"): notWorkFolder,
-		"workers/work-work-0123456789abcdef":                         "absolute",
-		existing:                                                     "already exists",
+		"workers/work-work-0123456789abcdef":                         notWorkFolder,
+		existing:                                                     "destination_exists",
 	} {
 		var output bytes.Buffer
-		if err := Run([]string{"materialize", "--home", home, "--baseline", id, "--dest", dest}, &output); err == nil || !strings.Contains(err.Error(), refusal) || output.Len() != 0 {
-			t.Errorf("materialize --dest %s: wanted a refusal containing %q, got %v %s", dest, refusal, err, output.String())
+		err := Run([]string{"materialize", "--home", home, "--baseline", id, "--dest", dest}, &output)
+		var failure *snapshot.Failure
+		if !errors.As(err, &failure) || failure.Code != code || output.Len() != 0 {
+			t.Errorf("materialize --dest %s: wanted code %q, got %v (%+v) %s", dest, code, err, failure, output.String())
 		}
 	}
+	// A malformed command is a usage error: refused, and without an invented code.
 	for _, args := range [][]string{{"materialize", "--home", home, "--dest", work}, {"materialize", "--home", home, "--baseline", id, "--dest", work, "--extra", "x"},
 		{"materialize", "--home", home, "--baseline", id, "--baseline", id, "--dest", work}, {"base-import", "--home", home}} {
-		workspaceTestRefuse(t, "--", args...)
+		var output bytes.Buffer
+		err := Run(args, &output)
+		var failure *snapshot.Failure
+		if err == nil || errors.As(err, &failure) || output.Len() != 0 {
+			t.Errorf("workspace %v: wanted an uncoded usage error, got %v (%+v) %s", args, err, failure, output.String())
+		}
 	}
-	if after := snapshot(); !reflect.DeepEqual(after, before) {
+	if after := paths(); !reflect.DeepEqual(after, before) {
 		t.Fatalf("a refused materialize changed the home:\n%v\n%v", before, after)
 	}
 	if entries, err := os.ReadDir(existing); err != nil || len(entries) != 0 {

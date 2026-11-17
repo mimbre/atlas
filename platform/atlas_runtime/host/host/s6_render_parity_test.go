@@ -434,7 +434,7 @@ func agentCase(t *testing.T, input map[string]any) (c specCase) {
 	origin := text(input["origin"])
 	questions, _ := input["questions"].(bool)
 	profile := text(scope["profile"])
-	folderProfile := profile == "materialized-folder" || profile == "review-packet"
+	folderProfile := profile == "materialized-folder"
 	scopeHome := text(scope["home"])
 	home, err := legacyRuntimeHome(t, scopeHome)
 	if err != nil {
@@ -489,8 +489,6 @@ func agentCase(t *testing.T, input map[string]any) (c specCase) {
 		switch profile {
 		case "materialized-folder":
 			settings, c.legacyErr = claudeFolderSettings(scope, temporary, user, inspector)
-		case "review-packet":
-			settings, c.legacyErr = claudePacketSettings(scope, temporary, user, inspector)
 		default:
 			settings, c.legacyErr = claudeRepositorySettings(scopeValue, temporary, home)
 		}
@@ -608,26 +606,17 @@ func legacyCodexSpec(scope map[string]any, scoped bool, sandbox, workspacePath, 
 	case "dedicated-repository":
 		spec, root, names, err := legacyRepositorySpec(scope, home)
 		return spec, SpecWorkspace{Root: root}, names, err
-	case "materialized-folder", "review-packet":
+	case "materialized-folder":
 		user, err := homeDirectory()
 		if err != nil {
 			return nil, workspace, nil, err
 		}
 		root := text(scope["root"])
-		name, project := "atlas_folder", [][2]string{{root, "write"}}
-		if scope["profile"] == "review-packet" {
-			packet, findings := text(scope["packet"]), text(scope["findings"])
-			if packet == "" || root != filepath.Join(packet, "tree") || findings != filepath.Join(packet, "findings") {
-				return nil, workspace, nil, errors.New("Review packet scope is incomplete")
-			}
-			name, project = "atlas_review_packet", [][2]string{{root, "read"},
-				{filepath.Join(packet, "packet.json"), "read"}, {filepath.Join(packet, "diff.json"), "read"}, {findings, "write"}}
-		}
-		entries, err := legacyWorkerEntries(scope, project, scratch, user, inspector)
+		entries, err := legacyWorkerEntries(scope, [][2]string{{root, "write"}}, scratch, user, inspector)
 		if err != nil {
 			return nil, workspace, nil, err
 		}
-		return &CodexSpec{Profile: name, Base: ":read-only", Entries: entryList(entries),
+		return &CodexSpec{Profile: "atlas_folder", Base: ":read-only", Entries: entryList(entries),
 			Network:      CodexNetwork{Mode: "loopback", UnixSockets: []string{scratch}, LocalBinding: true},
 			NetworkProxy: true, WebSearch: "disabled"}, SpecWorkspace{Root: root}, nil, nil
 	}

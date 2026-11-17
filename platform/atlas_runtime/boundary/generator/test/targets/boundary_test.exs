@@ -179,6 +179,101 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.BoundaryTest do
     end
   end
 
+  describe "a :stream input field (S5c)" do
+    test "the implementation gets the same term, unread, from a map or a built struct" do
+      lazy = Stream.map(["a", "b"], fn chunk -> send(self(), :enumerated) && chunk end)
+      file = File.stream!(__ENV__.file, 64)
+
+      for pages <- [lazy, file, ["a", "b"], [], fn _acc, _fun -> {:done, nil} end] do
+        assert %B.Outcome.Received{} =
+                 B.upload({self(), [:lend]}, %{"title" => "Dune", "pages" => pages})
+
+        assert_received {:received, ^pages}
+
+        assert %B.Outcome.Received{} =
+                 B.upload({self(), [:lend]}, %B.UploadInput{title: "Dune", pages: pages})
+
+        assert_received {:received, ^pages}
+
+        assert {:ok, %B.UploadInput{pages: ^pages}} =
+                 B.UploadInput.new(title: "Dune", pages: pages)
+      end
+
+      refute_received :enumerated
+    end
+
+    # The refusal is asserted by its structure (the outcome, `why:` and the field it names),
+    # never by its wording. `echoes?: false` also checks the note does not repeat the value;
+    # a list's chunks are still shown in the note (values.ex), so lists do not check it.
+    test "a binary, a list of non-binaries or a missing value is refused: invalid" do
+      for {pages, echoes?} <- [
+            {"raw page bytes", false},
+            {[1, 2], true},
+            {["a", :b], true},
+            {["a" | "b"], true},
+            {%{"secret" => "raw page bytes"}, false},
+            {nil, false}
+          ] do
+        for input <- [
+              %{"title" => "Dune", "pages" => pages},
+              %B.UploadInput{title: "Dune", pages: pages}
+            ] do
+          assert %B.Outcome.Declined{why: :unreadable, note: note} =
+                   B.upload({self(), [:lend]}, input)
+
+          assert_refuses_only(note, "input.pages", pages, echoes?)
+        end
+
+        assert {:error, [reason]} = B.UploadInput.new(%{title: "Dune", pages: pages})
+        assert_refuses_only(reason, "upload_input.pages", pages, echoes?)
+      end
+
+      assert %B.Outcome.Declined{why: :unreadable, note: note} =
+               B.upload({self(), [:lend]}, %{"title" => "Dune"})
+
+      assert_refuses_only(note, "input.pages", nil, false)
+      refute_received {:received, _}
+    end
+
+    test "a missing stream is refused even when the field is not marked required" do
+      for options <- ["", ", required: false"] do
+        f = optional_stream_facade(options)
+        input = Module.concat(f, PutInput)
+
+        for given <- [
+              %{"id" => "x"},
+              %{"id" => "x", "tree" => nil},
+              struct!(input, id: "x", tree: nil)
+            ] do
+          assert %InvalidInput{capability: :put, reasons: [reason]} = f.put({self(), [:r]}, given)
+          assert_refuses_only(reason, "input.tree", nil, false)
+        end
+
+        assert {:error, [reason]} = input.new(%{id: "x"})
+        assert_refuses_only(reason, "put_input.tree", nil, false)
+        refute_received {:put, _}
+
+        # A stream is still taken, unread.
+        assert %{__struct__: _} = f.put({self(), [:r]}, %{"id" => "x", "tree" => ["a"]})
+        assert_received {:put, %{tree: ["a"]}}
+      end
+    end
+
+    test "its type is Enumerable.t(), and dump/1 refuses it" do
+      {:ok, types} = Code.Typespec.fetch_types(B.UploadInput)
+      {:type, t} = Enum.find(types, &match?({:type, {:t, _, _}}, &1))
+      assert Code.Typespec.type_to_quoted(t) |> Macro.to_string() =~ "pages: Enumerable.t()"
+
+      # Asserted by the exception and the field it names, not by its wording.
+      error =
+        assert_raise ContractError, fn ->
+          B.UploadInput.dump(%B.UploadInput{title: "t", pages: ["a"]})
+        end
+
+      assert error.message =~ "UploadInput.pages"
+    end
+  end
+
   describe "invalid_detail_right:" do
     test "the invalid_input detail goes only to a client that holds the right" do
       told = {"ann", [:lend, :browse, :see_reasons]}
@@ -212,6 +307,53 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.BoundaryTest do
         guarded_facade("AtlasRuntimeBoundary.Generator.Example", ~s("see"))
       end
     end
+  end
+
+  # One refusal, of the field at `path` and of no other field: the reason starts with that
+  # path. Unless `echoes?`, the given value is not repeated in it.
+  defp assert_refuses_only(reason, path, value, echoes?) do
+    assert String.starts_with?(reason, path <> " "), inspect(reason)
+    refute reason =~ "; ", inspect(reason)
+
+    unless echoes? do
+      refute reason =~ inspect(value), inspect(reason)
+      if is_binary(value), do: refute(reason =~ value, inspect(reason))
+      if is_map(value), do: refute(reason =~ "raw page bytes", inspect(reason))
+    end
+  end
+
+  # An input model whose :stream field leaves `required:` out or sets it false (F1).
+  defp optional_stream_facade(options) do
+    n = System.unique_integer([:positive])
+
+    Code.compile_string("""
+    defmodule OptionalStreamContract#{n} do
+      use AtlasRuntimeBoundary.Generator.Schema
+      version "0"
+      defmodel :put_input do
+        field :id, :string, required: true
+        field :tree, :stream#{options}
+      end
+      defcapability :put, input: :put_input, outcomes: [ok: nil], right: :r
+    end
+
+    defmodule OptionalStreamFacade#{n} do
+      use AtlasRuntimeBoundary.Generator.Targets.Boundary,
+        contract: OptionalStreamContract#{n},
+        implementation: OptionalStreamDesk#{n}
+    end
+
+    defmodule OptionalStreamDesk#{n} do
+      use OptionalStreamFacade#{n}.Implementation
+      @impl true
+      def put({owner, _rights}, input) do
+        send(owner, {:put, input})
+        %OptionalStreamFacade#{n}.Outcome.Ok{}
+      end
+    end
+    """)
+
+    Module.concat([:"OptionalStreamFacade#{n}"])
   end
 
   defp required_detail_contract do
@@ -393,7 +535,7 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.BoundaryTest do
   describe "types and the behaviour" do
     test "the behaviour has one callback per capability, with its arity" do
       assert Enum.sort(B.Implementation.behaviour_info(:callbacks)) ==
-               [count: 1, download: 2, find: 2, lend: 2]
+               [count: 1, download: 2, find: 2, lend: 2, upload: 2]
     end
 
     test "callbacks and specs carry the input struct and the union of outcome structs" do
