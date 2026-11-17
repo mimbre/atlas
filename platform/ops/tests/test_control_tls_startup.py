@@ -188,11 +188,27 @@ class StartupTest(unittest.TestCase):
     def test_daemon_failure_never_starts_core(self):
         self.env['FAIL_DAEMON']='1'
         self.assertNotEqual(self.start().wait(timeout=8), 0)
+        # Awaited signals: core-run has exited (wait above) and the gate reported, via
+        # kill -0, that the owned daemon had exited. The fake daemon logs its event before it
+        # exits and every gate probe runs in the foreground, so the event log is now complete.
         self.assertIn('owned tailscaled exited', (self.base/'output').read_text())
-        # The readiness gate itself must hold: nothing past it (set, core, serve) ever runs.
-        self.assertEqual([e['name'] for e in self.events()][:3], ['apply-move.sh','verify.py','tailscaled'])
+        events = self.events()
+        # apply-move and verify run sequentially in the foreground, so their order is fixed.
+        self.assertEqual([e['name'] for e in events][:2], ['apply-move.sh','verify.py'])
+        # The backgrounded daemon and the gate's concurrent `status` probes may log in any
+        # order: assert membership, not position.
+        daemons = [e for e in events[2:] if e['name']=='tailscaled']
+        self.assertEqual(len(daemons), 1, events)
+        sock = self.base/'sock'/'tailscaled.sock'
+        self.assertIn('--socket='+str(sock), daemons[0]['args'])
+        self.assertFalse(sock.exists())  # a daemon that never came up never published its socket
+        # The readiness gate itself must hold: past verify, only the daemon and the gate's
+        # status probes ever ran; never set, up, the core or serve.
+        for event in events[2:]:
+            if event is not daemons[0]:
+                self.assertEqual((event['name'], event['args'][1:2]), ('tailscale', ['status']), event)
         self.assertFalse(any(e['name']=='atlas' or 'set' in e['args'] or 'serve' in e['args']
-                             for e in self.events()))
+                             for e in events))
         self.assert_clean()
 
     def test_missing_key_for_unauthorized_state_fails_closed(self):
