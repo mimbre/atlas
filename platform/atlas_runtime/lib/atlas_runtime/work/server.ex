@@ -18,10 +18,26 @@ defmodule AtlasRuntime.Work.Server do
   `heartbeat_ms`, `cancel_grace_ms` (default the policy's 30 s), `retention` (seconds, 30
   days), `window` (notifications kept, 10 000), `processes` (taken once per heartbeat, gives the
   probe that heartbeat uses; `AtlasRuntime.Work.Restart.processes/0`), `probe` (a fixed
-  probe instead), `start_timeout_ms` (how long a start may take, 120 s), `after_write` (called
-  with each record just written, before anything mentions it) and `stop_exit_ms` (how long
-  after the last attempt of a stop ended the Service exits, 200 ms, so the stop's answer is
-  out first).
+  probe instead), `start_timeout_ms` (how long a start may take, 120 s), `prepare_timeout_ms`
+  (how long preparing a Runtime-chosen folder may take, 600 s), `prepare_hook` (called by a
+  preparer with `:moved_aside`, tests), `after_write` (called with each record just written,
+  before anything mentions it) and `stop_exit_ms` (how long after the last attempt of a stop
+  ended the Service exits, 200 ms, so the stop's answer is out first).
+
+  **Runtime-chosen folders (s5a-plan B6, B25, B30).** A `base` work runs in
+  `<home>/workers/work-<work_id>` (`AtlasRuntime.Work.Folders`). `launch/4` commits `starting`
+  with the attempt's `folder` and `preparing: true`, then a preparer materializes the base
+  there; the server never waits on it. Its helper's OS pid is committed as `prepare_pid`
+  before the preparer waits on it. When the folder is ready the core commits `preparing:
+  false` and only then asks the Service to start. A failed, crashed or timed-out preparation
+  ends the attempt `failed: workspace`, not retryable, and no turn is asked. A cancel or a
+  `max_duration` deadline while preparing records `cancel_stage: requested` and nothing more:
+  when the preparer ends the attempt ends `cancelled` (or `failed: time_limit`). At boot,
+  `Folders.sweep/1` runs first, and a `preparing` attempt ends `interrupted` with `quiescent`
+  false while its `prepare_pid` may live. A fresh retry rebuilds the folder; it starts only
+  once every earlier attempt is terminal and quiescent (`Queue.previous_settled?/1`), so no
+  process of an earlier attempt can still write the folder. A `retry resume: true` continues
+  in the same folder without preparing it.
 
   **Stop (design §13.1 Q9).** From `{:stop, force, by}` on the core is `stopping` (in memory
   only, never persisted): it takes no new work and starts nothing; buffered work stays.
@@ -38,7 +54,18 @@ defmodule AtlasRuntime.Work.Server do
   alias AtlasRuntime.Boundary.Work, as: B
   alias AtlasRuntime.Model.Work, as: M
   alias AtlasRuntime.Persistence.History
-  alias AtlasRuntime.Work.{Mode, Notifications, Prune, Queue, Restart, Store, Translation, Turns}
+
+  alias AtlasRuntime.Work.{
+    Folders,
+    Mode,
+    Notifications,
+    Prune,
+    Queue,
+    Restart,
+    Store,
+    Translation,
+    Turns
+  }
 
   @doc """
   Loads the store and the persisted mode and starts the core; a store or `mode.json` it
@@ -91,6 +118,10 @@ defmodule AtlasRuntime.Work.Server do
       processes: processes(opts),
       after_write: Keyword.get(opts, :after_write, fn _record -> :ok end),
       start_timeout_ms: Keyword.get(opts, :start_timeout_ms, 120_000),
+      prepare_timeout_ms: Keyword.get(opts, :prepare_timeout_ms, 600_000),
+      prepare_hook: Keyword.get(opts, :prepare_hook),
+      # The running preparers (B25): their monitor ref => {work_id, attempt}.
+      preparers: %{},
       stop_exit_ms: Keyword.get(opts, :stop_exit_ms, 200),
       # nil, or the stop: %{force, by, exiting} (exiting: the Service is asked to exit).
       stopping: nil,
@@ -104,6 +135,8 @@ defmodule AtlasRuntime.Work.Server do
 
   @impl true
   def handle_continue(:boot, state) do
+    # Before any attempt starts: a rebuild's moved-aside folder a crash left (B30).
+    Folders.sweep(state.dir)
     owned = owned_turns(state)
 
     state =
@@ -406,6 +439,31 @@ defmodule AtlasRuntime.Work.Server do
     {:noreply, dispatch(state)}
   end
 
+  def handle_info({:prepare_pid, ref, os_pid, preparer}, state),
+    do: {:noreply, prepare_pid(state, ref, os_pid, preparer)}
+
+  def handle_info({:folder_ready, ref, result}, state),
+    do: {:noreply, state |> folder_ready(ref, result) |> dispatch()}
+
+  def handle_info({:prepare_deadline, id, n}, state) do
+    state =
+      case attempt_of(state, id, n) do
+        %{state: :starting, preparing: true} ->
+          request_cancel(state, id, n, :time_limit, :graceful)
+
+        _ ->
+          state
+      end
+
+    {:noreply, dispatch(state)}
+  end
+
+  def handle_info({:DOWN, ref, :process, _pid, reason}, %{preparers: preparers} = state)
+      when is_map_key(preparers, ref),
+      do:
+        {:noreply,
+         state |> folder_ready(ref, {:error, "preparer ended: #{inspect(reason)}"}) |> dispatch()}
+
   def handle_info({:deadline, id, n}, state) do
     state =
       case attempt_of(state, id, n) do
@@ -471,10 +529,17 @@ defmodule AtlasRuntime.Work.Server do
       match?(%B.Repository{base: base} when base != "develop", input.workspace) ->
         refused(state, :unsupported_workspace, "a repository's base must be develop")
 
-      # S5a guards (s5a-plan P4), each until its package lands: base (P7a), from_work
-      # (P9), after_check (P10a). Nothing past them knows these forms yet.
-      match?(%B.Base{}, input.workspace) ->
-        refused(state, :unsupported_workspace, "base not available")
+      # Until S5c a base is a Code snapshot (§12 exception, B27).
+      match?(%B.Base{}, input.workspace) and
+          not Regex.match?(~r/\Asha256:[0-9a-f]{64}\z/, input.workspace.base_id) ->
+        refused(state, :invalid, "base_id must be a Code snapshot id until S5c")
+
+      # The conversation's folder would not be this work's folder (B29, DQ10).
+      match?(%B.Base{}, input.workspace) and input.resume_from != nil ->
+        refused(state, :invalid, "resume_from cannot continue into a base workspace")
+
+      # S5a guards (s5a-plan P4), each until its package lands: from_work (P9),
+      # after_check (P10a). Nothing past them knows these forms yet.
 
       match?(%B.FromWork{}, input.workspace) ->
         refused(state, :unsupported_workspace, "from_work not available")
@@ -721,10 +786,19 @@ defmodule AtlasRuntime.Work.Server do
     signal(state, id, n, if(mode == :force, do: "kill", else: "stop"))
   end
 
+  # While its folder is being prepared no turn was asked: the cancel stays `requested` until
+  # the preparer ends (B25).
+  defp signal(state, id, n, name) do
+    case attempt_of(state, id, n) do
+      %{preparing: true} -> state
+      _ -> signal_turn(state, id, n, name)
+    end
+  end
+
   # A cancel of a start the Service left unanswered has no turn ID to signal yet: the
   # admission names the turn if the Service started one; otherwise `ask_unanswered/1`
   # resolves it.
-  defp signal(state, id, n, name) do
+  defp signal_turn(state, id, n, name) do
     state = find_turn(state, id, n)
 
     case attempt_of(state, id, n) do
@@ -889,6 +963,28 @@ defmodule AtlasRuntime.Work.Server do
     end
   end
 
+  defp launch(state, %{request: %{workspace: %M.Base{}}} = record, attempt, slot) do
+    folder = Folders.path(state.dir, record.work_id)
+    # A resume continues the conversation in the folder as its turn left it (B29).
+    preparing = is_nil(attempt.resume_point)
+
+    attempt = %{
+      attempt
+      | state: :starting,
+        slot: slot,
+        folder: folder,
+        preparing: preparing,
+        prepare_pid: nil,
+        timestamps: %{attempt.timestamps | started_at: now()}
+    }
+
+    state = commit(state, put_attempt(record, attempt))
+
+    if preparing,
+      do: prepare(state, record, attempt),
+      else: ask_start(state, record, attempt, slot)
+  end
+
   defp launch(state, record, attempt, slot) do
     attempt = %{
       attempt
@@ -899,6 +995,119 @@ defmodule AtlasRuntime.Work.Server do
 
     state = commit(state, put_attempt(record, attempt))
     ask_start(state, record, attempt, slot)
+  end
+
+  # The preparer runs beside the server (F17); its deadline counts from the start, as the
+  # turn's will count from running_at (B25).
+  defp prepare(state, record, attempt) do
+    %M.Base{base_id: base_id, permissions: permissions} = record.request.workspace
+
+    spec = %{
+      home: state.dir,
+      work_id: record.work_id,
+      attempt: attempt.attempt,
+      base_id: base_id,
+      read_only: permissions == :read_only,
+      timeout_ms: state.prepare_timeout_ms,
+      hook: state.prepare_hook
+    }
+
+    {_pid, ref} = Folders.prepare(:materialize, spec, self())
+    limits = Policy.limits(Policy.load(state.dir), record.request.profile)
+
+    Process.send_after(
+      self(),
+      {:prepare_deadline, record.work_id, attempt.attempt},
+      limits.max_duration * 1000
+    )
+
+    %{state | preparers: Map.put(state.preparers, ref, {record.work_id, attempt.attempt})}
+  end
+
+  defp prepare_pid(state, ref, os_pid, preparer) do
+    case state.preparers[ref] do
+      {id, n} ->
+        state =
+          case attempt_of(state, id, n) do
+            %{preparing: true} = attempt ->
+              commit(state, put_attempt(state.works[id], %{attempt | prepare_pid: os_pid}))
+
+            _ ->
+              state
+          end
+
+        send(preparer, {:prepare_pid_recorded, ref})
+        state
+
+      nil ->
+        send(preparer, {:prepare_pid_recorded, ref})
+        state
+    end
+  end
+
+  # The preparer ended: with its result, or (a `:DOWN` without one) as a failure.
+  defp folder_ready(state, ref, result) do
+    case Map.pop(state.preparers, ref) do
+      {nil, _} ->
+        state
+
+      {{id, n}, preparers} ->
+        Process.demonitor(ref, [:flush])
+        state = %{state | preparers: preparers}
+
+        case attempt_of(state, id, n) do
+          %{state: :starting, preparing: true} = attempt when result == :ok ->
+            attempt = %{attempt | preparing: false}
+            state = commit(state, put_attempt(state.works[id], attempt))
+            ask_start(state, state.works[id], attempt, attempt.slot)
+
+          %{state: :starting, preparing: true} ->
+            {:error, detail} = result
+            prepare_failed(state, id, n, detail)
+
+          %{state: :cancelling, preparing: true} = attempt ->
+            {kind, reason} =
+              if attempt.cancel_reason == :time_limit,
+                do: {:failed, "time_limit"},
+                else: {:cancelled, Atom.to_string(attempt.cancel_reason || :cancel)}
+
+            end_attempt(state, id, n, nil, %{
+              kind: kind,
+              reason: reason,
+              native_outcome: nil,
+              quiescent: true,
+              answer: nil
+            })
+
+          _ ->
+            state
+        end
+    end
+  end
+
+  # As start_failed/4, for attempt n: the detail goes only to the log (F17).
+  defp prepare_failed(state, id, n, detail) do
+    Logger.warning("runtime work: #{id} attempt #{n} did not start (workspace): #{detail}")
+    attempt = attempt_of(state, id, n)
+    now = now()
+
+    attempt = %{
+      attempt
+      | state: :failed,
+        preparing: false,
+        quiescent: true,
+        timestamps: %{attempt.timestamps | ended_at: now},
+        result:
+          M.Result.new!(
+            kind: :failed,
+            reason: "workspace",
+            retryable: false,
+            never_started: false
+          )
+    }
+
+    state = commit(state, put_attempt(state.works[id], attempt))
+    maybe_release(state, attempt.slot)
   end
 
   defp ask_start(state, record, attempt, slot) do
@@ -955,6 +1164,10 @@ defmodule AtlasRuntime.Work.Server do
         reduce: state do
       state ->
         case attempt do
+          # A folder being prepared has asked nothing yet (B25).
+          %{preparing: true} ->
+            state
+
           %{state: :starting} when state.accepting ->
             ask_start(state, state.works[id], attempt, slot)
 
@@ -1165,6 +1378,7 @@ defmodule AtlasRuntime.Work.Server do
       attempt
       | state: outcome.kind,
         turn_id: turn_id,
+        preparing: if(attempt.preparing, do: false, else: attempt.preparing),
         quiescent: outcome.quiescent,
         result: result,
         resume_point:
@@ -1271,11 +1485,16 @@ defmodule AtlasRuntime.Work.Server do
     end
   end
 
+  # A turn whose end was never confirmed, or (B25) the helper of a preparation a restart
+  # interrupted, once provably gone.
   defp probe(state, processes) do
     Enum.reduce(unsettled(state), state, fn {id, attempt}, state ->
-      if attempt.turn_id && Restart.gone?(state.dir, attempt.turn_id, processes),
-        do: settle(state, id, attempt.attempt),
-        else: state
+      gone? =
+        if attempt.turn_id,
+          do: Restart.gone?(state.dir, attempt.turn_id, processes),
+          else: Restart.prepare_gone?(attempt, processes)
+
+      if gone?, do: settle(state, id, attempt.attempt), else: state
     end)
   end
 
@@ -1364,7 +1583,8 @@ defmodule AtlasRuntime.Work.Server do
   defp stop_check(%{stopping: %{exiting: false}} = state) do
     state =
       for {id, record} <- state.works,
-          %{state: :starting, turn_id: nil, attempt: n} <- record.attempts,
+          %{state: :starting, turn_id: nil, attempt: n} = attempt <- record.attempts,
+          attempt.preparing != true,
           service_stopping?(state),
           reduce: state do
         state ->

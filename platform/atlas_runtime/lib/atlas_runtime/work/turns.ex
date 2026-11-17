@@ -25,6 +25,8 @@ defmodule AtlasRuntime.Work.Turns do
   | `failed`, anything else (the helper died) | `crashed` |
   """
 
+  alias AtlasRuntime.Model.Work, as: M
+
   @live ~w(running stopping killing)
   @answer_bytes 8192
 
@@ -70,8 +72,19 @@ defmodule AtlasRuntime.Work.Turns do
           "profile" => request.profile,
           "cost_class" => Atom.to_string(request.cost_class)
         })
-        |> Map.merge(workspace(request.workspace))
+        |> Map.merge(workspace(request.workspace, attempt))
   end
+
+  # A base work runs in the folder the Runtime chose for it (`attempt.folder`, B6, B7):
+  # read-only on disk with the read-only sandbox, or writable as a materialized folder.
+  defp workspace(%M.Base{permissions: :read_only}, %{folder: folder}) when is_binary(folder),
+    do: %{"cwd" => folder, "sandbox" => "read-only"}
+
+  defp workspace(%M.Base{permissions: :workspace_write}, %{folder: folder})
+       when is_binary(folder),
+       do: %{"cwd" => folder, "permissions" => "materialized-folder"}
+
+  defp workspace(workspace, _attempt), do: workspace(workspace)
 
   defp workspace(%{url: url, branch: branch}),
     do: %{"repository" => url, "branch" => branch, "permissions" => "dedicated-repository"}
@@ -86,6 +99,8 @@ defmodule AtlasRuntime.Work.Turns do
     do: %{"cwd" => path, "permissions" => "materialized-folder"}
 
   @doc "The workspace permission a request's policy check uses (design §7 step 1)."
+  def permission(%M.Base{permissions: :read_only}), do: "read-only"
+  def permission(%M.Base{permissions: :workspace_write}), do: "workspace-write"
   def permission(%{url: _}), do: "dedicated-repository"
   def permission(%{permissions: :read_only}), do: "read-only"
   def permission(%{permissions: :workspace_write}), do: "workspace-write"

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/eyra/atlas/platform/atlas_runtime/host/snapshot"
+	"github.com/eyra/atlas/platform/atlas_runtime/host/workspace"
 )
 
 // codexCommand builds the official Codex CLI argv; an empty model keeps Codex's own default.
@@ -95,7 +96,7 @@ func sandboxArguments(sandbox, workspace, home string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	denied, err := runtimeEntries(home, workspace)
+	denied, err := homeEntries(home, workspace)
 	if err != nil {
 		return nil, err
 	}
@@ -103,6 +104,67 @@ func sandboxArguments(sandbox, workspace, home string) ([]string, error) {
 		denied = append([][2]string{{workspace, access}}, denied...)
 	}
 	return extendedProfileArguments(name, base, denied, "network={enabled=false}")
+}
+
+// homeEntries are the runtimeEntries of a project path, except for the Runtime-chosen work folder
+// <home>/workers/work-<work_id> (workspace.RuntimeWorkFolder), whose workFolderRuntimeEntries add the
+// chain and sibling denies to the deny on the home whole.
+func homeEntries(home, project string) ([][2]string, error) {
+	if workspace.RuntimeWorkFolder(home, project) {
+		return workFolderRuntimeEntries(home, project)
+	}
+	return runtimeEntries(home, project)
+}
+
+// workFolderHomeNames are the Runtime home entries a profile of the work folder denies by path, even
+// when they are absent at launch: the sensitiveHomeNames, the frozen results, the bases and the work store.
+var workFolderHomeNames = append(slices.Clone(sensitiveHomeNames), "frozen", "bases", "work")
+
+// workFolderRuntimeEntries are the Codex denies of the Runtime home for the work folder
+// root = <home>/workers/work-<work_id> (design §3.9 RQ7, I8). Codex lets the more specific path win,
+// so the home itself stays denied whole, with the folder (and the record, baseline and scratch) as the
+// more specific allows each profile adds: an entry created in the home or in <home>/workers during the
+// turn (an atomic mode.json.tmp or availability.json.tmp, a new store) falls under that deny, and
+// neither directory can be listed. Designer condition 2's "do not deny the home" is Claude's rule
+// (a Claude deny wins over the folder; claudeWorkerSettings). As defence in depth the managed
+// repository's chain and sibling rule (repositoryRuntimeEntries) is kept too: every entry existing at
+// launch in the home and in <home>/workers off the chain to root, the workFolderHomeNames, the sockets,
+// the Code token and, through siblingWorkerGlobs, every other worker directory, one created later
+// included. A work folder refuses .git (FolderScopeBeforePreparation), so no Git lstats the denied
+// ancestors.
+func workFolderRuntimeEntries(home, root string) ([][2]string, error) {
+	if !workspace.RuntimeWorkFolder(home, root) {
+		return nil, fmt.Errorf("Workspace %s is not a Runtime work folder", root)
+	}
+	chain, err := repositoryRuntimeEntries(home, root)
+	if err != nil {
+		return nil, err
+	}
+	denied := append([][2]string{{home, "none"}}, chain...)
+	for _, name := range workFolderHomeNames {
+		denied = append(denied, [2]string{filepath.Join(home, name), "none"})
+	}
+	return denied, nil
+}
+
+// workFolderCredentials drops from denied, for the work folder root, a credential location that is the
+// Runtime home itself (the default ~/.local/state/atlas-runtime; the home deny already covers it) and refuses
+// one that strictly contains the home, as claudeWorkerSettings does.
+func workFolderCredentials(home, root string, denied [][2]string) ([][2]string, error) {
+	if !workspace.RuntimeWorkFolder(home, root) {
+		return denied, nil
+	}
+	var kept [][2]string
+	for _, entry := range denied {
+		switch {
+		case entry[0] == home:
+		case within(entry[0], root):
+			return nil, fmt.Errorf("Protected path %s contains %s", entry[0], root)
+		default:
+			kept = append(kept, entry)
+		}
+	}
+	return kept, nil
 }
 
 // runtimeEntries deny the Runtime home and the Code token and its directory, none of which may be the
@@ -356,7 +418,13 @@ func workerArguments(name string, scope map[string]any, project [][2]string, scr
 	if err != nil {
 		return nil, err
 	}
-	entries := slices.Concat(project, [][2]string{{scratch, "write"}, {user, "none"}, {home, "none"}}, socketDenies,
+	homeDenies := slices.Concat([][2]string{{home, "none"}}, socketDenies)
+	if workspace.RuntimeWorkFolder(home, root) {
+		if homeDenies, err = workFolderRuntimeEntries(home, root); err != nil {
+			return nil, err
+		}
+	}
+	entries := slices.Concat(project, [][2]string{{scratch, "write"}, {user, "none"}}, homeDenies,
 		[][2]string{{record, "read"}, {baseline, "read"}, {filepath.Join(root, ".git"), "none"}})
 	// Status, diff and submit of a prepared folder read its minimal result, never its diagnostics.
 	for _, file := range []string{snapshot.RebindMarker(home, root), snapshot.PreparationResult(home, root)} {
@@ -375,6 +443,9 @@ func workerArguments(name string, scope map[string]any, project [][2]string, scr
 	}
 	denied, err := deniedEntries(home, user, nil, append(slices.Clone(paths), scratch)...)
 	if err != nil {
+		return nil, err
+	}
+	if denied, err = workFolderCredentials(home, root, denied); err != nil {
 		return nil, err
 	}
 	var none []string
@@ -435,7 +506,16 @@ func setupArguments(scope map[string]any, writable []string, scratch, user strin
 		}
 		entries = append(entries, [2]string{output, "write"})
 	}
-	entries = append(entries, [2]string{scratch, "write"}, [2]string{home, "none"}, [2]string{filepath.Join(root, ".git"), "none"})
+	homeDenies := [][2]string{{home, "none"}}
+	if workspace.RuntimeWorkFolder(home, root) {
+		var err error
+		if homeDenies, err = workFolderRuntimeEntries(home, root); err != nil {
+			return nil, err
+		}
+		// The rest of the folder stays readable as the more specific path inside the denied home.
+		homeDenies = append([][2]string{{root, "read"}}, homeDenies...)
+	}
+	entries = append(append(append(entries, [2]string{scratch, "write"}), homeDenies...), [2]string{filepath.Join(root, ".git"), "none"})
 	for _, repository := range repositories {
 		path, ok := repository.(string)
 		if !ok {
@@ -445,6 +525,9 @@ func setupArguments(scope map[string]any, writable []string, scratch, user strin
 	}
 	denied, err := deniedEntries(home, user, []string{".npmrc"}, append(slices.Clone(writable), scratch)...)
 	if err != nil {
+		return nil, err
+	}
+	if denied, err = workFolderCredentials(home, root, denied); err != nil {
 		return nil, err
 	}
 	if !network {
