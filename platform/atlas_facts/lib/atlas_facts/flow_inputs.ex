@@ -5,6 +5,7 @@ defmodule AtlasFacts.FlowInputs do
 
   @fields ~w(request_id run flow subject_kind subject_key generation entry source_version subject_version actor roles changed_fields links payload_digest status position prepared_at applied_at)
   @structured ~w(roles changed_fields links)
+  @supervision_ops ~w(pickup hand_over)
   def fields, do: @fields
   def kind?(d, kind), do: get_in(d, ["flow_runtime", "inputs", "kind"]) == kind
 
@@ -261,6 +262,74 @@ defmodule AtlasFacts.FlowInputs do
     end
   end
 
+  # A pickup or hand-over (work acquisition design 2026-11-17, §5.6): a request from a
+  # person at Control to become, or stop being, a run's human supervisor. Facts checks the
+  # record and its sender, and keeps it applied; it writes neither the supervisor link nor
+  # the subject. Flow alone consumes it and moves the link, after checking it again.
+  def write(rela, d, e, %{"op" => op, "by" => actor, "values" => v} = content, now, position, _)
+      when op in @supervision_ops and is_map(v) do
+    with :ok <- need(Enum.sort(Map.keys(content)) == ~w(by op values), :input_shape),
+         :ok <-
+           need(
+             is_binary(e.sender) and String.starts_with?(e.sender, "control/session-") and
+               is_binary(actor) and actor != "",
+             :input_authority
+           ),
+         :ok <- need(Enum.sort(Map.keys(v)) == supervision_values(op), :input_shape),
+         :ok <- need(is_binary(v["request_id"]) and v["request_id"] != "", :input_shape),
+         {:ok, s} <- supervision(d),
+         {:ok, run} <- known_run(rela, d, v["run"]) do
+      key = identity(v["request_id"])
+      digest = Digest.of_term([op, actor, v])
+
+      case Rela.get(rela, plural(d), key) do
+        {:ok, fact} ->
+          existing = decode(d, fact)
+
+          if existing["payload_digest"] == digest,
+            do: {:ok, existing},
+            else: {:error, :request_conflict}
+
+        {:error, :not_found} ->
+          with :ok <- need(run["status"] == "active", :not_active),
+               :ok <- current_generation(rela, d, run),
+               :ok <- need(in_span?(s, run), :outside_span),
+               :ok <- need(person?(rela, d, s, actor), :not_a_person),
+               {:ok, supervisor} <- supervisor(rela, d, s, run),
+               :ok <- acquisition(rela, d, s, op, run, supervisor, actor, v),
+               {:ok, subject} <- subject(rela, d, run) do
+            value =
+              Map.take(run, ~w(flow subject_kind subject_key generation entry))
+              |> Map.merge(%{
+                "request_id" => v["request_id"],
+                "run" => run["key"],
+                "source_version" => subject.version,
+                "subject_version" => subject.version,
+                "actor" => actor,
+                s["slots"]["operation"] => op,
+                "roles" => [op],
+                "changed_fields" => %{},
+                "links" => %{},
+                "payload_digest" => digest,
+                "status" => "applied",
+                "position" => position.(),
+                "prepared_at" => DateTime.to_iso8601(now.()),
+                "applied_at" => DateTime.to_iso8601(now.())
+              })
+              |> Map.merge(
+                if(op == "hand_over", do: %{s["slots"]["hand_to"] => v["hand_to"]}, else: %{})
+              )
+
+            with {:ok, []} <- Rela.create(rela, plural(d), key, encode(d, value), %{}),
+                 do: {:ok, Map.put(value, "key", key)}
+          end
+
+        error ->
+          error
+      end
+    end
+  end
+
   def write(
         rela,
         d,
@@ -439,6 +508,39 @@ defmodule AtlasFacts.FlowInputs do
   def reasons(:request_conflict, _d),
     do: ["This request was already sent with other content; open it again and retry."]
 
+  def reasons(:input_shape, _d),
+    do: ["Control sent this in a form Facts does not take."]
+
+  def reasons(:supervision_undeclared, _d),
+    do: ["Nobody supervises a flow here: the model declares no supervision."]
+
+  def reasons(:unknown_run, _d),
+    do: ["Its flow is not known here; open it again."]
+
+  def reasons(:not_active, _d),
+    do: ["Its flow is not running now; open it again to see where it is."]
+
+  def reasons(:outside_span, _d),
+    do: ["Its flow is not at a step a person supervises now; open it again."]
+
+  def reasons(:not_a_person, _d),
+    do: ["Only a person may pick up or hand over a flow, for themselves."]
+
+  def reasons(:already_supervised, _d),
+    do: ["Someone supervises it already; open it again to see who."]
+
+  def reasons(:pickup_pending, _d),
+    do: ["A pick up of it is on its way already; wait until its flow takes it."]
+
+  def reasons(:not_supervisor, _d),
+    do: ["Only the one who supervises it may hand it over."]
+
+  def reasons(:hand_to_self, _d),
+    do: ["Hand it over to someone else."]
+
+  def reasons(:hand_to_not_a_person, _d),
+    do: ["It can only be handed over to a person."]
+
   def reasons(:prepared_input_needs_reconciliation, _d),
     do: ["An earlier answer to it is still being applied; try again shortly."]
 
@@ -485,6 +587,75 @@ defmodule AtlasFacts.FlowInputs do
             to_string(name) == role and key == actor
           end)
       end)
+  end
+
+  defp supervision_values("pickup"), do: ~w(request_id run)
+  defp supervision_values("hand_over"), do: ~w(hand_to request_id run)
+
+  # The model's supervision, with the input slots its operation and hand-to fields are
+  # kept in and the one kind its relation leads to (who may supervise).
+  defp supervision(d) do
+    s = d["flow_runtime"]["supervision"]
+    fields = d["flow_runtime"]["inputs"]["fields"] || %{}
+    slot = fn field -> Enum.find_value(fields, fn {slot, f} -> if f == field, do: slot end) end
+
+    with %{"relation" => relation, "inputs" => inputs} <- s,
+         [to] <- get_in(d, ["relations", relation, "to"]),
+         operation when is_binary(operation) <- slot.(inputs["operation"]),
+         hand_to when is_binary(hand_to) <- slot.(inputs["hand_to"]) do
+      {:ok,
+       Map.merge(s, %{"to" => to, "slots" => %{"operation" => operation, "hand_to" => hand_to}})}
+    else
+      _ -> {:error, :supervision_undeclared}
+    end
+  end
+
+  defp known_run(rela, d, key) do
+    case is_binary(key) && run(rela, d, key) do
+      {:ok, run} -> {:ok, run}
+      {:error, :not_found} -> {:error, :unknown_run}
+      false -> {:error, :input_shape}
+      error -> error
+    end
+  end
+
+  # Inside one of the spans of its subflow, at one of that span's states.
+  defp in_span?(s, run),
+    do:
+      Enum.any?(get_in(s, ["spans", run["flow"]]) || [], &(run["state"] in (&1["states"] || [])))
+
+  defp person?(rela, d, s, key),
+    do:
+      is_binary(key) and
+        match?({:ok, _}, Rela.get(rela, Description.kind(d, s["to"])["plural"], key))
+
+  # The keys the run's supervision relation links, as stored.
+  defp supervisor(rela, d, s, run) do
+    c = d["flow_runtime"]
+
+    with {:ok, fact} <- Rela.get(rela, Description.kind(d, c["kind"])["plural"], run["key"]),
+         do: {:ok, (fact.links || %{})[s["relation"]] || []}
+  end
+
+  defp acquisition(rela, d, s, "pickup", run, supervisor, _actor, _v) do
+    with :ok <- need(supervisor == [], :already_supervised),
+         {:ok, facts} <- Rela.list(rela, plural(d)) do
+      pending =
+        Enum.any?(facts, fn fact ->
+          i = decode(d, fact)
+
+          i["run"] == run["key"] and i[s["slots"]["operation"]] == "pickup" and
+            i["status"] in ~w(prepared applied)
+        end)
+
+      need(not pending, :pickup_pending)
+    end
+  end
+
+  defp acquisition(rela, d, s, "hand_over", _run, supervisor, actor, v) do
+    with :ok <- need(actor in supervisor, :not_supervisor),
+         :ok <- need(v["hand_to"] != actor, :hand_to_self),
+         do: need(person?(rela, d, s, v["hand_to"]), :hand_to_not_a_person)
   end
 
   defp current_generation(rela, d, run) do

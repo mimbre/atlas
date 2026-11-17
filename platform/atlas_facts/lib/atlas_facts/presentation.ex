@@ -20,6 +20,9 @@ defmodule AtlasFacts.Presentation do
     * `owner` (the keys the owner relation links), `manual` (a user or an agent set it,
       not Flow, a migration or nobody), `handover` (the deferred handover Flow holds,
       `%{"from", "position"}`, or nil);
+    * `supervisor`: the keys of the presenting run's human supervisor (its supervision
+      relation, work acquisition design 2026-11-17 §5.6), `[]` when it has none or no
+      run presents anything: never another run's, nor another generation's;
     * `reopened`: its runs ended, a selection that declares reopened
       work runs again only on an explicit restart (`reopen: "explicit"`) still admits the
       subject, and the subject is not completed: reopened work, nobody's until then;
@@ -33,7 +36,8 @@ defmodule AtlasFacts.Presentation do
   @doc """
   The presentation of `target` by `presenter`, for `subject` (`%{"key", "values"}`, the
   fact the work is on; `target` itself when the presenter writes on the subject) with
-  `runs` (decoded, of its subject: `flow`, `generation`, `status`, `state`, `key`).
+  `runs` (decoded, of its subject: `flow`, `generation`, `status`, `state`, `key`, and
+  `supervisor`, the keys its supervision relation links).
   `completed?` says whether the subject is completed (asked only for reopened work).
   """
   def view(presenter, target, subject, runs, completed?) do
@@ -48,6 +52,7 @@ defmodule AtlasFacts.Presentation do
       "generation" => nil,
       "status" => nil,
       "state" => nil,
+      "supervisor" => [],
       "reopened" => false,
       "owner" => owners(target, presenter),
       "manual" => manual?(target, presenter["owner_relation"]),
@@ -100,7 +105,8 @@ defmodule AtlasFacts.Presentation do
       "flow" => cfg["name"],
       "run" => run["key"],
       "generation" => run["generation"],
-      "status" => run["status"]
+      "status" => run["status"],
+      "supervisor" => run["supervisor"] || []
     }
 
   # The latest generation of each of its subflows' runs, in the presenter's order.

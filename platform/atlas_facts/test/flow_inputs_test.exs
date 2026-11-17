@@ -819,6 +819,258 @@ defmodule AtlasFacts.FlowInputsTest do
     end
   end
 
+  # -- Pickup and hand-over (work acquisition design 2026-11-17, §5.6) ------------------
+  # A clerk supervises a sort run (`watched_by`, cursor → clerk) while it is at `open`, the
+  # one state of its span. Facts keeps the request; Flow alone moves the link.
+
+  @supervision_record ~w(flow subject_kind subject_key generation entry run request_id actor source_version subject_version operation roles changed_fields links payload_digest status position prepared_at applied_at key)
+
+  defp supervised(c, opts \\ []) do
+    d =
+      c.d
+      |> put_in(["relations", "watched_by"], %{
+        "from" => ["cursor"],
+        "to" => ["clerk"],
+        "max_outgoing" => 1
+      })
+      |> put_in(
+        ["flow_runtime", "inputs", "fields"],
+        Map.new(FlowInputs.fields() ++ ~w(operation hand_to), &{&1, &1})
+      )
+      |> put_in(["flow_runtime", "supervision"], %{
+        "version" => 1,
+        "relation" => "watched_by",
+        "inputs" => %{
+          "operation" => "operation",
+          "operations" => ~w(pickup hand_over),
+          "hand_to" => "hand_to"
+        },
+        "spans" => %{
+          "sort" => [%{"name" => "desk", "label" => "Desk", "states" => ["open"], "with" => []}]
+        }
+      })
+
+    {:ok, []} = Rela.create(c.rela, "clerks", "bea", %{}, %{})
+    put_run(c, "R-1", Keyword.get(opts, :state, "open"), Keyword.get(opts, :supervisor, []))
+    %{c | d: d}
+  end
+
+  defp put_run(c, key, state, supervisor, values \\ %{}) do
+    {:ok, run} = Rela.get(c.rela, "cursors", key)
+
+    {:ok, []} =
+      Rela.change(c.rela, "cursors", key, Map.put(values, "state", state), run.version, %{
+        "watched_by" => {"clerk", supervisor}
+      })
+  end
+
+  defp acquire(c, op, values, actor \\ "ada", sender \\ "control/session-test") do
+    FlowInputs.write(
+      c.rela,
+      c.d,
+      %{Envelope.new("fact", "choice") | sender: sender},
+      %{"op" => op, "by" => actor, "values" => values},
+      fn -> @now end,
+      c.position,
+      c.write
+    )
+  end
+
+  defp pickup(c, id \\ "pick-1", actor \\ "ada", sender \\ "control/session-test"),
+    do: acquire(c, "pickup", %{"run" => "R-1", "request_id" => id}, actor, sender)
+
+  defp hand_over(c, to, id \\ "hand-1", actor \\ "ada"),
+    do: acquire(c, "hand_over", %{"run" => "R-1", "request_id" => id, "hand_to" => to}, actor)
+
+  defp stored(c),
+    do: for(f <- elem(Rela.list(c.rela, "choices"), 1), do: f.key)
+
+  test "a pickup is kept applied with the full record, bound to the run; nothing else moves",
+       c do
+    c = supervised(c)
+    {:ok, before} = Rela.get(c.rela, "boxes", "B-1")
+    {:ok, run_before} = Rela.get(c.rela, "cursors", "R-1")
+
+    assert {:ok, input} = pickup(c)
+    assert Enum.sort(Map.keys(input)) == Enum.sort(@supervision_record)
+    {:ok, run} = Rela.get(c.rela, "cursors", "R-1")
+
+    for slot <- ~w(flow subject_kind subject_key generation entry),
+        do: assert(input[slot] == run.properties[slot])
+
+    assert input["run"] == "R-1" and input["actor"] == "ada"
+    assert input["operation"] == "pickup" and input["roles"] == ["pickup"]
+    assert input["changed_fields"] == %{} and input["links"] == %{}
+    assert input["status"] == "applied"
+    assert input["source_version"] == before.version
+    assert input["subject_version"] == before.version
+    assert is_binary(input["payload_digest"]) and is_integer(input["position"])
+    assert is_binary(input["prepared_at"]) and is_binary(input["applied_at"])
+
+    # As stored, as Flow reads it.
+    flow = %{Envelope.new("read", "choice") | sender: "flow"}
+
+    {:ok, %{"inputs" => [read]}} =
+      FlowInputs.read(c.rela, c.d, flow, %{"run" => "R-1"}, nil, nil, nil)
+
+    assert Map.take(read, @supervision_record) == input
+
+    # No subject write, no link: the subject and the run are as they were.
+    {:ok, subject} = Rela.get(c.rela, "boxes", "B-1")
+    assert subject.version == before.version and subject.properties == before.properties
+    assert run.version == run_before.version and run.links == run_before.links
+  end
+
+  test "a hand-over by the supervisor is kept with whom it is handed to", c do
+    c = supervised(c, supervisor: ["ada"])
+    assert {:ok, input} = hand_over(c, "bea")
+
+    assert Enum.sort(Map.keys(input)) == Enum.sort(["hand_to" | @supervision_record])
+    assert input["operation"] == "hand_over" and input["roles"] == ["hand_over"]
+    assert input["hand_to"] == "bea" and input["actor"] == "ada"
+    assert input["changed_fields"] == %{} and input["status"] == "applied"
+    {:ok, run} = Rela.get(c.rela, "cursors", "R-1")
+    assert run.links["watched_by"] == ["ada"]
+  end
+
+  test "each guard of a pickup refuses with its own reason, storing nothing", c do
+    c = supervised(c)
+    v = %{"run" => "R-1", "request_id" => "pick-1"}
+
+    assert {:error, :input_authority} = pickup(c, "pick-1", "ada", "client")
+    assert {:error, :input_authority} = pickup(c, "pick-1", "ada", "control/other")
+    assert {:error, :input_authority} = pickup(c, "pick-1", "")
+    assert {:error, :input_shape} = acquire(c, "pickup", Map.put(v, "hand_to", "bea"))
+    assert {:error, :input_shape} = acquire(c, "pickup", Map.delete(v, "request_id"))
+    assert {:error, :input_shape} = acquire(c, "pickup", %{v | "request_id" => ""})
+
+    assert {:error, :input_shape} =
+             FlowInputs.write(
+               c.rela,
+               c.d,
+               %{Envelope.new("fact", "choice") | sender: "control/session-test"},
+               %{"op" => "pickup", "by" => "ada", "values" => v, "extra" => 1},
+               fn -> @now end,
+               c.position,
+               c.write
+             )
+
+    assert {:error, :unknown_run} = acquire(c, "pickup", %{v | "run" => "R-9"})
+    assert {:error, :not_a_person} = pickup(c, "pick-1", "nobody")
+    assert {:error, :not_a_person} = pickup(c, "pick-1", "B-1")
+
+    undeclared = %{c | d: Map.update!(c.d, "flow_runtime", &Map.delete(&1, "supervision"))}
+    assert {:error, :supervision_undeclared} = pickup(undeclared)
+
+    put_run(c, "R-1", "shut", [])
+    assert {:error, :outside_span} = pickup(c)
+
+    other =
+      put_in(c.d, ["flow_runtime", "supervision", "spans"], %{"pack" => [%{"states" => ["open"]}]})
+
+    put_run(c, "R-1", "open", [])
+    assert {:error, :outside_span} = pickup(%{c | d: other})
+
+    put_run(c, "R-1", "open", [], %{"status" => "completed"})
+    assert {:error, :not_active} = pickup(c)
+    put_run(c, "R-1", "open", [], %{"status" => "active"})
+
+    put_run(c, "R-1", "open", ["bea"])
+    assert {:error, :already_supervised} = pickup(c)
+    put_run(c, "R-1", "open", [])
+
+    {:ok, []} =
+      Rela.create(
+        c.rela,
+        "cursors",
+        "R-2",
+        %{"flow" => "sort", "subject_kind" => "box", "subject_key" => "B-1", "generation" => 2},
+        %{}
+      )
+
+    assert {:error, :input_moved_on} = pickup(c)
+    assert stored(c) == []
+  end
+
+  test "a second pickup of the same run waits for the first to be consumed", c do
+    c = supervised(c)
+    assert {:ok, first} = pickup(c, "pick-1")
+    assert {:error, :pickup_pending} = pickup(c, "pick-2", "bea")
+    assert stored(c) == [first["key"]]
+  end
+
+  test "a pending pickup holds back only its own run, and only until it is consumed", c do
+    c = supervised(c)
+
+    # A second active run, in its span, on another subject.
+    {:ok, []} = Rela.create(c.rela, "boxes", "B-2", %{"choice" => "none"}, %{})
+    {:ok, r1} = Rela.get(c.rela, "cursors", "R-1")
+
+    {:ok, []} =
+      Rela.create(c.rela, "cursors", "R-2", %{r1.properties | "subject_key" => "B-2"}, %{})
+
+    assert {:ok, first} = pickup(c, "pick-1")
+    assert {:ok, other} = acquire(c, "pickup", %{"run" => "R-2", "request_id" => "pick-2"})
+    assert other["run"] == "R-2"
+    assert {:error, :pickup_pending} = pickup(c, "pick-3", "bea")
+
+    # Flow consumes the first pickup without linking (a refusal); R-1 is still unsupervised.
+    status = c.d["flow_runtime"]["inputs"]["fields"]["status"]
+    {:ok, fact} = Rela.get(c.rela, "choices", first["key"])
+
+    {:ok, []} =
+      Rela.change(c.rela, "choices", fact.key, %{status => "consumed"}, fact.version, %{})
+
+    assert {:ok, again} = pickup(c, "pick-3", "bea")
+    assert again["run"] == "R-1" and again["status"] == "applied"
+    assert Enum.sort(stored(c)) == Enum.sort([first["key"], other["key"], again["key"]])
+  end
+
+  test "each guard of a hand-over refuses with its own reason, storing nothing", c do
+    c = supervised(c, supervisor: ["ada"])
+    v = %{"run" => "R-1", "request_id" => "hand-1", "hand_to" => "bea"}
+
+    assert {:error, :input_shape} = acquire(c, "hand_over", Map.delete(v, "hand_to"))
+    assert {:error, :input_shape} = acquire(c, "hand_over", Map.put(v, "note", "x"))
+    assert {:error, :not_supervisor} = hand_over(c, "ada", "hand-1", "bea")
+    assert {:error, :hand_to_self} = hand_over(c, "ada")
+    assert {:error, :hand_to_not_a_person} = hand_over(c, "nobody")
+    assert {:error, :hand_to_not_a_person} = hand_over(c, "B-1")
+    assert {:error, :not_a_person} = hand_over(c, "bea", "hand-1", "nobody")
+    put_run(c, "R-1", "shut", ["ada"])
+    assert {:error, :outside_span} = hand_over(c, "bea")
+    assert stored(c) == []
+  end
+
+  test "the same request is kept once; the same id with other content is a conflict", c do
+    c = supervised(c)
+    assert {:ok, first} = pickup(c, "pick-1")
+    assert {:ok, again} = pickup(c, "pick-1")
+    assert Map.take(again, Map.keys(first)) == first
+    assert {:error, :request_conflict} = pickup(c, "pick-1", "bea")
+    assert {:error, :request_conflict} = hand_over(c, "bea", "pick-1")
+    assert stored(c) == [first["key"]]
+  end
+
+  test "restart and submit refuse what a pickup carries, as before", c do
+    c = supervised(c)
+
+    assert {:error, :input_authority} =
+             acquire(c, "restart", %{"run" => "R-1", "request_id" => "r", "hand_to" => "bea"})
+
+    assert {:error, :protected_operation_required} =
+             acquire(c, "pick_up", %{"run" => "R-1", "request_id" => "r"})
+  end
+
+  test "every refusal of a pickup or hand-over reads as sentences", c do
+    for reason <-
+          ~w(input_shape supervision_undeclared unknown_run not_active outside_span not_a_person already_supervised pickup_pending not_supervisor hand_to_self hand_to_not_a_person)a do
+      assert [sentence] = FlowInputs.reasons(reason, c.d)
+      assert is_binary(sentence)
+      refute sentence =~ Atom.to_string(reason)
+    end
+  end
+
   # Facts answers every fact and read it handles, from its own process. Wait for that reply
   # by id, with no time window to guess; if Facts stops instead, fail rather than hang.
   defp reply_to(id, facts) do

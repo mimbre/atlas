@@ -68,8 +68,10 @@ defmodule AtlasFacts.Model do
   (where runs are kept) and its `fields`, the `writer` (`%{"by", "sender"}`) that alone
   writes them, `inputs` (where a run's inputs are kept: `kind`, `fields`, `roles`,
   `acl`, and `components`: the model's component definitions that Rela's public
-  schema does not carry) and per selected subflow its `selection` (`subject`, `choices`,
-  `choice_states`).
+  schema does not carry), per selected subflow its `selection` (`subject`, `choices`,
+  `choice_states`), and, when the model declares it, `supervision` (`relation`, from a
+  run to its human supervisor; `inputs`, the `operation` and `hand_to` fields of a
+  pickup or hand-over input; `spans`, per subflow: `name`, `label`, `states`, `with`).
   """
   @callback run_mapping() :: nil | map
 
