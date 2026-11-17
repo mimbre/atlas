@@ -7,6 +7,13 @@ defmodule AtlasRuntime.Work.Prune do
 
   A pruned work without a client key gets a tombstone too, keyed by its `work_id`
   (`AtlasRuntime.Work.Store`), so `get_work` answers `pruned` for every pruned work.
+
+  Frozen results (s5a-plan B12) follow their works: after a pass that pruned any work, and
+  once at boot, `AtlasRuntime.Work.FrozenStore.prune/3` turns every frozen result that
+  neither its own work record nor another existing work's `source` or `based_on` retains
+  into a tombstone, and deletes the blobs no retained result names. A frozen result can so
+  outlive its work record; `get_frozen` then still answers `frozen`, and visibility comes
+  from the key tombstone's client.
   """
 
   alias AtlasRuntime.Work.Queue

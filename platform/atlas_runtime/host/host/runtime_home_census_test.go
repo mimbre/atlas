@@ -127,7 +127,10 @@ var censusNotHome = map[string]string{
 	// Below work (<home>/work).
 	"sequence": "work directory",
 	"*.tmp":    "work directory (temporary-file glob)",
-	"*.json":   "work directory (record glob)",
+	"*.json":   "work or frozen directory (record glob)",
+	// Below frozen (<home>/frozen, S5a P7b/P8: work/frozen_store.ex).
+	"blobs":      "frozen directory (the frozen results' blob folder)",
+	"*.json.tmp": "frozen directory (temporary-file glob)",
 	// Codex sessions, the fake inbox and the source tree.
 	"sessions":      "Codex home (~/.codex/sessions)",
 	"inbox.dets":    "the fake inbox's own directory",

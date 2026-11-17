@@ -328,15 +328,16 @@ defmodule AtlasRuntime.Work.BaseWorkspaceTest do
     [%{turn_id: turn_id}] = await_state(work.work_id, :completed).attempts
     await(fn -> turn(bench, turn_id)["session_id"] end)
     folder = expected_folder(bench.dir, work.work_id)
-    # What the agent wrote (P7b's fake gains a write goal).
-    File.write!(Path.join(folder, "a.txt"), "agent\n")
+    # What the agent wrote, inside the base's root: a change outside every root fails the
+    # resumed attempt's freeze (P7b, B10).
+    File.write!(Path.join(folder, "atlas/a.txt"), "agent\n")
 
     assert %F.Outcome.Accepted{} = F.retry(client(), %{work_id: work.work_id, resume: true})
     done = await_work(work.work_id, &match?([_, %{state: :completed}], &1.attempts))
     assert [first, %{provenance: %{continues: ^turn_id}} = second] = done.attempts
     assert second.resume_point.conversation_id == first.resume_point.conversation_id
     assert [_, %{"resumed" => true, "cwd" => ^folder}] = launches(bench)
-    assert File.read!(Path.join(folder, "a.txt")) == "agent\n"
+    assert File.read!(Path.join(folder, "atlas/a.txt")) == "agent\n"
     assert CodeStandIn.archives(code) == ["atlas"]
     assert %{folder: ^folder, preparing: false} = private_attempt(bench.dir, work.work_id, 2)
   end

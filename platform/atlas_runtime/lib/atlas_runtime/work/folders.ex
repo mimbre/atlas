@@ -16,31 +16,43 @@ defmodule AtlasRuntime.Work.Folders do
   1. `<home>/workers` and `<home>/scratch` exist (0700);
   2. an existing folder (a fresh retry, B30) is renamed to `<home>/scratch/rebuild-<work_id>.<n>`:
      the same filesystem, inside the home, denied to every agent (I8);
-  3. the helper materializes the folder (`AtlasRuntime.Workspaces.materialize/4`); its OS pid
-     goes to the owner as `{:prepare_pid, ref, os_pid, pid}`, and the preparer waits for
-     `{:prepare_pid_recorded, ref}` (or the owner's end) before it waits on the helper;
+  3. the helper prepares the folder: `:materialize` fetches the base
+     (`AtlasRuntime.Workspaces.materialize/4`, `base`); `:compose` builds it from the pinned
+     source's frozen result, its `base` baseline plus exactly its change set, without Code
+     (`AtlasRuntime.Workspaces.compose/6`, `from_work`, P9). The change set goes to
+     `<home>/scratch/compose-<work_id>.<n>.json` (0600) for the helper and is removed after
+     it. Its OS pid goes to the owner as `{:prepare_pid, ref, os_pid, pid}`, and the preparer
+     waits for `{:prepare_pid_recorded, ref}` (or the owner's end) before it waits on the
+     helper;
   4. the renamed tree is removed (write bits restored first: a read-only folder is sealed), after
      step 3 succeeded or failed;
   5. the owner gets `{:folder_ready, ref, :ok | {:error, detail}}`.
 
-  A crash between steps 2 and 4 leaves a `rebuild-*` tree; `sweep/1` removes every one at boot,
-  before any attempt starts. `ref` is the owner's monitor of the preparer, so a preparer that
+  A crash between steps 2 and 4 leaves a `rebuild-*` tree (and, for `:compose`, a `compose-*`
+  file); `sweep/1` removes every one at boot, before any attempt starts. `ref` is the owner's monitor of the preparer, so a preparer that
   dies without a result arrives as that monitor's `:DOWN`.
   """
 
+  alias AtlasRuntime.Work.{Frozen, FrozenStore}
   alias AtlasRuntime.Workspaces
 
   @doc "The work folder of `work_id`: `<home>/workers/work-<work_id>`, the home resolved."
   def path(home, work_id) when is_binary(work_id),
     do: Path.join([real(home), "workers", "work-" <> work_id])
 
-  @doc "Removes every `<home>/scratch/rebuild-*` tree a crash left (B30)."
+  @doc """
+  Removes every `<home>/scratch/rebuild-*` tree (B30) and `<home>/scratch/compose-*` change
+  set file a crash left.
+  """
   def sweep(home) do
     scratch = Path.join(home, "scratch")
 
     case File.ls(scratch) do
       {:ok, names} ->
-        for "rebuild-" <> _ = name <- names, do: remove(Path.join(scratch, name))
+        for name <- names,
+            String.starts_with?(name, ["rebuild-", "compose-"]),
+            do: remove(Path.join(scratch, name))
+
         :ok
 
       {:error, _} ->
@@ -51,16 +63,18 @@ defmodule AtlasRuntime.Work.Folders do
   @doc """
   Starts preparing a work's folder: `{pid, ref}`, with `ref` the owner's monitor of `pid`.
   `spec` for `:materialize`: `home`, `work_id`, `attempt`, `base_id`, `read_only`,
-  `timeout_ms` and an optional `hook` (`fn stage -> any end`, tests: `:moved_aside`).
+  `timeout_ms` and an optional `hook` (`fn stage -> any end`, tests: `:moved_aside`). For
+  `:compose` (P9), `source` (`{work_id, attempt}`, the pinned frozen result, B4) instead of
+  `base_id`; the hook also sees `:composing`, just before the helper starts.
   """
-  def prepare(:materialize, spec, owner) do
-    pid = spawn(fn -> run(spec, owner) end)
+  def prepare(kind, spec, owner) when kind in [:materialize, :compose] do
+    pid = spawn(fn -> run(kind, spec, owner) end)
     ref = Process.monitor(pid)
     send(pid, {:ref, ref})
     {pid, ref}
   end
 
-  defp run(spec, owner) do
+  defp run(kind, spec, owner) do
     ref =
       receive do
         {:ref, ref} -> ref
@@ -68,7 +82,7 @@ defmodule AtlasRuntime.Work.Folders do
 
     result =
       try do
-        materialize(spec, owner, ref)
+        build(kind, spec, owner, ref)
       rescue
         error -> {:error, Exception.message(error)}
       end
@@ -76,7 +90,7 @@ defmodule AtlasRuntime.Work.Folders do
     send(owner, {:folder_ready, ref, result})
   end
 
-  defp materialize(spec, owner, ref) do
+  defp build(kind, spec, owner, ref) do
     home = real(spec.home)
     folder = path(home, spec.work_id)
     for dir <- ["workers", "scratch"], do: mkdir(Path.join(home, dir))
@@ -99,18 +113,48 @@ defmodule AtlasRuntime.Work.Folders do
     hook = Map.get(spec, :hook) || fn _ -> :ok end
     if moved, do: hook.(:moved_aside)
 
+    options = [
+      read_only: spec.read_only,
+      timeout_ms: spec.timeout_ms,
+      os_pid: fn os_pid -> recorded(owner, ref, os_pid) end
+    ]
+
     try do
-      Workspaces.materialize(home, spec.base_id, folder,
-        read_only: spec.read_only,
-        timeout_ms: spec.timeout_ms,
-        os_pid: fn os_pid -> recorded(owner, ref, os_pid) end
-      )
+      helper(kind, spec, home, folder, options, hook)
     after
       if moved, do: remove(aside)
     end
     |> case do
       {:ok, _result} -> :ok
       {:error, detail} -> {:error, detail}
+    end
+  end
+
+  defp helper(:materialize, spec, home, folder, options, _hook),
+    do: Workspaces.materialize(home, spec.base_id, folder, options)
+
+  # from_work (§3.9): the base the source was frozen against (the original base_id, so a
+  # chain stays cumulative) plus exactly its change set. The source is retained while this
+  # work exists (B12); a tombstone or a missing record is a preparation failure.
+  defp helper(:compose, spec, home, folder, options, hook) do
+    {source_id, source_n} = spec.source
+
+    case FrozenStore.read(home, source_id, source_n) do
+      {:ok, %{pruned: false} = frozen} ->
+        file = Path.join([home, "scratch", "compose-#{spec.work_id}.#{spec.attempt}.json"])
+        remove(file)
+        File.write!(file, JSON.encode!(Frozen.change_set(frozen)))
+        File.chmod!(file, 0o600)
+        hook.(:composing)
+
+        try do
+          Workspaces.compose(home, frozen.base, file, FrozenStore.blobs(home), folder, options)
+        after
+          remove(file)
+        end
+
+      _ ->
+        {:error, "the frozen result #{source_id}.#{source_n} to compose from is gone"}
     end
   end
 

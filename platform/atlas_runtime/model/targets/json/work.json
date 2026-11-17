@@ -513,7 +513,7 @@
         {
           "name": "error",
           "required": false,
-          "type": "enum sandbox_unavailable | leaves_folder | not_found"
+          "type": "enum sandbox_unavailable | leaves_folder | not_found | helper_failed"
         },
         {
           "name": "timed_out",
