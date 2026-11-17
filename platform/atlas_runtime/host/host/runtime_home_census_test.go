@@ -68,7 +68,7 @@ var censusHome = map[string]censusEntry{
 	"execution-events.json": {"denied", "the execution-event outbox", false},
 	"mode.json":             {"denied", "the persisted Runtime mode (S2)", false},
 	"clients.json":          {"denied", "the loopback TCP clients: token hashes and rights (S3)", false},
-	"sources":               {"denied", "the work sources' credentials and per-source stores, e.g. sources/<name>/token (work acquisition M2, F4)", true},
+	"sources":               {"denied", "the work sources' credentials and per-source stores, e.g. sources/<name>/token (work acquisition M2, F4; code site sources/credential.ex, W3)", false},
 	"local-source":          {"denied", "the local work source's queue store (work acquisition M2, F4)", true},
 	"bases":                 {"denied", "every client's uploaded base records and the import staging (S5c); joined by bases/store.ex from S5c P7", true},
 	"workers":               {"chain", "the managed repositories' worker directories", false},
@@ -156,6 +156,8 @@ var censusNotHome = map[string]string{
 	// The native facts helper's private directory (sandbox/facts.ex: atlas-facts-<hex> in the system temp).
 	"stdin":  "the facts helper's private temp directory",
 	"stderr": "the facts helper's private temp directory",
+	// Below sources (<home>/sources/<name>, work acquisition M2 W3: sources/credential.ex).
+	"token": "source directory (<home>/sources/<name>/token, sources/credential.ex)",
 }
 
 type censusSite struct {
