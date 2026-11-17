@@ -107,8 +107,9 @@ defmodule AtlasRuntime.Work.Turns do
 
   @doc """
   The attempt's end from a terminal turn: `%{kind, reason, native_outcome, quiescent,
-  answer}`. `quiescent` is false only for a turn that ended without its group confirmed
-  gone (the helper died); the probe settles it later.
+  answer}`. `quiescent` comes only from a group-gone result (`group_gone?/1`): a turn that
+  ended without one (the helper died, for either harness) is not quiescent, and the probe
+  or a `release` settles it later (I1).
   """
   def outcome(turn, attempt) do
     state = turn["state"]
@@ -132,9 +133,7 @@ defmodule AtlasRuntime.Work.Turns do
       kind: kind,
       reason: reason,
       native_outcome: native,
-      quiescent:
-        state != "failed" or Map.has_key?(turn, "recorded_state") or
-          native_failure?(turn["error"]),
+      quiescent: group_gone?(turn),
       answer: if(state == "finished", do: answer(turn["result"]))
     }
   end
@@ -151,6 +150,31 @@ defmodule AtlasRuntime.Work.Turns do
     do: String.contains?(error, ["codex_failed", "claude_failed"])
 
   defp native_failure?(_), do: false
+
+  # Whether the turn's record proves its process group gone (design §3.7, I1; designer Q1:
+  # `stop_confirmed` is the helper's group-gone probe, `host/host.go:607-617`). The helper
+  # reports `runtime.process_ended` only once that probe found the group empty, so:
+  #
+  # - `finished`, `stopped`, `killed`: written only on that report (`{:ended, _}`,
+  #   `{:terminated, _}` in `execution/service.ex`);
+  # - `termination.confirmed_at`: the Runtime's record of the confirmation (any end);
+  # - `recorded_state`: restart reconciliation's end of a turn whose process it found gone;
+  # - a native failure that carries the reported exit (`{:claude_failed | :codex_failed,
+  #   status, exit}` with an integer `exit`, or Codex's `{:codex_failed, "…"}`, which
+  #   `host/native.ex` raises only after a reported exit 0).
+  #
+  # Anything else, such as `{:claude_failed, 137, nil}` for a helper killed mid-cancel while a
+  # member still lives, proves nothing: not quiescent, whatever the error text contains.
+  defp group_gone?(%{"state" => state}) when state in ~w(finished stopped killed), do: true
+  defp group_gone?(%{"termination" => %{"confirmed_at" => at}}) when is_binary(at), do: true
+  defp group_gone?(%{"recorded_state" => _}), do: true
+  defp group_gone?(%{"error" => error}) when is_binary(error), do: reported_exit?(error)
+  defp group_gone?(_), do: false
+
+  defp reported_exit?(error),
+    do:
+      Regex.match?(~r/\A\{:(?:claude|codex)_failed, -?\d+, -?\d+\}\z/, error) or
+        Regex.match?(~r/\A\{:codex_failed, "/, error)
 
   @doc "Whether a result kind and reason are advice to retry (design §3.5)."
   def retryable?(kind, reason),

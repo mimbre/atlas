@@ -5,7 +5,7 @@
 //	fake-native admission ROOT ARGV0 ARGS...  Codex/Claude admission fixture (backend from ARGV0)
 //	fake-native protocol MODE CAPTURE         Claude SDK protocol projection fixture
 //	fake-native detach COMMAND ARGS...        COMMAND in a new session (the e2e's Runtime, so it can be killed as a group)
-//	fake-native work ROOT ARGV0 ARGS...       Codex/Claude turn for the work core (goal: complete|hang|stubborn|wait NAME|fail|model_change|subagent_model|resume ...)
+//	fake-native work ROOT ARGV0 ARGS...       Codex/Claude turn for the work core (goal: complete|hang|stubborn|linger|wait NAME|fail|model_change|subagent_model|resume ...)
 package main
 
 import (
@@ -369,7 +369,9 @@ func detach(argv []string) {
 // started once, or started only after another ended. The
 // goal's first word then decides the turn: "complete" (or anything else) answers
 // "done: GOAL", "hang" runs until it is signalled, "stubborn" also ignores SIGINT (only a
-// kill ends it), "wait NAME" completes once ROOT/NAME no longer exists, "fail" exits 1
+// kill ends it), "linger" leaves a child in its process group that ignores SIGINT and
+// SIGTERM (its PID in CWD/linger.pid) and exits 0 itself on SIGINT or SIGTERM, so only a
+// kill of the group ends the turn, "wait NAME" completes once ROOT/NAME no longer exists, "fail" exits 1
 // without a result, and for Claude "model_change" reports a second top-level model (then
 // runs until it is signalled), "subagent_model" reports another model only in a subagent
 // record (then completes), and "resume" runs until it is signalled unless it was launched
@@ -443,6 +445,20 @@ func work(root string, argv []string) {
 		}
 	case "hang":
 		untilSignalled()
+	case "linger":
+		// The child inherits the ignored signals and stays in the leader's group (no
+		// setsid/setpgid), holding none of its pipes; it runs until SIGKILL.
+		signal.Ignore(syscall.SIGINT, syscall.SIGTERM)
+		child := exec.Command("/bin/sh", "-c", "trap '' INT TERM; exec /bin/sleep 3600")
+		check(child.Start())
+		signals := make(chan os.Signal, 1)
+		signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
+		pidFile := filepath.Join(cwd, "linger.pid")
+		check(os.WriteFile(pidFile+".tmp", fmt.Appendf(nil, "%d\n", child.Process.Pid), 0666))
+		check(os.Rename(pidFile+".tmp", pidFile))
+		received := (<-signals).(syscall.Signal)
+		ended("signal " + received.String())
+		exit(0)
 	case "wait":
 		if len(words) > 1 {
 			waitWhile(true, filepath.Join(root, words[1]))
