@@ -8,7 +8,8 @@ defmodule AtlasRuntime.Sources.UploadTest do
   - Exactly the missing blobs are uploaded, each once; an unreferenced "missing" is never
     sent.
   - No string of the Runtime home path is in any report or blob sent, whatever rights the
-    caller's client holds.
+    caller's client holds; the agent's answer names its work folder `.` and any other home
+    path `<runtime-home>`.
   - A repeat after a restart sends the same report and uploads nothing twice.
   - `lease_lost` stops at once; `too_large` and the byte cap stop before more is sent.
   """
@@ -20,7 +21,7 @@ defmodule AtlasRuntime.Sources.UploadTest do
   alias AtlasRuntime.Boundary.Work, as: F
   alias AtlasRuntime.CodeStandIn
   alias AtlasRuntime.Sources.Upload
-  alias AtlasRuntime.Work.FrozenStore
+  alias AtlasRuntime.Work.{FrozenStore, Store}
 
   @moduletag capture_log: true
 
@@ -227,6 +228,37 @@ defmodule AtlasRuntime.Sources.UploadTest do
       for path <- [home, real_home, folder] do
         refute String.contains?(sent, path)
       end
+    end
+  end
+
+  # The fake agent answers "done: GOAL" and the goal is written before the work folder is
+  # known, so the test writes the answer into the stored record, as restart_test does.
+  test "the agent's answer is sent with the work folder as . and other home paths cut",
+       %{bench: bench, code: code} do
+    work = ended!(code, "write atlas/a.txt alpha")
+    folder = expected_folder(bench.dir, work.work_id)
+    home = Path.expand(bench.dir)
+    real_home = Path.dirname(Path.dirname(folder))
+
+    stop_work()
+    stored = Store.read_work(bench.dir, work.work_id)
+    [attempt] = stored.attempts
+    answer = "wrote #{folder}/atlas/a.txt; notes in #{home}/scratch/n.txt and #{real_home}/x"
+    attempt = %{attempt | result: %{attempt.result | answer: answer}}
+    Store.put_work!(bench.dir, %{stored | attempts: [attempt]})
+    start_work!(bench)
+
+    for client <- [@source_client, {"source:fake", [:submit, :cancel, :read, :choose_path]}] do
+      fake = FakeSource.start!()
+
+      assert {:ok, _} = Upload.run(client, {FakeSource, fake}, @lease, work.work_id)
+      assert [report] = FakeSource.reports(fake)
+
+      assert report.result.result.answer ==
+               "wrote ./atlas/a.txt; notes in <runtime-home>/scratch/n.txt and <runtime-home>/x"
+
+      sent = inspect(FakeSource.calls(fake), limit: :infinity, printable_limit: :infinity)
+      for path <- [home, real_home, folder], do: refute(String.contains?(sent, path))
     end
   end
 

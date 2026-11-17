@@ -9,6 +9,9 @@ defmodule AtlasRuntime.Sources.Upload do
      (`get_work`, `get_frozen`, `get_frozen_blob`), with the right `:read` only. Whatever
      rights the caller's client holds, `choose_path` is never used here, so the facade's
      projection cuts every path on the Runtime's machine (D44) before anything is sent.
+     The agent's `answer`, which the projection passes as stored, is redacted here by the
+     core's rule for a check's output tail (protection 6, H2): the work folder becomes `.`
+     and any other path under the Runtime home `<runtime-home>`.
   2. It sends `report(ended)` with the result, the provenance and the change-set manifest
      (the frozen result's roots and entries), fenced by the `lease_id`.
   3. On `recorded(missing)` it sends `put_blob` only for the missing blobs that the
@@ -31,6 +34,7 @@ defmodule AtlasRuntime.Sources.Upload do
   require Logger
 
   alias AtlasRuntime.Boundary.Work, as: F
+  alias AtlasRuntime.Work.Folders
 
   @typedoc "The source as the upload calls it: a module implementing this behaviour and its ref."
   @type source :: {module(), term()}
@@ -67,6 +71,8 @@ defmodule AtlasRuntime.Sources.Upload do
 
   Options:
   - `:attempt`: the attempt to upload (default: the work's current one);
+  - `:home`: the Runtime home whose paths the answer must not name (default: the running
+    core's, `AtlasRuntime.Work.runtime/0`);
   - `:max_result_bytes`: the most bytes of missing blobs one upload sends (default 20 MiB,
     the source's per-result cap, §6.2).
   """
@@ -76,8 +82,9 @@ defmodule AtlasRuntime.Sources.Upload do
 
     with {:ok, work} <- read_work(reader, work_id),
          {:ok, attempt} <- ended_attempt(work, Keyword.get(options, :attempt)),
+         {:ok, redact} <- redaction(client, work_id, options),
          manifest = manifest(reader, work_id, attempt.attempt),
-         report = report(lease_id, work, attempt, manifest),
+         report = report(lease_id, work, attempt, manifest, redact),
          {:recorded, missing} <- call(source, :report, report) do
       upload(reader, source, lease_id, work_id, attempt.attempt, manifest, missing, options)
     else
@@ -116,13 +123,13 @@ defmodule AtlasRuntime.Sources.Upload do
     end
   end
 
-  defp report(lease_id, work, attempt, manifest) do
+  defp report(lease_id, work, attempt, manifest, redact) do
     %{
       lease_id: lease_id,
       revision: work.revision,
       state: :ended,
       result: %{
-        result: plain(attempt.result),
+        result: attempt.result |> plain() |> redact_answer(redact),
         provenance: plain(attempt.provenance),
         manifest: manifest
       }
@@ -166,6 +173,52 @@ defmodule AtlasRuntime.Sources.Upload do
           {:halt, {:error, {:blob_unavailable, sha256}}}
       end
     end)
+  end
+
+  defp redact_answer(%{answer: answer} = result, redact) when is_binary(answer),
+    do: %{result | answer: redact.(answer)}
+
+  defp redact_answer(result, _redact), do: result
+
+  # The core's rule (work/server.ex `redaction/4`, private there): the work's folder, and a
+  # client-named folder it ran in, become `.`; any other path under the Runtime home, as given
+  # or resolved, `<runtime-home>`; by plain prefix replacement. Applied whatever the caller's
+  # rights, as the source never holds choose_path.
+  defp redaction(client, work_id, options) do
+    case Keyword.get_lazy(options, :home, fn -> (AtlasRuntime.Work.runtime() || %{})[:home] end) do
+      home when is_binary(home) ->
+        expanded = Path.expand(home)
+
+        prefixes =
+          Enum.uniq(
+            for(path <- [folder(client, work_id)], is_binary(path), do: {path, "."}) ++
+              [
+                {Folders.path(home, work_id), "."},
+                {Path.join([expanded, "workers", "work-" <> work_id]), "."},
+                {Folders.real(expanded), "<runtime-home>"},
+                {expanded, "<runtime-home>"}
+              ]
+          )
+
+        {:ok,
+         fn text ->
+           Enum.reduce(prefixes, text, fn {from, to}, text -> String.replace(text, from, to) end)
+         end}
+
+      _ ->
+        {:error, :not_found}
+    end
+  end
+
+  # A folder work's folder, which only a client with choose_path can name; read, never sent.
+  defp folder({_id, rights} = client, work_id) do
+    with true <- :choose_path in rights,
+         %F.Outcome.Found{work: %{request: %{workspace: %{path: path}}}} <-
+           F.get_work(client, %{work_id: work_id}) do
+      path
+    else
+      _ -> nil
+    end
   end
 
   defp call({module, ref}, :report, input), do: module.report(ref, input)
