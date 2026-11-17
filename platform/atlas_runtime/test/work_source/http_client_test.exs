@@ -3,7 +3,7 @@ defmodule AtlasRuntime.WorkSource.HttpClientTest do
   # client target (AtlasRuntimeBackend.Generator.Targets.Client on
   # AtlasRuntimeBackend.WorkSource) against the router generated from the same backend
   # contract, on the in-test source. The fencing answers reach the Runtime as typed
-  # outcomes. put_blob is not carried over HTTP yet (a streamed request body, S5c P1/P2).
+  # outcomes. put_blob (a streamed request body) has its own tests, http_put_blob_test.exs.
   use ExUnit.Case, async: true
 
   alias AtlasRuntime.Test.FakeWorkSource, as: Source
@@ -53,8 +53,8 @@ defmodule AtlasRuntime.WorkSource.HttpClientTest do
   defp report(lease, revision, report),
     do: Client.report(%{lease_id: lease, revision: revision, report: report}, @as)
 
-  test "the client's calls are the exposed capabilities; put_blob waits for streamed bodies" do
-    assert Client.__capabilities__() == [:poll, :report, :get_blob]
+  test "the client's calls are the exposed capabilities" do
+    assert Client.__capabilities__() == [:poll, :report, :get_blob, :put_blob]
   end
 
   test "poll leases the work, decoded into the contract's values" do

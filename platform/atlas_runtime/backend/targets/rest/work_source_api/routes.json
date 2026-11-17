@@ -21,6 +21,16 @@
       "kind": "unauthenticated",
       "status": 401,
       "type": "unauthenticated"
+    },
+    {
+      "kind": "too_large",
+      "status": 413,
+      "type": "too-large"
+    },
+    {
+      "kind": "unsupported_media_type",
+      "status": 415,
+      "type": "unsupported-media-type"
     }
   ],
   "events": [],
@@ -180,8 +190,76 @@
       "path": "/v1/leases/{lease_id}/blobs/{sha256}",
       "query": {},
       "right": "lease"
+    },
+    {
+      "capability": "put_blob",
+      "headers": {
+        "blob-size": {
+          "field": "size",
+          "required": true
+        }
+      },
+      "method": "PUT",
+      "outcomes": [
+        {
+          "headers": {},
+          "outcome": "stored",
+          "status": 200
+        },
+        {
+          "headers": {},
+          "outcome": "lease_lost",
+          "status": 410,
+          "type": "lease-lost"
+        },
+        {
+          "headers": {},
+          "outcome": "too_large",
+          "status": 413,
+          "type": "too-large"
+        },
+        {
+          "headers": {},
+          "outcome": "not_referenced",
+          "status": 409,
+          "type": "not-referenced"
+        },
+        {
+          "by": "reason",
+          "cases": [
+            {
+              "status": 400,
+              "type": "invalid",
+              "value": "invalid"
+            },
+            {
+              "status": 409,
+              "type": "revision-conflict",
+              "value": "conflict"
+            },
+            {
+              "status": 422,
+              "type": "digest-mismatch",
+              "value": "digest_mismatch"
+            }
+          ],
+          "headers": {},
+          "outcome": "rejected"
+        }
+      ],
+      "params": [
+        "lease_id",
+        "sha256"
+      ],
+      "path": "/v1/leases/{lease_id}/blobs/{sha256}",
+      "query": {},
+      "right": "lease",
+      "upload": {
+        "content_type": "application/octet-stream",
+        "field": "content"
+      }
     }
   ],
   "target": "rest",
-  "version": "0.1.0"
+  "version": "0.2.0"
 }
