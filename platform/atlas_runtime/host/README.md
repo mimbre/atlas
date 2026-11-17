@@ -545,6 +545,37 @@ Removes a packet folder once its review is over. Offline: no Code, Runtime servi
 - **Result and repeats:** `{state: "discarded", packet_id, packet, tree, fingerprint, discarded_at, record}`. A repeat by path or ID returns the same result; an interrupted discard (folder gone, record left) completes on a repeat. By path, after a later freeze reused the path, the packet not yet discarded is chosen; with all discarded, the latest discard is reported.
 - **Limits:** a folder left by a freeze killed before its commit point has no record under `packets/` and is not removed by discard; remove it by hand.
 
+## Change sets and composed folders (snapshot changes, snapshot compose, materialize --read-only)
+
+```sh
+atlas-runtime snapshot changes --dest PATH --blobs DIR
+atlas-runtime snapshot compose --base-id sha256:HEX --change-set FILE --blobs DIR --dest NEW_PATH [--read-only]
+atlas-runtime snapshot materialize --snapshot sha256:HEX --dest NEW_PATH --read-only
+```
+
+These are the helper steps behind a work's frozen result and its `from_work` and `base` folders (S5a). The Runtime core runs them; they are ordinary CLI commands too. `changes` and `compose` need neither Code nor the Runtime service, run no Git and never read `code.json`.
+
+- **`changes`** reports a materialized or composed folder as a change set against its recorded baseline: `{"snapshot_id", "roots": [{"root", "entries"}], "outside": [...]}`.
+  - Every repository path of the baseline is a root, in manifest order. An unchanged root has `"entries": []`.
+  - Entries are what `submit` would send, with paths relative to the root. A write is `{path, op: "write", kind: "file"|"symlink", mode: "100644"|"100755"|"120000", size, sha256}`, plus `target` for a symlink. A delete is `{path, op: "delete"}`.
+  - `outside` lists the paths outside every repository. A change set cannot hold them; the core fails closed on them.
+  - Every written file's content is kept as `DIR/<sha256>`: read-only, published by an exclusive rename, and an existing blob is kept.
+  - It takes the folder lock that workers, preparations and submissions take, and scans twice, like `submit`. Only when both scans agree are the blobs published and the result printed.
+  - It works on a read-only folder and writes to neither the folder nor its baseline.
+  - On failure it exits nonzero and writes `{"code", "error"}` to **stderr**. The codes: `not_materialized` (no record for PATH), `busy` (an owner holds the lock), `changed_during_scan` (also for a file that vanished between the walk and its capture), `unsupported_entry` (what `submit` refuses: a FIFO, socket, device, `.git` path, symlink leaving its repository or a file over 64 MiB) and `io`.
+- **`compose`** builds `NEW_PATH` from `<runtime home>/snapshots/HEX/tree` plus exactly the change set in `FILE` (`{"base", "roots"}` as `changes` prints them; `base` must be `--base-id`).
+  - A delete must name a baseline file or symlink. Every write is a valid entry, nothing lies inside a file or symlink, and every symlink resolves inside its repository. Otherwise the code is `invalid_change_set`.
+  - A written file's content comes from `DIR/<sha256>`, as an APFS clone where the filesystem allows it. The size and sha256 are checked on the copy itself (`blob_mismatch` for a wrong, missing or non-regular blob). Kept baseline files are cloned too.
+  - With `--read-only`, files lose their write bits and directories are 0555.
+  - `NEW_PATH` must not exist (`destination_exists`), and its parent must exist. Inside the Runtime home only `<runtime home>/workers/work-NAME` is accepted, where NAME is a lowercase letter, then lowercase letters, digits, `_` or `-`, up to 64 characters. Every other path that is or lies inside the home is refused (`destination_not_allowed`), including when it is reached through a symlink or spelled in another case.
+  - It publishes by an exclusive rename and records `NEW_PATH` as a materialization of HEX. So `status`, `diff`, `submit` and `changes` of the new folder are relative to the same baseline, and a chain of composed folders keeps one base.
+  - The result is `{"snapshot_id", "destination", "read_only"}`. On failure it exits nonzero, leaves no `NEW_PATH`, record or staging, and writes `{"code", "error"}` to stderr. The other codes are `baseline_missing` and `io`.
+- **`materialize --read-only`** is today's `materialize`, with the folder sealed as `compose --read-only` seals it.
+  - The baseline and the record are the same as without the flag.
+  - Every result now carries `"read_only": true|false`.
+  - The folder's own root is sealed right after the publishing rename and everything below it before, because macOS 15 refuses to move a directory without write permission to another parent.
+  - It remains the only one of the three that contacts Code.
+
 ## Claude scoped repository writes
 
 The work contract does not offer `dedicated-repository` on a folder in S1; its repository workspace (`--repo`, `--branch`) is the managed form below. Before the cutover, Claude repository writes were selected with `atlas-runtime start --backend claude --cwd /canonical/independent/repository --permissions dedicated-repository "Edit the assigned file and create a local commit"`, or use managed `--repo` provisioning below. This reuses independent-root validation and owned directory locking. It enables Bash alongside read-only Read/Glob/Grep, never Edit/Write. Native settings require sandbox availability, disable unsandboxed escape and excluded commands, retain the existing GitHub domain list, and deny writes to `.agents`, `.codex`, `.aws`, `.claude`, `.git/config` and `.git/hooks`. The Runtime home and the Code token with its directory are in `denyRead`, `denyWrite` and `Read(//…)` deny rules. Claude's denies win over its allows, so when the home contains the repository (managed `--repo` provisioning puts it under `workers/`), the home is in `denyRead` only with the repository in `allowRead`: Bash writes stay limited to the repository and private temp, and `--restricted` confines the file tools to the repository. A repository that is the Runtime home or the Code token directory is refused; one inside the token directory is handled like one inside the home, and the token file itself stays denied. Generic workspace-write remains refused.
