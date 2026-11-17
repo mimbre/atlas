@@ -4,12 +4,13 @@ defmodule AtlasRuntimeBackend.WorkTest do
   @schema AtlasRuntimeBackend.Work.__schema__()
   @rest hd(@schema.targets)
 
-  test "carries the work boundary, exposing every capability but S5a's frozen reads" do
+  test "carries the work boundary, exposing every capability, S5a's frozen reads included" do
     assert @schema.boundary == AtlasRuntimeBoundary.Work
     capabilities = for c <- AtlasRuntimeBoundary.Work.__schema__().capabilities, do: c.name
-    # S5a P4: not exposed until S5a P11 gives them resources.
-    assert @schema.not_exposed == [:get_frozen, :get_frozen_blob]
-    assert @schema.exposed == capabilities -- @schema.not_exposed
+    # S5a P11: get_frozen and get_frozen_blob have their resources (§8.2).
+    assert @schema.not_exposed == []
+    assert @schema.exposed == capabilities
+    assert :get_frozen in @schema.exposed and :get_frozen_blob in @schema.exposed
     assert [%{name: :rest, carries: :entities}] = @schema.targets
   end
 
@@ -65,8 +66,29 @@ defmodule AtlasRuntimeBackend.WorkTest do
              {:post, "/v1/work/:work_id/cancel", :cancel, [], [], [:mode, :reason], nil},
              {:get, "/v1/capacity", :capacity, [], [], nil, nil},
              {:get, "/v1/turns/:turn_id/output", :turn_output, [{"cursor", :cursor}], [], nil,
-              nil}
+              nil},
+             # S5a (§8.2): a completed attempt's frozen result, and one blob of it.
+             {:get, "/v1/work/:work_id/attempts/:attempt/frozen", :get_frozen,
+              [{"fingerprint", :fingerprint}], [], nil, nil},
+             {:get, "/v1/work/:work_id/attempts/:attempt/frozen/blobs/:sha256", :get_frozen_blob,
+              [], [], nil, nil}
            ]
+  end
+
+  test "§8.2 (S5a): the frozen reads bind work, attempt (and sha256) in the path, fingerprint in the query" do
+    by = Map.new(@rest.resources, &{&1.capability, &1})
+
+    assert %{params: [:work_id, :attempt], query: [{"fingerprint", :fingerprint}], required: []} =
+             by.get_frozen
+
+    assert %{params: [:work_id, :attempt, :sha256], query: [], required: []} =
+             by.get_frozen_blob
+
+    # attempt is an integer: a path value that is not one is the router's 400 invalid.
+    input =
+      Enum.find(AtlasRuntimeBoundary.Work.__schema__().models, &(&1.name == :get_frozen_input))
+
+    assert %{type: :integer} = Enum.find(input.fields, &(&1.name == :attempt))
   end
 
   test "§8.2 (S3): only get_work has an ETag, and it is the work's revision, not its sequence" do
@@ -77,7 +99,8 @@ defmodule AtlasRuntimeBackend.WorkTest do
   end
 
   test "§8.3: the status of every outcome, with its headers and problem type" do
-    statuses = Map.new(@rest.statuses, &{&1.outcome, {code(&1), &1.headers, &1.body}})
+    statuses =
+      Map.new(@rest.statuses, &{&1.outcome, {code(&1), &1.headers, &1.body || &1.stream}})
 
     assert statuses == %{
              accepted: {{201, nil}, [{"location", "/v1/work/{work.work_id}"}], :work},
@@ -104,8 +127,23 @@ defmodule AtlasRuntimeBackend.WorkTest do
              found: {{200, nil}, [], :work},
              works: {{200, nil}, [], nil},
              capacity: {{200, nil}, [{"retry-after", :retry_after}], nil},
-             page: {{200, nil}, [], nil}
+             page: {{200, nil}, [], nil},
+             # S5a (§8.2): the change set is the outcome itself, as works and page are.
+             frozen: {{200, nil}, [], nil},
+             fingerprint_mismatch: {{409, "fingerprint-mismatch"}, [], nil},
+             # The blob is the body, as bytes; its sha256 and size are headers.
+             blob: {{200, nil}, [{"blob-sha256", :sha256}, {"blob-size", :size}], :content}
            }
+  end
+
+  test "§8.2 (S5a): only the blob is a stream, sent as application/octet-stream, never JSON" do
+    assert for(s <- @rest.statuses, s.stream, do: {s.outcome, s.stream, s.content_type}) == [
+             {:blob, :content, "application/octet-stream"}
+           ]
+
+    # Chunked: no Content-Length is declared for it.
+    blob = Enum.find(@rest.statuses, &(&1.outcome == :blob))
+    refute Enum.any?(blob.headers, fn {name, _} -> name == "content-length" end)
   end
 
   test "§8.3: only at_capacity is a 503, and every error has a problem type" do

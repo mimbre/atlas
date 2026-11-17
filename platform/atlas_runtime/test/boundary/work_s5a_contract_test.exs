@@ -122,10 +122,11 @@ defmodule AtlasRuntime.Boundary.WorkS5aContractTest do
     assert by_name.get_frozen_blob == [:blob, :pruned, :not_found]
   end
 
-  test "the backend contract compiles with the frozen reads not exposed (until S5a P11)" do
+  # S5a P11 exposes them, with their resources (backend/contract/test/work_api_test.exs).
+  test "the backend contract exposes the frozen reads (S5a P11)" do
     schema = AtlasRuntimeBackend.Work.__schema__()
-    assert schema.not_exposed == [:get_frozen, :get_frozen_blob]
-    refute :get_frozen in schema.exposed
+    assert schema.not_exposed == []
+    assert :get_frozen in schema.exposed and :get_frozen_blob in schema.exposed
   end
 
   ## Translation (I-B5: every new field, no private one)

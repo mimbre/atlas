@@ -167,14 +167,18 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Boundary.Values do
           end
 
         cond do
-          is_nil(field) -> {given, ["#{at} has no field #{inspect(key)}" | unknown]}
+          # The key is request data: named generically, never repeated (D44).
+          is_nil(field) -> {given, ["#{at} has an unknown field" | unknown]}
           Map.has_key?(given, field) -> {given, ["#{at}.#{field} is given twice" | unknown]}
           true -> {Map.put(given, field, value), unknown}
         end
       end)
 
+    # One text per object, however many unknown keys it has.
+    unknown = unknown |> Enum.sort() |> Enum.uniq()
+
     {values, errors} =
-      Enum.map_reduce(fields, Enum.sort(unknown), fn {field, type, required}, errors ->
+      Enum.map_reduce(fields, unknown, fn {field, type, required}, errors ->
         case cast(type, Map.get(given, field), required, "#{at}.#{field}") do
           {:ok, value} -> {{field, value}, errors}
           {:error, reasons} -> {{field, nil}, errors ++ reasons}
@@ -187,11 +191,11 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Boundary.Values do
   defp build(module, params, at, :cast) when is_list(params) do
     if Keyword.keyword?(params),
       do: build(module, Map.new(params), at, :cast),
-      else: {:error, ["#{at} must be a map, got #{inspect(params)}"]}
+      else: {:error, ["#{at} must be a map, got #{kind(params)}"]}
   end
 
   defp build(_module, params, at, _mode),
-    do: {:error, ["#{at} must be a map, got #{inspect(params)}"]}
+    do: {:error, ["#{at} must be a map, got #{kind(params)}"]}
 
   defp field_errors(type, value, required, at, mode) do
     result =
@@ -229,7 +233,7 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Boundary.Values do
   defp value(:datetime, value, at, :cast) when is_binary(value) do
     case DateTime.from_iso8601(value) do
       {:ok, datetime, _offset} -> {:ok, datetime}
-      {:error, _} -> {:error, ["#{at} must be an ISO-8601 datetime, got #{inspect(value)}"]}
+      {:error, _} -> {:error, ["#{at} must be an ISO-8601 datetime"]}
     end
   end
 
@@ -246,7 +250,7 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Boundary.Values do
         {:ok, value}
 
       true ->
-        {:error, ["#{at} must be a stream (an Enumerable), got #{inspect(value)}"]}
+        {:error, ["#{at} must be a stream (an Enumerable), got #{kind(value)}"]}
     end
   end
 
@@ -263,7 +267,8 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Boundary.Values do
       else:
         {:error,
          [
-           "#{at} must be one of #{Enum.map_join(values, ", ", &Atom.to_string/1)}, got #{inspect(value)}"
+           "#{at} must be one of #{Enum.map_join(values, ", ", &Atom.to_string/1)}" <>
+             got(value, mode)
          ]}
   end
 
@@ -271,7 +276,7 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Boundary.Values do
     cond do
       is_struct(value, module) -> build(module, value, at, mode)
       mode == :cast and (is_map(value) or is_list(value)) -> build(module, value, at, :cast)
-      true -> {:error, ["#{at} must be a #{inspect(module)}, got #{inspect(value)}"]}
+      true -> {:error, ["#{at} must be a #{inspect(module)}, got #{kind(value)}"]}
     end
   end
 
@@ -290,11 +295,11 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Boundary.Values do
 
         case List.keyfind(members, given, 0) do
           {_name, module} -> build(module, rest, at, :cast)
-          nil -> {:error, ["#{at}.#{tag} must be one of #{names}, got #{inspect(given)}"]}
+          nil -> {:error, ["#{at}.#{tag} must be one of #{names}" <> got(given, :cast)]}
         end
 
       true ->
-        {:error, ["#{at} must be one of #{names}, got #{inspect(value)}"]}
+        {:error, ["#{at} must be one of #{names}, got #{kind(value)}"]}
     end
   end
 
@@ -317,10 +322,11 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Boundary.Values do
       Enum.map_reduce(Enum.sort(values), [], fn {key, item}, errors ->
         cond do
           not is_binary(key) ->
-            {{key, item}, errors ++ ["#{at} has a key #{inspect(key)} that is no string"]}
+            {{key, item}, errors ++ ["#{at} has a key that is no string"]}
 
           true ->
-            case value(inner, item, "#{at}.#{key}", mode) do
+            # A key is data, so the path names the entry, not the key (D44).
+            case value(inner, item, "#{at}.*", mode) do
               {:ok, item} -> {{key, item}, errors}
               {:error, reasons} -> {{key, item}, errors ++ reasons}
             end
@@ -331,7 +337,25 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Boundary.Values do
   end
 
   defp value(type, value, at, _mode),
-    do: {:error, ["#{at} must be #{describe(type)}, got #{inspect(value)}"]}
+    do: {:error, ["#{at} must be #{describe(type)}, got #{kind(value)}"]}
+
+  # A refusal names the field and the kind of value it got, never the value: a value can
+  # hold a path on the client's or the Runtime's machine (D44). An unknown text in a JSON
+  # form is just not one of the values.
+  defp got(value, :cast) when is_binary(value), do: ""
+  defp got(value, _mode), do: ", got #{kind(value)}"
+
+  defp kind(nil), do: "null"
+  defp kind(value) when is_boolean(value), do: "a boolean"
+  defp kind(value) when is_binary(value), do: "a string"
+  defp kind(value) when is_integer(value), do: "an integer"
+  defp kind(value) when is_float(value), do: "a float"
+  defp kind(value) when is_atom(value), do: "an atom"
+  defp kind(value) when is_list(value), do: "a list"
+  defp kind(value) when is_struct(value), do: "a struct"
+  defp kind(value) when is_map(value), do: "a map"
+  defp kind(value) when is_function(value), do: "a function"
+  defp kind(_value), do: "another value"
 
   defp describe({:list, inner}), do: "a list of #{describe(inner)}"
   defp describe({:map, inner}), do: "a map of #{describe(inner)}"

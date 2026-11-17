@@ -335,6 +335,49 @@
         ],
         "type": "object"
       },
+      "change_entry": {
+        "properties": {
+          "kind": {
+            "enum": [
+              "file",
+              "symlink"
+            ],
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "100644",
+              "100755",
+              "120000"
+            ],
+            "type": "string"
+          },
+          "op": {
+            "enum": [
+              "write",
+              "delete"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "target": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "op"
+        ],
+        "type": "object"
+      },
       "check_output": {
         "properties": {
           "complete": {
@@ -420,6 +463,11 @@
         ],
         "type": "object"
       },
+      "fingerprint_mismatch": {
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
       "folder": {
         "properties": {
           "path": {
@@ -472,6 +520,32 @@
         ],
         "type": "object"
       },
+      "frozen": {
+        "properties": {
+          "attempt": {
+            "type": "integer"
+          },
+          "base": {
+            "type": "string"
+          },
+          "roots": {
+            "items": {
+              "$ref": "#/components/schemas/frozen_root"
+            },
+            "type": "array"
+          },
+          "work_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "work_id",
+          "attempt",
+          "base",
+          "roots"
+        ],
+        "type": "object"
+      },
       "frozen_ref": {
         "properties": {
           "base": {
@@ -487,6 +561,28 @@
         "required": [
           "base",
           "fingerprints"
+        ],
+        "type": "object"
+      },
+      "frozen_root": {
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/change_entry"
+            },
+            "type": "array"
+          },
+          "fingerprint": {
+            "type": "string"
+          },
+          "root": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "root",
+          "fingerprint",
+          "entries"
         ],
         "type": "object"
       },
@@ -3202,6 +3298,497 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/v1/work/{work_id}/attempts/{attempt}/frozen": {
+      "get": {
+        "operationId": "get_frozen",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "work_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "attempt",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "fingerprint",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/frozen"
+                }
+              }
+            },
+            "description": "outcome `frozen`"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": 400
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "const": "invalid"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "error `invalid`"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": 401
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "const": "unauthenticated"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "error `unauthenticated`"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "properties": {
+                        "detail": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "const": 403
+                        },
+                        "title": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "const": "not-permitted"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "detail": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "const": 403
+                        },
+                        "title": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "const": "origin-refused"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "error `not_permitted`; error `origin_refused`"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "status": {
+                      "const": 404
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "const": "not-found"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "outcome `not_found`"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "status": {
+                      "const": 409
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "const": "fingerprint-mismatch"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "outcome `fingerprint_mismatch`"
+          },
+          "410": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "completed",
+                        "failed",
+                        "crashed",
+                        "interrupted",
+                        "cancelled",
+                        "returned"
+                      ],
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": 410
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "const": "pruned"
+                    },
+                    "work_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "work_id",
+                    "kind"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "outcome `pruned`"
+          }
+        }
+      }
+    },
+    "/v1/work/{work_id}/attempts/{attempt}/frozen/blobs/{sha256}": {
+      "get": {
+        "operationId": "get_frozen_blob",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "work_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "attempt",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sha256",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "outcome `blob`",
+            "headers": {
+              "blob-sha256": {
+                "description": "`blob`: the outcome's `sha256`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "blob-size": {
+                "description": "`blob`: the outcome's `size`",
+                "required": true,
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": 400
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "const": "invalid"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "error `invalid`"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": 401
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "const": "unauthenticated"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "error `unauthenticated`"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "properties": {
+                        "detail": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "const": 403
+                        },
+                        "title": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "const": "not-permitted"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "detail": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "const": 403
+                        },
+                        "title": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "const": "origin-refused"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "error `not_permitted`; error `origin_refused`"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "status": {
+                      "const": 404
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "const": "not-found"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "outcome `not_found`"
+          },
+          "410": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "completed",
+                        "failed",
+                        "crashed",
+                        "interrupted",
+                        "cancelled",
+                        "returned"
+                      ],
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": 410
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "const": "pruned"
+                    },
+                    "work_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "work_id",
+                    "kind"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "outcome `pruned`"
           }
         }
       }

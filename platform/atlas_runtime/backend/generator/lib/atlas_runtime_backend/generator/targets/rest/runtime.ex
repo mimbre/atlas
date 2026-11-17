@@ -22,7 +22,9 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest.Runtime do
         :no_route
 
       matched ->
-        with {:ok, given} <- query(query_string) do
+        declared = matched |> Enum.flat_map(fn {r, _} -> r.query end) |> Enum.uniq()
+
+        with {:ok, given} <- query(query_string, declared) do
           names = given |> Map.keys() |> MapSet.new()
 
           fitting =
@@ -37,8 +39,6 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest.Runtime do
               {:ok, route.key, params, given}
 
             [] ->
-              declared = matched |> Enum.flat_map(fn {r, _} -> r.query end) |> Enum.uniq()
-
               case Enum.sort(MapSet.to_list(names) -- declared) do
                 [] ->
                   {:error,
@@ -46,27 +46,39 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest.Runtime do
                      "query parameters #{names |> Enum.sort() |> Enum.join(", ")} do not fit one resource"
                    ]}
 
-                unknown ->
-                  {:error, Enum.map(unknown, &"unknown query parameter #{inspect(&1)}")}
+                # An unknown name is request data: never repeated (D44).
+                _unknown ->
+                  {:error, ["the query has an unknown parameter"]}
               end
           end
         end
     end
   end
 
-  @doc "The query string as `%{name => text}`: `{:ok, map}` or `{:error, [reason]}` (a name given twice)."
-  def query(""), do: {:ok, %{}}
+  @doc """
+  The query string as `%{name => text}`: `{:ok, map}` or `{:error, [reason]}` (a name
+  given twice). The reason names the parameter only when it is one of `declared`: any
+  other name is request data, never repeated (D44).
+  """
+  def query(query_string, declared \\ [])
+  def query("", _declared), do: {:ok, %{}}
 
-  def query(query_string) do
+  def query(query_string, declared) do
     query_string
     |> URI.query_decoder()
     |> Enum.reduce_while({:ok, %{}}, fn {name, value}, {:ok, acc} ->
       if Map.has_key?(acc, name),
-        do: {:halt, {:error, ["query parameter #{inspect(name)} is given twice"]}},
+        do: {:halt, {:error, [twice(name, declared)]}},
         else: {:cont, {:ok, Map.put(acc, name, value)}}
     end)
   rescue
     ArgumentError -> {:error, ["the query is not percent-encoded correctly"]}
+  end
+
+  defp twice(name, declared) do
+    if name in declared,
+      do: "query parameter #{inspect(name)} is given twice",
+      else: "a query parameter is given twice"
   end
 
   @doc """
@@ -99,7 +111,8 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest.Runtime do
       {:ok, map} when is_map(map) ->
         case Enum.sort(Map.keys(map) -- fields) do
           [] -> {:ok, map}
-          unknown -> {:error, Enum.map(unknown, &"the body has no field #{inspect(&1)}")}
+          # An unknown key is request data: never repeated (D44).
+          _unknown -> {:error, ["the body has an unknown field"]}
         end
 
       {:ok, _other} ->

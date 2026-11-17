@@ -65,27 +65,30 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.BoundaryTest do
                %B.Outcome.Declined{
                  why: :unreadable,
                  note:
-                   ~s(input.title must be a string, got 1; ) <>
-                     ~s(input.until must be a DateTime, got "2026-03-01T10:00:00Z")
+                   "input.title must be a string, got an integer; " <>
+                     "input.until must be a DateTime, got a string"
                }
 
       assert B.lend(@member, %{"title" => "Dune", "colour" => "red"}) ==
                %B.Outcome.Declined{
                  why: :unreadable,
-                 note: ~s(input has no field "colour"; input.until is required)
+                 note: "input has an unknown field; input.until is required"
                }
 
       # Through apply/3: the type checker would refuse the literal calls.
       assert %B.Outcome.Declined{note: "input must be a " <> _} =
                apply(B, :lend, [@member, %B.Shelf{row: 1}])
 
-      assert %B.Outcome.Declined{note: "input must be a map, got \"Dune\""} =
+      assert %B.Outcome.Declined{note: "input must be a map, got a string"} =
                apply(B, :lend, [@member, "Dune"])
     end
 
     test "answers InvalidInput for a capability that declares no invalid_input outcome" do
       assert B.find(@member, %{"title" => 1}) ==
-               %InvalidInput{capability: :find, reasons: ["input.title must be a string, got 1"]}
+               %InvalidInput{
+                 capability: :find,
+                 reasons: ["input.title must be a string, got an integer"]
+               }
 
       assert %InvalidInput{capability: :find, reasons: ["input.title is required"]} =
                B.find(@member, %B.FindInput{title: nil})
@@ -127,7 +130,7 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.BoundaryTest do
       for {title, got} <- [
             {"map", "got a map"},
             {"one-arity", "got a function of another arity"},
-            {"text", ~s(got "not a stream")}
+            {"text", "got a string"}
           ] do
         assert_raise ContractError,
                      ~r/invalid outcome: outcome.content must be a stream \(an Enumerable\), #{Regex.escape(got)}/,
@@ -152,10 +155,9 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.BoundaryTest do
       for {content, got} <- [
             {%{}, "got a map"},
             {%{"a" => 1}, "got a map"},
-            {%B.Shelf{row: 1},
-             "got %AtlasRuntimeBoundary.Generator.Example.Boundary.Shelf{row: 1}"},
-            {42, "got 42"},
-            {"bytes", ~s(got "bytes")}
+            {%B.Shelf{row: 1}, "got a struct"},
+            {42, "got an integer"},
+            {"bytes", "got a string"}
           ] do
         assert {:error, [reason]} = B.Scan.new(%{title: "t", content: content})
         assert reason == "scan.content must be a stream (an Enumerable), " <> got
@@ -191,7 +193,7 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.BoundaryTest do
       assert %G.Outcome.Missing{} = G.lend(untold, %{title: "Dune", until: @until})
 
       # Without the option, every client is told.
-      assert %B.Outcome.Declined{note: "input has no field" <> _} =
+      assert %B.Outcome.Declined{note: "input has an unknown field" <> _} =
                B.lend(untold, %{"title" => "Dune", "colour" => "red"})
     end
 
@@ -286,13 +288,13 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.BoundaryTest do
                })
 
       assert reasons == [
-               ~s(book has no field "colour"),
-               "book.title must be a string, got 1",
+               "book has an unknown field",
+               "book.title must be a string, got an integer",
                "book.condition is required",
-               ~s(book.place.kind must be one of shelf, branch, got "attic"),
-               ~s(book.due_at must be an ISO-8601 datetime, got "tomorrow"),
-               ~s(book.labels[1] must be one of large_print, audio, got "braille"),
-               "book.notes.a must be a string, got 1"
+               "book.place.kind must be one of shelf, branch",
+               "book.due_at must be an ISO-8601 datetime",
+               "book.labels[1] must be one of large_print, audio",
+               "book.notes.* must be a string, got an integer"
              ]
 
       assert {:error, ["tally.books[0].place.row is required"]} =
@@ -303,24 +305,65 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.BoundaryTest do
                  "counted_at" => "2026-01-01T00:00:00Z"
                })
 
-      assert {:error, [~s(book.place.kind must be one of shelf, branch, got nil)]} =
+      assert {:error, ["book.place.kind must be one of shelf, branch, got null"]} =
                B.Book.new(%{"title" => "t", "condition" => "new", "place" => %{"row" => 1}})
 
       assert_raise ArgumentError, ~r/shelf.row is required/, fn -> B.Shelf.new!(%{}) end
     end
 
+    # D44 (designer, 2026-11-17): a refusal names the field, never the value, which can
+    # hold a path. One case per refusal text that once repeated the value or the key.
+    test "no refusal repeats the value or the key it refuses" do
+      home = "/Users/someone/"
+
+      cases = [
+        {"unknown field", B.Book.new(%{"title" => "t", (home <> "k1") => 1}),
+         "book has an unknown field"},
+        {"unknown nested field",
+         B.Book.new(%{"title" => "t", "place" => %{"kind" => "shelf", (home <> "k2") => 1}}),
+         "book.place has an unknown field"},
+        {"wrong type", B.Book.new(%{"title" => [home <> "v1"]}),
+         "book.title must be a string, got a list"},
+        {"bad enum", B.Book.new(%{"condition" => home <> "v2"}),
+         "book.condition must be one of new, worn, badly-worn"},
+        {"bad enum in a list", B.Book.new(%{"labels" => [home <> "v3"]}),
+         "book.labels[0] must be one of large_print, audio"},
+        {"bad tag", B.Book.new(%{"place" => %{"kind" => home <> "v4"}}),
+         "book.place.kind must be one of shelf, branch"},
+        {"bad tag type", B.Book.new(%{"place" => %{"kind" => [home <> "v5"]}}),
+         "book.place.kind must be one of shelf, branch, got a list"},
+        {"no object for a one_of", B.Book.new(%{"place" => home <> "v6"}),
+         "book.place must be one of shelf, branch, got a string"},
+        {"no object for a model", B.Tally.new(%{"books" => [home <> "v7"]}),
+         "tally.books[0] must be a AtlasRuntimeBoundary.Generator.Example.Boundary.Book, got a string"},
+        {"no object at all", B.Book.new([home <> "v8"]), "book must be a map, got a list"},
+        {"bad datetime", B.Book.new(%{"due_at" => home <> "v9"}),
+         "book.due_at must be an ISO-8601 datetime"},
+        {"map entry", B.Book.new(%{"notes" => %{(home <> "k3") => [home <> "v10"]}}),
+         "book.notes.* must be a string, got a list"},
+        {"no stream", B.Scan.new(%{"title" => "t", "content" => home <> "v11"}),
+         "scan.content must be a stream (an Enumerable), got a string"}
+      ]
+
+      for {name, result, expected} <- cases do
+        assert {:error, reasons} = result, name
+        assert expected in reasons, "#{name}: #{inspect(reasons)}"
+        refute Enum.any?(reasons, &String.contains?(&1, home)), "#{name}: #{inspect(reasons)}"
+      end
+    end
+
     test "an outcome without a model has no fields" do
       assert {:ok, %B.Outcome.Missing{}} = B.Outcome.Missing.new(%{})
-      assert {:error, [~s(missing has no field "x")]} = B.Outcome.Missing.new(%{"x" => 1})
+      assert {:error, ["missing has an unknown field"]} = B.Outcome.Missing.new(%{"x" => 1})
     end
 
     test "validate checks built structs strictly" do
       assert :ok = B.Shelf.validate(%B.Shelf{row: 1})
 
-      assert {:error, ["shelf.row must be an integer, got \"1\""]} =
+      assert {:error, ["shelf.row must be an integer, got a string"]} =
                B.Shelf.validate(%B.Shelf{row: "1"})
 
-      assert {:error, [~s(book.condition must be one of new, worn, badly-worn, got "new")]} =
+      assert {:error, ["book.condition must be one of new, worn, badly-worn, got a string"]} =
                B.Book.validate(%B.Book{title: "t", condition: "new", place: %B.Shelf{row: 1}})
     end
   end
