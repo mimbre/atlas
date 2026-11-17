@@ -65,8 +65,15 @@ defmodule AtlasRuntime.Operations.QuotaMarkTest do
     assert %{available: true} = availability_of("claude")
     assert %{available: false} = availability_of("codex")
 
-    # The work core reads the same evidence: its profile, whose first option is Claude, is
-    # available again.
+    # The work core reads the same evidence, by the one availability rule (Main's #330
+    # round 3): Claude cannot serve workspace-write, the only permission deep_coding
+    # permits, so the profile waits for Codex; once Codex's mark is cleared too, it is
+    # available.
+    assert [%W.ProfileAvailability{profile: "deep_coding", available: false, reason: :quota}] =
+             W.capacity(client()).profiles
+
+    assert %F.Outcome.Cleared{} = F.clear_quota_mark(@operator, %{"harness" => "codex"})
+
     assert [%W.ProfileAvailability{profile: "deep_coding", available: true}] =
              W.capacity(client()).profiles
   end

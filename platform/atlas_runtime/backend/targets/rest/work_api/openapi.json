@@ -681,6 +681,9 @@
           "cursor": {
             "type": "string"
           },
+          "ended": {
+            "type": "boolean"
+          },
           "events": {
             "items": {
               "$ref": "#/components/schemas/output_event"
@@ -1374,7 +1377,7 @@
   "info": {
     "description": "Target `rest` of the backend contract, carrying the boundary's `entities`. Listeners: `socket` (the listener's own identity; rights: submit, cancel, read, read_all, choose_slot, choose_path). No servers: where it listens is configuration.",
     "title": "Atlas Runtime backend: work",
-    "version": "0.1.0"
+    "version": "0.2.0"
   },
   "openapi": "3.1.0",
   "paths": {

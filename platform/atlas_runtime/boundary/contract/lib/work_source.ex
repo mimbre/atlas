@@ -37,7 +37,9 @@ defmodule AtlasRuntimeBoundary.WorkSource do
   """
   use AtlasRuntimeBoundary.Generator.Schema
 
-  version "0.1.0"
+  # 0.2.0: change_set declares its base (required), which the Runtime always sent and
+  # needs back on import.
+  version "0.2.0"
 
   # The Runtime's own enumerations (as in the work contract, which this one does not name).
   @attempt_states [
@@ -71,8 +73,9 @@ defmodule AtlasRuntimeBoundary.WorkSource do
     field :incarnation, :string, required: true
     field :build, :string, required: true
     field :policy_version, :integer, required: true
-    # Free slots per execution profile the Runtime can serve now; empty when full. The
-    # Runtime keeps one poll open, even when full.
+    # The Runtime's free slots and the execution profiles it can serve now (Main's O1): each
+    # available profile names the same total, which is what the source may lease in all, not
+    # per profile. Empty when full. The Runtime keeps one poll open, even when full.
     field :offer, {:map, :integer}, required: true
     field :holdings, {:list, :holding}, required: true
   end
@@ -255,8 +258,12 @@ defmodule AtlasRuntimeBoundary.WorkSource do
     field :ended_at, :datetime
   end
 
-  # The frozen result: its change set per root, each with its csf_ fingerprint.
+  # The frozen result: its change set per root, each with its csf_ fingerprint. base: the
+  # snapshot id of the baseline the roots sit on (the work's input base_id, as the Runtime
+  # froze it; part of every root's csf_). A change set given back as a later work's input
+  # must sit on exactly that work's base.
   defmodel :change_set do
+    field :base, :string, required: true
     field :roots, {:list, :change_root}, required: true
   end
 

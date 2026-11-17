@@ -237,7 +237,10 @@ defmodule AtlasRuntime.WorkSource.HttpPutBlobTest do
             state: :ended,
             result: %{kind: :completed, retryable: false, never_started: false},
             provenance: [],
-            change_set: %{roots: [%{root: "repo", fingerprint: "csf_test", entries: entries}]}
+            change_set: %{
+              base: "base-1",
+              roots: [%{root: "repo", fingerprint: "csf_test", entries: entries}]
+            }
           }
         },
         @as

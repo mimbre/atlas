@@ -175,6 +175,17 @@
     {
       "fields": [
         {
+          "name": "resume",
+          "required": true,
+          "type": "boolean"
+        }
+      ],
+      "name": "retry_request",
+      "persistence": null
+    },
+    {
+      "fields": [
+        {
           "name": "work_id",
           "required": true,
           "type": "string"
@@ -223,6 +234,21 @@
           "name": "result",
           "required": false,
           "type": "result_ref"
+        },
+        {
+          "name": "attempt",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "resume",
+          "required": false,
+          "type": "boolean"
+        },
+        {
+          "name": "retry",
+          "required": false,
+          "type": "retry_request"
         }
       ],
       "name": "queued_work",
