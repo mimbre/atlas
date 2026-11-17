@@ -270,7 +270,7 @@ defmodule AtlasRuntime.NativeAdmissionTest do
         "version" => 1,
         "profiles" => %{
           "deep_coding" => %{
-            "permissions" => ["read-only", "review-packet"],
+            "permissions" => ["read-only", "workspace-write"],
             "cost_classes" => ["standard"],
             "options" => [
               %{"provider" => "anthropic", "harness" => "claude", "model" => "sonnet"},
@@ -775,108 +775,40 @@ defmodule AtlasRuntime.NativeAdmissionTest do
     refute File.exists?(git_log)
   end
 
-  test "review-packet binds the frozen packet; start and continue refuse it once changed out of band",
+  test "a start with the removed review-packet profile is refused; no turn and no admission are written",
        context do
-    real = AtlasRuntime.Workspaces.workspace_path(context.dir)
-    context = %{context | dir: real, service: launch_service(real)}
-    dest = real <> "-folder"
-    packet = real <> "-packet"
-    tree = Path.join(packet, "tree")
-
-    on_exit(fn ->
-      # The packet is read-only; give the owner write access back before removing it.
-      System.cmd("/bin/chmod", ["-R", "u+w", packet, Path.join(real, "packets")],
-        stderr_to_stdout: true
-      )
-
-      File.rm_rf!(packet)
-      File.rm_rf!(dest)
-    end)
-
-    materialize!(real, dest, "repo")
-    File.write!(Path.join([dest, "repo", "new.txt"]), "reviewed\n")
-
-    author =
-      accepted(
-        context.dir,
-        call(
-          context.service,
-          start_request(context, "author", %{
-            "cwd" => dest,
-            "permissions" => "materialized-folder"
-          })
-        )
-      )
-
-    finished(context.service)
-    id = "11111111-2222-4333-8444-555555555555"
-
-    {_, 0} =
-      System.cmd(
-        System.fetch_env!("ATLAS_RUNTIME_EXECUTABLE"),
-        ~w(snapshot freeze --dest #{dest} --turn #{author["turn_id"]} --packet #{packet} --packet-id #{id} --revision 3f2a9c1),
-        env: [{"ATLAS_RUNTIME_HOME", real}]
-      )
-
-    scope = AtlasRuntime.Workspaces.packet_scope(tree, real)
-    assert %{"profile" => "review-packet", "root" => ^tree, "packet" => ^packet} = scope
-    assert scope["findings"] == Path.join(packet, "findings") and scope["packet_id"] == id
-
-    # The author profile never runs in the frozen tree.
-    assert command_error(
-             context.service,
-             start_request(context, "writer", %{
-               "cwd" => tree,
-               "permissions" => "materialized-folder",
-               "worker_id" => "writer"
-             })
-           ) =~ "review it with --permissions review-packet"
-
-    review =
-      start_request(context, "review", %{
-        "cwd" => tree,
-        "permissions" => "review-packet",
-        "worker_id" => "reviewer"
-      })
-
-    assert command_error(context.service, Map.put(review, "sandbox", "read-only")) =~
-             "cannot be combined with sandbox"
-
-    record = accepted(context.dir, call(context.service, review))
-    assert record["binding"]["permissions"] == scope
-    finished(context.service, "reviewer")
-
-    continued =
-      call(context.service, %{
-        "command" => "continue",
-        "worker_id" => "reviewer",
-        "request_id" => "review-next",
-        "assignment" => "admit:review-next"
-      })
-
-    assert accepted(context.dir, continued)["binding"]["permissions"] == scope
-    finished(context.service, "reviewer")
-    [_author, start, resume] = launches(context.dir)
-    assert ~s(default_permissions="atlas_review_packet") in start["argv"]
-    assert resume["resumed"] and ~s(default_permissions="atlas_review_packet") in resume["argv"]
-
-    # A change behind Runtime's back: the frozen file made writable and edited.
-    file = Path.join([tree, "repo", "new.txt"])
-    File.chmod!(file, 0o644)
-    File.write!(file, "changed\n")
-
-    for request <- [
-          %{"command" => "continue", "worker_id" => "reviewer", "assignment" => "plain:changed"},
-          start_request(context, "review-changed", %{
-            "cwd" => tree,
+    # For both harnesses: a plain start is refused by backend selection (no harness can serve
+    # the profile, `Policy.capable?/2`) before the Service's profile guard; an admitted start
+    # is refused by admission validation before it reaches the Service.
+    for backend <- ["codex", "claude"],
+        request <- [
+          %{
+            "command" => "start",
+            "cwd" => context.workspace,
+            "assignment" => "plain:review",
             "permissions" => "review-packet",
-            "worker_id" => "reviewer"
+            "backend" => backend
+          },
+          start_request(context, "review-" <> backend, %{
+            "permissions" => "review-packet",
+            "backend" => backend
           })
         ] do
-      assert command_error(context.service, request) =~ "the tree was modified after the freeze"
+      error = command_error(context.service, request)
+
+      if Map.has_key?(request, "request_id"),
+        do: assert(error == "Invalid permissions"),
+        else:
+          assert(
+            error ==
+              "Selected #{backend} backend cannot meet the requested permissions or provisioning capabilities"
+          )
     end
 
-    assert length(launches(context.dir)) == 3
+    refute File.exists?(Path.join(context.dir, "admissions/review-codex.json"))
+    refute File.exists?(Path.join(context.dir, "admissions/review-claude.json"))
+    assert File.ls(Path.join(context.dir, "turns")) in [{:ok, []}, {:error, :enoent}]
+    assert launches(context.dir) == []
   end
 
   @tag skip: TestHost.missing(:home_private_temp)

@@ -47,12 +47,6 @@ func permissionArguments(scope any, scratch, inspector, home string) ([]string, 
 			return nil, err
 		}
 		return folderArguments(fields, scratch, user, inspector)
-	case "review-packet":
-		user, err := homeDirectory()
-		if err != nil {
-			return nil, err
-		}
-		return packetArguments(fields, scratch, user, inspector)
 	}
 	return nil, errors.New("Unknown permission profile")
 }
@@ -333,20 +327,6 @@ func homeReadable(user string, denied, writable []string) ([]string, error) {
 func folderArguments(scope map[string]any, scratch, user, inspector string) ([]string, error) {
 	root, _ := scope["root"].(string)
 	return workerArguments("atlas_folder", scope, [][2]string{{root, "write"}}, scratch, user, inspector)
-}
-
-// packetArguments translates a review-packet scope into the Codex permission profile of a review
-// pass: the materialized-folder profile of the packet tree, except that the tree, packet.json and
-// diff.json are only read and the findings folder, beside the tree, is the one written project path.
-func packetArguments(scope map[string]any, scratch, user, inspector string) ([]string, error) {
-	root, _ := scope["root"].(string)
-	packet, _ := scope["packet"].(string)
-	findings, _ := scope["findings"].(string)
-	if packet == "" || root != filepath.Join(packet, "tree") || findings != filepath.Join(packet, "findings") {
-		return nil, errors.New("Review packet scope is incomplete")
-	}
-	return workerArguments("atlas_review_packet", scope, [][2]string{{root, "read"},
-		{filepath.Join(packet, "packet.json"), "read"}, {filepath.Join(packet, "diff.json"), "read"}, {findings, "write"}}, scratch, user, inspector)
 }
 
 // workerArguments renders the Codex profile name of a worker whose project paths are the entries project;

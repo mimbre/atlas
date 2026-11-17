@@ -13,8 +13,7 @@ defmodule AtlasRuntime.Sandbox.Scope do
       scope of a `client_named` folder (`folder{path}`, D44, B13).
 
   Each returns the scope map or `{:error, text}`. The parity table is
-  `test/fixtures/s6/scope/*.json`. The `review-packet` profile is not ported (B9), and the
-  `runtime_chosen` folder rules (`base`, `from_work`) come with S6 C0d.
+  `test/fixtures/s6/scope/*.json`. The `runtime_chosen` folder rules (`base`, `from_work`) come with S6 C0d.
   """
 
   @network_hosts ["github.com", "api.github.com"]
@@ -154,14 +153,14 @@ defmodule AtlasRuntime.Sandbox.Scope do
   defp outside_git(%{"path" => _}),
     do: {:error, "Materialized folder cannot be inside a Git work tree"}
 
-  # A packet tree stays as frozen: only the review-packet profile runs in it.
+  # A frozen packet tree is never a worker folder (workspace.go, the RecordedPacket guard).
   defp not_packet(%{"error" => error}, _root), do: {:error, error}
   defp not_packet(%{"id" => ""}, _root), do: :ok
 
   defp not_packet(%{"id" => id}, root),
     do:
       {:error,
-       "Materialized folder #{root} is the tree of review packet #{id}; review it with --permissions review-packet"}
+       "Materialized folder #{root} is the tree of frozen packet #{id}; it cannot be a worker folder"}
 
   # A folder that was never prepared keeps its scope; one whose explicit preparation has not
   # succeeded is refused (snapshot.Preparation Ready and NotReady).

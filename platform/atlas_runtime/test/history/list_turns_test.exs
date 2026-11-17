@@ -187,6 +187,31 @@ defmodule AtlasRuntime.History.ListTurnsTest do
       assert conversation == "session-" <> id(2)
     end
 
+    test "a historic review-packet turn is still listed, projected like any saved turn",
+         %{home: home} do
+      # Saved before the profile was removed (S5b B2e): its permissions are never projected,
+      # so it reads exactly as a materialized-folder turn does, and its record stays as is.
+      scope = fn profile ->
+        %{
+          "sandbox" => nil,
+          "session_id" => "session-historic",
+          "cwd" => "/private/packet/tree",
+          "permissions" => %{"profile" => profile, "root" => "/private/packet/tree"}
+        }
+      end
+
+      turn!(home, id(1), scope.("review-packet"))
+      turn!(home, id(2), scope.("materialized-folder"))
+      before = files(home)
+
+      assert [review, folder] = list!(@all).turns
+      assert review.turn_id == id(1)
+      assert %{Facade.Turn.dump(review) | "turn_id" => id(2)} == Facade.Turn.dump(folder)
+
+      assert %Facade.Outcome.Found{turn: ^review} = Facade.get_turn(@all, %{turn_id: id(1)})
+      assert files(home) == before
+    end
+
     # The reader inventory (plan §2 HR): each field a reader takes today is a built turn
     # field, or one the built contract drops: RQ1's, and the pending question, which the
     # watcher finds from the journal (C1; RQ7).

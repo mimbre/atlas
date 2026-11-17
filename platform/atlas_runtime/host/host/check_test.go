@@ -629,7 +629,7 @@ func TestCheckRefusesAChangedScopeOrBusyFolder(t *testing.T) {
 		{"scope changed", func(scope map[string]any) {
 			scope["record"] = filepath.Join(fixture.home, "materializations", "other.json")
 		}},
-		{"materialized-folder permission scope", func(scope map[string]any) { scope["profile"] = "review-packet" }},
+		{"materialized-folder permission scope", func(scope map[string]any) { scope["profile"] = "dedicated-repository" }},
 		{"ATLAS_RUNTIME_HOME as its home", func(scope map[string]any) { scope["home"] = fixture.user }},
 		{"scope changed", func(scope map[string]any) { scope["writable"] = filepath.Dir(fixture.dest) }},
 	} {

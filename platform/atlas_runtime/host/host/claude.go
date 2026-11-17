@@ -32,8 +32,8 @@ func claudeValidate(scope any, sandbox, session string, model, expectedContext a
 	if scope == nil && sandbox != "read-only" {
 		return errors.New("Claude requires read-only, dedicated-repository or materialized-folder execution")
 	}
-	if fields, _ := scope.(map[string]any); scope != nil && !slices.Contains([]string{"dedicated-repository", "materialized-folder", "review-packet"}, fmt.Sprint(fields["profile"])) {
-		return errors.New("Claude supports only the dedicated-repository, materialized-folder and review-packet permission profiles")
+	if fields, _ := scope.(map[string]any); scope != nil && !slices.Contains([]string{"dedicated-repository", "materialized-folder"}, fmt.Sprint(fields["profile"])) {
+		return errors.New("Claude supports only the dedicated-repository and materialized-folder permission profiles")
 	}
 	if session == "" {
 		return nil
@@ -302,25 +302,10 @@ func claudeRepositorySettings(scope any, temporary, home string) (string, error)
 // Read deny rules cover the native Read/Glob/Grep tools; Claude also merges them into the
 // sandbox's denyRead, which is listed explicitly for the Bash sandbox as well. Bash may
 // read (and so execute) the inspector even inside a denied path. Bash may open pseudo-terminals,
-// so tmux panes (the e2e TUIs) run in the worker; a review pass may not.
+// so tmux panes (the e2e TUIs) run in the worker.
 func claudeFolderSettings(scope map[string]any, temporary, user, inspector string) (string, error) {
 	root, _ := scope["root"].(string)
 	return claudeWorkerSettings(scope, temporary, user, inspector, []string{root}, nil, true)
-}
-
-// claudePacketSettings is the native sandbox and file-tool policy of a review pass: the policy of the
-// materialized packet tree, except that the tree, packet.json and diff.json are read-only to the Bash
-// sandbox and denied to the file-editing tools, and the findings folder beside the tree is the one
-// written project path; a deny inside an allowed write would win, so findings is never below the tree.
-func claudePacketSettings(scope map[string]any, temporary, user, inspector string) (string, error) {
-	root, _ := scope["root"].(string)
-	packet, _ := scope["packet"].(string)
-	findings, _ := scope["findings"].(string)
-	if packet == "" || root != filepath.Join(packet, "tree") || findings != filepath.Join(packet, "findings") {
-		return "", errors.New("Review packet scope is incomplete")
-	}
-	return claudeWorkerSettings(scope, temporary, user, inspector, []string{findings},
-		[]string{root, filepath.Join(packet, "packet.json"), filepath.Join(packet, "diff.json")}, false)
 }
 
 // runtimeWorkName is the name of a Runtime-chosen folder below <home>/workers: "work-" and a
@@ -680,10 +665,10 @@ func makeTemporary(directory string) (string, error) {
 
 // saveContext records the working directory, repository identity and permission scope,
 // refusing a continuation whose saved context drifted; it never writes on failure.
-// A materialized folder or packet tree runs no Git: its verified scope is its whole identity.
+// A materialized folder runs no Git: its verified scope is its whole identity.
 func saveContext(workspacePath string, scope any, folder string, expected any) error {
 	actual := map[string]any{"cwd": workspacePath, "git": nil}
-	if fields, _ := scope.(map[string]any); fields["profile"] != "materialized-folder" && fields["profile"] != "review-packet" {
+	if fields, _ := scope.(map[string]any); fields["profile"] != "materialized-folder" {
 		var err error
 		if actual, err = workspace.Context(workspacePath); err != nil {
 			return err
