@@ -364,6 +364,22 @@ final class ContractTests: XCTestCase {
         XCTAssertThrowsError(try Page.remove.path([:])) { XCTAssertEqual($0 as? PathError, .missing(page: .remove, param: "kind")) }
     }
 
+    func test_page_tasks_builds_and_matches_its_path() throws {
+        let params: [String: String] = ["key": "v key/1", "kind": "v kind/1"]
+        let path = try Page.tasks.path(params)
+        XCTAssertEqual(Page.match(path), PageMatch(page: .tasks, params: params))
+        XCTAssertEqual(Page.tasks.template, "/k/:kind/:key/tasks")
+        XCTAssertThrowsError(try Page.tasks.path([:])) { XCTAssertEqual($0 as? PathError, .missing(page: .tasks, param: "kind")) }
+    }
+
+    func test_page_task_builds_and_matches_its_path() throws {
+        let params: [String: String] = ["task": "v task/1"]
+        let path = try Page.task.path(params)
+        XCTAssertEqual(Page.match(path), PageMatch(page: .task, params: params))
+        XCTAssertEqual(Page.task.template, "/tasks/:task")
+        XCTAssertThrowsError(try Page.task.path([:])) { XCTAssertEqual($0 as? PathError, .missing(page: .task, param: "task")) }
+    }
+
     func test_page_faults_builds_and_matches_its_path() throws {
         let params: [String: String] = [:]
         let path = try Page.faults.path(params)

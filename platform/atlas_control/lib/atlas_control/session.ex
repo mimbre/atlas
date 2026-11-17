@@ -1279,7 +1279,7 @@ defmodule AtlasControl.Session do
   # what the session only has while on it.
   defp pushable?(%{route: route}) do
     not Pages.form?(route) and
-      not match?({tag, _, _} when tag in [:worker_page, :fault], route) and
+      not match?({tag, _, _} when tag in [:worker_page, :task_page, :fault], route) and
       not match?({tag, _} when tag in [:faults], route) and
       not match?({:unavailable, _, _}, route) and route != :unknown
   end
@@ -1363,6 +1363,13 @@ defmodule AtlasControl.Session do
 
         reads = for {kind, _} <- read, do: {kind, :rows}
         {page, answers, ReadSet.of(reads, Enum.map(read, &elem(&1, 1)), page.blocks)}
+
+      # Flow's tasks, through its facade (ADR 0006) from this session's process, which is
+      # attached to the Bus: no Facts read Control makes, so no read set to hint it.
+      {:task_page, _, _} = task_route ->
+        page = AtlasControl.TaskPages.render(task_route, %{key: state.by})
+
+        {page, answers, ReadSet.none()}
 
       {:faults, on} ->
         {Faults.page(route, Faults.offers(on)), answers, ReadSet.none()}

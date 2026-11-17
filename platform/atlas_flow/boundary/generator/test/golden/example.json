@@ -1,0 +1,246 @@
+{
+  "capabilities": [
+    {
+      "input": "lend_input",
+      "name": "lend",
+      "outcomes": [
+        {
+          "model": "book",
+          "name": "lent"
+        },
+        {
+          "model": "shortage",
+          "name": "short"
+        },
+        {
+          "model": "refusal",
+          "name": "declined"
+        },
+        {
+          "name": "missing"
+        }
+      ],
+      "right": "lend"
+    },
+    {
+      "name": "count",
+      "outcomes": [
+        {
+          "model": "tally",
+          "name": "counted"
+        }
+      ],
+      "right": "browse"
+    },
+    {
+      "input": "find_input",
+      "name": "find",
+      "outcomes": [
+        {
+          "model": "book",
+          "name": "lent"
+        },
+        {
+          "name": "missing"
+        }
+      ],
+      "right": "browse"
+    },
+    {
+      "input": "download_input",
+      "name": "download",
+      "outcomes": [
+        {
+          "model": "scan",
+          "name": "downloaded"
+        },
+        {
+          "name": "missing"
+        }
+      ],
+      "right": "browse"
+    }
+  ],
+  "invalid_input": {
+    "detail": "note",
+    "outcome": "declined",
+    "set": {
+      "why": "unreadable"
+    }
+  },
+  "models": [
+    {
+      "fields": [
+        {
+          "name": "row",
+          "required": true,
+          "type": "integer"
+        }
+      ],
+      "name": "shelf"
+    },
+    {
+      "fields": [
+        {
+          "name": "city",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "open",
+          "required": false,
+          "type": "boolean"
+        }
+      ],
+      "name": "branch"
+    },
+    {
+      "fields": [
+        {
+          "name": "title",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "condition",
+          "required": true,
+          "type": "enum",
+          "values": [
+            "new",
+            "worn",
+            "badly-worn"
+          ]
+        },
+        {
+          "models": [
+            "shelf",
+            "branch"
+          ],
+          "name": "place",
+          "required": true,
+          "tag": "kind",
+          "type": "one_of"
+        },
+        {
+          "format": "ISO-8601",
+          "name": "due_at",
+          "required": false,
+          "type": "datetime"
+        },
+        {
+          "name": "labels",
+          "required": false,
+          "type": "list of enum",
+          "values": [
+            "large_print",
+            "audio"
+          ]
+        },
+        {
+          "name": "notes",
+          "required": false,
+          "type": "map of string"
+        }
+      ],
+      "name": "book"
+    },
+    {
+      "fields": [
+        {
+          "name": "title",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "format": "ISO-8601",
+          "name": "until",
+          "required": true,
+          "type": "datetime"
+        }
+      ],
+      "name": "lend_input"
+    },
+    {
+      "fields": [
+        {
+          "name": "waiting",
+          "required": true,
+          "type": "integer"
+        }
+      ],
+      "name": "shortage"
+    },
+    {
+      "fields": [
+        {
+          "name": "why",
+          "required": true,
+          "type": "enum",
+          "values": [
+            "banned",
+            "unreadable"
+          ]
+        },
+        {
+          "name": "note",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "name": "refusal"
+    },
+    {
+      "fields": [
+        {
+          "name": "title",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "name": "find_input"
+    },
+    {
+      "fields": [
+        {
+          "name": "books",
+          "required": true,
+          "type": "list of book"
+        },
+        {
+          "format": "ISO-8601",
+          "name": "counted_at",
+          "required": true,
+          "type": "datetime"
+        }
+      ],
+      "name": "tally"
+    },
+    {
+      "fields": [
+        {
+          "name": "title",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "byte stream",
+          "name": "content",
+          "required": true,
+          "type": "stream"
+        }
+      ],
+      "name": "scan"
+    },
+    {
+      "fields": [
+        {
+          "name": "title",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "name": "download_input"
+    }
+  ],
+  "version": "1.0.0"
+}

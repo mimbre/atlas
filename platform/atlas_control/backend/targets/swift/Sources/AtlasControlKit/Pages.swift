@@ -106,6 +106,8 @@ public enum Page: String, CaseIterable, Sendable {
     case set
     case answer
     case remove
+    case tasks
+    case task
     case faults
     case factFaults = "fact_faults"
     case fault
@@ -129,6 +131,8 @@ public enum Page: String, CaseIterable, Sendable {
         case .set: "/k/:kind/:key/set/:relation"
         case .answer: "/k/:kind/:key/answer/:answer"
         case .remove: "/k/:kind/:key/remove/:relation"
+        case .tasks: "/k/:kind/:key/tasks"
+        case .task: "/tasks/:task"
         case .faults: "/faults"
         case .factFaults: "/k/:kind/:key/faults"
         case .fault: "/fault/:fault"

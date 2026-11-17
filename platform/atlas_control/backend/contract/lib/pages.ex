@@ -23,6 +23,10 @@ defmodule AtlasBFFContract.Pages do
       defpage :set, "/k/:kind/:key/set/:relation"
       defpage :answer, "/k/:kind/:key/answer/:answer"
       defpage :remove, "/k/:kind/:key/remove/:relation"
+      # The tasks Flow defined for a subject handed to machinery, and one task with its
+      # attempts (Flow's `tasks` contract; read only).
+      defpage :tasks, "/k/:kind/:key/tasks"
+      defpage :task, "/tasks/:task"
       # Test only: what can be made to fail (the node, or a fact), and the confirm for one.
       defpage :faults, "/faults"
       defpage :fact_faults, "/k/:kind/:key/faults"
