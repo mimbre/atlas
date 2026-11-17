@@ -20,6 +20,7 @@ defmodule AtlasRuntime.Sources.SelfFencingTest do
   alias AtlasRuntime.Boundary.Work, as: B
   alias AtlasRuntime.Sources.{Puller, Rights}
   alias AtlasRuntime.Test.FakeSourceTarget
+  alias AtlasRuntime.Test.ImportedBase
   alias AtlasRuntime.Test.FakeWorkSource, as: Source
   alias AtlasRuntime.Test.WorkSourceFacade, as: S
 
@@ -617,6 +618,84 @@ defmodule AtlasRuntime.Sources.SelfFencingTest do
                attempts(slow_work)
 
       assert is_nil(attempt.timestamps.running_at)
+    end
+
+    # Re-review 3 finding 1 (M3a): the boundary is lease_ttl itself, not lease_ttl and the
+    # grace. The import answers 1 ms past lease_ttl on the wall clock only (a sleep: the
+    # monotonic clock stands still, no check or poll ran meanwhile); and, as the control,
+    # 1 ms before it.
+    for {offset, expired?} <- [{1, true}, {-1, false}] do
+      @offset offset
+      @expired expired?
+      test "an import that answers at lease_ttl #{if offset > 0, do: "+", else: "-"} 1 ms (wall clock only) #{if expired?, do: "is fenced and never starts", else: "runs"}",
+           ctx do
+        held_import(ctx)
+        poll = Task.async(fn -> Puller.poll_now(ctx.puller) end)
+        assert_receive {:importing, importer, {slow, _sha}}, 5_000
+        slow_work = Puller.leases(ctx.puller)[slow].work_id
+        assert Puller.leases(ctx.puller)[slow].stamp == {0, 0}
+
+        move(ctx.clock, 0, @ttl + @offset)
+        FakeSourceTarget.hook(ctx.target, :get_blob, nil)
+        send(importer, :go)
+        assert :polled = Task.await(poll, 5_000)
+
+        if @expired do
+          assert Puller.leases(ctx.puller)[slow].phase == :fenced
+
+          assert [%{state: :cancelled, result: %{never_started: true}} = attempt] =
+                   attempts(slow_work)
+
+          assert is_nil(attempt.timestamps.running_at)
+          assert [%S.Accepted{}] = Agent.get(ctx.source, & &1.leases[slow].reports)
+        else
+          assert Puller.leases(ctx.puller)[slow].phase in [:released, :started]
+          await_state(slow_work, :running, @client)
+          assert [_one] = attempts(slow_work)
+        end
+      end
+    end
+
+    # Re-review 3 finding 2 (M2b, `step/3`'s adopted-already-imported clause): the puller
+    # stopped after its import set the base (`Work.lease_imported/2` answered `:ok`) and
+    # before it released the attempt. Restarted, it adopts the lease as accepted and
+    # importing, finds the import done, and releases it: no new import, one attempt, which
+    # runs; the hold on its slot is gone.
+    test "a lease adopted after its import set the base is released at once and runs once",
+         ctx do
+      held_import(ctx)
+      poll = Task.async(fn -> catch_exit(Puller.poll_now(ctx.puller)) end)
+      assert_receive {:importing, _importer, {slow, _sha}}, 5_000
+      slow_work = Puller.leases(ctx.puller)[slow].work_id
+
+      # What the puller's import task answers, set by the puller's own call; then it stops.
+      imported = ImportedBase.import!(ctx.bench.dir, @name, %{"slow.txt" => "slow\n"})
+      assert :ok = AtlasRuntime.Work.lease_imported(slow_work, {:ok, imported})
+      ctx = restart!(ctx)
+      Task.await(poll, 5_000)
+      FakeSourceTarget.hook(ctx.target, :get_blob, nil)
+      blobs = length(FakeSourceTarget.calls(ctx.target, :get_blob))
+
+      # Before any check: adopted as importing; the core holds it, its import done.
+      assert %{phase: :importing} = Puller.leases(ctx.puller)[slow]
+
+      assert [%{work_id: ^slow_work, held: true, importing: false, ran: false}] =
+               Enum.filter(AtlasRuntime.Work.holdings(@name), &(&1.lease_id == slow))
+
+      assert :ok = check!(ctx)
+      assert Puller.leases(ctx.puller)[slow].phase in [:released, :started]
+      await_state(slow_work, :running, @client)
+
+      assert [%{work_id: ^slow_work, held: false, importing: false}] =
+               Enum.filter(AtlasRuntime.Work.holdings(@name), &(&1.lease_id == slow))
+
+      assert [%{slot: slot} = attempt] = attempts(slow_work)
+      assert slot != nil
+      assert is_nil(attempt.timestamps.cancel_requested_at)
+      assert length(FakeSourceTarget.calls(ctx.target, :get_blob)) == blobs
+
+      assert Puller.jobs(ctx.puller) |> Enum.filter(&(&1.lease_id == slow and &1.kind == :import)) ==
+               []
     end
   end
 end

@@ -756,6 +756,89 @@ defmodule AtlasRuntime.Sources.LocalTest do
     end
   end
 
+  # Re-review 3 finding 1 (M3b): a local lease's attempt is released by the accept's answer
+  # (`Work.release_lease/1` answers `:released`, as a local lease imports nothing), so the
+  # age check before that release is the only guard. The local source's own target, but the
+  # `accepted` report answers only after the puller's injected clock moved by `by` on the
+  # wall clock (the machine slept while it was sent).
+  defmodule SlowAccept do
+    @behaviour AtlasRuntime.Sources.Puller.Target
+
+    alias AtlasRuntime.Sources.Local
+
+    def new(clock, by) do
+      {Local.Target, inner} = Local.Target.new()
+      {__MODULE__, %{inner: inner, clock: clock, by: by}}
+    end
+
+    @impl true
+    def poll(ref, input), do: Local.Target.poll(ref.inner, input)
+
+    @impl true
+    def send_report(ref, input) do
+      answer = Local.Target.send_report(ref.inner, input)
+
+      if input.report.state == :accepted,
+        do: Agent.update(ref.clock, fn {mono, wall} -> {mono, wall + ref.by} end)
+
+      answer
+    end
+
+    @impl true
+    def uploader(ref, revision), do: Local.Target.uploader(ref.inner, revision)
+
+    @impl true
+    def get_blob(ref, lease_id, sha256), do: Local.Target.get_blob(ref.inner, lease_id, sha256)
+  end
+
+  describe "round 4: a local accept recorded at lease_ttl +/- 1 ms" do
+    # The local source's lease_ttl (900 s), as its puller takes it from `timing`.
+    @local_ttl 900_000
+
+    for {offset, expired?} <- [{1, true}, {-1, false}] do
+      @offset offset
+      @expired expired?
+      test "recorded at lease_ttl #{if offset > 0, do: "+", else: "-"} 1 ms: #{if expired?, do: "fenced, never running, nothing launched", else: "released and running"}",
+           %{bench: bench} do
+        local!(bench)
+        {:ok, clock} = Agent.start_link(fn -> {0, 0} end)
+
+        puller =
+          start_supervised!(
+            {AtlasRuntime.Sources.Puller,
+             name: "local",
+             target: SlowAccept.new(clock, @local_ttl + @offset),
+             clock: fn -> Agent.get(clock, & &1) end,
+             tick: :manual,
+             polling: :manual}
+          )
+
+        assert {:added, _} = Local.add(client(), folder_work(bench, "complete one"))
+        assert :polled = AtlasRuntime.Sources.Puller.poll_now(puller)
+
+        assert [{_lease_id, %{work_id: work_id, phase: phase, stamp: {0, 0}}}] =
+                 Map.to_list(AtlasRuntime.Sources.Puller.leases(puller))
+
+        if @expired do
+          assert phase == :fenced
+
+          assert %B.Outcome.Found{
+                   work: %{
+                     attempts: [%{result: %{never_started: true}, timestamps: timestamps}]
+                   }
+                 } = B.get_work(@client, %{work_id: work_id})
+
+          assert is_nil(timestamps.running_at)
+          assert launches(bench) == []
+        else
+          assert phase in [:released, :started]
+          assert await_state(work_id, :completed, @client)
+          assert [_one] = launches(bench)
+        end
+      end
+    end
+  end
+
   defp report(lease_id, revision, report),
     do:
       LocalFacade.report({"local", [:lease]}, %{
