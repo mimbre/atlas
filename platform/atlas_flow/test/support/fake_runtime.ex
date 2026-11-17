@@ -69,6 +69,15 @@ defmodule AtlasFlow.FakeRuntime do
     end)
   end
 
+  @doc "Fields of the latest attempt of the work of `key` (its `provenance`, say), no new revision."
+  def attempt!(key, fields) do
+    Agent.update(__MODULE__, fn s ->
+      work = s.works[key]
+      [attempt | rest] = Enum.reverse(work["attempts"])
+      put_in(s.works[key]["attempts"], Enum.reverse([Map.merge(attempt, fields) | rest]))
+    end)
+  end
+
   @doc "The work of `key` ended `kind`, with `extra` in its result."
   def finish(key, kind, extra \\ %{}),
     do: move(key, kind, Map.merge(%{"kind" => kind, "answer" => "Done."}, extra))

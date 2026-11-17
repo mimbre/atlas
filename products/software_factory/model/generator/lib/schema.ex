@@ -55,6 +55,7 @@ defmodule RelaDSL.Schema do
   | `gate` | `gate_result` | the gate's `verdicts` |
   | `effect` | `effect_result`, or `field:` | `done`, `refused` |
   | `task` | `task_result`, or `field:` | `completed`, `check_failed`, `stuck`, `abandoned` |
+  | `task`, `ladder: true` | `task_result`, or `field:` | `review`, `fix`, `diagnose`, `fresh`, `stronger`, `ready`, `decide`, `held` |
 
   A `task` is one unit of work Flow defines for the machinery the subject is assigned
   to, and hands to its Runtime (`AtlasFlow.Activities.Task`). Its result is the run's
@@ -75,13 +76,23 @@ defmodule RelaDSL.Schema do
         on: [completed: :authored, check_failed: :check_failed, stuck: :stuck,
              abandoned: :stuck]
 
-  `kind` is `plan`, `author`, `review` or `fix`; `role` `architect` or `developer`;
-  `profile` `deep_coding` or `independent_review`; `cost_class` `low`, `standard` (the
-  default) or `high`. `input` is where the work starts: a repository and its base. It
-  never names a path on the machinery's machine, which the Runtime chooses (its D44).
-  `check` is the command (argv) run after the work, `instructions` the standard text,
-  and `fields` the subject's fields added to it. `records` names the kind and relation
-  of its task records, `machinery` the kind of the assignee it runs for.
+  `kind` is `plan`, `author`, `review`, `fix` or `diagnose`; `role` `architect`,
+  `developer` or `investigator`; `profile` `deep_coding`, `independent_review` or
+  `deep_coding_max`; `cost_class` `low`, `standard` (the default) or `high`. `input` is
+  where the work starts: a repository and its base, or `[result: :latest, access: :read
+  | :write]`, the latest author or fix result of the run, read-only or to change (a
+  review, fix or diagnose task). It never names a path on the machinery's machine, which
+  the Runtime chooses (its D44). `check` is the command (argv) run after the work; an
+  author or fix task must have one (lesson 7). `instructions` is the standard text, and
+  `fields` the subject's fields added to it. `records` names the kind and relation of its
+  task records, `machinery` the kind of the assignee it runs for.
+
+  With `ladder: true` the task is one step of the review and fix loop and its strategy
+  ladder (`AtlasFlow.Ladder`, the Flow Engine plan §4 and §4.1): Flow decides the next
+  step from the run's own task results, and the branch is that step, not how the task
+  ended: `review`, `fix`, `diagnose`, `fresh` (a fresh author from the original base),
+  `stronger` (the same with the strongest profile), `ready` (approved), `decide` (a
+  person must choose) or `held`. A review, fix or diagnose task is always one.
 
   A result may lead to `{state, label}` instead of a state: the branch then carries
   that label, as `refused: {:decide, "The service refused; a person decides"}`.
@@ -205,9 +216,11 @@ defmodule RelaDSL.Schema do
   @writer "atlas-flow"
   @effect_results [:done, :refused]
   @task_results [:completed, :check_failed, :stuck, :abandoned]
-  @task_kinds [:plan, :author, :review, :fix]
-  @task_roles [:architect, :developer]
-  @task_profiles [:deep_coding, :independent_review]
+  @task_moves [:review, :fix, :diagnose, :fresh, :stronger, :ready, :decide, :held]
+  @task_kinds [:plan, :author, :review, :fix, :diagnose]
+  @task_roles [:architect, :developer, :investigator]
+  @task_profiles [:deep_coding, :independent_review, :deep_coding_max]
+  @task_accesses [:read, :write]
   @task_costs [:low, :standard, :high]
   @task_keys [
     :role,
@@ -219,6 +232,7 @@ defmodule RelaDSL.Schema do
     :fields,
     :records,
     :machinery,
+    :ladder,
     :field,
     :on
   ]
@@ -375,8 +389,10 @@ defmodule RelaDSL.Schema do
   @doc """
   Mechanism: a task of `kind` for the machinery the subject is assigned to, with its spec
   (`role:`, `profile:`, `cost_class:`, `input:`, `check:`, `instructions:`, `fields:`,
-  `records:`, `machinery:`, `field:`) and `on: [completed:, check_failed:, stuck:,
-  abandoned:]`.
+  `records:`, `machinery:`, `ladder:`, `field:`) and `on: [completed:, check_failed:,
+  stuck:, abandoned:]`, or, in the review and fix loop (`ladder: true`), `on:` each of
+  its steps (`review:`, `fix:`, `diagnose:`, `fresh:`, `stronger:`, `ready:`, `decide:`,
+  `held:`).
   """
   defmacro task(kind, opts), do: item(:task, [kind, opts])
 
@@ -1024,10 +1040,14 @@ defmodule RelaDSL.Schema do
         [kind: kind, field: field, cost_class: :standard] ++ Keyword.drop(opts, [:on, :field])
       )
 
+    # A review, fix or diagnose task is a step of the loop: its branches are the steps.
+    ladder? = Keyword.get(opts, :ladder, false) == true or kind in [:review, :fix, :diagnose]
+    spec = if ladder?, do: Map.put(spec, :ladder, true), else: spec
     {s, ps} = mechanism(s, {:task, spec})
+    values = if ladder?, do: @task_moves, else: @task_results
 
     also(
-      results(s, field, @task_results, Keyword.get(opts, :on, []), "task #{kind}", false),
+      results(s, field, values, Keyword.get(opts, :on, []), "task #{kind}", false),
       ps ++ task_problems(kind, opts, spec)
     )
   end
@@ -1154,21 +1174,23 @@ defmodule RelaDSL.Schema do
 
     [
       unknown != [] && pre <> "knows no #{list(unknown)}",
+      spec[:ladder] not in [nil, true, false] && pre <> "ladder: must be true or false",
       kind not in @task_kinds && pre <> "kind must be one of #{list(@task_kinds)}",
       spec[:role] not in @task_roles && pre <> "role: must be one of #{list(@task_roles)}",
       spec[:profile] not in @task_profiles &&
         pre <> "profile: must be one of #{list(@task_profiles)}",
       spec[:cost_class] not in @task_costs &&
         pre <> "cost_class: must be one of #{list(@task_costs)}",
-      not (Keyword.keyword?(input || []) and input != nil and
-             Enum.sort(Keyword.keys(input)) == [:base, :repository] and
-             text?.(input[:repository]) and text?.(input[:base])) &&
+      not task_input?(kind, input, text?) &&
         pre <>
-          "input: must be [repository: url, base: ref]; a task never names a path on the " <>
-          "machinery's machine",
+          "input: must be [repository: url, base: ref], or [result: :latest, access: " <>
+          ":read | :write] for a review, fix or diagnose task; a task never names a path " <>
+          "on the machinery's machine",
       not (spec[:check] == nil or
              (is_list(spec[:check]) and spec[:check] != [] and Enum.all?(spec[:check], text?))) &&
         pre <> "check: must be a command, a list of texts",
+      (kind in [:author, :fix] and spec[:check] == nil) &&
+        pre <> "check: an author or fix task runs a check after the work (bin/check)",
       not text?.(spec[:instructions]) && pre <> "instructions: must be a text",
       not (is_list(spec[:fields] || []) and Enum.all?(spec[:fields] || [], &is_atom/1)) &&
         pre <> "fields: must be a list of the subject's fields",
@@ -1179,6 +1201,25 @@ defmodule RelaDSL.Schema do
       not text?.(spec[:machinery]) && pre <> "machinery: must be the kind of its assignee"
     ]
     |> Enum.filter(& &1)
+  end
+
+  # A repository and its base for work that starts from a base; the run's latest result
+  # for a review (read), a fix (write) or a diagnosis (read). Never a path (D44).
+  defp task_input?(kind, input, text?) do
+    cond do
+      not (Keyword.keyword?(input || []) and input != nil) ->
+        false
+
+      Enum.sort(Keyword.keys(input)) == [:base, :repository] ->
+        kind in [:plan, :author] and text?.(input[:repository]) and text?.(input[:base])
+
+      Enum.sort(Keyword.keys(input)) == [:access, :result] ->
+        kind in [:review, :fix, :diagnose] and input[:result] == :latest and
+          input[:access] in @task_accesses and kind == :fix == (input[:access] == :write)
+
+      true ->
+        false
+    end
   end
 
   defp also({s, ps}, earlier), do: {s, earlier ++ ps}

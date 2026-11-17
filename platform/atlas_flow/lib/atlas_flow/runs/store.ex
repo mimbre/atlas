@@ -1288,6 +1288,10 @@ defmodule AtlasFlow.Runs.Store do
 
       {:result, outcome, result, writes} ->
         Run.task_result(run, flow, subject, now, outcome, result, writes)
+
+      # A task of the review and fix loop: the ladder's step, and its state for the run.
+      {:result, step, result, writes, ladder} ->
+        Run.task_result(run, flow, subject, now, step, result, writes, ladder)
     end
   end
 

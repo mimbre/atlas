@@ -41,24 +41,46 @@ defmodule AtlasFlow.Activities.Task do
   The workspace is a `repository` one (`input: [repository:, base:]`) on the branch
   `flow/<key>`: a remote client never names a path on the machinery's machine (Runtime
   D44), so `folder` is never sent.
+
+  **The review and fix loop (F2).** A task of the loop (`ladder: true`: every review,
+  fix and diagnose task, and an author task on the loop) is decided by `AtlasFlow.Ladder`:
+
+  - its input `[result: :latest, access:]` is exactly the frozen result of the run's
+    latest author or fix task, `from_work{work_id, attempt, permissions}`: `read-only` for
+    a review or a diagnosis, `workspace-write` for a fix (client obligation 9; never
+    `resume_from`). An author task on the loop after the first starts from the original
+    base (the first author's), in a new work and so a new conversation;
+  - its instructions add what the ladder says (the findings, the check's output, the
+    diagnosis, the history, the answer format);
+  - its result in the run keeps what the next step reads: the task's kind, the attempt's
+    conversation, the frozen result's fingerprint and `based_on`, a review's verdict and
+    findings, a diagnosis;
+  - its branch is the ladder's step (`AtlasFlow.Ladder.steps/0`), and the ladder's state
+    goes into the run (`pending.ladder`) with it.
   """
 
   require Logger
 
   alias AtlasBus.Digest
+  alias AtlasFlow.Ladder
   alias AtlasFlow.Runtime.Config
   alias AtlasFlow.Talk
 
   @results ~w(completed check_failed stuck abandoned)
-  @kinds ~w(plan author review fix)
-  @roles ~w(architect developer)
-  @profiles ~w(deep_coding independent_review)
+  @kinds ~w(plan author review fix diagnose)
+  @roles ~w(architect developer investigator)
+  @profiles ~w(deep_coding independent_review deep_coding_max)
+  @permissions %{"read" => "read-only", "write" => "workspace-write"}
   @costs ~w(low standard high)
   @terminal ~w(completed failed crashed interrupted cancelled returned)
   @answer_bytes 8192
   @retry_after 60
 
-  def results, do: @results
+  @doc "What a task's branch can be: how it ended, or for a task of the loop the ladder's step."
+  def results, do: @results ++ Ladder.steps()
+
+  @doc "Whether `spec` is a task of the review and fix loop (`AtlasFlow.Ladder`)."
+  def ladder?(spec), do: spec["ladder"] == true
 
   @doc "The Runtime client Flow calls."
   def client, do: Application.get_env(:atlas_flow, :runtime_client, AtlasFlow.Runtime.Client.Http)
@@ -67,15 +89,23 @@ defmodule AtlasFlow.Activities.Task do
   def valid?(spec) do
     is_map(spec) and spec["kind"] in @kinds and spec["role"] in @roles and
       spec["profile"] in @profiles and spec["cost_class"] in @costs and text?(spec["field"]) and
-      input?(spec["input"]) and check?(spec["check"]) and text?(spec["instructions"]) and
-      texts?(spec["fields"] || []) and records?(spec["records"]) and text?(spec["machinery"])
+      input?(spec["kind"], spec["input"]) and check?(spec["check"]) and
+      (spec["kind"] not in ["author", "fix"] or spec["check"] != nil) and
+      text?(spec["instructions"]) and texts?(spec["fields"] || []) and
+      records?(spec["records"]) and text?(spec["machinery"]) and
+      spec["ladder"] in [nil, true, false] and
+      (spec["kind"] not in ["review", "fix", "diagnose"] or spec["ladder"] == true)
   end
 
-  # A repository and its base, nothing else: never a path (D44).
-  defp input?(%{"repository" => r, "base" => b} = input),
+  # A repository and its base, or the run's latest result: never a path (D44).
+  defp input?(kind, %{"repository" => r, "base" => b} = input) when kind in ["plan", "author"],
     do: map_size(input) == 2 and text?(r) and text?(b)
 
-  defp input?(_), do: false
+  defp input?(kind, %{"result" => "latest", "access" => access} = input)
+       when kind in ["review", "fix", "diagnose"],
+       do: map_size(input) == 2 and access == if(kind == "fix", do: "write", else: "read")
+
+  defp input?(_kind, _input), do: false
 
   defp check?(nil), do: true
   defp check?(command), do: is_list(command) and command != [] and texts?(command)
@@ -161,9 +191,14 @@ defmodule AtlasFlow.Activities.Task do
     end
   end
 
-  @doc "The work request of task `key` on `subject` (string keys; the key goes as header)."
-  def request(spec, subject, key) do
+  @doc """
+  The work request of task `key` on `subject` (string keys; the key goes as header), for
+  the run `run` (its task results and ladder, for a task of the loop): `{:ok, request}`,
+  or `:error` when a task of the loop has no result to start from.
+  """
+  def request(spec, subject, key, run \\ %{}) do
     values = subject["values"] || %{}
+    tasks = get_in(run, ["pending", "tasks"]) || []
 
     sections =
       for field <- spec["fields"] || [],
@@ -171,21 +206,67 @@ defmodule AtlasFlow.Activities.Task do
           is_binary(text) and String.trim(text) != "",
           do: "\n\n## #{field}\n\n#{text}"
 
-    %{
-      "title" => "#{spec["kind"]} #{subject["key"]}",
-      "instructions" => Enum.join([spec["instructions"] | sections]),
-      "profile" => spec["profile"],
-      "cost_class" => spec["cost_class"],
-      "workspace" => %{
-        "kind" => "repository",
-        "url" => spec["input"]["repository"],
-        "branch" => "flow/" <> key,
-        "base" => spec["input"]["base"]
-      }
-    }
-    |> then(
-      &if(spec["check"], do: Map.put(&1, "after_check", %{"command" => spec["check"]}), else: &1)
-    )
+    loop = if ladder?(spec), do: Ladder.sections(spec["kind"], Ladder.of(run), tasks), else: []
+
+    with {:ok, workspace} <- workspace(spec, key, tasks) do
+      {:ok,
+       %{
+         "title" => "#{spec["kind"]} #{subject["key"]}",
+         "instructions" => Enum.join([spec["instructions"] | sections] ++ loop),
+         "profile" => spec["profile"],
+         "cost_class" => spec["cost_class"],
+         "workspace" => workspace
+       }
+       |> then(
+         &if(spec["check"],
+           do: Map.put(&1, "after_check", %{"command" => spec["check"]}),
+           else: &1
+         )
+       )}
+    end
+  end
+
+  # Exactly the latest author or fix result, read-only or to change (obligation 9).
+  defp workspace(%{"input" => %{"result" => "latest", "access" => access}}, _key, tasks) do
+    case Ladder.latest(tasks) do
+      %{"work_id" => work_id, "attempt" => attempt} ->
+        {:ok,
+         %{"kind" => "from_work", "work_id" => work_id, "permissions" => @permissions[access]}
+         |> then(&if(is_integer(attempt), do: Map.put(&1, "attempt", attempt), else: &1))}
+
+      nil ->
+        :error
+    end
+  end
+
+  # A base; an author on the loop after the first starts from the first one's base.
+  defp workspace(%{"input" => input} = spec, key, tasks) do
+    base = if ladder?(spec), do: Ladder.original_base(tasks), else: nil
+
+    {:ok,
+     %{
+       "kind" => "repository",
+       "url" => input["repository"],
+       "branch" => "flow/" <> key,
+       "base" => base || input["base"]
+     }}
+  end
+
+  # What the task record says it starts from (JSON).
+  defp input_record(spec, request, tasks) do
+    case request["workspace"] do
+      %{"kind" => "from_work"} = w ->
+        %{
+          "result" => Ladder.latest(tasks)["key"],
+          "work_id" => w["work_id"],
+          "attempt" => w["attempt"],
+          "access" => spec["input"]["access"]
+        }
+
+      w ->
+        %{"repository" => w["url"], "base" => w["base"]}
+    end
+    |> JSON.encode!()
   end
 
   @doc """
@@ -208,13 +289,37 @@ defmodule AtlasFlow.Activities.Task do
   - `:none`: nothing changes (no machinery, waiting, unreachable);
   - `{:pending, intent, writes}`: the task as the run is to hold it, and the record writes
     to send after the run is stored;
-  - `{:result, outcome, result, writes}`: the task ended `outcome`; `result` goes in the run.
+  - `{:result, outcome, result, writes}`: the task ended `outcome`; `result` goes in the run;
+  - `{:result, step, result, writes, ladder}`: a task of the loop ended; `step` is the
+    ladder's (`AtlasFlow.Ladder.next/5`), `ladder` its state for the run.
 
   `ctx`: `assignee` (`assignee/4`), `number` (a function giving `number/2`), `now`, `wake`
   (a capacity event: a waiting task asks again before its `retry_at`) and `works` (snapshots
   the Link reported, by `work_id`).
   """
   def step(run, spec, subject, ctx) do
+    case do_step(run, spec, subject, ctx) do
+      {:result, outcome, result, writes} = ended ->
+        if ladder?(spec), do: next_step(run, spec, subject, outcome, result, writes), else: ended
+
+      other ->
+        other
+    end
+  end
+
+  # A task of the loop ended: the ladder says what comes next (`{:result, step, result,
+  # writes, ladder}`), from the run's own results.
+  defp next_step(run, spec, subject, _outcome, result, writes) do
+    tasks = run["pending"]["tasks"] || []
+    result = Map.put(result, "rung", Ladder.of(run)["rung"])
+
+    {step, ladder, more} =
+      Ladder.next(Ladder.of(run), spec["kind"], result, tasks, subject["key"])
+
+    {:result, step, Map.put(result, "step", step), writes ++ more, ladder}
+  end
+
+  defp do_step(run, spec, subject, ctx) do
     intent = run["pending"]["task"]
 
     cond do
@@ -222,7 +327,7 @@ defmodule AtlasFlow.Activities.Task do
         :none
 
       intent == nil ->
-        intend(spec, subject, ctx)
+        intend(run, spec, subject, ctx)
 
       ctx.assignee != {:machinery, intent["machinery"]} ->
         ended(intent, spec, "abandoned", %{"reason" => "assignment moved away"})
@@ -235,12 +340,13 @@ defmodule AtlasFlow.Activities.Task do
     end
   end
 
-  defp intend(spec, subject, %{assignee: {:machinery, name}} = ctx) do
-    with {:ok, _machinery} <- Config.fetch(name),
-         {:ok, n} <- ctx.number.() do
-      key = key(subject["key"], n)
-      request = request(spec, subject, key)
+  defp intend(run, spec, subject, %{assignee: {:machinery, name}} = ctx) do
+    tasks = run["pending"]["tasks"] || []
 
+    with {:ok, _machinery} <- Config.fetch(name),
+         {:ok, n} <- ctx.number.(),
+         key = key(subject["key"], n),
+         {:ok, request} <- request(spec, subject, key, run) do
       intent = %{
         "version" => 1,
         "key" => key,
@@ -262,7 +368,7 @@ defmodule AtlasFlow.Activities.Task do
               "kind" => spec["kind"],
               "role" => spec["role"],
               "profile" => spec["profile"],
-              "input" => JSON.encode!(spec["input"]),
+              "input" => input_record(spec, request, tasks),
               "client_key" => key,
               "state" => "waiting"
             }),
@@ -272,12 +378,23 @@ defmodule AtlasFlow.Activities.Task do
 
       {:pending, intent, [record]}
     else
-      :error -> unconfigured(name)
-      :unavailable -> :none
+      :error ->
+        if Config.fetch(name) == :error do
+          unconfigured(name)
+        else
+          Logger.warning(
+            "flow: #{subject["key"]}: no result for its #{spec["kind"]} task to start from"
+          )
+
+          :none
+        end
+
+      :unavailable ->
+        :none
     end
   end
 
-  defp intend(_spec, _subject, _ctx), do: :none
+  defp intend(_run, _spec, _subject, _ctx), do: :none
 
   defp unconfigured(name) do
     Logger.warning("flow: machinery #{name} is not configured; its tasks wait")
@@ -404,7 +521,10 @@ defmodule AtlasFlow.Activities.Task do
               "kind" => kind,
               "reason" => result["reason"],
               "check" => check,
-              "answer" => result["answer"]
+              "answer" => result["answer"],
+              "product" => result["work_product"],
+              "conversation" =>
+                get_in(attempt, ["provenance", "conversation_id"]) || attempt["conversation_id"]
             })
 
           _ ->
@@ -471,6 +591,9 @@ defmodule AtlasFlow.Activities.Task do
 
   # The task ended: its result for the run, and the record's last write.
   defp ended(intent, spec, outcome, detail) do
+    product = detail["product"] || %{}
+    answer = detail["answer"]
+
     result =
       compact(%{
         "key" => intent["key"],
@@ -482,6 +605,7 @@ defmodule AtlasFlow.Activities.Task do
         "reason" => detail["reason"],
         "check" => detail["check"]
       })
+      |> Map.merge(if ladder?(spec), do: loop_result(spec, product, detail, answer), else: %{})
 
     check = detail["check"] || %{}
 
@@ -494,11 +618,50 @@ defmodule AtlasFlow.Activities.Task do
       "check_exit_status" => check["exit_status"],
       "check_ending" => check["ending"],
       "check_output_tail" => check["tail"],
-      "answer" => answer(detail["answer"])
+      "answer" => answer(detail["answer"]),
+      "result_fingerprints" => fingerprints(get_in(product, ["frozen", "fingerprints"])),
+      "based_on" => result["based_on"],
+      "verdict" => result["verdict"]
     }
 
     {:result, outcome, result, [change(intent, spec, ["result"], values)]}
   end
+
+  # What the loop's next step reads of a result (`AtlasFlow.Ladder`): the run's own.
+  defp loop_result(spec, product, detail, answer) do
+    parsed =
+      case spec["kind"] do
+        "review" ->
+          case Ladder.verdict(answer) do
+            {:ok, verdict, findings} -> %{"verdict" => verdict, "findings" => findings}
+            :error -> %{}
+          end
+
+        "diagnose" ->
+          %{"diagnosis" => Ladder.diagnosis(answer)}
+
+        _ ->
+          %{}
+      end
+
+    %{
+      "task_kind" => spec["kind"],
+      "conversation" => detail["conversation"],
+      "fingerprint" => fingerprint(get_in(product, ["frozen", "fingerprints"])),
+      "based_on" => fingerprint(get_in(product, ["based_on", "fingerprints"])),
+      "base" => get_in(product, ["workspace", "base_sha"])
+    }
+    |> Map.merge(parsed)
+    |> compact()
+  end
+
+  # One root: its fingerprint, which a review's `based_on` is compared with; several: all
+  # of them (JSON), as `AtlasFlow.Runtime.Records` keeps them.
+  defp fingerprint([%{"fingerprint" => fingerprint}]) when is_binary(fingerprint), do: fingerprint
+  defp fingerprint(list), do: fingerprints(list)
+
+  defp fingerprints(list) when is_list(list) and list != [], do: JSON.encode!(list)
+  defp fingerprints(_), do: nil
 
   defp answer(text) when is_binary(text) and byte_size(text) > @answer_bytes,
     do: text |> binary_part(0, @answer_bytes) |> String.chunk(:valid) |> hd()
