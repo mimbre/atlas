@@ -17,9 +17,13 @@ defmodule AtlasControl.FakeStore do
   def put(key, values, kind \\ "widget", links \\ %{}),
     do: GenServer.call(__MODULE__, {:put, kind, key, values, links})
 
-  @doc "What Facts presents of the work on `key` (as it derives it from the runs)."
-  def present(kind, key, presentation),
-    do: GenServer.call(__MODULE__, {:present, kind, key, presentation})
+  @doc """
+  What Facts presents of the work on `key` (as it derives it from the runs: its
+  `supervisor` too). A read that presents it depends on every fact of `runs` as well
+  (the kind the runs are kept as), as Facts says of the runs it read.
+  """
+  def present(kind, key, presentation, runs \\ nil),
+    do: GenServer.call(__MODULE__, {:present, kind, key, presentation, runs})
 
   @doc "The fact that set a link, as Facts answers it in `origins`."
   def origin(kind, key, relation, origin),
@@ -92,8 +96,8 @@ defmodule AtlasControl.FakeStore do
   def handle_call({:put, kind, key, values, links}, _from, s),
     do: {:reply, :ok, put_in(s.facts[{kind, key}], {values, 0, links})}
 
-  def handle_call({:present, kind, key, presentation}, _from, s),
-    do: {:reply, :ok, put_in(s.presentations[{kind, key}], presentation)}
+  def handle_call({:present, kind, key, presentation, runs}, _from, s),
+    do: {:reply, :ok, put_in(s.presentations[{kind, key}], {presentation, runs})}
 
   def handle_call({:silent, on?}, _from, s), do: {:reply, :ok, %{s | silent: on?}}
 
@@ -168,6 +172,32 @@ defmodule AtlasControl.FakeStore do
 
   def handle_info({:atlas_bus, %Envelope{class: "fact"}, _content}, %{silent: true} = s),
     do: {:noreply, s}
+
+  # A pickup or a hand-over (work acquisition decision 2026-11-17, §5.6): an input of a
+  # flow, kept as sent (Facts checks it, and keeps it applied for Flow). It changes no fact
+  # a page shows. Refused with `reason` while `refuse/2` names its run.
+  def handle_info({:atlas_bus, %Envelope{class: "fact"} = e, %{"op" => op} = c}, s)
+      when op in ["pickup", "hand_over"] do
+    s = %{s | last: c, sent: [c | s.sent]}
+    about = Map.take(c, ["op", "by"])
+
+    case s.refusing[get_in(c, ["values", "run"])] do
+      nil ->
+        s = %{s | position: s.position + 1}
+
+        :ok =
+          AtlasBus.send(
+            Envelope.reply(e, "stored", position: s.position),
+            Map.put(about, "changes", [])
+          )
+
+        {:noreply, s}
+
+      reason ->
+        :ok = AtlasBus.send(Envelope.reply(e, "refused"), Map.put(about, "reasons", [reason]))
+        {:noreply, s}
+    end
+  end
 
   def handle_info({:atlas_bus, %Envelope{class: "fact"} = e, %{"op" => op, "key" => key} = c}, s) do
     s = %{s | last: c}
@@ -285,14 +315,32 @@ defmodule AtlasControl.FakeStore do
     present = fn fact ->
       case s.presentations[{kind, fact["key"]}] do
         nil -> fact
-        presentation -> Map.put(fact, "presentation", presentation)
+        {presentation, _runs} -> Map.put(fact, "presentation", presentation)
       end
     end
 
+    # The runs a presentation was made from: their kind is a dependency of the read.
+    runs = fn facts ->
+      for f <- facts,
+          {_, runs} <- [s.presentations[{kind, f["key"]}]],
+          is_binary(runs),
+          uniq: true,
+          do: ["kind", runs]
+    end
+
+    with_runs = fn answer, facts ->
+      Map.update(answer, "deps", [], &Enum.sort(Enum.uniq(&1 ++ runs.(facts))))
+    end
+
     case plain_answer(s, kind, content) do
-      %{"fact" => %{} = fact} = answer -> %{answer | "fact" => present.(fact)}
-      %{"facts" => facts} = answer -> %{answer | "facts" => Enum.map(facts, present)}
-      answer -> answer
+      %{"fact" => %{} = fact} = answer ->
+        with_runs.(%{answer | "fact" => present.(fact)}, [fact])
+
+      %{"facts" => facts} = answer ->
+        with_runs.(%{answer | "facts" => Enum.map(facts, present)}, facts)
+
+      answer ->
+        answer
     end
   end
 

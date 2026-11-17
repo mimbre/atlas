@@ -3,17 +3,26 @@ defmodule AtlasControl.Shell do
   Native shell metadata from the model (`shell/1`, with the tabs the environment's
   settings add), separate from page content. `m` is the model as Control serves it
   (`AtlasControl.Model.catalog/2`).
+
+  A tab opens `/` (what is assigned, `assigned: true`), a kind's list, the workers, or one
+  of the supervision screens (`/_open`, `/_supervised`) when the model's start page has
+  it. Without a target, a client opens on the tab the shell names as its `default` (its
+  id), when the client may see it; else on the first tab.
   """
 
   alias AtlasControl.Pages
   require AtlasControl.Blocks, as: Blocks
 
+  # The supervision screens (M3b P4): index routes, as `/` and a kind's list are.
+  @screens [:open_for_you, :supervised_by_you]
+
   @doc "Build a fresh shell; the optional target selects content without opening a page."
   def boot(m, by_kind, target \\ nil, resolve \\ nil) do
-    with {:ok, title, configured} <- configuration(m),
+    with {:ok, title, configured, default} <- configuration(m),
          true <- is_nil(target) or text?(target, 2_048),
          true <- Enum.all?(configured, &valid_tab?(&1, m)),
          true <- distinct?(configured, "id"),
+         true <- is_nil(default) or Enum.any?(configured, &(&1["id"] == default)),
          configured <- Enum.map(configured, &Map.put(&1, "to", canonical_tab(&1["to"]))),
          true <- distinct?(configured, "to") do
       tabs =
@@ -28,7 +37,7 @@ defmodule AtlasControl.Shell do
       if tabs == [] do
         {:error, "Shell has no eligible configured tabs"}
       else
-        with {:ok, initial} <- initial_target(target, m, tabs, resolve) do
+        with {:ok, initial} <- initial_target(target, m, tabs, default, resolve) do
           active = Enum.find(tabs, &within?(initial, &1["to"]))
           env = AtlasBus.environment()
           spec = Blocks.version()
@@ -63,9 +72,12 @@ defmodule AtlasControl.Shell do
     case m.module.shell(m.settings) do
       %{"title" => title, "tabs" => tabs} = shell
       when is_list(tabs) and length(tabs) <= 64 ->
-        if text?(title, 128) and Map.keys(shell) -- ["title", "tabs"] == [],
-          do: {:ok, title, tabs},
-          else: {:error, "Invalid shell configuration"}
+        default = shell["default"]
+
+        if text?(title, 128) and Map.keys(shell) -- ["title", "tabs", "default"] == [] and
+             (is_nil(default) or text?(default, 64)),
+           do: {:ok, title, tabs, default},
+           else: {:error, "Invalid shell configuration"}
 
       _ ->
         {:error, "No shell navigation is configured"}
@@ -80,13 +92,15 @@ defmodule AtlasControl.Shell do
         :home -> tab["assigned"] == true and Pages.assigned_rule(m) != nil
         {:list, kind} -> Pages.kind?(m, kind) and text?(canonical_tab(to), 2_048)
         {:worker_page, :workers, _} -> tab["assigned"] != true
+        {:open_for_you, _} -> tab["assigned"] != true and Pages.open_for_you_rule(m) != nil
+        {:supervised_by_you, _} -> tab["assigned"] != true and Pages.supervised_rule(m) != nil
         _ -> false
       end
   end
 
   defp valid_tab?(_, _m), do: false
 
-  defp initial_target(target, m, tabs, resolve) do
+  defp initial_target(target, m, tabs, default, resolve) do
     route =
       if is_binary(target) do
         if resolve,
@@ -97,10 +111,14 @@ defmodule AtlasControl.Shell do
     with {:ok, canonical} <- canonical_target(route, m) do
       # A removed overview falls back; valid detail/form targets stay canonical.
       index? =
-        route == :home or match?({:list, _}, route) or match?({:worker_page, :workers, _}, route)
+        route == :home or match?({:list, _}, route) or
+          match?({:worker_page, :workers, _}, route) or screen?(route)
 
       configured? = Enum.any?(tabs, &(&1["to"] == canonical))
-      initial = if canonical && (not index? or configured?), do: canonical, else: hd(tabs)["to"]
+      # Without a target (or one a tab no longer offers): the shell's default tab, when
+      # this client has it; else the first.
+      fallback = (Enum.find(tabs, &(&1["id"] == default)) || hd(tabs))["to"]
+      initial = if canonical && (not index? or configured?), do: canonical, else: fallback
 
       if text?(initial, 2_048),
         do: {:ok, initial},
@@ -112,6 +130,10 @@ defmodule AtlasControl.Shell do
     do: {:error, "Facts did not resolve the boot target"}
 
   defp canonical_target(:home, _m), do: {:ok, "/"}
+
+  defp canonical_target({screen, _} = route, _m) when screen in @screens,
+    do: {:ok, Pages.path(route)}
+
   defp canonical_target(:kinds, _m), do: {:ok, "/_kinds"}
 
   defp canonical_target({page, kind} = route, m) when page in [:list, :new],
@@ -154,6 +176,9 @@ defmodule AtlasControl.Shell do
   end
 
   defp canonical_tab(to), do: to |> Pages.route() |> Pages.path()
+
+  defp screen?({screen, _}) when screen in @screens, do: true
+  defp screen?(_route), do: false
 
   defp text?(value, max),
     do:

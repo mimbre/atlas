@@ -141,7 +141,7 @@ Control to client:
 
 Every message here is an endpoint of the contract (`defendpoint`, its call the message's `op`; ADR 0002), with what it takes and what it replies, and `blocks.json` lists them: hello, refresh, the pages' `open`, the submits, what Control sends unasked (`page` by hint, `notice`, `bye`), the agent's `ask`, `run`, `cancel` and `stop`, and the worker pages' messages (below, [Worker Control contract](#worker-control-contract)). Unasked pages are the pushes `hint` and `pending`.
 
-Paths are the contract's pages (`defpage`, ADR [0002](../../../docs/adr/0002-pages-and-endpoints.md)): `/`, `/_kinds`, `/k/:kind`, `/k/:kind/new`, `/k/:kind/new/:relation/:parent`, `/k/:kind/:key` and its `/edit`, `/delete`, `/links/:relation`, `/set/:relation`, `/answer/:answer`, `/remove/:relation`; in the test environment only, the failure pages `/faults`, `/k/:kind/:key/faults`, `/fault/:fault` and `/k/:kind/:key/fault/:fault` (IS-Atlas-23: what can be made to fail there, and the confirm that causes it). Control serves those and nothing else (a path outside them gets "No such page"); `blocks.json` lists them, and the targets give every Elixir consumer `pages/0`, `match/1` and `path/2` (`AtlasBFF.Paths`). A client with a screen only follows them.
+Paths are the contract's pages (`defpage`, ADR [0002](../../../docs/adr/0002-pages-and-endpoints.md)): `/`, `/_kinds`, `/_open`, `/_supervised`, `/k/:kind`, `/k/:kind/new`, `/k/:kind/new/:relation/:parent`, `/k/:kind/:key` and its `/edit`, `/delete`, `/links/:relation`, `/set/:relation`, `/answer/:answer`, `/remove/:relation`, `/pick_up/:run`, `/hand_over/:run`; in the test environment only, the failure pages `/faults`, `/k/:kind/:key/faults`, `/fault/:fault` and `/k/:kind/:key/fault/:fault` (IS-Atlas-23: what can be made to fail there, and the confirm that causes it). Control serves those and nothing else (a path outside them gets "No such page"); `blocks.json` lists them, and the targets give every Elixir consumer `pages/0`, `match/1` and `path/2` (`AtlasBFF.Paths`). A client with a screen only follows them.
 
 A client without a screen, such as the agents' command line (`platform/clients/agent`), knows only codes. Three paths are for such a client, and Control works out the rest from the model:
 
@@ -150,6 +150,13 @@ A client without a screen, such as the agents' command line (`platform/clients/a
 - `/_kinds`: one `item` per kind, with what a create asks, how its id is made, what it belongs under, what hangs under it and its fields, and its actions as every page names them (`Create scene`, `Update scene`, `Delete scene`; `<key>` in their paths stands for a key).
 
 The page Control answers has the concrete path, such as `/k/issue/IS-Atlas-01`.
+
+Supervision (contract 0.18.0; work acquisition decision 2026-11-17, §5.6–5.8), only for a model whose start page has `open_for_you` and `supervised_by_you`:
+
+- `/_open` (Open for you): per supervised span, the facts whose work its subflow presents, active, in one of its states and without a human supervisor; calm, as `/`. `/_supervised` (Supervised by you): the facts whose presented supervisor is the client while the work is still in a span, with a quiet count of the client's running work in the Overview. Both are tabs only when the model has the entry.
+- On a span subject's page, `Pick up` (key `p`) opens `/k/:kind/:key/pick_up/:run`, a confirm, and `Hand over…` (key `v`) opens `/k/:kind/:key/hand_over/:run`, a form with one choice, `hand_to` (the persons but the client), above the client's running work on the flow that will stop. No note. `:run` pins the run the page was made for; a run that moved on is refused.
+- Their submits, the endpoints `pick_up` and `hand_over`, are read again and checked, then sent to Facts as an input of the flow: `{"op": "pickup" | "hand_over", "by", "values": {"run", "request_id"[, "hand_to"]}}`. Only a person at the TUI (`client: "tui"`) gets the actions and may submit; any other session, an agent that says `as` too, is refused before anything is sent. Hand over… is only the supervisor's, never to itself. Facts' refusals come back as reasons (`pickup_pending`, a second pickup before Flow took the first); Flow checks the input again and sets or clears the supervisor.
+- The shell may name a `default` tab (its id): a client with no target opens on it when it has that tab, else on the first.
 
 ### The agent behind `:`
 
@@ -217,6 +224,12 @@ Control that welcomes it with another version. There is no dual-protocol mode.
 folds and unfolds a page's collapsible sections (the worker page's Details, key `d`). A
 0.15.0 TUI refuses a projection that names it, so Control on 0.16.0 refuses 0.15.0
 clients at hello; distribute the 0.16.0 TUI and `atlas` before advancing Control.
+
+0.18.0 is a bump of the same kind: the supervision pages `/_open` and `/_supervised`, and
+Pick up and Hand over… with their submit endpoints (above). Control on 0.18.0 refuses
+older clients at hello; distribute the 0.18.0 TUI and `atlas` (and rebuild the Apple
+client) before advancing Control.
+
 
 ### Worker Control contract
 

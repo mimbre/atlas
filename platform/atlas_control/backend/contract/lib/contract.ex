@@ -31,7 +31,9 @@ defmodule AtlasBFFContract.Contract do
   # 0.16.0: a local Console operation, sections_toggle, folds and unfolds the page's
   # collapsible sections (the worker page's Details); a 0.15.0 client refuses actions with it.
   # 0.17.0: a projected action may invoke its declared submit call directly.
-  version "0.17.0"
+  # 0.18.0: supervision (work acquisition decision 2026-11-17, §5.8): the pages Open for
+  # you and Supervised by you, and Pick up and Hand over… on a fact, with their submits.
+  version "0.18.0"
 
   use AtlasBFFContract.Blocks
   use AtlasBFFContract.Markup

@@ -1,7 +1,8 @@
 defmodule AtlasBFFContract.Models.Presentation do
   @moduledoc "Shared block, Console and session payload models."
   use AtlasBFF.Schema
-  version "0.17.0"
+  version "0.18.0"
+
   models_from(AtlasBFFContract.Models.Workers)
 
   # Something the user can do from a block: open `to`. `key` is the key a keyboard

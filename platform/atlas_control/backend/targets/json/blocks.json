@@ -246,6 +246,28 @@
     },
     {
       "call": "open",
+      "name": "open_for_you",
+      "page": "open_for_you",
+      "params": [],
+      "path": "/_open",
+      "replies": {
+        "page": "view model"
+      },
+      "wire": "open"
+    },
+    {
+      "call": "open",
+      "name": "supervised_by_you",
+      "page": "supervised_by_you",
+      "params": [],
+      "path": "/_supervised",
+      "replies": {
+        "page": "view model"
+      },
+      "wire": "open"
+    },
+    {
+      "call": "open",
       "name": "workers",
       "page": "workers",
       "params": [],
@@ -443,6 +465,36 @@
     },
     {
       "call": "open",
+      "name": "pick_up",
+      "page": "pick_up",
+      "params": [
+        "kind",
+        "key",
+        "run"
+      ],
+      "path": "/k/:kind/:key/pick_up/:run",
+      "replies": {
+        "page": "view model"
+      },
+      "wire": "open"
+    },
+    {
+      "call": "open",
+      "name": "hand_over",
+      "page": "hand_over",
+      "params": [
+        "kind",
+        "key",
+        "run"
+      ],
+      "path": "/k/:kind/:key/hand_over/:run",
+      "replies": {
+        "page": "view model"
+      },
+      "wire": "open"
+    },
+    {
+      "call": "open",
       "name": "faults",
       "page": "faults",
       "params": [],
@@ -628,6 +680,38 @@
         "relation"
       ],
       "path": "/k/:kind/:key/remove/:relation",
+      "replies": {
+        "refused": "view model",
+        "stored": "view model"
+      },
+      "takes": "values",
+      "wire": "submit"
+    },
+    {
+      "call": "submit",
+      "name": "pick_up",
+      "params": [
+        "kind",
+        "key",
+        "run"
+      ],
+      "path": "/k/:kind/:key/pick_up/:run",
+      "replies": {
+        "refused": "view model",
+        "stored": "view model"
+      },
+      "takes": "values",
+      "wire": "submit"
+    },
+    {
+      "call": "submit",
+      "name": "hand_over",
+      "params": [
+        "kind",
+        "key",
+        "run"
+      ],
+      "path": "/k/:kind/:key/hand_over/:run",
       "replies": {
         "refused": "view model",
         "stored": "view model"
@@ -2873,6 +2957,18 @@
       "returns": "view model"
     },
     {
+      "name": "open_for_you",
+      "params": [],
+      "path": "/_open",
+      "returns": "view model"
+    },
+    {
+      "name": "supervised_by_you",
+      "params": [],
+      "path": "/_supervised",
+      "returns": "view model"
+    },
+    {
       "name": "workers",
       "params": [],
       "path": "/workers",
@@ -2997,6 +3093,26 @@
         "relation"
       ],
       "path": "/k/:kind/:key/remove/:relation",
+      "returns": "view model"
+    },
+    {
+      "name": "pick_up",
+      "params": [
+        "kind",
+        "key",
+        "run"
+      ],
+      "path": "/k/:kind/:key/pick_up/:run",
+      "returns": "view model"
+    },
+    {
+      "name": "hand_over",
+      "params": [
+        "kind",
+        "key",
+        "run"
+      ],
+      "path": "/k/:kind/:key/hand_over/:run",
       "returns": "view model"
     },
     {
@@ -5278,7 +5394,7 @@
       }
     }
   ],
-  "version": "0.17.0",
+  "version": "0.18.0",
   "wire": {
     "block": "{\"id\": \"<id>\", \"type\": \"<block>\", \"props\": {...}}",
     "markup": "{\"kind\": \"<kind>\", \"start\": \"<block id>\", \"end\": \"<block id>\", \"group\": \"<id, on a piece of split markup>\", \"props\": {...}}",

@@ -51,7 +51,7 @@ defmodule AtlasControl.ShellTest do
     send_message(
       s,
       Map.merge(
-        Protocol.message(:hello, :hello, env: "test", client: "test", spec: "0.17.0"),
+        Protocol.message(:hello, :hello, env: "test", client: "test", spec: "0.18.0"),
         overrides
       )
     )
@@ -60,7 +60,7 @@ defmodule AtlasControl.ShellTest do
   defp connected(port) do
     s = socket(port)
     hello(s)
-    assert %{"op" => "welcome", "spec" => "0.17.0"} = receive_message(s)
+    assert %{"op" => "welcome", "spec" => "0.18.0"} = receive_message(s)
     assert %{"op" => "page"} = receive_message(s)
     s
   end
@@ -321,5 +321,56 @@ defmodule AtlasControl.ShellTest do
     FakeStore.silent_reads(false)
     assert boot(s, to: "/k/widget")["initial_to"] == "/k/widget"
     assert FakeStore.sent() == []
+  end
+
+  # -- Supervision (M3b P4; Q4) ----------------------------------------------------------
+
+  test "Q4: with no target a member opens on the shell's default tab, not the first" do
+    # The screens first, then what is checked by the client, which the shell names as its
+    # default (`Shop.Supervised`), as the real model names Assigned to you.
+    d = description(Shop.Supervised)
+    {:ok, shell} = Shell.boot(d, "member")
+    assert hd(shell["tabs"])["id"] != d.module.shell(%{})["default"]
+    assert shell["active_tab"] == d.module.shell(%{})["default"]
+    assert shell["initial_to"] == "/"
+
+    # A removed index target falls back to it as well.
+    assert {:ok, %{"initial_to" => "/"}} = Shell.boot(d, "member", "/k/missing")
+
+    # A client that does not have that tab opens on the first one.
+    {:ok, agent} = Shell.boot(d, nil)
+    refute Enum.any?(agent["tabs"], &(&1["id"] == d.module.shell(%{})["default"]))
+    assert agent["initial_to"] == hd(agent["tabs"])["to"]
+  end
+
+  # `Shop.Supervised`'s shell, naming as its default a tab it does not configure.
+  defmodule UnknownDefault do
+    def shell(settings), do: %{Shop.Supervised.shell(settings) | "default" => "nowhere"}
+  end
+
+  test "a default that names no configured tab refuses the configuration" do
+    d = description(Shop.Supervised)
+    assert {:ok, _} = Shell.boot(d, "member")
+    assert {:error, _} = Shell.boot(%{d | module: UnknownDefault}, "member")
+    assert {:error, _} = Shell.boot(%{d | module: UnknownDefault}, nil)
+  end
+
+  test "each supervision screen is a tab, and a boot target, only with its start entry" do
+    d = description(Shop.Supervised)
+    {:ok, shell} = Shell.boot(d, "member")
+    tos = Enum.map(shell["tabs"], & &1["to"])
+    assert "/_open" in tos and "/_supervised" in tos
+
+    for to <- ["/_open", "/_supervised"] do
+      assert {:ok, booted} = Shell.boot(d, "member", to)
+      assert booted["initial_to"] == to
+      assert Enum.find(booted["tabs"], &(&1["id"] == booted["active_tab"]))["to"] == to
+    end
+
+    # A model without supervision refuses a tab to either screen.
+    for to <- ["/_open", "/_supervised"] do
+      tab = %{"id" => "screen", "label" => "Screen", "to" => to}
+      assert {:error, _} = Shell.boot(description(Shop.Shelled, %{"tabs" => [tab]}), nil)
+    end
   end
 end

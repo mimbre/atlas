@@ -210,4 +210,105 @@ defmodule Model.SupervisionTest do
     assert spans == %{}
     assert %{open_for_you: nil, supervised_by_you: nil} = Model.Profiles.Foundation.start_page()
   end
+
+  # -- M3b (P2): the screens' tabs and a supervisor's running work ------------------------
+
+  test "the shell: a tab for each screen, labelled as its start entry, beside today's tabs" do
+    tabs = AtlasEyra.shell(%{})["tabs"]
+    start = AtlasEyra.start_page()
+
+    # Q4 (Melle): the screens first, then Assigned to you, then the existing tabs.
+    assert Enum.map(tabs, & &1["id"]) ==
+             ~w(open_for_you supervised_by_you assigned scenes open-work)
+
+    for {id, to, entry} <- [
+          {"open_for_you", "/_open", start.open_for_you},
+          {"supervised_by_you", "/_supervised", start.supervised_by_you}
+        ] do
+      tab = Enum.find(tabs, &(&1["id"] == id))
+      assert tab["to"] == to, id
+      assert tab["label"] == entry.title, id
+      refute Map.has_key?(tab, "assigned"), id
+    end
+  end
+
+  test "Supervised by you's work: a kind, under the span's subjects, done for the supervisor" do
+    %{kind: kind, of: of, for: for_, ended: ended} = AtlasEyra.start_page().supervised_by_you.work
+    relations = schema()["relations"]
+
+    assert Map.has_key?(schema()["entities"], kind)
+    assert Map.has_key?(schema()["entities"][kind]["properties"], ended)
+    refute schema()["entities"][kind]["properties"][ended]["required"]
+
+    # Whom it is done for is the supervisor's kind.
+    assert kind in relations[for_]["from"]
+    assert relations[for_]["to"] == relations[AtlasEyra.supervision()["relation"]]["to"]
+
+    # What it is part of: the span's subject, or the subject of one of its with: subflows.
+    assert kind in relations[of]["from"]
+    flows = committed("atlas/flows.json")["flows"]
+
+    for span <- AtlasEyra.start_page().open_for_you.spans do
+      subjects = [span.subject | Enum.map(span.with, &flows[&1]["subject"])]
+      assert Enum.any?(subjects, &(&1 in relations[of]["to"])), span.span
+    end
+
+    assert AtlasEyra.supervision()["work"] ==
+             %{"kind" => kind, "of" => of, "for" => for_, "ended" => ended}
+  end
+
+  test "what Control sends and reads by: the inputs' kind, the relation, the with: subjects" do
+    %{open_for_you: open, supervised_by_you: mine} = AtlasEyra.start_page()
+    flows = committed("atlas/flows.json")["flows"]
+
+    for entry <- [open, mine] do
+      assert entry.inputs == committed("rela/flow-runtime.json")["flow_runtime"]["inputs"]["kind"]
+      assert entry.relation == AtlasEyra.supervision()["relation"]
+    end
+
+    for span <- open.spans do
+      assert span.with_subjects == Enum.map(span.with, &flows[&1]["subject"]), span.span
+      assert Enum.all?(span.with_subjects, &Map.has_key?(schema()["entities"], &1)), span.span
+    end
+  end
+
+  test "foundation alone declares no running work" do
+    refute Map.has_key?(Model.Profiles.Foundation.supervision(), "work")
+  end
+
+  test "Q4: the Console opens on Assigned to you, which the shell names, not its first tab" do
+    shell = AtlasEyra.shell(%{})
+    default = Enum.find(shell["tabs"], &(&1["id"] == shell["default"]))
+
+    # The tab whose page is the start page's assigned list.
+    assert %{"to" => "/", "assigned" => true} = default
+    assert start_page_assigned?()
+    refute hd(shell["tabs"])["id"] == shell["default"]
+  end
+
+  test "Q4 boot: Control's shell opens a person on Assigned to you, the screens are tabs" do
+    old = Application.get_env(:atlas_bus, :environment)
+    Application.put_env(:atlas_bus, :environment, old || "test")
+    on_exit(fn -> if old == nil, do: Application.delete_env(:atlas_bus, :environment) end)
+
+    m = AtlasControl.Model.catalog(AtlasEyra)
+    shell = AtlasEyra.shell(%{})
+    person = hd(m.relations[AtlasEyra.start_page().assigned.relation].to)
+
+    # With no target, the default tab, Assigned to you; every model tab is offered.
+    assert {:ok, booted} = AtlasControl.Shell.boot(m, person)
+    assert booted["active_tab"] == shell["default"]
+    assert booted["initial_to"] == Enum.find(shell["tabs"], &(&1["id"] == shell["default"]))["to"]
+    assert Enum.map(booted["tabs"], & &1["id"]) == Enum.map(shell["tabs"], & &1["id"])
+
+    # Each screen is a boot target of its own.
+    for id <- ~w(open_for_you supervised_by_you) do
+      to = Enum.find(shell["tabs"], &(&1["id"] == id))["to"]
+
+      assert {:ok, %{"initial_to" => ^to, "active_tab" => ^id}} =
+               AtlasControl.Shell.boot(m, person, to)
+    end
+  end
+
+  defp start_page_assigned?, do: match?(%{relation: _}, AtlasEyra.start_page().assigned)
 end
