@@ -15,8 +15,9 @@ defmodule AtlasRuntime.Sources.InBeamTarget do
   - the result's kind, reason, retry advice, `never_started`, answer (already redacted by
     `Upload`) and after-check (its output tail);
   - the attempt's provenance, one record per turn (none for an attempt that never ran);
-  - the frozen result's roots as the `change_set`, each root with its `csf_` fingerprint
-    and entries (the base is the lease's own and is not repeated).
+  - the frozen result as the `change_set`: its `base` (the baseline snapshot id the attempt
+    froze on, which every root's `csf_` covers; required since `work_source` 0.2.0) and its
+    roots, each with its `csf_` fingerprint and entries.
 
   Answers: `recorded` → `{:recorded, missing}`; `lease_lost` → `:lease_lost`; `put_blob`'s
   `stored`, `too_large` and `not_referenced` as they are. `rejected` (a revision conflict, an
@@ -184,8 +185,14 @@ defmodule AtlasRuntime.Sources.InBeamTarget do
 
   defp change_set(nil), do: nil
 
-  defp change_set(%{roots: roots}),
-    do: %{roots: for(root <- roots, do: Map.take(root, [:root, :fingerprint, :entries]))}
+  # base: the frozen result's own (Upload's manifest/3), never invented here; a manifest
+  # without one stays without one and the contract refuses it as invalid.
+  defp change_set(%{roots: roots} = manifest),
+    do:
+      drop_nil(%{
+        base: manifest[:base],
+        roots: for(root <- roots, do: Map.take(root, [:root, :fingerprint, :entries]))
+      })
 
   defp stop_on(outcome, lease_id, call) do
     case name(outcome) do
