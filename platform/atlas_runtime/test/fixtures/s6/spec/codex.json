@@ -394,7 +394,7 @@
             "-c",
             "default_permissions=\"atlas_repository\"",
             "-c",
-            "permissions={atlas_repository={extends=\":read-only\",filesystem={\"{home}/workers/w1/repositories/r\"=\"write\",\"{home}/workers/w1/repositories/r/.git\"=\"write\",\"{home}/workers/w1/repositories/r/.agents\"=\"read\",\"{home}/workers/w1/repositories/r/.codex\"=\"read\",\"{home}/workers/w1/repositories/r/.aws\"=\"read\",\"{home}/runtime.sock\"=\"none\",\"{home}/backend.sock\"=\"none\",\"{home}/turns\"=\"none\",\"{home}/code.json\"=\"none\",\"{home}/server.json\"=\"none\",\"{home}/backends.json\"=\"none\",\"{home}/policy.json\"=\"none\",\"{home}/availability.json\"=\"none\",\"{home}/service.log\"=\"none\",\"{home}/service.lock\"=\"none\",\"{home}/passes\"=\"none\",\"{home}/snapshots\"=\"none\",\"{home}/materializations\"=\"none\",\"{home}/scratch\"=\"none\",\"{home}/work\"=\"none\",\"{home}/admissions\"=\"none\",\"{home}/preparations\"=\"none\",\"{home}/packets\"=\"none\",\"{home}/submissions\"=\"none\",\"{home}/rebinds\"=\"none\",\"{home}/frozen\"=\"none\",\"{home}/execution-events.json\"=\"none\",\"{home}/mode.json\"=\"none\",\"{home}/clients.json\"=\"none\",\"{home}/code.json.tmp\"=\"none\",\"{home}/server.json.tmp\"=\"none\",\"{home}/backends.json.tmp\"=\"none\",\"{home}/policy.json.tmp\"=\"none\",\"{home}/availability.json.tmp\"=\"none\",\"{home}/execution-events.json.tmp\"=\"none\",\"{home}/mode.json.tmp\"=\"none\",\"{home}/clients.json.tmp\"=\"none\",\"{home}/workers/[!w]*\"=\"none\",\"{home}/workers/[!w]*/**\"=\"none\",\"{home}/workers/w[!1]*\"=\"none\",\"{home}/workers/w[!1]*/**\"=\"none\",\"{home}/workers/[w]\"=\"none\",\"{home}/workers/[w]/**\"=\"none\",\"{home}/workers/w1[!/]*\"=\"none\",\"{home}/workers/w1[!/]*/**\"=\"none\"},network={enabled=true,domains={\"github.com\"=\"allow\",\"api.github.com\"=\"allow\"}}}}",
+            "permissions={atlas_repository={extends=\":read-only\",filesystem={\"{home}/workers/w1/repositories/r\"=\"write\",\"{home}/workers/w1/repositories/r/.git\"=\"write\",\"{home}/workers/w1/repositories/r/.agents\"=\"read\",\"{home}/workers/w1/repositories/r/.codex\"=\"read\",\"{home}/workers/w1/repositories/r/.aws\"=\"read\",\"{home}/runtime.sock\"=\"none\",\"{home}/backend.sock\"=\"none\",\"{home}/turns\"=\"none\",\"{home}/code.json\"=\"none\",\"{home}/server.json\"=\"none\",\"{home}/backends.json\"=\"none\",\"{home}/policy.json\"=\"none\",\"{home}/availability.json\"=\"none\",\"{home}/service.log\"=\"none\",\"{home}/service.lock\"=\"none\",\"{home}/passes\"=\"none\",\"{home}/snapshots\"=\"none\",\"{home}/materializations\"=\"none\",\"{home}/scratch\"=\"none\",\"{home}/work\"=\"none\",\"{home}/admissions\"=\"none\",\"{home}/preparations\"=\"none\",\"{home}/packets\"=\"none\",\"{home}/submissions\"=\"none\",\"{home}/rebinds\"=\"none\",\"{home}/frozen\"=\"none\",\"{home}/execution-events.json\"=\"none\",\"{home}/mode.json\"=\"none\",\"{home}/clients.json\"=\"none\",\"{home}/bases\"=\"none\",\"{home}/code.json.tmp\"=\"none\",\"{home}/server.json.tmp\"=\"none\",\"{home}/backends.json.tmp\"=\"none\",\"{home}/policy.json.tmp\"=\"none\",\"{home}/availability.json.tmp\"=\"none\",\"{home}/execution-events.json.tmp\"=\"none\",\"{home}/mode.json.tmp\"=\"none\",\"{home}/clients.json.tmp\"=\"none\",\"{home}/workers/[!w]*\"=\"none\",\"{home}/workers/[!w]*/**\"=\"none\",\"{home}/workers/w[!1]*\"=\"none\",\"{home}/workers/w[!1]*/**\"=\"none\",\"{home}/workers/[w]\"=\"none\",\"{home}/workers/[w]/**\"=\"none\",\"{home}/workers/w1[!/]*\"=\"none\",\"{home}/workers/w1[!/]*/**\"=\"none\"},network={enabled=true,domains={\"github.com\"=\"allow\",\"api.github.com\"=\"allow\"}}}}",
             "-c",
             "features.network_proxy=true",
             "-c",
@@ -530,6 +530,10 @@
                 "none"
               ],
               [
+                "{home}/bases",
+                "none"
+              ],
+              [
                 "{home}/code.json.tmp",
                 "none"
               ],
@@ -641,6 +645,7 @@
             "execution-events.json",
             "mode.json",
             "clients.json",
+            "bases",
             "code.json.tmp",
             "server.json.tmp",
             "backends.json.tmp",
@@ -820,7 +825,7 @@
             "-c",
             "default_permissions=\"atlas_repository\"",
             "-c",
-            "permissions={atlas_repository={extends=\":read-only\",filesystem={\"{home}/workers/w1/repositories/r\"=\"write\",\"{home}/workers/w1/repositories/r/.git\"=\"write\",\"{home}/workers/w1/repositories/r/.agents\"=\"read\",\"{home}/workers/w1/repositories/r/.codex\"=\"read\",\"{home}/workers/w1/repositories/r/.aws\"=\"read\",\"{home}/admissions\"=\"none\",\"{home}/availability.json\"=\"none\",\"{home}/backend.sock\"=\"none\",\"{home}/backends.json\"=\"none\",\"{home}/clients.json\"=\"none\",\"{home}/code.json\"=\"none\",\"{home}/execution-events.json\"=\"none\",\"{home}/materializations\"=\"none\",\"{home}/mode.json\"=\"none\",\"{home}/packets\"=\"none\",\"{home}/passes\"=\"none\",\"{home}/policy.json\"=\"none\",\"{home}/preparations\"=\"none\",\"{home}/read.sock\"=\"none\",\"{home}/rebinds\"=\"none\",\"{home}/runtime.sock\"=\"none\",\"{home}/scratch\"=\"none\",\"{home}/server.json\"=\"none\",\"{home}/service.lock\"=\"none\",\"{home}/service.log\"=\"none\",\"{home}/snapshots\"=\"none\",\"{home}/submissions\"=\"none\",\"{home}/turns\"=\"none\",\"{home}/unlisted-entry\"=\"none\",\"{home}/work\"=\"none\",\"{home}/workers/w0\"=\"none\",\"{home}/workers/w1/notes\"=\"none\",\"{home}/workers/w1/repositories/other\"=\"none\",\"{tmp}/code-home/runtime.token\"=\"none\",\"{tmp}/code-home\"=\"none\",\"{home}/frozen\"=\"none\",\"{home}/code.json.tmp\"=\"none\",\"{home}/server.json.tmp\"=\"none\",\"{home}/backends.json.tmp\"=\"none\",\"{home}/policy.json.tmp\"=\"none\",\"{home}/availability.json.tmp\"=\"none\",\"{home}/execution-events.json.tmp\"=\"none\",\"{home}/mode.json.tmp\"=\"none\",\"{home}/clients.json.tmp\"=\"none\",\"{home}/workers/[!w]*\"=\"none\",\"{home}/workers/[!w]*/**\"=\"none\",\"{home}/workers/w[!1]*\"=\"none\",\"{home}/workers/w[!1]*/**\"=\"none\",\"{home}/workers/[w]\"=\"none\",\"{home}/workers/[w]/**\"=\"none\",\"{home}/workers/w1[!/]*\"=\"none\",\"{home}/workers/w1[!/]*/**\"=\"none\"},network={enabled=true,domains={\"github.com\"=\"allow\",\"api.github.com\"=\"allow\"}}}}",
+            "permissions={atlas_repository={extends=\":read-only\",filesystem={\"{home}/workers/w1/repositories/r\"=\"write\",\"{home}/workers/w1/repositories/r/.git\"=\"write\",\"{home}/workers/w1/repositories/r/.agents\"=\"read\",\"{home}/workers/w1/repositories/r/.codex\"=\"read\",\"{home}/workers/w1/repositories/r/.aws\"=\"read\",\"{home}/admissions\"=\"none\",\"{home}/availability.json\"=\"none\",\"{home}/backend.sock\"=\"none\",\"{home}/backends.json\"=\"none\",\"{home}/clients.json\"=\"none\",\"{home}/code.json\"=\"none\",\"{home}/execution-events.json\"=\"none\",\"{home}/materializations\"=\"none\",\"{home}/mode.json\"=\"none\",\"{home}/packets\"=\"none\",\"{home}/passes\"=\"none\",\"{home}/policy.json\"=\"none\",\"{home}/preparations\"=\"none\",\"{home}/read.sock\"=\"none\",\"{home}/rebinds\"=\"none\",\"{home}/runtime.sock\"=\"none\",\"{home}/scratch\"=\"none\",\"{home}/server.json\"=\"none\",\"{home}/service.lock\"=\"none\",\"{home}/service.log\"=\"none\",\"{home}/snapshots\"=\"none\",\"{home}/submissions\"=\"none\",\"{home}/turns\"=\"none\",\"{home}/unlisted-entry\"=\"none\",\"{home}/work\"=\"none\",\"{home}/workers/w0\"=\"none\",\"{home}/workers/w1/notes\"=\"none\",\"{home}/workers/w1/repositories/other\"=\"none\",\"{tmp}/code-home/runtime.token\"=\"none\",\"{tmp}/code-home\"=\"none\",\"{home}/frozen\"=\"none\",\"{home}/bases\"=\"none\",\"{home}/code.json.tmp\"=\"none\",\"{home}/server.json.tmp\"=\"none\",\"{home}/backends.json.tmp\"=\"none\",\"{home}/policy.json.tmp\"=\"none\",\"{home}/availability.json.tmp\"=\"none\",\"{home}/execution-events.json.tmp\"=\"none\",\"{home}/mode.json.tmp\"=\"none\",\"{home}/clients.json.tmp\"=\"none\",\"{home}/workers/[!w]*\"=\"none\",\"{home}/workers/[!w]*/**\"=\"none\",\"{home}/workers/w[!1]*\"=\"none\",\"{home}/workers/w[!1]*/**\"=\"none\",\"{home}/workers/[w]\"=\"none\",\"{home}/workers/[w]/**\"=\"none\",\"{home}/workers/w1[!/]*\"=\"none\",\"{home}/workers/w1[!/]*/**\"=\"none\"},network={enabled=true,domains={\"github.com\"=\"allow\",\"api.github.com\"=\"allow\"}}}}",
             "-c",
             "features.network_proxy=true",
             "-c",
@@ -1076,6 +1081,10 @@
                 "none"
               ],
               [
+                "{home}/bases",
+                "none"
+              ],
+              [
                 "{home}/code.json.tmp",
                 "none"
               ],
@@ -1187,6 +1196,7 @@
             "execution-events.json",
             "mode.json",
             "clients.json",
+            "bases",
             "code.json.tmp",
             "server.json.tmp",
             "backends.json.tmp",
@@ -1240,7 +1250,7 @@
             "-c",
             "default_permissions=\"atlas_repository\"",
             "-c",
-            "permissions={atlas_repository={extends=\":read-only\",filesystem={\"{home}/workers/aZ0-_.x/repositories/r\"=\"write\",\"{home}/workers/aZ0-_.x/repositories/r/.git\"=\"write\",\"{home}/workers/aZ0-_.x/repositories/r/.agents\"=\"read\",\"{home}/workers/aZ0-_.x/repositories/r/.codex\"=\"read\",\"{home}/workers/aZ0-_.x/repositories/r/.aws\"=\"read\",\"{home}/workers/other\"=\"none\",\"{home}/runtime.sock\"=\"none\",\"{home}/backend.sock\"=\"none\",\"{home}/turns\"=\"none\",\"{home}/code.json\"=\"none\",\"{home}/server.json\"=\"none\",\"{home}/backends.json\"=\"none\",\"{home}/policy.json\"=\"none\",\"{home}/availability.json\"=\"none\",\"{home}/service.log\"=\"none\",\"{home}/service.lock\"=\"none\",\"{home}/passes\"=\"none\",\"{home}/snapshots\"=\"none\",\"{home}/materializations\"=\"none\",\"{home}/scratch\"=\"none\",\"{home}/work\"=\"none\",\"{home}/admissions\"=\"none\",\"{home}/preparations\"=\"none\",\"{home}/packets\"=\"none\",\"{home}/submissions\"=\"none\",\"{home}/rebinds\"=\"none\",\"{home}/frozen\"=\"none\",\"{home}/execution-events.json\"=\"none\",\"{home}/mode.json\"=\"none\",\"{home}/clients.json\"=\"none\",\"{home}/code.json.tmp\"=\"none\",\"{home}/server.json.tmp\"=\"none\",\"{home}/backends.json.tmp\"=\"none\",\"{home}/policy.json.tmp\"=\"none\",\"{home}/availability.json.tmp\"=\"none\",\"{home}/execution-events.json.tmp\"=\"none\",\"{home}/mode.json.tmp\"=\"none\",\"{home}/clients.json.tmp\"=\"none\",\"{home}/workers/[!a]*\"=\"none\",\"{home}/workers/[!a]*/**\"=\"none\",\"{home}/workers/a[!Z]*\"=\"none\",\"{home}/workers/a[!Z]*/**\"=\"none\",\"{home}/workers/[a]\"=\"none\",\"{home}/workers/[a]/**\"=\"none\",\"{home}/workers/aZ[!0]*\"=\"none\",\"{home}/workers/aZ[!0]*/**\"=\"none\",\"{home}/workers/a[Z]\"=\"none\",\"{home}/workers/a[Z]/**\"=\"none\",\"{home}/workers/aZ0[!-]*\"=\"none\",\"{home}/workers/aZ0[!-]*/**\"=\"none\",\"{home}/workers/aZ[0]\"=\"none\",\"{home}/workers/aZ[0]/**\"=\"none\",\"{home}/workers/aZ0-[!_]*\"=\"none\",\"{home}/workers/aZ0-[!_]*/**\"=\"none\",\"{home}/workers/aZ0[-]\"=\"none\",\"{home}/workers/aZ0[-]/**\"=\"none\",\"{home}/workers/aZ0-_[!.]*\"=\"none\",\"{home}/workers/aZ0-_[!.]*/**\"=\"none\",\"{home}/workers/aZ0-[_]\"=\"none\",\"{home}/workers/aZ0-[_]/**\"=\"none\",\"{home}/workers/aZ0-_.[!x]*\"=\"none\",\"{home}/workers/aZ0-_.[!x]*/**\"=\"none\",\"{home}/workers/aZ0-_[.]\"=\"none\",\"{home}/workers/aZ0-_[.]/**\"=\"none\",\"{home}/workers/aZ0-_.x[!/]*\"=\"none\",\"{home}/workers/aZ0-_.x[!/]*/**\"=\"none\"},network={enabled=true,domains={\"github.com\"=\"allow\",\"api.github.com\"=\"allow\"}}}}",
+            "permissions={atlas_repository={extends=\":read-only\",filesystem={\"{home}/workers/aZ0-_.x/repositories/r\"=\"write\",\"{home}/workers/aZ0-_.x/repositories/r/.git\"=\"write\",\"{home}/workers/aZ0-_.x/repositories/r/.agents\"=\"read\",\"{home}/workers/aZ0-_.x/repositories/r/.codex\"=\"read\",\"{home}/workers/aZ0-_.x/repositories/r/.aws\"=\"read\",\"{home}/workers/other\"=\"none\",\"{home}/runtime.sock\"=\"none\",\"{home}/backend.sock\"=\"none\",\"{home}/turns\"=\"none\",\"{home}/code.json\"=\"none\",\"{home}/server.json\"=\"none\",\"{home}/backends.json\"=\"none\",\"{home}/policy.json\"=\"none\",\"{home}/availability.json\"=\"none\",\"{home}/service.log\"=\"none\",\"{home}/service.lock\"=\"none\",\"{home}/passes\"=\"none\",\"{home}/snapshots\"=\"none\",\"{home}/materializations\"=\"none\",\"{home}/scratch\"=\"none\",\"{home}/work\"=\"none\",\"{home}/admissions\"=\"none\",\"{home}/preparations\"=\"none\",\"{home}/packets\"=\"none\",\"{home}/submissions\"=\"none\",\"{home}/rebinds\"=\"none\",\"{home}/frozen\"=\"none\",\"{home}/execution-events.json\"=\"none\",\"{home}/mode.json\"=\"none\",\"{home}/clients.json\"=\"none\",\"{home}/bases\"=\"none\",\"{home}/code.json.tmp\"=\"none\",\"{home}/server.json.tmp\"=\"none\",\"{home}/backends.json.tmp\"=\"none\",\"{home}/policy.json.tmp\"=\"none\",\"{home}/availability.json.tmp\"=\"none\",\"{home}/execution-events.json.tmp\"=\"none\",\"{home}/mode.json.tmp\"=\"none\",\"{home}/clients.json.tmp\"=\"none\",\"{home}/workers/[!a]*\"=\"none\",\"{home}/workers/[!a]*/**\"=\"none\",\"{home}/workers/a[!Z]*\"=\"none\",\"{home}/workers/a[!Z]*/**\"=\"none\",\"{home}/workers/[a]\"=\"none\",\"{home}/workers/[a]/**\"=\"none\",\"{home}/workers/aZ[!0]*\"=\"none\",\"{home}/workers/aZ[!0]*/**\"=\"none\",\"{home}/workers/a[Z]\"=\"none\",\"{home}/workers/a[Z]/**\"=\"none\",\"{home}/workers/aZ0[!-]*\"=\"none\",\"{home}/workers/aZ0[!-]*/**\"=\"none\",\"{home}/workers/aZ[0]\"=\"none\",\"{home}/workers/aZ[0]/**\"=\"none\",\"{home}/workers/aZ0-[!_]*\"=\"none\",\"{home}/workers/aZ0-[!_]*/**\"=\"none\",\"{home}/workers/aZ0[-]\"=\"none\",\"{home}/workers/aZ0[-]/**\"=\"none\",\"{home}/workers/aZ0-_[!.]*\"=\"none\",\"{home}/workers/aZ0-_[!.]*/**\"=\"none\",\"{home}/workers/aZ0-[_]\"=\"none\",\"{home}/workers/aZ0-[_]/**\"=\"none\",\"{home}/workers/aZ0-_.[!x]*\"=\"none\",\"{home}/workers/aZ0-_.[!x]*/**\"=\"none\",\"{home}/workers/aZ0-_[.]\"=\"none\",\"{home}/workers/aZ0-_[.]/**\"=\"none\",\"{home}/workers/aZ0-_.x[!/]*\"=\"none\",\"{home}/workers/aZ0-_.x[!/]*/**\"=\"none\"},network={enabled=true,domains={\"github.com\"=\"allow\",\"api.github.com\"=\"allow\"}}}}",
             "-c",
             "features.network_proxy=true",
             "-c",
@@ -1377,6 +1387,10 @@
               ],
               [
                 "{home}/clients.json",
+                "none"
+              ],
+              [
+                "{home}/bases",
                 "none"
               ],
               [
@@ -1571,6 +1585,7 @@
             "execution-events.json",
             "mode.json",
             "clients.json",
+            "bases",
             "code.json.tmp",
             "server.json.tmp",
             "backends.json.tmp",
@@ -1619,7 +1634,7 @@
             "-c",
             "default_permissions=\"atlas_repository\"",
             "-c",
-            "permissions={atlas_repository={extends=\":read-only\",filesystem={\"{home}/workers/w/r\"=\"write\",\"{home}/workers/w/r/.git\"=\"write\",\"{home}/workers/w/r/.agents\"=\"read\",\"{home}/workers/w/r/.codex\"=\"read\",\"{home}/workers/w/r/.aws\"=\"read\",\"{home}/runtime.sock\"=\"none\",\"{home}/backend.sock\"=\"none\",\"{home}/turns\"=\"none\",\"{home}/code.json\"=\"none\",\"{home}/server.json\"=\"none\",\"{home}/backends.json\"=\"none\",\"{home}/policy.json\"=\"none\",\"{home}/availability.json\"=\"none\",\"{home}/service.log\"=\"none\",\"{home}/service.lock\"=\"none\",\"{home}/passes\"=\"none\",\"{home}/snapshots\"=\"none\",\"{home}/materializations\"=\"none\",\"{home}/scratch\"=\"none\",\"{home}/work\"=\"none\",\"{home}/admissions\"=\"none\",\"{home}/preparations\"=\"none\",\"{home}/packets\"=\"none\",\"{home}/submissions\"=\"none\",\"{home}/rebinds\"=\"none\",\"{home}/frozen\"=\"none\",\"{home}/execution-events.json\"=\"none\",\"{home}/mode.json\"=\"none\",\"{home}/clients.json\"=\"none\",\"{home}/code.json.tmp\"=\"none\",\"{home}/server.json.tmp\"=\"none\",\"{home}/backends.json.tmp\"=\"none\",\"{home}/policy.json.tmp\"=\"none\",\"{home}/availability.json.tmp\"=\"none\",\"{home}/execution-events.json.tmp\"=\"none\",\"{home}/mode.json.tmp\"=\"none\",\"{home}/clients.json.tmp\"=\"none\",\"{home}/workers/[!w]*\"=\"none\",\"{home}/workers/[!w]*/**\"=\"none\",\"{home}/workers/w[!/]*\"=\"none\",\"{home}/workers/w[!/]*/**\"=\"none\"},network={enabled=true,domains={\"github.com\"=\"allow\",\"api.github.com\"=\"allow\"}}}}",
+            "permissions={atlas_repository={extends=\":read-only\",filesystem={\"{home}/workers/w/r\"=\"write\",\"{home}/workers/w/r/.git\"=\"write\",\"{home}/workers/w/r/.agents\"=\"read\",\"{home}/workers/w/r/.codex\"=\"read\",\"{home}/workers/w/r/.aws\"=\"read\",\"{home}/runtime.sock\"=\"none\",\"{home}/backend.sock\"=\"none\",\"{home}/turns\"=\"none\",\"{home}/code.json\"=\"none\",\"{home}/server.json\"=\"none\",\"{home}/backends.json\"=\"none\",\"{home}/policy.json\"=\"none\",\"{home}/availability.json\"=\"none\",\"{home}/service.log\"=\"none\",\"{home}/service.lock\"=\"none\",\"{home}/passes\"=\"none\",\"{home}/snapshots\"=\"none\",\"{home}/materializations\"=\"none\",\"{home}/scratch\"=\"none\",\"{home}/work\"=\"none\",\"{home}/admissions\"=\"none\",\"{home}/preparations\"=\"none\",\"{home}/packets\"=\"none\",\"{home}/submissions\"=\"none\",\"{home}/rebinds\"=\"none\",\"{home}/frozen\"=\"none\",\"{home}/execution-events.json\"=\"none\",\"{home}/mode.json\"=\"none\",\"{home}/clients.json\"=\"none\",\"{home}/bases\"=\"none\",\"{home}/code.json.tmp\"=\"none\",\"{home}/server.json.tmp\"=\"none\",\"{home}/backends.json.tmp\"=\"none\",\"{home}/policy.json.tmp\"=\"none\",\"{home}/availability.json.tmp\"=\"none\",\"{home}/execution-events.json.tmp\"=\"none\",\"{home}/mode.json.tmp\"=\"none\",\"{home}/clients.json.tmp\"=\"none\",\"{home}/workers/[!w]*\"=\"none\",\"{home}/workers/[!w]*/**\"=\"none\",\"{home}/workers/w[!/]*\"=\"none\",\"{home}/workers/w[!/]*/**\"=\"none\"},network={enabled=true,domains={\"github.com\"=\"allow\",\"api.github.com\"=\"allow\"}}}}",
             "-c",
             "features.network_proxy=true",
             "-c",
@@ -1755,6 +1770,10 @@
                 "none"
               ],
               [
+                "{home}/bases",
+                "none"
+              ],
+              [
                 "{home}/code.json.tmp",
                 "none"
               ],
@@ -1850,6 +1869,7 @@
             "execution-events.json",
             "mode.json",
             "clients.json",
+            "bases",
             "code.json.tmp",
             "server.json.tmp",
             "backends.json.tmp",
@@ -1929,7 +1949,7 @@
             "-c",
             "default_permissions=\"atlas_repository\"",
             "-c",
-            "permissions={atlas_repository={extends=\":read-only\",filesystem={\"{tmp}/h[o]me*/workers/w1/r\"=\"write\",\"{tmp}/h[o]me*/workers/w1/r/.git\"=\"write\",\"{tmp}/h[o]me*/workers/w1/r/.agents\"=\"read\",\"{tmp}/h[o]me*/workers/w1/r/.codex\"=\"read\",\"{tmp}/h[o]me*/workers/w1/r/.aws\"=\"read\",\"{tmp}/h[o]me*/runtime.sock\"=\"none\",\"{tmp}/h[o]me*/backend.sock\"=\"none\",\"{tmp}/h[o]me*/turns\"=\"none\",\"{tmp}/h[o]me*/code.json\"=\"none\",\"{tmp}/h[o]me*/server.json\"=\"none\",\"{tmp}/h[o]me*/backends.json\"=\"none\",\"{tmp}/h[o]me*/policy.json\"=\"none\",\"{tmp}/h[o]me*/availability.json\"=\"none\",\"{tmp}/h[o]me*/service.log\"=\"none\",\"{tmp}/h[o]me*/service.lock\"=\"none\",\"{tmp}/h[o]me*/passes\"=\"none\",\"{tmp}/h[o]me*/snapshots\"=\"none\",\"{tmp}/h[o]me*/materializations\"=\"none\",\"{tmp}/h[o]me*/scratch\"=\"none\",\"{tmp}/h[o]me*/work\"=\"none\",\"{tmp}/h[o]me*/admissions\"=\"none\",\"{tmp}/h[o]me*/preparations\"=\"none\",\"{tmp}/h[o]me*/packets\"=\"none\",\"{tmp}/h[o]me*/submissions\"=\"none\",\"{tmp}/h[o]me*/rebinds\"=\"none\",\"{tmp}/h[o]me*/frozen\"=\"none\",\"{tmp}/h[o]me*/execution-events.json\"=\"none\",\"{tmp}/h[o]me*/mode.json\"=\"none\",\"{tmp}/h[o]me*/clients.json\"=\"none\",\"{tmp}/h[o]me*/code.json.tmp\"=\"none\",\"{tmp}/h[o]me*/server.json.tmp\"=\"none\",\"{tmp}/h[o]me*/backends.json.tmp\"=\"none\",\"{tmp}/h[o]me*/policy.json.tmp\"=\"none\",\"{tmp}/h[o]me*/availability.json.tmp\"=\"none\",\"{tmp}/h[o]me*/execution-events.json.tmp\"=\"none\",\"{tmp}/h[o]me*/mode.json.tmp\"=\"none\",\"{tmp}/h[o]me*/clients.json.tmp\"=\"none\",\"{tmp}/h[[]o[]]me[*]/workers/[!w]*\"=\"none\",\"{tmp}/h[[]o[]]me[*]/workers/[!w]*/**\"=\"none\",\"{tmp}/h[[]o[]]me[*]/workers/w[!1]*\"=\"none\",\"{tmp}/h[[]o[]]me[*]/workers/w[!1]*/**\"=\"none\",\"{tmp}/h[[]o[]]me[*]/workers/[w]\"=\"none\",\"{tmp}/h[[]o[]]me[*]/workers/[w]/**\"=\"none\",\"{tmp}/h[[]o[]]me[*]/workers/w1[!/]*\"=\"none\",\"{tmp}/h[[]o[]]me[*]/workers/w1[!/]*/**\"=\"none\"},network={enabled=true,domains={\"github.com\"=\"allow\",\"api.github.com\"=\"allow\"}}}}",
+            "permissions={atlas_repository={extends=\":read-only\",filesystem={\"{tmp}/h[o]me*/workers/w1/r\"=\"write\",\"{tmp}/h[o]me*/workers/w1/r/.git\"=\"write\",\"{tmp}/h[o]me*/workers/w1/r/.agents\"=\"read\",\"{tmp}/h[o]me*/workers/w1/r/.codex\"=\"read\",\"{tmp}/h[o]me*/workers/w1/r/.aws\"=\"read\",\"{tmp}/h[o]me*/runtime.sock\"=\"none\",\"{tmp}/h[o]me*/backend.sock\"=\"none\",\"{tmp}/h[o]me*/turns\"=\"none\",\"{tmp}/h[o]me*/code.json\"=\"none\",\"{tmp}/h[o]me*/server.json\"=\"none\",\"{tmp}/h[o]me*/backends.json\"=\"none\",\"{tmp}/h[o]me*/policy.json\"=\"none\",\"{tmp}/h[o]me*/availability.json\"=\"none\",\"{tmp}/h[o]me*/service.log\"=\"none\",\"{tmp}/h[o]me*/service.lock\"=\"none\",\"{tmp}/h[o]me*/passes\"=\"none\",\"{tmp}/h[o]me*/snapshots\"=\"none\",\"{tmp}/h[o]me*/materializations\"=\"none\",\"{tmp}/h[o]me*/scratch\"=\"none\",\"{tmp}/h[o]me*/work\"=\"none\",\"{tmp}/h[o]me*/admissions\"=\"none\",\"{tmp}/h[o]me*/preparations\"=\"none\",\"{tmp}/h[o]me*/packets\"=\"none\",\"{tmp}/h[o]me*/submissions\"=\"none\",\"{tmp}/h[o]me*/rebinds\"=\"none\",\"{tmp}/h[o]me*/frozen\"=\"none\",\"{tmp}/h[o]me*/execution-events.json\"=\"none\",\"{tmp}/h[o]me*/mode.json\"=\"none\",\"{tmp}/h[o]me*/clients.json\"=\"none\",\"{tmp}/h[o]me*/bases\"=\"none\",\"{tmp}/h[o]me*/code.json.tmp\"=\"none\",\"{tmp}/h[o]me*/server.json.tmp\"=\"none\",\"{tmp}/h[o]me*/backends.json.tmp\"=\"none\",\"{tmp}/h[o]me*/policy.json.tmp\"=\"none\",\"{tmp}/h[o]me*/availability.json.tmp\"=\"none\",\"{tmp}/h[o]me*/execution-events.json.tmp\"=\"none\",\"{tmp}/h[o]me*/mode.json.tmp\"=\"none\",\"{tmp}/h[o]me*/clients.json.tmp\"=\"none\",\"{tmp}/h[[]o[]]me[*]/workers/[!w]*\"=\"none\",\"{tmp}/h[[]o[]]me[*]/workers/[!w]*/**\"=\"none\",\"{tmp}/h[[]o[]]me[*]/workers/w[!1]*\"=\"none\",\"{tmp}/h[[]o[]]me[*]/workers/w[!1]*/**\"=\"none\",\"{tmp}/h[[]o[]]me[*]/workers/[w]\"=\"none\",\"{tmp}/h[[]o[]]me[*]/workers/[w]/**\"=\"none\",\"{tmp}/h[[]o[]]me[*]/workers/w1[!/]*\"=\"none\",\"{tmp}/h[[]o[]]me[*]/workers/w1[!/]*/**\"=\"none\"},network={enabled=true,domains={\"github.com\"=\"allow\",\"api.github.com\"=\"allow\"}}}}",
             "-c",
             "features.network_proxy=true",
             "-c",
@@ -2065,6 +2085,10 @@
                 "none"
               ],
               [
+                "{tmp}/h[o]me*/bases",
+                "none"
+              ],
+              [
                 "{tmp}/h[o]me*/code.json.tmp",
                 "none"
               ],
@@ -2176,6 +2200,7 @@
             "execution-events.json",
             "mode.json",
             "clients.json",
+            "bases",
             "code.json.tmp",
             "server.json.tmp",
             "backends.json.tmp",

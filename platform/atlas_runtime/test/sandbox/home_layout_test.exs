@@ -56,7 +56,7 @@ defmodule AtlasRuntime.Sandbox.HomeLayoutTest do
              &(&1 != "" and &1 not in [".", ".."] and not String.contains?(&1, "/"))
            )
 
-    assert Enum.map(names, &HomeLayout.class/1) |> Enum.frequencies() == %{denied: 32, chain: 1}
+    assert Enum.map(names, &HomeLayout.class/1) |> Enum.frequencies() == %{denied: 33, chain: 1}
     assert HomeLayout.class("not-a-home-name") == nil
   end
 

@@ -68,6 +68,7 @@ var censusHome = map[string]censusEntry{
 	"execution-events.json": {"denied", "the execution-event outbox", false},
 	"mode.json":             {"denied", "the persisted Runtime mode (S2)", false},
 	"clients.json":          {"denied", "the loopback TCP clients: token hashes and rights (S3)", false},
+	"bases":                 {"denied", "the work core's private stored bases and their tombstones (S5c)", false},
 	"workers":               {"chain", "the managed repositories' worker directories", false},
 }
 

@@ -129,7 +129,7 @@ func TestCodexManagedRepositoryDeniesTheRuntimeHomeBesideItsAncestors(t *testing
 		var paths []string
 		for _, name := range []string{"runtime.sock", "backend.sock", "turns", "code.json", "server.json", "backends.json", "policy.json", "availability.json", "service.log",
 			"service.lock", "passes", "snapshots", "materializations", "scratch", "work", "admissions", "preparations", "packets", "submissions", "rebinds",
-			"frozen", "execution-events.json", "mode.json", "clients.json", "code.json.tmp", "server.json.tmp", "backends.json.tmp", "policy.json.tmp",
+			"frozen", "execution-events.json", "mode.json", "clients.json", "bases", "code.json.tmp", "server.json.tmp", "backends.json.tmp", "policy.json.tmp",
 			"availability.json.tmp", "execution-events.json.tmp", "mode.json.tmp", "clients.json.tmp"} {
 			if !slices.Contains(skip, name) {
 				paths = append(paths, filepath.Join(home, name))
@@ -198,12 +198,13 @@ func TestCodexManagedRepositoryDeniesTheRuntimeHomeBesideItsAncestors(t *testing
 	}
 	// S6 P0: the entries the deny list used to miss, every one absent when the argv is built, are denied
 	// by path, so the backend socket, the work and admission records, the preparation, packet, submission
-	// and rebind stores, the execution-event outbox and the reserved mode and client files stay out of reach
-	// when the service, freeze, submit or rebind creates them after launch. So are the atomic-write
+	// and rebind stores, the execution-event outbox, the reserved mode and client files and the stored bases
+	// (S5c P3) stay out of reach when the service, freeze, submit or rebind creates them after launch. So
+	// are the atomic-write
 	// siblings (<file>.tmp, renamed over <file>) of the outbox, the availability and the other home files,
 	// which hold the whole new content until the rename.
 	for _, name := range []string{"backend.sock", "work", "admissions", "preparations", "packets", "submissions", "rebinds",
-		"execution-events.json", "mode.json", "clients.json", "execution-events.json.tmp", "availability.json.tmp",
+		"execution-events.json", "mode.json", "clients.json", "bases", "execution-events.json.tmp", "availability.json.tmp",
 		"mode.json.tmp", "clients.json.tmp", "code.json.tmp", "server.json.tmp", "backends.json.tmp", "policy.json.tmp"} {
 		path := filepath.Join(home, name)
 		if _, err := os.Lstat(path); !os.IsNotExist(err) {
@@ -975,5 +976,53 @@ func TestEveryProfileDeniesTheFrozenResults(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// TestEveryProfileDeniesTheBases (S5c P3, review F1): every Codex and Claude profile denies the work
+// core's private stored bases, <home>/bases/<key>.json (model/contract stored_base), both when bases is
+// absent at launch (a Codex managed repository and the Claude chain rules deny it by its
+// sensitiveHomeNames path) and when it exists. The after-check's folder profile (host check, the work
+// folder's own Codex profile) denies it by path as well, not only under the home deny.
+func TestEveryProfileDeniesTheBases(t *testing.T) {
+	key := strings.Repeat("cd", 32)
+	for _, present := range []bool{false, true} {
+		checks := homeProfileChecks(t, func(home string) {
+			if !present {
+				return
+			}
+			if err := os.MkdirAll(filepath.Join(home, "bases"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(home, "bases", key+".json"), []byte("BASE-SENTINEL"), 0600); err != nil {
+				t.Fatal(err)
+			}
+		})
+		for _, check := range checks {
+			bases := filepath.Join(check.home, "bases")
+			if _, err := os.Lstat(bases); present == os.IsNotExist(err) {
+				t.Fatalf("%s: bases present=%v at launch, got %v", check.name, present, err)
+			}
+			for _, path := range []string{bases, filepath.Join(bases, key+".json"), filepath.Join(bases, key+".json.tmp")} {
+				if !check.denies(path) {
+					t.Errorf("%s (bases present at launch: %v) does not deny the stored base path %s", check.name, present, path)
+				}
+			}
+		}
+	}
+
+	// The after-check runs `codex sandbox` with folderArguments of the work's folder (check.go), a
+	// Runtime work folder below the home; bases is absent at launch.
+	user := isolatedHome(t)
+	home, work, scope := workFolderHome(t, user)
+	if err := os.RemoveAll(filepath.Join(home, "bases")); err != nil {
+		t.Fatal(err)
+	}
+	args, err := folderArguments(scope, filepath.Join(home, "scratch", "check-"+filepath.Base(work)+".1"), user, filepath.Join(user, "bin", "atlas-runtime"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if access := profileEntries(t, args)[filepath.Join(home, "bases")]; access != "none" {
+		t.Errorf("the after-check folder profile does not deny %s by path: %q", filepath.Join(home, "bases"), access)
 	}
 }
