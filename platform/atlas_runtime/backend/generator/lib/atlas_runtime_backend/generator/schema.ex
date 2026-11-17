@@ -75,7 +75,8 @@ defmodule AtlasRuntimeBackend.Generator.Schema do
     field `field`, never as JSON: the router hands the facade a lazy stream of the
     body's chunks, read only as it is enumerated. The request must carry that
     `Content-Type` (its parameters aside); `Module.function()` gives, at run time, the
-    most bytes the body may have (a positive integer). The other input fields are bound
+    most bytes the body may have (a positive integer; the router never takes more than
+    1 MiB, its cap for every body, whatever it gives). The other input fields are bound
     to the path, the query or headers. An input with a `:stream` field needs this body,
     and a target with such a resource needs the errors `:too_large` and
     `:unsupported_media_type`.
@@ -115,7 +116,8 @@ defmodule AtlasRuntimeBackend.Generator.Schema do
     kind, with the router's `__problem__/2`, so it writes no problem body itself.
     A streamed request body's refusals, needed once each when a resource takes one and
     optional otherwise: `:too_large` (always 413: the body is longer than its
-    `max_bytes`) and `:unsupported_media_type` (always 415: another `Content-Type`).
+    `max_bytes`, or than 1 MiB) and `:unsupported_media_type` (always 415: another
+    `Content-Type`).
 
   Every mistake fails at compile time with a `CompileError` at its line, among them: an
   exposed name that is no boundary capability; a capability neither exposed nor

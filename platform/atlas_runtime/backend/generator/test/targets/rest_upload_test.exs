@@ -111,8 +111,8 @@ defmodule AtlasRuntimeBackend.Generator.Targets.RestUploadTest do
     do: trace |> Enum.filter(&match?({:read, _}, &1)) |> Enum.map(&elem(&1, 1)) |> Enum.sum()
 
   describe "a streamed request body" do
-    test "3 MiB arrive in chunks of at most 1 MiB, each read only when the facade asks (m1)" do
-      body = bytes(3 * @mib)
+    test "1 MiB arrives as it is read, only when the facade asks (m1)" do
+      body = bytes(@mib)
       conn = deposit("b1", body)
 
       assert conn.status == 201
@@ -120,22 +120,38 @@ defmodule AtlasRuntimeBackend.Generator.Targets.RestUploadTest do
 
       assert json(conn) == %{
                "book_id" => "b1",
-               "bytes" => 3 * @mib,
+               "bytes" => @mib,
                "sha256" => sha256(body)
              }
 
-      # The held-chunk probe: each chunk is read just before the facade gets it, never ahead.
-      assert trace() == [
-               {:read, @mib},
-               {:chunk, @mib},
-               {:read, @mib},
-               {:chunk, @mib},
-               {:read, @mib},
-               {:chunk, @mib}
-             ]
+      # The held-chunk probe: the chunk is read just before the facade gets it, never ahead.
+      assert trace() == [{:read, @mib}, {:chunk, @mib}]
 
       assert_received {:example_called, :deposit, @member, %{book_id: "b1"}}
       assert_received {:deposit_after, "b1"}
+    end
+
+    test "a streamed body has the 1 MiB cap too, whatever max_bytes allows (8 MiB here)" do
+      conn = deposit("b1", bytes(@mib + 1))
+
+      assert conn.status == 413
+      assert get_resp_header(conn, "connection") == ["close"]
+
+      assert %{
+               "type" => "too-large",
+               "status" => 413,
+               "detail" => "the body is larger than 1048576 bytes"
+             } = json(conn)
+
+      assert_received {:deposit_after, "b1"}
+      # Never more than one byte past the cap is read.
+      assert read_total(trace()) == @mib + 1
+
+      conn = deposit("b2", bytes(3 * @mib), content_length: 3 * @mib)
+      assert conn.status == 413
+      assert json(conn)["detail"] == "the body is larger than 1048576 bytes"
+      refute_received {:example_called, :deposit, _, %{book_id: "b2"}}
+      assert trace() == []
     end
 
     test "the facade's input holds the body unread, as an enumerable" do

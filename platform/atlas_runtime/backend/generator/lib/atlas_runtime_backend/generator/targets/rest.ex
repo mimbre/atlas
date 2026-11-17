@@ -55,11 +55,12 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest do
      through the facade's `new/1`. Any failure is the `:invalid` error;
      A resource with a streamed body (`body: {:stream, field}`) reads no JSON. Its
      request must have the declared `Content-Type` (parameters aside), else the
-     `:unsupported_media_type` error (415), and a `Content-Length` above the limit
-     (`max_bytes:`, asked for each request) is the `:too_large` error (413); in both
-     cases the facade is not called. Otherwise the input's `field` is a lazy
-     `Stream.resource` over `Plug.Conn.read_body/2`: each element is the next chunk of
-     the body, at most 1 MiB, read (with a 60 s timeout per read) only when the facade
+     `:unsupported_media_type` error (415), and a `Content-Length` above the limit is
+     the `:too_large` error (413); in both cases the facade is not called. The limit is
+     `max_bytes:` (asked for each request), but never more than 1 MiB: every body, on
+     every listener, has the same 1 MiB cap as a JSON body. Otherwise the input's
+     `field` is a lazy `Stream.resource` over `Plug.Conn.read_body/2`: each element is
+     the next chunk of the body, read (with a 60 s timeout per read) only when the facade
      enumerates it, never held whole by the router. It must be enumerated in the
      process that called the facade, before the facade returns. Reading past the limit
      raises `AtlasRuntimeBackend.Generator.Targets.Rest.BodyError` (`kind: :too_large`),
@@ -860,11 +861,15 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest do
         _ = params
         _ = query
 
+        # The resource's limit, within the 1 MiB cap every body has (no route lifts it).
         limit =
-          Runtime.limit!(
-            unquote(limit_module).unquote(limit_function)(),
-            unquote(limit_module),
-            unquote(limit_function)
+          min(
+            Runtime.limit!(
+              unquote(limit_module).unquote(limit_function)(),
+              unquote(limit_module),
+              unquote(limit_function)
+            ),
+            unquote(@max_body)
           )
 
         cond do

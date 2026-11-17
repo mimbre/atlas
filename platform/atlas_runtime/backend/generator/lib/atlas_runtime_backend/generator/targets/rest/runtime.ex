@@ -327,9 +327,9 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest.BodyError do
   @moduledoc """
   Raised while a streamed request body is read (see
   `AtlasRuntimeBackend.Generator.Targets.Rest`): `kind` is `:too_large` (more bytes than
-  the resource's `max_bytes`) or `:unreadable` (the read failed: the client went away or
-  was too slow). A facade lets it pass; the router answers it. Its message names no
-  request data.
+  the body's limit: the resource's `max_bytes`, at most 1 MiB) or `:unreadable` (the
+  read failed: the client went away or was too slow). A facade lets it pass; the router
+  answers it. Its message names no request data.
   """
   defexception [:kind, :ref]
 
