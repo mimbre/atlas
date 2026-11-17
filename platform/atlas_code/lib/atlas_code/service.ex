@@ -38,6 +38,12 @@ defmodule AtlasCode.Service do
     "-c",
     "core.hooksPath=/dev/null"
   ]
+  # Reads (resolve and the fetch behind snapshots, manifests, blobs and change bases) of a
+  # repository whose config.json entry says `"credentials": "none"`: the empty value clears
+  # every helper Git would inherit (system or global config), and none is added, so Git never
+  # asks for a credential and no token reaches it. Pushes and their lease checks keep
+  # @git_config.
+  @anonymous_config ["-c", "credential.helper=", "-c", "core.hooksPath=/dev/null"]
   @ustar_size 0o77777777777
   # The largest chunk of a blob's stream (`get_blob/3`).
   @chunk_bytes 64 * 1024
@@ -49,6 +55,7 @@ defmodule AtlasCode.Service do
           required(:token) => binary(),
           required(:orchestrator) => binary() | nil,
           required(:gh) => String.t(),
+          optional(:anonymous) => MapSet.t(String.t()),
           optional(:role) => :runtime | :orchestrator
         }
 
@@ -321,10 +328,19 @@ defmodule AtlasCode.Service do
     end)
   end
 
+  # The Git configuration of `repository`'s reads: without credentials when its entry says so.
+  defp read_config(settings, repository) do
+    if MapSet.member?(Map.get(settings, :anonymous, MapSet.new()), repository),
+      do: @anonymous_config,
+      else: @git_config
+  end
+
   # The commits the remote reports for exactly `name`, or `{:failed, exit status}`.
-  defp ls_remote(git_dir, url, name) do
+  defp ls_remote(git_dir, url, name), do: ls_remote(@git_config, git_dir, url, name)
+
+  defp ls_remote(config, git_dir, url, name) do
     # Git output is never returned: it may echo the remote URL or credential prompts.
-    case System.cmd("git", @git_config ++ git_dir ++ ["ls-remote", "--exit-code", url, name],
+    case System.cmd("git", config ++ git_dir ++ ["ls-remote", "--exit-code", url, name],
            env: [{"GIT_TERMINAL_PROMPT", "0"}],
            stderr_to_stdout: true
          ) do
@@ -343,7 +359,12 @@ defmodule AtlasCode.Service do
   end
 
   defp resolve(settings, repository, reference) do
-    case ls_remote([], settings.repositories[repository], "refs/heads/" <> reference) do
+    case ls_remote(
+           read_config(settings, repository),
+           [],
+           settings.repositories[repository],
+           "refs/heads/" <> reference
+         ) do
       [commit] ->
         {200,
          %{
@@ -438,12 +459,13 @@ defmodule AtlasCode.Service do
     end
   end
 
-  defp acquire(%{home: home, repositories: allowed}, repository, commit, handle) do
+  defp acquire(%{home: home, repositories: allowed} = settings, repository, commit, handle) do
     case allowed do
       %{^repository => url} ->
         dir = cache(home, repository, url)
+        config = read_config(settings, repository)
 
-        case locked(dir, fn -> fetch(dir, url, commit) end) do
+        case locked(dir, fn -> fetch(config, dir, url, commit) end) do
           :ok ->
             {:ok, dir}
 
@@ -466,14 +488,16 @@ defmodule AtlasCode.Service do
     do: Path.join([home, "cache", sha256([repository, 0, url]) <> ".git"])
 
   # shortcut: fetches branch heads only, so commits reachable from no branch are 404; fetch by SHA when needed.
-  defp fetch(dir, url, commit) do
+  defp fetch(dir, url, commit), do: fetch(@git_config, dir, url, commit)
+
+  defp fetch(config, dir, url, commit) do
     if commit?(dir, commit) do
       :ok
     else
       {_, 0} = System.cmd("git", ["init", "--bare", "--quiet", dir], stderr_to_stdout: true)
 
       args =
-        @git_config ++
+        config ++
           ["--git-dir", dir, "fetch", "--quiet", "--no-tags", url, "+refs/heads/*:refs/heads/*"]
 
       # Git output is never returned: it may echo the remote URL or credential prompts.
