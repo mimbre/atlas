@@ -392,6 +392,13 @@ defmodule AtlasRuntime.PolicyTest do
             "ftp://flow.example.test",
             "https://",
             "https:/flow.example.test",
+            "https://user:secret@flow.example.test/work-source",
+            "https://user@flow.example.test/work-source",
+            "https://flow.example.test /work-source",
+            "https://flow.example.test/work source",
+            "https://flow.example.test/work-source\n",
+            "https://flow.example.test/work-source?token=x",
+            "https://flow.example.test/work-source#x",
             "",
             nil
           ],
@@ -415,6 +422,9 @@ defmodule AtlasRuntime.PolicyTest do
             "sources/flow-prod/",
             "token",
             "sources/flow-prod/tok\0en",
+            "sources/flow-prod/tok\nen",
+            "sources/flow-prod/tok\ten",
+            "sources/flow-prod/tok\x7Fen",
             "",
             nil
           ],
@@ -469,6 +479,13 @@ defmodule AtlasRuntime.PolicyTest do
       for name <- ["", "..", "Flow", "flow/prod", "-flow", "flow prod", 7, nil] do
         credential = if is_binary(name), do: "sources/#{name}/token", else: "sources/x/token"
         assert_refused(dir, [flow(%{"name" => name, "credential_file" => credential})])
+      end
+
+      # A JSON object or array as name refuses the policy too, for either kind; it must
+      # never reach a check that turns it into text and raises instead.
+      for name <- [%{}, [%{}], [-1], ["flow-prod"], [], %{"a" => 1}] do
+        assert_refused(dir, [flow(%{"name" => name})])
+        assert_refused(dir, [Map.put(@local, "name", name)])
       end
 
       for value <- [1.5, "1", nil], do: assert_refused(dir, [flow(%{"priority" => value})])

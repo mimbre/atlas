@@ -478,11 +478,21 @@ defmodule AtlasRuntime.Policy do
     end)
   end
 
+  # The name is checked first and alone: every later check (and message) may then use it
+  # as a plain string, so no JSON value in `name` can make `load/1` raise.
   defp source(%{"name" => name, "kind" => kind} = source) when is_map_key(@source_keys, kind) do
+    if is_binary(name) and Regex.match?(@source, name),
+      do: source_fields(source, name, kind),
+      else: {:error, {:invalid, "invalid source name"}}
+  end
+
+  defp source(_),
+    do: {:error, {:invalid, "a source needs a name and a kind, builtin or remote"}}
+
+  defp source_fields(source, name, kind) do
     keys = @source_keys[kind]
 
     first_failure([
-      {is_binary(name) and Regex.match?(@source, name), "invalid source name"},
       {Enum.sort(Map.keys(source)) == Enum.sort(keys),
        "a #{kind} source has exactly the fields #{Enum.join(keys, ", ")}"},
       {kind == "builtin" == (name == @builtin_source),
@@ -497,19 +507,18 @@ defmodule AtlasRuntime.Policy do
     ])
   end
 
-  defp source(_),
-    do: {:error, {:invalid, "a source needs a name and a kind, builtin or remote"}}
-
   defp unique?(entries, key) do
     values = Enum.map(entries, & &1[key])
     Enum.uniq(values) == values
   end
 
-  # Only TLS (decision §3, §6.2): no plaintext scheme, no scheme-relative or host-less URL.
+  # Only TLS (decision §3, §6.2): no plaintext scheme, no scheme-relative or host-less URL;
+  # no userinfo (a secret belongs in credential_file), query, fragment, space or control.
   defp https?(url) when is_binary(url) do
     case URI.parse(url) do
-      %URI{scheme: "https", host: host} when is_binary(host) and host != "" ->
-        String.starts_with?(url, "https://")
+      %URI{scheme: "https", host: host, userinfo: nil, query: nil, fragment: nil}
+      when is_binary(host) and host != "" ->
+        String.starts_with?(url, "https://") and not String.match?(url, ~r/[\s\x00-\x1f\x7f]/)
 
       _ ->
         false
@@ -519,11 +528,12 @@ defmodule AtlasRuntime.Policy do
   defp https?(_), do: false
 
   # Relative to the Runtime home and inside that source's own directory: every segment is
-  # a plain name, so neither `..`, `.`, an empty segment nor an absolute path can leave it.
+  # a plain name, so neither `..`, `.`, an empty segment nor an absolute path can leave it;
+  # no control character (NUL included) either.
   defp credential_file?(path, name) when is_binary(path) do
     segments = String.split(path, "/")
 
-    Path.type(path) == :relative and not String.contains?(path, <<0>>) and
+    Path.type(path) == :relative and not String.match?(path, ~r/[\x00-\x1f\x7f]/) and
       match?(["sources", ^name, _ | _], segments) and
       Enum.all?(segments, &(&1 not in ["", ".", ".."]))
   end
