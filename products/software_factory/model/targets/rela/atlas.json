@@ -858,6 +858,12 @@
             "flow"
           ]
         },
+        "published_revision": {
+          "label": "Published revision",
+          "set_by": [
+            "flow"
+          ]
+        },
         "reason": {
           "set_by": [
             "flow"
@@ -883,6 +889,12 @@
         },
         "result_state": {
           "label": "Result state",
+          "set_by": [
+            "flow"
+          ]
+        },
+        "reviewed_revision": {
+          "label": "Reviewed revision",
           "set_by": [
             "flow"
           ]

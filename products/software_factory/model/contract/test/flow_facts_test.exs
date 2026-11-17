@@ -67,17 +67,19 @@ defmodule Model.FlowFactsTest do
     assert entities["machinery"]["id_type"] == "manual"
 
     assert entities["task"]["properties"]["kind"]["type"] == "task_kind"
-    assert schema()["types"]["task_kind"]["values"] == ~w(plan author review fix)
-    assert schema()["types"]["task_role"]["values"] == ~w(architect developer)
+    # F2 adds the diagnose kind and its investigator role.
+    assert schema()["types"]["task_kind"]["values"] == ~w(plan author review fix diagnose)
+    assert schema()["types"]["task_role"]["values"] == ~w(architect developer investigator)
     assert schema()["types"]["task_verdict"]["values"] == ~w(approved changes_required)
 
-    # §3.2's fields and M3's lease fields, no more: F3's (change id, review id, fpr_, PR
-    # URL; published_*) wait.
+    # §3.2's fields, M3's lease fields and F2's two revisions, no more: F3's (change id,
+    # review id, fpr_, PR URL) wait.
     assert Enum.sort(Map.keys(entities["task"]["properties"])) ==
              Enum.sort(
                ~w(kind role profile input client_key work_id attempt state result_kind
                reason check_exit_status check_ending check_output_tail verdict answer
-               result_fingerprints based_on base_id base_snapshot base_revision) ++
+               result_fingerprints based_on base_id base_snapshot base_revision
+               published_revision reviewed_revision) ++
                  Map.keys(@task_lease)
              )
 
@@ -124,6 +126,32 @@ defmodule Model.FlowFactsTest do
 
     assert {:refuse, [why]} = check(linked, @someone)
     assert why =~ "only a flow sets task_of"
+  end
+
+  test "F2: a diagnose task by an investigator, and a task's revisions, are Flow's to write" do
+    props = schema()["entities"]["task"]["properties"]
+
+    for field <- ~w(published_revision reviewed_revision) do
+      assert props[field]["type"] == "string"
+      refute props[field]["required"] == true
+    end
+
+    diagnose =
+      create("task", "TK-PK-IS-Atlas-01-1-4", %{
+        "kind" => "diagnose",
+        "role" => "investigator",
+        "profile" => "deep_coding"
+      })
+
+    assert check(diagnose, @flow) == :ok
+
+    for values <- [%{"published_revision" => "rev_a"}, %{"reviewed_revision" => "rev_a"}] do
+      change =
+        {"task", %{"op" => "change", "key" => "TK-PK-IS-Atlas-01-1-2", "values" => values}}
+
+      assert check(change, @flow) == :ok
+      assert {:refuse, [_]} = check(change, @someone)
+    end
   end
 
   test "the lease fields: on task and task_attempt, typed, optional, Flow's alone" do

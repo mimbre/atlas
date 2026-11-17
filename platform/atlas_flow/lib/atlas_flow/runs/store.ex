@@ -1483,14 +1483,16 @@ defmodule AtlasFlow.Runs.Store do
       :none ->
         {:ok, run}
 
-      {:pending, intent, writes} ->
+      {:pending, intent, writes, ladder} ->
         {:ok,
          run
          |> put_in(["pending", "task"], intent)
+         |> then(&if(ladder, do: put_in(&1, ["pending", "ladder"], ladder), else: &1))
          |> update_in(["pending", "writes"], &(&1 ++ writes))}
 
-      {:result, outcome, result, writes} ->
-        Run.task_result(run, flow, subject, now, outcome, result, writes)
+      # A ladder task's outcome is the ladder's step; its ladder is kept (F2).
+      {:result, outcome, result, writes, ladder} ->
+        Run.task_result(run, flow, subject, now, outcome, result, writes, ladder)
     end
   end
 

@@ -9,17 +9,22 @@ defmodule Model.Task do
   A record: Flow writes every field (`set_by: [:flow]`), and no state of a subflow reads
   it; branches read the run's own task results. The fields Code adds from F3 on (change
   id, review id, `fpr_`, PR URL) come with F3.
+
+  F2 adds the `diagnose` kind (an `investigator` finds out why work keeps failing, and
+  changes nothing) and a task's two revisions in Code (plan F2/F3 rev 3 §3.2): the one
+  its result was published as (`published_revision`, an author or fix), and the one a
+  review reviewed (`reviewed_revision`: that task's, once it is published).
   """
   use RelaDSL
 
   type(:task_kind,
-    values: [:plan, :author, :review, :fix],
-    labels: [plan: "Plan", author: "Author", review: "Review", fix: "Fix"]
+    values: [:plan, :author, :review, :fix, :diagnose],
+    labels: [plan: "Plan", author: "Author", review: "Review", fix: "Fix", diagnose: "Diagnose"]
   )
 
   type(:task_role,
-    values: [:architect, :developer],
-    labels: [architect: "Architect", developer: "Developer"]
+    values: [:architect, :developer, :investigator],
+    labels: [architect: "Architect", developer: "Developer", investigator: "Investigator"]
   )
 
   type(:task_verdict,
@@ -38,14 +43,15 @@ defmodule Model.Task do
     """ do
     field(:kind, :task_kind,
       required: true,
-      description: "Plan, author, review or fix",
+      description: "Plan, author, review, fix or diagnose",
       set_by: [:flow]
     )
 
-    field(:role, :task_role, description: "Architect or developer", set_by: [:flow])
+    field(:role, :task_role, description: "Architect, developer or investigator", set_by: [:flow])
 
     field(:profile, :string,
-      description: "The abstract profile it needs: deep_coding or independent_review",
+      description:
+        "The abstract profile it needs: deep_coding, deep_coding_max or independent_review",
       set_by: [:flow]
     )
 
@@ -119,6 +125,18 @@ defmodule Model.Task do
       description: "The fingerprint of the result a review task reviewed",
       set_by: [:flow],
       label: "Based on"
+    )
+
+    field(:published_revision, :string,
+      description: "The revision in Code its result was published as: an author's or a fix's",
+      set_by: [:flow],
+      label: "Published revision"
+    )
+
+    field(:reviewed_revision, :string,
+      description: "The revision a review task reviewed: the published revision of that result",
+      set_by: [:flow],
+      label: "Reviewed revision"
     )
 
     field(:base_id, :string,
