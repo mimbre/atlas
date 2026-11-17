@@ -15,7 +15,8 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Json do
          "streams": [{"path", "capability", "events": [name], "resume_header", "into",
                       "open": {outcome: event | null}}],
          "statuses": [{"outcome", "status"?, "type"?, "by"?,
-                       "cases": [{"value", "status", "type"?}]?, "body"?, "headers": {header: field or template}}],
+                       "cases": [{"value", "status", "type"?}]?, "body"?, "stream"?, "content_type"?,
+                       "headers": {header: field or template}}],
          "errors": [{"kind", "status", "type"}]}]}
   """
 
@@ -94,6 +95,8 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Json do
     |> put("type", s.type)
     |> put("by", s.by && text(s.by))
     |> put("body", Map.get(s, :body) && text(s.body))
+    |> put("stream", Map.get(s, :stream) && text(s.stream))
+    |> put("content_type", Map.get(s, :content_type))
     |> put(
       "cases",
       s.by &&

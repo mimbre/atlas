@@ -1169,6 +1169,196 @@
         }
       }
     },
+    "/v1/books/{book_id}/scan": {
+      "get": {
+        "operationId": "scan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "outcome `scanned`",
+            "headers": {
+              "scan-of": {
+                "description": "`scanned`: `/v1/books/{book_id}`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "scan-pages": {
+                "description": "`scanned`: the outcome's `pages`",
+                "required": true,
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "scanned-at": {
+                "description": "`scanned`: the outcome's `scanned_at`",
+                "schema": {
+                  "format": "date-time",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": 400
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "const": "invalid"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "error `invalid`"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": 401
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "const": "unauthenticated"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "error `unauthenticated`"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "properties": {
+                        "detail": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "const": 403
+                        },
+                        "title": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "const": "not-permitted"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "detail": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "const": 403
+                        },
+                        "title": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "const": "origin-refused"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "error `not_permitted`; error `origin_refused`"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "status": {
+                      "const": 404
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "const": "not-found"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "outcome `missing`"
+          }
+        }
+      }
+    },
     "/v1/count": {
       "get": {
         "operationId": "count",

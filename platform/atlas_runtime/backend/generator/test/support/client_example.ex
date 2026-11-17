@@ -12,7 +12,8 @@ defmodule AtlasRuntimeBackend.Generator.Example.PlugTransport do
   - `token:` sent as `Authorization: Bearer <token>`; `origin:` sent as `Origin`;
   - `chunk:` a stream's body in pieces of this many bytes; `fail_after:` a stream that
     fails after its body;
-  - `fail:` no answer, `{:error, reason}`; `respond: {status, body}` a canned answer.
+  - `fail:` no answer, `{:error, reason}`; `respond: {status, body}` (or `{status, body,
+    headers}`) a canned answer.
   """
   @behaviour AtlasRuntimeBackend.Generator.Targets.Client.Transport
 
@@ -46,8 +47,13 @@ defmodule AtlasRuntimeBackend.Generator.Example.PlugTransport do
         {:error, reason}
 
       canned = opts[:respond] ->
-        {status, body} = canned
-        {:ok, %Plug.Conn{status: status, resp_headers: [], resp_body: body}}
+        {status, body, headers} =
+          case canned do
+            {status, body} -> {status, body, []}
+            {_status, _body, _headers} = canned -> canned
+          end
+
+        {:ok, %Plug.Conn{status: status, resp_headers: headers, resp_body: body}}
 
       true ->
         target =
@@ -142,7 +148,7 @@ defmodule AtlasRuntimeBackend.Generator.Example.GoneApi do
   boundary AtlasRuntimeBackend.Generator.Example.GoneBoundary
 
   expose [:find_book]
-  not_exposed [:lend, :search, :list_books, :give_back, :count, :watch, :audit]
+  not_exposed [:lend, :search, :list_books, :give_back, :count, :watch, :scan, :audit]
 
   rights :socket, [:browse]
 

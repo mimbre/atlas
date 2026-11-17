@@ -57,6 +57,13 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest do
      has an `application/problem+json` body (RFC 9457: `type`, `title`, `status`, then
      the outcome's fields); one below is `application/json`: the outcome's entity named by
      the status's `body:`, serialized directly, else the outcome's fields.
+     A status with `stream: field` answers chunked, with its `content_type:` and its
+     declared headers: one chunk per element of the outcome's stream, in order, no JSON.
+     The status and headers go out only once the facade has answered, so a refusal is
+     still problem+json. The stream is never held whole. When a chunk cannot be sent (the
+     client is gone), the enumeration halts, so the stream's own clean-up (the `after` of
+     a `Stream.resource`, a file's close) runs, and no further element is read. An element
+     that raises is not caught: the response then never ends as complete.
      A stream answers `text/event-stream`: the opening event, if any, then the stream
      module's frames. A facade's refusal is the `:not_permitted` or the `:invalid` error,
      whichever contract the route is in.
@@ -186,7 +193,7 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest do
       unquote_splicing(for c <- prepared, do: quote(do: require(unquote(c.facade))))
       @behaviour Plug
       @compile {:nowarn_unused_function,
-                read_json: 2, header: 3, read_headers: 2, with_conn: 2, refused: 2}
+                read_json: 2, header: 3, read_headers: 2, with_conn: 2, refused: 2, send_stream: 2}
 
       @routes unquote(Macro.escape(Enum.map(routes, &Map.drop(&1, [:contract, :path]))))
       @errors unquote(Macro.escape(errors))
@@ -314,6 +321,17 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest do
         conn
         |> Plug.Conn.put_resp_header("content-type", content_type)
         |> Plug.Conn.send_resp(status, JSON.encode!(body))
+      end
+
+      # A stream outcome's body on a chunked conn: one chunk per element, as it is read.
+      # A chunk that cannot be sent halts the enumeration, so its clean-up runs.
+      defp send_stream(conn, content) do
+        Enum.reduce_while(content, conn, fn piece, conn ->
+          case Plug.Conn.chunk(conn, piece) do
+            {:ok, conn} -> {:cont, conn}
+            {:error, _closed} -> {:halt, conn}
+          end
+        end)
       end
     end
   end
@@ -613,6 +631,18 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest do
     {outcome_module.(outcome), Enum.map(path, &Atom.to_string/1)}
   end
 
+  # The declared headers as quoted {name, text} pairs, read from `dumped`.
+  defp header_values(status) do
+    for {name, value} <- status.headers do
+      text =
+        if is_atom(value),
+          do: quote(do: Runtime.header_text(Map.get(dumped, unquote(Atom.to_string(value))))),
+          else: quote(do: Runtime.template(unquote(value), dumped))
+
+      quote(do: {unquote(name), unquote(text)})
+    end
+  end
+
   defp respond_call(nil), do: quote(do: respond(conn, outcome))
 
   defp respond_call({module, path}) do
@@ -807,16 +837,30 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest do
     {handler, openings}
   end
 
-  defp responder(module, status) do
-    headers =
-      for {name, value} <- status.headers do
-        text =
-          if is_atom(value),
-            do: quote(do: Runtime.header_text(Map.get(dumped, unquote(Atom.to_string(value))))),
-            else: quote(do: Runtime.template(unquote(value), dumped))
+  defp responder(module, %{stream: field} = status) when not is_nil(field) do
+    quote do
+      defp respond(conn, %{__struct__: unquote(module)} = outcome) do
+        content = Map.fetch!(outcome, unquote(field))
+        # Every field but the stream, for the headers: a stream is never dumped.
+        dumped = unquote(module).dump(Map.put(outcome, unquote(field), nil))
+        _ = dumped
 
-        quote(do: {unquote(name), unquote(text)})
+        conn =
+          Enum.reduce(unquote(header_values(status)), conn, fn
+            {_name, nil}, conn -> conn
+            {name, text}, conn -> Plug.Conn.put_resp_header(conn, name, text)
+          end)
+
+        conn
+        |> Plug.Conn.put_resp_header("content-type", unquote(status.content_type))
+        |> Plug.Conn.send_chunked(unquote(status.status))
+        |> send_stream(content)
       end
+    end
+  end
+
+  defp responder(module, status) do
+    headers = header_values(status)
 
     {code, type} =
       if status.by do
