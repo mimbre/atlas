@@ -162,6 +162,20 @@ defmodule AtlasFlow.ResultsTest do
       assert Results.room(0, server) == 0
     end
 
+    test "the store cap refuses a stale room before a byte when the declared size cannot fit",
+         ctx do
+      server = start(ctx, store_cap: 100, result_cap: 1_000)
+      stale = Results.room(0, server)
+      assert stale == 100
+      assert put(server, String.duplicate("a", 80), room: stale) == :stored
+      bytes = String.duplicate("d", 30)
+      assert put(server, bytes, room: stale, content: reporting(bytes)) == :too_large
+      assert reads() == 0
+      assert Path.wildcard(Path.join([ctx.dir, "tmp", "*"])) == []
+      assert Map.keys(Store.scan(ctx.dir).blobs) == [sha(String.duplicate("a", 80))]
+      assert Results.room(0, server) == 20
+    end
+
     test "the store cap holds while bytes stream, even against a stale room", ctx do
       server = start(ctx, store_cap: 10, result_cap: 1_000)
       bytes = String.duplicate("s", 20)
@@ -439,6 +453,20 @@ defmodule AtlasFlow.ResultsTest do
       refute manifest?(server, dropped)
       refute present?(server, "b")
       assert manifest?(server, kept) and present?(server, "a")
+    end
+
+    test "a rebuild re-dates a loose blob: it goes 14 days after the rebuild, not earlier", ctx do
+      server = start(ctx)
+      assert put(server, "loose") == :stored
+      advance(ctx, server, 10 * @day)
+      assert Results.rebuild([], server) == :ok
+
+      advance(ctx, server, @retention - 1)
+      assert present?(server, "loose")
+
+      advance(ctx, server, 1)
+      refute present?(server, "loose")
+      assert Store.scan(ctx.dir).blobs == %{}
     end
 
     test "a restarted store rebuilds from the disk and its pins before it serves", ctx do
