@@ -60,6 +60,15 @@ defmodule AtlasFlow.Model do
   """
   @callback relations() :: %{String.t() => map}
 
+  @doc """
+  Who supervises a run, as data: `relation` (run → its human supervisor) and `spans`, by
+  subflow, each span's `name` and the `states` it holds. Optional: without it (or nil) no
+  run has a supervisor, and an owner never moves to one (`owner/3`).
+  """
+  @callback supervision() :: nil | map
+
+  @optional_callbacks supervision: 0
+
   # The callback of the component that runs turns Flow calls too: the turn (its kind, the
   # relation to what it works `on`, `by` whom, its `state` field and the `running` value),
   # so an owner is not handed over while a turn of theirs runs on a fact.
@@ -74,7 +83,9 @@ defmodule AtlasFlow.Model do
       do: raise(ArgumentError, "the model #{inspect(model)} is not a module Flow can load")
 
     missing =
-      for {name, arity} <- __MODULE__.behaviour_info(:callbacks) ++ @shared,
+      for {name, arity} <-
+            (__MODULE__.behaviour_info(:callbacks) --
+               __MODULE__.behaviour_info(:optional_callbacks)) ++ @shared,
           not function_exported?(model, name, arity),
           do: "#{name}/#{arity}"
 
@@ -91,7 +102,8 @@ defmodule AtlasFlow.Model do
   What Flow runs of `model` in `environment`: its compiled subflows by name, the run configuration (`AtlasFlow.Runs.Store.activate/2`) and why it refuses to
   run the selected ones, if it does, with the relations and the turn it walks, and the
   actors its owners name, as `actors` (`%{role => key}`, the environment's settings)
-  fills them. Raises `AtlasFlow.Model.MissingActor` (its `role`) when it does not fill
+  fills them, and who supervises its runs (`supervision`, nil when it says nothing).
+  Raises `AtlasFlow.Model.MissingActor` (its `role`) when it does not fill
   one: Flow does not start without it.
   """
   def load(model, environment, actors \\ AtlasBus.Actors.configured()) do
@@ -118,20 +130,58 @@ defmodule AtlasFlow.Model do
       refusal: refusal,
       relations: model.relations(),
       turn: model.turn(),
-      actors: actors
+      actors: actors,
+      supervision: if(function_exported?(model, :supervision, 0), do: model.supervision())
     }
   end
+
+  # The configured role a run's human supervisor stands in for, inside a supervised span
+  # (decision 2026-11-17 §5.7: a gate's outcome goes to the supervisor; this role's actor
+  # is the fallback).
+  @supervised_role "decider"
 
   @doc """
   An owner as Flow writes it: `%{"kind", "key"}`. One that names a configured actor
   (`%{"kind", "config" => role}`) is that role's actor in `actors` (`load/3`).
+
+  Except one: the `decider` role, on a `run` whose state lies in one of its subflow's
+  supervised `spans` and that has a human supervisor (`supervised_by`, `%{"kind",
+  "key"}`) of the owner's kind, is that supervisor. With no supervisor, outside every
+  span, or with no run, it is the configured actor. The projection passes the run with
+  its `supervised_by` and `spans` (`AtlasFlow.Runs.Projection`).
   """
-  def owner(%{"config" => role} = owner, actors) do
-    case actors do
-      %{^role => %{"key" => key}} -> %{"kind" => owner["kind"], "key" => key}
-      _ -> raise ArgumentError, "no configured actor #{role}; Flow loads every one it names"
+  def owner(owner, actors, run \\ nil)
+
+  def owner(%{"config" => role} = owner, actors, run) do
+    case supervisor(owner, run) do
+      %{} = supervisor ->
+        supervisor
+
+      nil ->
+        case actors do
+          %{^role => %{"key" => key}} -> %{"kind" => owner["kind"], "key" => key}
+          _ -> raise ArgumentError, "no configured actor #{role}; Flow loads every one it names"
+        end
     end
   end
 
-  def owner(owner, _actors), do: owner
+  def owner(owner, _actors, _run), do: owner
+
+  @doc "Whether `owner` (a state's default) may go to a run's human supervisor (`owner/3`)."
+  def supervisable?(owner), do: match?(%{"config" => @supervised_role}, owner)
+
+  defp supervisor(
+         %{"kind" => kind} = owner,
+         %{"supervised_by" => %{"kind" => kind, "key" => key}} = run
+       )
+       when is_binary(key) and key != "" do
+    if supervisable?(owner) and in_span?(run), do: %{"kind" => kind, "key" => key}
+  end
+
+  defp supervisor(_owner, _run), do: nil
+
+  defp in_span?(%{"state" => state, "spans" => spans}) when is_list(spans),
+    do: Enum.any?(spans, &(state in (&1["states"] || [])))
+
+  defp in_span?(_run), do: false
 end

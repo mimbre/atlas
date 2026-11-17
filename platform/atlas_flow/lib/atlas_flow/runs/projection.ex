@@ -75,8 +75,9 @@ defmodule AtlasFlow.Runs.Projection do
     with nil <- refusal,
          true <- subflow != nil,
          {:ok, %{} = run} <- Store.latest(config, name, kind, fact["key"]),
-         true <- run["definition_sha256"] == subflow.digest() do
-      {:ok, Presentation.of_run(run, subflow, fact, &owner(runner, &1))}
+         true <- run["definition_sha256"] == subflow.digest(),
+         {:ok, run} <- supervised(runner, subflow, run) do
+      {:ok, Presentation.of_run(run, subflow, fact, &owner(runner, &1, run))}
     else
       {:error, why} -> {:error, {:presentation_unavailable, why}}
       _ -> {:ok, nil}
@@ -84,9 +85,40 @@ defmodule AtlasFlow.Runs.Projection do
   end
 
   # Who the state names, with a configured actor (`config`) as the environment's settings
-  # fill it (`AtlasFlow.Model.owner/2`).
-  defp owner(_runner, nil), do: nil
-  defp owner(runner, owner), do: AtlasFlow.Model.owner(owner, runner.actors)
+  # fill it, or the run's human supervisor in its stead inside a supervised span
+  # (`AtlasFlow.Model.owner/3`).
+  defp owner(_runner, nil, _run), do: nil
+  defp owner(runner, owner, run), do: AtlasFlow.Model.owner(owner, runner.actors, run)
+
+  # The run with its subflow's supervised `spans` and its human supervisor
+  # (`supervised_by`, `%{"kind", "key"}` or nil), read from the run's own fact: only when
+  # its subflow declares a span and its state's owner may go to a supervisor, so no other
+  # projection reads more. An unavailable read is a failure.
+  defp supervised(runner, subflow, run) do
+    supervision = Map.get(runner, :supervision) || %{}
+    spans = get_in(supervision, ["spans", run["flow"]]) || []
+    relation = supervision["relation"]
+
+    with true <- spans != [] and is_binary(relation) and run["status"] == "active",
+         true <- AtlasFlow.Model.supervisable?((subflow.owner(run["state"]) || %{})["default"]) do
+      case Talk.transition_read(runner.config["kind"], %{"key" => run["key"], "plain" => true}) do
+        %{"fact" => fact} when is_map(fact) or is_nil(fact) ->
+          supervisor =
+            case {get_in(runner.relations, [relation, "to"]),
+                  get_in(fact || %{}, ["links", relation])} do
+              {[kind], [key]} when is_binary(key) -> %{"kind" => kind, "key" => key}
+              _ -> nil
+            end
+
+          {:ok, Map.merge(run, %{"spans" => spans, "supervised_by" => supervisor})}
+
+        other ->
+          {:error, {:supervisor_unavailable, other}}
+      end
+    else
+      false -> {:ok, run}
+    end
+  end
 
   # Store what differs on the fact the projection writes on: its own, or the one its
   # `on` relation points at. The owner it waits for, or nil.
