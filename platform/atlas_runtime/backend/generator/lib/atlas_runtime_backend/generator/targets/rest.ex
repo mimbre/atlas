@@ -60,11 +60,15 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest do
      A stream answers `text/event-stream`: the opening event, if any, then the stream
      module's frames. A facade's refusal is the `:not_permitted` or the `:invalid` error,
      whichever contract the route is in.
+     A resource with `etag: field` adds `ETag: "<field>"` to its one success outcome,
+     and answers 304 with that `ETag` and no body when the request's `If-None-Match`
+     holds the tag (or `*`). Its other outcomes, and other resources, get no `ETag`.
 
   It also has `__routes__/0` (the route × outcome → status table as data, each route
-  with its contract's name), `__rights__/1` (a listener's rights: those every contract
-  declares for it, in contract order, each once), `__event__/1` (a frame for an event
-  model struct: `{:ok, iodata}`, or `:error` for anything else) and
+  with its contract's name and its `etag` field or `nil`), `__rights__/1` (a listener's
+  rights: those every contract declares for it, in contract order, each once),
+  `__event__/1` (a frame for an event model struct: `{:ok, iodata}`, or `:error` for
+  anything else) and
   `__problem__/2`: `__problem__(kind, conn)` sends the target's error `kind` (one the
   contract declares, such as a listener's `:unauthenticated` or `:origin_refused`) as
   its status with an `application/problem+json` body of `type`, `title` and `status`
@@ -114,7 +118,18 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest do
 
         case kind do
           :resource ->
-            {resource_handler(key, item, capability, input, modules, c.facade, field_type), []}
+            tagged = tagged(item, capability, c.statuses, c.outcome_module)
+
+            {resource_handler(
+               key,
+               item,
+               capability,
+               input,
+               modules,
+               c.facade,
+               field_type,
+               tagged
+             ), []}
 
           :stream ->
             stream_handler(
@@ -570,6 +585,7 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest do
       path: item.path,
       capability: item.capability,
       stream: kind == :stream,
+      etag: if(kind == :stream, do: nil, else: item.etag),
       outcomes: outcomes
     }
   end
@@ -582,7 +598,41 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest do
   defp id_expr(nil), do: nil
   defp id_expr(field), do: quote(do: Map.fetch!(value, unquote(field)))
 
-  defp resource_handler(key, item, capability, input, modules, facade, field_type) do
+  # For a resource with etag: the outcome module that carries the tag, and how to read
+  # the tag's field from its dump (the body: entity's field, else the outcome's).
+  defp tagged(%{etag: nil}, _capability, _statuses, _outcome_module), do: nil
+
+  defp tagged(item, capability, statuses, outcome_module) do
+    [outcome] =
+      for o <- capability.outcomes,
+          %{by: nil, status: code} <- [statuses[o.name]],
+          code < 400,
+          do: o.name
+
+    path = Enum.reject([statuses[outcome].body, item.etag], &is_nil/1)
+    {outcome_module.(outcome), Enum.map(path, &Atom.to_string/1)}
+  end
+
+  defp respond_call(nil), do: quote(do: respond(conn, outcome))
+
+  defp respond_call({module, path}) do
+    quote do
+      case outcome do
+        %{__struct__: unquote(module)} ->
+          tag = Runtime.etag(get_in(unquote(module).dump(outcome), unquote(path)))
+          conn = Plug.Conn.put_resp_header(conn, "etag", tag)
+
+          if Runtime.not_modified?(Plug.Conn.get_req_header(conn, "if-none-match"), tag),
+            do: Plug.Conn.send_resp(conn, 304, ""),
+            else: respond(conn, outcome)
+
+        _other ->
+          respond(conn, outcome)
+      end
+    end
+  end
+
+  defp resource_handler(key, item, capability, input, modules, facade, field_type, tagged) do
     name = capability.name
 
     param_values =
@@ -662,7 +712,7 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest do
 
         case result do
           {:called, conn, %{__struct__: module} = outcome} when module in unquote(modules) ->
-            respond(conn, outcome)
+            unquote(respond_call(tagged))
 
           {:called, conn, other} ->
             refused(conn, other)

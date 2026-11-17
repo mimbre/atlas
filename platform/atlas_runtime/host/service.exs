@@ -48,5 +48,13 @@ case AtlasRuntime.Backend.Listener.start_link(home: dir, router: AtlasRuntime.Ba
   {:error, reason} -> raise("Runtime backend not listening on backend.sock: #{inspect(reason)}")
 end
 
+# The same router on loopback TCP (127.0.0.1 only, behind `tailscale serve`), for the
+# clients that $ATLAS_RUNTIME_HOME/clients.json names by token. No file: no TCP listener. A
+# file that is invalid, or not mode 0600 and owned by this uid, stops the service.
+case AtlasRuntime.Backend.TcpListener.serve!(dir, AtlasRuntime.Backend.Rest) do
+  {:ok, _} -> IO.puts("Runtime backend listening on loopback TCP for clients.json")
+  :none -> :ok
+end
+
 IO.puts("Runtime ready; Atlas core services remain stopped")
 Process.sleep(:infinity)

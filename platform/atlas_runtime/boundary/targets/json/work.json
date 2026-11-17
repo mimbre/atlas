@@ -64,6 +64,10 @@
           "name": "ended"
         },
         {
+          "model": "refused",
+          "name": "refused"
+        },
+        {
           "model": "not_found",
           "name": "not_found"
         }
@@ -226,7 +230,8 @@
             "cancel",
             "read",
             "read_all",
-            "choose_slot"
+            "choose_slot",
+            "choose_path"
           ]
         }
       ],
@@ -318,7 +323,7 @@
       "fields": [
         {
           "name": "path",
-          "required": true,
+          "required": false,
           "type": "string"
         },
         {
@@ -741,7 +746,7 @@
       "fields": [
         {
           "name": "path",
-          "required": true,
+          "required": false,
           "type": "string"
         },
         {
@@ -855,7 +860,7 @@
       "fields": [
         {
           "name": "path",
-          "required": true,
+          "required": false,
           "type": "string"
         },
         {

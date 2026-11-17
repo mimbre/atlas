@@ -404,7 +404,7 @@ jobs:
       - run: mix deps.get
       - run: mix compile --warnings-as-errors
       - run: mix format --check-formatted
-      # Fails when a file in platform/atlas_runtime/backend/targets differs from what the contracts (work_api, operations_api, history_api) generate, or is left over (none in S2).
+      # Fails when a file in platform/atlas_runtime/backend/targets (S3: rest/<contract>/routes.json, rest/<contract>/openapi.json) differs from what the contracts (work_api, operations_api, history_api) generate, or is left over.
       - run: mix runtime_backend.gen --check
       - run: mix test
 

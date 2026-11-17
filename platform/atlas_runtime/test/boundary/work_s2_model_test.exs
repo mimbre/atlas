@@ -64,7 +64,7 @@ defmodule AtlasRuntime.Boundary.WorkS2ModelTest do
       )
 
     assert %B.Work{state: :interrupted, attempts: [%B.Attempt{result: public}]} =
-             Translation.from_model(record)
+             Translation.from_model(record, [:read])
 
     assert %B.Result{kind: :interrupted, reason: :runtime_stop, retryable: true} = public
   end

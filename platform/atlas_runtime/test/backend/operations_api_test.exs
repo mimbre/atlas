@@ -13,7 +13,8 @@ defmodule AtlasRuntime.Backend.OperationsApiTest do
   alias AtlasRuntime.Test.{FakeOperations, FakeWork, WorkRest}
   alias AtlasRuntime.Test.OperationsFacade, as: F
 
-  @socket {"local:test", [:submit, :cancel, :read, :read_all, :choose_slot, :inspect, :operate]}
+  @socket {"local:test",
+           [:submit, :cancel, :read, :read_all, :choose_slot, :choose_path, :inspect, :operate]}
 
   setup do
     FakeWork.reset_all()

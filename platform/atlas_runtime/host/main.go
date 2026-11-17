@@ -474,6 +474,14 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "native-host" {
 		host.Main(os.Args[2:])
 	}
+	// The after-check runner streams its events on stdout and reads stop controls on stdin.
+	if len(os.Args) > 1 && os.Args[1] == "host" {
+		if len(os.Args) > 2 && os.Args[2] == "check" {
+			host.CheckMain(os.Args[3:])
+		}
+		writeCommandError(os.Stderr, errors.New("use host check --cwd DIR (--scope JSON | --sandbox read-only) --scratch DIR --timeout SEC --grace SEC --tail BYTES -- ARGV..."))
+		os.Exit(1)
+	}
 	if len(os.Args) == 2 && (os.Args[1] == "--help" || os.Args[1] == "-h") {
 		printHelp(os.Stdout)
 		return

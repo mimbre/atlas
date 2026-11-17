@@ -10,8 +10,8 @@ defmodule AtlasRuntime.Backend.Listener do
   I8), so every client is that owner: `local:<name>`, where `<name>` is the user name of
   the Runtime process's uid (`id -un`; never `$USER` or `$LOGNAME`), with the socket
   listener's rights from the backend contracts the router serves (every work right,
-  `choose_slot` included, plus the operations rights `inspect` and `operate`, which only
-  this listener grants; design §13.1 Q4).
+  `choose_slot` and `choose_path` included, plus the operations rights `inspect` and
+  `operate`, which only this listener grants; design §13.1 Q4, D44).
   The listener checks that the bound socket is owned by that uid. If the socket's mode is
   ever widened, the identity must come from the peer's credentials instead (design §1.8).
 
