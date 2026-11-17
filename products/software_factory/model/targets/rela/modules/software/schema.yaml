@@ -65,6 +65,31 @@ entities:
       pr_outcome:
         type: string
         description: 'Flow: where its pull request is (none, open, changes_requested, integrated, closed)'
+  package:
+    label: Package
+    plural: packages
+    id_type: manual
+    id_prefix: PK-
+    description: |
+      A bounded part of an issue that becomes one pull request: from an Architect's plan
+      or made by hand. Flow names it PK-<issue>-<n>.
+    properties:
+      title:
+        type: string
+        required: true
+        description: What it builds
+      instructions:
+        type: string
+        description: What its author is to do
+      acceptance:
+        type: string
+        description: When it is done
+      after:
+        type: string
+        description: The keys of the packages it waits for, integrated first
+      state:
+        type: string
+        description: The state of its run, as Flow keeps it
   pull_request:
     label: Pull request
     plural: pull_requests
@@ -163,6 +188,17 @@ entities:
         type: string
         description: The exact revision of the pull request this test is for (its head commit)
 relations:
+  package_of:
+    label: package of
+    description: A package belongs to one issue; an issue has its packages.
+    from:
+    - package
+    to:
+    - issue
+    max_outgoing: 1
+    inverse:
+      id: packages
+      label: packages
   in_issue:
     label: in issue
     description: A pull request belongs to at most one issue; an issue has zero or more pull requests.

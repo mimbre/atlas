@@ -579,6 +579,52 @@
         }
       }
     },
+    "machinery": {
+      "by_hand": false,
+      "primary": "name",
+      "properties": {
+        "name": {
+          "set_by": [
+            "flow"
+          ]
+        }
+      },
+      "top": false
+    },
+    "package": {
+      "by_hand": false,
+      "primary": "title",
+      "properties": {
+        "acceptance": {
+          "multiline": true,
+          "set_by": [
+            "flow"
+          ]
+        },
+        "after": {
+          "set_by": [
+            "flow"
+          ]
+        },
+        "instructions": {
+          "multiline": true,
+          "set_by": [
+            "flow"
+          ]
+        },
+        "state": {
+          "set_by": [
+            "flow"
+          ]
+        },
+        "title": {
+          "set_by": [
+            "flow"
+          ]
+        }
+      },
+      "top": false
+    },
     "person": {
       "create": {
         "ask": [
@@ -683,6 +729,213 @@
         "key": "s",
         "label": "Scenes"
       }
+    },
+    "task": {
+      "by_hand": false,
+      "order": "newest",
+      "properties": {
+        "answer": {
+          "multiline": true,
+          "set_by": [
+            "flow"
+          ]
+        },
+        "attempt": {
+          "set_by": [
+            "flow"
+          ]
+        },
+        "base_id": {
+          "label": "Base id",
+          "set_by": [
+            "flow"
+          ]
+        },
+        "base_revision": {
+          "label": "Base revision",
+          "set_by": [
+            "flow"
+          ]
+        },
+        "base_snapshot": {
+          "label": "Base snapshot",
+          "set_by": [
+            "flow"
+          ]
+        },
+        "based_on": {
+          "label": "Based on",
+          "set_by": [
+            "flow"
+          ]
+        },
+        "check_ending": {
+          "label": "Check ending",
+          "set_by": [
+            "flow"
+          ]
+        },
+        "check_exit_status": {
+          "label": "Check exit status",
+          "set_by": [
+            "flow"
+          ]
+        },
+        "check_output_tail": {
+          "label": "Check output",
+          "multiline": true,
+          "set_by": [
+            "flow"
+          ]
+        },
+        "client_key": {
+          "label": "Client key",
+          "set_by": [
+            "flow"
+          ]
+        },
+        "input": {
+          "multiline": true,
+          "set_by": [
+            "flow"
+          ]
+        },
+        "kind": {
+          "set_by": [
+            "flow"
+          ]
+        },
+        "profile": {
+          "set_by": [
+            "flow"
+          ]
+        },
+        "reason": {
+          "set_by": [
+            "flow"
+          ]
+        },
+        "result_fingerprints": {
+          "label": "Result fingerprints",
+          "set_by": [
+            "flow"
+          ]
+        },
+        "result_kind": {
+          "label": "Result kind",
+          "set_by": [
+            "flow"
+          ]
+        },
+        "role": {
+          "set_by": [
+            "flow"
+          ]
+        },
+        "state": {
+          "set_by": [
+            "flow"
+          ]
+        },
+        "verdict": {
+          "set_by": [
+            "flow"
+          ]
+        },
+        "work_id": {
+          "label": "Work id",
+          "set_by": [
+            "flow"
+          ]
+        }
+      },
+      "top": false
+    },
+    "task_attempt": {
+      "by_hand": false,
+      "order": "newest",
+      "properties": {
+        "configured_model": {
+          "label": "Configured model",
+          "set_by": [
+            "flow"
+          ]
+        },
+        "conversation_id": {
+          "label": "Conversation id",
+          "set_by": [
+            "flow"
+          ]
+        },
+        "ended_at": {
+          "label": "Ended at",
+          "set_by": [
+            "flow"
+          ]
+        },
+        "harness": {
+          "set_by": [
+            "flow"
+          ]
+        },
+        "harness_version": {
+          "label": "Harness version",
+          "set_by": [
+            "flow"
+          ]
+        },
+        "machine": {
+          "set_by": [
+            "flow"
+          ]
+        },
+        "provider": {
+          "set_by": [
+            "flow"
+          ]
+        },
+        "reported_model": {
+          "label": "Reported model",
+          "set_by": [
+            "flow"
+          ]
+        },
+        "result_kind": {
+          "label": "Result kind",
+          "set_by": [
+            "flow"
+          ]
+        },
+        "selection_reason": {
+          "label": "Selection reason",
+          "set_by": [
+            "flow"
+          ]
+        },
+        "slot": {
+          "set_by": [
+            "flow"
+          ]
+        },
+        "started_at": {
+          "label": "Started at",
+          "set_by": [
+            "flow"
+          ]
+        },
+        "state": {
+          "set_by": [
+            "flow"
+          ]
+        },
+        "turn_id": {
+          "label": "Turn id",
+          "set_by": [
+            "flow"
+          ]
+        }
+      },
+      "top": false
     },
     "to_do": {
       "completion": [
@@ -1004,6 +1257,12 @@
         "migration"
       ]
     },
+    "attempt_of": {
+      "parent": true,
+      "set_by": [
+        "flow"
+      ]
+    },
     "based_on": {
       "review": {
         "field": "status",
@@ -1063,10 +1322,27 @@
         "error": "only the person who overrules a verdict sets overruled_by, to themselves"
       }
     },
+    "package_of": {
+      "parent": true,
+      "set_by": [
+        "flow"
+      ]
+    },
+    "ran_on": {
+      "set_by": [
+        "flow"
+      ]
+    },
     "reviewed_by": {
       "only_target": {
         "error": "only the person who confirms a verdict sets reviewed_by, to themselves"
       }
+    },
+    "task_of": {
+      "parent": true,
+      "set_by": [
+        "flow"
+      ]
     },
     "verdict_by": {
       "only_target": {
