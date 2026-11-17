@@ -1369,17 +1369,10 @@
         ],
         "type": "object"
       }
-    },
-    "securitySchemes": {
-      "tcp": {
-        "description": "Listener `tcp`: `Authorization: Bearer <token>`; a token's rights are at most submit, cancel, read, read_all.",
-        "scheme": "bearer",
-        "type": "http"
-      }
     }
   },
   "info": {
-    "description": "Target `rest` of the backend contract, carrying the boundary's `entities`. Listeners: `socket` (the listener's own identity; rights: submit, cancel, read, read_all, choose_slot, choose_path); `tcp` (bearer token; rights: submit, cancel, read, read_all). No servers: where it listens is configuration.",
+    "description": "Target `rest` of the backend contract, carrying the boundary's `entities`. Listeners: `socket` (the listener's own identity; rights: submit, cancel, read, read_all, choose_slot, choose_path). No servers: where it listens is configuration.",
     "title": "Atlas Runtime backend: work",
     "version": "0.1.0"
   },
@@ -1437,7 +1430,7 @@
             },
             "description": "error `invalid`"
           },
-          "401": {
+          "403": {
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1446,13 +1439,13 @@
                       "type": "string"
                     },
                     "status": {
-                      "const": 401
+                      "const": 403
                     },
                     "title": {
                       "type": "string"
                     },
                     "type": {
-                      "const": "unauthenticated"
+                      "const": "not-permitted"
                     }
                   },
                   "required": [
@@ -1464,62 +1457,7 @@
                 }
               }
             },
-            "description": "error `unauthenticated`"
-          },
-          "403": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "oneOf": [
-                    {
-                      "properties": {
-                        "detail": {
-                          "type": "string"
-                        },
-                        "status": {
-                          "const": 403
-                        },
-                        "title": {
-                          "type": "string"
-                        },
-                        "type": {
-                          "const": "not-permitted"
-                        }
-                      },
-                      "required": [
-                        "type",
-                        "title",
-                        "status"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "properties": {
-                        "detail": {
-                          "type": "string"
-                        },
-                        "status": {
-                          "const": 403
-                        },
-                        "title": {
-                          "type": "string"
-                        },
-                        "type": {
-                          "const": "origin-refused"
-                        }
-                      },
-                      "required": [
-                        "type",
-                        "title",
-                        "status"
-                      ],
-                      "type": "object"
-                    }
-                  ]
-                }
-              }
-            },
-            "description": "error `not_permitted`; error `origin_refused`"
+            "description": "error `not_permitted`"
           }
         }
       }
@@ -1610,7 +1548,7 @@
             },
             "description": "error `invalid`"
           },
-          "401": {
+          "403": {
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1619,13 +1557,13 @@
                       "type": "string"
                     },
                     "status": {
-                      "const": 401
+                      "const": 403
                     },
                     "title": {
                       "type": "string"
                     },
                     "type": {
-                      "const": "unauthenticated"
+                      "const": "not-permitted"
                     }
                   },
                   "required": [
@@ -1637,62 +1575,7 @@
                 }
               }
             },
-            "description": "error `unauthenticated`"
-          },
-          "403": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "oneOf": [
-                    {
-                      "properties": {
-                        "detail": {
-                          "type": "string"
-                        },
-                        "status": {
-                          "const": 403
-                        },
-                        "title": {
-                          "type": "string"
-                        },
-                        "type": {
-                          "const": "not-permitted"
-                        }
-                      },
-                      "required": [
-                        "type",
-                        "title",
-                        "status"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "properties": {
-                        "detail": {
-                          "type": "string"
-                        },
-                        "status": {
-                          "const": 403
-                        },
-                        "title": {
-                          "type": "string"
-                        },
-                        "type": {
-                          "const": "origin-refused"
-                        }
-                      },
-                      "required": [
-                        "type",
-                        "title",
-                        "status"
-                      ],
-                      "type": "object"
-                    }
-                  ]
-                }
-              }
-            },
-            "description": "error `not_permitted`; error `origin_refused`"
+            "description": "error `not_permitted`"
           }
         }
       }
@@ -1758,7 +1641,7 @@
             },
             "description": "error `invalid`"
           },
-          "401": {
+          "403": {
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1767,13 +1650,13 @@
                       "type": "string"
                     },
                     "status": {
-                      "const": 401
+                      "const": 403
                     },
                     "title": {
                       "type": "string"
                     },
                     "type": {
-                      "const": "unauthenticated"
+                      "const": "not-permitted"
                     }
                   },
                   "required": [
@@ -1785,62 +1668,7 @@
                 }
               }
             },
-            "description": "error `unauthenticated`"
-          },
-          "403": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "oneOf": [
-                    {
-                      "properties": {
-                        "detail": {
-                          "type": "string"
-                        },
-                        "status": {
-                          "const": 403
-                        },
-                        "title": {
-                          "type": "string"
-                        },
-                        "type": {
-                          "const": "not-permitted"
-                        }
-                      },
-                      "required": [
-                        "type",
-                        "title",
-                        "status"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "properties": {
-                        "detail": {
-                          "type": "string"
-                        },
-                        "status": {
-                          "const": 403
-                        },
-                        "title": {
-                          "type": "string"
-                        },
-                        "type": {
-                          "const": "origin-refused"
-                        }
-                      },
-                      "required": [
-                        "type",
-                        "title",
-                        "status"
-                      ],
-                      "type": "object"
-                    }
-                  ]
-                }
-              }
-            },
-            "description": "error `not_permitted`; error `origin_refused`"
+            "description": "error `not_permitted`"
           },
           "404": {
             "content": {
@@ -1959,7 +1787,7 @@
             },
             "description": "error `invalid`"
           },
-          "401": {
+          "403": {
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1968,13 +1796,13 @@
                       "type": "string"
                     },
                     "status": {
-                      "const": 401
+                      "const": 403
                     },
                     "title": {
                       "type": "string"
                     },
                     "type": {
-                      "const": "unauthenticated"
+                      "const": "not-permitted"
                     }
                   },
                   "required": [
@@ -1986,62 +1814,7 @@
                 }
               }
             },
-            "description": "error `unauthenticated`"
-          },
-          "403": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "oneOf": [
-                    {
-                      "properties": {
-                        "detail": {
-                          "type": "string"
-                        },
-                        "status": {
-                          "const": 403
-                        },
-                        "title": {
-                          "type": "string"
-                        },
-                        "type": {
-                          "const": "not-permitted"
-                        }
-                      },
-                      "required": [
-                        "type",
-                        "title",
-                        "status"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "properties": {
-                        "detail": {
-                          "type": "string"
-                        },
-                        "status": {
-                          "const": 403
-                        },
-                        "title": {
-                          "type": "string"
-                        },
-                        "type": {
-                          "const": "origin-refused"
-                        }
-                      },
-                      "required": [
-                        "type",
-                        "title",
-                        "status"
-                      ],
-                      "type": "object"
-                    }
-                  ]
-                }
-              }
-            },
-            "description": "error `not_permitted`; error `origin_refused`"
+            "description": "error `not_permitted`"
           },
           "404": {
             "content": {
@@ -2336,7 +2109,7 @@
             },
             "description": "outcome `refused` (reason `invalid`); error `invalid`"
           },
-          "401": {
+          "403": {
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -2344,14 +2117,17 @@
                     "detail": {
                       "type": "string"
                     },
+                    "reason": {
+                      "const": "not_permitted"
+                    },
                     "status": {
-                      "const": 401
+                      "const": 403
                     },
                     "title": {
                       "type": "string"
                     },
                     "type": {
-                      "const": "unauthenticated"
+                      "const": "not-permitted"
                     }
                   },
                   "required": [
@@ -2363,65 +2139,7 @@
                 }
               }
             },
-            "description": "error `unauthenticated`"
-          },
-          "403": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "oneOf": [
-                    {
-                      "properties": {
-                        "detail": {
-                          "type": "string"
-                        },
-                        "reason": {
-                          "const": "not_permitted"
-                        },
-                        "status": {
-                          "const": 403
-                        },
-                        "title": {
-                          "type": "string"
-                        },
-                        "type": {
-                          "const": "not-permitted"
-                        }
-                      },
-                      "required": [
-                        "type",
-                        "title",
-                        "status"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "properties": {
-                        "detail": {
-                          "type": "string"
-                        },
-                        "status": {
-                          "const": 403
-                        },
-                        "title": {
-                          "type": "string"
-                        },
-                        "type": {
-                          "const": "origin-refused"
-                        }
-                      },
-                      "required": [
-                        "type",
-                        "title",
-                        "status"
-                      ],
-                      "type": "object"
-                    }
-                  ]
-                }
-              }
-            },
-            "description": "outcome `refused` (reason `not_permitted`); error `not_permitted`; error `origin_refused`"
+            "description": "outcome `refused` (reason `not_permitted`); error `not_permitted`"
           },
           "409": {
             "content": {
@@ -2750,7 +2468,7 @@
             },
             "description": "error `invalid`"
           },
-          "401": {
+          "403": {
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -2759,13 +2477,13 @@
                       "type": "string"
                     },
                     "status": {
-                      "const": 401
+                      "const": 403
                     },
                     "title": {
                       "type": "string"
                     },
                     "type": {
-                      "const": "unauthenticated"
+                      "const": "not-permitted"
                     }
                   },
                   "required": [
@@ -2777,62 +2495,7 @@
                 }
               }
             },
-            "description": "error `unauthenticated`"
-          },
-          "403": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "oneOf": [
-                    {
-                      "properties": {
-                        "detail": {
-                          "type": "string"
-                        },
-                        "status": {
-                          "const": 403
-                        },
-                        "title": {
-                          "type": "string"
-                        },
-                        "type": {
-                          "const": "not-permitted"
-                        }
-                      },
-                      "required": [
-                        "type",
-                        "title",
-                        "status"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "properties": {
-                        "detail": {
-                          "type": "string"
-                        },
-                        "status": {
-                          "const": 403
-                        },
-                        "title": {
-                          "type": "string"
-                        },
-                        "type": {
-                          "const": "origin-refused"
-                        }
-                      },
-                      "required": [
-                        "type",
-                        "title",
-                        "status"
-                      ],
-                      "type": "object"
-                    }
-                  ]
-                }
-              }
-            },
-            "description": "error `not_permitted`; error `origin_refused`"
+            "description": "error `not_permitted`"
           },
           "404": {
             "content": {
@@ -2987,7 +2650,7 @@
             },
             "description": "outcome `refused` (reason `invalid`); error `invalid`"
           },
-          "401": {
+          "403": {
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -2995,14 +2658,17 @@
                     "detail": {
                       "type": "string"
                     },
+                    "reason": {
+                      "const": "not_permitted"
+                    },
                     "status": {
-                      "const": 401
+                      "const": 403
                     },
                     "title": {
                       "type": "string"
                     },
                     "type": {
-                      "const": "unauthenticated"
+                      "const": "not-permitted"
                     }
                   },
                   "required": [
@@ -3014,65 +2680,7 @@
                 }
               }
             },
-            "description": "error `unauthenticated`"
-          },
-          "403": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "oneOf": [
-                    {
-                      "properties": {
-                        "detail": {
-                          "type": "string"
-                        },
-                        "reason": {
-                          "const": "not_permitted"
-                        },
-                        "status": {
-                          "const": 403
-                        },
-                        "title": {
-                          "type": "string"
-                        },
-                        "type": {
-                          "const": "not-permitted"
-                        }
-                      },
-                      "required": [
-                        "type",
-                        "title",
-                        "status"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "properties": {
-                        "detail": {
-                          "type": "string"
-                        },
-                        "status": {
-                          "const": 403
-                        },
-                        "title": {
-                          "type": "string"
-                        },
-                        "type": {
-                          "const": "origin-refused"
-                        }
-                      },
-                      "required": [
-                        "type",
-                        "title",
-                        "status"
-                      ],
-                      "type": "object"
-                    }
-                  ]
-                }
-              }
-            },
-            "description": "outcome `refused` (reason `not_permitted`); error `not_permitted`; error `origin_refused`"
+            "description": "outcome `refused` (reason `not_permitted`); error `not_permitted`"
           },
           "404": {
             "content": {
@@ -3372,7 +2980,7 @@
             },
             "description": "error `invalid`"
           },
-          "401": {
+          "403": {
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -3381,13 +2989,13 @@
                       "type": "string"
                     },
                     "status": {
-                      "const": 401
+                      "const": 403
                     },
                     "title": {
                       "type": "string"
                     },
                     "type": {
-                      "const": "unauthenticated"
+                      "const": "not-permitted"
                     }
                   },
                   "required": [
@@ -3399,62 +3007,7 @@
                 }
               }
             },
-            "description": "error `unauthenticated`"
-          },
-          "403": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "oneOf": [
-                    {
-                      "properties": {
-                        "detail": {
-                          "type": "string"
-                        },
-                        "status": {
-                          "const": 403
-                        },
-                        "title": {
-                          "type": "string"
-                        },
-                        "type": {
-                          "const": "not-permitted"
-                        }
-                      },
-                      "required": [
-                        "type",
-                        "title",
-                        "status"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "properties": {
-                        "detail": {
-                          "type": "string"
-                        },
-                        "status": {
-                          "const": 403
-                        },
-                        "title": {
-                          "type": "string"
-                        },
-                        "type": {
-                          "const": "origin-refused"
-                        }
-                      },
-                      "required": [
-                        "type",
-                        "title",
-                        "status"
-                      ],
-                      "type": "object"
-                    }
-                  ]
-                }
-              }
-            },
-            "description": "error `not_permitted`; error `origin_refused`"
+            "description": "error `not_permitted`"
           },
           "404": {
             "content": {
@@ -3639,7 +3192,7 @@
             },
             "description": "error `invalid`"
           },
-          "401": {
+          "403": {
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -3648,13 +3201,13 @@
                       "type": "string"
                     },
                     "status": {
-                      "const": 401
+                      "const": 403
                     },
                     "title": {
                       "type": "string"
                     },
                     "type": {
-                      "const": "unauthenticated"
+                      "const": "not-permitted"
                     }
                   },
                   "required": [
@@ -3666,62 +3219,7 @@
                 }
               }
             },
-            "description": "error `unauthenticated`"
-          },
-          "403": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "oneOf": [
-                    {
-                      "properties": {
-                        "detail": {
-                          "type": "string"
-                        },
-                        "status": {
-                          "const": 403
-                        },
-                        "title": {
-                          "type": "string"
-                        },
-                        "type": {
-                          "const": "not-permitted"
-                        }
-                      },
-                      "required": [
-                        "type",
-                        "title",
-                        "status"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "properties": {
-                        "detail": {
-                          "type": "string"
-                        },
-                        "status": {
-                          "const": 403
-                        },
-                        "title": {
-                          "type": "string"
-                        },
-                        "type": {
-                          "const": "origin-refused"
-                        }
-                      },
-                      "required": [
-                        "type",
-                        "title",
-                        "status"
-                      ],
-                      "type": "object"
-                    }
-                  ]
-                }
-              }
-            },
-            "description": "error `not_permitted`; error `origin_refused`"
+            "description": "error `not_permitted`"
           },
           "404": {
             "content": {
@@ -3886,7 +3384,7 @@
             },
             "description": "outcome `refused` (reason `invalid`); error `invalid`"
           },
-          "401": {
+          "403": {
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -3894,14 +3392,17 @@
                     "detail": {
                       "type": "string"
                     },
+                    "reason": {
+                      "const": "not_permitted"
+                    },
                     "status": {
-                      "const": 401
+                      "const": 403
                     },
                     "title": {
                       "type": "string"
                     },
                     "type": {
-                      "const": "unauthenticated"
+                      "const": "not-permitted"
                     }
                   },
                   "required": [
@@ -3913,65 +3414,7 @@
                 }
               }
             },
-            "description": "error `unauthenticated`"
-          },
-          "403": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "oneOf": [
-                    {
-                      "properties": {
-                        "detail": {
-                          "type": "string"
-                        },
-                        "reason": {
-                          "const": "not_permitted"
-                        },
-                        "status": {
-                          "const": 403
-                        },
-                        "title": {
-                          "type": "string"
-                        },
-                        "type": {
-                          "const": "not-permitted"
-                        }
-                      },
-                      "required": [
-                        "type",
-                        "title",
-                        "status"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "properties": {
-                        "detail": {
-                          "type": "string"
-                        },
-                        "status": {
-                          "const": 403
-                        },
-                        "title": {
-                          "type": "string"
-                        },
-                        "type": {
-                          "const": "origin-refused"
-                        }
-                      },
-                      "required": [
-                        "type",
-                        "title",
-                        "status"
-                      ],
-                      "type": "object"
-                    }
-                  ]
-                }
-              }
-            },
-            "description": "outcome `refused` (reason `not_permitted`); error `not_permitted`; error `origin_refused`"
+            "description": "outcome `refused` (reason `not_permitted`); error `not_permitted`"
           },
           "404": {
             "content": {
@@ -4150,11 +3593,5 @@
         }
       }
     }
-  },
-  "security": [
-    {},
-    {
-      "tcp": []
-    }
-  ]
+  }
 }

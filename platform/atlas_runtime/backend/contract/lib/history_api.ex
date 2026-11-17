@@ -49,10 +49,5 @@ defmodule AtlasRuntimeBackend.History do
     error :invalid, 400, type: "invalid"
     error :not_permitted, 403, type: "not-permitted"
     error :no_route, 404, type: "no-route"
-
-    # The listener's refusals before the router runs (§8.1, §8.3), as in the work contract:
-    # one router answers every contract's errors alike.
-    error :unauthenticated, 401, type: "unauthenticated"
-    error :origin_refused, 403, type: "origin-refused"
   end
 end

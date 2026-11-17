@@ -16,16 +16,6 @@
       "kind": "no_route",
       "status": 404,
       "type": "no-route"
-    },
-    {
-      "kind": "unauthenticated",
-      "status": 401,
-      "type": "unauthenticated"
-    },
-    {
-      "kind": "origin_refused",
-      "status": 403,
-      "type": "origin-refused"
     }
   ],
   "events": [
@@ -59,15 +49,6 @@
         "read_all",
         "choose_slot",
         "choose_path"
-      ]
-    },
-    {
-      "name": "tcp",
-      "rights": [
-        "submit",
-        "cancel",
-        "read",
-        "read_all"
       ]
     }
   ],

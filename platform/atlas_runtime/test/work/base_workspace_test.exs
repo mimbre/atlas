@@ -54,8 +54,8 @@ defmodule AtlasRuntime.Work.BaseWorkspaceTest do
     end
   end
 
-  # S3 (D44) gates naming a path on this machine (a folder workspace) on choose_path. A base
-  # names none: the Runtime chooses its folder, so the TCP ceiling (no choose_path) submits one.
+  # D44 gates naming a path on this machine (a folder workspace) on choose_path. A base
+  # names none: the Runtime chooses its folder, so a client without choose_path submits one.
   test "a client without choose_path submits a base, which runs in the Runtime-chosen folder",
        %{bench: bench, code: code} do
     tcp = {"token:t", [:submit, :cancel, :read, :read_all]}

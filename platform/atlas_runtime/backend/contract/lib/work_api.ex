@@ -10,17 +10,12 @@ defmodule AtlasRuntimeBackend.Work do
   `choose_slot` and `choose_path` included; the notifications are the stream's events. The
   one target in S1 is `rest` (§8.2–§8.4), carrying the boundary's entities.
 
-  S3 adds the loopback TCP listener's rights ceiling (§8.1: a token's rights are cut to
-  it; never `choose_slot` or `choose_path`, D44) and its refusals before the router runs:
-  401 `unauthenticated` and 403 `origin-refused`. It also adds the HTTP semantics S1
-  deferred (§8.2, §8.3): `GET /v1/work/{id}` is conditional, with `ETag: "<revision>"` (the work's
-  revision, never its sequence) and `If-None-Match` → 304; `existing` carries
-  `Idempotent-Replayed: true`. They hold on every listener, as there is one router.
-  `mix runtime_backend.gen` describes it for clients in other languages, in
-  `../targets/rest/work_api`: `routes.json` and `openapi.json` (the tcp listener's bearer
-  scheme, every status above; no servers). Only this contract declares the tcp listener:
-  its ceiling is the router's (`__rights__(:tcp)`), so no TCP token ever gets the
-  operations rights `inspect` or `operate`, nor `choose_slot` or `choose_path`.
+  It also carries the HTTP semantics S1 deferred (§8.2, §8.3): `GET /v1/work/{id}` is
+  conditional, with `ETag: "<revision>"` (the work's revision, never its sequence) and
+  `If-None-Match` → 304; `existing` carries `Idempotent-Replayed: true`. `mix runtime_backend.gen` describes it for clients in other
+  languages, in `../targets/rest/work_api`: `routes.json` and `openapi.json` (every status
+  above; no servers). The one listener is the owner-only Unix socket; the S3 loopback TCP
+  listener was removed unactivated (work acquisition decision 2026-11-17, M0).
 
   Declarations only. The generator (`AtlasRuntimeBackend.Generator.Schema`) turns them into
   `__schema__/0`, which its targets read.
@@ -48,11 +43,6 @@ defmodule AtlasRuntimeBackend.Work do
 
   # The socket owner, as local:<user>. Agents cannot reach the socket (I8).
   rights :socket, [:submit, :cancel, :read, :read_all, :choose_slot, :choose_path]
-
-  # Loopback TCP behind the reachability path (§8.1, §9): a client is its Bearer token, and
-  # its token's rights are cut to this ceiling. Never choose_slot or choose_path: naming a
-  # slot, or a path on the Runtime's machine (D44), is for the socket only.
-  rights :tcp, [:submit, :cancel, :read, :read_all]
 
   ## Events (§3.6, §8.4): the change sequence is the event id.
 
@@ -153,11 +143,5 @@ defmodule AtlasRuntimeBackend.Work do
     error :invalid, 400, type: "invalid"
     error :not_permitted, 403, type: "not-permitted"
     error :no_route, 404, type: "no-route"
-
-    # The TCP listener's refusals before the router runs (§8.1, §8.3), sent with the
-    # router's __problem__/2: a missing, malformed, unknown or disabled token, and any
-    # request with an Origin header.
-    error :unauthenticated, 401, type: "unauthenticated"
-    error :origin_refused, 403, type: "origin-refused"
   end
 end

@@ -9,22 +9,17 @@ defmodule AtlasRuntime.Backend.FrozenRestTest do
       GET /v1/work/{id}/attempts/{n}/frozen/blobs/{sha256} get_frozen_blob
 
   Every outcome × status, the blob as `application/octet-stream` bytes (never JSON, never
-  held whole) through Plug, Bandit on `backend.sock` and on the TCP listener, and a real
-  `:httpc` download through the remote client (`AtlasRuntime.Remote`). What a reader may
-  see is the core's decision (s5a-plan P8); here only that the router hands the facade the
-  listener's client, a token with its own rights.
+  held whole) through Plug and Bandit on `backend.sock`. What a reader may see is the
+  core's decision (s5a-plan P8); here only that the router hands the facade the
+  listener's client.
   """
-  # FakeWork's answers, the OS environment and the :httpc profile are global.
+  # FakeWork's answers are global.
   use ExUnit.Case, async: false
 
   import Plug.Test
   import Plug.Conn
 
-  alias AtlasRuntime.Backend.{Clients, Listener, TcpListener, TestSocket}
-  alias AtlasRuntime.Remote
-  alias AtlasRuntime.Remote.Config
-  alias AtlasRuntime.RemoteFixtures, as: RF
-  alias AtlasRuntime.RemoteFixtures.Proxy
+  alias AtlasRuntime.Backend.{Listener, TestSocket}
   alias AtlasRuntime.Test.{FakeWork, WorkRest}
   alias AtlasRuntime.Test.WorkFacade, as: F
 
@@ -344,49 +339,12 @@ defmodule AtlasRuntime.Backend.FrozenRestTest do
       end)
   end
 
-  ## Over the listeners: Bandit sends the blob chunked, and a token is its own client.
+  ## Over the listener: Bandit sends the blob chunked.
 
-  @reader "cmVhZGVyLXRva2VuLWZvci10ZXN0cy0xMjM"
-
-  defp sha(token), do: :crypto.hash(:sha256, token) |> Base.encode16(case: :lower)
-
-  defp free_port do
-    {:ok, socket} = :gen_tcp.listen(0, ip: {127, 0, 0, 1})
-    {:ok, port} = :inet.port(socket)
-    :gen_tcp.close(socket)
-    port
-  end
-
-  defp tcp!(rights) do
-    home = TestSocket.home()
-    on_exit(fn -> File.rm_rf!(home) end)
-    port = free_port()
-    path = Clients.path(home)
-
-    File.write!(
-      path,
-      JSON.encode!(%{
-        "version" => 1,
-        "listen" => %{"port" => port},
-        "clients" => [%{"name" => "reader", "token_sha256" => sha(@reader), "rights" => rights}]
-      })
-    )
-
-    File.chmod!(path, 0o600)
-    start_supervised!({TcpListener, home: home, router: WorkRest})
-    port
-  end
-
-  # A raw HTTP/1.1 GET on `connect` ({:local, path} or a loopback port), read to the close;
+  # A raw HTTP/1.1 GET on the Unix socket `connect` ({:local, path}), read to the close;
   # a chunked body is decoded and its chunk count kept.
-  defp raw_get(connect, path, headers) do
-    {address, port} =
-      case connect do
-        {:local, _} = local -> {local, 0}
-        port when is_integer(port) -> {{127, 0, 0, 1}, port}
-      end
-
-    {:ok, socket} = :gen_tcp.connect(address, port, [:binary, active: false], 2_000)
+  defp raw_get({:local, _} = connect, path, headers) do
+    {:ok, socket} = :gen_tcp.connect(connect, 0, [:binary, active: false], 2_000)
     lines = for {k, v} <- headers, do: [k, ": ", v, "\r\n"]
 
     :ok =
@@ -435,132 +393,30 @@ defmodule AtlasRuntime.Backend.FrozenRestTest do
     end
   end
 
-  describe "over the listeners" do
-    test "TCP: a token with only read is its own client, with its own rights, for both reads" do
-      port = tcp!(["read"])
-
-      # As the core decides it (P8): only the caller's own work, without read_all.
-      FakeWork.answer(:get_frozen, fn {_id, rights}, input ->
-        if input.work_id == "mine" or :read_all in rights,
-          do: frozen(input.work_id, input.attempt),
-          else: %F.Outcome.NotFound{}
-      end)
-
-      auth = [{"authorization", "Bearer " <> @reader}]
-
-      assert %{status: 200, body: body} = raw_get(port, "/v1/work/mine/attempts/1/frozen", auth)
-      assert %{"work_id" => "mine", "attempt" => 1} = JSON.decode!(body)
-      assert_received {:fake_work, :get_frozen, {"token:reader", [:read]}, _}
-
-      assert %{status: 404} = raw_get(port, "/v1/work/theirs/attempts/1/frozen", auth)
-      assert_received {:fake_work, :get_frozen, {"token:reader", [:read]}, _}
-
-      answer_blob(10)
-
-      assert %{status: 200} =
-               raw_get(port, "/v1/work/mine/attempts/1/frozen/blobs/" <> @sha, auth)
-
-      assert_received {:fake_work, :get_frozen_blob, {"token:reader", [:read]}, _}
-
-      # Without a token, nothing is read.
-      assert %{status: 401} = raw_get(port, "/v1/work/mine/attempts/1/frozen", [])
-      refute_received {:fake_work, _, _, _}
-    end
-
-    test "TCP and backend.sock: Bandit sends a 5 MiB blob chunked, one chunk per element, byte-identical" do
+  describe "over the listener" do
+    test "backend.sock: Bandit sends a 5 MiB blob chunked, one chunk per element, byte-identical" do
       size = 5 * 1_048_576
       sha = answer_blob(size)
-      port = tcp!(["read"])
       home = TestSocket.home()
       on_exit(fn -> File.rm_rf!(home) end)
       start_supervised!({Listener, home: home, router: WorkRest})
 
-      for {connect, headers} <- [
-            {port, [{"authorization", "Bearer " <> @reader}]},
-            {{:local, Listener.path(home)}, []}
-          ] do
-        reply = raw_get(connect, "/v1/work/w-1/attempts/1/frozen/blobs/" <> @sha, headers)
-
-        assert reply.status == 200
-        assert {"content-type", "application/octet-stream"} in reply.headers
-        assert {"transfer-encoding", "chunked"} in reply.headers
-        assert {"blob-sha256", sha} in reply.headers
-        assert {"blob-size", Integer.to_string(size)} in reply.headers
-        refute List.keymember?(reply.headers, "content-length", 0)
-        assert byte_size(reply.body) == size
-        assert sha256([reply.body]) == sha
-        assert reply.chunks == 80
-      end
-    end
-  end
-
-  describe "a real :httpc download (AtlasRuntime.Remote)" do
-    @url "ATLAS_RUNTIME_BACKEND_URL"
-    @token "ATLAS_RUNTIME_BACKEND_TOKEN"
-
-    setup do
-      on_exit(fn ->
-        System.delete_env(@url)
-        System.delete_env(@token)
-      end)
-
-      :ok
-    end
-
-    # The HTTPS stand-in serving the test router as the token's client, reached through the
-    # CONNECT proxy, as AtlasRuntime.RemoteTest does.
-    defp remote!(client) do
-      pki = RF.pki()
-      token = "t0k." <> Base.encode16(:crypto.strong_rand_bytes(24), case: :lower)
-
-      serve =
-        start_supervised!(
-          RF.serve_spec(
-            fn conn -> conn |> assign(:client, client) |> WorkRest.call(WorkRest.init([])) end,
-            pki
-          )
+      reply =
+        raw_get(
+          {:local, Listener.path(home)},
+          "/v1/work/w-1/attempts/1/frozen/blobs/" <> @sha,
+          []
         )
 
-      proxy = start_supervised!({Proxy, mode: :tunnel})
-      System.put_env(@url, "https://#{RF.host()}:#{RF.serve_port(serve)}")
-      System.put_env(@token, token)
-      start_supervised!({Config, proxy: {"localhost", Proxy.port(proxy)}, cacerts: pki.cacerts})
-      :ok
-    end
-
-    test "the client gets the blob as a stream with its sha256 and size, byte-identical" do
-      remote!({"token:reader", [:read]})
-      size = 3 * 1_048_576 + 17
-      sha = answer_blob(size)
-
-      assert {:blob, %{sha256: ^sha, size: ^size, content: content}} =
-               Remote.get_frozen_blob(%{work_id: "w-1", attempt: 1, sha256: @sha})
-
-      assert sha256(content) == sha
-      assert_received {:fake_work, :get_frozen_blob, {"token:reader", [:read]}, _}
-    end
-
-    test "the client gets frozen, fingerprint_mismatch, pruned and not_found apart" do
-      remote!({"token:reader", [:read]})
-      answer_frozen()
-
-      assert {:frozen, %{work_id: "w-1", roots: [%{fingerprint: @csf_a}, _]}} =
-               Remote.get_frozen(%{work_id: "w-1", attempt: 1})
-
-      assert {:fingerprint_mismatch, %{}} =
-               Remote.get_frozen(%{work_id: "w-1", attempt: 1, fingerprint: "csf_nope"})
-
-      FakeWork.answer(:get_frozen_blob, fn _, _ ->
-        %F.Outcome.Pruned{work_id: "w-1", kind: :completed}
-      end)
-
-      assert {:pruned, %{work_id: "w-1"}} =
-               Remote.get_frozen_blob(%{work_id: "w-1", attempt: 1, sha256: @sha})
-
-      FakeWork.answer(:get_frozen_blob, fn _, _ -> %F.Outcome.NotFound{} end)
-
-      assert {:not_found, %{}} =
-               Remote.get_frozen_blob(%{work_id: "w-1", attempt: 1, sha256: @sha})
+      assert reply.status == 200
+      assert {"content-type", "application/octet-stream"} in reply.headers
+      assert {"transfer-encoding", "chunked"} in reply.headers
+      assert {"blob-sha256", sha} in reply.headers
+      assert {"blob-size", Integer.to_string(size)} in reply.headers
+      refute List.keymember?(reply.headers, "content-length", 0)
+      assert byte_size(reply.body) == size
+      assert sha256([reply.body]) == sha
+      assert reply.chunks == 80
     end
   end
 end

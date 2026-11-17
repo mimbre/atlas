@@ -8,8 +8,7 @@ defmodule AtlasRuntimeBackend.Operations do
   All eight operations capabilities are exposed, one resource each (§1.8), so the
   "`/v1/control`" of §8.2 is the `/v1/control/<action>` family. Only the Unix socket
   (`$ATLAS_RUNTIME_HOME/backend.sock`, §8.1) grants `inspect` and `operate`: its client
-  is the machine's own operator (Q4). No other listener ever gets `operate`, also after
-  S3 (the TCP listener). It is served by the same router as the work contract
+  is the machine's own operator (Q4). It is served by the same router as the work contract
   (`AtlasRuntimeBackend.Generator.Targets.Rest`, `contracts:`), which answers the
   facade's refusals alike for both: a missing right is 403 `not-permitted`, an input that
   does not validate is 400 `invalid`.
@@ -75,10 +74,5 @@ defmodule AtlasRuntimeBackend.Operations do
     error :invalid, 400, type: "invalid"
     error :not_permitted, 403, type: "not-permitted"
     error :no_route, 404, type: "no-route"
-
-    # The listener's refusals before the router runs (§8.1, §8.3), as in the work contract:
-    # one router answers every contract's errors alike.
-    error :unauthenticated, 401, type: "unauthenticated"
-    error :origin_refused, 403, type: "origin-refused"
   end
 end

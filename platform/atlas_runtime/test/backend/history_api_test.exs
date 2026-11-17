@@ -119,8 +119,6 @@ defmodule AtlasRuntime.Backend.HistoryApiTest do
           error :invalid, 400, type: "invalid"
           error :not_permitted, 403, type: "not-permitted"
           error :no_route, 404, type: "no-route"
-          error :unauthenticated, 401, type: "unauthenticated"
-          error :origin_refused, 403, type: "origin-refused"
         end
       end
 
