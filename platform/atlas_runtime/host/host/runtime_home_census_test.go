@@ -70,7 +70,7 @@ var censusHome = map[string]censusEntry{
 	"clients.json":          {"denied", "the S3 loopback TCP clients; no code site since work-acquisition M0, deny kept", true},
 	"sources":               {"denied", "the work sources' credentials and per-source stores, e.g. sources/<name>/token (work acquisition M2, F4; code site sources/credential.ex, W3)", false},
 	"local-source":          {"denied", "the local work source's queue store (work acquisition M2, F4)", false},
-	"bases":                 {"denied", "every client's uploaded base records and the import staging (S5c); joined by bases/store.ex from S5c P7", true},
+	"bases":                 {"denied", "every client's uploaded base records and the import staging (S5c); code site sources/import.ex (work acquisition M2 W5)", false},
 	"workers":               {"chain", "the managed repositories' worker directories", false},
 }
 
