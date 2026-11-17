@@ -293,7 +293,8 @@ defmodule AtlasRuntimeBoundary.WorkTest do
       page: [
         f(:events, {:list, :output_event}, true),
         f(:cursor, :string, true),
-        f(:more, :boolean, true)
+        f(:more, :boolean, true),
+        f(:ended, :boolean)
       ],
       subscribed: [],
       reset: [f(:current_sequence, :integer, true)],
@@ -473,12 +474,12 @@ defmodule AtlasRuntimeBoundary.WorkTest do
   # additions, written out below as JSON. D44: the right choose_path, and a path in
   # resume_workspace, work_product_workspace and folder (a request names it; a work shows
   # it only with choose_path) no longer required. Ownership: cancel may answer refused
-  # (not_permitted, another client's work). Any other change to the work contract fails
-  # here.
+  # (not_permitted, another client's work). M2 A6 (Main's Q3): the page's optional `ended`,
+  # with the version 0.2.0. Any other change to the work contract fails here.
   @work_json Path.expand("../../targets/json/work.json", __DIR__)
   @s1_work_json Path.expand("fixtures/work.develop.json", __DIR__)
 
-  test "work.json differs from S1's only by runtime_stop, D44, ownership and the S5a additions" do
+  test "work.json differs from S1's only by runtime_stop, D44, ownership, S5a and A6's ended" do
     s1 = JSON.decode!(File.read!(@s1_work_json))
     now = JSON.decode!(File.read!(@work_json))
 
@@ -505,6 +506,7 @@ defmodule AtlasRuntimeBoundary.WorkTest do
       |> put_field("folder", "path", field(now, "folder", "path"))
       |> put_outcomes("cancel", outcomes(now, "cancel"))
       |> s5a()
+      |> a6_ended()
 
     for key <- Enum.uniq(Map.keys(allowed) ++ Map.keys(now)) do
       assert by_name(Map.get(now, key)) == by_name(Map.get(allowed, key)),
@@ -529,6 +531,19 @@ defmodule AtlasRuntimeBoundary.WorkTest do
   defp model(name, fields), do: %{"name" => name, "fields" => fields}
 
   defp outcome(name), do: %{"name" => name, "model" => name}
+
+  # M2 A6 (Main's Q3), exactly: one optional field, last on the page, and the minor version.
+  defp a6_ended(json) do
+    json
+    |> Map.put("version", "0.2.0")
+    |> update_in(["models"], fn models ->
+      for m <- models do
+        if m["name"] == "page",
+          do: %{m | "fields" => m["fields"] ++ [jf("ended", "boolean")]},
+          else: m
+      end
+    end)
+  end
 
   # I-B5 (s5a-plan §3), exactly.
   defp s5a(json) do

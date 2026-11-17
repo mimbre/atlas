@@ -738,6 +738,11 @@
           "name": "prepare_pid",
           "required": false,
           "type": "integer"
+        },
+        {
+          "name": "lease_hold",
+          "required": false,
+          "type": "boolean"
         }
       ],
       "name": "attempt",
@@ -757,6 +762,22 @@
         }
       ],
       "name": "source",
+      "persistence": null
+    },
+    {
+      "fields": [
+        {
+          "name": "source",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "change_set",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "name": "imported",
       "persistence": null
     },
     {
@@ -805,6 +826,11 @@
           "name": "source",
           "required": false,
           "type": "source"
+        },
+        {
+          "name": "imported",
+          "required": false,
+          "type": "imported"
         }
       ],
       "name": "work_record",

@@ -106,6 +106,48 @@ defmodule AtlasRuntime.Work.Server do
   that ended without its group confirmed gone. While checking, the heartbeat's `alive` is the
   check group's.
 
+  **Fixed source rights (M2 plan C1).** Besides `slot` (`choose_slot`) and `folder`
+  (`choose_path`), a `repository` workspace and `resume_from` need `choose_path`, which only
+  the socket's client and the built-in `local` source hold (`AtlasRuntime.Sources.Rights`).
+  Every other source's client is refused `not_permitted` before anything is admitted,
+  recorded or prepared.
+
+  **Leases (decision §5.3 item 1; M2 plan C2, C3).** `{:accept_lease, source, lease,
+  imported}` turns a lease's offered work into a request and runs the same submit checks as
+  the source's client. A remote source's base is the one its puller imported (A3, W5:
+  `imported`), recorded on the work as `imported` and composed by the preparer from the
+  source's own store, never fetched from Code. The local source's lease carries its request
+  (Deviation 1) and its work keeps the local work id (A6 Q1); a fresh lease of an attempt
+  already recorded is refused, so it never runs twice, and a lease of the next attempt (a
+  local retry, Main's round 2) adds that attempt to the same record, held like a first one,
+  its key then that lease. The record is keyed in the key index by the source's client and `client_key =
+  lease_id` (so a lease delivered again maps to the same work, and a fresh attempt's new
+  lease is a new work); its `idempotency_key` is the source's `work_key`. Its first attempt
+  is `buffered` with the private `lease_hold: true`, persisted before the answer (I2). A
+  lease is never answered `at_capacity`: it was taken within an offer, so neither the mode
+  nor the buffer refuses it (a draining Runtime returns it; an unavailable profile is a
+  refusal). A held attempt never starts and keeps its hold across a restart, until
+  `{:release_lease, work_id}` (the source recorded the accept) clears it and dispatches.
+
+  **The offer (decision §5.5; M2 plan A1; Main's O1, O2).** `{:offer, source}` gives a
+  configured source (`Policy.sources/1`) its share of the free slots by strict priority with
+  caps (`Queue.offer/4`, on the slots no foreign latch blocks). Only the sources polling
+  right now share them: the asking one and those whose open poll was offered nothing. The
+  answer is the total and the profiles available now: each available profile names that
+  same total (O1). It is empty while the core is not open, or for a source the policy does
+  not name. What it offers is reserved for that poll only (in memory: a restart drops every
+  offer, and the source's puller offers again), until `{:offer_done, source, used}` gives
+  back what is left or the asking process ends (it is monitored). Each lease accepted
+  meanwhile takes one reserved slot, and its held attempt keeps that slot. The leases a
+  puller is still importing when its poll is over (Main's round 2: the import runs off the
+  puller, in a task) stay promised as that source's `{:importing, source, count}`, which the
+  puller sets to the number it imports and each imported lease accepted takes one of, until
+  that puller ends (it is monitored). The reservations, the importing leases and the held attempts are the promised slots
+  (`Queue.promised/2`): an attempt that came in without a lease starts only into a free
+  slot beyond them, and room for a direct submit counts them as taken, so a direct submit
+  between an offer and its accept never takes the slot the lease was offered. A leased
+  attempt, once released, is tried first.
+
   **Stop (design §13.1 Q9).** From `{:stop, force, by}` on the core is `stopping` (in memory
   only, never persisted): it takes no new work and starts nothing; buffered work stays.
   Without `force` the Service's own service stop signals what it runs, and after
@@ -121,6 +163,7 @@ defmodule AtlasRuntime.Work.Server do
   alias AtlasRuntime.Boundary.Work, as: B
   alias AtlasRuntime.Model.Work, as: M
   alias AtlasRuntime.Persistence.History
+  alias AtlasRuntime.Sources.{LeaseShape, Rights}
 
   alias AtlasRuntime.Work.{
     Check,
@@ -179,6 +222,11 @@ defmodule AtlasRuntime.Work.Server do
       # The persisted mode (AtlasRuntime.Work.Mode): new work and starts only while open.
       mode: loaded.mode,
       room: true,
+      # The offers outstanding (M2 plan A1): source name => %{offered, left}, never persisted.
+      reservations: %{},
+      # The leases each source's puller is importing (Main's round 2): name => %{count,
+      # monitor}, never persisted; they stay promised until accepted or given up.
+      importing: %{},
       blocked: MapSet.new(),
       # Slots a latch of a turn not the core's holds: free again only on `{:released, slot}`.
       latched: MapSet.new(),
@@ -317,6 +365,42 @@ defmodule AtlasRuntime.Work.Server do
       {:reply, outcome, state} -> {:reply, outcome, state, {:continue, :dispatch}}
     end
   end
+
+  # M2 A6: the CLI's add while the core takes no new work answers as a submit would.
+  def handle_call({:at_capacity, reason}, _from, state),
+    do: {:reply, at_capacity(state, reason), state}
+
+  # M2 A5: the local work source checks a work against the policy when it is added.
+  def handle_call({:check_request, client, %B.WorkRequest{} = input}, _from, state),
+    do: {:reply, check_request(state, client, input), state}
+
+  def handle_call({:accept_lease, source, lease, imported}, _from, state)
+      when is_binary(source) do
+    {reply, state} = accept_lease(state, source, lease, imported)
+    {:reply, reply, state, {:continue, :dispatch}}
+  end
+
+  def handle_call({:release_lease, id}, _from, state) do
+    {reply, state} = release_lease(state, id)
+    {:reply, reply, state, {:continue, :dispatch}}
+  end
+
+  def handle_call({:offer, source}, {pid, _tag}, state) when is_binary(source) do
+    {reply, state} = offer(state, source, pid)
+    {:reply, reply, state}
+  end
+
+  def handle_call({:importing, source, count}, {pid, _tag}, state)
+      when is_binary(source) and is_integer(count) and count >= 0 do
+    {:reply, :ok, importing(state, source, count, pid), {:continue, :dispatch}}
+  end
+
+  def handle_call({:offer_done, source, used}, _from, state) when is_binary(source) do
+    {:reply, :ok, offer_done(state, source, used), {:continue, :dispatch}}
+  end
+
+  def handle_call({:holdings, source}, _from, state) when is_binary(source),
+    do: {:reply, holdings(state, source), state}
 
   def handle_call({:retry, client, %B.RetryInput{} = input}, _from, state) do
     {outcome, state} = retry(state, client, input)
@@ -624,14 +708,35 @@ defmodule AtlasRuntime.Work.Server do
     {:noreply, state}
   end
 
-  def handle_info({:DOWN, _ref, :process, pid, _reason}, state),
-    do: {:noreply, %{state | notifications: Notifications.down(state.notifications, pid)}}
+  # The process that holds a poll's offer ended (a puller that died): what it was offered is
+  # free again (Main's O2: nothing is held beyond a poll).
+  def handle_info({:DOWN, ref, :process, pid, reason}, state) do
+    case {Enum.find(state.reservations, fn {_name, r} -> r.monitor == ref end),
+          Enum.find(state.importing, fn {_name, i} -> i.monitor == ref end)} do
+      {{source, _reservation}, _} ->
+        state = %{state | reservations: Map.delete(state.reservations, source)}
+        {:noreply, state |> check_room() |> dispatch()}
+
+      {nil, {source, _importing}} ->
+        state = %{state | importing: Map.delete(state.importing, source)}
+        {:noreply, state |> check_room() |> dispatch()}
+
+      {nil, nil} ->
+        down(state, pid, reason)
+    end
+  end
 
   def handle_info(_message, state), do: {:noreply, state}
 
+  defp down(state, pid, _reason),
+    do: {:noreply, %{state | notifications: Notifications.down(state.notifications, pid)}}
+
   ## Submit (§3.2, §3.3)
 
-  defp submit(state, {_client_id, rights} = client, input) do
+  # `lease`: a lease's work (accept_lease), `%{work_key, imported}` (`imported`: the
+  # M.Imported of a remote source's imported input, or nil), `:check` for the local work
+  # source's add-time check (nothing is created), or nil.
+  defp submit(state, {_client_id, rights} = client, input, lease \\ nil) do
     cond do
       input.slot && not Enum.member?(rights, :choose_slot) ->
         refused(state, :not_permitted, "naming a slot needs the right choose_slot")
@@ -640,17 +745,25 @@ defmodule AtlasRuntime.Work.Server do
       match?(%B.Folder{}, input.workspace) and not Enum.member?(rights, :choose_path) ->
         refused(state, :not_permitted, "a folder workspace needs the right choose_path")
 
+      # C1: a repository is cloned on this machine, so only the local work source names one.
+      match?(%B.Repository{}, input.workspace) and not Enum.member?(rights, :choose_path) ->
+        refused(state, :not_permitted, "a repository workspace needs the right choose_path")
+
+      # C1: a conversation to continue lives on this machine, under its own folder.
+      input.resume_from != nil and not Enum.member?(rights, :choose_path) ->
+        refused(state, :not_permitted, "resume_from needs the right choose_path")
+
       # The contract leaves folder.path optional (a work shows it only with choose_path);
       # a request must name it.
       match?(%B.Folder{path: nil}, input.workspace) ->
         refused(state, :invalid, "a folder workspace needs its path")
 
       true ->
-        admit(state, client, input)
+        admit(state, client, input, lease)
     end
   end
 
-  defp admit(state, {client_id, _rights} = client, input) do
+  defp admit(state, {client_id, _rights} = client, input, lease) do
     policy = Policy.load(state.dir)
     key = input.client_key
     entry = key && state.index[{client_id, key}]
@@ -669,7 +782,8 @@ defmodule AtlasRuntime.Work.Server do
             refused(state, :conflict, "client key #{key} names another request")
         end
 
-      not open?(state) ->
+      # A lease was taken within an offer: never at_capacity (a drain returns it).
+      is_nil(lease) and not open?(state) ->
         {:reply, at_capacity(state, :not_accepting), state}
 
       input.slot && input.slot not in Policy.slots(policy) ->
@@ -709,13 +823,29 @@ defmodule AtlasRuntime.Work.Server do
         with {:ok, source} <- source(state, client, input.workspace),
              {:ok, resume} <- resume_from(state, client, input),
              {:ok, _selection} <- check_policy(state, policy, request, resume),
-             true <- room?(state) || {:full} do
-          create(state, client, key, request, resume, source)
+             true <- lease != nil || room?(state) || {:full} do
+          if lease == :check,
+            do: {:reply, :ok, state},
+            else: create(state, client, key, request, resume, source, lease)
         else
-          {:refused, reason, detail} -> refused(state, reason, detail)
-          {:pruned, outcome} -> {:reply, outcome, state}
-          {:at_capacity, reason, _} -> {:reply, at_capacity(state, reason), state}
-          {:full} -> {:reply, at_capacity(state, :full), state}
+          {:refused, reason, detail} ->
+            refused(state, reason, detail)
+
+          # A work queued at the local source waits for its profile (it is checked, not run).
+          {:at_capacity, _reason, _} when lease == :check ->
+            {:reply, :ok, state}
+
+          {:pruned, outcome} ->
+            {:reply, outcome, state}
+
+          {:at_capacity, _reason, _} when lease != nil ->
+            refused(state, :no_permitted_option, "profile #{request.profile} is unavailable now")
+
+          {:at_capacity, reason, _} ->
+            {:reply, at_capacity(state, reason), state}
+
+          {:full} ->
+            {:reply, at_capacity(state, :full), state}
         end
     end
   end
@@ -800,8 +930,12 @@ defmodule AtlasRuntime.Work.Server do
     end
   end
 
-  defp create(state, {client_id, _rights} = client, key, request, resume, source) do
-    id = "work-" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
+  defp create(state, {client_id, _rights} = client, key, request, resume, source, lease) do
+    # A local lease's work keeps the local work id (Main's A6 Q1).
+    id =
+      (is_map(lease) && lease[:work_id]) ||
+        "work-" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
+
     now = now()
 
     # Not quiescent until it ends (design §3.5): only a terminal write, the probe or a
@@ -812,7 +946,9 @@ defmodule AtlasRuntime.Work.Server do
         state: :buffered,
         timestamps: M.Timestamps.new!(received_at: now, accepted_at: now),
         resume_point: model_resume_point(resume),
-        quiescent: false
+        quiescent: false,
+        # C3: a lease's attempt waits for the source's recorded accept, across a restart too.
+        lease_hold: if(lease, do: true)
       )
 
     record =
@@ -820,12 +956,15 @@ defmodule AtlasRuntime.Work.Server do
         work_id: id,
         client: client_id,
         client_key: key,
-        idempotency_key: key || id,
+        # A lease's turn carries the source's work_key (obligation 8), never the lease.
+        idempotency_key: (lease && lease.work_key) || key || id,
         revision: 0,
         sequence: 0,
         request: request,
         attempts: [attempt],
-        source: source
+        source: source,
+        # A3: the imported base (and change set) this work materializes from.
+        imported: lease && lease.imported
       )
 
     state = commit(state, record)
@@ -843,6 +982,452 @@ defmodule AtlasRuntime.Work.Server do
       end
 
     {:reply, %B.Outcome.Accepted{work: project(state, client, state.works[id])}, state}
+  end
+
+  ## Leases (decision §5.3 item 1; M2 plan C2, C3)
+
+  # The answer is the puller's: `{:accepted | :existing, work_id}` or `{:refused, reason}`
+  # with one of the work source contract's refusal reasons. The detail is logged here, never
+  # sent: a refusal text may name this machine.
+  # Its shape first (the security fix after A2): a lease that is not exactly the contract's
+  # (a field missing, extra or of a wrong type, or no map at all) is refused `invalid`
+  # before any of it is used, and the log names only the rule and the contract's field path,
+  # never the lease's values or its undeclared names.
+  # The built-in local work source (M2 A5) is in-BEAM and acts for the socket's owner (C1):
+  # its lease carries the work contract's request as the CLI added it (a folder, a
+  # repository, a slot or resume_from included), which the work source contract's offered
+  # work cannot carry. Its checks are the socket client's. Only `local` leases this way:
+  # the policy never lets a remote source take that name (W1).
+  # Main's A6 Q1: the record takes the local work id (the lease's work_key) as its own, so
+  # one id names the work at the source and here. The same lease again is `existing`; a
+  # fresh lease of an attempt this executor has recorded (its lease was lost) is refused,
+  # and the source ends that work failed: it never runs twice.
+  # Main's round 2: a local retry is a lease of the next attempt (`work.attempt`, absent 1)
+  # of the same work, added to its record once the attempt before has ended.
+  defp accept_lease(state, "local", lease, _imported) do
+    case lease do
+      %{
+        lease_id: lease_id,
+        work: %{work_key: work_key, request: %B.WorkRequest{} = request} = work
+      }
+      when is_binary(lease_id) and lease_id != "" and is_binary(work_key) ->
+        case Map.get(work, :attempt, 1) do
+          1 ->
+            local_lease(state, lease_id, work_key, request)
+
+          n when is_integer(n) and n > 1 ->
+            local_retry_lease(state, lease_id, work_key, n, Map.get(work, :resume) == true)
+
+          _ ->
+            {lease_refused("local", lease_id, :invalid, "work.attempt is no attempt"), state}
+        end
+
+      _ ->
+        Logger.warning("runtime work: a malformed lease of local was refused (invalid)")
+        {{:refused, :invalid}, state}
+    end
+  end
+
+  defp accept_lease(state, source, lease, imported) do
+    case LeaseShape.check(lease) do
+      {:ok, lease} ->
+        accept_well_formed(state, source, lease, imported)
+
+      {:error, {rule, path}} ->
+        Logger.warning(
+          "runtime work: a malformed lease of #{source} was refused (invalid): " <>
+            "#{rule} at #{Enum.join([:lease | path], ".")}"
+        )
+
+        {{:refused, :invalid}, state}
+    end
+  end
+
+  defp local_lease(state, lease_id, work_key, request) do
+    {client_id, _rights} = client = Rights.client("local")
+    same_lease? = Map.has_key?(state.index, {client_id, lease_id})
+
+    cond do
+      not Regex.match?(~r/\Awork-[0-9a-f]{16}\z/, work_key) ->
+        {lease_refused("local", lease_id, :invalid, "work_key is no local work id"), state}
+
+      not same_lease? and
+          (Map.has_key?(state.works, work_key) or Store.tombstone(state.index, work_key) != nil) ->
+        {lease_refused("local", lease_id, :conflict, "work #{work_key} was leased before"), state}
+
+      true ->
+        input = %{request | client_key: lease_id}
+        lease = %{work_key: work_key, imported: nil, work_id: work_key}
+
+        case submit(state, client, input, lease) do
+          {:reply, %B.Outcome.Accepted{work: %{work_id: id}}, state} ->
+            {{:accepted, id}, take_reserved(state, "local", lease_id)}
+
+          {:reply, %B.Outcome.Existing{work: %{work_id: id}}, state} ->
+            {{:existing, id}, state}
+
+          {:reply, %B.Outcome.Refused{reason: reason, detail: detail}, state} ->
+            {lease_refused("local", lease_id, reason, detail), state}
+
+          {:reply, %B.Outcome.Pruned{}, state} ->
+            {lease_refused("local", lease_id, :invalid, "the lease names a pruned work"), state}
+        end
+    end
+  end
+
+  # Attempt `n` of a local work this executor has recorded: the same lease again is
+  # `existing`; an attempt it has already recorded (`n` or later: that lease was lost) is
+  # refused, so it never runs twice; otherwise attempt `n - 1` must have ended, and the new
+  # attempt is held like any lease's until the source records the accept (C3). The retry's
+  # own checks are the executor's retry's (the policy now, a conversation to continue).
+  defp local_retry_lease(state, lease_id, work_key, n, resume?) do
+    {client_id, _rights} = Rights.client("local")
+    record = state.works[work_key]
+    current = record && Queue.current(record)
+    entry = state.index[{client_id, lease_id}]
+
+    cond do
+      entry && entry.work_id == work_key && current && current.attempt == n ->
+        {{:existing, work_key}, state}
+
+      entry ->
+        {lease_refused("local", lease_id, :invalid, "the lease names another work"), state}
+
+      is_nil(record) ->
+        {lease_refused("local", lease_id, :conflict, "work #{work_key} is not recorded"), state}
+
+      current.attempt >= n ->
+        {lease_refused("local", lease_id, :conflict, "attempt #{n} was leased before"), state}
+
+      current.attempt != n - 1 ->
+        {lease_refused("local", lease_id, :invalid, "attempt #{n} does not follow"), state}
+
+      not Queue.terminal?(current) ->
+        {lease_refused("local", lease_id, :conflict, "attempt #{n - 1} has not ended"), state}
+
+      true ->
+        retry_by_lease(state, record, current, lease_id, resume?)
+    end
+  end
+
+  defp retry_by_lease(state, record, current, lease_id, resume?) do
+    {client_id, _rights} = Rights.client("local")
+    resume = if resume?, do: resume_source(state, record)
+
+    check =
+      cond do
+        resume? && match?(%M.FromWork{}, record.request.workspace) ->
+          {:refused, :resume_unavailable, "a from_work work always runs in a fresh conversation"}
+
+        resume? && is_nil(resume) ->
+          {:refused, :resume_unavailable, "no earlier attempt left a conversation to continue"}
+
+        true ->
+          check_policy(state, Policy.load(state.dir), record.request, resume)
+      end
+
+    case check do
+      {:refused, reason, detail} ->
+        {lease_refused("local", lease_id, reason, detail), state}
+
+      {:at_capacity, _reason, _} ->
+        {lease_refused("local", lease_id, :no_permitted_option, "the profile is unavailable now"),
+         state}
+
+      {:ok, _selection} ->
+        state = add_attempt(state, record, current, :after, resume, true)
+        # The record's key is its current lease: the holdings and the reports follow it, and
+        # the earlier lease's key names nothing any more.
+        earlier = {client_id, record.client_key}
+        record = %{state.works[record.work_id] | client_key: lease_id}
+        state = commit(state, record)
+
+        entry =
+          M.KeyIndexEntry.new!(
+            client: client_id,
+            client_key: lease_id,
+            work_id: record.work_id,
+            pruned: false
+          )
+
+        index = state.index |> Map.delete(earlier) |> Map.put({client_id, lease_id}, entry)
+        Store.put_index!(state.dir, index)
+        state = %{state | index: index}
+        {{:accepted, record.work_id}, take_reserved(state, "local", lease_id)}
+    end
+  end
+
+  defp accept_well_formed(state, source, %{lease_id: lease_id, work: work}, imported) do
+    client = Rights.client(source)
+
+    case lease_request(lease_id, work, imported) do
+      {:ok, input} ->
+        lease = %{
+          work_key: work.work_key,
+          imported:
+            M.Imported.new!(
+              source: source,
+              change_set: imported.change_set && work.input.change_set.manifest
+            )
+        }
+
+        case submit(state, client, input, lease) do
+          {:reply, %B.Outcome.Accepted{work: %{work_id: id}}, state} ->
+            {{:accepted, id}, take_reserved(state, source, lease_id, true)}
+
+          {:reply, %B.Outcome.Existing{work: %{work_id: id}}, state} ->
+            {{:existing, id}, state}
+
+          {:reply, %B.Outcome.Refused{reason: reason, detail: detail}, state} ->
+            {lease_refused(source, lease_id, reason, detail), state}
+
+          {:reply, %B.Outcome.Pruned{}, state} ->
+            {lease_refused(source, lease_id, :invalid, "the lease names a pruned work"), state}
+        end
+
+      {:refused, reason, detail} ->
+        {lease_refused(source, lease_id, reason, detail), state}
+    end
+  end
+
+  # The offered work (decision §5.1) as a work request: a base, never a slot, a folder, a
+  # repository or resume_from. M2 A3: its input is the one the puller imported from this
+  # source (W5, `Sources.Import`): the base is the imported baseline (`imported.baseline_id`,
+  # never the source's own base_id, which names nothing here), and a change set on top is
+  # composed from the source's store. A lease whose input was not imported, or not as the
+  # lease names it, is refused.
+  defp lease_request(lease_id, _work, nil),
+    do: {:refused, :invalid, "lease #{lease_id}: its input was not imported"}
+
+  defp lease_request(lease_id, %{input: %{change_set: change_set}}, %{change_set: imported})
+       when is_nil(change_set) != is_nil(imported),
+       do: {:refused, :invalid, "lease #{lease_id}: its change set was not imported as named"}
+
+  defp lease_request(
+         lease_id,
+         %{input: %{permissions: permissions}} = work,
+         %{baseline_id: base_id}
+       ) do
+    {:ok,
+     %B.WorkRequest{
+       client_key: lease_id,
+       title: work.title,
+       instructions: work.instructions,
+       profile: work.profile,
+       cost_class: work.cost_class,
+       workspace: %B.Base{base_id: base_id, permissions: permissions},
+       after_check:
+         work.after_check &&
+           %B.AfterCheck{command: work.after_check.command, timeout: work.after_check.timeout}
+     }}
+  end
+
+  @lease_reasons [
+    :not_permitted,
+    :invalid,
+    :unsupported_workspace,
+    :policy_forbids,
+    :no_permitted_option,
+    :too_large
+  ]
+
+  # A reason the work source contract has no word for (conflict, resume_unavailable) is
+  # the lease being invalid for this Runtime.
+  defp lease_refused(source, lease_id, reason, detail) do
+    Logger.info("runtime work: lease #{lease_id} of #{source} refused: #{reason}: #{detail}")
+    {:refused, if(reason in @lease_reasons, do: reason, else: :invalid)}
+  end
+
+  # The local work source's add-time check (M2 A5, decision §5.4: a typo is refused at
+  # once): the submit checks of `client`, without its client key (the local source keeps
+  # the keys, I3) and without creating anything. `:ok` (also for a profile unavailable now:
+  # the work waits in the queue), `{:refused, reason, detail}`, or `{:refused,
+  # :not_accepting, detail}` while the core does not take new work.
+  defp check_request(state, client, input) do
+    if open?(state) do
+      case submit(state, client, %{input | client_key: nil}, :check) do
+        {:reply, :ok, _state} ->
+          :ok
+
+        {:reply, %B.Outcome.Refused{reason: reason, detail: detail}, _state} ->
+          {:refused, reason, detail}
+
+        {:reply, %B.Outcome.Pruned{work_id: id}, _state} ->
+          {:refused, :conflict, "work #{id} is pruned"}
+      end
+    else
+      {:refused, :not_accepting, "the Runtime is #{state.mode}"}
+    end
+  end
+
+  ## The offer (decision §5.5; M2 plan A1)
+
+  # Main's O2: no standing reservation. Only the sources polling right now share the free
+  # slots: the asking one, and the others whose poll is open and was offered nothing (they
+  # wait for a slot; their pullers ask again at their next check). Priority orders those
+  # only. A source that does not poll is held nothing, and an open poll's offer lasts until
+  # its answer (`offer_done/3`) or its puller's end (the monitor).
+  defp offer(state, source, pid) do
+    policy = Policy.load(state.dir)
+    sources = Policy.sources(policy)
+    others = Map.delete(state.reservations, source)
+    # What the other polls hold, and every source's leases still importing (this one's too).
+    held = Map.merge(reserved(others), importing_counts(state), fn _name, a, b -> a + b end)
+
+    slots =
+      if open?(state) and Enum.any?(sources, &(&1["name"] == source)) do
+        shares =
+          for s <- sources,
+              s["name"] == source or match?(%{offered: 0}, others[s["name"]]),
+              do: %{name: s["name"], priority: s["priority"], max_slots: s["max_slots"]}
+
+        state.works
+        |> Queue.offer(usable_slots(state, policy), shares, held)
+        |> Map.fetch!(source)
+      else
+        0
+      end
+
+    profiles =
+      if slots > 0,
+        do:
+          for(
+            {name, %{available: true}} <-
+              Policy.profiles(policy, availability(state), &installed?/1, now_s()),
+            do: name
+          ),
+        else: []
+
+    # Main's O1: the offer is the total of free slots and the profiles available now. On the
+    # contract's map each available profile names that same total: a source leases at most
+    # that many in all, never that many per profile.
+    slots = if profiles == [], do: 0, else: slots
+    state = drop_reservation(state, source)
+    reservation = %{offered: slots, left: slots, monitor: Process.monitor(pid)}
+    reservations = Map.put(state.reservations, source, reservation)
+    offer = Map.new(profiles, &{&1, slots})
+    {offer, check_room(%{state | reservations: reservations})}
+  end
+
+  defp drop_reservation(state, source) do
+    case Map.pop(state.reservations, source) do
+      {nil, _} ->
+        state
+
+      {%{monitor: monitor}, reservations} ->
+        Process.demonitor(monitor, [:flush])
+        %{state | reservations: reservations}
+    end
+  end
+
+  # Gives back what is left of the source's offer; `used` is the leases the puller accepted
+  # from it, logged when it is not what the accepts took.
+  defp offer_done(state, source, used) do
+    case state.reservations[source] do
+      %{offered: offered, left: left} when offered - left != used ->
+        Logger.warning(
+          "runtime work: #{source} reports #{inspect(used)} leases used of an offer of " <>
+            "#{offered}, #{offered - left} accepted"
+        )
+
+      _ ->
+        :ok
+    end
+
+    state |> drop_reservation(source) |> check_room()
+  end
+
+  # An accepted lease takes one slot of its source's offer; its held attempt keeps it. An
+  # imported lease takes one of its source's importing leases first: its poll may be over.
+  defp take_reserved(state, source, lease_id, imported? \\ false) do
+    case {state.importing[source], state.reservations[source]} do
+      {%{count: count} = importing, _} when imported? and count > 0 ->
+        put_in(state.importing[source], %{importing | count: count - 1})
+
+      {_, %{left: left} = reservation} when left > 0 ->
+        put_in(state.reservations[source], %{reservation | left: left - 1})
+
+      _ ->
+        Logger.warning("runtime work: lease #{lease_id} of #{source} is beyond its offer")
+        state
+    end
+  end
+
+  defp reserved(reservations), do: Map.new(reservations, fn {name, r} -> {name, r.left} end)
+
+  defp importing_counts(state), do: Map.new(state.importing, fn {name, i} -> {name, i.count} end)
+
+  # The slots promised to the sources and not taken yet: the open offers and the leases
+  # being imported.
+  defp promised(state),
+    do:
+      Map.merge(reserved(state.reservations), importing_counts(state), fn _name, a, b ->
+        a + b
+      end)
+
+  # The puller of `source` (`pid`) imports `count` leases now (Main's round 2).
+  defp importing(state, source, 0, _pid) do
+    case Map.pop(state.importing, source) do
+      {nil, _} ->
+        state
+
+      {%{monitor: monitor}, importing} ->
+        Process.demonitor(monitor, [:flush])
+        check_room(%{state | importing: importing})
+    end
+  end
+
+  defp importing(state, source, count, pid) do
+    entry =
+      case state.importing[source] do
+        %{monitor: _} = entry -> %{entry | count: count}
+        nil -> %{count: count, monitor: Process.monitor(pid)}
+      end
+
+    check_room(%{state | importing: Map.put(state.importing, source, entry)})
+  end
+
+  # The slots a start may take: the policy's, without those a foreign latch or a block holds.
+  defp usable_slots(state, policy) do
+    blocked = MapSet.union(state.blocked, state.latched)
+    Enum.reject(Policy.slots(policy), &MapSet.member?(blocked, &1))
+  end
+
+  defp now_s, do: System.system_time(:second)
+
+  # The leases source `name` holds here (decision §5.1 "holdings", §5.3 item 5), read from
+  # the persisted records of its client: one per work with a client key (the lease id), its
+  # current attempt's state, whether it is held, whether it ran, and its last progress.
+  defp holdings(state, source) do
+    {client_id, _rights} = Rights.client(source)
+
+    for {id, %{client: ^client_id, client_key: lease_id} = record} <- state.works,
+        is_binary(lease_id) do
+      attempt = Queue.current(record)
+
+      %{
+        lease_id: lease_id,
+        work_id: id,
+        attempt: attempt.attempt,
+        state: attempt.state,
+        held: attempt.lease_hold == true,
+        ran: attempt.timestamps.running_at != nil,
+        quiescent: attempt.quiescent == true,
+        last_progress_at: attempt.turn_id && progress(state.dir, attempt.turn_id)
+      }
+    end
+    |> Enum.sort_by(& &1.work_id)
+  end
+
+  # The source recorded the accept: the held attempt may start (C3).
+  defp release_lease(state, id) do
+    with %M.WorkRecord{} = record <- state.works[id],
+         %{lease_hold: true} = attempt <- Queue.current(record) do
+      {:released, commit(state, put_attempt(record, %{attempt | lease_hold: nil}))}
+    else
+      nil -> {:not_found, state}
+      _ -> {:released, state}
+    end
   end
 
   ## Retry (§3.2 retry table)
@@ -919,7 +1504,7 @@ defmodule AtlasRuntime.Work.Server do
       workspace: point.workspace && Map.from_struct(point.workspace)
     }
 
-  defp add_attempt(state, record, current, rule, resume) do
+  defp add_attempt(state, record, current, rule, resume, lease_hold \\ nil) do
     now = now()
 
     next =
@@ -928,7 +1513,9 @@ defmodule AtlasRuntime.Work.Server do
         state: :buffered,
         timestamps: M.Timestamps.new!(received_at: now, accepted_at: now),
         resume_point: model_resume_point(resume),
-        quiescent: false
+        quiescent: false,
+        # C3: a lease's attempt waits for the source's recorded accept.
+        lease_hold: lease_hold
       )
 
     replaced =
@@ -1201,15 +1788,25 @@ defmodule AtlasRuntime.Work.Server do
   defp dispatch(%{mode: :draining} = state), do: state |> return_buffered() |> stop_check()
 
   defp dispatch(state) do
-    Queue.buffered(state.works)
+    Queue.startable(state.works)
     |> Enum.reduce(state, fn {id, _attempt}, state -> try_start(state, id) end)
     |> stop_check()
   end
 
   # The gate is read again for each start: a start that found the Service stopping closes
   # it for the ones after it.
+  # An attempt that came in without a lease starts only into a slot no source was
+  # promised (M2 plan A1).
   defp try_start(state, id) do
-    if open?(state), do: start(state, id), else: state
+    if open?(state) and (Queue.leased?(state.works[id]) or unpromised?(state)),
+      do: start(state, id),
+      else: state
+  end
+
+  defp unpromised?(state) do
+    policy = Policy.load(state.dir)
+    blocked = MapSet.union(state.blocked, state.latched)
+    Queue.unpromised(state.works, Policy.slots(policy), blocked, promised(state)) > 0
   end
 
   defp start(state, id) do
@@ -1297,9 +1894,19 @@ defmodule AtlasRuntime.Work.Server do
       hook: state.prepare_hook
     }
 
-    # base: materialized from base_id; from_work: composed from the pinned source (B4).
+    # base: materialized from base_id; from_work: composed from the pinned source (B4); a
+    # leased base (A3): composed from the imported baseline plus its change set, if any,
+    # from the source's own store, without Code.
     {kind, spec} =
       case record.request.workspace do
+        %M.Base{base_id: base_id} when record.imported != nil ->
+          {:import,
+           Map.merge(spec, %{
+             base_id: base_id,
+             store: record.imported.source,
+             change_set: record.imported.change_set
+           })}
+
         %M.Base{base_id: base_id} ->
           {:materialize, Map.put(spec, :base_id, base_id)}
 
@@ -2535,17 +3142,18 @@ defmodule AtlasRuntime.Work.Server do
 
   ## Capacity (§3.4)
 
+  # The slots offered to the sources and not yet taken by a lease are not room (M2 plan A1).
   defp room?(state) do
     policy = Policy.load(state.dir)
-
-    open?(state) and
-      Queue.counts(state.works, Policy.slots(policy), Policy.buffer_size(policy)).available > 0
+    counts = Queue.counts(state.works, Policy.slots(policy), Policy.buffer_size(policy))
+    offered = state |> promised() |> Map.values() |> Enum.sum()
+    open?(state) and counts.available - offered > 0
   end
 
   defp capacity(state) do
     policy = Policy.load(state.dir)
     counts = Queue.counts(state.works, Policy.slots(policy), Policy.buffer_size(policy))
-    room = open?(state) and counts.available > 0
+    room = room?(state)
 
     profiles =
       policy
@@ -2621,24 +3229,41 @@ defmodule AtlasRuntime.Work.Server do
 
   ## Turn output
 
+  # `ended` (M2 A6, Main's Q3): the turn's record said it had ended *before* the page was
+  # read, and the page reaches the end of the output, so no event can follow it. Read in
+  # that order, a turn that ends meanwhile is never reported ended with output still to
+  # come.
   defp output(state, %{turn_id: turn_id, cursor: cursor}) do
     args =
       if cursor, do: %{"turn_id" => turn_id, "cursor" => cursor}, else: %{"turn_id" => turn_id}
 
+    turn_ended = turn_ended?(state.dir, turn_id)
+
     case Turns.read(state.service, {:read, "output", args}) do
       %{"events" => events, "cursor" => next} = page ->
+        more = page["more"] == true
+
         %B.Outcome.Page{
           events: Enum.flat_map(events, &output_event/1),
           cursor: next,
-          more: page["more"] == true
+          more: more,
+          ended: turn_ended and not more
         }
 
       %{"error" => %{"code" => "unknown_turn"}} ->
         %B.Outcome.NotFound{}
 
       _ ->
-        %B.Outcome.Page{events: [], cursor: cursor || "", more: false}
+        %B.Outcome.Page{events: [], cursor: cursor || "", more: false, ended: false}
     end
+  end
+
+  # A terminal turn state (the Service's: `execution/service.ex`, restart reconciliation).
+  defp turn_ended?(dir, turn_id) do
+    match?(
+      %{"state" => state} when state in ~w(finished failed stopped killed),
+      Turns.read_turn(dir, turn_id)
+    )
   end
 
   defp output_event(%{"sequence" => sequence, "kind" => kind, "text" => text})

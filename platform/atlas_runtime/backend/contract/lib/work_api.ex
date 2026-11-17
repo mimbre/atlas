@@ -22,7 +22,8 @@ defmodule AtlasRuntimeBackend.Work do
   """
   use AtlasRuntimeBackend.Generator.Schema
 
-  version "0.1.0"
+  # 0.2.0: the boundary's output page carries `ended` (M2 A6, Main's Q3), additive.
+  version "0.2.0"
   boundary AtlasRuntimeBoundary.Work
 
   expose [

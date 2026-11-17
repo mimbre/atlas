@@ -6,7 +6,8 @@ defmodule AtlasRuntimeModel.LocalSource do
 
   - `queued_work`: one per work added through the CLI, `local-source/queue/{work_id}.json`:
     its request as accepted, the adder's priority, when and in which order it was added,
-    its state, the lease it was handed out under and a reference to its result.
+    its state, the lease it was handed out under, the attempt that lease runs and a
+    reference to its result.
   - `queue_key_entry`: (client, client key) → `work_id`, all in `local-source/index.json`.
     An entry outlives its pruned queued work as a tombstone (I3, I7 move here): `pruned`,
     and the final result kind. A work added without a client key gets a tombstone too, with
@@ -85,6 +86,12 @@ defmodule AtlasRuntimeModel.LocalSource do
     field :ended_at, :datetime, required: true
   end
 
+  # A retry asked for while the work's leased attempt had not ended here yet (its `ended`
+  # still on its way): the work is queued again for the next attempt once that one ends.
+  defmodel :retry_request do
+    field :resume, :boolean, required: true
+  end
+
   # The records.
 
   defrecord :queued_work,
@@ -103,6 +110,12 @@ defmodule AtlasRuntimeModel.LocalSource do
     # The lease the work is (or was last) handed out under.
     field :lease_id, :string
     field :result, :result_ref
+    # The attempt its lease runs (Main's round 2: a retry queues the work again for the
+    # next one); absent is 1.
+    field :attempt, :integer
+    # That retry continues the last attempt's conversation.
+    field :resume, :boolean
+    field :retry, :retry_request
   end
 
   defrecord :queue_key_entry,

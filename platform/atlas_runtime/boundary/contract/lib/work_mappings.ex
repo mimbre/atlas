@@ -23,7 +23,9 @@ defmodule AtlasRuntimeBoundary.WorkMappings do
   the request, and the frozen reference, `based_on` and the check to a work product. What
   the core keeps for itself is dropped, never projected: a work's pinned `source` (B4),
   and an attempt's `checking`/`check_pgid` (the check's sub-stage and process group),
-  `folder` (the Runtime-chosen folder), `preparing` and `prepare_pid` (its preparation).
+  `folder` (the Runtime-chosen folder), `preparing` and `prepare_pid` (its preparation),
+  and `lease_hold` (a leased attempt held until its source recorded the accept, M2); the
+  record's `imported` (a leased base's imported input, M2 A3).
   The frozen result's own record (`frozen_result`) belongs to another model and is
   translated by the core.
   """
@@ -31,8 +33,9 @@ defmodule AtlasRuntimeBoundary.WorkMappings do
 
   # The records.
 
-  # Private: the frozen result a from_work work composes from, pinned at accept.
-  defmapping :work_record, :work, supply: [:state], drop: [:source]
+  # Private: the frozen result a from_work work composes from, pinned at accept; and a
+  # leased base's imported input, its source and change set (M2 A3).
+  defmapping :work_record, :work, supply: [:state], drop: [:source, :imported]
 
   # A tombstone (I7): the work it named, and how that ended.
   defmapping :key_index_entry, :pruned,
@@ -68,7 +71,7 @@ defmodule AtlasRuntimeBoundary.WorkMappings do
     # Private: the turn's folder, its stop latch, and who released its slot and when
     # (release_slot, §13.1 Q8).
     # The after-check's sub-stage and process group; the Runtime-chosen folder and its
-    # preparation (S5a).
+    # preparation (S5a). A leased attempt's hold until its source recorded the accept (M2).
     drop: [
       :turn_folder,
       :stop_latch,
@@ -78,7 +81,8 @@ defmodule AtlasRuntimeBoundary.WorkMappings do
       :check_pgid,
       :folder,
       :preparing,
-      :prepare_pid
+      :prepare_pid,
+      :lease_hold
     ]
 
   defmapping :timestamps, :attempt_timestamps

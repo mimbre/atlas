@@ -76,6 +76,9 @@ defmodule AtlasRuntime.Test.FakeWorkSource do
   It keeps the rules of decision §5.2, §5.3 and §6.2 that the M1 tests pin, and nothing
   more (no owner filter, no priorities, no csf_ check):
 
+  - the offer is a total of free slots and the profiles available (Main's O1; each profile
+    on the map names that total): at most that many leases in all, first in, first out
+    among the works of those profiles;
   - one current lease per work; `poll` renews only current, unexpired holdings and names
     every other one in `lease_lost`; a lease expired for `lease_ttl + grace` is lost and
     its work offered again as a fresh lease;
@@ -144,6 +147,52 @@ defmodule AtlasRuntime.Test.FakeWorkSource do
     end)
   end
 
+  @doc """
+  A base of one root `atlas` with `files` (`%{path => content}`), as a source offers it
+  (M2 A3): `{manifest, blobs}`, the sha256 of its manifest (the `atlas-base` line the
+  Runtime's `workspace base-import` validates) and every blob it names, the manifest
+  included, for `add_work/3`.
+  """
+  def base(files) do
+    entries =
+      for {path, content} <- Enum.sort(files),
+          do: %{
+            "path" => path,
+            "op" => "write",
+            "kind" => "file",
+            "mode" => "100644",
+            "size" => byte_size(content),
+            "sha256" => sha256(content)
+          }
+
+    line =
+      JSON.encode!(%{
+        "format" => "atlas-base",
+        "version" => 1,
+        "roots" => [%{"root" => "atlas", "entries" => entries}]
+      }) <> "\n"
+
+    blobs = Map.new(files, fn {_path, content} -> {sha256(content), content} end)
+    {sha256(line), Map.put(blobs, sha256(line), line)}
+  end
+
+  @doc """
+  Queues `work` (an `offered_work` map without its `input.base`) on a base of `files`
+  (`base/1`): its `base` is set to that base, and its blobs stored for its lease (M2 A3:
+  the Runtime imports what a lease names).
+  """
+  def add_base_work(source, work, files \\ %{"README.md" => "base\n"}) do
+    {manifest, blobs} = base(files)
+
+    work =
+      put_in(work, [:input, :base], %{
+        base_id: "base-" <> binary_part(manifest, 0, 12),
+        manifest: manifest
+      })
+
+    add_work(source, work, blobs)
+  end
+
   @doc "Moves the source's clock on by `seconds`."
   def advance(source, seconds), do: Agent.update(source, &%{&1 | now: &1.now + seconds})
 
@@ -188,18 +237,21 @@ defmodule AtlasRuntime.Test.FakeWorkSource do
 
       cancel = for id <- Enum.reverse(renewed), s.leases[id].cancel, do: id
 
-      {leases, s} =
-        Enum.reduce(input.offer, {[], s}, fn {profile, free}, acc ->
-          Enum.reduce(1..free//1, acc, fn _, {leases, s} ->
-            case Enum.split_with(s.queue, &(&1.work.profile == profile)) do
-              {[entry | rest], others} ->
-                {lease, s} = grant(%{s | queue: others ++ rest}, entry, runtime_id)
-                {[lease | leases], s}
+      # Main's O1: the offer is a total of free slots and the profiles available; each
+      # profile on the map names that same total. At most the total is leased, in all,
+      # first in, first out among the works of those profiles.
+      {total, profiles} = offered(input.offer)
 
-              {[], _} ->
-                {leases, s}
-            end
-          end)
+      {leases, s} =
+        Enum.reduce(1..total//1, {[], s}, fn _, {leases, s} ->
+          case Enum.split_while(s.queue, &(&1.work.profile not in profiles)) do
+            {before, [entry | rest]} ->
+              {lease, s} = grant(%{s | queue: before ++ rest}, entry, runtime_id)
+              {[lease | leases], s}
+
+            {_, []} ->
+              {leases, s}
+          end
         end)
 
       outcome =
@@ -326,6 +378,11 @@ defmodule AtlasRuntime.Test.FakeWorkSource do
   ## Rules
 
   defp call(fun), do: Agent.get_and_update(Process.get(__MODULE__), fun)
+
+  # The total and the profiles of an offer (O1). The values must agree; the least one is
+  # taken if they do not, so a source never leases beyond what the Runtime has free.
+  defp offered(offer) when map_size(offer) == 0, do: {0, []}
+  defp offered(offer), do: {offer |> Map.values() |> Enum.min(), Map.keys(offer)}
 
   defp grant(s, entry, runtime_id) do
     id = "#{s.name}-lease-#{s.next}"
@@ -464,5 +521,78 @@ defmodule AtlasRuntime.Test.FakeWorkSource do
       <<chunk::binary-size(4096), rest::binary>> -> {chunk, rest}
       rest -> {rest, ""}
     end)
+  end
+end
+
+defmodule AtlasRuntime.Test.FakeSourceTarget do
+  @moduledoc """
+  The puller's target (`AtlasRuntime.Sources.Puller.Target`) and `Upload`'s on the in-test
+  source (M2 plan A2): `AtlasRuntime.Sources.InBeamTarget` on
+  `AtlasRuntime.Test.WorkSourceFacade`, each call made with the source set in the calling
+  process (a puller's poll runs in a task of its own).
+
+  A test may set a hook per call (`hook/3`, `:poll`, `:report` or `:get_blob`): a function of the real
+  call (zero-arity) and the input, answering what the puller gets. So a test fails polls,
+  delays an answer while it moves the clock on, or loses a report. `calls/2` lists the inputs
+  each call was made with, oldest first.
+  """
+  @behaviour AtlasRuntime.Sources.Puller.Target
+  @behaviour AtlasRuntime.Sources.Upload
+
+  alias AtlasRuntime.Sources.InBeamTarget
+  alias AtlasRuntime.Test.FakeWorkSource
+
+  @doc "The target `{module, ref}` on `source`, calling as `runtime` (`{id, [:lease]}`)."
+  def new(source, runtime \\ {"mini", [:lease]}) do
+    {:ok, hooks} = Agent.start_link(fn -> %{hooks: %{}, calls: []} end)
+
+    {__MODULE__,
+     %{source: source, facade: AtlasRuntime.Test.WorkSourceFacade, client: runtime, hooks: hooks}}
+  end
+
+  @doc "Sets (or with nil, clears) the hook of `call`."
+  def hook({__MODULE__, %{hooks: hooks}}, call, fun),
+    do: Agent.update(hooks, &put_in(&1.hooks[call], fun))
+
+  @doc "The inputs `call` was made with, oldest first."
+  def calls({__MODULE__, %{hooks: hooks}}, call),
+    do: Agent.get(hooks, fn s -> for {^call, input} <- Enum.reverse(s.calls), do: input end)
+
+  @impl AtlasRuntime.Sources.Puller.Target
+  def poll(ref, input), do: hooked(ref, :poll, input, fn -> InBeamTarget.poll(ref, input) end)
+
+  @impl AtlasRuntime.Sources.Puller.Target
+  def send_report(ref, input),
+    do: hooked(ref, :report, input, fn -> InBeamTarget.send_report(ref, input) end)
+
+  @impl AtlasRuntime.Sources.Puller.Target
+  def uploader(ref, revision), do: {__MODULE__, Map.put(ref, :revision, revision)}
+
+  @impl AtlasRuntime.Sources.Puller.Target
+  def get_blob(ref, lease_id, sha256),
+    do:
+      hooked(ref, :get_blob, {lease_id, sha256}, fn ->
+        InBeamTarget.get_blob(ref, lease_id, sha256)
+      end)
+
+  @impl AtlasRuntime.Sources.Upload
+  def report(ref, report) do
+    FakeWorkSource.use(ref.source)
+    InBeamTarget.report(ref, report)
+  end
+
+  @impl AtlasRuntime.Sources.Upload
+  def put_blob(ref, blob) do
+    FakeWorkSource.use(ref.source)
+    InBeamTarget.put_blob(ref, blob)
+  end
+
+  defp hooked(%{source: source, hooks: hooks}, call, input, real) do
+    FakeWorkSource.use(source)
+
+    hook =
+      Agent.get_and_update(hooks, &{&1.hooks[call], %{&1 | calls: [{call, input} | &1.calls]}})
+
+    if hook, do: hook.(real, input), else: real.()
   end
 end

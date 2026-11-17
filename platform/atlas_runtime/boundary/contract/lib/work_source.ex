@@ -71,8 +71,9 @@ defmodule AtlasRuntimeBoundary.WorkSource do
     field :incarnation, :string, required: true
     field :build, :string, required: true
     field :policy_version, :integer, required: true
-    # Free slots per execution profile the Runtime can serve now; empty when full. The
-    # Runtime keeps one poll open, even when full.
+    # The Runtime's free slots and the execution profiles it can serve now (Main's O1): each
+    # available profile names the same total, which is what the source may lease in all, not
+    # per profile. Empty when full. The Runtime keeps one poll open, even when full.
     field :offer, {:map, :integer}, required: true
     field :holdings, {:list, :holding}, required: true
   end

@@ -258,12 +258,23 @@ defmodule AtlasRuntimeModel.Work do
     field :folder, :string
     field :preparing, :boolean
     field :prepare_pid, :integer
+    # Private: an attempt a work source leased is held until the source recorded its
+    # `accepted` (M2 plan C3); the executor does not start a held attempt.
+    field :lease_hold, :boolean
   end
 
   # Private: the frozen result a from_work work composes from, pinned at accept (B4).
   defmodel :source do
     field :work_id, :string, required: true
     field :attempt, :integer, required: true
+  end
+
+  # Private: a leased base work's input as its source supplied it (M2 plan A3, W5): the
+  # source whose blob store holds it, and the sha256 of its change set's manifest there,
+  # when it has one. The request's base_id is then the imported baseline.
+  defmodel :imported do
+    field :source, :string, required: true
+    field :change_set, :string
   end
 
   # The records.
@@ -284,6 +295,7 @@ defmodule AtlasRuntimeModel.Work do
     # In order; the last is the current one.
     field :attempts, {:list, :attempt}, required: true
     field :source, :source
+    field :imported, :imported
   end
 
   defrecord :key_index_entry,

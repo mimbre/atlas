@@ -1,8 +1,11 @@
 defmodule AtlasRuntime.Work do
   @moduledoc """
-  The Runtime's work core: the one implementation of the work contract
+  The Runtime's work core, the executor: an implementation of the work contract
   (`AtlasRuntime.Boundary.Work.Implementation`, design §1.5). Callers never call it; they
   call the facade `AtlasRuntime.Boundary.Work`, which checks rights, input and outcomes.
+  Since the CLI cut-over (M2 A6) the facade's implementation is the local work source's
+  (`AtlasRuntime.Sources.Local.Work`), which reaches this one as the `local` source; the
+  work sources' pullers reach it through `accept_lease/3` and the calls below.
 
   The behaviour lives in `AtlasRuntime.Work.Server` (the process that owns the work
   records) and the modules under `AtlasRuntime.Work`: `Store` (persistence through the
@@ -109,6 +112,114 @@ defmodule AtlasRuntime.Work do
   """
   def clear_quota_mark(harness),
     do: call({:clear_quota_mark, harness}, fn -> :not_running end)
+
+  ## For the work sources' pullers (decision §5.3 item 1; M2 plan C2, C3): internal
+
+  @doc """
+  Accepts `lease` (the work source contract's `lease`: `lease_id`, `work`) from source
+  `name` as a work of that source's client (`AtlasRuntime.Sources.Rights.client/1`): the
+  same submit checks as that client's, keyed by `client_key = lease_id`, with the turn's
+  `idempotency_key = work_key`. Its attempt is persisted `buffered` and held before the
+  answer (I2), and does not start until `release_lease/1`.
+
+  `imported` (M2 A3) is what the puller imported of the lease's input from that source
+  (`AtlasRuntime.Sources.Import.base/5`: `baseline_id`, and `change_set` when the lease
+  names one): the work materializes from that baseline and change set, from the source's
+  own store, never from the source's `base_id`. A lease of any source but `local` without
+  it, or whose change set it lacks, is `{:refused, :invalid}`.
+
+  Answers `{:accepted, work_id}`, `{:existing, work_id}` (the same lease again: the same
+  work, one attempt), `{:refused, reason}` with a reason of the work source contract's
+  `refused`, or `:not_running` while the core is not running. Never `at_capacity`. A lease
+  that is not exactly the contract's shape (`AtlasRuntime.Sources.LeaseShape`) is
+  `{:refused, :invalid}`, and nothing of it is used or logged.
+  """
+  @spec accept_lease(String.t(), map(), nil | AtlasRuntime.Sources.Import.imported()) ::
+          {:accepted | :existing, String.t()} | {:refused, atom()} | :not_running
+  def accept_lease(source, lease, imported \\ nil) when is_binary(source),
+    do: call({:accept_lease, source, lease, imported}, fn -> :not_running end)
+
+  @doc """
+  The `at_capacity` outcome a submit gets for `reason` now (M2 A6: the local work source's
+  add answers `not_accepting` as the work contract does), or the stopped core's while the
+  core is not running.
+  """
+  @spec at_capacity(:not_accepting) :: B.Outcome.AtCapacity.t()
+  def at_capacity(reason) when reason in [:not_accepting],
+    do: call({:at_capacity, reason}, &not_accepting/0)
+
+  @doc """
+  Checks `input` (a work request) for `client` as a submit would, without creating
+  anything and without its client key (M2 A5: the local work source refuses a typo when the
+  work is added). `:ok` (a profile unavailable now included: the work waits),
+  `{:refused, reason, detail}` with a reason of the work contract's `refused`, or
+  `{:refused, :not_accepting, detail}` while the core takes no new work or is not running.
+  """
+  @spec check_request(AtlasRuntime.Sources.Rights.client(), B.WorkRequest.t()) ::
+          :ok | {:refused, atom(), String.t() | nil}
+  def check_request(client, %B.WorkRequest{} = input),
+    do:
+      call({:check_request, client, input}, fn ->
+        {:refused, :not_accepting, "the work core is not running"}
+      end)
+
+  @doc """
+  The source recorded the accept of `work_id`'s lease: its held attempt may start.
+  `:released` (also when nothing was held), `:not_found`, or `:not_running`.
+  """
+  @spec release_lease(String.t()) :: :released | :not_found | :not_running
+  def release_lease(work_id) when is_binary(work_id),
+    do: call({:release_lease, work_id}, fn -> :not_running end)
+
+  @doc """
+  The free slots offered to source `name` for the poll it is about to send (decision §5.5,
+  with Main's O1 and O2), as the work source contract's `offer`.
+
+  - **What (O1):** the total of free slots it may lease, and the profiles available now.
+    On the contract's map, each available profile names that same total: the source leases
+    at most that many in all, not that many per profile. `%{}` when full, paused, draining
+    or stopping, or for a source the policy does not name.
+  - **Who (O2):** only the sources polling right now share the free slots. They are this
+    source and the others whose poll is open with an empty offer, ordered by priority, each
+    up to its `max_slots` minus what it holds. A source that does not poll is held nothing.
+  - **How long:** the slots are reserved for this poll only, until `offer_done/2` or the end
+    of the calling process (the core monitors it). No other source and no direct submit
+    takes them meanwhile, and each lease accepted from them takes one. A new offer to the
+    same source replaces its reservation.
+
+  `:not_running` while the core is not running.
+  """
+  @spec offer(String.t()) :: %{String.t() => non_neg_integer()} | :not_running
+  def offer(name) when is_binary(name), do: call({:offer, name}, fn -> :not_running end)
+
+  @doc """
+  The poll that carried source `name`'s offer is over, with `used` leases accepted from it:
+  what is left of the reservation is free again. `:ok`, or `:not_running`.
+  """
+  @spec offer_done(String.t(), non_neg_integer()) :: :ok | :not_running
+  def offer_done(name, used) when is_binary(name) and is_integer(used) and used >= 0,
+    do: call({:offer_done, name, used}, fn -> :not_running end)
+
+  @doc """
+  Source `name`'s puller (the calling process, which the core monitors) is importing `count`
+  leases of its polls now (Main's round 2: the import runs off the puller, in a task). They
+  stay promised, against every offer and the free slots, after their poll is over: each
+  imported lease accepted takes one, and the puller sets the count again as its imports end
+  (0 when none is left). `:ok`, or `:not_running`.
+  """
+  @spec importing(String.t(), non_neg_integer()) :: :ok | :not_running
+  def importing(name, count) when is_binary(name) and is_integer(count) and count >= 0,
+    do: call({:importing, name, count}, fn -> :not_running end)
+
+  @doc """
+  The leases source `name` holds here, from the persisted records of its client
+  (decision §5.1, §5.3 item 5): one map per work it leased, `lease_id`, `work_id`, the
+  current attempt's `attempt` number and `state`, `held` (waiting for `release_lease/1`),
+  `ran` (it reached `running`), `quiescent` and `last_progress_at` (or nil). `[]` while the
+  core is not running.
+  """
+  @spec holdings(String.t()) :: [map()]
+  def holdings(name) when is_binary(name), do: call({:holdings, name}, fn -> [] end)
 
   @impl true
   def submit(client, input), do: call({:submit, client, input}, &not_accepting/0)

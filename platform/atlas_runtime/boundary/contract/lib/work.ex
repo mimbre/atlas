@@ -24,7 +24,8 @@ defmodule AtlasRuntimeBoundary.Work do
   """
   use AtlasRuntimeBoundary.Generator.Schema
 
-  version "0.1.0"
+  # 0.2.0 (M2 A6, Main's Q3): the output page's additive `ended`.
+  version "0.2.0"
 
   # Enumerations used in more than one place (§3.1, §5).
   @rights [:submit, :cancel, :read, :read_all, :choose_slot, :choose_path]
@@ -519,6 +520,10 @@ defmodule AtlasRuntimeBoundary.Work do
     # Opaque; pass it back for the next page.
     field :cursor, :string, required: true
     field :more, :boolean, required: true
+    # 0.2.0: the turn had ended before this page was read, and this page reaches the end of
+    # its output: no event follows, so a reader that follows the output stops here. Absent
+    # from a Runtime before 0.2.0 (read it as not ended).
+    field :ended, :boolean
   end
 
   defmodel :subscribed do

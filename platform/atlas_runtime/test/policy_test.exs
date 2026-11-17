@@ -371,8 +371,21 @@ defmodule AtlasRuntime.PolicyTest do
           do: assert({:ok, _} = loaded(dir, with_sources(sources)), inspect(sources))
     end
 
-    test "sources absent gives no sources", %{tmp_dir: dir} do
-      assert Policy.sources(loaded(dir)) == []
+    # Main's A6 Q2: no `sources` is `local` alone, at priority 1, with every slot; Flow's
+    # source (or any remote one) is pulled only when the policy names it.
+    test "sources absent gives local alone, priority 1, every slot", %{tmp_dir: dir} do
+      assert [%{"name" => "local", "kind" => "builtin", "priority" => 1} = local] =
+               Policy.sources(loaded = loaded(dir))
+
+      assert local["max_slots"] == length(Policy.slots(loaded))
+      assert local["max_slots"] > 0
+
+      three = Map.put(@mini, "slots", ["a", "b", "c"])
+      assert [%{"name" => "local", "max_slots" => 3}] = Policy.sources(loaded(dir, three))
+
+      # Named sources are taken as written; an explicit empty list names none.
+      assert Policy.sources(loaded(dir, with_sources([@flow]))) == [@flow]
+      assert Policy.sources(loaded(dir, with_sources([]))) == []
       assert Policy.sources({:error, :missing}) == []
       assert Policy.sources({:error, {:invalid, "x"}}) == []
     end

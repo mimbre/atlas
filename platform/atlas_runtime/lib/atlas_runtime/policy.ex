@@ -40,6 +40,8 @@ defmodule AtlasRuntime.Policy do
   # Decision §5.5: only the built-in local work source is `builtin`; every other one is
   # `remote`, reached over https with its own credential file.
   @builtin_source "local"
+  # The `local` entry a policy without `sources` gets (A6 Q2): the decision's example value.
+  @default_local_store_bytes 2_147_483_648
   @source_keys %{
     "builtin" => ~w(name kind priority max_slots max_store_bytes),
     "remote" => ~w(name kind url credential_file priority max_slots max_store_bytes)
@@ -88,10 +90,29 @@ defmodule AtlasRuntime.Policy do
   @doc """
   The configured work sources (decision §5.5), sorted by `priority`, lowest first: the
   order in which free slots are offered. Each entry is as written in the file (string
-  keys); `load/1` has checked it. `[]` without a `sources` key or without a valid policy.
+  keys); `load/1` has checked it.
+
+  A valid policy without a `sources` key (Main's A6 Q2) has the built-in `local` source
+  only: priority 1, `max_slots` every slot of the policy, and the decision's example
+  `max_store_bytes` (2 GiB; the local source keeps no per-source blob store). No remote
+  source, Flow's included, is ever implied: one is pulled only when the policy names it.
+  An explicit `sources: []` names none. `[]` without a valid policy.
   """
   @spec sources(loaded()) :: [%{String.t() => term()}]
   def sources({:ok, %{"sources" => sources}}), do: Enum.sort_by(sources, & &1["priority"])
+
+  def sources({:ok, policy} = loaded) when is_map(policy) do
+    [
+      %{
+        "name" => @builtin_source,
+        "kind" => "builtin",
+        "priority" => 1,
+        "max_slots" => length(slots(loaded)),
+        "max_store_bytes" => @default_local_store_bytes
+      }
+    ]
+  end
+
   def sources(_), do: []
 
   @doc "Accepted work that may wait for a slot; by default one per slot (design §2)."

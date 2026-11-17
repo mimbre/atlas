@@ -33,7 +33,7 @@ defmodule AtlasRuntime.Sources.Import do
   the validator's own rule id as it reports it, or one of this module's: `no_base`,
   `input_ref`, `served_other`, `blob_size`, `blob_mismatch`, `blob_malformed`,
   `manifest_too_large`, `stream_too_long`, `max_store_bytes`, `max_base_entries`,
-  `max_base_bytes`, `change_set_invalid`, `change_set_fingerprint`, `change_set_base`; or
+  `max_base_bytes`, `import_deadline`, `change_set_invalid`, `change_set_fingerprint`, `change_set_base`; or
   `{:error, detail}` when it is not the input's fault (the store or the helper failed, or the
   source did not serve a blob). Neither names a Runtime path.
   """
@@ -63,13 +63,20 @@ defmodule AtlasRuntime.Sources.Import do
 
   `options`: `max_base_bytes` and `max_base_entries` (the caps on the input, base and change
   set together; without one, only the store quota and the helper's limits apply),
-  `timeout_ms` for the helper (120 s).
+  `timeout_ms` for the helper (120 s), `deadline_ms` the most the whole import may take
+  from this call (Main's round 2: the puller's task deadline; or `deadline_at`, that moment
+  in monotonic milliseconds). Past it no blob is fetched
+  any more and the helper is stopped (its staging removed): `{:refused, :too_large,
+  "import_deadline"}`.
   """
   @spec base(Path.t(), map(), map(), fetch(), keyword()) ::
           {:ok, imported()}
           | {:refused, :invalid | :too_large, rule :: String.t()}
           | {:error, String.t()}
   def base(home, source, lease, fetch, options \\ []) when is_function(fetch, 1) do
+    options = deadline(options)
+    fetch = until_deadline(fetch, options[:deadline_at])
+
     with {:ok, source} <- source(source),
          {:ok, base, change_set} <- input(lease),
          {:ok, source} <- scan(home, source),
@@ -82,6 +89,24 @@ defmodule AtlasRuntime.Sources.Import do
          {:ok, baseline_id} <- import_base(home, source, base_file, base_files, options),
          {:ok, change_set} <- compose_input(home, source, change_set, baseline_id, fetch) do
       {:ok, %{baseline_id: baseline_id, change_set: change_set}}
+    end
+  end
+
+  defp deadline(options) do
+    case Keyword.get(options, :deadline_ms) do
+      ms when is_integer(ms) and ms > 0 ->
+        Keyword.put(options, :deadline_at, System.monotonic_time(:millisecond) + ms)
+
+      _ ->
+        options
+    end
+  end
+
+  defp until_deadline(fetch, nil), do: fetch
+
+  defp until_deadline(fetch, deadline_at) do
+    fn sha256 ->
+      if System.monotonic_time(:millisecond) >= deadline_at, do: :deadline, else: fetch.(sha256)
     end
   end
 
@@ -140,6 +165,9 @@ defmodule AtlasRuntime.Sources.Import do
         case fetch.(sha256) do
           {:ok, %{size: size, content: _} = blob} when is_integer(size) ->
             store(home, source, sha256, blob, want)
+
+          :deadline ->
+            {:refused, :too_large, "import_deadline"}
 
           _other ->
             {:error, "the source did not serve blob #{sha256}"}
@@ -253,7 +281,7 @@ defmodule AtlasRuntime.Sources.Import do
              :ok <- mkdir(Path.join(staging, "blobs")),
              :ok <- link(base_file, Path.join(staging, "entries.json")),
              :ok <- link_blobs(home, source, Map.keys(base_files.files), staging) do
-          helper(home, staging, Keyword.get(options, :timeout_ms, @default_timeout_ms))
+          helper_by_deadline(home, staging, options)
         end
       after
         File.rm_rf(staging)
@@ -282,6 +310,28 @@ defmodule AtlasRuntime.Sources.Import do
         case File.cp(from, to) do
           :ok -> :ok
           {:error, _} -> {:error, "cannot stage the base"}
+        end
+    end
+  end
+
+  # The helper's own timeout, cut to what is left before the import's deadline: a cut that
+  # the deadline made is the deadline's refusal.
+  defp helper_by_deadline(home, staging, options) do
+    timeout = Keyword.get(options, :timeout_ms, @default_timeout_ms)
+
+    case options[:deadline_at] do
+      nil ->
+        helper(home, staging, timeout)
+
+      at ->
+        left = max(at - System.monotonic_time(:millisecond), 0)
+
+        case helper(home, staging, min(timeout, left)) do
+          {:error, "base-import timed out"} when left < timeout ->
+            {:refused, :too_large, "import_deadline"}
+
+          other ->
+            other
         end
     end
   end

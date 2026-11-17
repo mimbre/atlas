@@ -19,7 +19,10 @@ defmodule AtlasRuntime.Work.Folders do
   3. the helper prepares the folder: `:materialize` fetches the base
      (`AtlasRuntime.Workspaces.materialize/4`, `base`); `:compose` builds it from the pinned
      source's frozen result, its `base` baseline plus exactly its change set, without Code
-     (`AtlasRuntime.Workspaces.compose/6`, `from_work`, P9). The change set goes to
+     (`AtlasRuntime.Workspaces.compose/6`, `from_work`, P9); `:import` (M2 A3) composes a
+     leased base from the baseline its source's input was imported into, plus exactly the
+     imported change set (none: an empty one), its blobs from that source's own store
+     (`AtlasRuntime.Sources.Store`), without Code. The change set goes to
      `<home>/scratch/compose-<work_id>.<n>.json` (0600) for the helper and is removed after
      it. Its OS pid goes to the owner as `{:prepare_pid, ref, os_pid, pid}`, and the preparer
      waits for `{:prepare_pid_recorded, ref}` (or the owner's end) before it waits on the
@@ -33,6 +36,7 @@ defmodule AtlasRuntime.Work.Folders do
   dies without a result arrives as that monitor's `:DOWN`.
   """
 
+  alias AtlasRuntime.Sources.Store
   alias AtlasRuntime.Work.{Frozen, FrozenStore}
   alias AtlasRuntime.Workspaces
 
@@ -65,9 +69,11 @@ defmodule AtlasRuntime.Work.Folders do
   `spec` for `:materialize`: `home`, `work_id`, `attempt`, `base_id`, `read_only`,
   `timeout_ms` and an optional `hook` (`fn stage -> any end`, tests: `:moved_aside`). For
   `:compose` (P9), `source` (`{work_id, attempt}`, the pinned frozen result, B4) instead of
-  `base_id`; the hook also sees `:composing`, just before the helper starts.
+  `base_id`; the hook also sees `:composing`, just before the helper starts. For `:import`
+  (M2 A3), `base_id` (the imported baseline), `store` (the source whose store holds the
+  input) and `change_set` (its manifest's sha256 there, or nil).
   """
-  def prepare(kind, spec, owner) when kind in [:materialize, :compose] do
+  def prepare(kind, spec, owner) when kind in [:materialize, :compose, :import] do
     pid = spawn(fn -> run(kind, spec, owner) end)
     ref = Process.monitor(pid)
     send(pid, {:ref, ref})
@@ -155,6 +161,48 @@ defmodule AtlasRuntime.Work.Folders do
 
       _ ->
         {:error, "the frozen result #{source_id}.#{source_n} to compose from is gone"}
+    end
+  end
+
+  # A leased base (M2 A3): the imported baseline plus exactly the imported change set, or an
+  # empty one, so the folder is the baseline. The change set as the helper reads it (its base
+  # and each root's entries) is written from the manifest in the source's store; a manifest
+  # gone from there is a preparation failure.
+  defp helper(:import, spec, home, folder, options, hook) do
+    case imported_change_set(home, spec) do
+      {:ok, set} ->
+        file = Path.join([home, "scratch", "compose-#{spec.work_id}.#{spec.attempt}.json"])
+        remove(file)
+        File.write!(file, JSON.encode!(set))
+        File.chmod!(file, 0o600)
+        hook.(:composing)
+
+        try do
+          blobs = Store.blobs_dir(home, spec.store)
+          Workspaces.compose(home, spec.base_id, file, blobs, folder, options)
+        after
+          remove(file)
+        end
+
+      :error ->
+        {:error, "the imported change set of #{spec.work_id} is gone from its source's store"}
+    end
+  end
+
+  defp imported_change_set(_home, %{change_set: nil, base_id: base_id}),
+    do: {:ok, %{"base" => base_id, "roots" => []}}
+
+  defp imported_change_set(home, %{change_set: sha, store: store, base_id: base_id}) do
+    with {:ok, path} <- Store.get(home, store, sha),
+         {:ok, raw} <- File.read(path),
+         {:ok, %{"base" => ^base_id, "roots" => roots}} when is_list(roots) <- JSON.decode(raw) do
+      {:ok,
+       %{
+         "base" => base_id,
+         "roots" => for(r <- roots, do: %{"root" => r["root"], "entries" => r["entries"]})
+       }}
+    else
+      _ -> :error
     end
   end
 

@@ -402,7 +402,9 @@ defmodule AtlasRuntime.Boundary.WorkS5aContractTest do
         base: "develop"
       }
 
-      assert %F.Outcome.Refused{reason: :unsupported_workspace, detail: nil} =
+      # M2 C1: a repository needs choose_path, so a client without it is refused before the
+      # after_check rule is reached; still without detail.
+      assert %F.Outcome.Refused{reason: :not_permitted, detail: nil} =
                F.submit(tcp, req(repository, %{after_check: %{command: ["bin/check"]}}))
 
       assert files(bench.dir) == before
