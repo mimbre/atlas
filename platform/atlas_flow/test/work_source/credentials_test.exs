@@ -114,9 +114,14 @@ defmodule AtlasFlow.WorkSource.CredentialsTest do
     Application.put_env(:atlas_bus, :store, "boot-#{System.unique_integer([:positive])}")
     start_supervised!(AtlasFlow.FakeFacts)
 
+    # A complete result stored before the boot: the booted store must pin it again (n2).
+    start_supervised!({AtlasFlow.Results, name: :boot_seed, dir: dir})
+    {:ok, sha} = AtlasFlow.Results.put_manifest(%{"roots" => []}, :boot_seed)
+    :ok = stop_supervised(:boot_seed)
+
     AtlasFlow.FakeFacts.put("task", %{
       "key" => "TK-B-1-1",
-      "values" => %{"result_state" => "complete", "result_manifest" => String.duplicate("a", 64)}
+      "values" => %{"result_state" => "complete", "result_manifest" => sha}
     })
 
     try do
@@ -132,6 +137,7 @@ defmodule AtlasFlow.WorkSource.CredentialsTest do
       assert %{leases: []} = AtlasFlow.Dispatch.status()
       # A call is served only after the store's boot read its pins.
       assert is_integer(AtlasFlow.Results.room(0))
+      assert {:ok, %{"roots" => []}} = AtlasFlow.Results.manifest("TK-B-1-1")
       assert "flow/results" in AtlasBus.endpoints()
     after
       for {app, key, value} <- previous,

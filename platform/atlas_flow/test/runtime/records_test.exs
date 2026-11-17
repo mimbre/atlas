@@ -101,6 +101,21 @@ defmodule AtlasFlow.Runtime.RecordsTest do
     assert attempt(2)["values"]["lease_id"] == @later
   end
 
+  test "a record another writer created after the read: the create is refused `exists`" do
+    # Facts refuses a create of a key that a fact holds with code `exists` (S3); Records
+    # reports the refusal and a later report changes the record it finds.
+    key = Records.attempt_key(@task, 1)
+    other = %{"key" => key, "values" => %{"state" => "running"}, "links" => %{}}
+    :ok = FakeFacts.hook("task_attempt", key, "flow/delivery", :before, fn nil -> other end)
+
+    assert {:error, {:refused, ^key, ["exists"]}} =
+             Records.record(@task, 1, @lease, %{"state" => "started"}, nil)
+
+    assert attempt()["values"] == %{"state" => "running"}
+    assert {:ok, :changed} = Records.record(@task, 1, @lease, ended(), nil)
+    assert %{"state" => "completed", "lease_id" => @lease} = attempt()["values"]
+  end
+
   test "a lost answer, then the same report again: one record, written once" do
     FakeFacts.lose_ack("task_attempt")
     assert {:error, _} = Records.record(@task, 1, @lease, %{"state" => "started"}, nil)
