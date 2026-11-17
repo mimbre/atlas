@@ -1,8 +1,11 @@
 defmodule AtlasCodeBoundary.Code do
   @moduledoc """
   Code's boundary contract (Flow Engine plan §5, C1.0): what a caller next to Code may ask
-  of it, in Code's own words: resolving a reference, creating a snapshot (C1.0) and reading
-  one, its manifest and its blobs (C1a); changes and reviews join it later.
+  of it, in Code's own words: resolving a reference, creating a snapshot (C1.0), reading
+  one, its manifest and its blobs (C1a), and changing a snapshot's repository and putting
+  that change up for review (C1b): a change is created, its blobs put and then sealed into
+  a revision; a review of a sealed change opens it (on GitHub, as a pull request) and an
+  update moves an open review to another sealed change.
 
   A caller sees repository names, reference names, `sha256:` snapshot IDs and opaque
   `rev_<64 hex>` revision handles; commits, remotes and Git output stay inside Code. A
@@ -13,7 +16,7 @@ defmodule AtlasCodeBoundary.Code do
   """
   use AtlasCodeBoundary.Generator.Schema
 
-  version "0.2.0"
+  version "0.3.0"
 
   ## Values
 
@@ -33,6 +36,20 @@ defmodule AtlasCodeBoundary.Code do
       required: true
   end
 
+  # One entry of a change: a path of the repository, deleted, or written as a file
+  # (`mode` "100644" or "100755", with the size and sha256 of its bytes) or as a symlink
+  # (`mode` "120000", with its `target` and that target's size and sha256).
+  defmodel :change_entry do
+    # Relative to the repository's root.
+    field :path, :string, required: true
+    field :op, {:enum, [:write, :delete]}, required: true
+    field :kind, {:enum, [:file, :symlink]}
+    field :mode, :string
+    field :size, :integer
+    field :sha256, :string
+    field :target, :string
+  end
+
   # Why Code refuses, and the values the refusal concerns (those that apply).
   defmodel :problem do
     field :message, :string, required: true
@@ -46,6 +63,20 @@ defmodule AtlasCodeBoundary.Code do
     field :sha256, :string
     # A superseded snapshot's successor, when Code knows it.
     field :successor, :string
+    field :change_id, :string
+    field :base_revision, :string
+    # An entry of the input that Code refuses.
+    field :entry, :change_entry
+    # The sha256 of each blob a change still waits for.
+    field :missing, {:list, :string}
+    field :review_id, :string
+    field :update_id, :string
+    # The fingerprint of the change's content.
+    field :fingerprint, :string
+    # How far a review got: "pushed" when it is visible but not yet opened.
+    field :phase, :string
+    # The revision a moved review location is at now, when it still exists.
+    field :current, :string
   end
 
   ## Inputs
@@ -69,6 +100,56 @@ defmodule AtlasCodeBoundary.Code do
     field :snapshot_id, :string, required: true
     # 64 lowercase hex characters: the sha256 of an entry of the snapshot's manifest.
     field :sha256, :string, required: true
+  end
+
+  defmodel :create_change_input do
+    # A lowercase UUID the caller chooses; repeating the same input is the same change.
+    field :change_id, :string, required: true
+    field :snapshot_id, :string, required: true
+    # A repository of the snapshot, and its revision there.
+    field :repository, :string, required: true
+    field :base_revision, :string, required: true
+    # At least one; paths unique.
+    field :entries, {:list, :change_entry}, required: true
+  end
+
+  defmodel :put_change_blob_input do
+    field :change_id, :string, required: true
+    field :sha256, :string, required: true
+    # The blob's bytes, whole: any binary, not only text.
+    field :content, :string, required: true
+  end
+
+  defmodel :seal_change_input do
+    field :change_id, :string, required: true
+  end
+
+  defmodel :create_review_input do
+    # A lowercase UUID the caller chooses; repeating the same input resumes the same review.
+    field :review_id, :string, required: true
+    # A sealed change.
+    field :change_id, :string, required: true
+    # The branch name the review asks to land on.
+    field :target, :string, required: true
+    # One line of at most 256 characters.
+    field :title, :string, required: true
+    # Carries the attribution "Written by an AI agent".
+    field :body, :string, required: true
+    # When given, the change's content must have this fingerprint.
+    field :fingerprint, :string
+  end
+
+  defmodel :update_review_input do
+    # A lowercase UUID the caller chooses; repeating the same input resumes the same update.
+    field :update_id, :string, required: true
+    # An open review.
+    field :review_id, :string, required: true
+    # A sealed change of the review's repository.
+    field :change_id, :string, required: true
+    # The review's current revision.
+    field :revision, :string, required: true
+    # The fingerprint of the change's content, decided on.
+    field :fingerprint, :string, required: true
   end
 
   ## Outcomes
@@ -118,6 +199,40 @@ defmodule AtlasCodeBoundary.Code do
     field :sha256, :string, required: true
     field :size, :integer, required: true
     field :content, :stream, required: true
+  end
+
+  # A change: open while it waits for blobs (`missing`), sealed once it is a revision.
+  defmodel :change do
+    field :change_id, :string, required: true
+    field :state, {:enum, [:open, :sealed]}, required: true
+    # Ordered; empty once every blob is there.
+    field :missing, {:list, :string}, required: true
+    # The handle of the sealed change; only when sealed.
+    field :revision, :string
+  end
+
+  # An open review of a sealed change, at its current revision.
+  defmodel :review do
+    field :review_id, :string, required: true
+    field :change_id, :string, required: true
+    field :repository, :string, required: true
+    field :target, :string, required: true
+    field :revision, :string, required: true
+    field :state, {:enum, [:open]}, required: true
+    # Where people see the review (a pull request), when the repository's provider has one.
+    field :link, :string
+  end
+
+  # A review moved to another sealed change: the review's revision before and after.
+  defmodel :review_update do
+    field :update_id, :string, required: true
+    field :review_id, :string, required: true
+    field :change_id, :string, required: true
+    field :repository, :string, required: true
+    field :previous_revision, :string, required: true
+    field :revision, :string, required: true
+    field :state, {:enum, [:open]}, required: true
+    field :link, :string
   end
 
   ## Capabilities
@@ -172,4 +287,86 @@ defmodule AtlasCodeBoundary.Code do
       provider_unavailable: :problem
     ],
     right: :snapshot
+
+  # The change is checked against its base in the snapshot before it is recorded.
+  defcapability :create_change,
+    input: :create_change_input,
+    outcomes: [
+      change: :change,
+      invalid_request: :problem,
+      forbidden: :problem,
+      not_found: :problem,
+      snapshot_superseded: :problem,
+      base_mismatch: :problem,
+      conflict: :problem,
+      unsupported_content: :problem
+    ],
+    right: :change
+
+  defcapability :put_change_blob,
+    input: :put_change_blob_input,
+    outcomes: [
+      change: :change,
+      invalid_request: :problem,
+      not_found: :problem
+    ],
+    right: :change
+
+  # Sealing reaches the base revision (fetched into Code's cache when it is not there), so
+  # the refusals of reaching it apply too. A sealed change seals again as itself.
+  defcapability :seal_change,
+    input: :seal_change_input,
+    outcomes: [
+      change: :change,
+      invalid_request: :problem,
+      not_found: :problem,
+      incomplete_upload: :problem,
+      forbidden: :problem,
+      unknown_revision: :problem,
+      repository_mismatch: :problem,
+      provider_unavailable: :problem,
+      conflict: :problem
+    ],
+    right: :change
+
+  # Opens a review at a location only Code names, once: a repeat answers the open review
+  # or resumes where the last attempt stopped (`review_incomplete`).
+  defcapability :create_review,
+    input: :create_review_input,
+    outcomes: [
+      review: :review,
+      invalid_request: :problem,
+      not_found: :problem,
+      change_not_sealed: :problem,
+      fingerprint_mismatch: :problem,
+      forbidden: :problem,
+      unknown_revision: :problem,
+      repository_mismatch: :problem,
+      conflict: :problem,
+      location_taken: :problem,
+      provider_unavailable: :problem,
+      review_incomplete: :problem
+    ],
+    right: :review
+
+  # Moves an open review to a sealed change; never overwrites a location someone else moved.
+  defcapability :update_review,
+    input: :update_review_input,
+    outcomes: [
+      updated: :review_update,
+      invalid_request: :problem,
+      not_found: :problem,
+      review_not_open: :problem,
+      change_not_sealed: :problem,
+      repository_mismatch: :problem,
+      revision_mismatch: :problem,
+      fingerprint_mismatch: :problem,
+      forbidden: :problem,
+      unknown_revision: :problem,
+      conflict: :problem,
+      provider_unavailable: :problem,
+      location_moved: :problem,
+      update_refused: :problem
+    ],
+    right: :review
 end
