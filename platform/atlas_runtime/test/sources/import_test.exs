@@ -529,6 +529,103 @@ defmodule AtlasRuntime.Sources.ImportTest do
     end
   end
 
+  # The shared base fixture (work acquisition M3, #317 Q4): Flow's Bases writes an atlas-base
+  # v1 line, and Flow's own test pins those bytes to this folder. Here the same files, read in
+  # place, go through this importer and the helper's base reader: a change to the rules goes
+  # red here, a change to the bytes goes red there.
+  describe "the shared base fixture, as Flow's Bases writes it" do
+    @fixture Path.expand("../../../atlas_flow/test/fixtures/base_manifest", __DIR__)
+    # The baseline the fixture imports to (the A1 fix report's and its re-review's id).
+    @fixture_baseline "sha256:f195116376d779057f050c6ccc1adcd46f21254da13bb220c4c81ca0d92e4a46"
+    # The fixture manifest's own sha256: the importer canonicalizes, so this pins its bytes.
+    @fixture_manifest "ae6a4f2efc53a1e72b99a85dedc8320cec8c245e118170011fb6e4cd959b2006"
+
+    # The fixture's manifest line and its blobs by name, read in place.
+    defp shared_fixture do
+      line = File.read!(Path.join(@fixture, "manifest"))
+
+      blobs =
+        for name <- File.ls!(Path.join(@fixture, "blobs")),
+            into: %{},
+            do: {name, File.read!(Path.join([@fixture, "blobs", name]))}
+
+      {line, blobs}
+    end
+
+    # line with old replaced by new exactly once: a changed fixture cannot make a case a no-op.
+    defp replace_once(line, old, new) do
+      assert length(String.split(line, old)) == 2, "#{inspect(old)} is not in the fixture once"
+      String.replace(line, old, new)
+    end
+
+    test "imports, served by its manifest sha256, to the pinned baseline", %{home: home} do
+      {line, blobs} = shared_fixture()
+      manifest = sha256(line)
+      assert manifest == @fixture_manifest
+      for {name, bytes} <- blobs, do: assert(sha256(bytes) == name)
+
+      src = source(Map.put(blobs, manifest, line))
+
+      assert {:ok, %{baseline_id: @fixture_baseline, change_set: nil}} =
+               Import.base(home, policy("flow-prod"), lease(manifest), fetch(src))
+
+      # Every fixture blob is fetched once: the manifest first, then exactly its file contents.
+      assert [^manifest | contents] = fetched(src)
+      assert Enum.sort(contents) == Enum.sort(Map.keys(blobs))
+
+      "sha256:" <> hex = @fixture_baseline
+      snapshot = Path.join([home, "snapshots", hex])
+
+      assert "sha256:" <> sha256(File.read!(Path.join(snapshot, "manifest.json"))) ==
+               @fixture_baseline
+
+      tree = Path.join([snapshot, "tree", "app"])
+      assert {:ok, "../README.md"} = File.read_link(Path.join([tree, "docs", "link"]))
+      assert File.read!(Path.join([tree, "docs", "ünïcode.md"])) == "utf-8\n"
+      assert File.read!(Path.join([tree, "docs", ~s(say "hi".txt)])) == "quoted\n"
+      assert File.read!(Path.join(tree, "empty")) == ""
+      assert Bitwise.band(File.stat!(Path.join([tree, "bin", "run"])).mode, 0o111) != 0
+      assert File.ls!(Path.join(home, "bases")) == []
+    end
+
+    for {name, old, new, rule} <- [
+          {"no format", ~s("format":"atlas-base",), "", "wrong_format"},
+          {"version 2", ~s("version":1}), ~s("version":2}), "wrong_format"},
+          {"an extra top-level key", ~s("version":1}), ~s("version":1,"base_id":"x"}),
+           "not_a_base_object"},
+          {"a symlink without its target", ~s(,"target":"../README.md"), "", "entry_shape"},
+          {"a mode a base may not hold", ~s("mode":"100755"), ~s("mode":"100775"),
+           "unsafe_entry"},
+          {"an unsafe path", ~s("path":"empty"), ~s("path":"em\\tpty"), "unsafe_path"}
+        ] do
+      test "one changed field is refused: #{name}", %{home: home} do
+        {line, blobs} = shared_fixture()
+        line = replace_once(line, unquote(old), unquote(new))
+        manifest = sha256(line)
+        src = source(Map.put(blobs, manifest, line))
+
+        assert {:refused, :invalid, unquote(rule)} =
+                 Import.base(home, policy("flow-prod"), lease(manifest), fetch(src))
+
+        refute File.exists?(Path.join(home, "snapshots"))
+      end
+    end
+
+    test "one changed blob byte is refused and not stored", %{home: home} do
+      {line, blobs} = shared_fixture()
+      manifest = sha256(line)
+      readme = sha256("hello\n")
+      assert Map.has_key?(blobs, readme)
+      src = source(blobs |> Map.put(manifest, line) |> Map.put(readme, "hellO\n"))
+
+      assert {:refused, :invalid, "blob_mismatch"} =
+               Import.base(home, policy("flow-prod"), lease(manifest), fetch(src))
+
+      refute Store.has?(home, "flow-prod", readme)
+      refute File.exists?(Path.join(home, "snapshots"))
+    end
+  end
+
   test "an input without a usable base reference is refused", %{home: home} do
     src = source(%{})
 
