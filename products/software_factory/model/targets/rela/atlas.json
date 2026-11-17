@@ -1459,7 +1459,18 @@
     }
   },
   "shell": {
+    "default": "assigned",
     "tabs": [
+      {
+        "id": "open_for_you",
+        "label": "Open for you",
+        "to": "/_open"
+      },
+      {
+        "id": "supervised_by_you",
+        "label": "Supervised by you",
+        "to": "/_supervised"
+      },
       {
         "assigned": true,
         "id": "assigned",

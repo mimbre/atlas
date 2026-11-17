@@ -576,6 +576,12 @@
             ]
           }
         ]
+      },
+      "work": {
+        "kind": "task",
+        "of": "task_of",
+        "for": "done_for",
+        "ended": "result_kind"
       }
     }
   }

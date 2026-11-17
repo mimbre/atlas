@@ -119,13 +119,29 @@ defmodule Model.AtlasEyra do
     ]
   )
 
+  # What a supervisor's running work is (decision 2026-11-17 §6.3, M3b): the tasks
+  # Flow defines for the issue or its packages (task_of), done for the supervisor
+  # (done_for), running while they have no result (result_kind). Supervised by you
+  # counts them, and Hand over… lists those that will stop.
+  supervised_work(kind: :task, of: :task_of, for: :done_for, ended: :result_kind)
+
+  # Q4 (M3b plan §6, decided by Melle): the tabs in her order, and the tab the Console
+  # opens on when no target is given, Assigned to you. The shell names it (default:)
+  # rather than putting it first; this name is the one place to change it.
+  @boot_tab :assigned
+
+  @tabs [
+    [id: :open_for_you, label: "Open for you", to: "/_open"],
+    [id: :supervised_by_you, label: "Supervised by you", to: "/_supervised"],
+    [id: :assigned, label: "Assigned to you", to: "/", assigned: true],
+    [id: :scenes, label: "Scenes", to: "/k/scene"],
+    [id: "open-work", label: "Open work", to: "/k/assignment"]
+  ]
+
   shell(
     title: "Atlas Console",
-    tabs: [
-      [id: :assigned, label: "Assigned to you", to: "/", assigned: true],
-      [id: :scenes, label: "Scenes", to: "/k/scene"],
-      [id: "open-work", label: "Open work", to: "/k/assignment"]
-    ]
+    tabs: @tabs,
+    default: @boot_tab
   )
 
   read_first(

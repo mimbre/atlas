@@ -44,6 +44,7 @@ defmodule RelaDSL.Description.Build do
   @migrate_keys [:from, :to, :states, :rekey, :preserve_entry, :reason]
   @flow_runtime_keys [:runs, :writer, :inputs, :supervision]
   @supervision_keys [:relation, :operation, :hand_to]
+  @work_keys [:kind, :of, :for, :ended]
   @operations ["pickup", "hand_over"]
   @writer "atlas-flow"
 
@@ -157,6 +158,9 @@ defmodule RelaDSL.Description.Build do
 
       %{kind: :root, value: {:flow_runtime, opts}} = i ->
         unknown(i, {"flow_runtime"}, opts, @flow_runtime_keys)
+
+      %{kind: :root, value: {:supervised_work, opts}} = i ->
+        unknown(i, {"supervised_work"}, opts, @work_keys)
 
       %{kind: :extend_entity, value: {name, rules}} = i ->
         unknown(i, {"extend_entity", name}, rules, Enum.map(@entity_notes, &String.to_atom/1))
@@ -280,6 +284,7 @@ defmodule RelaDSL.Description.Build do
   end
 
   defp fragment(%{kind: :root, value: {:flow_runtime, _}}), do: []
+  defp fragment(%{kind: :root, value: {:supervised_work, _}}), do: []
 
   defp fragment(%{kind: :root, value: {construct, value}}),
     do: [%{RelaDSL.Description.root_key(construct) => Plain.of(value)}]
@@ -431,7 +436,7 @@ defmodule RelaDSL.Description.Build do
                    {"acl", {:ordered, acl}},
                    {"roles", {:ordered, input_roles}}
                  ]}}
-             ] ++ supervision(opts[:supervision], flows)}}
+             ] ++ supervision(opts[:supervision], flows, work(items))}}
          ]}
     end
   end
@@ -439,11 +444,12 @@ defmodule RelaDSL.Description.Build do
   # Who supervises a run (work acquisition design 2026-11-17, §5.6), only when `flow_runtime` declares
   # it: the relation from a run to its human supervisor, which only the run's writer
   # sets; the fields of a pickup or hand-over input (`operation`, `hand_to`); and each
-  # running subflow's supervised spans, as its `supervise` gives them. It sits beside
-  # the subflows, never in one, so it changes no subflow's digest.
-  defp supervision(nil, _flows), do: []
+  # running subflow's supervised spans, as its `supervise` gives them; and, when
+  # `supervised_work` gives it, what a supervisor's running work is (`work`). It sits
+  # beside the subflows, never in one, so it changes no subflow's digest.
+  defp supervision(nil, _flows, _work), do: []
 
-  defp supervision(opts, flows) do
+  defp supervision(opts, flows, work) do
     spans =
       for f <- flows, f.spans != [] do
         {to_string(f.name),
@@ -473,8 +479,21 @@ defmodule RelaDSL.Description.Build do
               {"hand_to", Plain.of(opts[:hand_to])}
             ]}},
           {"spans", {:ordered, spans}}
-        ]}}
+        ] ++
+          for(
+            w <- [work],
+            w != nil,
+            do: {"work", {:ordered, for(k <- @work_keys, do: {to_string(k), Plain.of(w[k])})}}
+          )}}
     ]
+  end
+
+  # The one `supervised_work` the contributions give, or nil.
+  defp work(items) do
+    Enum.find_value(items, fn
+      %{kind: :root, value: {:supervised_work, opts}} -> opts
+      _ -> nil
+    end)
   end
 
   @doc """
@@ -515,6 +534,7 @@ defmodule RelaDSL.Description.Build do
       end
 
     entries ++
+      work_problems(items, flows, schema, declared, supervised?) ++
       case {declared, spanned} do
         {nil, []} ->
           []
@@ -611,6 +631,89 @@ defmodule RelaDSL.Description.Build do
         )
       ]
     end
+  end
+
+  # What a supervisor's running work is (`supervised_work`), given once and only with
+  # supervision: `kind` is a kind; `of` leads from it to each span's subject or to one of
+  # its `with:` subjects (the work the span's runs make); `for` leads from it to the
+  # supervisor's kind; `ended` is a field of it (empty while the work runs).
+  defp work_problems(items, flows, schema, declared, supervised?) do
+    given = for %{kind: :root, value: {:supervised_work, opts}} = i <- items, do: {i, opts}
+
+    case given do
+      [] ->
+        []
+
+      [{i, _} | _] when not supervised? ->
+        [
+          {i.file, i.line,
+           problem(
+             :supervision_undeclared,
+             ["supervised_work"],
+             "supervised_work: no flow_runtime declares supervision: (the relation to a run's human supervisor)"
+           )}
+        ]
+
+      [_, {i, _} | _] ->
+        [
+          {i.file, i.line,
+           problem(:given_twice, ["supervised_work"], "supervised_work is given more than once")}
+        ]
+
+      [{i, opts}] ->
+        if Keyword.keyword?(opts) and Enum.all?(@work_keys, &is_atom(opts[&1])) and
+             Enum.all?(@work_keys, &(opts[&1] != nil)) do
+          {_, runtime} = declared
+          for p <- work_shape(opts, runtime[:supervision], flows, schema), do: {i.file, i.line, p}
+        else
+          [
+            {i.file, i.line,
+             problem(:supervision_work, [], "supervised_work: takes kind:, of:, for: and ended:")}
+          ]
+        end
+    end
+  end
+
+  defp work_shape(w, supervision, flows, schema) do
+    [kind, of, for_, ended] = Enum.map(@work_keys, &to_string(w[&1]))
+    relations = schema["relations"] || %{}
+    subjects = Map.new(flows, &{&1.name, to_string(&1.subject)})
+
+    supervisor =
+      Keyword.keyword?(supervision) &&
+        get_in(relations, [to_string(supervision[:relation]), "to"])
+
+    from? = fn r -> r != nil and kind in (r["from"] || []) end
+    at = "supervised_work: "
+
+    spans_off =
+      for f <- flows,
+          span <- f.spans,
+          parts = [to_string(f.subject) | Enum.map(span.with, &subjects[&1])],
+          not Enum.any?(parts, &(&1 in (get_in(relations, [of, "to"]) || []))),
+          do: span.name
+
+    [
+      get_in(schema, ["entities", kind]) == nil &&
+        problem(:supervision_work_kind, [kind], at <> "kind #{kind} is no kind"),
+      (not from?.(relations[of]) or spans_off != []) &&
+        problem(
+          :supervision_work_of,
+          [of, kind],
+          at <>
+            "of #{of} must lead from #{kind} to each span's subject or one of its with: subjects"
+        ),
+      (not from?.(relations[for_]) or not is_list(supervisor) or
+         supervisor -- (relations[for_]["to"] || []) != []) &&
+        problem(
+          :supervision_work_for,
+          [for_, kind],
+          at <> "for #{for_} must lead from #{kind} to the supervisor's kind"
+        ),
+      get_in(schema, ["entities", kind, "properties", ended]) == nil &&
+        problem(:supervision_work_ended, [kind, ended], at <> "#{kind}.#{ended} must be a field")
+    ]
+    |> Enum.filter(& &1)
   end
 
   # A span's `with:` names a subflow the composition runs whose subject points at the
