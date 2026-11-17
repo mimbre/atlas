@@ -45,8 +45,10 @@ defmodule AtlasCode do
   - `changes/<change id>/`: `request.json` (the canonical request), `blobs/<sha256>` (verified
     bytes) and, once sealed, `revision`. Older changes also keep `change.json` and `commit`.
   - `reviews/<review id>.json`: `{"request", "phase", "repository", "change_id", "revision",
-    "location", "review_url"?}`, written before any remote effect. Phases: `pushing`, then
-    `pushed`, then `open`; or `failed` when the review location already existed.
+    "location", "review_url"?, "ready"?}`, written before any remote effect. Phases: `pushing`, then
+    `pushed`, then `open`; or `failed` when the review location already existed. The location is
+    `work/review-<id>`, or `work/flow-review-<id>` for a draft (Flow merges those itself, through
+    `integrate`). `ready` is `mark_ready`'s journal: `asked` before `gh pr ready`, `marked` after.
     An update moves `revision` and `change_id` to its own and appends its ID to `"updates"`.
     Publications from before revision handles keep their `publications/<id>.json`.
   - `review-updates/<update id>.json`: `{"request", "phase", "review_id", "change_id",
