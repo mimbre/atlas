@@ -39,18 +39,18 @@ defmodule AtlasRuntime.Sources.SupervisorTest do
     )
   end
 
-  # The `{HttpTarget, :open, args}` of the remote puller's child spec.
+  # The `open:` `{module, fun, args}` of the remote puller's child spec.
   defp open_of(home, source, opts) do
     assert {:ok, {_flags, children}} = Sources.init({home, [source], opts})
     assert [%{start: {Puller, :start_link, [puller]}}] = children
-    assert {HttpTarget, :open, [@name, url, ^home, target]} = Keyword.fetch!(puller, :open)
-    assert url == source["url"]
-    target
+    Keyword.fetch!(puller, :open)
   end
 
   # Opens the remote puller's source the way the puller does, closed at the test's end.
   defp open(home, source, opts) do
-    case HttpTarget.open(@name, source["url"], home, open_of(home, source, opts)) do
+    {module, fun, args} = open_of(home, source, opts)
+
+    case apply(module, fun, args) do
       {:ok, ref} ->
         on_exit(fn -> HttpTarget.close(ref) end)
         {:ok, ref}
@@ -58,6 +58,14 @@ defmodule AtlasRuntime.Sources.SupervisorTest do
       other ->
         other
     end
+  end
+
+  # A directory outside the home, removed at the test's end.
+  defp outside do
+    dir = Path.join(System.tmp_dir!(), "d5-out-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    on_exit(fn -> File.rm_rf!(dir) end)
+    dir
   end
 
   defp served do
@@ -71,23 +79,22 @@ defmodule AtlasRuntime.Sources.SupervisorTest do
 
   defp get, do: %{method: "GET", path: "/v1/poll", query: "", headers: [], body: nil}
 
-  describe "init/1, the remote puller's open options" do
-    test "without a ca_file they are the caller's target options as given", %{home: home} do
-      assert open_of(home, remote(), []) == []
+  describe "init/1, the remote puller's open" do
+    test "without a ca_file it is HttpTarget's, with the caller's target options as given",
+         %{home: home} do
+      url = remote()["url"]
+      assert open_of(home, remote(), []) == {HttpTarget, :open, [@name, url, home, []]}
 
       assert open_of(home, remote(), target: [cacertfile: "/t/ca.pem", uid: 7]) ==
-               [cacertfile: "/t/ca.pem", uid: 7]
+               {HttpTarget, :open, [@name, url, home, [cacertfile: "/t/ca.pem", uid: 7]]}
     end
 
-    test "a ca_file is trusted from the home, in place of the caller's", %{home: home} do
-      ca = Path.join(home, @ca_file)
-      assert open_of(home, remote(%{"ca_file" => @ca_file}), []) == [cacertfile: ca]
+    test "with a ca_file it is the checked open of that file", %{home: home} do
+      url = remote()["url"]
+      opts = [target: [cacertfile: "/t/ca.pem", uid: 7]]
 
-      target =
-        open_of(home, remote(%{"ca_file" => @ca_file}), target: [cacertfile: "/t/ca.pem", uid: 7])
-
-      assert Keyword.get_values(target, :cacertfile) == [ca]
-      assert target[:uid] == 7
+      assert open_of(home, remote(%{"ca_file" => @ca_file}), opts) ==
+               {Sources, :open, [@name, url, home, @ca_file, [cacertfile: "/t/ca.pem", uid: 7]]}
     end
   end
 
@@ -133,27 +140,108 @@ defmodule AtlasRuntime.Sources.SupervisorTest do
       refute_received {:served, _}
     end
 
-    test "with a ca_file it trusts that file only, TLS 1.3 only", ctx do
+    test "with a ca_file it trusts the certificates read from it, TLS 1.3 only", ctx do
       ca = Path.join(ctx.home, @ca_file)
       File.rename!(F.cacertfile(ctx.pki, ctx.home), ca)
       source = remote(%{"url" => ctx.url, "ca_file" => @ca_file})
 
-      assert {:ok, %{conn: conn}} = open(ctx.home, source, [])
-      assert conn.ssl[:cacertfile] == String.to_charlist(ca)
-      refute Keyword.has_key?(conn.ssl, :cacerts)
+      # The entry's file replaces a caller's cacertfile:; other caller options are kept.
+      assert {:ok, %{conn: conn}} = open(ctx.home, source, target: [cacertfile: "/t/ca.pem"])
+      assert Enum.sort(conn.ssl[:cacerts]) == Enum.sort(ctx.pki.cacerts)
+      refute Keyword.has_key?(conn.ssl, :cacertfile)
       assert conn.ssl[:versions] == [:"tlsv1.3"]
       assert conn.ssl[:verify] == :verify_peer
+      assert conn.ssl[:server_name_indication] == ~c"localhost"
+      assert Keyword.has_key?(conn.ssl[:customize_hostname_check], :match_fun)
 
+      # Read once: a file changed or removed after the open is not read again.
+      File.write!(ca, File.read!(F.cacertfile(F.pki("localhost"), ctx.home)))
+      assert {:ok, %{status: 200}} = Transport.request(get(), conn: conn)
+      assert_received {:served, "/work-source/v1/poll"}
+
+      File.rm!(ca)
       assert {:ok, %{status: 200}} = Transport.request(get(), conn: conn)
       assert_received {:served, "/work-source/v1/poll"}
     end
 
-    test "a missing or non-regular ca_file fails the open, with no fallback", ctx do
-      source = remote(%{"url" => ctx.url, "ca_file" => @ca_file})
-      assert open(ctx.home, source, []) == {:error, :no_cacerts}
+    test "a deeper ca_file is trusted when every directory on its path is real", ctx do
+      File.mkdir_p!(Path.join([ctx.home, "sources", @name, "tls"]))
 
-      File.mkdir_p!(Path.join(ctx.home, @ca_file))
-      assert open(ctx.home, source, []) == {:error, :no_cacerts}
+      File.rename!(
+        F.cacertfile(ctx.pki, ctx.home),
+        Path.join(ctx.home, "sources/flow-test/tls/ca.pem")
+      )
+
+      source = remote(%{"url" => ctx.url, "ca_file" => "sources/flow-test/tls/ca.pem"})
+
+      assert {:ok, %{conn: conn}} = open(ctx.home, source, [])
+      assert {:ok, %{status: 200}} = Transport.request(get(), conn: conn)
+      assert_received {:served, "/work-source/v1/poll"}
+    end
+
+    test "a ca_file that is a symbolic link out of the home is refused, with no fallback", ctx do
+      File.ln_s!(F.cacertfile(ctx.pki, outside()), Path.join(ctx.home, @ca_file))
+      source = remote(%{"url" => ctx.url, "ca_file" => @ca_file})
+
+      assert open(ctx.home, source, []) == {:error, {:ca_file, :symlink}}
+      refute_received {:served, _}
+    end
+
+    test "a ca_file under a symbolic link to a directory out of the home is refused", ctx do
+      out = outside()
+      File.rename!(F.cacertfile(ctx.pki, out), Path.join(out, "ca.pem"))
+      File.ln_s!(out, Path.join([ctx.home, "sources", @name, "tls"]))
+      source = remote(%{"url" => ctx.url, "ca_file" => "sources/flow-test/tls/ca.pem"})
+
+      assert open(ctx.home, source, []) == {:error, {:ca_file, :symlink}}
+      refute_received {:served, _}
+    end
+
+    test "a missing, non-regular or certificate-less ca_file fails the open", ctx do
+      source = remote(%{"url" => ctx.url, "ca_file" => @ca_file})
+      ca = Path.join(ctx.home, @ca_file)
+      assert open(ctx.home, source, []) == {:error, {:ca_file, :missing}}
+
+      File.write!(ca, "not a certificate\n")
+      assert open(ctx.home, source, []) == {:error, {:ca_file, :no_certificates}}
+
+      # Valid certificates past the size bound.
+      pem = File.read!(F.cacertfile(ctx.pki, ctx.home))
+      File.write!(ca, [pem, :binary.copy("\n", 1_048_576)])
+      assert open(ctx.home, source, []) == {:error, {:ca_file, :too_large}}
+
+      File.rm!(ca)
+      File.mkdir_p!(ca)
+      assert open(ctx.home, source, []) == {:error, {:ca_file, :not_regular}}
+
+      # A file component where a directory belongs.
+      deeper = remote(%{"url" => ctx.url, "ca_file" => "sources/flow-test/ca.pem/x.pem"})
+      File.rm_rf!(ca)
+      File.write!(ca, "")
+      assert open(ctx.home, deeper, []) == {:error, {:ca_file, :directory}}
+      refute_received {:served, _}
+    end
+
+    test "a file swapped in after the check is refused as changed", ctx do
+      checked = Path.join(ctx.home, @ca_file)
+      File.rename!(F.cacertfile(ctx.pki, ctx.home), checked)
+      {:ok, stat} = File.lstat(checked)
+      # Renamed over it between the check and the open: another inode.
+      File.rename!(F.cacertfile(ctx.pki, ctx.home), checked)
+
+      assert Sources.read_checked(checked, stat) == {:error, :changed}
+      assert {:ok, _pem} = Sources.read_checked(checked, File.lstat!(checked))
+    end
+
+    test "open/5 itself refuses a ca_file outside sources/<name>/", ctx do
+      for path <- [
+            "sources/other/ca.pem",
+            "sources/flow-test/../token",
+            "/etc/ssl/cert.pem",
+            "sources/flow-test"
+          ] do
+        assert Sources.open(@name, ctx.url, ctx.home, path, []) == {:error, {:ca_file, :outside}}
+      end
     end
   end
 end

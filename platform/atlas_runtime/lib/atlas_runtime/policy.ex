@@ -14,6 +14,8 @@ defmodule AtlasRuntime.Policy do
   `ca_file`: a PEM file of the CAs its TLS peer is verified against instead of the OS store,
   under `sources/<name>/` like its `credential_file` (a test source whose certificate no
   public CA signs; pull-e2e D5). Without it the OS store applies. A `builtin` entry has none.
+  This checks the path as a string only; at each open `AtlasRuntime.Sources.Supervisor.open/5`
+  also refuses a symbolic link on it (lstat) and trusts the certificates it read.
   """
 
   @file_name "policy.json"
