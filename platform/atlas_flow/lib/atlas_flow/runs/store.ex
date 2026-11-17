@@ -938,19 +938,19 @@ defmodule AtlasFlow.Runs.Store do
   end
 
   # Each pending write, in order, under its stable id. A hand-over's To-Do create that
-  # Facts refuses because another fact holds its key (an id taken meanwhile) is
-  # renumbered: `{:renumbered, writes}`, the run's pending writes with the next free
-  # number, stored before they are sent again.
+  # Facts refuses because its key is taken (another fact holds it, or it is held back
+  # after a delete) is renumbered: `{:renumbered, writes}`, the run's pending writes with
+  # the next free number, under that number's ids, stored before they are sent again.
   defp send_writes(config, run) do
     writes = run["pending"]["writes"]
 
     Enum.reduce_while(writes, :ok, fn write, :ok ->
-      case Talk.put(write["kind"], write["content"], write["id"]) do
+      case Talk.put(write["kind"], write["content"], write["id"], code: true) do
         {:stored, _} ->
           {:cont, :ok}
 
         error ->
-          case taken(config, write) do
+          case taken(config, write, refusal_code(error)) do
             :ours -> {:cont, :ok}
             {:taken, number} -> {:halt, {:renumbered, renumber(config, run, write, number)}}
             :unknown -> {:halt, {:error, {:pending, error}}}
@@ -959,17 +959,17 @@ defmodule AtlasFlow.Runs.Store do
     end)
   end
 
-  # Whether a refused write is a hand-over's To-Do whose key another fact holds: by what
-  # Facts holds at the key (`AtlasFlow.Runs.HandOver.met/2`), with the next free number
-  # when it is taken.
-  defp taken(config, write) do
+  defp refusal_code({:refused, _reasons, code}), do: code
+  defp refusal_code(_error), do: nil
+
+  # Whether a refused write is a hand-over's To-Do whose key is taken, with the next free
+  # number when it is. A key Facts holds back (`"reserved"`: its fact was deleted) is
+  # taken and never this create's; otherwise by what Facts holds at the key
+  # (`AtlasFlow.Runs.HandOver.met/2`). Facts answers a resend of the refused id from its
+  # ledger, so a taken key is only ever left for the next number's ids.
+  defp taken(config, write, code) do
     with true <- config["hand_over"] != nil and HandOver.create?(write),
-         %{"fact" => fact} <-
-           Talk.transition_read(write["kind"], %{
-             "key" => write["content"]["key"],
-             "plain" => true
-           }),
-         :taken <- HandOver.met(write, fact) do
+         :taken <- held(write, code) do
       after_ = write["hand_over"]["number"] + 1
 
       case Talk.transition_read(write["kind"], %{"plain" => true}) do
@@ -982,6 +982,15 @@ defmodule AtlasFlow.Runs.Store do
       end
     else
       :ours -> :ours
+      _ -> :unknown
+    end
+  end
+
+  defp held(_write, "reserved"), do: :taken
+
+  defp held(write, _code) do
+    case Talk.transition_read(write["kind"], %{"key" => write["content"]["key"], "plain" => true}) do
+      %{"fact" => fact} -> HandOver.met(write, fact)
       _ -> :unknown
     end
   end

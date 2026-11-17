@@ -1585,6 +1585,7 @@
           "config": "decider",
           "kind": "person"
         },
+        "preserve_kind": ["person", "agent", "machinery"],
         "relation": "assigned_to",
         "via": "assignment"
       },

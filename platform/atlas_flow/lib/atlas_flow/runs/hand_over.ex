@@ -19,11 +19,12 @@ defmodule AtlasFlow.Runs.HandOver do
     * `title`, `instructions` (`{subject}`: the handed-over subject's key, `{from}`: the
       supervisor who handed it over) and `values`, the rest of the create.
 
-  Two writes, in order: the To-Do's create (by Flow), then the link from its part to
-  the holder. The link is written by the supervisor who handed the run over, whose
-  checked act it is: Facts keeps that as an assignment made by hand, so the To-Do's own
-  run keeps it and does not move it to its subflow's default owner
-  (`AtlasFlow.Runs.Presentation.manual?/2`). Flow never closes the To-Do.
+  Two writes, in order: the To-Do's create, then the link from its part to the holder.
+  Flow writes both (`by` Flow: Flow never writes in anyone else's name), and each names its cause:
+  the hand-over input and the supervisor who sent it, so Facts' history says truthfully
+  who sent each write and why. That the To-Do's own run keeps the holder as its owner is
+  the model's owner rule (its assignee), not who wrote the link. Flow never closes the
+  To-Do.
   """
 
   @doc """
@@ -95,6 +96,7 @@ defmodule AtlasFlow.Runs.HandOver do
     key = key(spec, number)
     part = String.replace(spec["part"]["key"], "{key}", key)
     mark = %{"input" => input, "number" => number, "from" => from, "to" => to}
+    cause = cause(input, from)
 
     text =
       &(&1 |> String.replace("{subject}", run["subject_key"]) |> String.replace("{from}", from))
@@ -110,7 +112,13 @@ defmodule AtlasFlow.Runs.HandOver do
         "id" => AtlasBus.Digest.of_term([run["key"], input, "hand_over", key]),
         "kind" => spec["kind"],
         "hand_over" => Map.put(mark, "write", "create"),
-        "content" => %{"op" => "create", "key" => key, "values" => values, "by" => "flow"}
+        "content" => %{
+          "op" => "create",
+          "key" => key,
+          "values" => values,
+          "by" => "flow",
+          "cause" => cause
+        }
       },
       %{
         "id" =>
@@ -122,11 +130,15 @@ defmodule AtlasFlow.Runs.HandOver do
           "key" => part,
           "values" => %{},
           "links" => %{spec["owner_relation"] => [to]},
-          "by" => from
+          "by" => "flow",
+          "cause" => cause
         }
       }
     ]
   end
+
+  # Why Flow sends a hand-over's writes: the input of the supervisor who handed it over.
+  defp cause(input, from), do: "Flow hand-over: input #{input} by #{from}"
 
   @doc "Whether `write` is the create of a hand-over's To-Do."
   def create?(write), do: match?(%{"hand_over" => %{"write" => "create"}}, write)
@@ -156,7 +168,8 @@ defmodule AtlasFlow.Runs.HandOver do
   What a refused create of a To-Do met at its key (`fact`, as Facts holds it, or nil):
   `:ours` when it is the To-Do this create makes (its answer was lost), `:taken` when
   another fact holds the key, `:unknown` when there is none (the refusal was for
-  something else, or the key is held back: the create is sent again later).
+  something else: the create is sent again later). A key Facts holds back after a delete
+  (`"reserved"`) is taken without reading it (`AtlasFlow.Runs.Store`).
   """
   def met(_write, nil), do: :unknown
 

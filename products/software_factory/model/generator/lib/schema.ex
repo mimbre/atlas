@@ -319,7 +319,9 @@ defmodule RelaDSL.Schema do
   Who owns the subject: `via:` the type that assigns it and the `relation:` to the
   assignee, and `default: {kind, key}` (or `{kind, config: role}`, the actor the
   environment configures for `role`), who owns it while no one is assigned.
-  `preserve_kind:` keeps an assignee of that kind; other assignees take the default.
+  `preserve_kind:` keeps an assignee of that kind, or of any kind in a list of them
+  (`preserve_kind: [:a, :b]`, the default's kind among them); other assignees take the
+  default.
   """
   defmacro owner(opts) do
     quote do
@@ -984,16 +986,27 @@ defmodule RelaDSL.Schema do
         (opts[:via] != nil and opts[:relation] == nil) &&
           pre <> "via: #{opts[:via]} needs relation: the relation to the assignee",
         (opts[:preserve_kind] != nil and
-           not (is_atom(opts[:preserve_kind]) and opts[:relation] != nil and
+           not (preserved_kinds?(opts[:preserve_kind]) and opts[:relation] != nil and
                   is_tuple(opts[:default]) and tuple_size(opts[:default]) == 2 and
-                  elem(opts[:default], 0) == opts[:preserve_kind])) &&
-          pre <> "preserve_kind needs a relation and a default of that kind"
+                  elem(opts[:default], 0) in List.wrap(opts[:preserve_kind]))) &&
+          pre <>
+            "preserve_kind needs a relation and a default of that kind (one kind, or a list of distinct kinds with the default's among them)"
       ] ++ default_problems(Keyword.get(opts, :default, :none), pre)
     else
       [pre <> "takes via:, relation: and default:"]
     end
     |> Enum.filter(& &1)
   end
+
+  # One kind, or a non-empty list of distinct kinds, each a valid name.
+  defp preserved_kinds?(kind) when is_atom(kind) and kind != nil, do: valid_name?(kind)
+
+  defp preserved_kinds?([_ | _] = kinds),
+    do:
+      Enum.all?(kinds, &(is_atom(&1) and &1 != nil and valid_name?(&1))) and
+        Enum.uniq(kinds) == kinds
+
+  defp preserved_kinds?(_), do: false
 
   defp default_problems(:none, _pre), do: []
 

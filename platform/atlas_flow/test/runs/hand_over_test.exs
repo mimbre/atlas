@@ -166,10 +166,19 @@ defmodule AtlasFlow.Runs.HandOverTest do
     assert FakeFacts.get("memo", "M-01") != nil
 
     # Assigned through its part (the component the relation's template names) to the holder
-    # it was handed to, by the supervisor who handed it over: never to that supervisor.
+    # it was handed to, never to the supervisor who handed it over. Flow writes both, in its
+    # own name; each names the supervisor's hand-over input as its cause.
     assert [owner] = badge_writes()
-    assert %{"op" => "change", "key" => "B-M-01", "by" => "ada"} = owner
+    assert %{"op" => "change", "key" => "B-M-01", "by" => "flow"} = owner
     assert owner["links"] == %{"held_by" => ["bea"]}
+
+    for write <- [create, owner] do
+      assert write["by"] == "flow"
+      assert String.contains?(write["cause"], "S-11")
+      assert String.contains?(write["cause"], "ada")
+    end
+
+    assert Enum.all?(FakeFacts.stored_from_flow(), &(&1["by"] not in ~w(ada bea cid)))
     assert FakeFacts.get("badge", "B-M-01")["links"]["held_by"] == ["bea"]
 
     # Intent first: the run holding both writes was stored before either was sent; the
@@ -277,6 +286,56 @@ defmodule AtlasFlow.Runs.HandOverTest do
     assert r["pending"]["writes"] == [] and not Map.has_key?(r["pending"], "hand_over")
   end
 
+  test "a number held back after its To-Do was deleted: the next one under fresh ids; the run moves on",
+       c do
+    # The highest To-Do was deleted: the list ends at M-01, and M-02 is held back.
+    FakeFacts.put("memo", %{"key" => "M-01", "values" => %{"title" => "Theirs"}})
+    FakeFacts.put("memo", %{"key" => "M-02", "values" => %{"title" => "Gone"}})
+    :ok = FakeFacts.reserve("memo", "M-02")
+
+    supervised(c)
+    hand_over(c, 11, "ada", "bea")
+    assert {:ok, _} = reconcile(c)
+
+    # One To-Do, numbered past the held-back key, assigned to the holder.
+    assert [%{"key" => "M-03"} = create] = creates()
+    assert FakeFacts.get("memo", "M-02") == nil
+    assert FakeFacts.get("badge", "B-M-03")["links"]["held_by"] == ["bea"]
+    assert FakeFacts.get("badge", "B-M-02") == nil
+    assert index(holding("M-03")) < index(&(&1 == create))
+
+    # Under the new number's ids, not the refused one's.
+    held = JSON.decode!(Enum.at(FakeFacts.sent(), index(holding("M-03")))["values"]["pending"])
+    ids = Map.new(held["writes"], &{&1["content"]["key"], &1["id"]})
+    refused = AtlasBus.Digest.of_term([key(), "S-11", "hand_over", "M-02"])
+    assert ids["M-03"] == AtlasBus.Digest.of_term([key(), "S-11", "hand_over", "M-03"])
+    refute refused in Map.values(ids)
+
+    # The refused id stays refused, even once the key is free: only a fresh id gets past.
+    :ok = FakeFacts.release("memo", "M-02")
+
+    [old, _] =
+      HandOver.writes(
+        c.config["hand_over"],
+        run(c),
+        %{"to" => "bea", "input" => "S-11"},
+        "ada",
+        2
+      )
+
+    assert old["id"] == refused
+    assert {:refused, _, "reserved"} = Talk.put("memo", old["content"], refused, code: true)
+
+    # The run moved on: nothing pending, the input consumed, the holder's pickup taken.
+    r = run(c)
+    assert r["pending"]["writes"] == [] and not Map.has_key?(r["pending"], "hand_over")
+    assert status("S-11") == "consumed"
+    slip(c, 12, "pickup", "bea", %{})
+    assert {:ok, _} = reconcile(c)
+    assert run(c)["supervised_by"] == "bea"
+    assert [_] = creates()
+  end
+
   test "the hand-over's writes set no supervisor; the holder's own pickup does", c do
     supervised(c)
     hand_over(c, 11, "ada", "bea")
@@ -306,7 +365,9 @@ defmodule AtlasFlow.Runs.HandOverTest do
     assert Enum.map(creates(), & &1["key"]) == ~w(M-01 M-02)
     assert FakeFacts.get("badge", "B-M-01")["links"]["held_by"] == ["bea"]
     assert FakeFacts.get("badge", "B-M-02")["links"]["held_by"] == ["cid"]
-    assert Enum.map(badge_writes(), & &1["by"]) == ~w(ada bea)
+    assert Enum.map(badge_writes(), & &1["by"]) == ~w(flow flow)
+    assert [first, second] = Enum.map(badge_writes(), & &1["cause"])
+    assert String.contains?(first, "S-11") and String.contains?(second, "S-13")
   end
 
   test "Flow never closes a To-Do: it only creates them", c do

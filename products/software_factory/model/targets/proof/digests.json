@@ -761,8 +761,16 @@
     },
     "to_do": {
       "prod": {
-        "digest": "8e387a008256b3c65947e0063dd48fbd4ab70417021cd1bc6cb54d947d59156b",
+        "digest": "1e2e70b748c304b99eeba9643baf4ab745fdd11e7d8285642b9461b5ba3e5dfc",
         "history": [
+          {
+            "digest": "1e2e70b748c304b99eeba9643baf4ab745fdd11e7d8285642b9461b5ba3e5dfc",
+            "states": [
+              "done",
+              "open",
+              "wont_do"
+            ]
+          },
           {
             "digest": "8e387a008256b3c65947e0063dd48fbd4ab70417021cd1bc6cb54d947d59156b",
             "states": [
@@ -779,8 +787,16 @@
         ]
       },
       "test": {
-        "digest": "8e387a008256b3c65947e0063dd48fbd4ab70417021cd1bc6cb54d947d59156b",
+        "digest": "1e2e70b748c304b99eeba9643baf4ab745fdd11e7d8285642b9461b5ba3e5dfc",
         "history": [
+          {
+            "digest": "1e2e70b748c304b99eeba9643baf4ab745fdd11e7d8285642b9461b5ba3e5dfc",
+            "states": [
+              "done",
+              "open",
+              "wont_do"
+            ]
+          },
           {
             "digest": "8e387a008256b3c65947e0063dd48fbd4ab70417021cd1bc6cb54d947d59156b",
             "states": [
