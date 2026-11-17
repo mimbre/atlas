@@ -355,9 +355,17 @@ defmodule AtlasFlow.Runs.SupervisionInputsTest do
 
     assert {:ok, _} = reconcile(c)
     r = run(c)
-    assert r["supervised_by"] == "ada"
+    # The pickup was taken (consumed below); the choice then left span pack for the
+    # adjacent span check, which clears the supervisor (S2).
+    refute Map.has_key?(r, "supervised_by")
     assert r["state"] == "checking" and r["input_cursor"] == 11
     assert status("S-10") == "consumed" and status("S-11") == "consumed"
+
+    # In position order: the pickup set the supervisor in `packing`, then the choice's
+    # move to `checking` cleared it.
+    assert [set, cleared] = link_writes()
+    assert set["links"] == %{@relation => ["ada"]} and set["values"]["state"] == "packing"
+    assert cleared["links"] == %{@relation => []} and cleared["values"]["state"] == "checking"
   end
 
   test "a pickup queued behind a choice: the choice first, then the pickup, made for the entry it left (moved_on)",
