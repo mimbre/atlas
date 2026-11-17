@@ -12,13 +12,13 @@ defmodule AtlasRuntime.Policy do
   """
 
   @file_name "policy.json"
-  @permissions ~w(dedicated-repository materialized-folder workspace-write read-only review-packet)
+  @permissions ~w(dedicated-repository materialized-folder workspace-write read-only)
   @cost_classes ~w(low standard high)
   @harnesses ~w(claude codex)
   # What each harness can serve; an option that cannot serve the request's permission is
   # skipped, never weakened (the former `BackendPolicy` capability check).
   @capabilities %{
-    "claude" => ~w(dedicated-repository materialized-folder read-only review-packet),
+    "claude" => ~w(dedicated-repository materialized-folder read-only),
     "codex" => @permissions
   }
   @default_slots ["default"]

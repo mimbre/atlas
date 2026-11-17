@@ -17,11 +17,6 @@ func TestNetworkProfilesSelectCodexWebSearchOnStartAndResume(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	scope["root"], scope["packet"], scope["findings"] = "/packet/tree", "/packet", "/packet/findings"
-	packet, err := packetArguments(scope, "/runtime/scratch/turn", "/worker-home", "/usr/bin/atlas-runtime")
-	if err != nil {
-		t.Fatal(err)
-	}
 	repository, err := repositoryArguments(map[string]any{"root": "/repository"}, "/runtime-home")
 	if err != nil {
 		t.Fatal(err)
@@ -33,7 +28,6 @@ func TestNetworkProfilesSelectCodexWebSearchOnStartAndResume(t *testing.T) {
 		{"read-only", `web_search="disabled"`, []string{"--sandbox", "read-only"}},
 		{"workspace-write", `web_search="disabled"`, []string{"--sandbox", "workspace-write"}},
 		{"folder", `web_search="disabled"`, folder},
-		{"review", `web_search="disabled"`, packet},
 		{"repository", `web_search="live"`, repository},
 	} {
 		for _, session := range []string{"", "confirmed-session"} {

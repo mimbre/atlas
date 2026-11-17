@@ -129,15 +129,6 @@ func TestCodexMaterializedFolderDeniesEveryRuntimeSocket(t *testing.T) {
 	codexDeniesEverySocket(t, "materialized-folder", args, err, home)
 }
 
-func TestCodexReviewPacketDeniesEveryRuntimeSocket(t *testing.T) {
-	user := isolatedHome(t)
-	home, dest := filepath.Join(user, "runtime"), filepath.Join(user, "work")
-	materialize(t, home, dest)
-	scope := freeze(t, home, dest, filepath.Join(user, "packet"), packetID)
-	args, err := permissionArguments(scope, filepath.Join(home, "scratch", "turn-1"), filepath.Join(user, "bin", "atlas-runtime"), "")
-	codexDeniesEverySocket(t, "review-packet", args, err, home)
-}
-
 // The Claude profiles. Claude has no workspace-write mode: claudeValidate refuses it.
 
 func claudeUser(t *testing.T) string {
@@ -177,13 +168,4 @@ func TestClaudeMaterializedFolderDeniesEveryRuntimeSocket(t *testing.T) {
 	scope := materialize(t, home, filepath.Join(user, "work"))
 	encoded, err := claudeFolderSettings(scope, "/u/.ac-12345678", user, filepath.Join(user, "bin", "atlas-runtime"))
 	claudeDeniesEverySocket(t, "materialized-folder", encoded, err, home, true)
-}
-
-func TestClaudeReviewPacketDeniesEveryRuntimeSocket(t *testing.T) {
-	user := claudeUser(t)
-	home, dest := filepath.Join(user, "runtime"), filepath.Join(user, "work")
-	materialize(t, home, dest)
-	scope := freeze(t, home, dest, filepath.Join(user, "packet"), packetID)
-	encoded, err := claudePacketSettings(scope, "/u/.ac-12345678", user, filepath.Join(user, "bin", "atlas-runtime"))
-	claudeDeniesEverySocket(t, "review-packet", encoded, err, home, true)
 }

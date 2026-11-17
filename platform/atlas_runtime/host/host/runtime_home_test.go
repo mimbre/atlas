@@ -831,8 +831,8 @@ type homeProfileCheck struct {
 
 // homeProfileChecks renders every Codex and Claude profile against a fresh Runtime home: Codex read-only
 // and workspace-write (a project, and a workspace inside the home), dedicated repositories (outside, and
-// managed below <home>/workers), materialized folder and review packet; Claude read-only, dedicated
-// repositories, materialized folder, review packet and a Runtime work folder (<home>/workers/work-<name>).
+// managed below <home>/workers) and materialized folder; Claude read-only, dedicated repositories,
+// materialized folder and a Runtime work folder (<home>/workers/work-<name>).
 // setup runs on each home before its profiles are rendered. Every fixture root is outside the system temp
 // roots (outsideSystemTemp), so the Claude rows, which refuse a root there, run alike on Linux and macOS.
 func homeProfileChecks(t *testing.T, setup func(home string)) []homeProfileCheck {
@@ -875,9 +875,6 @@ func homeProfileChecks(t *testing.T, setup func(home string)) []homeProfileCheck
 		inspector := filepath.Join(user, "bin", "atlas-runtime")
 		args, err := permissionArguments(scope, filepath.Join(home, "scratch", "turn-1"), inspector, "")
 		codex("materialized-folder", home, args, err)
-		packet := freeze(t, home, dest, filepath.Join(user, "packet"), packetID)
-		args, err = permissionArguments(packet, filepath.Join(home, "scratch", "turn-1"), inspector, "")
-		codex("review-packet", home, args, err)
 	}
 	{
 		user := claudeUser(t)
@@ -900,9 +897,6 @@ func homeProfileChecks(t *testing.T, setup func(home string)) []homeProfileCheck
 		inspector := filepath.Join(user, "bin", "atlas-runtime")
 		encoded, err := claudeFolderSettings(scope, "/u/.ac-12345678", user, inspector)
 		claude("materialized-folder", home, dest, encoded, err, true)
-		packet := freeze(t, home, dest, filepath.Join(user, "packet"), packetID)
-		encoded, err = claudePacketSettings(packet, "/u/.ac-12345678", user, inspector)
-		claude("review-packet", home, packet["root"].(string), encoded, err, true)
 	}
 	{
 		user := claudeUser(t)
@@ -913,8 +907,8 @@ func homeProfileChecks(t *testing.T, setup func(home string)) []homeProfileCheck
 		encoded, err := claudeFolderSettings(scope, "/u/.ac-12345678", user, filepath.Join(user, "bin", "atlas-runtime"))
 		claude("work folder", home, root, encoded, err, true)
 	}
-	if len(checks) != 16 {
-		t.Fatalf("%d profile checks, want 16", len(checks))
+	if len(checks) != 14 {
+		t.Fatalf("%d profile checks, want 14", len(checks))
 	}
 	return checks
 }

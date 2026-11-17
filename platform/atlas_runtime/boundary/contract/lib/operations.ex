@@ -26,8 +26,7 @@ defmodule AtlasRuntimeBoundary.Operations do
     :"dedicated-repository",
     :"materialized-folder",
     :"workspace-write",
-    :"read-only",
-    :"review-packet"
+    :"read-only"
   ]
 
   ## Client (Q4)

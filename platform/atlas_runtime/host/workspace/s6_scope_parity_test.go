@@ -13,7 +13,7 @@ import (
 	"github.com/eyra/atlas/platform/atlas_runtime/host/internal/s6fixture"
 )
 
-// S6 A1: the legacy Go scope decisions (Scope, FolderScope, PacketScope) against the shared
+// S6 A1: the legacy Go scope decisions (Scope, FolderScope) against the shared
 // tables test/fixtures/s6/scope/{dedicated,folder}.json. The Elixir twin is
 // test/sandbox/scope_parity_test.exs, which decides the same rows with AtlasRuntime.Sandbox.Scope
 // on the facts of `workspace facts dedicated|folder`. ATLAS_S6_WRITE=1 rewrites the expect values
@@ -27,8 +27,7 @@ import (
 //     after the fs spec, content substituted, directories 0755, files 0644;
 //   - results are abstracted (placeholders), and then each hex(sha256(dest)) of an input.records
 //     destination becomes "{sha256:<abstracted dest>}", so record and preparation file names stay
-//     stable across temporary roots;
-//   - input.profile "review-packet" runs PacketScope (legacy-only, B9).
+//     stable across temporary roots.
 
 // s6ScopeEnv is the baseline environment of every scope row, on both sides.
 func s6ScopeEnv(places s6fixture.Places) map[string]string {
@@ -201,15 +200,10 @@ func TestS6ScopeDedicatedParity(t *testing.T) {
 	})
 }
 
-// TestS6ScopeFolderParity asserts every row of scope/folder.json on the legacy FolderScope, and
-// on PacketScope for the legacy-only review-packet rows (B9).
+// TestS6ScopeFolderParity asserts every row of scope/folder.json on the legacy FolderScope.
 func TestS6ScopeFolderParity(t *testing.T) {
 	s6ScopeParity(t, "folder.json", func(input map[string]any) (map[string]any, error) {
-		dest, home := input["dest"].(string), input["home"].(string)
-		if input["profile"] == "review-packet" {
-			return PacketScope(dest, home)
-		}
-		return FolderScope(dest, home)
+		return FolderScope(input["dest"].(string), input["home"].(string))
 	})
 }
 

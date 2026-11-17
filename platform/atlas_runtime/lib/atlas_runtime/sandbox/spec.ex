@@ -31,8 +31,6 @@ defmodule AtlasRuntime.Sandbox.Spec do
   (`deniedRuntimeHome`, `host.go:641-658`, reported as the fact `own_home`). Production passes
   the Runtime's `state.dir` as both (`service.ex:636`, `native.ex:126-127`). `env.unset` always
   lists `ATLAS_RUNTIME_HOME`.
-
-  `review-packet` is not ported (B9): its scopes refuse here, and its rows stay Go-only.
   """
 
   alias AtlasRuntime.Sandbox.HomeLayout
@@ -127,8 +125,7 @@ defmodule AtlasRuntime.Sandbox.Spec do
         ),
       "markers" =>
         if(
-          profile in ["materialized-folder", "review-packet"] and is_binary(root) and
-            home != "",
+          profile == "materialized-folder" and is_binary(root) and home != "",
           do: [%{"home" => home, "root" => root}],
           else: []
         )
@@ -231,7 +228,7 @@ defmodule AtlasRuntime.Sandbox.Spec do
   defp codex_agent(spec, request, scope, home, facts) do
     fields = scope(request)
     profile = fields["profile"]
-    folder? = profile in ["materialized-folder", "review-packet"]
+    folder? = profile == "materialized-folder"
     scope_home = text(fields["home"])
 
     scratch =
@@ -244,7 +241,6 @@ defmodule AtlasRuntime.Sandbox.Spec do
         scope == nil -> plain_codex(request, home, facts)
         profile == "dedicated-repository" -> repository_codex(fields, home, facts)
         profile == "materialized-folder" -> folder_codex(fields, scratch, request, facts)
-        profile == "review-packet" -> refuse(not_ported())
         true -> refuse("Unknown permission profile")
       end
 
@@ -657,9 +653,6 @@ defmodule AtlasRuntime.Sandbox.Spec do
 
             {spec, settings, root}
 
-          "review-packet" ->
-            refuse(not_ported())
-
           _ ->
             {spec, claude_repository_settings(fields, temporary, home, facts), root}
         end
@@ -976,8 +969,6 @@ defmodule AtlasRuntime.Sandbox.Spec do
       "unix_sockets" => [scratch],
       "local_binding" => true
     }
-
-  defp not_ported, do: "The review-packet profile is not decided in Elixir (S6 B9)"
 
   # Facts
 

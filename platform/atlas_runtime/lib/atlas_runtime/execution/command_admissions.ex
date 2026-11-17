@@ -159,11 +159,7 @@ defmodule AtlasRuntime.CommandAdmissions do
 
       request = Map.put(request, "questions_enabled", questions)
 
-      optional!(
-        request,
-        "permissions",
-        &(&1 in ["dedicated-repository", "materialized-folder", "review-packet"])
-      )
+      optional!(request, "permissions", &(&1 in ["dedicated-repository", "materialized-folder"]))
 
       cond do
         Map.has_key?(request, "repository") or Map.has_key?(request, "branch") ->
@@ -277,25 +273,6 @@ defmodule AtlasRuntime.CommandAdmissions do
     Enum.sort(Map.keys(scope)) ==
       ~w(baseline home profile record repositories root snapshot_id version) and
       materialized_scope?(scope, cwd)
-  end
-
-  # A review pass runs in the packet tree P/tree and writes only P/findings.
-  defp valid_permissions?(%{
-         "permissions" => %{"profile" => "review-packet"} = scope,
-         "sandbox" => nil,
-         "cwd" => cwd,
-         "repository" => nil
-       }) do
-    Enum.sort(Map.keys(scope)) ==
-      ~w(baseline findings fingerprint home packet packet_id profile record repositories root snapshot_id version) and
-      materialized_scope?(scope, cwd) and absolute_path?(scope["packet"]) and
-      scope["root"] == Path.join(scope["packet"], "tree") and
-      scope["findings"] == Path.join(scope["packet"], "findings") and
-      matches?(
-        scope["packet_id"],
-        ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/
-      ) and
-      matches?(scope["fingerprint"], ~r/\Afpr_[0-9a-f]{64}\z/)
   end
 
   defp valid_permissions?(%{"permissions" => scope, "sandbox" => nil, "cwd" => cwd})
