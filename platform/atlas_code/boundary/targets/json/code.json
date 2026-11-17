@@ -128,6 +128,225 @@
         }
       ],
       "right": "snapshot"
+    },
+    {
+      "input": "create_change_input",
+      "name": "create_change",
+      "outcomes": [
+        {
+          "model": "change",
+          "name": "change"
+        },
+        {
+          "model": "problem",
+          "name": "invalid_request"
+        },
+        {
+          "model": "problem",
+          "name": "forbidden"
+        },
+        {
+          "model": "problem",
+          "name": "not_found"
+        },
+        {
+          "model": "problem",
+          "name": "snapshot_superseded"
+        },
+        {
+          "model": "problem",
+          "name": "base_mismatch"
+        },
+        {
+          "model": "problem",
+          "name": "conflict"
+        },
+        {
+          "model": "problem",
+          "name": "unsupported_content"
+        }
+      ],
+      "right": "change"
+    },
+    {
+      "input": "put_change_blob_input",
+      "name": "put_change_blob",
+      "outcomes": [
+        {
+          "model": "change",
+          "name": "change"
+        },
+        {
+          "model": "problem",
+          "name": "invalid_request"
+        },
+        {
+          "model": "problem",
+          "name": "not_found"
+        }
+      ],
+      "right": "change"
+    },
+    {
+      "input": "seal_change_input",
+      "name": "seal_change",
+      "outcomes": [
+        {
+          "model": "change",
+          "name": "change"
+        },
+        {
+          "model": "problem",
+          "name": "invalid_request"
+        },
+        {
+          "model": "problem",
+          "name": "not_found"
+        },
+        {
+          "model": "problem",
+          "name": "incomplete_upload"
+        },
+        {
+          "model": "problem",
+          "name": "forbidden"
+        },
+        {
+          "model": "problem",
+          "name": "unknown_revision"
+        },
+        {
+          "model": "problem",
+          "name": "repository_mismatch"
+        },
+        {
+          "model": "problem",
+          "name": "provider_unavailable"
+        },
+        {
+          "model": "problem",
+          "name": "conflict"
+        }
+      ],
+      "right": "change"
+    },
+    {
+      "input": "create_review_input",
+      "name": "create_review",
+      "outcomes": [
+        {
+          "model": "review",
+          "name": "review"
+        },
+        {
+          "model": "problem",
+          "name": "invalid_request"
+        },
+        {
+          "model": "problem",
+          "name": "not_found"
+        },
+        {
+          "model": "problem",
+          "name": "change_not_sealed"
+        },
+        {
+          "model": "problem",
+          "name": "fingerprint_mismatch"
+        },
+        {
+          "model": "problem",
+          "name": "forbidden"
+        },
+        {
+          "model": "problem",
+          "name": "unknown_revision"
+        },
+        {
+          "model": "problem",
+          "name": "repository_mismatch"
+        },
+        {
+          "model": "problem",
+          "name": "conflict"
+        },
+        {
+          "model": "problem",
+          "name": "location_taken"
+        },
+        {
+          "model": "problem",
+          "name": "provider_unavailable"
+        },
+        {
+          "model": "problem",
+          "name": "review_incomplete"
+        }
+      ],
+      "right": "review"
+    },
+    {
+      "input": "update_review_input",
+      "name": "update_review",
+      "outcomes": [
+        {
+          "model": "review_update",
+          "name": "updated"
+        },
+        {
+          "model": "problem",
+          "name": "invalid_request"
+        },
+        {
+          "model": "problem",
+          "name": "not_found"
+        },
+        {
+          "model": "problem",
+          "name": "review_not_open"
+        },
+        {
+          "model": "problem",
+          "name": "change_not_sealed"
+        },
+        {
+          "model": "problem",
+          "name": "repository_mismatch"
+        },
+        {
+          "model": "problem",
+          "name": "revision_mismatch"
+        },
+        {
+          "model": "problem",
+          "name": "fingerprint_mismatch"
+        },
+        {
+          "model": "problem",
+          "name": "forbidden"
+        },
+        {
+          "model": "problem",
+          "name": "unknown_revision"
+        },
+        {
+          "model": "problem",
+          "name": "conflict"
+        },
+        {
+          "model": "problem",
+          "name": "provider_unavailable"
+        },
+        {
+          "model": "problem",
+          "name": "location_moved"
+        },
+        {
+          "model": "problem",
+          "name": "update_refused"
+        }
+      ],
+      "right": "review"
     }
   ],
   "models": [
@@ -180,6 +399,54 @@
     {
       "fields": [
         {
+          "name": "path",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "op",
+          "required": true,
+          "type": "enum",
+          "values": [
+            "write",
+            "delete"
+          ]
+        },
+        {
+          "name": "kind",
+          "required": false,
+          "type": "enum",
+          "values": [
+            "file",
+            "symlink"
+          ]
+        },
+        {
+          "name": "mode",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "size",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "sha256",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "target",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "name": "change_entry"
+    },
+    {
+      "fields": [
+        {
           "name": "message",
           "required": true,
           "type": "string"
@@ -226,6 +493,51 @@
         },
         {
           "name": "successor",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "change_id",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "base_revision",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "entry",
+          "required": false,
+          "type": "change_entry"
+        },
+        {
+          "name": "missing",
+          "required": false,
+          "type": "list of string"
+        },
+        {
+          "name": "review_id",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "update_id",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "fingerprint",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "phase",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "current",
           "required": false,
           "type": "string"
         }
@@ -281,6 +593,131 @@
         }
       ],
       "name": "get_blob_input"
+    },
+    {
+      "fields": [
+        {
+          "name": "change_id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "snapshot_id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "repository",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "base_revision",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "entries",
+          "required": true,
+          "type": "list of change_entry"
+        }
+      ],
+      "name": "create_change_input"
+    },
+    {
+      "fields": [
+        {
+          "name": "change_id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "sha256",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "content",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "name": "put_change_blob_input"
+    },
+    {
+      "fields": [
+        {
+          "name": "change_id",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "name": "seal_change_input"
+    },
+    {
+      "fields": [
+        {
+          "name": "review_id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "change_id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "target",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "title",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "body",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "fingerprint",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "name": "create_review_input"
+    },
+    {
+      "fields": [
+        {
+          "name": "update_id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "review_id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "change_id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "revision",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "fingerprint",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "name": "update_review_input"
     },
     {
       "fields": [
@@ -406,7 +843,127 @@
         }
       ],
       "name": "blob"
+    },
+    {
+      "fields": [
+        {
+          "name": "change_id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "state",
+          "required": true,
+          "type": "enum",
+          "values": [
+            "open",
+            "sealed"
+          ]
+        },
+        {
+          "name": "missing",
+          "required": true,
+          "type": "list of string"
+        },
+        {
+          "name": "revision",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "name": "change"
+    },
+    {
+      "fields": [
+        {
+          "name": "review_id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "change_id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "repository",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "target",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "revision",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "state",
+          "required": true,
+          "type": "enum",
+          "values": [
+            "open"
+          ]
+        },
+        {
+          "name": "link",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "name": "review"
+    },
+    {
+      "fields": [
+        {
+          "name": "update_id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "review_id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "change_id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "repository",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "previous_revision",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "revision",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "state",
+          "required": true,
+          "type": "enum",
+          "values": [
+            "open"
+          ]
+        },
+        {
+          "name": "link",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "name": "review_update"
     }
   ],
-  "version": "0.2.0"
+  "version": "0.3.0"
 }

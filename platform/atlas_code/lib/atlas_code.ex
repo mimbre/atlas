@@ -82,7 +82,9 @@ defmodule AtlasCode do
   }
   # The facade's outcomes as HTTP responses: success answers 200 with the outcome's fields;
   # a refusal answers its status with the outcome's name as the error code.
-  @answers [Outcome.Resolved, Outcome.Created, Outcome.Manifest]
+  @answers [Outcome.Resolved, Outcome.Created, Outcome.Manifest, Outcome.Change]
+  # A review's link is its pull request's `review_url` on the wire.
+  @reviews [Outcome.Review, Outcome.Updated]
   @problems %{
     Outcome.InvalidRequest => {400, "invalid_request"},
     Outcome.Forbidden => {403, "forbidden"},
@@ -92,7 +94,17 @@ defmodule AtlasCode do
     Outcome.RepositoryMismatch => {409, "repository_mismatch"},
     Outcome.SnapshotSuperseded => {409, "snapshot_superseded"},
     Outcome.UnsupportedContent => {422, "unsupported_content"},
-    Outcome.ProviderUnavailable => {503, "provider_unavailable"}
+    Outcome.ProviderUnavailable => {503, "provider_unavailable"},
+    Outcome.Conflict => {409, "conflict"},
+    Outcome.BaseMismatch => {409, "base_mismatch"},
+    Outcome.IncompleteUpload => {422, "incomplete_upload"},
+    Outcome.ChangeNotSealed => {409, "change_not_sealed"},
+    Outcome.FingerprintMismatch => {409, "fingerprint_mismatch"},
+    Outcome.LocationTaken => {409, "location_taken"},
+    Outcome.ReviewIncomplete => {502, "review_incomplete"},
+    Outcome.ReviewNotOpen => {409, "review_not_open"},
+    Outcome.RevisionMismatch => {409, "revision_mismatch"},
+    Outcome.UpdateRefused => {409, "update_refused"}
   }
 
   @doc """
@@ -575,9 +587,11 @@ defmodule AtlasCode do
   end
 
   # The routes: transport only. Each answers with what `AtlasCode.Service` answers for it;
-  # resolve, snapshot and manifest go through the boundary facade (ADR 0006: backend →
-  # boundary), the others call the Service directly until the contract declares them.
-  # get_blob is the facade's only; no route serves it.
+  # every route the contract declares goes through the boundary facade (ADR 0006: backend →
+  # boundary): resolve, snapshot, manifest, the changes and the reviews. Health, archive and
+  # integrations call the Service directly. get_blob is the facade's only; no route serves it.
+  # A route with a JSON body first runs the Service's own checks of it
+  # (`Service.check_request/2`), so a body is refused as before the facade.
   defp route(~c"GET", "/v1/health", _query, _body, _settings), do: Service.health()
 
   defp route(~c"POST", "/v1/references/resolve", _query, body, settings),
@@ -610,19 +624,28 @@ defmodule AtlasCode do
   end
 
   defp route(~c"POST", "/v1/changes", _query, body, settings),
-    do: Service.create_change(settings, decode(body))
+    do: settings |> through(:create_change, decode(body), &Boundary.create_change/2)
 
   defp route(~c"PUT", "/v1/changes/" <> rest, _query, body, settings) do
     case String.split(rest, "/") do
-      [id, "blobs", digest] -> Service.put_change_blob(settings, id, digest, body)
-      _ -> Service.error(404, "not_found", "Unknown path")
+      [id, "blobs", digest] ->
+        settings
+        |> client()
+        |> Boundary.put_change_blob(%{change_id: id, sha256: digest, content: body})
+        |> reply(:put_change_blob)
+
+      _ ->
+        Service.error(404, "not_found", "Unknown path")
     end
   end
 
   defp route(~c"POST", "/v1/changes/" <> rest, _query, _body, settings) do
     case String.split(rest, "/") do
-      [id, "seal"] -> Service.seal_change(settings, id)
-      _ -> Service.error(404, "not_found", "Unknown path")
+      [id, "seal"] ->
+        settings |> client() |> Boundary.seal_change(%{change_id: id}) |> reply(:seal_change)
+
+      _ ->
+        Service.error(404, "not_found", "Unknown path")
     end
   end
 
@@ -636,10 +659,10 @@ defmodule AtlasCode do
         Service.error(403, "forbidden", "Reviews and integrations require the orchestrator token")
 
       path == "/v1/reviews" ->
-        Service.create_review(settings, decode(body))
+        through(settings, :create_review, decode(body), &Boundary.create_review/2)
 
       path == "/v1/review-updates" ->
-        Service.update_review(settings, decode(body))
+        through(settings, :update_review, decode(body), &Boundary.update_review/2)
 
       true ->
         Service.create_integration(settings, decode(body))
@@ -663,9 +686,19 @@ defmodule AtlasCode do
   defp deliver(request, data),
     do: :ok = :httpd_socket.deliver(mod(request, :socket_type), mod(request, :socket), data)
 
+  # A JSON body: the Service's own checks of it, then the facade.
+  defp through(settings, capability, request, call) do
+    with :ok <- Service.check_request(capability, request),
+         do: settings |> client() |> call.(request) |> reply(capability)
+  end
+
   # The routes call the facade on behalf of the instance that serves them, with its settings
-  # (`AtlasCode.Running`). Both tokens may resolve, snapshot and read snapshots.
-  defp client(settings), do: {{__MODULE__, settings}, [:snapshot]}
+  # (`AtlasCode.Running`). Both tokens may resolve, snapshot, read snapshots and make
+  # changes; only the orchestrator token reviews (the route has checked it before).
+  defp client(%{role: :orchestrator} = settings),
+    do: {{__MODULE__, settings}, [:snapshot, :change, :review]}
+
+  defp client(settings), do: {{__MODULE__, settings}, [:snapshot, :change]}
 
   # A facade answer as the HTTP response the Service gave: a declared outcome to its status
   # and body, and an input the contract refuses to the Service's refusal of that shape.
@@ -673,6 +706,17 @@ defmodule AtlasCode do
 
   defp reply(%module{} = outcome, _capability) when module in @answers,
     do: {200, module.dump(outcome)}
+
+  defp reply(%module{} = outcome, _capability) when module in @reviews do
+    {link, body} = Map.pop(module.dump(outcome), "link")
+    {200, if(link, do: Map.put(body, "review_url", link), else: body)}
+  end
+
+  # A moved review location's details name where it is now, as null when it is gone.
+  defp reply(%Outcome.LocationMoved{} = outcome, _capability) do
+    {message, details} = Map.pop!(Outcome.LocationMoved.dump(outcome), "message")
+    Service.error(409, "location_moved", message, Map.put_new(details, "current", nil))
+  end
 
   # A superseded snapshot's details name its successor, as null when Code knows none.
   defp reply(%Outcome.SnapshotSuperseded{} = outcome, _capability) do
