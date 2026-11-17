@@ -21,6 +21,7 @@ defmodule AtlasFlow.Runs.Store do
   alias AtlasFlow.Talk
   alias AtlasFlow.Activities.Gate
   alias AtlasFlow.Activities.Effect
+  alias AtlasFlow.Activities.Task
   alias AtlasFlow.Composition.{Counts, Links, Tallies}
 
   @structured ~w(deadlines pending last_input)
@@ -383,11 +384,22 @@ defmodule AtlasFlow.Runs.Store do
   `reconcile/3` does for each: its run as `known` holds it (the latest generation, from
   the last reconcile) is drained; a subject the selection admits that has none gets one.
   `{:ok, runs}`: the runs it reconciled.
-  """
-  def reconcile_subjects(nil, _flows, _now, _known, _subjects), do: {:ok, []}
 
-  def reconcile_subjects(config, flows, now, known, subjects) do
-    config = with_flows(config, flows)
+  `opts` are what the machinery's Link said (`AtlasFlow.Activities.Task`): `works:`, the
+  work snapshots it reported, by `work_id`, applied by revision instead of read again;
+  `wake: true`, a capacity event, so a waiting task asks again before its `retry_at`.
+  """
+  def reconcile_subjects(config, flows, now, known, subjects, opts \\ [])
+  def reconcile_subjects(nil, _flows, _now, _known, _subjects, _opts), do: {:ok, []}
+
+  def reconcile_subjects(config, flows, now, known, subjects, opts) do
+    config =
+      config
+      |> with_flows(flows)
+      |> Map.put("task_link", %{
+        "works" => Keyword.get(opts, :works, %{}),
+        "wake" => Keyword.get(opts, :wake, false)
+      })
 
     pairs =
       for {name, selection} <- Enum.sort(config["selection"]),
@@ -1147,6 +1159,9 @@ defmodule AtlasFlow.Runs.Store do
       match?({:effect, _}, mechanism) ->
         effect_next(config, run, flow, subject, now, elem(mechanism, 1))
 
+      match?({:task, _}, mechanism) ->
+        task_next(config, run, flow, subject, now, elem(mechanism, 1))
+
       match?({:gate, _}, mechanism) ->
         gate_next(run, flow, subject, now, elem(mechanism, 1))
 
@@ -1242,6 +1257,37 @@ defmodule AtlasFlow.Runs.Store do
           {:error, _} ->
             {:ok, run}
         end
+    end
+  end
+
+  # A task for the machinery the subject is assigned to (`AtlasFlow.Activities.Task`): its
+  # intent is stored in the run before anything is sent (the run is stored before `next`
+  # for an activity), its record writes after that, and the Runtime is asked only once the
+  # stored run holds them.
+  defp task_next(config, run, flow, subject, now, spec) do
+    projection = config["selection"][run["flow"]]["projection"] || %{}
+    link = config["task_link"] || %{}
+
+    ctx = %{
+      assignee: Task.assignee(spec, flow.owner(run["state"]), projection, subject),
+      number: fn -> Task.number(spec, run) end,
+      now: now,
+      wake: link["wake"] == true,
+      works: link["works"] || %{}
+    }
+
+    case Task.step(run, spec, subject, ctx) do
+      :none ->
+        {:ok, run}
+
+      {:pending, intent, writes} ->
+        {:ok,
+         run
+         |> put_in(["pending", "task"], intent)
+         |> update_in(["pending", "writes"], &(&1 ++ writes))}
+
+      {:result, outcome, result, writes} ->
+        Run.task_result(run, flow, subject, now, outcome, result, writes)
     end
   end
 

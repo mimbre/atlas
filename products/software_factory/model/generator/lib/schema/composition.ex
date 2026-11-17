@@ -457,6 +457,8 @@ defmodule RelaDSL.Schema.Composition do
 
   defp mechanism_writes({:gate, _}), do: [{:gate_result, :gate}]
   defp mechanism_writes({:effect, spec}), do: [{spec.field, {:effect, spec.action}}]
+  # A task's result is its run's own; nothing writes it on the subject.
+  defp mechanism_writes({:task, _spec}), do: []
   defp mechanism_writes(nil), do: []
 
   defp starts(flows, line) do

@@ -8,6 +8,7 @@ defmodule AtlasFlow.Runs.Run do
   alias AtlasFlow.Runs.Inputs
   alias AtlasFlow.Activities.Gate
   alias AtlasFlow.Activities.Effect
+  alias AtlasFlow.Activities.Task
 
   # A subflow's identity is its compiled digest (`flow.digest()`); stable internal
   # request identities keep their term encoding so pending writes keep their keys.
@@ -28,7 +29,7 @@ defmodule AtlasFlow.Runs.Run do
         flow.mechanism(run["state"]) == nil and
         flow.enter(run["state"], subject["values"] || %{}) == [] and
         run["deadlines"] == %{"version" => 1, "timers" => []} and
-        Enum.all?(~w(gate pass effect definition_block), &(run["pending"][&1] == nil)) and
+        Enum.all?(~w(gate pass effect task definition_block), &(run["pending"][&1] == nil)) and
         match?([%{}], run["pending"]["writes"])
 
     if safe do
@@ -80,7 +81,7 @@ defmodule AtlasFlow.Runs.Run do
     safe =
       state != nil and state in flow.states() and run["pending"]["writes"] == [] and
         run["pending"]["gate"] == nil and run["pending"]["pass"] == nil and
-        run["pending"]["effect"] == nil and
+        run["pending"]["effect"] == nil and run["pending"]["task"] == nil and
         run["deadlines"]["timers"] == []
 
     original = run
@@ -184,6 +185,7 @@ defmodule AtlasFlow.Runs.Run do
     do: is_binary(g) and is_integer(v)
 
   defp valid_activity?({:effect, spec}), do: Effect.valid?(spec)
+  defp valid_activity?({:task, spec}), do: Task.valid?(spec)
   defp valid_activity?(nil), do: true
   defp valid_activity?(_), do: false
 
@@ -213,6 +215,27 @@ defmodule AtlasFlow.Runs.Run do
        })}
     else
       _ -> {:error, :invalid_effect_result}
+    end
+  end
+
+  @doc """
+  Enter the branch for a task's `outcome` (`AtlasFlow.Activities.Task.step/4`): its
+  `result` joins the run's tasks (`pending.tasks`, kept across entries), and its record
+  `writes` join the entry's pending writes with their stable ids. Leaving the state drops
+  the task (`pending.task`), so a late result of its work is never taken.
+  """
+  def task_result(run, flow, subject, now, outcome, result, writes) do
+    {:task, spec} = flow.mechanism(run["state"])
+
+    with true <- outcome in Task.results(),
+         {:to, to} <- flow.next(run["state"], %{spec["field"] => outcome}, :result) do
+      {:ok,
+       enter(run, flow, to, now, true, subject)
+       |> update_in(["pending", "writes"], &(writes ++ &1))
+       |> update_in(["pending"], &Map.update(&1, "tasks", [result], fn l -> l ++ [result] end))
+       |> Map.put("last_input", %{"version" => 1, "task" => result["key"], "outcome" => outcome})}
+    else
+      _ -> {:error, :invalid_task_result}
     end
   end
 
@@ -643,6 +666,7 @@ defmodule AtlasFlow.Runs.Run do
             "verdict",
             "migrations",
             "effects",
+            "tasks",
             "composition"
           ]),
           %{

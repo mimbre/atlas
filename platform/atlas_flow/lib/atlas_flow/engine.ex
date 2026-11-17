@@ -36,6 +36,17 @@ defmodule AtlasFlow.Engine do
 
   It reaches Facts only over the Bus, as the endpoint `flow`.
 
+  A machinery's Link (`AtlasFlow.Runtime.Link`) tells it what changed on the Runtime, and
+  it reconciles the subjects whose tasks that concerns (`AtlasFlow.Activities.Task`):
+
+  - `{:work_changed, work}`: the subject whose run holds that task (by client key or
+    `work_id`), with the snapshot, which the run applies by revision;
+  - `{:capacity, capacity}`: the subjects whose tasks wait in the backlog (no `work_id`)
+    and have room in it, oldest task first; each asks its own machinery again.
+
+  A message about no task it knows does nothing; the round reads every task back anyway.
+  A task waiting for capacity brings the round forward to its `retry_at`.
+
   It keeps Flow's settled position (`AtlasFlow.Settled`): a hint is settled once the
   engine reconciled and projected what it is about, through the writes it made for it
   that follow the hint without another writer's in between. A hint whose subjects could
@@ -60,6 +71,7 @@ defmodule AtlasFlow.Engine do
 
   alias AtlasBus.Envelope
   alias AtlasFlow.{Settled, Talk}
+  alias AtlasFlow.Activities.Task
   alias AtlasFlow.Runs.{Clock, Projection, Store}
 
   # How far up a hint looks for facts whose state it may change.
@@ -242,8 +254,54 @@ defmodule AtlasFlow.Engine do
     {:noreply, state}
   end
 
+  # A machinery's Link: a work changed, or capacity was reported.
+  def handle_info({:work_changed, %{} = work}, state) do
+    subjects =
+      for run <- state.runs,
+          %{} = t <- [run["pending"]["task"]],
+          t["key"] == work["client_key"] or
+            (t["work_id"] != nil and t["work_id"] == work["work_id"]),
+          uniq: true,
+          do: {run["subject_kind"], run["subject_key"]}
+
+    works = if is_binary(work["work_id"]), do: %{work["work_id"] => work}, else: %{}
+    {:noreply, link_reconcile(state, subjects, works: works)}
+  end
+
+  def handle_info({:capacity, %{} = capacity}, state) do
+    subjects =
+      state.runs
+      |> Enum.flat_map(fn run ->
+        case run["pending"]["task"] do
+          %{"work_id" => nil} = t when is_map(t) ->
+            if run["status"] == "active" and Task.room?(capacity, t["request"]["profile"]),
+              do: [{{t["created_at"], t["key"]}, {run["subject_kind"], run["subject_key"]}}],
+              else: []
+
+          _ ->
+            []
+        end
+      end)
+      |> Enum.sort()
+      |> Enum.map(&elem(&1, 1))
+      |> Enum.uniq()
+
+    {:noreply, link_reconcile(state, subjects, wake: true)}
+  end
+
   # Answers that came after their wait, and anything else.
   def handle_info(_message, state), do: {:noreply, state}
+
+  # The subjects a Link's message concerns, reconciled now (in order) and projected; a
+  # failure waits for the round, which reads every task back.
+  defp link_reconcile(state, [], _opts), do: state
+
+  defp link_reconcile(state, subjects, opts) do
+    facts = for {kind, key} <- subjects, do: {kind, key, :ensure}
+    {state, _reconciled, runs} = reconcile_runs(state, facts, opts)
+    {state, _projected} = project_all(state, Enum.uniq(subjects ++ run_subjects(runs)))
+    state
+  end
 
   defp position(%Envelope{position: position}) when is_integer(position), do: position
   defp position(_hint), do: 0
@@ -385,12 +443,13 @@ defmodule AtlasFlow.Engine do
   # The runs of the facts a hint is about, reconciled now (`{state, :ok, runs}`); every other
   # run waits for the round. Nothing before the runs were read whole once, or while they
   # cannot be: those, and a reconcile that fails, are `:failed`, for the round to do.
-  defp reconcile_runs(%{reconciled: false} = state, _facts), do: {state, :failed, []}
+  defp reconcile_runs(state, facts, opts \\ [])
+  defp reconcile_runs(%{reconciled: false} = state, _facts, _opts), do: {state, :failed, []}
 
-  defp reconcile_runs(%{refusal: refusal} = state, _facts) when refusal != nil,
+  defp reconcile_runs(%{refusal: refusal} = state, _facts, _opts) when refusal != nil,
     do: {state, :failed, []}
 
-  defp reconcile_runs(state, facts) do
+  defp reconcile_runs(state, facts, opts) do
     subjects = for {kind, key, _} <- facts, uniq: true, do: {kind, key}
     now = Clock.now(state.clock)
 
@@ -399,7 +458,8 @@ defmodule AtlasFlow.Engine do
            state.runner.flows,
            now,
            state.runs,
-           subjects
+           subjects,
+           opts
          ) do
       {:ok, []} ->
         {state, :ok, []}
@@ -438,10 +498,20 @@ defmodule AtlasFlow.Engine do
     }
   end
 
-  # When the round is due: on its interval, or at the first timer of an active run.
+  # When the round is due: on its interval, or at the first timer of an active run, or
+  # when a task waiting for capacity asks again.
   defp next_round(state) do
     Enum.reduce(state.runs, state.every, fn run, delay ->
       timers = if run["status"] == "active", do: run["deadlines"]["timers"], else: []
+
+      timers =
+        case {run["status"], run["pending"]["task"]} do
+          {"active", %{"work_id" => nil, "retry_at" => at}} when is_binary(at) ->
+            [%{"due" => at} | timers]
+
+          _ ->
+            timers
+        end
 
       Enum.reduce(timers, delay, fn t, d ->
         min(

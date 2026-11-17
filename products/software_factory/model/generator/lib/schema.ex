@@ -42,9 +42,9 @@ defmodule RelaDSL.Schema do
 
   ## Mechanisms
 
-  A state does its work through at most one **mechanism**: a `gate` (a verdict) or
-  an `effect` (a call to an outside service). Each writes one result field on the
-  subject. The macro expands
+  A state does its work through at most one **mechanism**: a `gate` (a verdict),
+  an `effect` (a call to an outside service) or a `task` (work for a machinery). A gate
+  and an effect each write one result field on the subject. The macro expands
   into what Rela needs for that: the field is reset to `none` when the state is
   entered, and there is one change branch per result value, taken by the role
   `atlas-flow`. A definition maps every value the mechanism can give,
@@ -54,6 +54,34 @@ defmodule RelaDSL.Schema do
   |---|---|---|
   | `gate` | `gate_result` | the gate's `verdicts` |
   | `effect` | `effect_result`, or `field:` | `done`, `refused` |
+  | `task` | `task_result`, or `field:` | `completed`, `check_failed`, `stuck`, `abandoned` |
+
+  A `task` is one unit of work Flow defines for the machinery the subject is assigned
+  to, and hands to its Runtime (`AtlasFlow.Activities.Task`). Its result is the run's
+  own: Flow never writes it on the subject, so the field is not reset on entry, and only
+  its branches (of the role `atlas-flow`) read it. Nothing is done while the subject is
+  not assigned to a machinery.
+
+      task :author,
+        role: :developer,
+        profile: :deep_coding,
+        cost_class: :standard,
+        input: [repository: "https://example.invalid/repo.git", base: "develop"],
+        check: ["bin/check"],
+        instructions: "Build what the package says.",
+        fields: [:title, :instructions],
+        records: [kind: "task", relation: "task_of"],
+        machinery: "machinery",
+        on: [completed: :authored, check_failed: :check_failed, stuck: :stuck,
+             abandoned: :stuck]
+
+  `kind` is `plan`, `author`, `review` or `fix`; `role` `architect` or `developer`;
+  `profile` `deep_coding` or `independent_review`; `cost_class` `low`, `standard` (the
+  default) or `high`. `input` is where the work starts: a repository and its base. It
+  never names a path on the machinery's machine, which the Runtime chooses (its D44).
+  `check` is the command (argv) run after the work, `instructions` the standard text,
+  and `fields` the subject's fields added to it. `records` names the kind and relation
+  of its task records, `machinery` the kind of the assignee it runs for.
 
   A result may lead to `{state, label}` instead of a state: the branch then carries
   that label, as `refused: {:decide, "The service refused; a person decides"}`.
@@ -153,7 +181,9 @@ defmodule RelaDSL.Schema do
       outcome, and `uncertain` and `error` decide its person verdict;
     * a gate's `purpose` is `:flow` or `:decider`; a smart gate names its `advice`
       and has no `rule`; a rule gate has a `rule` (below) and no `advice`;
-    * an effect maps exactly its result values;
+    * an effect and a task map exactly their result values; a task's spec is one the
+      task activity can run (its kind, role, profile, cost class, input, check,
+      instructions, records and machinery);
     * at most one mechanism per state, and no field set twice in a state;
     * `initial` names a state that is not final; there is a start trigger;
       `run_as` is given when a state has outputs; names are Rela names; at most
@@ -174,6 +204,24 @@ defmodule RelaDSL.Schema do
 
   @writer "atlas-flow"
   @effect_results [:done, :refused]
+  @task_results [:completed, :check_failed, :stuck, :abandoned]
+  @task_kinds [:plan, :author, :review, :fix]
+  @task_roles [:architect, :developer]
+  @task_profiles [:deep_coding, :independent_review]
+  @task_costs [:low, :standard, :high]
+  @task_keys [
+    :role,
+    :profile,
+    :cost_class,
+    :input,
+    :check,
+    :instructions,
+    :fields,
+    :records,
+    :machinery,
+    :field,
+    :on
+  ]
   @outcomes [:pass, :changes_required, :uncertain, :error]
   @purposes [:flow, :decider]
   @max_timers 8
@@ -199,6 +247,7 @@ defmodule RelaDSL.Schema do
     final: 3,
     gate: 2,
     effect: 2,
+    task: 2,
     wait_for: 2,
     await: 2,
     branch: 1,
@@ -322,6 +371,14 @@ defmodule RelaDSL.Schema do
 
   @doc "Mechanism: the outside `action`, with its spec (`service:`, `field:`, `also:`, …) and `on: [done:, refused:]`."
   defmacro effect(action, opts), do: item(:effect, [action, opts])
+
+  @doc """
+  Mechanism: a task of `kind` for the machinery the subject is assigned to, with its spec
+  (`role:`, `profile:`, `cost_class:`, `input:`, `check:`, `instructions:`, `fields:`,
+  `records:`, `machinery:`, `field:`) and `on: [completed:, check_failed:, stuck:,
+  abandoned:]`.
+  """
+  defmacro task(kind, opts), do: item(:task, [kind, opts])
 
   @doc "People with `roles` decide: `on:` the field they set, then each value they may choose and its state."
   defmacro wait_for(roles, opts), do: item(:wait_for, [roles, opts])
@@ -957,6 +1014,24 @@ defmodule RelaDSL.Schema do
     also(results(s, field, @effect_results, Keyword.get(opts, :on, [])), ps)
   end
 
+  # A task's result is the run's own: no reset on entry, only its branches read it.
+  defp put({:task, kind, opts}, s, _gates) do
+    opts = if Keyword.keyword?(opts), do: opts, else: []
+    field = Keyword.get(opts, :field, :task_result)
+
+    spec =
+      Map.new(
+        [kind: kind, field: field, cost_class: :standard] ++ Keyword.drop(opts, [:on, :field])
+      )
+
+    {s, ps} = mechanism(s, {:task, spec})
+
+    also(
+      results(s, field, @task_results, Keyword.get(opts, :on, []), "task #{kind}", false),
+      ps ++ task_problems(kind, opts, spec)
+    )
+  end
+
   defp put({:wait_for, roles, opts}, s, _gates) do
     roles = Enum.map(List.wrap(roles), &to_string/1)
 
@@ -1045,10 +1120,10 @@ defmodule RelaDSL.Schema do
   defp mechanism(%{mechanism: nil} = s, m), do: {%{s | mechanism: m}, []}
 
   defp mechanism(s, {kind, _}),
-    do: {s, ["has a second mechanism (#{kind}); a state has at most one gate or effect"]}
+    do: {s, ["has a second mechanism (#{kind}); a state has at most one gate, effect or task"]}
 
   # One branch per result value, in the order the definition maps them.
-  defp results(s, field, values, mapping, source \\ nil) do
+  defp results(s, field, values, mapping, source \\ nil, reset \\ true) do
     source = source || to_string(field)
     keys = Keyword.keys(mapping)
     missing = values -- keys
@@ -1063,8 +1138,47 @@ defmodule RelaDSL.Schema do
       ]
       |> Enum.filter(& &1)
 
-    {s, ps} = put_set(s, [{field, :none}])
+    {s, ps} = if reset, do: put_set(s, [{field, :none}]), else: {s, []}
     {add_branches(s, field, mapping, [@writer]), problems ++ ps}
+  end
+
+  # What the task activity needs to run a task, and nothing else (D44: no path).
+  defp task_problems(kind, opts, spec) do
+    text? = &(is_binary(&1) and String.trim(&1) != "")
+    pre = "task #{kind}: "
+
+    unknown =
+      if Keyword.keyword?(opts), do: Keyword.keys(opts) -- @task_keys, else: [:not_a_keyword]
+
+    input = spec[:input]
+
+    [
+      unknown != [] && pre <> "knows no #{list(unknown)}",
+      kind not in @task_kinds && pre <> "kind must be one of #{list(@task_kinds)}",
+      spec[:role] not in @task_roles && pre <> "role: must be one of #{list(@task_roles)}",
+      spec[:profile] not in @task_profiles &&
+        pre <> "profile: must be one of #{list(@task_profiles)}",
+      spec[:cost_class] not in @task_costs &&
+        pre <> "cost_class: must be one of #{list(@task_costs)}",
+      not (Keyword.keyword?(input || []) and input != nil and
+             Enum.sort(Keyword.keys(input)) == [:base, :repository] and
+             text?.(input[:repository]) and text?.(input[:base])) &&
+        pre <>
+          "input: must be [repository: url, base: ref]; a task never names a path on the " <>
+          "machinery's machine",
+      not (spec[:check] == nil or
+             (is_list(spec[:check]) and spec[:check] != [] and Enum.all?(spec[:check], text?))) &&
+        pre <> "check: must be a command, a list of texts",
+      not text?.(spec[:instructions]) && pre <> "instructions: must be a text",
+      not (is_list(spec[:fields] || []) and Enum.all?(spec[:fields] || [], &is_atom/1)) &&
+        pre <> "fields: must be a list of the subject's fields",
+      not (Keyword.keyword?(spec[:records] || :none) and
+             Enum.sort(Keyword.keys(spec[:records])) == [:kind, :relation] and
+             text?.(spec[:records][:kind]) and text?.(spec[:records][:relation])) &&
+        pre <> "records: must be [kind: text, relation: text]",
+      not text?.(spec[:machinery]) && pre <> "machinery: must be the kind of its assignee"
+    ]
+    |> Enum.filter(& &1)
   end
 
   defp also({s, ps}, earlier), do: {s, earlier ++ ps}

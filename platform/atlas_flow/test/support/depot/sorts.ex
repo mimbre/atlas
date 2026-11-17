@@ -417,6 +417,48 @@ defmodule AtlasFlow.Sorts.Written do
     end
   end
 
+  defmodule Authoring do
+    @moduledoc """
+    Authors the box on the machinery it is assigned to (a task), then is authored, its
+    check failed, stuck (a clerk may author it again) or abandoned.
+    """
+    use RelaDSL.Schema
+
+    subflow :sort, subject: :box do
+      run_as("system:depot")
+      owner(relation: :owned_by, default: {:clerk, :ada})
+      start(:create)
+      initial(:authoring)
+
+      state :authoring do
+        task(:author,
+          role: :developer,
+          profile: :deep_coding,
+          input: [repository: "https://example.invalid/depot.git", base: "develop"],
+          check: ["bin/check"],
+          instructions: "Pack the box.",
+          fields: [:step],
+          records: [kind: "task", relation: "task_of"],
+          machinery: "machinery",
+          on: [
+            completed: :authored,
+            check_failed: :check_failed,
+            stuck: :stuck,
+            abandoned: :abandoned
+          ]
+        )
+      end
+
+      state :stuck do
+        wait_for([:clerk], on: :choice, again: :authoring)
+      end
+
+      final(:authored)
+      final(:check_failed)
+      final(:abandoned)
+    end
+  end
+
   defmodule Unbound do
     @moduledoc "An effect as the flow format writes one without a contract: no runner runs it."
     use RelaDSL.Schema
@@ -525,4 +567,9 @@ end
 defmodule AtlasFlow.Sorts.Checked do
   @moduledoc false
   use AtlasFlow.Sorts, from: AtlasFlow.Sorts.Written.Checked
+end
+
+defmodule AtlasFlow.Sorts.Authoring do
+  @moduledoc false
+  use AtlasFlow.Sorts, from: AtlasFlow.Sorts.Written.Authoring
 end

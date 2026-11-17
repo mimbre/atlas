@@ -82,6 +82,33 @@ defmodule RelaDSL.SchemaTest do
       assert {:sent, ["atlas-flow"], "entity.post_result == 'done'"} = hd(branches(post))
     end
 
+    test "a task keeps its spec; its result is the run's, so nothing resets it" do
+      module = compile!(task_source(""))
+      [%{states: [a | _]}] = module.__flows__()
+
+      assert {:task,
+              %{
+                kind: :author,
+                field: :task_result,
+                role: :developer,
+                profile: :deep_coding,
+                cost_class: :standard,
+                input: [repository: "https://example.invalid/r.git", base: "develop"],
+                check: ["bin/check"],
+                records: [kind: "task", relation: "task_of"],
+                machinery: "machinery"
+              }} = a.mechanism
+
+      assert a.set == []
+
+      assert for(b <- a.branches, do: {b.to, b.roles, b.when}) == [
+               {:b, ["atlas-flow"], "entity.task_result == 'completed'"},
+               {:c, ["atlas-flow"], "entity.task_result == 'check_failed'"},
+               {:c, ["atlas-flow"], "entity.task_result == 'stuck'"},
+               {:c, ["atlas-flow"], "entity.task_result == 'abandoned'"}
+             ]
+    end
+
     test "branches keep the order written, mechanisms included" do
       assert branches(state(:sent)) == [
                {:answered, ["atlas-flow"], "entity.urgent == true"},
@@ -593,6 +620,46 @@ defmodule RelaDSL.SchemaTest do
         """,
         6,
         "state a: effect_result never gives late"
+      )
+    end
+
+    test "a task that does not map every result" do
+      refused(
+        task_source("", "on: [completed: :b, check_failed: :c, stuck: :c]"),
+        6,
+        "state a: task author can give abandoned, which no branch takes"
+      )
+    end
+
+    test "a task never names a path on the machinery's machine (D44)" do
+      refused(
+        task_source(~s(input: [folder: "/Users/someone/work", base: "develop"],)),
+        6,
+        "state a: task author: input: must be [repository: url, base: ref]"
+      )
+
+      refused(
+        task_source(
+          ~s(input: [repository: "https://example.invalid/r.git", base: "develop", path: "/w"],)
+        ),
+        6,
+        "state a: task author: input: must be [repository: url, base: ref]"
+      )
+    end
+
+    test "a task with an unknown kind, profile or option" do
+      refused(
+        task_source("profile: :light_work,"),
+        6,
+        "state a: task author: profile: must be one of deep_coding, independent_review"
+      )
+
+      refused(task_source("slot: \"s1\","), 6, "state a: task author: knows no slot")
+
+      refused(
+        String.replace(task_source(""), "task :author", "task :ship"),
+        6,
+        "state a: task ship: kind must be one of plan, author, review, fix"
       )
     end
 
@@ -1124,6 +1191,29 @@ defmodule RelaDSL.SchemaTest do
       end)
 
     "defgate :g,\n" <> Enum.map_join(opts, ",\n", fn {k, v} -> "  #{k}: #{v}" end) <> "\n"
+  end
+
+  # A task in state a of a subflow f, with `extra` options first (each ends with a comma)
+  # and its result mapping.
+  defp task_source(extra, on \\ "on: [completed: :b, check_failed: :c, stuck: :c, abandoned: :c]") do
+    input = ~s(input: [repository: "https://example.invalid/r.git", base: "develop"],)
+    input = if extra =~ "input:", do: "", else: input
+
+    """
+    subflow :f, subject: :t do
+      run_as "system:x"
+      start :create
+      initial :a
+      state :a do
+        task :author, #{extra} role: :developer, profile: :deep_coding, #{input} check: ["bin/check"], instructions: "Do it.", records: [kind: "task", relation: "task_of"], machinery: "machinery", #{on}
+      end
+      final :b
+      final :c
+    end
+    """
+    |> then(
+      &if(extra =~ "profile:", do: String.replace(&1, "profile: :deep_coding, ", ""), else: &1)
+    )
   end
 
   # The change breaks exactly the one rule the message names.
