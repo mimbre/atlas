@@ -10,7 +10,16 @@
     "kind": "flow_run",
     "writer": {
       "sender": "flow",
-      "by": "flow"
+      "by": "flow",
+      "senders": {
+        "task": [
+          "flow/dispatch",
+          "flow/delivery"
+        ],
+        "task_attempt": [
+          "flow/delivery"
+        ]
+      }
     },
     "fields": {
       "flow": "flow",

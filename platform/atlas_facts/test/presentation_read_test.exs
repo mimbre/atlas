@@ -35,7 +35,8 @@ defmodule AtlasFacts.PresentationReadTest do
         },
         "relations" => %{
           "label" => %{"from" => ["parcel"], "to" => ["label"], "max_outgoing" => 1},
-          "held_by" => %{"from" => ["label"], "to" => ["clerk"], "max_outgoing" => 1}
+          "held_by" => %{"from" => ["label"], "to" => ["clerk"], "max_outgoing" => 1},
+          "watched_by" => %{"from" => ["cursor"], "to" => ["clerk"], "max_outgoing" => 1}
         },
         "flow_runtime" => %{
           "version" => 1,
@@ -63,6 +64,16 @@ defmodule AtlasFacts.PresentationReadTest do
             "fields" => %{"run" => "run"},
             "acl" => %{},
             "roles" => %{}
+          },
+          "supervision" => %{
+            "version" => 1,
+            "relation" => "watched_by",
+            "inputs" => %{
+              "operation" => "operation",
+              "operations" => ["pickup", "hand_over"],
+              "hand_to" => "hand_to"
+            },
+            "spans" => %{"sorting" => [%{"name" => "desk", "states" => ["weigh"], "with" => []}]}
           }
         }
       }
@@ -109,7 +120,7 @@ defmodule AtlasFacts.PresentationReadTest do
       {AtlasFacts.Server, rela: rela, data_dir: dir, model: Parcels, collection_freshness_ms: 0}
     )
 
-    :ok = AtlasBus.attach("presentation-reader-#{System.unique_integer([:positive])}")
+    :ok = AtlasBus.attach("control/session-presentation-#{System.unique_integer([:positive])}")
     %{rela: rela}
   end
 
@@ -181,5 +192,72 @@ defmodule AtlasFacts.PresentationReadTest do
              "expected" => nil,
              "reopened" => true
            } = ended
+  end
+
+  defp watch(rela, key, keys) do
+    {:ok, fact} = Rela.get(rela, "cursors", key)
+
+    {:ok, _} =
+      Rela.change(rela, "cursors", key, %{}, fact.version, %{"watched_by" => {"clerk", keys}})
+  end
+
+  defp page(reads), do: read("_page", %{"reads" => reads})["answers"]
+
+  test "a page's presentation carries the presenting run's supervisor, from the run itself",
+       ctx do
+    {:ok, _} = Rela.create(ctx.rela, "clerks", "bea", %{}, %{})
+    labels = ["label", %{"key" => "L-1", "plain" => true, "presentation" => true}]
+
+    [answer] = page([labels])
+    assert answer["fact"]["presentation"]["supervisor"] == []
+    assert ["kind", "cursor"] in answer["deps"]
+
+    watch(ctx.rela, "R-1", ["ada"])
+    [answer] = page([labels])
+
+    assert %{"flow" => "sorting", "run" => "R-1", "supervisor" => ["ada"]} =
+             answer["fact"]["presentation"]
+
+    assert ["kind", "cursor"] in answer["deps"]
+
+    # Another subflow's run on another subject, linked to someone else, lends nothing.
+    {:ok, _} =
+      Rela.create(
+        ctx.rela,
+        "cursors",
+        "R-X",
+        %{
+          "flow" => "packing",
+          "subject_kind" => "label",
+          "subject_key" => "L-1",
+          "generation" => 9,
+          "status" => "active",
+          "state" => "weigh"
+        },
+        %{"watched_by" => {"clerk", ["bea"]}}
+      )
+
+    [answer] = page([labels])
+    assert %{"flow" => "sorting", "supervisor" => ["ada"]} = answer["fact"]["presentation"]
+
+    # A newer generation of the presenting subflow, without the link, has none.
+    {:ok, _} =
+      Rela.create(
+        ctx.rela,
+        "cursors",
+        "R-2",
+        %{
+          "flow" => "sorting",
+          "subject_kind" => "parcel",
+          "subject_key" => "P-1",
+          "generation" => 2,
+          "status" => "active",
+          "state" => "weigh"
+        },
+        %{}
+      )
+
+    [answer] = page([labels])
+    assert %{"run" => "R-2", "supervisor" => []} = answer["fact"]["presentation"]
   end
 end

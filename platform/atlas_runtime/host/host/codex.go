@@ -225,8 +225,8 @@ func socketEntries(home string, projects ...string) ([][2]string, error) {
 //   - clients.json: the loopback TCP clients, their token hashes and rights (backend/clients.ex, S3);
 //   - sources: the work sources' credentials and per-source stores, e.g. sources/<name>/token (work
 //     acquisition M2, decision F4; reserved until a source joins it);
-//   - local-source: the local work source's queue store (work acquisition M2, decision F4; reserved
-//     until the local work source joins it);
+//   - local-source: the local work source's queue store (sources/local/store.ex, model/contract
+//     local_source; work acquisition M2, decision F4);
 //   - bases: every client's uploaded base records and the core's import staging (S5c; a base work's
 //     folder <home>/workers/work-<work_id> lies in the home, so every profile denies it by path);
 //   - <name>.json.tmp for each <name>.json above: the sibling an atomic write (write <path>.tmp, then

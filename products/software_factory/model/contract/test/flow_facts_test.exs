@@ -4,6 +4,9 @@ defmodule Model.FlowFactsTest do
   Additive only: `machinery`, `task`, `task_attempt` and `package` are new, every field
   and link of them is Flow's alone (`set_by: [:flow]`), `assigned_to` may also target a
   machinery, and the `turn` kind Runtime's Lifecycle keeps stays exactly as it was.
+
+  M3 P2 adds the lease fields Flow keeps as the Runtime's work source (decision
+  2026-11-17 §6.2), additive as well: Flow's alone, on `task` and `task_attempt` only.
   """
   use ExUnit.Case, async: true
 
@@ -27,8 +30,26 @@ defmodule Model.FlowFactsTest do
     }
   end
 
+  # The lease fields (M3 P2) and their types.
+  @task_lease %{
+    "lease_id" => "string",
+    "runtime" => "string",
+    "expires_at" => "datetime",
+    "granted_at" => "datetime",
+    "lease_state" => "string",
+    "lease_end_cause" => "string",
+    "lease_revision" => "integer",
+    "lease_report" => "string",
+    "result_manifest" => "string",
+    "result_state" => "string"
+  }
+  @attempt_lease %{"lease_id" => "string"}
+
   @flow %{"by" => "flow", "writer" => "flow", "sender" => "flow"}
   @someone %{"by" => "someone"}
+  # A person's write from a TUI session, and one that also claims to be Flow.
+  @session %{"by" => "holder-1", "writer" => "holder-1", "sender" => "control/session-1"}
+  @posing %{"by" => "flow", "writer" => "flow", "sender" => "control/session-1"}
 
   defp create(kind, key, values, links \\ %{}),
     do: {kind, %{"op" => "create", "key" => key, "values" => values, "links" => links}}
@@ -50,16 +71,20 @@ defmodule Model.FlowFactsTest do
     assert schema()["types"]["task_role"]["values"] == ~w(architect developer)
     assert schema()["types"]["task_verdict"]["values"] == ~w(approved changes_required)
 
-    # §3.2's fields, no more: F3's (change id, review id, fpr_, PR URL; published_*) wait.
+    # §3.2's fields and M3's lease fields, no more: F3's (change id, review id, fpr_, PR
+    # URL; published_*) wait.
     assert Enum.sort(Map.keys(entities["task"]["properties"])) ==
-             Enum.sort(~w(kind role profile input client_key work_id attempt state result_kind
+             Enum.sort(
+               ~w(kind role profile input client_key work_id attempt state result_kind
                reason check_exit_status check_ending check_output_tail verdict answer
-               result_fingerprints based_on base_id base_snapshot base_revision))
+               result_fingerprints based_on base_id base_snapshot base_revision) ++
+                 Map.keys(@task_lease)
+             )
 
     assert Enum.sort(Map.keys(entities["task_attempt"]["properties"])) ==
              Enum.sort(~w(turn_id state result_kind provider harness harness_version
                configured_model reported_model selection_reason conversation_id machine slot
-               started_at ended_at))
+               started_at ended_at) ++ Map.keys(@attempt_lease))
 
     # F1.4 adds the result field its subflow's task branches read (never written).
     assert Enum.sort(Map.keys(entities["package"]["properties"])) ==
@@ -99,6 +124,43 @@ defmodule Model.FlowFactsTest do
 
     assert {:refuse, [why]} = check(linked, @someone)
     assert why =~ "only a flow sets task_of"
+  end
+
+  test "the lease fields: on task and task_attempt, typed, optional, Flow's alone" do
+    for {kind, fields} <- [{"task", @task_lease}, {"task_attempt", @attempt_lease}],
+        {name, type} <- fields do
+      property = schema()["entities"][kind]["properties"][name]
+      assert property, "#{kind}.#{name} is missing"
+      assert property["type"] == type, "#{kind}.#{name}: type"
+      refute property["required"], "#{kind}.#{name}: required"
+
+      assert get_in(extension(), ["entities", kind, "properties", name, "set_by"]) == ["flow"],
+             "#{kind}.#{name}: set_by"
+    end
+
+    # The two kinds stay records: never top, never made by hand.
+    for kind <- ~w(task task_attempt),
+        do:
+          assert(
+            Map.take(extension()["entities"][kind], ["top", "by_hand"]) ==
+              %{"top" => false, "by_hand" => false},
+            kind
+          )
+  end
+
+  test "only Flow sets a lease: a TUI session's write is refused, even one that claims Flow" do
+    lease = %{"lease_id" => "TK-X-1~1~lease", "runtime" => "rt-1", "lease_state" => "offered"}
+
+    for {kind, key, values} <- [
+          {"task", "TK-X-1", lease},
+          {"task", "TK-X-1", Map.take(lease, ["lease_id"])},
+          {"task_attempt", "TA-TK-X-1-1", Map.take(lease, ["lease_id"])}
+        ] do
+      change = create(kind, key, values)
+      assert check(change, @flow) == :ok, kind
+      assert {:refuse, [_ | _]} = check(change, @session), kind
+      assert {:refuse, [_ | _]} = check(change, @posing), kind
+    end
   end
 
   test "a package is a child of an issue; a task of a package or an issue; an attempt of a task" do

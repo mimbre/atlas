@@ -196,12 +196,35 @@ defmodule AtlasFlow.Runs.Store do
         {composition, refused} =
           composition(model.composition(), selection, flows, model.relations())
 
+        {supervision, unsupported} = supervision(model)
+
         config =
           runs
           |> Map.put("selection", selection)
           |> Map.put("composition", composition)
+          |> Map.put("supervision", supervision)
 
-        {config, validate_selection(config, flows) || two_writers(selection) || refused}
+        {config,
+         validate_selection(config, flows) || two_writers(selection) || refused || unsupported}
+
+      _ ->
+        {nil, nil}
+    end
+  end
+
+  # Who supervises a run, as the model declares it (`supervision/0`, work acquisition
+  # decision 2026-11-17 §5.6): the relation from a run to its supervisor, with the kinds
+  # a supervisor is a fact of (`holders`), the pickup and hand-over input fields, and
+  # each subflow's spans. nil when the model declares none; a version this runner does
+  # not know refuses every run.
+  defp supervision(model) do
+    case function_exported?(model, :supervision, 0) && model.supervision() do
+      %{"version" => 1, "relation" => relation} = s when is_binary(relation) ->
+        holders = get_in(model.relations(), [relation, "to"]) || []
+        {Map.put(s, "holders", holders), nil}
+
+      %{} = s ->
+        {nil, {:unsupported_supervision, s["version"]}}
 
       _ ->
         {nil, nil}
@@ -813,12 +836,14 @@ defmodule AtlasFlow.Runs.Store do
     key = run["key"]
 
     if d.fact == nil do
-      content = %{
-        "op" => "create",
-        "key" => key,
-        "values" => encode(config, run),
-        "by" => config["writer"]["by"]
-      }
+      content =
+        %{
+          "op" => "create",
+          "key" => key,
+          "values" => encode(config, run),
+          "by" => config["writer"]["by"]
+        }
+        |> supervisor_link(config, run, nil)
 
       # A lost create answer is recovered by reading the stable fact key.
       Talk.put(config["kind"], content, Run.digest({key, "create"}))
@@ -834,6 +859,8 @@ defmodule AtlasFlow.Runs.Store do
         "by" => config["writer"]["by"]
       }
 
+      content = supervisor_link(content, config, run, d.fact)
+
       # Conflict or lost acknowledgement: reread, never assume it was committed.
       Talk.put(config["kind"], content)
     end
@@ -843,6 +870,33 @@ defmodule AtlasFlow.Runs.Store do
       {:ok, %{d | fact: fact, stored: stored}}
     else
       other -> {:error, {:invalid_run, key, other}}
+    end
+  end
+
+  # The run's supervisor is a link of its fact (the model's supervision relation), not a
+  # field: a write sets it only when it changes, in the same write as the cursor, with
+  # the keys it read in `was`.
+  defp supervisor_link(content, config, run, fact) do
+    case config["supervision"] do
+      %{"relation" => relation} ->
+        held = List.wrap(get_in(fact || %{}, ["links", relation]))
+        wanted = List.wrap(run["supervised_by"])
+
+        cond do
+          held == wanted ->
+            content
+
+          fact == nil ->
+            Map.put(content, "links", %{relation => wanted})
+
+          true ->
+            content
+            |> Map.put("links", %{relation => wanted})
+            |> Map.update!("was", &Map.put(&1, relation, held))
+        end
+
+      _ ->
+        content
     end
   end
 
@@ -1148,7 +1202,16 @@ defmodule AtlasFlow.Runs.Store do
     end)
   end
 
+  # A pickup or hand-over input is taken first, ahead of the mechanism branches: it moves
+  # no state, so a run that runs a task takes it too (`AtlasFlow.Runs.Run.supervision/4`).
   defp next(config, run, flow, subject, now, inputs) do
+    case Run.supervision(run, flow, inputs, supervision_check(config, run)) do
+      :none -> moved(config, run, flow, subject, now, inputs)
+      taken -> taken
+    end
+  end
+
+  defp moved(config, run, flow, subject, now, inputs) do
     mechanism = if run["status"] == "active", do: flow.mechanism(run["state"])
     review = config["selection"][run["flow"]]["verification"]
     verdict = run["pending"]["verdict"]
@@ -1204,6 +1267,30 @@ defmodule AtlasFlow.Runs.Store do
       true ->
         Run.step(run, flow, subject, now, inputs, opts)
     end
+  end
+
+  # How a supervision input to `run` is checked (`AtlasFlow.Runs.Inputs.supervision/4`):
+  # with its subflow's spans, and a holder read from Facts, as a fact of a supervisor's
+  # kind. nil when the model declares no supervision.
+  defp supervision_check(config, run) do
+    case config["supervision"] do
+      %{} = s ->
+        of_run = %{"inputs" => s["inputs"], "spans" => (s["spans"] || %{})[run["flow"]] || []}
+        &AtlasFlow.Runs.Inputs.supervision(&1, run, of_run, fn key -> holder?(s, key) end)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp holder?(supervision, key) do
+    Enum.reduce_while(supervision["holders"], false, fn kind, false ->
+      case Talk.transition_read(kind, %{"key" => key, "plain" => true}) do
+        %{"fact" => %{}} -> {:halt, true}
+        %{"fact" => nil} -> {:cont, false}
+        _ -> {:halt, :unavailable}
+      end
+    end)
   end
 
   defp effect_next(config, run, flow, subject, now, spec) do
@@ -1351,6 +1438,16 @@ defmodule AtlasFlow.Runs.Store do
     end
   end
 
+  # The run's supervisor, from its fact's link: absent when it has none.
+  defp supervisor(run, config, fact) do
+    with %{"relation" => relation} <- config["supervision"],
+         [holder] when is_binary(holder) <- List.wrap(get_in(fact, ["links", relation])) do
+      Map.put(run, "supervised_by", holder)
+    else
+      _ -> run
+    end
+  end
+
   def encode(config, run) do
     Map.new(config["fields"], fn {logical, field} ->
       value = run[logical]
@@ -1366,7 +1463,7 @@ defmodule AtlasFlow.Runs.Store do
       end)
 
     if Enum.all?(@structured, &(run[&1]["version"] == 1)),
-      do: {:ok, Map.put(run, "key", fact["key"])},
+      do: {:ok, run |> Map.put("key", fact["key"]) |> supervisor(config, fact)},
       else: {:error, :unknown_record_version}
   rescue
     _ -> {:error, :invalid_record}

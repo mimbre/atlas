@@ -76,7 +76,7 @@ defmodule AtlasFlow.Runs.Projection do
          true <- subflow != nil,
          {:ok, %{} = run} <- Store.latest(config, name, kind, fact["key"]),
          true <- run["definition_sha256"] == subflow.digest(),
-         {:ok, run} <- supervised(runner, subflow, run) do
+         run = supervised(runner, subflow, run) do
       {:ok, Presentation.of_run(run, subflow, fact, &owner(runner, &1, run))}
     else
       {:error, why} -> {:error, {:presentation_unavailable, why}}
@@ -90,33 +90,27 @@ defmodule AtlasFlow.Runs.Projection do
   defp owner(_runner, nil, _run), do: nil
   defp owner(runner, owner, run), do: AtlasFlow.Model.owner(owner, runner.actors, run)
 
-  # The run with its subflow's supervised `spans` and its human supervisor
-  # (`supervised_by`, `%{"kind", "key"}` or nil), read from the run's own fact: only when
-  # its subflow declares a span and its state's owner may go to a supervisor, so no other
-  # projection reads more. An unavailable read is a failure.
+  # The run with its subflow's supervised `spans` and its human supervisor as
+  # `AtlasFlow.Model.owner/3` takes it (`supervised_by`, `%{"kind", "key"}` or nil): only
+  # when its subflow declares a span and its state's owner may go to a supervisor. The
+  # run's writer keeps the supervisor as a link of the run's fact, and the run it read
+  # carries that link's key as `supervised_by` (`AtlasFlow.Runs.Store`); its kind is the
+  # supervision relation's one holder kind. It reads nothing more.
   defp supervised(runner, subflow, run) do
-    supervision = Map.get(runner, :supervision) || %{}
+    supervision = runner.config["supervision"] || %{}
     spans = get_in(supervision, ["spans", run["flow"]]) || []
-    relation = supervision["relation"]
 
-    with true <- spans != [] and is_binary(relation) and run["status"] == "active",
+    with true <- spans != [] and run["status"] == "active",
          true <- AtlasFlow.Model.supervisable?((subflow.owner(run["state"]) || %{})["default"]) do
-      case Talk.transition_read(runner.config["kind"], %{"key" => run["key"], "plain" => true}) do
-        %{"fact" => fact} when is_map(fact) or is_nil(fact) ->
-          supervisor =
-            case {get_in(runner.relations, [relation, "to"]),
-                  get_in(fact || %{}, ["links", relation])} do
-              {[kind], [key]} when is_binary(key) -> %{"kind" => kind, "key" => key}
-              _ -> nil
-            end
+      supervisor =
+        case {supervision["holders"], run["supervised_by"]} do
+          {[kind], key} when is_binary(key) -> %{"kind" => kind, "key" => key}
+          _ -> nil
+        end
 
-          {:ok, Map.merge(run, %{"spans" => spans, "supervised_by" => supervisor})}
-
-        other ->
-          {:error, {:supervisor_unavailable, other}}
-      end
+      Map.merge(run, %{"spans" => spans, "supervised_by" => supervisor})
     else
-      false -> {:ok, run}
+      false -> run
     end
   end
 

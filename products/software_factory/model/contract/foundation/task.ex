@@ -139,6 +139,70 @@ defmodule Model.Task do
       label: "Base revision"
     )
 
+    # The lease Flow, as the Runtime's work source, holds the task under (decision
+    # 2026-11-17 §6.2 and §5.3): the current lease, who holds it and where it is, the
+    # last report recorded on it and the result it brought. Dispatch and Delivery write
+    # them as a fenced change on `lease_id`.
+    field(:lease_id, :string,
+      description: "The current lease of its work: opaque to the Runtime, never reused",
+      set_by: [:flow],
+      label: "Lease id"
+    )
+
+    field(:runtime, :string,
+      description: "The Runtime that holds the current lease",
+      set_by: [:flow]
+    )
+
+    field(:expires_at, :datetime,
+      description: "When the current lease expires, as granted; renewals are not written",
+      set_by: [:flow],
+      label: "Expires at"
+    )
+
+    field(:granted_at, :datetime,
+      description: "When the current lease was granted",
+      set_by: [:flow],
+      label: "Granted at"
+    )
+
+    field(:lease_state, :string,
+      description:
+        "Where the current lease is: offered, accepted, started, ended, done, expired, lost or cancel requested",
+      set_by: [:flow],
+      label: "Lease state"
+    )
+
+    field(:lease_end_cause, :string,
+      description: "Why Flow ended the lease: supervision, expired or late accept",
+      set_by: [:flow],
+      label: "Lease end cause"
+    )
+
+    field(:lease_revision, :integer,
+      description: "The revision of the last report recorded on the lease",
+      set_by: [:flow],
+      label: "Lease revision"
+    )
+
+    field(:lease_report, :string,
+      description: "The sha256 of the last recorded report",
+      set_by: [:flow],
+      label: "Lease report"
+    )
+
+    field(:result_manifest, :string,
+      description: "The sha256 of its result's stored manifest",
+      set_by: [:flow],
+      label: "Result manifest"
+    )
+
+    field(:result_state, :string,
+      description: "Whether its result is stored: incomplete, complete, too large or invalid",
+      set_by: [:flow],
+      label: "Result state"
+    )
+
     top(false)
     by_hand(false)
     order(:newest)

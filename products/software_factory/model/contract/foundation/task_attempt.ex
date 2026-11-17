@@ -79,6 +79,12 @@ defmodule Model.TaskAttempt do
 
     field(:ended_at, :datetime, description: "When it ended", set_by: [:flow], label: "Ended at")
 
+    field(:lease_id, :string,
+      description: "The lease of its task the attempt ran under",
+      set_by: [:flow],
+      label: "Lease id"
+    )
+
     top(false)
     by_hand(false)
     order(:newest)
