@@ -26,8 +26,37 @@ defmodule Model.SupervisionTest do
   end
 
   @someone %{"by" => "someone"}
+  @flow %{"by" => "flow", "writer" => "flow", "sender" => "flow"}
+
+  # Writers that are not Flow: a person in a Control session, an agent, the Runtime, a
+  # migration, a name that only starts like Flow's, and an unnamed one.
+  @not_flow [
+    %{"by" => "melle", "writer" => "melle", "sender" => "control/session-1"},
+    %{"by" => "agent", "writer" => "agent", "sender" => "agent"},
+    %{"by" => "runtime", "writer" => "runtime", "sender" => "runtime"},
+    %{"by" => "migration", "writer" => "migration", "sender" => "migration"},
+    %{"by" => "flowx", "writer" => "flowx", "sender" => "flowx"},
+    @someone
+  ]
+
+  @links [
+    {"flow_run", "RUN-1", "supervised_by"},
+    {"task", "TK-PK-IS-Atlas-01-1-1", "done_for"}
+  ]
 
   defp check(kind, change, env), do: AtlasEyra.check(kind, change, env, lookup())
+
+  # The same check against a store that already holds `key` linked to `melle`.
+  defp check_stored(kind, key, relation, change, env) do
+    stored = %{"key" => key, "values" => %{}, "links" => %{relation => ["melle"]}}
+    AtlasEyra.check(kind, change, env, %{lookup() | "current" => fn -> stored end})
+  end
+
+  defp create_with(key, relation),
+    do: %{"op" => "create", "key" => key, "values" => %{}, "links" => %{relation => ["melle"]}}
+
+  defp clear(key, relation),
+    do: %{"op" => "change", "key" => key, "values" => %{}, "links" => %{relation => []}}
 
   test "a run has at most one human supervisor, a person, and a task whom it is done for" do
     relations = schema()["relations"]
@@ -40,21 +69,31 @@ defmodule Model.SupervisionTest do
     end
   end
 
-  test "only Flow sets a run's supervisor or a task's done_for: Facts refuses anyone else" do
-    for {kind, key, relation} <- [
-          {"flow_run", "RUN-1", "supervised_by"},
-          {"task", "TK-PK-IS-Atlas-01-1-1", "done_for"}
-        ] do
-      change = %{
-        "op" => "create",
-        "key" => key,
-        "values" => %{},
-        "links" => %{relation => ["melle"]}
-      }
+  test "Flow sets and clears a run's supervisor and a task's done_for" do
+    for {kind, key, relation} <- @links do
+      assert check(kind, create_with(key, relation), @flow) == :ok, relation
+      assert check_stored(kind, key, relation, clear(key, relation), @flow) == :ok, relation
+    end
+  end
 
-      assert {:refuse, [why]} = check(kind, change, @someone), relation
+  test "only Flow sets a run's supervisor or a task's done_for: Facts refuses anyone else" do
+    for {kind, key, relation} <- @links, env <- @not_flow do
+      assert {:refuse, [why]} = check(kind, create_with(key, relation), env), relation
+      assert why =~ relation
+
+      assert {:refuse, [why]} = check_stored(kind, key, relation, clear(key, relation), env),
+             relation
+
       assert why =~ relation
     end
+  end
+
+  test "on a run, Flow's name from another sender is refused too" do
+    env = %{@flow | "sender" => "control/session-1"}
+    {kind, key, relation} = {"flow_run", "RUN-1", "supervised_by"}
+
+    assert {:refuse, [_]} = check(kind, create_with(key, relation), env)
+    assert {:refuse, [_]} = check_stored(kind, key, relation, clear(key, relation), env)
   end
 
   test "a supervisor is a link, never a field of the run: Flow's run writes keep it" do
