@@ -16,6 +16,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+
+	"github.com/eyra/atlas/platform/atlas_runtime/host/snapshot"
 )
 
 func workspaceTestRoot(t *testing.T) string {
@@ -520,6 +522,63 @@ func TestWorkspaceFolderScopeVerifiesMaterializationWithoutGit(t *testing.T) {
 	workspaceTestRefuse(t, "invalid materialization record", "folder-scope", dest, home)
 	workspaceTestWrite(t, record, fmt.Sprintf(`{"destination":%q,"snapshot_id":"sha256:%s"}`, dest, strings.Repeat("0", 64)))
 	workspaceTestRefuse(t, "missing or incomplete", "folder-scope", dest, home)
+}
+
+// TestWorkspaceRunRefusesTheRemovedPacketOp: the packet-scope operation left with the review
+// packet profile (S5b B2g); it is an unknown operation, emits nothing, and the usage omits it.
+func TestWorkspaceRunRefusesTheRemovedPacketOp(t *testing.T) {
+	root := workspaceTestRoot(t)
+	var output bytes.Buffer
+	err := Run([]string{"packet-scope", filepath.Join(root, "packet", "tree"), filepath.Join(root, "runtime")}, &output)
+	if err == nil || err.Error() != "unknown workspace operation: packet-scope" || output.Len() != 0 {
+		t.Fatalf("packet-scope: %v %q", err, output.String())
+	}
+	if err := Run(nil, &output); err == nil || err.Error() != "use workspace path|scope|folder-scope|request|facts" {
+		t.Fatalf("usage: %v", err)
+	}
+}
+
+// TestWorkspaceFolderScopeRefusesAFrozenPacketTree: a tree frozen by snapshot.Freeze is recorded as a
+// packet tree (snapshot.RecordedPacket), and FolderScope refuses it as a worker folder, so no
+// materialized-folder worker can write the frozen content.
+func TestWorkspaceFolderScopeRefusesAFrozenPacketTree(t *testing.T) {
+	root := workspaceTestRoot(t)
+	home, dest := filepath.Join(root, "runtime"), filepath.Join(root, "work")
+	workspaceTestMaterialize(t, home, dest)
+	workspaceTestWrite(t, filepath.Join(dest, "repo", "new.txt"), "frozen\n")
+	const turn, id = "turn-00000000000000aa", "11111111-2222-4333-8444-555555555555"
+	if err := os.MkdirAll(filepath.Join(home, "turns", turn), 0700); err != nil {
+		t.Fatal(err)
+	}
+	workspaceTestWrite(t, filepath.Join(home, "turns", turn, "turn.json"),
+		fmt.Sprintf(`{"id":%q,"cwd":%q,"state":"finished","worker_id":"author","backend":"codex"}`, turn, dest))
+	packet := filepath.Join(root, "packet")
+	if _, err := snapshot.Freeze(home, dest, turn, packet, id, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	// The packet is read-only; make it removable again for the test's temp folders.
+	t.Cleanup(func() {
+		for _, path := range []string{packet, snapshot.PacketDir(home, id)} {
+			filepath.WalkDir(path, func(name string, entry fs.DirEntry, err error) error {
+				if err == nil {
+					os.Chmod(name, 0700)
+				}
+				return nil
+			})
+		}
+	})
+	tree := filepath.Join(packet, "tree")
+	if recorded, err := snapshot.RecordedPacket(home, tree); err != nil || recorded != id {
+		t.Fatalf("packet tree not recorded: %q %v", recorded, err)
+	}
+	if _, err := FolderScope(tree, home); err == nil ||
+		err.Error() != "Materialized folder "+tree+" is the tree of frozen packet "+id+"; it cannot be a worker folder" {
+		t.Fatalf("materialized-folder scope of a packet tree: %v", err)
+	}
+	// The folder it was frozen from keeps its scope.
+	if _, err := FolderScope(dest, home); err != nil {
+		t.Fatalf("source folder: %v", err)
+	}
 }
 
 func TestWorkspaceContextIdentityAndUnfinishedFiles(t *testing.T) {

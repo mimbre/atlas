@@ -28,8 +28,8 @@ defmodule AtlasRuntime.Sandbox.Resume do
   @canonical_uuid ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/
   # host.go:27 modelPattern.
   @model ~r/\A[A-Za-z0-9][A-Za-z0-9._:\/\[\]-]{0,199}\z/
-  # claude.go:35; review-packet stays Go-decided until removed (B9), so it is kept here.
-  @claude_profiles ["dedicated-repository", "materialized-folder", "review-packet"]
+  # claude.go:35.
+  @claude_profiles ["dedicated-repository", "materialized-folder"]
   # workspace.go:162-166, the scope a managed repository's start must carry.
   @network_hosts ["github.com", "api.github.com"]
   # Go's unicode.IsSpace (pythonHexInteger trims with it, claude.go:59).
@@ -98,7 +98,7 @@ defmodule AtlasRuntime.Sandbox.Resume do
 
       not is_nil(scope) and not (is_map(scope) and scope["profile"] in @claude_profiles) ->
         {:error,
-         "Claude supports only the dedicated-repository, materialized-folder and review-packet permission profiles"}
+         "Claude supports only the dedicated-repository and materialized-folder permission profiles"}
 
       session == "" ->
         :ok

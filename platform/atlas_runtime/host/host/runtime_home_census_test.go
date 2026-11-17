@@ -108,7 +108,6 @@ var censusNotHome = map[string]string{
 	"complete":       "snapshot baseline marker",
 	"findings":       "packet",
 	"packet.json":    "packet",
-	"diff.json":      "packet",
 	"discarded.json": "packet",
 	"findings.json":  "packet findings directory",
 	"done":           "rebind directory",

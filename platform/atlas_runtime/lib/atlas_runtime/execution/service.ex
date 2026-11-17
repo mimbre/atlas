@@ -526,8 +526,7 @@ defmodule AtlasRuntime.Service do
 
           {sandbox, nil}
 
-        profile
-        when profile in ["dedicated-repository", "materialized-folder", "review-packet"] ->
+        profile when profile in ["dedicated-repository", "materialized-folder"] ->
           if Map.has_key?(request, "sandbox"),
             do: raise("Permissions cannot be combined with sandbox")
 
@@ -639,9 +638,6 @@ defmodule AtlasRuntime.Service do
 
   defp current_scope("materialized-folder", cwd, state),
     do: Workspaces.folder_scope(cwd, state.dir)
-
-  defp current_scope("review-packet", cwd, state),
-    do: Workspaces.packet_scope(cwd, state.dir)
 
   defp current_scope(_dedicated, cwd, _state), do: Workspaces.permission_scope(cwd)
 

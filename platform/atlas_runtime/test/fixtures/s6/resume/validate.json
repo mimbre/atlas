@@ -533,7 +533,7 @@
         "workspace": "{tmp}/w"
       },
       "expect": {
-        "error": "Claude supports only the dedicated-repository, materialized-folder and review-packet permission profiles"
+        "error": "Claude supports only the dedicated-repository and materialized-folder permission profiles"
       }
     },
     {
@@ -550,7 +550,7 @@
         "workspace": "{tmp}/w"
       },
       "expect": {
-        "error": "Claude supports only the dedicated-repository, materialized-folder and review-packet permission profiles"
+        "error": "Claude supports only the dedicated-repository and materialized-folder permission profiles"
       }
     },
     {
@@ -569,7 +569,7 @@
         "workspace": "{tmp}/w"
       },
       "expect": {
-        "error": "Claude supports only the dedicated-repository, materialized-folder and review-packet permission profiles"
+        "error": "Claude supports only the dedicated-repository and materialized-folder permission profiles"
       }
     },
     {
@@ -590,7 +590,7 @@
         "workspace": "{tmp}/w"
       },
       "expect": {
-        "error": "Claude supports only the dedicated-repository, materialized-folder and review-packet permission profiles"
+        "error": "Claude supports only the dedicated-repository and materialized-folder permission profiles"
       }
     },
     {
@@ -607,7 +607,7 @@
         "workspace": "{tmp}/w"
       },
       "expect": {
-        "error": "Claude supports only the dedicated-repository, materialized-folder and review-packet permission profiles"
+        "error": "Claude supports only the dedicated-repository and materialized-folder permission profiles"
       }
     },
     {
@@ -651,28 +651,6 @@
       }
     },
     {
-      "id": "claude-review-packet",
-      "input": {
-        "backend": "claude",
-        "context": null,
-        "model": null,
-        "questions": false,
-        "repository": null,
-        "sandbox": "",
-        "scope": {
-          "profile": "review-packet",
-          "version": 1
-        },
-        "session": "",
-        "workspace": "{tmp}/w"
-      },
-      "expect": {
-        "ok": true
-      },
-      "elixir": "skip:review-packet",
-      "note": "B9: review-packet is not ported"
-    },
-    {
       "id": "claude-dedicated-without-repository",
       "input": {
         "backend": "claude",
@@ -714,7 +692,7 @@
         "workspace": "{tmp}/w"
       },
       "expect": {
-        "error": "Claude supports only the dedicated-repository, materialized-folder and review-packet permission profiles"
+        "error": "Claude supports only the dedicated-repository and materialized-folder permission profiles"
       },
       "note": "order: profile check before the sandbox check"
     },

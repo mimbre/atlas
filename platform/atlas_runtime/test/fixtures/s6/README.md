@@ -38,7 +38,7 @@ The id rule keeps `t.Run` and ExUnit test names unchanged. H6 counts those names
 | `env` | Environment for the decision, as string to string. Placeholders are allowed. |
 | `input` | The decision's input. Placeholders are allowed. |
 | `expect` | The decision's result, with placeholders. A refusal is `{"error": "<exact text>"}`, compared byte for byte (B3). The author writes it once from Go (`ATLAS_S6_WRITE=1 go test …`), then checks it in and has it reviewed. It is never regenerated from Elixir. |
-| `elixir` | `"skip:<reason>"` marks a legacy-only row: Go still asserts it, Elixir skips it. Used for review-packet (B9) and for rows S5c removed (B14). |
+| `elixir` | `"skip:<reason>"` marks a legacy-only row: Go still asserts it, Elixir skips it. Used for rows S5c removed (B14). The review-packet rows (B9) left with the profile (S5b B2). |
 | `change` | Marks the one kind of row where the legacy result and the new result differ on purpose, for example `"B8c"`. |
 | `detail_has_path` | `true` when the refusal text contains a Runtime path (F14, RQ8). |
 | `note` | Free text for reviewers. |

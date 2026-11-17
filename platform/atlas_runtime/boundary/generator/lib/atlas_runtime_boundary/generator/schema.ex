@@ -61,9 +61,12 @@ defmodule AtlasRuntimeBoundary.Generator.Schema do
       `:datetime` values;
     - `:stream`: an opaque byte stream, an `Enumerable` of binary chunks that the facade
       passes on without enumerating it. It is allowed only as a direct field of a model
-      that an outcome carries or a capability takes as its input (an upload), and that
-      is used nowhere else: not in a `list`, a `map` or a `one_of`, and not in a model
-      held by another model. Anywhere else it is a `CompileError` at the field's line.
+      that an outcome carries or that is a capability's input, and of no other model: not
+      in a `list`, a `map` or a `one_of`, and not in a model held by another model. A
+      capability's input model has at most one `:stream` field (an upload is one body),
+      and that field is always required, whatever `required:` says: an upload without
+      its body is not valid, so `new/1` and the facade refuse a missing one.
+      Anywhere else it is a `CompileError` at the field's line.
   - `defcapability`: an operation the system offers, by name, with options:
     - `input:` the model it takes, or `nil` / left out when it takes none;
     - `outcomes:` `[outcome: model]`, at least one, in order: each outcome by name, with
@@ -278,6 +281,7 @@ defmodule AtlasRuntimeBoundary.Generator.Schema do
     {models, streams} = validate_models!(models)
     capabilities = validate_capabilities!(capabilities, Enum.map(models, & &1.name))
     validate_streams!(streams, models, capabilities)
+    models = require_input_streams(models, capabilities)
     invalid_input = validate_invalid_input!(invalid_inputs, capabilities, models)
 
     spec = %{
@@ -354,10 +358,9 @@ defmodule AtlasRuntimeBoundary.Generator.Schema do
     {models, streams}
   end
 
-  # A :stream is a direct field of a model that outcomes carry (a download, S5a) or that
-  # capabilities take as their input (an upload): not held by another model (directly, in
-  # a list or in a one_of), and carried by at least one outcome or taken by at least one
-  # capability.
+  # A :stream is a direct field of an outcome model (§1.3, S5a) or of an input model
+  # (S5c): not held by another model (directly, in a list or in a one_of), carried by at
+  # least one outcome or taken by at least one capability, and at most one per input model.
   defp validate_streams!(streams, models, capabilities) do
     for {model, field} <- streams do
       fail =
@@ -365,7 +368,7 @@ defmodule AtlasRuntimeBoundary.Generator.Schema do
           field.file,
           field.line,
           "#{model}.#{field.name}: a :stream is allowed only as a direct field of an " <>
-            "outcome or input model; " <> &1
+            "input or outcome model; " <> &1
         )
 
       for holder <- models,
@@ -373,13 +376,53 @@ defmodule AtlasRuntimeBoundary.Generator.Schema do
           model in held(holding.type),
           do: fail.("#{inspect(model)} is held by #{holder.name}.#{holding.name}")
 
-      unless Enum.any?(capabilities, fn c ->
-               c.input == model or Enum.any?(c.outcomes, &(&1.model == model))
-             end),
-             do: fail.("no outcome carries #{inspect(model)} and no capability takes it")
+      carried? = Enum.any?(capabilities, fn c -> Enum.any?(c.outcomes, &(&1.model == model)) end)
+      input? = Enum.any?(capabilities, &(&1.input == model))
+
+      unless carried? or input?,
+        do: fail.("no outcome carries #{inspect(model)} and no capability takes it")
     end
 
+    # An input takes one byte stream: its second :stream field fails at its line.
+    inputs = for %{input: input} <- capabilities, input != nil, into: MapSet.new(), do: input
+
+    streams
+    |> Enum.filter(fn {model, _field} -> model in inputs end)
+    |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+    |> Enum.each(fn
+      {model, [first, second | _]} ->
+        __fail__(
+          second.file,
+          second.line,
+          "#{model}.#{second.name}: an input model has at most one :stream field, " <>
+            "and #{model}.#{first.name} is one already"
+        )
+
+      {_model, [_one]} ->
+        :ok
+    end)
+
     :ok
+  end
+
+  # An input's :stream is its upload body, so it is required whatever `required:` says
+  # (S5c P1: new/1 refuses a missing value). Forced here, in the schema data, so every
+  # target (struct keys, new/1, the facade, JSON, the backend) sees the same flag.
+  defp require_input_streams(models, capabilities) do
+    inputs = for %{input: input} <- capabilities, input != nil, into: MapSet.new(), do: input
+
+    for model <- models do
+      if model.name in inputs do
+        fields =
+          for field <- model.fields do
+            if field.type == @stream, do: %{field | required: true}, else: field
+          end
+
+        %{model | fields: fields}
+      else
+        model
+      end
+    end
   end
 
   # The models a field type holds.
@@ -520,7 +563,7 @@ defmodule AtlasRuntimeBoundary.Generator.Schema do
     do:
       fail.(
         "#{at} is a list of :stream; a :stream is allowed only as a direct field of an " <>
-          "outcome or input model"
+          "input or outcome model"
       )
 
   defp check_type!({:list, inner}, models, at, fail),
