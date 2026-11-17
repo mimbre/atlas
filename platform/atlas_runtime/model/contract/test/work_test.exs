@@ -181,6 +181,8 @@ defmodule AtlasRuntimeModel.WorkTest do
       shape = fn name -> Enum.map(entities[name].fields, &{&1.name, &1.type, &1.required}) end
       access = {:enum, [:read_only, :workspace_write]}
       fingerprints = {:list, :root_fingerprint}
+      # helper_failed: I-H3 amendment (c), 2026-11-17 (s5a P10a).
+      errors = {:enum, [:sandbox_unavailable, :leaves_folder, :not_found, :helper_failed]}
 
       assert shape.(:base) == [{:base_id, :string, true}, {:permissions, access, true}]
 
@@ -210,7 +212,7 @@ defmodule AtlasRuntimeModel.WorkTest do
                {:command, {:list, :string}, true},
                {:exit_status, :integer, false},
                {:signal, :string, false},
-               {:error, {:enum, [:sandbox_unavailable, :leaves_folder, :not_found]}, false},
+               {:error, errors, false},
                {:timed_out, :boolean, true},
                {:cancelled, :boolean, true},
                {:interrupted, :boolean, true},
@@ -600,7 +602,13 @@ defmodule AtlasRuntimeModel.WorkTest do
                duration_ms: 0,
                output: %{tail: "", complete: true},
                error: :not_found
-             ], :not_found}
+             ], :not_found},
+            {[
+               exit_status: nil,
+               duration_ms: 0,
+               output: %{tail: "", complete: true},
+               error: :helper_failed
+             ], :helper_failed}
           ] do
         product = %{workspace: %{path: "/w", changed: false}, check: check(fields)}
 

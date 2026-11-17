@@ -73,6 +73,13 @@ defmodule AtlasRuntime.Work.Store do
     end
   end
 
+  @doc """
+  The key tombstone of a pruned work in `index` (I7), or nil: its client decides who may
+  still be told `pruned` (and, while its frozen result is retained, read that result).
+  """
+  def tombstone(index, work_id),
+    do: Enum.find(Map.values(index), &(&1.work_id == work_id and &1.pruned))
+
   @doc "Writes the whole index."
   def put_index!(dir, index) do
     entries = index |> Map.values() |> Enum.sort_by(&{&1.client, &1.client_key})

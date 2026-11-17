@@ -248,6 +248,52 @@ defmodule AtlasRuntime.PolicyTest do
       end
     end
 
+    # s5a-plan B17 (P10a): exactly two additions per profile.
+    test "after_check: allow_after_check and limits.max_check_timeout, strictly", %{tmp_dir: dir} do
+      for {value, ok?} <- [
+            {%{"allow_after_check" => false}, true},
+            {%{"allow_after_check" => true}, true},
+            {%{"allow_after_check" => "no"}, false},
+            {%{"limits" => %{"max_check_timeout" => 60}}, true},
+            {%{"limits" => %{"max_duration" => 600, "max_check_timeout" => 60}}, true},
+            {%{"limits" => %{"max_check_timeout" => 0}}, false},
+            {%{"limits" => %{"max_check_timeout" => "60"}}, false},
+            {%{"limits" => %{}}, false},
+            {%{"limits" => %{"check_timeout" => 60}}, false}
+          ] do
+        policy = update_in(@mini, ["profiles", "deep_coding"], &Map.merge(&1, value))
+        write_policy(dir, policy)
+
+        if ok? do
+          assert {:ok, ^policy} = Policy.load(dir), inspect(value)
+        else
+          assert {:error, {:invalid, message}} = Policy.load(dir), inspect(value)
+          assert message =~ ~s("deep_coding": ), inspect({value, message})
+        end
+      end
+
+      policy =
+        update_in(@mini, ["profiles", "deep_coding"], fn profile ->
+          profile
+          |> Map.put("allow_after_check", false)
+          |> Map.put("limits", %{"max_duration" => 7_200, "max_check_timeout" => 60})
+        end)
+
+      loaded = loaded(dir, policy)
+
+      assert Policy.after_check(loaded, "deep_coding") ==
+               %{allowed: false, max_timeout: 60, default_timeout: 60}
+
+      assert Policy.after_check(loaded, "independent_review") ==
+               %{allowed: true, max_timeout: 600, default_timeout: 120}
+
+      assert Policy.after_check({:error, :missing}, "x") ==
+               %{allowed: true, max_timeout: 600, default_timeout: 120}
+
+      # max_duration is read as before when max_check_timeout sits beside it.
+      assert Policy.limits(loaded, "deep_coding").max_duration == 7_200
+    end
+
     test "an explicit backend gets the policy's model only when unambiguous", %{tmp_dir: dir} do
       policy = loaded(dir)
       assert Policy.configured_model(policy, "claude") == "claude-opus-5-5"

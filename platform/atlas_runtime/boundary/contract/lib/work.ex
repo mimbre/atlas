@@ -281,14 +281,15 @@ defmodule AtlasRuntimeBoundary.Work do
     field :fingerprints, {:list, :root_fingerprint}, required: true
   end
 
-  # The after-check's outcome (§3.10). error: the check did not run; then exit_status and
-  # signal are absent.
+  # The after-check's outcome (§3.10). error: the check did not run, or (helper_failed) the
+  # helper failed after starting it (I-H3 amendment (c)); then exit_status and signal are
+  # absent.
   defmodel :check_result do
     field :command, {:list, :string}, required: true
     field :exit_status, :integer
     # Set only for a stop the Runtime sent (timeout, cancel).
     field :signal, :string
-    field :error, {:enum, [:sandbox_unavailable, :leaves_folder, :not_found]}
+    field :error, {:enum, [:sandbox_unavailable, :leaves_folder, :not_found, :helper_failed]}
     field :timed_out, :boolean, required: true
     field :cancelled, :boolean, required: true
     field :interrupted, :boolean, required: true

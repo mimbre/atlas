@@ -14,7 +14,13 @@ defmodule AtlasRuntime.Work do
   declared outcome meaning "not running": `submit`/`retry` `at_capacity: not_accepting`,
   `get_work`/`find_work`/`turn_output`/`cancel` `not_found`, `list_work` empty, `capacity`
   not accepting, `subscribe` `subscribed` with no notifications. `get_frozen` and
-  `get_frozen_blob` (S5a) answer `not_found` until frozen results are read (s5a-plan P8).
+  `get_frozen_blob` (S5a) `not_found`.
+
+  `get_frozen` answers a completed attempt's frozen result (`frozen`, or
+  `fingerprint_mismatch` when a given fingerprint is no root's), `pruned` once retention
+  turned it into a tombstone, `not_found` otherwise. `get_frozen_blob` answers a `blob` whose
+  `content` is a lazy stream of at most 64 KiB chunks, read when the caller enumerates it,
+  and only for a write entry of that very frozen result (s5a-plan B1, B12, B13).
 
   A subscriber receives `{:atlas_runtime_work, notification}` messages, where
   `notification` is a `AtlasRuntime.Boundary.Work.WorkChanged`, `CapacityAvailable` or
@@ -137,13 +143,15 @@ defmodule AtlasRuntime.Work do
   def subscribe(client, input),
     do: call({:subscribe, client, input, self()}, fn -> %B.Outcome.Subscribed{} end)
 
-  # S5a skeletons (s5a-plan P4): no attempt is frozen before P7b, so there is no frozen
-  # result to read yet. P8 gives these their bodies (reads, visibility and retention).
+  # S5a P8 (design §3.9 "Reading a frozen result"): through the one reply path, as every
+  # capability, so a later reply rule (B32) covers them too; `not_found` without the core.
   @impl true
-  def get_frozen(_client, %B.GetFrozenInput{}), do: not_found()
+  def get_frozen(client, %B.GetFrozenInput{} = input),
+    do: call({:get_frozen, client, input}, &not_found/0)
 
   @impl true
-  def get_frozen_blob(_client, %B.GetFrozenBlobInput{}), do: not_found()
+  def get_frozen_blob(client, %B.GetFrozenBlobInput{} = input),
+    do: call({:get_frozen_blob, client, input}, &not_found/0)
 
   defp call(message, stopped) do
     case GenServer.whereis(Server) do

@@ -191,12 +191,13 @@ defmodule AtlasRuntimeModel.Work do
     field :complete, :boolean, required: true
   end
 
-  # The after-check's outcome (§3.10). error: it did not run (B28).
+  # The after-check's outcome (§3.10). error: it did not run (B28), or the helper failed
+  # after it started the check (helper_failed, I-H3 amendment (c), 2026-11-17).
   defmodel :check_result do
     field :command, {:list, :string}, required: true
     field :exit_status, :integer
     field :signal, :string
-    field :error, {:enum, [:sandbox_unavailable, :leaves_folder, :not_found]}
+    field :error, {:enum, [:sandbox_unavailable, :leaves_folder, :not_found, :helper_failed]}
     field :timed_out, :boolean, required: true
     field :cancelled, :boolean, required: true
     field :interrupted, :boolean, required: true
