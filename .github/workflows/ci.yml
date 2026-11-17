@@ -345,6 +345,12 @@ jobs:
           key: rela-26.11.3-linux_amd64
       - run: platform/atlas_facts/rela/scripts/start-test.sh install
         working-directory: .
+      # The Rela scripts' own tests, against the pinned rela above (ATLAS_RELA_BIN): the closure
+      # equals the #79 baseline plus the named additions, natively and as rela serves it.
+      - run: python3 -m pip install -r platform/atlas_facts/rela/scripts/requirements.txt
+        working-directory: .
+      - run: python3 -m unittest discover -s platform/atlas_facts/rela/tests -v
+        working-directory: .
       # It compiles platform/atlas_runtime as a path dependency, so needs its Hex dependencies
       # (Plug, Bandit) too, as products/software_factory/mix.lock pins them (the model's
       # lockfile). Hex and rebar (telemetry builds with rebar3) first.
