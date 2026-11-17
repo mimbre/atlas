@@ -61,6 +61,21 @@ if config_env() != :test do
   # Flow looks at each open fact again this often, and at once on a hint.
   config :atlas_flow, tick_seconds: get_in(settings, ["flow", "tick_seconds"]) || 60
 
+  # Flow as the Runtimes' work source (work acquisition M3): only with a `flow.work_source`
+  # block, none by default. `credentials_env` names the environment variable that holds
+  # the per-Runtime credentials (a core secret: runtime id → holder and token sha256);
+  # `results` is the result store's folder. With `port`, Flow listens on 127.0.0.1 at that
+  # port, behind the tailnet edge (TLS ends there); without one it has no listener.
+  if source = get_in(settings, ["flow", "work_source"]) do
+    config :atlas_flow, :work_source,
+      port: source["port"],
+      credentials_env:
+        source["credentials_env"] || raise("#{file} has no flow.work_source.credentials_env")
+
+    config :atlas_flow, :results,
+      dir: expand.(source["results"] || raise("#{file} has no flow.work_source.results"))
+  end
+
   # Code's receiver of Flow's integrate effect (AtlasCode.Effects), with its journal in
   # `code.data`, the repositories it may integrate (`code.repositories`, owner/repo) and
   # GitHub reached with the GitHub connector's settings: no secret of its own. Flow runs

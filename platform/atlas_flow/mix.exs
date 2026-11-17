@@ -35,13 +35,16 @@ defmodule AtlasFlow.MixProject do
   #
   # Flow is the Runtime's work source (M3): the neutral change set (atlas_changeset) for
   # results, and Plug on Bandit for the backend that carries the source's contract (already
-  # locked; the Runtime uses them). `req` is the push client's (AtlasFlow.Runtime.Client),
-  # until M3 removes it. The Runtime is a test dependency only: Flow never calls it.
+  # locked; the Runtime uses them), with the shared body limit (atlas_body_limit, a path
+  # library like the change set) that keeps the body caps whatever the transfer encoding.
+  # `req` is the push client's (AtlasFlow.Runtime.Client), until M3 removes it. The Runtime
+  # is a test dependency only: Flow never calls it.
   defp deps,
     do: [
       {:atlas_bus, in_umbrella: true},
       {:atlas_code, in_umbrella: true, runtime: false},
       {:atlas_changeset, path: "../frameworks/changeset"},
+      {:atlas_body_limit, path: "../frameworks/body_limit"},
       {:plug, "~> 1.19"},
       {:bandit, "~> 1.10"},
       {:req, "~> 0.5.16"},
