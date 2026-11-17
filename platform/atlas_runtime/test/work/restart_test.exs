@@ -288,13 +288,14 @@ defmodule AtlasRuntime.Work.RestartTest do
     :atomics.put(verdict, 1, 1)
     assert [true, true] = await_alive(ids, [true, true])
 
-    # One listing per heartbeat, whatever the number of attempts (here two), over 1 s.
+    # One listing per heartbeat, whatever the number of attempts (here two), over five beats.
+    # A beat lists first and notifies last, so past the drain only the beat after the fifth
+    # can have listed unseen: counted in beats, not in time, so a slow host does not matter.
     notifications()
     before = :counters.get(listings, 1)
-    Process.sleep(1_000)
+    beats = 5
+    for _ <- 1..beats, do: await_heartbeat()
     taken = :counters.get(listings, 1) - before
-    beats = Enum.count(notifications(), &match?(%F.Heartbeat{}, &1))
-    assert beats >= 3
     assert taken <= beats + 1
 
     for gate <- ["gate", "gate2"], do: File.rm!(Path.join(bench.dir, gate))
@@ -419,6 +420,16 @@ defmodule AtlasRuntime.Work.RestartTest do
     end
   end
 
+  # The next heartbeat the core sends; it emits one only after that beat's probe and dispatch.
+  defp await_heartbeat do
+    receive do
+      {:atlas_runtime_work, %F.Heartbeat{}} -> :ok
+      {:atlas_runtime_work, _other} -> await_heartbeat()
+    after
+      5_000 -> flunk("no heartbeat")
+    end
+  end
+
   test "Claude: a restart while cancelling ends it cancelled, not quiescent until its group is gone; the slot waits",
        %{bench: bench} do
     write_policy!(bench.dir, %{
@@ -467,9 +478,16 @@ defmodule AtlasRuntime.Work.RestartTest do
     assert [%{state: :cancelling, cancel_stage: :signalled}] = work!(work.work_id).attempts
 
     # The Runtime dies, and the turn's helper (the fake's parent) with it before it can end the
-    # group on its parent's loss: the group lives on with nobody to confirm its end.
+    # group on its parent's loss: the group lives on with nobody to confirm its end. The helper
+    # is stopped (SIGSTOP) before `stop_all/0` closes its stdin, and killed only after: a
+    # helper that ran on would see that EOF and SIGKILL the group itself within one 20 ms poll
+    # (`host/host/host.go`, parent_lost), racing the test's kill and ending the group for real.
+    helper = launch["ppid"]
+    on_exit(fn -> System.cmd("/bin/kill", ["-9", "#{helper}"], stderr_to_stdout: true) end)
+    assert {_, 0} = System.cmd("/bin/kill", ["-STOP", "#{helper}"], stderr_to_stdout: true)
     stop_all()
-    System.cmd("/bin/kill", ["-9", "#{launch["ppid"]}"], stderr_to_stdout: true)
+    assert {_, 0} = System.cmd("/bin/kill", ["-9", "#{helper}"], stderr_to_stdout: true)
+    assert group(launch["pid"], nil) == :alive
     bench = crash_and_restart(bench, &__MODULE__.group/2, probe: &__MODULE__.group/2)
 
     [attempt] = await_state(work.work_id, :cancelled).attempts
@@ -479,8 +497,13 @@ defmodule AtlasRuntime.Work.RestartTest do
     assert turn(bench, turn_id)["state"] == "stopping"
     assert group(launch["pid"], nil) == :alive
 
+    # A whole heartbeat (probe, then dispatch) after the submit leaves both as they were. The
+    # core sends its notifications and its answers in order, so once those already sent are
+    # drained, the next heartbeat ran after the submit.
+    assert F.subscribe(client(), %{}) == %F.Outcome.Subscribed{}
     next = submit!(bench, "complete after the group is gone")
-    Process.sleep(300)
+    notifications()
+    await_heartbeat()
     assert work!(next.work_id).state == :buffered
     refute hd(work!(work.work_id).attempts).quiescent
 
