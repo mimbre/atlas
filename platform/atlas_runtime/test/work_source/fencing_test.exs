@@ -68,6 +68,8 @@ defmodule AtlasRuntime.WorkSource.FencingTest do
       result: %F.Result{kind: :completed, retryable: false, never_started: false},
       provenance: [],
       change_set: %F.ChangeSet{
+        # The work's base (add/2's default key), as the Runtime freezes it.
+        base: "base-task-1",
         roots: [
           %F.ChangeRoot{
             root: "repo",

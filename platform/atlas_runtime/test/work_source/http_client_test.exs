@@ -101,6 +101,7 @@ defmodule AtlasRuntime.WorkSource.HttpClientTest do
       result: %{kind: :completed, retryable: false, never_started: false},
       provenance: [],
       change_set: %{
+        base: "base-1",
         roots: [
           %{
             root: "repo",

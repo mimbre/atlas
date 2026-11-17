@@ -625,6 +625,11 @@
     {
       "fields": [
         {
+          "name": "base",
+          "required": true,
+          "type": "string"
+        },
+        {
           "name": "roots",
           "required": true,
           "type": "list of change_root"
@@ -802,5 +807,5 @@
       "name": "rejected"
     }
   ],
-  "version": "0.1.0"
+  "version": "0.2.0"
 }

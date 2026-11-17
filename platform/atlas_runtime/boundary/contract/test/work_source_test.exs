@@ -74,6 +74,75 @@ defmodule AtlasRuntimeBoundary.WorkSourceTest do
     assert fields(:recorded) == [:missing]
   end
 
+  test "K1: the ended change set declares its base, as the Runtime freezes and imports it" do
+    assert fields(:change_set) == [:base, :roots]
+    assert field(:change_set, :base) == %{name: :base, type: :string, required: true}
+
+    # The same type and requiredness as the Work contract's frozen result, which
+    # Sources.Upload sends as the change set (base + roots).
+    frozen = Enum.find(AtlasRuntimeBoundary.Work.__schema__().models, &(&1.name == :frozen))
+    assert Enum.find(frozen.fields, &(&1.name == :base)) == field(:change_set, :base)
+  end
+
+  test "K1: the JSON target's change_set takes a change set with base and refuses one without" do
+    models = @json |> File.read!() |> JSON.decode!() |> Map.fetch!("models")
+
+    entry = %{
+      "path" => "a.txt",
+      "op" => "write",
+      "kind" => "file",
+      "mode" => "100644",
+      "size" => 2,
+      "sha256" => String.duplicate("a", 64)
+    }
+
+    set = %{
+      "base" => "sha256:" <> String.duplicate("b", 64),
+      "roots" => [%{"root" => "atlas", "fingerprint" => "csf_x", "entries" => [entry]}]
+    }
+
+    assert conform(models, "change_set", set) == []
+    assert conform(models, "change_set", Map.delete(set, "base")) == [{:missing, ["base"]}]
+    assert conform(models, "change_set", %{set | "base" => 1}) == [{:type, ["base"]}]
+  end
+
+  # Problems of `value` against the JSON target's model `name`: missing required fields,
+  # undeclared keys, and scalar type mismatches, each with its path.
+  defp conform(models, name, value, at \\ []) do
+    model = Enum.find(models, &(&1["name"] == name)) || flunk("no model #{name}")
+    declared = Map.new(model["fields"], &{&1["name"], &1})
+
+    missing =
+      for %{"name" => f, "required" => true} <- model["fields"],
+          not Map.has_key?(value, f),
+          do: {:missing, at ++ [f]}
+
+    unknown = for k <- Map.keys(value), not Map.has_key?(declared, k), do: {:unknown, at ++ [k]}
+
+    typed =
+      for {k, v} <- value, f = declared[k], problem <- typed(models, f, v, at ++ [k]), do: problem
+
+    missing ++ unknown ++ typed
+  end
+
+  defp typed(models, %{"type" => "list of " <> inner} = f, v, at) when is_list(v),
+    do: Enum.flat_map(v, &typed(models, %{f | "type" => inner}, &1, at))
+
+  defp typed(_models, %{"type" => "string"}, v, _at) when is_binary(v), do: []
+  defp typed(_models, %{"type" => "integer"}, v, _at) when is_integer(v), do: []
+  defp typed(_models, %{"type" => "boolean"}, v, _at) when is_boolean(v), do: []
+
+  defp typed(_models, %{"type" => "enum", "values" => vs}, v, at) when is_binary(v),
+    do: if(v in vs, do: [], else: [{:enum, at}])
+
+  defp typed(models, %{"type" => model}, v, at) when is_map(v) and not is_struct(v) do
+    if Enum.any?(models, &(&1["name"] == model)),
+      do: conform(models, model, v, at),
+      else: [{:type, at}]
+  end
+
+  defp typed(_models, _f, _v, at), do: [{:type, at}]
+
   test "§5.2 blobs: a download and an upload, each a :stream" do
     assert field(:blob, :content) == %{name: :content, type: :stream, required: true}
     assert field(:put_blob_input, :content) == %{name: :content, type: :stream, required: true}
