@@ -4,8 +4,8 @@ defmodule AtlasRuntimeBackend.Work do
   S1): how `AtlasRuntimeBoundary.Work` is carried to clients in other processes. It
   decides nothing about work; every decision sits behind the boundary.
 
-  Shared by every target: the nine S1 work capabilities are exposed (S5a's `get_frozen` and
-  `get_frozen_blob` are not yet); a client on the Unix socket
+  Shared by every target: every work capability is exposed, the nine of S1 and S5a's two
+  frozen-result reads (`get_frozen`, `get_frozen_blob`, §3.9); a client on the Unix socket
   (`$ATLAS_RUNTIME_HOME/backend.sock`, §8.1) is its owner and gets every work right,
   `choose_slot` and `choose_path` included; the notifications are the stream's events. The
   one target in S1 is `rest` (§8.2–§8.4), carrying the boundary's entities.
@@ -39,12 +39,10 @@ defmodule AtlasRuntimeBackend.Work do
     :list_work,
     :capacity,
     :turn_output,
-    :subscribe
+    :subscribe,
+    :get_frozen,
+    :get_frozen_blob
   ]
-
-  # S5a: the frozen-result reads are in the boundary before their resources exist; S5a P11
-  # exposes them (§8.2: GET …/attempts/{n}/frozen and …/frozen/blobs/{sha256}).
-  not_exposed [:get_frozen, :get_frozen_blob]
 
   ## Listeners (§8.1)
 
@@ -89,6 +87,15 @@ defmodule AtlasRuntimeBackend.Work do
     resource :get, "/v1/capacity", capability: :capacity
     resource :get, "/v1/turns/:turn_id/output", capability: :turn_output, query: [cursor: :cursor]
 
+    # S5a (§3.9, §8.2): a completed attempt's frozen result, and one blob of it. Paths on
+    # the Runtime's machine are in neither: entries name paths relative to their root.
+    resource :get, "/v1/work/:work_id/attempts/:attempt/frozen",
+      capability: :get_frozen,
+      query: [fingerprint: :fingerprint]
+
+    resource :get, "/v1/work/:work_id/attempts/:attempt/frozen/blobs/:sha256",
+      capability: :get_frozen_blob
+
     # Server-Sent Events (§8.4): resume with Last-Event-ID; outside the window, or from
     # another incarnation, the stream opens with reset.
     stream "/v1/events",
@@ -131,6 +138,17 @@ defmodule AtlasRuntimeBackend.Work do
     # Retry-After when no new work can be taken.
     status :capacity, 200, header: ["Retry-After": :retry_after]
     status :page, 200
+    # S5a (§8.2): the change set per root, with each root's fingerprint.
+    status :frozen, 200
+    # The given fingerprint matches no root's (the client's expectation, not its request,
+    # is what conflicts).
+    status :fingerprint_mismatch, 409, type: "fingerprint-mismatch"
+    # One download, chunk by chunk and never held whole; its sha256 and size go in headers
+    # (not Content-Length: the body is chunked), so a client can verify it as it reads.
+    status :blob, 200,
+      stream: :content,
+      content_type: "application/octet-stream",
+      header: ["Blob-Sha256": :sha256, "Blob-Size": :size]
 
     error :invalid, 400, type: "invalid"
     error :not_permitted, 403, type: "not-permitted"

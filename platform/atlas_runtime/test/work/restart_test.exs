@@ -5,7 +5,7 @@ defmodule AtlasRuntime.Work.RestartTest do
 
   import AtlasRuntime.WorkHarness
   alias AtlasRuntime.Boundary.Work, as: F
-  alias AtlasRuntime.Work.Restart
+  alias AtlasRuntime.Work.{Restart, Store}
 
   @moduletag capture_log: true
 
@@ -132,6 +132,51 @@ defmodule AtlasRuntime.Work.RestartTest do
     File.rm!(Path.join(bench.dir, "gate"))
     assert [%{turn_id: ^turn}] = await_state(work.work_id, :completed).attempts
     assert length(launches(bench)) == 1
+  end
+
+  # The residual of designer follow-up (a): an attempt stored before attempts were created
+  # not quiescent keeps `quiescent: true` while live, and survives a core-only restart
+  # (`Restart.classify` → `:keep`). Only the gate's `terminal?` conjunct (`Queue.settled?/1`)
+  # then keeps its slot busy and its successor waiting.
+  test "a stored live attempt marked quiescent still holds its slot after a core restart until it ends",
+       %{bench: bench} do
+    write_policy!(bench.dir, %{"slots" => ["s1"]})
+    stop_work()
+    start_work!(bench)
+
+    File.write!(Path.join(bench.dir, "gate"), "")
+    first = submit!(bench, "wait gate")
+    turn = session_recorded(bench, first)
+
+    # Rewrite the stored attempt as a pre-change core would have left it.
+    stop_work()
+    stored = Store.read_work(bench.dir, first.work_id)
+    [attempt] = stored.attempts
+    Store.put_work!(bench.dir, %{stored | attempts: [%{attempt | quiescent: true}]})
+    start_work!(bench)
+
+    # Kept: still running on its turn, the stale value as stored.
+    assert [%{state: :running, turn_id: ^turn, slot: "s1", quiescent: true}] =
+             work!(first.work_id).attempts
+
+    assert %F.Outcome.Capacity{slots: slots} = F.capacity(client())
+    assert {slots.total, slots.busy, slots.free} == {1, 1, 0}
+
+    # Another work on the one slot waits for the live attempt to end. The core itself never
+    # tries it: were the slot free to the core, each heartbeat would commit it `starting` and,
+    # on the Service's refusal, `buffered` again, moving its record's sequence.
+    second = submit!(bench, "after the kept turn")
+    assert %{sequence: waiting, attempts: [%{state: :buffered}]} = work!(second.work_id)
+    Process.sleep(500)
+    assert %{sequence: ^waiting, attempts: [%{state: :buffered}]} = work!(second.work_id)
+    refute Enum.any?(launches(bench), &(&1["goal"] == second.request.instructions))
+
+    File.rm!(Path.join(bench.dir, "gate"))
+
+    assert [%{state: :completed, quiescent: true}] =
+             await_state(first.work_id, :completed).attempts
+
+    assert [%{slot: "s1"}] = await_state(second.work_id, :completed).attempts
   end
 
   test "an attempt whose turn names no model still commits a configured model", %{bench: bench} do

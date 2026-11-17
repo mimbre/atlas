@@ -87,7 +87,7 @@ defmodule AtlasRuntimeBackend.Generator.Targets.RestTest do
       # The path binds book_id; the body may not.
       conn = request("POST", "/v1/books/b1/return", ~s({"book_id":"b2"}))
       assert conn.status == 400
-      assert json(conn)["detail"] =~ ~s(the body has no field "book_id")
+      assert json(conn)["detail"] == "the body has an unknown field"
 
       # An empty body is {}.
       assert request("POST", "/v1/books/b1/return").status == 200
@@ -105,7 +105,7 @@ defmodule AtlasRuntimeBackend.Generator.Targets.RestTest do
   describe "strict decoding: every failure is 400 invalid, as problem+json" do
     for {name, method, path, body, detail} <- [
           {"an unknown body field", "POST", "/v1/books", ~s({"title":"x","extra":1}),
-           ~s(no field "extra")},
+           "the body has an unknown field"},
           {"a body that is no JSON", "POST", "/v1/books", ~s({"title":), "no JSON"},
           {"a body that is no object", "POST", "/v1/books", ~s(["title"]), "no JSON object"},
           {"a missing required field", "POST", "/v1/books", ~s({}), "title is required"},
@@ -114,8 +114,9 @@ defmodule AtlasRuntimeBackend.Generator.Targets.RestTest do
            "condition is invalid"},
           {"no integer in the query", "GET", "/v1/books?limit=two", "", "limit is invalid"},
           {"an unknown query parameter", "GET", "/v1/books?colour=red", "",
-           ~s(unknown query parameter "colour")},
-          {"a query parameter twice", "GET", "/v1/books?limit=1&limit=2", "", "given twice"},
+           "the query has an unknown parameter"},
+          {"a query parameter twice", "GET", "/v1/books?limit=1&limit=2", "",
+           ~s(query parameter "limit" is given twice)},
           {"parameters of two resources", "GET", "/v1/books?title=a&limit=1", "",
            "limit, title do not fit one resource"},
           {"a body on a resource without one", "GET", "/v1/count", "{}", "takes no body"},
@@ -260,6 +261,49 @@ defmodule AtlasRuntimeBackend.Generator.Targets.RestTest do
       refute Runtime.not_modified?([], ~s("42"))
       refute Runtime.not_modified?([~s("4"), ~s("420")], ~s("42"))
       refute Runtime.not_modified?(["42"], ~s("42"))
+    end
+  end
+
+  # D44 (designer, 2026-11-17): the router's own texts name the field, never request data,
+  # which can hold a path. One case per text that once repeated it.
+  describe "D44: no router text repeats request data" do
+    @home "/Users/someone/"
+    @encoded URI.encode_www_form(@home)
+
+    defmodule ReadFails do
+      @moduledoc false
+      # Plug's test adapter, but reading the body fails with a reason that holds a path.
+      defdelegate send_resp(state, status, headers, body), to: Plug.Adapters.Test.Conn
+      def read_req_body(_state, _opts), do: {:error, "/Users/someone/socket"}
+    end
+
+    for {name, method, path, body, status, detail} <- [
+          {"an unknown body field", "POST", "/v1/books", ~s({"title":"x","/Users/someone/k":1}),
+           400, "the body has an unknown field"},
+          {"an unknown query parameter", "GET", "/v1/books?#{@encoded}k=1", "", 400,
+           "the query has an unknown parameter"},
+          {"an unknown query parameter twice", "GET", "/v1/books?#{@encoded}k=1&#{@encoded}k=2",
+           "", 400, "a query parameter is given twice"},
+          {"no route", "GET", "/v1/#{@encoded}p", "", 404,
+           "no resource for this method and path"},
+          {"no route on a path that is a home path", "GET", "/Users/someone/p", "", 404,
+           "no resource for this method and path"}
+        ] do
+      test name do
+        conn = request(unquote(method), unquote(path), unquote(body))
+        assert conn.status == unquote(status)
+        assert json(conn)["detail"] == unquote(detail)
+        refute conn.resp_body =~ "someone"
+      end
+    end
+
+    test "a body that cannot be read" do
+      conn = conn("POST", "/v1/books", "") |> assign(:client, @member)
+      {Plug.Adapters.Test.Conn, state} = conn.adapter
+      conn = Rest.call(%{conn | adapter: {ReadFails, state}}, Rest.init([]))
+      assert conn.status == 400
+      assert json(conn)["detail"] == "the body could not be read"
+      refute conn.resp_body =~ "someone"
     end
   end
 

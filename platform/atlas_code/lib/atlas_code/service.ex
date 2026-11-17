@@ -10,10 +10,12 @@ defmodule AtlasCode.Service do
   the token digests, `gh`; `:role` added per request by the HTTP routes). Who may call is
   not decided here: the HTTP routes check the bearer token and the reviewing role before
   they call, and the boundary facade (`AtlasCode.Boundary`, implemented by
-  `AtlasCode.Running`) checks its caller's right. `resolve_reference/2`,
-  `create_snapshot/2` and `get_manifest/2` are reached through that facade, and
-  `get_blob/3` only through it (it has no HTTP route); the others are called directly
-  until the contract (`AtlasCodeBoundary.Code`) declares them.
+  `AtlasCode.Running`) checks its caller's right. Every function the contract
+  (`AtlasCodeBoundary.Code`) declares is reached through that facade: `resolve_reference/2`,
+  `create_snapshot/2`, `get_manifest/2`, the changes (`create_change/2`,
+  `put_change_blob/4`, `seal_change/2`) and the reviews (`create_review/2`,
+  `update_review/2`); `get_blob/3` only through it (it has no HTTP route). The others
+  (`health/0`, `get_archive/3`, `create_integration/2`) are called directly.
   """
   import AtlasCode,
     only: [
@@ -126,7 +128,13 @@ defmodule AtlasCode.Service do
   member missing, unknown or of another type): the same answer whether the facade or this
   module finds it.
   """
-  @spec malformed(:resolve_reference | :create_snapshot) :: response()
+  @spec malformed(
+          :resolve_reference
+          | :create_snapshot
+          | :create_change
+          | :create_review
+          | :update_review
+        ) :: response()
   def malformed(:resolve_reference),
     do:
       error(
@@ -142,6 +150,48 @@ defmodule AtlasCode.Service do
         "invalid_request",
         ~s(Body must be {"repositories": [{"repository", "revision", "path"}, …]})
       )
+
+  def malformed(:create_change),
+    do:
+      error(
+        400,
+        "invalid_request",
+        ~s(Body must be {"change_id", "snapshot_id", "repository", "base_revision", "entries": [{"path", "op", …}, …]})
+      )
+
+  def malformed(:create_review),
+    do:
+      error(
+        400,
+        "invalid_request",
+        ~s(Body must be {"review_id", "change_id", "target", "title", "body", "fingerprint"?})
+      )
+
+  def malformed(:update_review),
+    do:
+      error(
+        400,
+        "invalid_request",
+        ~s(Body must be {"update_id", "review_id", "change_id", "revision", "fingerprint"})
+      )
+
+  @doc """
+  The request's own checks of a capability that takes a request body, the first thing
+  that capability does: `:ok`, or the refusal it answers (as `create_change/2`,
+  `create_review/2` and `update_review/2` would) without looking at anything else.
+
+  The HTTP routes run it before the boundary facade, so a body is refused exactly as
+  before the facade: the facade leaves out an optional member given as null, which these
+  checks refuse, and names a mistyped member in its own words.
+  """
+  @spec check_request(:create_change | :create_review | :update_review, term()) ::
+          :ok | response()
+  def check_request(:create_change, request), do: checked(change_request(request))
+  def check_request(:create_review, request), do: checked(review_request(request))
+  def check_request(:update_review, request), do: checked(update_request(request))
+
+  defp checked({:ok, _request}), do: :ok
+  defp checked(refusal), do: refusal
 
   @doc "`GET /v1/snapshots/{id}/manifest`."
   @spec get_manifest(settings(), String.t()) :: response()
@@ -183,61 +233,8 @@ defmodule AtlasCode.Service do
 
   @doc "`POST /v1/changes`."
   @spec create_change(settings(), term()) :: response()
-  def create_change(settings, request) do
-    with %{
-           "change_id" => id,
-           "snapshot_id" => snapshot_id,
-           "repository" => repository,
-           "base_revision" => base,
-           "entries" => [_ | _] = entries
-         }
-         when map_size(request) == 5 and is_binary(id) and is_binary(snapshot_id) and
-                is_binary(repository) and is_binary(base) <- request do
-      cond do
-        not uuid?(id) ->
-          error(400, "invalid_request", "change_id must be a lowercase UUID", %{"change_id" => id})
-
-        not revision?(base) ->
-          error(400, "invalid_request", "base_revision must be rev_<64 lowercase hex characters>")
-
-        bad = Enum.find(entries, &(not entry?(&1))) ->
-          error(
-            400,
-            "invalid_request",
-            ~s(An entry must be {"path", "op": "delete"}, {"path", "op": "write", "kind": "file", "mode": "100644|100755", "size", "sha256"} or {"path", "op": "write", "kind": "symlink", "mode": "120000", "target", "size", "sha256"} with the target's size and sha256),
-            %{"entry" => bad}
-          )
-
-        bad = Enum.find(entries, &(not safe_path?(&1["path"]))) ->
-          error(400, "invalid_request", "path must be relative and normalized", %{
-            "path" => bad["path"]
-          })
-
-        path =
-            entries
-            |> Enum.frequencies_by(& &1["path"])
-            |> Enum.find_value(fn {path, count} -> count > 1 and path end) ->
-          error(400, "invalid_request", "paths must be unique", %{"path" => path})
-
-        digest =
-            entries
-            |> Enum.filter(&(&1["op"] == "write"))
-            |> Enum.group_by(& &1["sha256"], & &1["size"])
-            |> Enum.find_value(fn {digest, sizes} -> length(Enum.uniq(sizes)) > 1 and digest end) ->
-          error(400, "invalid_request", "One sha256 must have one size", %{"sha256" => digest})
-
-        true ->
-          create(settings, %{request | "entries" => Enum.sort_by(entries, & &1["path"])})
-      end
-    else
-      _ ->
-        error(
-          400,
-          "invalid_request",
-          ~s(Body must be {"change_id", "snapshot_id", "repository", "base_revision", "entries": [{"path", "op", …}, …]})
-        )
-    end
-  end
+  def create_change(settings, request),
+    do: with({:ok, request} <- change_request(request), do: create(settings, request))
 
   @doc "`PUT /v1/changes/{id}/blobs/{sha256}`: `bytes` is the raw body."
   @spec put_change_blob(settings(), String.t(), String.t(), binary()) :: response()
@@ -847,6 +844,58 @@ defmodule AtlasCode.Service do
     end
   end
 
+  # The request's own checks, before Code looks at anything; entries sorted by path.
+  defp change_request(request) do
+    with %{
+           "change_id" => id,
+           "snapshot_id" => snapshot_id,
+           "repository" => repository,
+           "base_revision" => base,
+           "entries" => [_ | _] = entries
+         }
+         when map_size(request) == 5 and is_binary(id) and is_binary(snapshot_id) and
+                is_binary(repository) and is_binary(base) <- request do
+      cond do
+        not uuid?(id) ->
+          error(400, "invalid_request", "change_id must be a lowercase UUID", %{"change_id" => id})
+
+        not revision?(base) ->
+          error(400, "invalid_request", "base_revision must be rev_<64 lowercase hex characters>")
+
+        bad = Enum.find(entries, &(not entry?(&1))) ->
+          error(
+            400,
+            "invalid_request",
+            ~s(An entry must be {"path", "op": "delete"}, {"path", "op": "write", "kind": "file", "mode": "100644|100755", "size", "sha256"} or {"path", "op": "write", "kind": "symlink", "mode": "120000", "target", "size", "sha256"} with the target's size and sha256),
+            %{"entry" => bad}
+          )
+
+        bad = Enum.find(entries, &(not safe_path?(&1["path"]))) ->
+          error(400, "invalid_request", "path must be relative and normalized", %{
+            "path" => bad["path"]
+          })
+
+        path =
+            entries
+            |> Enum.frequencies_by(& &1["path"])
+            |> Enum.find_value(fn {path, count} -> count > 1 and path end) ->
+          error(400, "invalid_request", "paths must be unique", %{"path" => path})
+
+        digest =
+            entries
+            |> Enum.filter(&(&1["op"] == "write"))
+            |> Enum.group_by(& &1["sha256"], & &1["size"])
+            |> Enum.find_value(fn {digest, sizes} -> length(Enum.uniq(sizes)) > 1 and digest end) ->
+          error(400, "invalid_request", "One sha256 must have one size", %{"sha256" => digest})
+
+        true ->
+          {:ok, %{request | "entries" => Enum.sort_by(entries, & &1["path"])}}
+      end
+    else
+      _ -> malformed(:create_change)
+    end
+  end
+
   defp uuid?(value),
     do: Regex.match?(~r/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/, value)
 
@@ -1317,11 +1366,7 @@ defmodule AtlasCode.Service do
         end
 
       _ ->
-        error(
-          400,
-          "invalid_request",
-          ~s(Body must be {"review_id", "change_id", "target", "title", "body", "fingerprint"?})
-        )
+        malformed(:create_review)
     end
   end
 
@@ -1687,11 +1732,7 @@ defmodule AtlasCode.Service do
         end
 
       _ ->
-        error(
-          400,
-          "invalid_request",
-          ~s(Body must be {"update_id", "review_id", "change_id", "revision", "fingerprint"})
-        )
+        malformed(:update_review)
     end
   end
 

@@ -282,7 +282,8 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest do
 
         case Runtime.select(@routes, conn.method, conn.path_info, conn.query_string) do
           {:ok, key, params, query} -> handle(key, conn, client, params, query)
-          :no_route -> error(conn, :no_route, "no resource has this path for #{conn.method}")
+          # The method and path are request data: never repeated (D44).
+          :no_route -> error(conn, :no_route, "no resource for this method and path")
           {:error, reasons} -> error(conn, :invalid, Enum.join(reasons, "; "))
         end
       end
@@ -305,8 +306,8 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest do
           {:more, _partial, conn} ->
             {:error, conn, ["the body is larger than #{unquote(@max_body)} bytes"]}
 
-          {:error, reason} ->
-            {:error, conn, ["the body could not be read (#{inspect(reason)})"]}
+          {:error, _reason} ->
+            {:error, conn, ["the body could not be read"]}
         end
       end
 

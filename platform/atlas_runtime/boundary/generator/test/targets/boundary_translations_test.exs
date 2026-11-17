@@ -60,7 +60,7 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.BoundaryTranslationsTest do
       copy = Desk.copy("c1")
       copy = %{copy | holds: [%{hd(copy.holds) | reason: "lost"}]}
 
-      assert {:error, ["copy.holds[0].reason must be one of waitlist, reserve, got \"lost\""]} =
+      assert {:error, ["copy.holds[0].reason must be one of waitlist, reserve"]} =
                B.from_model(copy, supply: [status: :lent])
 
       entry = M.LedgerEntry.new!(member: "a", copy_id: "c", closed: false)
