@@ -484,3 +484,80 @@ defmodule AtlasControl.Shop.SteppedWidget do
     )
   end
 end
+
+defmodule AtlasControl.Shop.Supervision do
+  @moduledoc """
+  Members supervise the work on widgets (work acquisition decision 2026-11-17, §5.6–5.8):
+  a subflow on each widget with a supervised span (`work`, in `open`, with the subflow on
+  its parts), runs a member may watch (`watched_by`), inputs that pick a run up or hand it
+  over, and jobs done for a member on a widget or its part, running until they have an
+  outcome. Made-up names, as every kind of the shop.
+  """
+  use RelaDSL
+
+  type(:op, values: [:choice, :pickup, :hand_over])
+
+  entity :run, label: "Run", plural: "runs", id_type: :manual do
+    field(:flow, :string)
+    field(:state, :string)
+    top(false)
+    by_hand(false)
+  end
+
+  entity :input, label: "Input", plural: "inputs", id_type: :manual do
+    field(:run, :string)
+    field(:actor, :string)
+    field(:operation, :op)
+    field(:hand_to, :string)
+    top(false)
+    by_hand(false)
+  end
+
+  entity :job, label: "Job", plural: "jobs", id_type: :manual, id_prefix: "J-" do
+    field(:title, :string)
+    field(:outcome, :string)
+    primary(:title)
+    top(false)
+    by_hand(false)
+  end
+
+  relation(:watched_by, label: "watched by", from: [:run], to: [:member], max_outgoing: 1)
+  relation(:job_of, label: "job of", from: [:job], to: [:widget, :part], max_outgoing: 1)
+  relation(:job_for, label: "job for", from: [:job], to: [:member], max_outgoing: 1)
+
+  flow_runtime(
+    runs: :run,
+    writer: [sender: :flow, by: :flow],
+    inputs: :input,
+    supervision: [relation: :watched_by, operation: :operation, hand_to: :hand_to]
+  )
+
+  subflow :w, label: "W", subject: :widget do
+    owner(default: {:member, :ada})
+    start(:create)
+    initial(:open)
+    supervise(:work, label: "Work", states: [:open], with: [:p])
+
+    state :open, label: "open" do
+      present(expected: "Make it")
+      branch(to: :done, when: "entity.done == true")
+    end
+
+    final(:done, label: "Done")
+  end
+
+  subflow :p, label: "P", subject: :part do
+    owner(default: {:member, :ada})
+    start(:create)
+    initial(:open)
+
+    state :open, label: "open" do
+      timer(:t, "1d", to: :done)
+    end
+
+    final(:done, label: "Done")
+  end
+
+  select(:w, choices: [], projection: [field: :notes], admission: [], imports: [])
+  select(:p, choices: [], admission: [], imports: [])
+end

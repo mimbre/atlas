@@ -83,6 +83,9 @@ defmodule AtlasControl.Session do
        output_idle: nil,
        by: "agent",
        by_kind: nil,
+       # Which client this is, as its hello says (`tui`, `agent`, …): only someone at the
+       # TUI picks a flow up or hands it over (M3b plan §1; no sign-in yet).
+       client: nil,
        # What is assigned to the client, for the header of every page (`start.assigned`):
        # its words and what they were read from (`set`; nil: to be read again with the
        # next page, the words meanwhile those read last).
@@ -332,6 +335,7 @@ defmodule AtlasControl.Session do
             state
             | hello: true,
               surface: "console",
+              client: message["client"],
               by: actor(message["client"], message["as"])
           })
 
@@ -352,6 +356,7 @@ defmodule AtlasControl.Session do
             state
             | hello: true,
               surface: nil,
+              client: message["client"],
               by: actor(message["client"], message["as"])
           })
 
@@ -910,7 +915,64 @@ defmodule AtlasControl.Session do
     end
   end
 
+  # Pick up (work acquisition decision 2026-11-17, §5.6): read again and checked as the page
+  # checks it, then sent as an input of the flow (`pickup`), never a change of the fact.
+  # Flow checks it again and sets the supervisor. Anyone else, or a run that moved on, is
+  # refused before anything is sent.
+  defp submit({:pick_up, kind, key, run} = route, _raw, state) do
+    state = %{state | route: route, cause: nil}
+    answers = page_answers(route, state.model)
+
+    case {Pages.pick_up_problem(state.model, route, answers, viewer(state)),
+          Pages.inputs_kind(state.model)} do
+      {nil, inputs} when is_binary(inputs) ->
+        values = %{"run" => run, "request_id" => Envelope.new("fact", inputs).id}
+        put_fact(state, inputs, %{"op" => "pickup", "values" => values}, {:item, kind, key})
+
+      {nil, _} ->
+        not_sent(state, route, ["This model declares no supervision."])
+
+      {problem, _} ->
+        not_sent(state, route, [problem])
+    end
+  end
+
+  # Hand over… (decision 4; Q14): only the flow's supervisor at the TUI, to someone else,
+  # never to itself; read again and checked as the page checks it, then sent as an input
+  # of the flow (`hand_over`, with `hand_to`). No note.
+  defp submit({:hand_over, kind, key, run}, raw, state) do
+    route = {:hand_over, kind, key, run, state.by}
+    state = %{state | route: route, cause: nil, form: Map.put(state.form, :values, raw)}
+    answers = page_answers(route, state.model)
+    to = raw["hand_to"]
+
+    case {Pages.hand_over_problem(state.model, route, answers, viewer(state)),
+          Pages.inputs_kind(state.model)} do
+      {nil, inputs} when is_binary(inputs) ->
+        if to in Pages.hand_over_targets(state.model, kind, answers, state.by) do
+          values = %{
+            "run" => run,
+            "request_id" => Envelope.new("fact", inputs).id,
+            "hand_to" => to
+          }
+
+          put_fact(state, inputs, %{"op" => "hand_over", "values" => values}, {:item, kind, key})
+        else
+          not_sent(state, route, ["Choose someone else to hand it over to."])
+        end
+
+      {nil, _} ->
+        not_sent(state, route, ["This model declares no supervision."])
+
+      {problem, _} ->
+        not_sent(state, route, [problem])
+    end
+  end
+
   defp submit(_route, _raw, state), do: notice(state, "error", "Nothing to submit here.")
+
+  # Who views a page, as the pages take it: the client's key, its kind and which client.
+  defp viewer(state), do: %{by: state.by, by_kind: state.by_kind, client: state.client}
 
   defp link(key, relation, keys),
     do: %{
@@ -1372,8 +1434,7 @@ defmodule AtlasControl.Session do
 
       route ->
         # What this session wrote and Flow has not settled stays on its pages, marked.
-        viewer =
-          Map.merge(form, %{by: state.by, by_kind: state.by_kind, marked: Map.keys(state.marks)})
+        viewer = Map.merge(form, Map.put(viewer(state), :marked, Map.keys(state.marks)))
 
         page = route |> Pages.render(state.model, answers, viewer) |> Faults.with_action(route)
         set = ReadSet.of(PageReads.roles(route, state.model), answers, page.blocks)
@@ -1612,6 +1673,12 @@ defmodule AtlasControl.Session do
       do: {:assigned, state.by},
       else: :home
   end
+
+  # The supervision screens and Hand over… read for the client too (its running work).
+  defp start({screen, _by}, state) when screen in [:open_for_you, :supervised_by_you],
+    do: {screen, state.by}
+
+  defp start({:hand_over, kind, key, run}, state), do: {:hand_over, kind, key, run, state.by}
 
   defp start(route, _state), do: route
 

@@ -22,7 +22,7 @@ final class ContractTests: XCTestCase {
     }
 
     func test_version() {
-        XCTAssertEqual(Contract.version, "0.17.0")
+        XCTAssertEqual(Contract.version, "0.18.0")
     }
 
     func test_block_list_decodes_and_round_trips() throws {
@@ -254,6 +254,20 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(Page.home.template, "/")
     }
 
+    func test_page_open_for_you_builds_and_matches_its_path() throws {
+        let params: [String: String] = [:]
+        let path = try Page.openForYou.path(params)
+        XCTAssertEqual(Page.match(path), PageMatch(page: .openForYou, params: params))
+        XCTAssertEqual(Page.openForYou.template, "/_open")
+    }
+
+    func test_page_supervised_by_you_builds_and_matches_its_path() throws {
+        let params: [String: String] = [:]
+        let path = try Page.supervisedByYou.path(params)
+        XCTAssertEqual(Page.match(path), PageMatch(page: .supervisedByYou, params: params))
+        XCTAssertEqual(Page.supervisedByYou.template, "/_supervised")
+    }
+
     func test_page_workers_builds_and_matches_its_path() throws {
         let params: [String: String] = [:]
         let path = try Page.workers.path(params)
@@ -362,6 +376,22 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(Page.match(path), PageMatch(page: .remove, params: params))
         XCTAssertEqual(Page.remove.template, "/k/:kind/:key/remove/:relation")
         XCTAssertThrowsError(try Page.remove.path([:])) { XCTAssertEqual($0 as? PathError, .missing(page: .remove, param: "kind")) }
+    }
+
+    func test_page_pick_up_builds_and_matches_its_path() throws {
+        let params: [String: String] = ["key": "v key/1", "kind": "v kind/1", "run": "v run/1"]
+        let path = try Page.pickUp.path(params)
+        XCTAssertEqual(Page.match(path), PageMatch(page: .pickUp, params: params))
+        XCTAssertEqual(Page.pickUp.template, "/k/:kind/:key/pick_up/:run")
+        XCTAssertThrowsError(try Page.pickUp.path([:])) { XCTAssertEqual($0 as? PathError, .missing(page: .pickUp, param: "kind")) }
+    }
+
+    func test_page_hand_over_builds_and_matches_its_path() throws {
+        let params: [String: String] = ["key": "v key/1", "kind": "v kind/1", "run": "v run/1"]
+        let path = try Page.handOver.path(params)
+        XCTAssertEqual(Page.match(path), PageMatch(page: .handOver, params: params))
+        XCTAssertEqual(Page.handOver.template, "/k/:kind/:key/hand_over/:run")
+        XCTAssertThrowsError(try Page.handOver.path([:])) { XCTAssertEqual($0 as? PathError, .missing(page: .handOver, param: "kind")) }
     }
 
     func test_page_faults_builds_and_matches_its_path() throws {

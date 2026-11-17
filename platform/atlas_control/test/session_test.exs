@@ -261,7 +261,7 @@ defmodule AtlasControl.SessionTest do
   test "a client sees the top list at once", %{port: port} do
     FakeStore.put("W-1", %{"title" => "One"})
     c = client(port)
-    assert %{"env" => "test", "spec" => "0.17.0"} = next(c, "welcome")
+    assert %{"env" => "test", "spec" => "0.18.0"} = next(c, "welcome")
     assert %{"path" => "/", "title" => "Widgets", "reason" => "open"} = page = next(c, "page")
     assert rows(page) == ["One"]
   end
@@ -2009,6 +2009,213 @@ defmodule AtlasControl.SessionTest do
       put(b, %{"op" => "refresh"})
       assert pages(sync(b)) == []
       refute_received {:settled_asked, _}
+    end
+  end
+
+  describe "supervision (work acquisition decision 2026-11-17, §5.6; M3b P4)" do
+    # A widget whose work run R-1 presents in the supervised span (`Shop.Supervised`),
+    # supervised by `supervisor`, with ada and bob as members.
+    defp supervised_shop(supervisor, run \\ "R-1") do
+      port = gateway(Shop.Supervised)
+      FakeStore.put("W-1", %{"title" => "One"})
+      FakeStore.put("ada", %{"name" => "Ada"}, "member")
+      FakeStore.put("bob", %{"name" => "Bob"}, "member")
+      present_run(supervisor, run)
+      Application.put_env(:atlas_control, :tui_user, "ada")
+      on_exit(fn -> Application.delete_env(:atlas_control, :tui_user) end)
+      port
+    end
+
+    defp present_run(supervisor, run \\ "R-1") do
+      span = hd(AtlasControl.Model.catalog(Shop.Supervised).start.open_for_you.spans)
+
+      FakeStore.present(
+        "widget",
+        "W-1",
+        %{
+          "flow" => span.subflow,
+          "run" => run,
+          "generation" => 1,
+          "status" => "active",
+          "state" => hd(span.states),
+          "supervisor" => supervisor,
+          "owner" => [],
+          "actionable" => true
+        },
+        "run"
+      )
+    end
+
+    defp hello_as(port, client, as \\ nil) do
+      {:ok, s} = :gen_tcp.connect(~c"127.0.0.1", port, [:binary, packet: :line, active: false])
+      on_exit(fn -> :gen_tcp.close(s) end)
+
+      hello = %{
+        "op" => "hello",
+        "env" => "test",
+        "client" => client,
+        "spec" => AtlasControl.Blocks.version()
+      }
+
+      put(s, if(as, do: Map.put(hello, "as", as), else: hello))
+      next(s, "page")
+      s
+    end
+
+    defp supervision_inputs,
+      do: for(%{"op" => op} = c <- FakeStore.sent(), op in ["pickup", "hand_over"], do: c)
+
+    test "Pick up from the TUI sends exactly a pickup input; an agent, or a stale run, sends nothing" do
+      port = supervised_shop([])
+
+      # An agent, even one that says it is a member, is refused before anything is sent.
+      agent = hello_as(port, "agent", "ada")
+      put(agent, %{"op" => "submit", "to" => "/k/widget/W-1/pick_up/R-1", "values" => %{}})
+      assert %{"reason" => "refused"} = next(agent, "page")
+      assert supervision_inputs() == []
+
+      tui = hello_as(port, "tui")
+      # A run that moved on since the page was made: nothing is sent.
+      put(tui, %{"op" => "submit", "to" => "/k/widget/W-1/pick_up/R-0", "values" => %{}})
+      assert %{"reason" => "refused"} = next(tui, "page")
+      assert supervision_inputs() == []
+
+      put(tui, %{
+        "op" => "submit",
+        "to" => "/k/widget/W-1/pick_up/R-1",
+        "values" => %{"note" => "x"}
+      })
+
+      assert %{"reason" => "stored", "path" => "/k/widget/W-1"} = next(tui, "page")
+      assert [sent] = supervision_inputs()
+      assert Enum.sort(Map.keys(sent)) == ["by", "op", "values"]
+      assert %{"op" => "pickup", "by" => "ada"} = sent
+      assert Enum.sort(Map.keys(sent["values"])) == ["request_id", "run"]
+      assert sent["values"]["run"] == "R-1"
+    end
+
+    test "Facts' refusal of a pickup comes back as its reasons, on the page" do
+      port = supervised_shop([])
+      FakeStore.refuse("R-1", "pickup_pending")
+      tui = hello_as(port, "tui")
+      put(tui, %{"op" => "submit", "to" => "/k/widget/W-1/pick_up/R-1", "values" => %{}})
+      assert %{"reason" => "refused", "refused" => ["pickup_pending"]} = next(tui, "page")
+    end
+
+    test "Hand over… sends exactly a hand-over input to someone else; never to itself" do
+      port = supervised_shop(["ada"])
+      tui = hello_as(port, "tui")
+
+      for to <- ["ada", "nobody", ""] do
+        put(tui, %{
+          "op" => "submit",
+          "to" => "/k/widget/W-1/hand_over/R-1",
+          "values" => %{"hand_to" => to}
+        })
+
+        assert %{"reason" => "refused"} = next(tui, "page")
+      end
+
+      assert supervision_inputs() == []
+
+      agent = hello_as(port, "agent", "ada")
+
+      put(agent, %{
+        "op" => "submit",
+        "to" => "/k/widget/W-1/hand_over/R-1",
+        "values" => %{"hand_to" => "bob"}
+      })
+
+      assert %{"reason" => "refused"} = next(agent, "page")
+      assert supervision_inputs() == []
+
+      put(tui, %{
+        "op" => "submit",
+        "to" => "/k/widget/W-1/hand_over/R-1",
+        "values" => %{"hand_to" => "bob", "note" => "x", "changed_fields" => "y"}
+      })
+
+      assert %{"reason" => "stored"} = next(tui, "page")
+      assert [sent] = supervision_inputs()
+      assert Enum.sort(Map.keys(sent)) == ["by", "op", "values"]
+      assert %{"op" => "hand_over", "by" => "ada"} = sent
+      assert Enum.sort(Map.keys(sent["values"])) == ["hand_to", "request_id", "run"]
+      assert %{"hand_to" => "bob", "run" => "R-1"} = sent["values"]
+    end
+
+    test "a model without supervision has neither screen: No such page, and the session stays up",
+         %{port: port} do
+      # The setup's gateway serves `Shop`, which declares no supervision.
+      FakeStore.put("ada", %{"name" => "Ada"}, "member")
+      Application.put_env(:atlas_control, :tui_user, "ada")
+      on_exit(fn -> Application.delete_env(:atlas_control, :tui_user) end)
+
+      for client <- ["tui", "agent"] do
+        s = hello_as(port, client)
+        put(s, %{"op" => "open", "to" => "/nowhere"})
+        assert %{"blocks" => none} = next(s, "page")
+
+        for to <- ["/_open", "/_supervised"] do
+          put(s, %{"op" => "open", "to" => to})
+          assert %{"blocks" => blocks} = page = next(s, "page")
+          refute page["path"] == to
+          # The page Control serves at a path it has no page for, by structure.
+          assert blocks == none
+        end
+
+        # Still connected: the next page comes.
+        put(s, %{"op" => "open", "to" => "/k/widget"})
+        assert %{"path" => "/k/widget"} = next(s, "page")
+      end
+
+      assert supervision_inputs() == []
+    end
+
+    test "Hand over… opened by its supervisor lists the client's own running work that stops" do
+      port = supervised_shop(["ada"])
+
+      job = fn key, of, by ->
+        FakeStore.put(key, %{"title" => key, "outcome" => ""}, "job", %{
+          "job_of" => [of],
+          "job_for" => [by]
+        })
+      end
+
+      job.("J-1", "W-1", "ada")
+      job.("J-2", "W-1", "bob")
+      tui = hello_as(port, "tui")
+      put(tui, %{"op" => "open", "to" => "/k/widget/W-1/hand_over/R-1"})
+      assert %{"path" => "/k/widget/W-1/hand_over/R-1", "blocks" => blocks} = next(tui, "page")
+      stopping = Enum.find(blocks, &(&1["id"] == "stopping"))
+
+      assert for(
+               %{"to" => to} <- stopping["props"]["rows"],
+               {:item, _, key} = Pages.route(to),
+               do: key
+             ) == ["J-1"]
+    end
+
+    test "Supervised by you is shown again when the runs change (the presentation's run dependency)" do
+      port = supervised_shop([])
+      tui = hello_as(port, "tui")
+      put(tui, %{"op" => "open", "to" => "/_supervised"})
+      assert %{"path" => "/_supervised"} = page = next(tui, "page")
+      assert Enum.find(page["blocks"], &(&1["id"] == "list"))["props"]["rows"] == []
+
+      # Flow sets the run's supervisor: a hint about the runs, not about the widget.
+      present_run(["ada"])
+
+      FakeStore.hint(
+        "run",
+        "R-1",
+        [changed("run", "R-1", [], %{"watched_by" => ["ada"]}, ["watched_by"])],
+        "flow"
+      )
+
+      assert %{"path" => "/_supervised", "reason" => "hint"} = page = next(tui, "page", @arrives)
+
+      assert [%{"key" => "W-1"}] =
+               Enum.find(page["blocks"], &(&1["id"] == "list"))["props"]["rows"]
     end
   end
 end

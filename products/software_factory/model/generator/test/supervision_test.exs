@@ -8,7 +8,8 @@ defmodule RelaDSL.SupervisionTest do
   """
   use ExUnit.Case, async: true
 
-  alias RelaDSL.{Atlas, DefinitionDigest}
+  alias RelaDSL.{Atlas, Composition, DefinitionDigest, Problem}
+  alias RelaDSL.Description.{Build, Check}
 
   # -- A subflow's spans (RelaDSL.Schema) ---------------------------------------------
 
@@ -150,6 +151,32 @@ defmodule RelaDSL.SupervisionTest do
     get = &Keyword.get(parts, &1, "")
 
     source = """
+    #{desk(p, parts)}
+    defmodule #{p}.Mod do
+      use RelaDSL.Module, path: "modules/m/schema.yaml", concepts: [#{p}.Desk]
+    end
+    defmodule #{p}.Comp do
+      use RelaDSL.Composition, name: "c"
+      schema version: "1.0"
+      modules [#{p}.Mod]
+      #{get.(:composition)}
+      defcomposition :c do
+        subflows([#{p}.Desk])
+      end
+    end
+    """
+
+    modules = Code.compile_string(source, "model.exs")
+    {comp, _} = Enum.find(modules, fn {m, _} -> String.ends_with?(inspect(m), ".Comp") end)
+    comp
+  end
+
+  # The concept the compositions above select: a case with its parts, the runs, their
+  # inputs and the relation to a run's supervisor (`parts` change one thing at a time).
+  defp desk(p, parts) do
+    get = &Keyword.get(parts, &1, "")
+
+    """
     defmodule #{p}.Desk do
       use RelaDSL
       type :op, values: [:choice, :pickup, :hand_over]
@@ -195,23 +222,7 @@ defmodule RelaDSL.SupervisionTest do
       end
       #{get.(:concept)}
     end
-    defmodule #{p}.Mod do
-      use RelaDSL.Module, path: "modules/m/schema.yaml", concepts: [#{p}.Desk]
-    end
-    defmodule #{p}.Comp do
-      use RelaDSL.Composition, name: "c"
-      schema version: "1.0"
-      modules [#{p}.Mod]
-      #{get.(:composition)}
-      defcomposition :c do
-        subflows([#{p}.Desk])
-      end
-    end
     """
-
-    modules = Code.compile_string(source, "model.exs")
-    {comp, _} = Enum.find(modules, fn {m, _} -> String.ends_with?(inspect(m), ".Comp") end)
-    comp
   end
 
   defp model_refused(parts, message) do
@@ -311,7 +322,16 @@ defmodule RelaDSL.SupervisionTest do
              supervised_by_you: %{relation: "watched_by", title: "Yours"}
            } = comp.start_page()
 
+    # What Control needs to send a pickup or hand-over: the relation and the inputs'
+    # kind, as the run mapping has them; and per span its with: subflows' subjects.
+    %{open_for_you: open, supervised_by_you: mine} = comp.start_page()
+    assert open.relation == comp.supervision()["relation"]
+    assert open.inputs == comp.runs()["inputs"]["kind"]
+    assert mine.inputs == open.inputs and mine.relation == open.relation
+    assert Enum.all?(open.spans, &(length(&1.with_subjects) == length(&1.with)))
+
     plain = model([])
+
     assert %{open_for_you: nil, supervised_by_you: nil} = plain.start_page()
   end
 
@@ -325,5 +345,177 @@ defmodule RelaDSL.SupervisionTest do
       [composition: "start_page(open_for_you: [title: \"Open\", colour: \"red\"])"],
       "start.open_for_you: unknown keys colour"
     )
+  end
+
+  # -- The shell's screen tabs ------------------------------------------------------------
+
+  defp keys(problems), do: Enum.map(problems, fn {_where, p} -> Problem.key(p) end)
+
+  @screens [{"/_open", "open_for_you"}, {"/_supervised", "supervised_by_you"}]
+
+  defp shell_with(tabs, start) do
+    %{
+      "shell" => %{
+        "title" => "Desk",
+        "tabs" => for({to, id} <- tabs, do: %{"id" => id, "label" => id, "to" => to})
+      },
+      "start" => start
+    }
+  end
+
+  @entry %{"title" => "T", "count" => "{count}", "empty" => "E"}
+
+  test "a tab opens a screen only when the start page has its entry" do
+    for {to, entry} <- @screens do
+      missing = keys(Check.check(%{}, shell_with([{to, entry}], %{})))
+      assert {:tab_screen, [to, entry]} in missing
+
+      present = keys(Check.check(%{}, shell_with([{to, entry}], %{entry => @entry})))
+      refute Enum.any?(present, &match?({:tab_screen, _}, &1)), to
+      refute Enum.any?(present, &match?({:tab_destination, _}, &1)), to
+    end
+
+    # The other screen's entry does not stand in for it.
+    other =
+      keys(Check.check(%{}, shell_with([{"/_open", "o"}], %{"supervised_by_you" => @entry})))
+
+    assert {:tab_screen, ["/_open", "open_for_you"]} in other
+  end
+
+  test "a composition whose tab opens a screen without its entry is refused at compile time" do
+    tabs = """
+    shell(title: "Desk", tabs: [[id: :open, label: "Open", to: "/_open"]])
+    """
+
+    assert_raise CompileError, fn -> model(composition: tabs) end
+
+    comp = model(composition: tabs <> @entries)
+    assert %{"tabs" => [%{"id" => "open", "to" => "/_open"}]} = comp.shell(%{})
+  end
+
+  test "the shell's default names one of its tabs" do
+    shell = fn default ->
+      %{
+        "shell" => %{
+          "title" => "Desk",
+          "tabs" => [%{"id" => "a", "label" => "A", "to" => "/k/x"}],
+          "default" => default
+        }
+      }
+    end
+
+    defaults = fn x -> for {:shell_default, _} = k <- keys(Check.check(%{}, x)), do: k end
+
+    assert defaults.(shell.("a")) == []
+    assert defaults.(shell.("b")) == [{:shell_default, ["b"]}]
+    assert defaults.(shell.(nil)) == [{:shell_default, [nil]}]
+
+    no_default = update_in(shell.("a"), ["shell"], &Map.delete(&1, "default"))
+    assert defaults.(no_default) == []
+    refute Enum.any?(keys(Check.check(%{}, shell.("a"))), &match?({:unknown_keys, _}, &1))
+  end
+
+  # -- A supervisor's running work (supervised_work) ---------------------------------------
+
+  # A job made for a case or its part, done for a clerk, with how it ended; and a
+  # relation that leads elsewhere, to name wrongly.
+  @job """
+  entity :job, label: "Job", plural: "jobs", id_type: :manual do
+    field :outcome, :string
+  end
+  relation :job_of, label: "job of", from: [:job], to: [:case, :part], max_outgoing: 1
+  relation :done_for, label: "done for", from: [:job], to: [:clerk], max_outgoing: 1
+  relation :job_run, label: "job run", from: [:job], to: [:run], max_outgoing: 1
+  relation :part_job, label: "part job", from: [:part], to: [:job], max_outgoing: 1
+  """
+
+  @work [kind: :job, of: :job_of, for: :done_for, ended: :outcome]
+
+  defp work_decl(work), do: "supervised_work(#{inspect(work) |> String.slice(1..-2//1)})"
+
+  # The supervision problems of the desk with `work` (or the raw declaration `decl`), as
+  # tags and names.
+  defp work_problems(parts) do
+    p = "RelaDSL.SupervisionTest.W#{System.unique_integer([:positive])}"
+    concept = @job <> Keyword.get(parts, :decl, "")
+
+    [{mod, _}] =
+      p
+      |> desk(Keyword.put(Keyword.delete(parts, :decl), :concept, concept))
+      |> Code.compile_string("work.exs")
+
+    items = mod.__rela__(:concept).items
+    {schema, []} = Composition.resolve([%{path: "m.yaml", doc: Build.schema_doc(items)}])
+
+    keys(
+      for {_f, _l, problem} <- Build.supervision_problems(items, mod.__flows__(), schema),
+          do: {nil, problem}
+    ) ++
+      keys(for {_f, _l, problem} <- Build.shape_problems(items), do: {nil, problem})
+  end
+
+  defp tags(problems), do: Enum.map(problems, &elem(&1, 0))
+
+  test "the work: its kind, what it is part of, whom it is done for and how it ended" do
+    comp = model(concept: @job, composition: @entries <> work_decl(@work))
+
+    assert comp.supervision()["work"] ==
+             %{"kind" => "job", "of" => "job_of", "for" => "done_for", "ended" => "outcome"}
+
+    assert comp.start_page().supervised_by_you.work ==
+             %{kind: "job", of: "job_of", for: "done_for", ended: "outcome"}
+
+    # Without it, supervision holds no work and the start page none either.
+    plain = model(concept: @job, composition: @entries)
+    refute Map.has_key?(plain.supervision(), "work")
+    assert plain.start_page().supervised_by_you.work == nil
+  end
+
+  test "the work's names resolve on the schema" do
+    assert work_problems(decl: work_decl(@work)) == []
+
+    # No such kind: that is the one reason, the names read on it are not blamed.
+    assert tags(work_problems(decl: work_decl(Keyword.put(@work, :kind, :ghost)))) ==
+             [:supervision_work_kind]
+
+    for {key, value, tag} <- [
+          {:of, :ghost, :supervision_work_of},
+          {:of, :part_job, :supervision_work_of},
+          {:of, :job_run, :supervision_work_of},
+          {:for, :ghost, :supervision_work_for},
+          {:for, :job_of, :supervision_work_for},
+          # Right target, wrong source: these lead from another kind than the work's.
+          {:for, :watched_by, :supervision_work_for},
+          {:of, :part_of, :supervision_work_of},
+          {:ended, :ghost, :supervision_work_ended}
+        ] do
+      problems = work_problems(decl: work_decl(Keyword.put(@work, key, value)))
+      assert tags(problems) == [tag], "#{key}: #{value}"
+    end
+  end
+
+  test "the work is given once, whole, and only with supervision" do
+    assert [{:supervision_work, []}] =
+             work_problems(decl: work_decl(Keyword.delete(@work, :ended)))
+
+    assert {:unknown_keys, ["colour"]} in work_problems(decl: work_decl(@work ++ [colour: :red]))
+
+    assert [{:given_twice, ["supervised_work"]}] =
+             work_problems(decl: work_decl(@work) <> "\n" <> work_decl(@work))
+
+    assert {:supervision_undeclared, ["supervised_work"]} in work_problems(
+             decl: work_decl(@work),
+             supervision: "",
+             span: ""
+           )
+  end
+
+  test "the work sits beside the subflows: it changes no digest" do
+    with_work = model(concept: @job, composition: @entries <> work_decl(@work))
+    without = model(concept: @job, composition: @entries)
+
+    assert with_work.__rela__(:digests) == without.__rela__(:digests)
+
+    assert Map.delete(with_work.supervision(), "work") == without.supervision()
   end
 end

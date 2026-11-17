@@ -317,4 +317,17 @@ defmodule AtlasControl.ConsoleProjectionTest do
     assert {:error, "Console projection exceeds action limit"} =
              AtlasControl.Console.project(page, 2)
   end
+
+  test "five tabs: the console projects tab navigation, as with two" do
+    for tabs <- [2, 5] do
+      assert {:ok, page} = AtlasControl.Console.project(native(), tabs)
+
+      names =
+        for %{"type" => "console_action", "props" => p} <- page["blocks"],
+            p["available"] == true,
+            do: p["operation"]["name"]
+
+      assert "tab_next" in names and "tab_previous" in names
+    end
+  end
 end

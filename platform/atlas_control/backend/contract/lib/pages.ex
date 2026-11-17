@@ -9,6 +9,10 @@ defmodule AtlasBFFContract.Pages do
       # `_` for a kind and `_parent` for a relation are values a client that knows only keys
       # passes; Control resolves them from rela's description.
       defpage :home, "/"
+      # Supervision (work acquisition decision 2026-11-17, §5.8): the flows one may
+      # pick up (Open for you) and those the client supervises (Supervised by you).
+      defpage :open_for_you, "/_open"
+      defpage :supervised_by_you, "/_supervised"
       defpage :workers, "/workers"
       defpage :worker, "/workers/:machine/:worker/:turn/:attempt"
       defpage :worker_guidance, "/workers/:machine/:worker/:turn/:attempt/guidance"
@@ -23,6 +27,11 @@ defmodule AtlasBFFContract.Pages do
       defpage :set, "/k/:kind/:key/set/:relation"
       defpage :answer, "/k/:kind/:key/answer/:answer"
       defpage :remove, "/k/:kind/:key/remove/:relation"
+      # Become the supervisor of the run `run` presents on the fact (Pick up), or hand it
+      # over to someone else (Hand over…); `run` pins the run the page was made for.
+      defpage :pick_up, "/k/:kind/:key/pick_up/:run"
+      defpage :hand_over, "/k/:kind/:key/hand_over/:run"
+
       # Test only: what can be made to fail (the node, or a fact), and the confirm for one.
       defpage :faults, "/faults"
       defpage :fact_faults, "/k/:kind/:key/faults"

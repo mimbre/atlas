@@ -23,18 +23,30 @@ defmodule AtlasControl.Model do
   @doc """
   The native shell: `%{"title", "tabs"}` (each tab `%{"id", "label", "to"}`, and
   `"assigned"` for the start page of assignments), with the tabs the environment's
-  settings add (`settings["tabs"]`), after the model's; nil when the model has none.
+  settings add (`settings["tabs"]`), after the model's, and optionally `"default"`, the
+  id of the tab a client opens on without a target; nil when the model has none.
   """
   @callback shell(settings :: map) :: nil | map
 
   @doc """
-  What a client opens on: `%{assigned, open, actions}`. `assigned` is nil or `%{relation,
-  title, empty, count}`: a client that is a fact of a kind `relation` points at opens on
-  what points at it through it; `open` is nil or `%{title, empty}`: the list of a kind the
-  relation starts at shows every open fact, for everyone, with what Facts' presentation
-  of its work says is expected; `actions` (`%{kind, key, label}`)
-  open a kind's list from the start page.
+  What a client opens on: `%{assigned, open, open_for_you, supervised_by_you, actions}`.
+  `assigned` is nil or `%{relation, title, empty, count}`: a client that is a fact of a
+  kind `relation` points at opens on what points at it through it; `open` is nil or
+  `%{title, empty}`: the list of a kind the relation starts at shows every open fact, for
+  everyone, with what Facts' presentation of its work says is expected; `actions`
+  (`%{kind, key, label}`) open a kind's list from the start page.
+
+  Supervision (work acquisition decision 2026-11-17, §5.6–5.8), both nil without it:
+  `open_for_you` is `%{title, count, empty, relation, inputs, spans}`, each span
+  `%{subflow, subject, span, label, states, with, with_subjects}`: the runs in a span of
+  their subflow without a human supervisor, to pick up; `supervised_by_you` is
+  `%{title, count, empty, relation, inputs, work}`: the runs `relation` links to the
+  client, and its running work, `work` (nil or `%{kind, of, for, ended}`: the facts of
+  `kind` done for it through `for`, of a span's subject or its `with` subjects through
+  `of`, running while `ended` is empty). `inputs` is the kind a pickup or hand-over is
+  sent as.
   """
+
   @callback start_page() :: map
 
   @doc """
