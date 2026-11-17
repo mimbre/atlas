@@ -38,7 +38,13 @@ if name=='tailscale' and 'up' in args and any(a.startswith('--auth-key=file:') f
     key=Path(next(a.split('file:',1)[1] for a in args if a.startswith('--auth-key=file:')))
     event.update(private=stat.S_IMODE(key.stat().st_mode)==0o600, key_ok=key.read_text()=='synthetic-only-key')
 with (root/'events').open('a') as f: f.write(json.dumps(event)+'\n')
+def socket_arg(): return Path(next(a.split('=',1)[1] for a in args if a.startswith('--socket=')))
 if name=='tailscale':
+    # Like the real CLI: every command talks to the owned daemon over --socket, so
+    # nothing (least of all BackendState) is answered unless that daemon is serving.
+    try: os.kill(int(socket_arg().read_text()),0)
+    except (OSError,ValueError):
+        print('failed to connect to local tailscaled',file=sys.stderr); sys.exit(1)
     if 'status' in args:
         print(json.dumps({'BackendState':(root/'state').read_text()})); sys.exit(0)
     if 'up' in args:
@@ -55,7 +61,9 @@ if name=='atlas':
     if os.environ.get('ATLAS_CONTROL_TAILSCALE','0')=='0': sys.exit(0)
     s=socket.socket(socket.AF_INET6); s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
     s.bind(('::',int(os.environ['CONTROL_PORT']))); s.listen()
-if name=='tailscaled' and os.environ.get('FAIL_DAEMON'): sys.exit(9)
+if name=='tailscaled':
+    if os.environ.get('FAIL_DAEMON'): sys.exit(9)
+    socket_arg().write_text(str(os.getpid()))  # serving: the socket now answers
 while True: time.sleep(.05)
 '''
 
@@ -180,7 +188,27 @@ class StartupTest(unittest.TestCase):
     def test_daemon_failure_never_starts_core(self):
         self.env['FAIL_DAEMON']='1'
         self.assertNotEqual(self.start().wait(timeout=8), 0)
-        self.assertFalse(any(e['name']=='atlas' for e in self.events()))
+        # Awaited signals: core-run has exited (wait above) and the gate reported, via
+        # kill -0, that the owned daemon had exited. The fake daemon logs its event before it
+        # exits and every gate probe runs in the foreground, so the event log is now complete.
+        self.assertIn('owned tailscaled exited', (self.base/'output').read_text())
+        events = self.events()
+        # apply-move and verify run sequentially in the foreground, so their order is fixed.
+        self.assertEqual([e['name'] for e in events][:2], ['apply-move.sh','verify.py'])
+        # The backgrounded daemon and the gate's concurrent `status` probes may log in any
+        # order: assert membership, not position.
+        daemons = [e for e in events[2:] if e['name']=='tailscaled']
+        self.assertEqual(len(daemons), 1, events)
+        sock = self.base/'sock'/'tailscaled.sock'
+        self.assertIn('--socket='+str(sock), daemons[0]['args'])
+        self.assertFalse(sock.exists())  # a daemon that never came up never published its socket
+        # The readiness gate itself must hold: past verify, only the daemon and the gate's
+        # status probes ever ran; never set, up, the core or serve.
+        for event in events[2:]:
+            if event is not daemons[0]:
+                self.assertEqual((event['name'], event['args'][1:2]), ('tailscale', ['status']), event)
+        self.assertFalse(any(e['name']=='atlas' or 'set' in e['args'] or 'serve' in e['args']
+                             for e in events))
         self.assert_clean()
 
     def test_missing_key_for_unauthorized_state_fails_closed(self):
