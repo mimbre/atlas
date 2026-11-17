@@ -5,8 +5,11 @@ defmodule AtlasRuntime.Sources.Supervisor do
 
   - A `remote` entry's puller is over the HTTP client target
     (`AtlasRuntime.Sources.HttpTarget`: W3's transport and the credential in
-    `<home>/sources/<name>/token`). A source whose URL or credential is refused is logged
-    and not pulled; the others are.
+    `<home>/sources/<name>/token`). Its TLS peer is verified against the OS CA store, or,
+    when the entry names a `ca_file` (pull-e2e D5, a test source), against that file under
+    the home only; a missing or non-regular one fails the open (`:no_cacerts`) and never
+    falls back to the OS store. A source whose URL or credential is refused is logged and
+    not pulled; the others are.
   - The `builtin` entry `local` (A5): the local work source itself
     (`AtlasRuntime.Sources.Local`, on its store under `<home>/local-source/`), then its
     puller over `AtlasRuntime.Sources.Local.Target`, renewed in-BEAM. Its puller is
@@ -22,8 +25,9 @@ defmodule AtlasRuntime.Sources.Supervisor do
 
   @doc """
   Starts the sources and pullers of the policy in `home`. `opts`: `puller:` options passed
-  to each puller, `target:` `{HttpTarget, :open}` options (`cacertfile:` for a test CA),
-  `local:` options for `AtlasRuntime.Sources.Local.start_link/2`.
+  to each puller, `target:` `{HttpTarget, :open}` options (`cacertfile:` for a test CA; an
+  entry's `ca_file` wins over it), `local:` options for
+  `AtlasRuntime.Sources.Local.start_link/2`.
   """
   def start_link(home, opts \\ []) do
     case Policy.sources(Policy.load(home)) do
@@ -55,12 +59,20 @@ defmodule AtlasRuntime.Sources.Supervisor do
              )}
           ]
 
-        %{"kind" => "remote", "name" => name, "url" => url} ->
-          open = {HttpTarget, :open, [name, url, home, Keyword.get(opts, :target, [])]}
+        %{"kind" => "remote", "name" => name, "url" => url} = source ->
+          open = {HttpTarget, :open, [name, url, home, target(source, home, opts)]}
           [{Puller, Keyword.merge(puller, name: name, open: open)}]
       end)
 
     # The local source starts before its puller; a puller whose source is down retries.
     Supervisor.init(children, strategy: :one_for_one)
   end
+
+  # A remote entry's `{HttpTarget, :open}` options: the caller's, with the entry's own
+  # `ca_file` (under the home) as `cacertfile:` in place of any the caller gave. Without a
+  # `ca_file` they are the caller's as given, so the OS store applies unless a test sets one.
+  defp target(%{"ca_file" => ca_file}, home, opts),
+    do: Keyword.put(Keyword.get(opts, :target, []), :cacertfile, Path.join(home, ca_file))
+
+  defp target(_source, _home, opts), do: Keyword.get(opts, :target, [])
 end
