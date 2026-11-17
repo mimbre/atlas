@@ -51,6 +51,21 @@ defmodule AtlasRuntime.Sources.LeaseClockTest do
     assert LeaseClock.expired?(renewed(), at(0, @wall + @ttl), @ttl)
   end
 
+  test "elapsed counts from the stamp's monotonic origin, not from monotonic zero" do
+    # Review F1: renewed/0 stamps at monotonic 0, where `mono - mono0` equals `mono`. BEAM
+    # monotonic time is usually negative, so also stamp at a BEAM-like negative origin and at
+    # a positive one. On each, a backward wall step must still fence on the monotonic term.
+    for mono0 <- [-576_460_751_906, 987_654_321] do
+      stamp = LeaseClock.stamp(at(mono0, @wall))
+      step = at(mono0 + @ttl, @wall - @hour)
+
+      assert LeaseClock.age(stamp, step) == @ttl
+      assert LeaseClock.expired?(stamp, step, @ttl)
+      refute LeaseClock.expired?(stamp, at(mono0, @wall), @ttl)
+      refute LeaseClock.expired?(stamp, at(mono0 + @ttl - 1, @wall - @hour), @ttl)
+    end
+  end
+
   test "the age is never negative" do
     assert LeaseClock.age(renewed(), at(-5, @wall - @hour)) == 0
   end
