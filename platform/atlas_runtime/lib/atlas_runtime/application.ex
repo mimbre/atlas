@@ -4,15 +4,12 @@ defmodule AtlasRuntime.Application do
 
   @impl true
   def start(_type, _args) do
-    # The last child, AtlasRuntime.Remote's configuration, starts only with
-    # ATLAS_RUNTIME_REMOTE=1 (the core reaching a Runtime backend on another machine, S3);
-    # without it nothing starts and no other variable is read.
     children =
       [AtlasRuntime.Output, local_output()] ++
         output_endpoint(
           Application.get_env(:atlas_runtime, :server_lifecycle, false),
           AtlasRuntime.Settings.get()
-        ) ++ AtlasRuntime.Remote.Config.child_specs()
+        )
 
     Supervisor.start_link(children, strategy: :one_for_one, name: AtlasRuntime.Root)
   end

@@ -67,7 +67,7 @@ var censusHome = map[string]censusEntry{
 	"frozen":                {"denied", "the work core's private frozen results and their blobs (S5a)", false},
 	"execution-events.json": {"denied", "the execution-event outbox", false},
 	"mode.json":             {"denied", "the persisted Runtime mode (S2)", false},
-	"clients.json":          {"denied", "the loopback TCP clients: token hashes and rights (S3)", false},
+	"clients.json":          {"denied", "the S3 loopback TCP clients; no code site since work-acquisition M0, deny kept", true},
 	"sources":               {"denied", "the work sources' credentials and per-source stores, e.g. sources/<name>/token (work acquisition M2, F4)", true},
 	"local-source":          {"denied", "the local work source's queue store (work acquisition M2, F4)", true},
 	"bases":                 {"denied", "every client's uploaded base records and the import staging (S5c); joined by bases/store.ex from S5c P7", true},
