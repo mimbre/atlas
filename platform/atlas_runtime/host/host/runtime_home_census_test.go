@@ -121,6 +121,8 @@ var censusNotHome = map[string]string{
 	// A worker directory (<home>/workers/<worker>), on a managed repository's ancestor chain.
 	"admission-latch.json": "worker directory",
 	"work-<name>":          "a placeholder for a Runtime work folder <home>/workers/work-<name> in compose's refusal message (snapshot/compose.go)",
+	"work-":                "prefix of a Runtime work folder <home>/workers/work-<work_id> (work/folders.ex, S5a P7a)",
+	"/":                    "the filesystem root, from which work/folders.ex resolves a path component by component",
 	// Below work (<home>/work).
 	"sequence": "work directory",
 	"*.tmp":    "work directory (temporary-file glob)",

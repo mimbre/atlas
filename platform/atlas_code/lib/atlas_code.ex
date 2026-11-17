@@ -82,7 +82,7 @@ defmodule AtlasCode do
   }
   # The facade's outcomes as HTTP responses: success answers 200 with the outcome's fields;
   # a refusal answers its status with the outcome's name as the error code.
-  @answers [Outcome.Resolved, Outcome.Created]
+  @answers [Outcome.Resolved, Outcome.Created, Outcome.Manifest]
   @problems %{
     Outcome.InvalidRequest => {400, "invalid_request"},
     Outcome.Forbidden => {403, "forbidden"},
@@ -90,6 +90,7 @@ defmodule AtlasCode do
     Outcome.UnknownRevision => {404, "unknown_revision"},
     Outcome.NotFound => {404, "not_found"},
     Outcome.RepositoryMismatch => {409, "repository_mismatch"},
+    Outcome.SnapshotSuperseded => {409, "snapshot_superseded"},
     Outcome.UnsupportedContent => {422, "unsupported_content"},
     Outcome.ProviderUnavailable => {503, "provider_unavailable"}
   }
@@ -574,8 +575,9 @@ defmodule AtlasCode do
   end
 
   # The routes: transport only. Each answers with what `AtlasCode.Service` answers for it;
-  # resolve and snapshot go through the boundary facade (ADR 0006: backend → boundary),
-  # the others call the Service directly until the contract declares them.
+  # resolve, snapshot and manifest go through the boundary facade (ADR 0006: backend →
+  # boundary), the others call the Service directly until the contract declares them.
+  # get_blob is the facade's only; no route serves it.
   defp route(~c"GET", "/v1/health", _query, _body, _settings), do: Service.health()
 
   defp route(~c"POST", "/v1/references/resolve", _query, body, settings),
@@ -591,7 +593,10 @@ defmodule AtlasCode do
   defp route(~c"GET", "/v1/snapshots/" <> rest, query, _body, settings) do
     case String.split(rest, "/") do
       [id, "manifest"] ->
-        Service.get_manifest(settings, id)
+        settings
+        |> client()
+        |> Boundary.get_manifest(%{snapshot_id: id})
+        |> reply(:get_manifest)
 
       [id, "archive"] ->
         case Service.get_archive(settings, id, URI.decode_query(query)["path"]) do
@@ -659,7 +664,7 @@ defmodule AtlasCode do
     do: :ok = :httpd_socket.deliver(mod(request, :socket_type), mod(request, :socket), data)
 
   # The routes call the facade on behalf of the instance that serves them, with its settings
-  # (`AtlasCode.Running`). Both tokens may resolve and snapshot.
+  # (`AtlasCode.Running`). Both tokens may resolve, snapshot and read snapshots.
   defp client(settings), do: {{__MODULE__, settings}, [:snapshot]}
 
   # A facade answer as the HTTP response the Service gave: a declared outcome to its status
@@ -668,6 +673,12 @@ defmodule AtlasCode do
 
   defp reply(%module{} = outcome, _capability) when module in @answers,
     do: {200, module.dump(outcome)}
+
+  # A superseded snapshot's details name its successor, as null when Code knows none.
+  defp reply(%Outcome.SnapshotSuperseded{} = outcome, _capability) do
+    {message, details} = Map.pop!(Outcome.SnapshotSuperseded.dump(outcome), "message")
+    Service.error(409, "snapshot_superseded", message, Map.put_new(details, "successor", nil))
+  end
 
   defp reply(%module{} = outcome, _capability) do
     {status, code} = Map.fetch!(@problems, module)

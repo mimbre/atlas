@@ -8,8 +8,8 @@ defmodule AtlasRuntime.Boundary.WorkS5aContractTest do
     of the core's private S5a fields reaches the public structs.
   - `submit` declares `pruned`; `get_frozen` and `get_frozen_blob` answer `not_found` until
     frozen results exist (P8).
-  - Until their packages land, the core refuses `base` (P7a), `from_work` (P9) and
-    `after_check` (P10a), and writes nothing.
+  - Until their packages land, the core refuses `from_work` (P9) and `after_check` (P10a),
+    and writes nothing. (`base` landed with P7a.)
   """
   use ExUnit.Case, async: false
 
@@ -361,22 +361,14 @@ defmodule AtlasRuntime.Boundary.WorkS5aContractTest do
       refute match?(%F.Outcome.NotFound{}, F.get_frozen({"c9", [:submit]}, %{work_id: "w"}))
     end
 
-    test "base, from_work and after_check are refused until their packages land, and nothing is written",
+    # base landed with P7a (test/work/base_workspace_test.exs).
+    test "from_work and after_check are refused until their packages land, and nothing is written",
          %{bench: bench} do
       before = files(bench.dir)
 
       # client() holds choose_path, as the socket's client does, so it gets each refusal's
       # detail (S3, D44); a client without it gets the reason only (below).
       assert :choose_path in elem(client(), 1)
-
-      assert %F.Outcome.Refused{reason: :unsupported_workspace, detail: "base not available"} =
-               F.submit(client(), req(base()))
-
-      assert %F.Outcome.Refused{reason: :unsupported_workspace, detail: "base not available"} =
-               F.submit(
-                 client(),
-                 req(base(%{permissions: "workspace-write"}), %{client_key: "k"})
-               )
 
       assert %F.Outcome.Refused{
                reason: :unsupported_workspace,
@@ -398,9 +390,6 @@ defmodule AtlasRuntime.Boundary.WorkS5aContractTest do
 
       # S3 (D44): the TCP ceiling has no choose_path, so the same refusals carry no detail.
       tcp = {"token:t", [:submit, :cancel, :read, :read_all]}
-
-      assert %F.Outcome.Refused{reason: :unsupported_workspace, detail: nil} =
-               F.submit(tcp, req(base()))
 
       assert %F.Outcome.Refused{reason: :unsupported_workspace, detail: nil} =
                F.submit(tcp, req(from_work()))
