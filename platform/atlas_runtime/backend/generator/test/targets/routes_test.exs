@@ -58,6 +58,23 @@ defmodule AtlasRuntimeBackend.Generator.Targets.RoutesTest do
     assert Enum.map(by["watch"]["outcomes"], &{&1["outcome"], &1["opens_with"]}) ==
              [{"watching", nil}, {"restart", "restart"}]
 
+    assert [scanned, missing] = by["scan"]["outcomes"]
+
+    assert scanned == %{
+             "outcome" => "scanned",
+             "status" => 200,
+             "stream" => "content",
+             "content_type" => "application/octet-stream",
+             "headers" => %{
+               "scan-pages" => "pages",
+               "scanned-at" => "scanned_at",
+               "scan-of" => "/v1/books/{book_id}"
+             }
+           }
+
+    refute Map.has_key?(missing, "stream")
+    refute Map.has_key?(lent, "content_type")
+
     assert %{"name" => "book", "model" => "book_changed", "id" => "sequence"} in json["events"]
     assert %{"name" => "guest", "rights" => ["browse"]} in json["listeners"]
   end

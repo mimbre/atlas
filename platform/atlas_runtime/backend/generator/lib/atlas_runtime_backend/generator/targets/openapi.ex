@@ -15,7 +15,9 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Openapi do
     unknown members);
   - per status, every outcome that answers it, with the declared headers, and the
     body: the outcome's entity (`body:`) or its fields as `application/json` below 400
-    (`anyOf` when outcomes differ), an `application/problem+json` (RFC 9457: `type`,
+    (`anyOf` when outcomes differ), or, for an outcome sent as bytes (`stream:`), its
+    `content_type` with `{"type": "string", "format": "binary"}`; an
+    `application/problem+json` (RFC 9457: `type`,
     `title`, `status`, then the outcome's fields) from 400, `oneOf` by problem type. A
     `by:` status gives one problem per case. Answers of one status that share a problem
     type (a `by:` case and an error of the same type) are one branch that accepts each of
@@ -45,6 +47,7 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Openapi do
   alias AtlasRuntimeBackend.Generator.Targets.Routes
 
   @options [:name, :title, :security, :target]
+  @binary %{"type" => "string", "format" => "binary"}
   @scalars %{
     string: %{"type" => "string"},
     integer: %{"type" => "integer"},
@@ -311,6 +314,19 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Openapi do
   end
 
   defp content(code, answers, ctx) do
+    {bytes, json} = Enum.split_with(answers, &bytes?/1)
+
+    bytes =
+      Map.new(bytes, fn {:outcome, _item, s, nil} -> {s.content_type, %{"schema" => @binary}} end)
+
+    if json == [], do: bytes, else: Map.merge(json_content(code, json, ctx), bytes)
+  end
+
+  # An outcome sent as bytes: its stream field is the body, with its content type.
+  defp bytes?({:outcome, _item, s, nil}), do: Map.get(s, :stream) != nil
+  defp bytes?(_answer), do: false
+
+  defp json_content(code, answers, ctx) do
     schemas = answers |> Enum.map(&payload(&1, ctx)) |> Enum.uniq()
     schemas = if code >= 400, do: by_type(schemas), else: schemas
     # Problems differ by their type; success bodies need not exclude each other.
@@ -491,7 +507,14 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Openapi do
       for item <- items, reduce: [] do
         acc ->
           capability = ctx.capabilities[item.capability]
-          outcomes = for o <- capability.outcomes, o.model, do: o.model
+
+          # An outcome sent as bytes has no JSON body: its model is no schema of its own.
+          outcomes =
+            for o <- capability.outcomes,
+                o.model,
+                not (Map.has_key?(ctx.statuses, o.name) and
+                       Map.get(ctx.statuses[o.name], :stream) != nil),
+                do: o.model
 
           inputs =
             for f <- input_fields_list(item, ctx),
@@ -523,6 +546,7 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Openapi do
   defp refs({:one_of, models, _tag}), do: models
   defp refs({:map, _}), do: []
   defp refs({:enum, _}), do: []
+  defp refs(:stream), do: []
   defp refs(type) when is_map_key(@scalars, type), do: []
   defp refs(model) when is_atom(model), do: [model]
 
@@ -537,6 +561,7 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Openapi do
   defp required(fields), do: for(f <- fields, f.required, do: text(f.name))
 
   defp type_schema(type) when is_map_key(@scalars, type), do: @scalars[type]
+  defp type_schema(:stream), do: Map.put(@binary, "description", "byte stream")
   defp type_schema({:enum, values}), do: %{"type" => "string", "enum" => texts(values)}
   defp type_schema({:list, type}), do: %{"type" => "array", "items" => type_schema(type)}
 

@@ -18,6 +18,7 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Routes do
                    "stream": {"events", "resume_header", "into"}?,
                    "outcomes": [{"outcome", "status"?, "type"?, "by"?,
                                  "cases": [{"value", "status", "type"?}]?, "body"?,
+                                 "stream"?, "content_type"?,
                                  "headers": {header: field or template},
                                  "opens_with"?}]}]}
 
@@ -26,7 +27,9 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Routes do
   `{field.field}` placeholders are filled from the outcome. A route with `etag` answers
   `ETag` on its success outcomes and `not_modified` (304, no body) to a matching
   `If-None-Match`. A stream route's outcomes are 200 `text/event-stream`, opened by the
-  event `opens_with` (or none).
+  event `opens_with` (or none). An outcome with `"stream": field` is sent as bytes: its
+  body is that field's byte stream with the outcome's `content_type` (chunked, no JSON),
+  and its other fields are only in its `headers`.
 
   Options: `target:` the target block (default: the contract's only one). `name:` (the
   contract's name, as `mix runtime_backend.gen` gives it) puts the file in a folder of
@@ -159,6 +162,8 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Routes do
     |> put("type", s.type)
     |> put("by", s.by && text(s.by))
     |> put("body", Map.get(s, :body) && text(s.body))
+    |> put("stream", Map.get(s, :stream) && text(s.stream))
+    |> put("content_type", Map.get(s, :content_type))
     |> put(
       "cases",
       s.by &&

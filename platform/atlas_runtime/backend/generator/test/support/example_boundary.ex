@@ -62,6 +62,17 @@ defmodule AtlasRuntimeBackend.Generator.Example.Boundary do
         ]
       },
       %{name: :watch_input, fields: [%{name: :from, type: :integer, required: false}]},
+      %{name: :scan_input, fields: [%{name: :book_id, type: :string, required: true}]},
+      # A book's scanned pages: sent as bytes (a :stream), its other fields in headers.
+      %{
+        name: :scan,
+        fields: [
+          %{name: :book_id, type: :string, required: true},
+          %{name: :pages, type: :integer, required: true},
+          %{name: :scanned_at, type: :datetime, required: false},
+          %{name: :content, type: :stream, required: true}
+        ]
+      },
       %{name: :audit_input, fields: []},
       %{
         name: :counts,
@@ -138,6 +149,12 @@ defmodule AtlasRuntimeBackend.Generator.Example.Boundary do
         input: :watch_input,
         right: :browse,
         outcomes: [%{name: :watching, model: nil}, %{name: :restart, model: :restart}]
+      },
+      %{
+        name: :scan,
+        input: :scan_input,
+        right: :browse,
+        outcomes: [%{name: :scanned, model: :scan}, %{name: :missing, model: nil}]
       },
       %{
         name: :audit,

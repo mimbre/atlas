@@ -37,8 +37,25 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Client.Transport do
   @doc "One request and its whole answer, or `{:error, reason}` when there is none."
   @callback request(request(), opts :: keyword()) :: {:ok, response()} | {:error, term()}
 
-  @doc "One long-lived request (a stream), answered as it arrives."
+  @doc """
+  One request whose answer is read as it arrives: a long-lived stream, or a download (an
+  outcome sent as bytes, `stream:` in the contract). Halting the body's enumeration ends
+  the request.
+  """
   @callback stream(request(), opts :: keyword()) :: {:ok, streamed()} | {:error, term()}
+end
+
+defmodule AtlasRuntimeBackend.Generator.Targets.Client.StreamError do
+  @moduledoc """
+  Raised while a downloaded outcome's `content` is read and the transport fails before
+  its end, so a cut-off download is never taken for a whole one. `reason` is
+  `:unreachable`, as for a request without an answer.
+  """
+  defexception [:capability, reason: :unreachable]
+
+  @impl true
+  def message(%{capability: capability, reason: reason}),
+    do: "#{capability}: the download broke off before its end (#{inspect(reason)})"
 end
 
 defmodule AtlasRuntimeBackend.Generator.Targets.Client do
@@ -59,7 +76,7 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Client do
   - `contract:` the backend contract (`AtlasRuntimeBackend.Generator.Schema`);
   - `transport:` a module with the behaviour
     `AtlasRuntimeBackend.Generator.Targets.Client.Transport` (`stream/2` only when the
-    target has a stream);
+    target has a stream or an outcome sent as bytes);
   - `target:` the target block it calls (default: the contract's only target).
 
   ## The calls
@@ -88,6 +105,16 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Client do
     on the wire and are left out, not `nil` (the contract says where a caller finds them,
     if in the entity). An outcome is recognised by its declared status, and from 400
     up also by its problem `type` and, for a status `by:` a field, by that field's value.
+  - An outcome sent as bytes (its status has `stream: field`): `{name, fields}` as soon as
+    the status and headers have arrived, `fields` holding `field` (a lazy enumerable of
+    binaries, read from the transport as it is enumerated, never held whole) and each
+    model field that a status header carries, decoded from the header's text. The
+    model's other fields are not on the wire and are left out. Halting the enumeration
+    ends the request. A transport failure before its end raises
+    `AtlasRuntimeBackend.Generator.Targets.Client.StreamError` from the enumeration. A
+    `content-type` other than the declared one, or a header that does not decode, is
+    `{:error, {:invalid_response, [reason]}}`, and the request is ended. Any other status
+    is read whole and decoded as below.
   - `:not_modified`: 304 on a resource with an entity tag.
   - `{:error, :unauthenticated}`: 401, whatever its body.
   - One of the target's own errors (`error kind, code, type:`), by status and type:
@@ -168,7 +195,10 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Client do
             fail.("the contract has no target #{inspect(name)}")
       end
 
-    needs = [request: 2] ++ if(target.streams != [], do: [stream: 2], else: [])
+    downloads? = Enum.any?(target.statuses, &Map.get(&1, :stream))
+
+    needs =
+      [request: 2] ++ if(target.streams != [] or downloads?, do: [stream: 2], else: [])
 
     for {function, arity} <- needs, not function_exported?(transport, function, arity) do
       fail.("transport #{inspect(transport)} has no #{function}/#{arity}")
@@ -250,7 +280,11 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Client do
                 type: status.type,
                 by: status.by,
                 cases: Enum.map(status.cases, &Map.take(&1, [:value, :status, :type])),
-                body: status.body
+                body: status.body,
+                stream: Map.get(status, :stream),
+                content_type: Map.get(status, :content_type),
+                headers:
+                  for({name, field} when is_atom(field) <- status.headers, do: {name, field})
               }
             end
 
@@ -365,9 +399,15 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Client.Runtime do
       request = request(spec, values, opts)
       transport_opts = Keyword.get(opts, :transport, [])
 
-      case spec.kind do
-        :resource -> answer(spec, models, transport.request(request, transport_opts))
-        :stream -> opened(spec, models, transport.stream(request, transport_opts))
+      cond do
+        spec.kind == :stream ->
+          opened(spec, models, transport.stream(request, transport_opts))
+
+        Enum.any?(spec.outcomes, & &1[:stream]) ->
+          downloaded(spec, models, transport.stream(request, transport_opts))
+
+        true ->
+          answer(spec, models, transport.request(request, transport_opts))
       end
     end
   end
@@ -465,11 +505,18 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Client.Runtime do
 
     content = if body, do: [{"content-type", "application/json"}], else: []
 
+    accept =
+      Enum.join(
+        for(o <- spec.outcomes, type = o[:content_type], uniq: true, do: type) ++
+          ["application/json"],
+        ", "
+      )
+
     %{
       method: spec.method,
       path: Paths.build(spec.segments, params),
       query: URI.encode_query(query),
-      headers: [{"accept", "application/json"}] ++ content ++ headers ++ tag,
+      headers: [{"accept", accept}] ++ content ++ headers ++ tag,
       body: body
     }
   end
@@ -585,6 +632,117 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Client.Runtime do
       body -> failure(spec, status, parse(IO.iodata_to_binary(body)))
     end
   end
+
+  # A resource with an outcome sent as bytes: that status streams; any other is whole.
+  defp downloaded(_spec, _models, {:error, _reason}), do: {:error, :unreachable}
+
+  defp downloaded(spec, models, {:ok, %{status: status, headers: headers, body: chunks}}) do
+    case Enum.find(spec.outcomes, &(&1[:stream] && &1.status == status)) do
+      nil ->
+        case Enum.reduce_while(chunks, [], fn
+               {:error, _}, _acc -> {:halt, :error}
+               chunk, acc -> {:cont, [acc, chunk]}
+             end) do
+          :error ->
+            {:error, :unreachable}
+
+          body ->
+            answer(spec, models, {:ok, %{status: status, body: IO.iodata_to_binary(body)}})
+        end
+
+      o ->
+        with :ok <- content_type(o, headers),
+             {:ok, fields} <- header_fields(o, models, headers) do
+          {o.name, Map.put(fields, o.stream, content(spec.name, chunks))}
+        else
+          {:error, why} ->
+            close(chunks)
+            {:error, {:invalid_response, ["#{o.name}: #{why}"]}}
+        end
+    end
+  end
+
+  defp content_type(o, headers) do
+    given =
+      for({"content-type", value} <- headers, do: value)
+      |> List.first("")
+      |> String.split(";")
+      |> hd()
+      |> String.trim()
+      |> String.downcase()
+
+    if given == o.content_type,
+      do: :ok,
+      else: {:error, "content-type #{inspect(given)} is not #{inspect(o.content_type)}"}
+  end
+
+  # The model fields a status header carries, decoded from the header's text.
+  defp header_fields(o, models, headers) do
+    fields = Map.new(Map.fetch!(models, o.model), &{&1.name, &1})
+
+    Enum.reduce_while(o.headers, {:ok, %{}}, fn {name, field}, {:ok, acc} ->
+      %{type: type, required: required} = Map.fetch!(fields, field)
+
+      case {for({^name, value} <- headers, do: value), required} do
+        {[], false} ->
+          {:cont, {:ok, Map.put(acc, field, nil)}}
+
+        {[], true} ->
+          {:halt, {:error, "header #{name} (#{field}) is missing"}}
+
+        {[text | _], _} ->
+          case header_value(type, text) do
+            {:ok, value} -> {:cont, {:ok, Map.put(acc, field, value)}}
+            :error -> {:halt, {:error, "header #{name} (#{field}) is invalid: #{inspect(text)}"}}
+          end
+      end
+    end)
+  end
+
+  defp header_value(:string, text), do: {:ok, text}
+
+  defp header_value(:integer, text) do
+    case Integer.parse(text) do
+      {integer, ""} -> {:ok, integer}
+      _ -> :error
+    end
+  end
+
+  defp header_value(:boolean, "true"), do: {:ok, true}
+  defp header_value(:boolean, "false"), do: {:ok, false}
+
+  defp header_value(:datetime, text) do
+    case DateTime.from_iso8601(text) do
+      {:ok, datetime, _offset} -> {:ok, datetime}
+      _ -> :error
+    end
+  end
+
+  defp header_value({:enum, values}, text) do
+    case Enum.find(values, &(Atom.to_string(&1) == text)) do
+      nil -> :error
+      atom -> {:ok, atom}
+    end
+  end
+
+  defp header_value(_type, _text), do: :error
+
+  # The bytes, as the transport reads them; a failure before the end raises.
+  defp content(capability, chunks) do
+    Stream.map(chunks, fn
+      {:error, _reason} ->
+        raise AtlasRuntimeBackend.Generator.Targets.Client.StreamError,
+          capability: capability,
+          reason: :unreachable
+
+      chunk ->
+        chunk
+    end)
+  end
+
+  # Ends a request whose body will not be read: one element, then halt, so the
+  # transport's clean-up runs.
+  defp close(chunks), do: chunks |> Stream.take(1) |> Stream.run()
 
   defp failure(spec, status, json) do
     type = if is_map(json), do: json["type"]

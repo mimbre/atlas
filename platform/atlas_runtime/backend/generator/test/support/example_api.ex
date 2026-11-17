@@ -5,7 +5,7 @@ defmodule AtlasRuntimeBackend.Generator.Example.Api do
   version "1.0.0"
   boundary AtlasRuntimeBackend.Generator.Example.Boundary
 
-  expose [:lend, :find_book, :search, :list_books, :give_back, :count, :watch]
+  expose [:lend, :find_book, :search, :list_books, :give_back, :count, :watch, :scan]
   not_exposed :audit
 
   rights :socket, [:lend, :browse]
@@ -31,6 +31,8 @@ defmodule AtlasRuntimeBackend.Generator.Example.Api do
 
     resource :post, "/v1/books/:book_id/return", capability: :give_back, body: [:note, :hurry]
     resource :get, "/v1/count", capability: :count
+    # A download: the outcome's :stream field is the body, its other fields are headers.
+    resource :get, "/v1/books/:book_id/scan", capability: :scan
 
     stream "/v1/events",
       capability: :watch,
@@ -55,6 +57,11 @@ defmodule AtlasRuntimeBackend.Generator.Example.Api do
     status :listed, 200
     status :returned, 200
     status :counted, 200, header: ["Retry-After": :wait]
+
+    status :scanned, 200,
+      stream: :content,
+      content_type: "application/octet-stream",
+      header: ["Scan-Pages": :pages, "Scanned-At": :scanned_at, "Scan-Of": "/v1/books/{book_id}"]
 
     error :invalid, 400, type: "invalid"
     error :not_permitted, 403, type: "not-permitted"

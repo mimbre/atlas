@@ -8,7 +8,7 @@ defmodule AtlasRuntimeBackend.Generator.SchemaTest do
     shared =
       Keyword.get(parts, :shared, """
         expose [:lend, :find_book, :search, :list_books, :give_back, :count, :watch]
-        not_exposed :audit
+        not_exposed [:audit, :scan]
         rights :socket, [:lend, :browse]
         event :book, :book_changed, id: :sequence
         event :restart, :restart, id: :current_sequence
@@ -73,7 +73,7 @@ defmodule AtlasRuntimeBackend.Generator.SchemaTest do
   defp shared_without_rights,
     do: """
       expose [:lend, :find_book, :search, :list_books, :give_back, :count, :watch]
-      not_exposed :audit
+      not_exposed [:audit, :scan]
       event :book, :book_changed, id: :sequence
       event :restart, :restart, id: :current_sequence
     """
@@ -108,7 +108,7 @@ defmodule AtlasRuntimeBackend.Generator.SchemaTest do
       fails(
         [
           shared:
-            "  expose [:lend, :find_book, :search, :list_books, :give_back, :count, :watch]\n"
+            "  expose [:lend, :find_book, :search, :list_books, :give_back, :count, :watch, :scan]\n"
         ],
         "capability :audit of AtlasRuntimeBackend.Generator.Example.Boundary is neither exposed nor not_exposed"
       )
@@ -122,14 +122,14 @@ defmodule AtlasRuntimeBackend.Generator.SchemaTest do
 
     test "an exposed name that is no capability, and a resource for a capability not exposed" do
       fails(
-        [shared: "  expose [:lend, :shelve]\n  not_exposed :audit\n"],
+        [shared: "  expose [:lend, :shelve]\n  not_exposed [:audit, :scan]\n"],
         "expose :shelve: no capability of the boundary"
       )
 
       fails(
         [
           shared:
-            "  expose [:lend]\n  not_exposed [:audit, :find_book, :search, :list_books, :give_back, :count, :watch]\n",
+            "  expose [:lend]\n  not_exposed [:audit, :find_book, :search, :list_books, :give_back, :count, :watch, :scan]\n",
           resources:
             ~s(    resource :post, "/v1/books", capability: :lend, body: :input\n    resource :get, "/v1/count", capability: :count\n),
           stream: "",
@@ -528,7 +528,7 @@ defmodule AtlasRuntimeBackend.Generator.SchemaTest do
       fails(
         [
           shared:
-            "  expose [:lend, :find_book, :search, :list_books, :give_back, :count, :watch]\n  not_exposed :audit\n  event :book, :novel\n"
+            "  expose [:lend, :find_book, :search, :list_books, :give_back, :count, :watch]\n  not_exposed [:audit, :scan]\n  event :book, :novel\n"
         ],
         "event :book: :novel is no boundary model"
       )
@@ -536,7 +536,7 @@ defmodule AtlasRuntimeBackend.Generator.SchemaTest do
       fails(
         [
           shared:
-            "  expose [:lend, :find_book, :search, :list_books, :give_back, :count, :watch]\n  not_exposed :audit\n  event :book, :book_changed, id: :book_id\n"
+            "  expose [:lend, :find_book, :search, :list_books, :give_back, :count, :watch]\n  not_exposed [:audit, :scan]\n  event :book, :book_changed, id: :book_id\n"
         ],
         "id :book_id is no required integer field of :book_changed"
       )
@@ -577,6 +577,281 @@ defmodule AtlasRuntimeBackend.Generator.SchemaTest do
     end
   end
 
+  # The default contract with `scan` exposed and mapped; `status` is its status line.
+  defp with_scan(status, parts \\ []) do
+    Keyword.merge(
+      [
+        shared: """
+          expose [:lend, :find_book, :search, :list_books, :give_back, :count, :watch, :scan]
+          not_exposed :audit
+          event :book, :book_changed, id: :sequence
+          event :restart, :restart, id: :current_sequence
+        """,
+        resources: """
+            resource :post, "/v1/books", capability: :lend, body: :input
+            resource :get, "/v1/books/:book_id", capability: :find_book
+            resource :get, "/v1/books", capability: :search, query: [title: :title]
+            resource :get, "/v1/books", capability: :list_books, query: [limit: :limit]
+            resource :post, "/v1/books/:book_id/return", capability: :give_back, body: [:note]
+            resource :get, "/v1/count", capability: :count
+            resource :get, "/v1/books/:book_id/scan", capability: :scan
+        """,
+        statuses: """
+            status :lent, 201
+            status :busy, 503, type: "busy"
+            status :refused, by: :reason, cases: [invalid: {400, "invalid"}, taken: {409, "taken"}, not_permitted: {403, "not-permitted"}]
+            status :found, 200
+            status :missing, 404, type: "not-found"
+            status :listed, 200
+            status :returned, 200
+            status :counted, 200
+        #{status}
+        """
+      ],
+      parts
+    )
+  end
+
+  @octet ~s(content_type: "application/octet-stream")
+
+  # The statuses with scan's stream status, and `line` instead of the one of its outcome.
+  defp scan_statuses(line) do
+    [_, outcome] = Regex.run(~r/status :([a-z_]+)/, line)
+
+    """
+        status :lent, 201
+        status :busy, 503, type: "busy"
+        status :refused, by: :reason, cases: [invalid: {400, "invalid"}, taken: {409, "taken"}, not_permitted: {403, "not-permitted"}]
+        status :found, 200
+        status :missing, 404, type: "not-found"
+        status :listed, 200
+        status :returned, 200
+        status :counted, 200
+        status :scanned, 200, stream: :content, content_type: "application/octet-stream"
+    """
+    |> String.split("\n")
+    |> Enum.map_join("\n", fn l ->
+      if String.starts_with?(String.trim(l), "status :#{outcome},"),
+        do: String.trim_trailing(line),
+        else: l
+    end)
+  end
+
+  describe "stream outcomes (B15): CompileErrors" do
+    test "a stream status compiles, and its schema names the field and the content type" do
+      [{module, _}] =
+        compile(
+          with_scan(
+            ~s(    status :scanned, 200, stream: :content, #{@octet}, header: ["Scan-Pages": :pages]\n)
+          )
+        )
+
+      [rest] = module.__schema__().targets
+
+      assert %{stream: :content, content_type: "application/octet-stream", status: 200} =
+               Enum.find(rest.statuses, &(&1.outcome == :scanned))
+    end
+
+    test "an outcome with a :stream field mapped without stream: (m3)" do
+      fails(
+        with_scan("    status :scanned, 200\n"),
+        "status :scanned: its model has the :stream field :content, which is no JSON; " <>
+          "send it with stream: :content"
+      )
+
+      fails(
+        with_scan("    status :scanned, 200, body: :book_id\n"),
+        "status :scanned: its model has the :stream field :content"
+      )
+    end
+
+    test "stream: naming no :stream field of the outcome" do
+      fails(
+        with_scan("    status :scanned, 200, stream: :pages, #{@octet}\n"),
+        "status :scanned: stream: :pages is no required :stream field of its model"
+      )
+
+      fails(
+        with_scan("    status :scanned, 200, stream: :content, #{@octet}\n",
+          statuses: scan_statuses("    status :found, 200, stream: :book, #{@octet}\n")
+        ),
+        "status :found: stream: :book is no required :stream field of its model"
+      )
+    end
+
+    test "a stream status: one 2xx code, no body:, a content type" do
+      fails(
+        with_scan("    status :scanned, 201, stream: :content\n"),
+        "status :scanned: stream: needs content_type: \"type/subtype\" (lowercase)"
+      )
+
+      fails(
+        with_scan(~s(    status :scanned, 200, stream: :content, content_type: "Octet"\n)),
+        "stream: needs content_type:"
+      )
+
+      fails(
+        with_scan("    status :scanned, 302, stream: :content, #{@octet}\n"),
+        "status :scanned: a stream is sent with a 2xx status"
+      )
+
+      fails(
+        with_scan(~s(    status :scanned, 410, type: "gone", stream: :content, #{@octet}\n)),
+        "status :scanned: a stream is sent with a 2xx status"
+      )
+
+      fails(
+        with_scan("    status :scanned, 200, stream: :content, body: :content, #{@octet}\n"),
+        "status :scanned: stream: and body: exclude each other"
+      )
+
+      fails(
+        with_scan("    status :scanned, 200, stream: :content, #{@octet}\n",
+          statuses: scan_statuses("    status :counted, 200, #{@octet}\n")
+        ),
+        "status :counted: content_type: goes with stream:"
+      )
+
+      fails(
+        with_scan(
+          ~s(    status :scanned, 200, stream: :content, #{@octet}, header: [x: :content]\n)
+        ),
+        "status :scanned: header field :content is no scalar field of its model"
+      )
+    end
+
+    test "a stream status with by: cases" do
+      fails(
+        [
+          boundary: inspect(__MODULE__.StreamRefused),
+          statuses: """
+              status :lent, 201
+              status :busy, 503, type: "busy"
+              status :refused, by: :reason, stream: :blob, #{@octet}, cases: [invalid: {400, "invalid"}, taken: {409, "taken"}, not_permitted: {403, "not-permitted"}]
+              status :found, 200
+              status :missing, 404, type: "not-found"
+              status :listed, 200
+              status :returned, 200
+              status :counted, 200
+          """
+        ],
+        "status :refused: stream: goes with a single status code"
+      )
+    end
+
+    test "a model with two :stream fields" do
+      fails(
+        with_scan("    status :scanned, 200, stream: :content, #{@octet}\n",
+          boundary: inspect(__MODULE__.TwoStreams)
+        ),
+        "status :scanned: its model has a second :stream field, :more"
+      )
+    end
+
+    test "etag: on a resource whose success is a stream" do
+      fails(
+        with_scan("    status :scanned, 200, stream: :content, #{@octet}\n",
+          resources: """
+              resource :post, "/v1/books", capability: :lend, body: :input
+              resource :get, "/v1/books/:book_id", capability: :find_book
+              resource :get, "/v1/books", capability: :search, query: [title: :title]
+              resource :get, "/v1/books", capability: :list_books, query: [limit: :limit]
+              resource :post, "/v1/books/:book_id/return", capability: :give_back, body: [:note]
+              resource :get, "/v1/count", capability: :count
+              resource :get, "/v1/books/:book_id/scan", capability: :scan, etag: :pages
+          """
+        ),
+        "etag: :pages: outcome :scanned is a stream (stream: :content); a stream carries no tag"
+      )
+    end
+
+    test "a :stream in an input, an event or an outcome of an event stream" do
+      fails(
+        with_scan("    status :scanned, 200, stream: :content, #{@octet}\n",
+          boundary: inspect(__MODULE__.StreamInput)
+        ),
+        "resource get /v1/books/:book_id/scan: input field :pages is a :stream; a stream is " <>
+          "carried only as an outcome's body"
+      )
+
+      fails(
+        with_scan("    status :scanned, 200, stream: :content, #{@octet}\n",
+          boundary: inspect(__MODULE__.StreamEvent)
+        ),
+        "event :book: :book_changed.page is a :stream; an event is JSON"
+      )
+
+      fails(
+        with_scan("    status :scanned, 200, stream: :content, #{@octet}\n",
+          boundary: inspect(__MODULE__.StreamRestart),
+          shared: """
+            expose [:lend, :find_book, :search, :list_books, :give_back, :count, :watch, :scan]
+            not_exposed :audit
+            event :book, :book_changed, id: :sequence
+          """,
+          stream:
+            ~s(    stream "/v1/events", capability: :watch, events: [:book], resume_header: "Last-Event-ID", into: :from, open: [watching: nil, restart: nil]\n)
+        ),
+        "stream /v1/events: outcome :restart has the :stream field :replay; an event stream " <>
+          "carries no byte stream"
+      )
+    end
+  end
+
+  # The example boundary with one model changed: `fields` added to model `name`.
+  defmodule Changed do
+    @moduledoc false
+    def schema(name, fields) do
+      schema = AtlasRuntimeBackend.Generator.Example.Boundary.__schema__()
+
+      models =
+        for m <- schema.models,
+            do: if(m.name == name, do: %{m | fields: m.fields ++ fields}, else: m)
+
+      %{schema | models: models}
+    end
+  end
+
+  defmodule TwoStreams do
+    @moduledoc false
+    def __schema__,
+      do: Changed.schema(:scan, [%{name: :more, type: :stream, required: true}])
+  end
+
+  defmodule StreamInput do
+    @moduledoc false
+    def __schema__ do
+      schema = AtlasRuntimeBackend.Generator.Example.Boundary.__schema__()
+
+      models =
+        for m <- schema.models do
+          if m.name == :scan_input,
+            do: %{m | fields: m.fields ++ [%{name: :pages, type: :stream, required: false}]},
+            else: m
+        end
+
+      %{schema | models: models}
+    end
+  end
+
+  defmodule StreamEvent do
+    @moduledoc false
+    def __schema__,
+      do: Changed.schema(:book_changed, [%{name: :page, type: :stream, required: false}])
+  end
+
+  defmodule StreamRestart do
+    @moduledoc false
+    def __schema__,
+      do: Changed.schema(:restart, [%{name: :replay, type: :stream, required: false}])
+  end
+
+  defmodule StreamRefused do
+    @moduledoc false
+    def __schema__,
+      do: Changed.schema(:refused, [%{name: :blob, type: :stream, required: true}])
+  end
+
   describe "__schema__/0" do
     test "the contract as plain data" do
       schema = Api.__schema__()
@@ -590,7 +865,8 @@ defmodule AtlasRuntimeBackend.Generator.SchemaTest do
                :list_books,
                :give_back,
                :count,
-               :watch
+               :watch,
+               :scan
              ]
 
       assert schema.not_exposed == [:audit]
@@ -617,6 +893,21 @@ defmodule AtlasRuntimeBackend.Generator.SchemaTest do
 
       assert %{outcome: :refused, by: :reason, cases: [%{value: :invalid, status: 400} | _]} =
                Enum.find(rest.statuses, &(&1.outcome == :refused))
+
+      assert %{
+               outcome: :scanned,
+               status: 200,
+               stream: :content,
+               content_type: "application/octet-stream",
+               body: nil,
+               headers: [
+                 {"scan-pages", :pages},
+                 {"scanned-at", :scanned_at},
+                 {"scan-of", "/v1/books/{book_id}"}
+               ]
+             } = Enum.find(rest.statuses, &(&1.outcome == :scanned))
+
+      assert %{stream: nil, content_type: nil} = Enum.find(rest.statuses, &(&1.outcome == :found))
 
       assert rest.errors == [
                %{kind: :invalid, status: 400, type: "invalid"},

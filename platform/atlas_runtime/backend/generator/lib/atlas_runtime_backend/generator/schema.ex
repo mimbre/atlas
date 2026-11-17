@@ -90,6 +90,11 @@ defmodule AtlasRuntimeBackend.Generator.Schema do
     placeholders into the outcome. `body: field` (below 400 only): the body is that model
     field of the outcome, serialized directly (the outcome's entity, no envelope); without
     it the body is the outcome's fields.
+    `stream: field, content_type: "type/subtype"` (a 2xx status only): the body is the
+    outcome's `:stream` field, sent as it is, chunk by chunk, with that content type and
+    no JSON. Its other fields go only where `header:` puts them. An outcome whose model
+    has a `:stream` field needs it (its fields cannot be JSON), and a model has at most
+    one; neither `body:` nor `etag:` goes with it.
     `status outcome, by: field, cases: [value: {code, type_or_nil}], header: ...`: the
     status depends on an enum field of the outcome; `cases` names each value once.
   - `error kind, code, type:`: the target's own refusals, each needed once: `:invalid`
@@ -105,7 +110,9 @@ defmodule AtlasRuntimeBackend.Generator.Schema do
   `not_exposed`; a target that does not map an exposed capability, or maps one twice; a
   resource naming a capability that is not exposed; an outcome of a mapped capability
   without a status; a boundary target carried by no backend target; a right that is no
-  value of the boundary's client rights.
+  value of the boundary's client rights; an outcome with a `:stream` field whose status
+  has no `stream:` (or `stream:` naming no such field); a `:stream` field in an input, an
+  event or an outcome of a stream (S5a carries a stream only as an outcome's body).
 
   ## The schema as data
 
@@ -129,7 +136,8 @@ defmodule AtlasRuntimeBackend.Generator.Schema do
                         into: atom, open: [{atom, atom | nil}]}],
             statuses: [%{outcome: atom, status: integer | nil, type: text | nil, by: atom | nil,
                          cases: [%{value: atom, status: integer, type: text | nil}],
-                         headers: [{text, atom | text}], body: atom | nil}],
+                         headers: [{text, atom | text}], body: atom | nil,
+                         stream: atom | nil, content_type: text | nil}],
             errors: [%{kind: atom, status: integer, type: text}]}
         ]
       }
@@ -439,6 +447,12 @@ defmodule AtlasRuntimeBackend.Generator.Schema do
         model_spec =
           models[model] || fail.("event #{inspect(name)}: #{inspect(model)} is no boundary model")
 
+        for field <- stream_fields(model_spec) do
+          fail.(
+            "event #{inspect(name)}: #{inspect(model)}.#{field} is a :stream; an event is JSON"
+          )
+        end
+
         id = opts[:id]
 
         if id do
@@ -574,6 +588,13 @@ defmodule AtlasRuntimeBackend.Generator.Schema do
     fields = if input, do: Map.new(input.fields, &{&1.name, &1}), else: %{}
     segments = segments!(path, fail)
     params = for {:param, p} <- segments, do: p
+
+    for field <- stream_fields(input) do
+      fail.(
+        "resource #{method} #{path}: input field #{inspect(field)} is a :stream; a stream " <>
+          "is carried only as an outcome's body"
+      )
+    end
 
     for p <- params, not Map.has_key?(fields, p) do
       fail.(
@@ -718,6 +739,15 @@ defmodule AtlasRuntimeBackend.Generator.Schema do
           )
       end
 
+    if status.stream,
+      do:
+        __fail__(
+          f,
+          l,
+          "#{at}: outcome #{inspect(outcome.name)} is a stream (stream: #{inspect(status.stream)}); " <>
+            "a stream carries no tag"
+        )
+
     model_name =
       if status.body,
         do: Enum.find(ctx.models[outcome.model].fields, &(&1.name == status.body)).type,
@@ -799,6 +829,14 @@ defmodule AtlasRuntimeBackend.Generator.Schema do
       )
     end
 
+    for outcome <- outcomes,
+        field <- stream_fields(outcome.model && ctx.models[outcome.model]) do
+      fail.(
+        "stream #{path}: outcome #{inspect(outcome.name)} has the :stream field #{inspect(field)}; " <>
+          "an event stream carries no byte stream"
+      )
+    end
+
     for {outcome, event} <- open do
       spec =
         Enum.find(outcomes, &(&1.name == outcome)) ||
@@ -858,13 +896,16 @@ defmodule AtlasRuntimeBackend.Generator.Schema do
               )
           end
 
-        unless Keyword.keyword?(opts) and Keyword.keys(opts) -- [:type, :header, :body] == [],
-          do:
-            fail.(
-              "status #{inspect(outcome)}: the options are type:, header: and body: (or by: and cases:)"
-            )
+        unless Keyword.keyword?(opts) and
+                 Keyword.keys(opts) -- [:type, :header, :body, :stream, :content_type] == [],
+               do:
+                 fail.(
+                   "status #{inspect(outcome)}: the options are type:, header:, body:, stream: " <>
+                     "and content_type: (or by: and cases:)"
+                 )
 
         body = opts[:body]
+        stream = stream!(outcome, opts, by_opts, code, model, fail)
 
         if body do
           unless match?(
@@ -895,6 +936,8 @@ defmodule AtlasRuntimeBackend.Generator.Schema do
           cases: [],
           headers: headers,
           body: body,
+          stream: stream,
+          content_type: stream && opts[:content_type],
           at: {f, l}
         }
 
@@ -962,6 +1005,60 @@ defmodule AtlasRuntimeBackend.Generator.Schema do
 
     statuses
   end
+
+  # A status's stream: the outcome's one :stream field, sent as the body with its
+  # content_type:, from a single 2xx status. Gives the field, or nil.
+  defp stream!(outcome, opts, by_opts, code, model, fail) do
+    at = "status #{inspect(outcome)}"
+    stream = opts[:stream]
+    content_type = opts[:content_type]
+
+    case {stream_fields(model), stream} do
+      {[], nil} ->
+        :ok
+
+      {[field | _], nil} ->
+        fail.(
+          "#{at}: its model has the :stream field #{inspect(field)}, which is no JSON; " <>
+            "send it with stream: #{inspect(field)}, content_type: \"...\""
+        )
+
+      {fields, stream} ->
+        unless stream in fields and
+                 match?(%{required: true}, Enum.find(model.fields, &(&1.name == stream))),
+               do:
+                 fail.(
+                   "#{at}: stream: #{inspect(stream)} is no required :stream field of its model"
+                 )
+
+        case fields -- [stream] do
+          [] -> :ok
+          [other | _] -> fail.("#{at}: its model has a second :stream field, #{inspect(other)}")
+        end
+    end
+
+    if stream do
+      if by_opts, do: fail.("#{at}: stream: goes with a single status code")
+      if opts[:body], do: fail.("#{at}: stream: and body: exclude each other")
+
+      unless is_integer(code) and code in 200..299,
+        do: fail.("#{at}: a stream is sent with a 2xx status")
+
+      unless is_binary(content_type) and
+               Regex.match?(
+                 ~r{^[a-z0-9][a-z0-9!#$&^_.+-]*/[a-z0-9][a-z0-9!#$&^_.+-]*$},
+                 content_type
+               ),
+             do: fail.("#{at}: stream: needs content_type: \"type/subtype\" (lowercase)")
+    else
+      if content_type != nil, do: fail.("#{at}: content_type: goes with stream:")
+    end
+
+    stream
+  end
+
+  defp stream_fields(nil), do: []
+  defp stream_fields(model), do: for(%{type: :stream, name: name} <- model.fields, do: name)
 
   defp errors!(entries, file, line) do
     errors =

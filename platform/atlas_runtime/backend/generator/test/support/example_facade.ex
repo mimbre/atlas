@@ -3,7 +3,9 @@ defmodule AtlasRuntimeBackend.Generator.Example.Struct do
   The example facade's structs, written by hand: what the router needs of a facade's
   struct (`new/1` from decoded JSON, strict; `dump/1` to JSON-ready data). Fields are
   `name: {type, required}`; a type is `:string`, `:integer`, `:boolean`, `:datetime`,
-  `{:enum, [atom]}`, `{:model, module}`, `{:list, type}` or `{:one_of, [{name, module}], tag}`.
+  `{:enum, [atom]}`, `{:model, module}`, `{:list, type}`, `{:one_of, [{name, module}], tag}`
+  or `:stream` (any `Enumerable`, never enumerated; dumping one raises, as a boundary's
+  `dump/1` does).
   """
 
   defmacro __using__(fields) do
@@ -58,6 +60,7 @@ defmodule AtlasRuntimeBackend.Generator.Example.Struct do
         do: {Atom.to_string(name), dump(type, item)}
   end
 
+  defp dump(:stream, _value), do: raise(ArgumentError, "a :stream is never dumped as JSON")
   defp dump(:datetime, value), do: DateTime.to_iso8601(value)
   defp dump({:enum, _}, value), do: Atom.to_string(value)
   defp dump({:model, _}, value), do: dump(value)
@@ -111,6 +114,12 @@ defmodule AtlasRuntimeBackend.Generator.Example.Struct do
     end
   end
 
+  defp cast(:stream, v) do
+    if Enumerable.impl_for(v) != nil and not (is_map(v) and not is_struct(v)),
+      do: {:ok, v},
+      else: :error
+  end
+
   defp cast(_type, _v), do: :error
 end
 
@@ -137,6 +146,8 @@ defmodule AtlasRuntimeBackend.Generator.Example.Facade do
   `Facade.Outcome.<Outcome>`). It refuses a client without the right, or an input it does
   not accept, with a refusal (`Denied`, `Rejected`) rather than an outcome, and tells the
   calling process what it was called with (`{:example_called, capability, client, input}`).
+  `scan` answers with the calling process's `:example_scan` (`Process.put/2`), a stream
+  of the scanned bytes, or two short pages without one.
   """
   alias AtlasRuntimeBackend.Generator.Example.Struct, as: S
   alias AtlasRuntimeBackend.Generator.Example.Types, as: T
@@ -178,6 +189,7 @@ defmodule AtlasRuntimeBackend.Generator.Example.Facade do
 
   defmodule WatchInput, do: use(S, from: {:integer, false})
   defmodule AuditInput, do: use(S, [])
+  defmodule ScanInput, do: use(S, book_id: {:string, true})
   defmodule Counts, do: use(S, total: {:integer, true}, wait: {:integer, false})
   defmodule BookChanged, do: use(S, sequence: {:integer, true}, book_id: {:string, true})
   defmodule Restart, do: use(S, current_sequence: {:integer, true})
@@ -203,6 +215,15 @@ defmodule AtlasRuntimeBackend.Generator.Example.Facade do
     defmodule Watching, do: use(S, [])
     defmodule Restart, do: use(S, current_sequence: {:integer, true})
     defmodule Audited, do: use(S, [])
+
+    defmodule Scanned,
+      do:
+        use(S,
+          book_id: {:string, true},
+          pages: {:integer, true},
+          scanned_at: {:datetime, false},
+          content: {:stream, true}
+        )
   end
 
   defmodule Denied do
@@ -223,6 +244,7 @@ defmodule AtlasRuntimeBackend.Generator.Example.Facade do
     give_back: :lend,
     count: :browse,
     watch: :browse,
+    scan: :browse,
     audit: :audit
   }
 
@@ -305,6 +327,26 @@ defmodule AtlasRuntimeBackend.Generator.Example.Facade do
           send(self(), {:notification, %Tick{at: ~U[2026-03-01 10:00:00Z]}})
           send(self(), {:notification, :not_an_event})
           %Outcome.Watching{}
+      end
+    end)
+  end
+
+  # The pages go out as the stream the process put under :example_scan, never read here.
+  def scan(client, input) do
+    permitted(client, :scan, input, fn ->
+      case input.book_id do
+        "missing" ->
+          %Outcome.Missing{}
+
+        id ->
+          content = Process.get(:example_scan, ["page 1\n", "page 2\n"])
+
+          %Outcome.Scanned{
+            book_id: id,
+            pages: 2,
+            scanned_at: if(id == "dated", do: ~U[2026-03-01 10:00:00Z]),
+            content: content
+          }
       end
     end)
   end

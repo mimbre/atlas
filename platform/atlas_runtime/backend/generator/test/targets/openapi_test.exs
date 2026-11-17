@@ -187,6 +187,29 @@ defmodule AtlasRuntimeBackend.Generator.Targets.OpenapiTest do
              Enum.find(op["parameters"], &(&1["name"] == "last-event-id"))
   end
 
+  test "an outcome sent as bytes: its content type, a binary string, and its headers" do
+    doc = doc(Api.__schema__())
+    op = op(doc, "get", "/v1/books/{book_id}/scan")
+    ok = op["responses"]["200"]
+
+    assert ok["content"] == %{
+             "application/octet-stream" => %{
+               "schema" => %{"type" => "string", "format" => "binary"}
+             }
+           }
+
+    assert %{
+             "scan-pages" => %{"required" => true, "schema" => %{"type" => "integer"}},
+             "scanned-at" => %{"schema" => %{"type" => "string", "format" => "date-time"}},
+             "scan-of" => %{"required" => true}
+           } = ok["headers"]
+
+    refute Map.has_key?(ok["headers"]["scanned-at"], "required")
+    assert %{"application/problem+json" => _} = op["responses"]["404"]["content"]
+    # The stream's model is never a JSON body, so it is no schema.
+    refute Map.has_key?(doc["components"]["schemas"], "scan")
+  end
+
   test "no_route answers no operation's path: under components only" do
     doc = doc(Api.__schema__())
     assert types(doc["components"]["responses"]["no_route"]) == ["no-route"]

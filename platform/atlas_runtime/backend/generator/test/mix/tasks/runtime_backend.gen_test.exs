@@ -6,7 +6,7 @@ defmodule AtlasRuntimeBackend.Generator.Example.Fewer do
   boundary AtlasRuntimeBackend.Generator.Example.Boundary
 
   expose [:lend, :find_book, :search, :list_books, :give_back, :watch]
-  not_exposed [:audit, :count]
+  not_exposed [:audit, :count, :scan]
 
   rights :socket, [:lend, :browse]
   rights :guest, [:browse]
