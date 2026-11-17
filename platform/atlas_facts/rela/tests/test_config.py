@@ -62,6 +62,17 @@ def without_ledger(schema):
     # What a turn is about and the model it runs, for the worker page.
     for name in ('title', 'model'):
         assert not schema['entities']['turn']['properties'].pop(name).get('required', False)
+    # F1.2: machinery, its tasks and their attempts, and packages; a machinery can be assigned, a package has an assignment.
+    for kind in ('machinery', 'task', 'task_attempt', 'package'):
+        schema['entities'].pop(kind)
+    for name in ('attempt_of', 'ran_on', 'package_of', 'task_of'):
+        schema['relations'].pop(name)
+    for name in ('task_kind', 'task_role', 'task_verdict'):
+        schema['types'].pop(name)
+    schema['relations']['assigned_to']['to'].remove('machinery')
+    schema['relations']['assigned_to']['description'] = schema['relations']['assigned_to']['description'].replace(
+        'one, a person, an agent or a machinery.', 'one, a person or an agent.')
+    schema['relations']['assignment']['from'].remove('package')
     return schema
 
 
