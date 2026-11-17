@@ -117,9 +117,9 @@ func homeEntries(home, project string) ([][2]string, error) {
 }
 
 // workFolderHomeNames are the Runtime home entries a profile of the work folder denies by path, even
-// when they are absent at launch: the sensitiveHomeNames (the frozen results and the work store among
-// them) and the bases.
-var workFolderHomeNames = append(slices.Clone(sensitiveHomeNames), "bases")
+// when they are absent at launch: the sensitiveHomeNames (the frozen results, the work store and the
+// bases among them).
+var workFolderHomeNames = slices.Clone(sensitiveHomeNames)
 
 // workFolderRuntimeEntries are the Codex denies of the Runtime home for the work folder
 // root = <home>/workers/work-<work_id> (design §3.9 RQ7, I8). Codex lets the more specific path win,
@@ -229,6 +229,8 @@ func socketEntries(home string, projects ...string) ([][2]string, error) {
 //   - execution-events.json: the durable execution-event outbox (persistence/execution_events.ex);
 //   - mode.json: the persisted Runtime mode (model/contract runtime_mode, S2);
 //   - clients.json: the loopback TCP clients, their token hashes and rights (backend/clients.ex, S3);
+//   - bases: every client's uploaded base records and the core's import staging (S5c; a base work's
+//     folder <home>/workers/work-<work_id> lies in the home, so every profile denies it by path);
 //   - <name>.json.tmp for each <name>.json above: the sibling an atomic write (write <path>.tmp, then
 //     rename) fills before the rename, with the whole new content (execution_events.ex and
 //     availability.ex write execution-events.json and availability.json so on every change). A
@@ -240,7 +242,7 @@ func socketEntries(home string, projects ...string) ([][2]string, error) {
 var sensitiveHomeNames = append(slices.Clone(runtimeSockets), "turns", "code.json", "server.json",
 	"backends.json", "policy.json", "availability.json", "service.log", "service.lock", "passes",
 	"snapshots", "materializations", "scratch", "work", "admissions", "preparations", "packets",
-	"submissions", "rebinds", "frozen", "execution-events.json", "mode.json", "clients.json",
+	"submissions", "rebinds", "frozen", "execution-events.json", "mode.json", "clients.json", "bases",
 	"code.json.tmp", "server.json.tmp", "backends.json.tmp", "policy.json.tmp", "availability.json.tmp",
 	"execution-events.json.tmp", "mode.json.tmp", "clients.json.tmp")
 

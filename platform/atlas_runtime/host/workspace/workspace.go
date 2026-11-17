@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"syscall"
 	"unicode"
@@ -48,6 +49,16 @@ func Run(args []string, output io.Writer) error {
 			return errors.New("workspace packet-scope requires packet tree and Runtime home")
 		}
 		result, err = PacketScope(args[1], args[2])
+	case "base-import":
+		var values map[string]string
+		if values, err = options(args[1:], "home", "staging"); err == nil {
+			result, err = snapshot.ImportBase(values["home"], values["staging"])
+		}
+	case "materialize":
+		var values map[string]string
+		if values, err = options(args[1:], "home", "baseline", "dest"); err == nil {
+			result, err = Materialize(values["home"], values["baseline"], values["dest"])
+		}
 	case "request":
 		if len(args) != 4 {
 			return errors.New("workspace request requires home, URL and branch")
@@ -60,6 +71,53 @@ func Run(args []string, output io.Writer) error {
 		return err
 	}
 	return json.NewEncoder(output).Encode(result)
+}
+
+// options reads exactly the flags --name VALUE (or --name=VALUE) of names, each once and nonempty.
+func options(args []string, names ...string) (map[string]string, error) {
+	usage := "requires " + strings.Join(names, ", ") + " as --" + strings.Join(names, " VALUE --") + " VALUE"
+	values := map[string]string{}
+	for i := 0; i < len(args); i++ {
+		name, value, inline := strings.Cut(strings.TrimPrefix(args[i], "--"), "=")
+		if !strings.HasPrefix(args[i], "--") || !slices.Contains(names, name) || values[name] != "" {
+			return nil, fmt.Errorf("unexpected argument %q: %s", args[i], usage)
+		}
+		if !inline {
+			if i++; i == len(args) {
+				return nil, fmt.Errorf("--%s needs a value: %s", name, usage)
+			}
+			value = args[i]
+		}
+		if value == "" {
+			return nil, fmt.Errorf("--%s needs a value: %s", name, usage)
+		}
+		values[name] = value
+	}
+	for _, name := range names {
+		if values[name] == "" {
+			return nil, fmt.Errorf("missing --%s: %s", name, usage)
+		}
+	}
+	return values, nil
+}
+
+// Materialize builds the work folder dest from the Runtime home's complete baseline id (B10,
+// called only by the core). dest must be exactly the Runtime work folder <home>/workers/work-<work_id>
+// (RuntimeWorkFolder of the canonical home, spelled as its canonical path, the shape of the core's
+// Folders.path/2) and must not exist yet; anything else is refused before anything is written.
+func Materialize(home, id, dest string) (map[string]any, error) {
+	if !filepath.IsAbs(home) || !filepath.IsAbs(dest) {
+		return nil, errors.New("workspace materialize requires an absolute Runtime home and destination")
+	}
+	home, err := filepath.EvalSymlinks(home)
+	if err != nil {
+		return nil, fmt.Errorf("Runtime home: %v", err)
+	}
+	parent, err := filepath.EvalSymlinks(filepath.Dir(dest))
+	if err != nil || dest != filepath.Join(parent, filepath.Base(dest)) || !RuntimeWorkFolder(home, dest) {
+		return nil, fmt.Errorf("destination %s is not the Runtime work folder %s/workers/work-<work_id>", dest, home)
+	}
+	return snapshot.MaterializeBaseline(home, id, dest)
 }
 
 // Pathlib collapses dots and separators but retains '..' until resolution.

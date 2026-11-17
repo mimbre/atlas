@@ -29,7 +29,8 @@
     "frozen",
     "execution-events.json",
     "mode.json",
-    "clients.json"
+    "clients.json",
+    "bases"
   ],
   "atomic_temps": [
     "code.json.tmp",

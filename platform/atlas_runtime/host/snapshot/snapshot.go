@@ -421,11 +421,17 @@ func (m *manifest) check(id string, canonical []byte) (map[string]*entry, error)
 	if len(m.Repositories) == 0 {
 		return nil, errors.New("snapshot has no repositories")
 	}
+	return m.safety()
+}
+
+// safety checks the repositories and entries of a version 2 manifest or of an uploaded base's
+// version 3 one (whose repositories are its roots, without revisions) and indexes the entries by path.
+func (m *manifest) safety() (map[string]*entry, error) {
 	for i, r := range m.Repositories {
 		if !safe(r.Path) {
 			return nil, fmt.Errorf("unsafe repository path %q", r.Path)
 		}
-		if !revisionID.MatchString(r.Revision) {
+		if m.Version != 3 && !revisionID.MatchString(r.Revision) {
 			return nil, fmt.Errorf("repository %q has no valid revision", r.Path)
 		}
 		for _, other := range m.Repositories[:i] {

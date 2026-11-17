@@ -68,6 +68,7 @@ var censusHome = map[string]censusEntry{
 	"execution-events.json": {"denied", "the execution-event outbox", false},
 	"mode.json":             {"denied", "the persisted Runtime mode (S2)", false},
 	"clients.json":          {"denied", "the loopback TCP clients: token hashes and rights (S3)", false},
+	"bases":                 {"denied", "every client's uploaded base records and the import staging (S5c); joined by bases/store.ex from S5c P7", true},
 	"workers":               {"chain", "the managed repositories' worker directories", false},
 }
 
@@ -106,6 +107,8 @@ var censusNotHome = map[string]string{
 	"tree":           "snapshot baseline, packet or its staging",
 	"manifest.json":  "snapshot baseline",
 	"complete":       "snapshot baseline marker",
+	"entries.json":   "base import staging (<home>/bases/.staging-*, S5c): line 1 of the base stream",
+	"blobs":          "base import staging (<home>/bases/.staging-*, S5c): the blobs by sha256",
 	"findings":       "packet",
 	"packet.json":    "packet",
 	"diff.json":      "packet",

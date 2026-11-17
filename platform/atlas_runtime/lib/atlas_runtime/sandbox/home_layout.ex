@@ -48,7 +48,8 @@ defmodule AtlasRuntime.Sandbox.HomeLayout do
               "frozen",
               "execution-events.json",
               "mode.json",
-              "clients.json"
+              "clients.json",
+              "bases"
             ]
 
   # The atomic-write temps in the home, in sensitiveHomeNames' order (codex.go:181-182): the
