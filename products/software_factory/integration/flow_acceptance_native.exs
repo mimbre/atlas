@@ -281,8 +281,11 @@ try do
   merged = fn number, issue ->
     put.("pull_request", %{
       "op" => "create",
-      "key" => "PR-eyra-atlas-#{number}",
-      "values" => %{"url" => "https://github.com/eyra/atlas/pull/#{number}", "state" => "merged"},
+      "key" => "PR-mimbre-atlas-#{number}",
+      "values" => %{
+        "url" => "https://github.com/mimbre/atlas/pull/#{number}",
+        "state" => "merged"
+      },
       "links" => %{"in_issue" => [issue]}
     })
   end

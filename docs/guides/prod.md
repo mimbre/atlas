@@ -177,6 +177,24 @@ stand-in instead. An unfinished request already in the journal is paused as `wor
 while its repository is disabled, with no GitHub call and no invented refusal; reconcile
 its existing id once access is intentionally restored.
 
+#### Before changing `code.repositories`
+
+A repository that leaves prod's allow-list pauses its unfinished integrate requests as
+`working`, with no GitHub call, until it is allowed again. Before deploying such a change
+(for example eyra/atlas → mimbre/atlas), list them from this Mac. The script reads the
+journal over `fly ssh console` and changes nothing:
+
+```sh
+platform/ops/pending-integrations.sh --repository eyra/atlas
+```
+
+It reads the core app from `environments/prod.json` (`--app` to override) and
+`/data/code/effects` (`--data` for another `code.data`). It prints one line per request
+(`id`, `phase`, `merge_attempted`, `run`, `subject`, `target`, `head`) and exits 0 when
+there are none, 1 when it listed some and 2 when it could not read the journal whole.
+Settle each listed run first, or keep the repository in the list until they are settled.
+`--journal <folder>` reads a local copy instead, for a dry run.
+
 There is no Flux connector yet: `flux_id` and `flux_ref` are described as set by a connector, but no code reads Flux, so nothing needs a Flux secret. When one is built, its secret goes on `eyra-atlas` the same way.
 
 ### Back up prod's data
