@@ -66,6 +66,36 @@ defmodule AtlasRuntime.Sources.ImportTest do
     end)
   end
 
+  # The calls this process makes to File.ls/1 and File.lstat/1 while running fun (the import
+  # runs in the caller; the fake source is another process). Patterns are left on: they cost
+  # nothing for untraced processes, and switching them off could break a concurrent count.
+  defp calls(fun) do
+    # A process cannot be its own tracer: a collector receives the trace messages.
+    collector = spawn_link(fn -> collect([]) end)
+    :erlang.trace_pattern({File, :ls, 1}, true, [])
+    :erlang.trace_pattern({File, :lstat, 1}, true, [])
+    :erlang.trace(self(), true, [:call, {:tracer, collector}])
+
+    result =
+      try do
+        fun.()
+      after
+        :erlang.trace(self(), false, [:call])
+      end
+
+    ref = :erlang.trace_delivered(self())
+    receive do: ({:trace_delivered, _, ^ref} -> :ok)
+    send(collector, {:calls, self()})
+    receive do: ({:calls, ^collector, calls} -> {result, calls})
+  end
+
+  defp collect(acc) do
+    receive do
+      {:trace, _pid, :call, {File, fun, [path]}} -> collect([{fun, path} | acc])
+      {:calls, from} -> send(from, {:calls, self(), Enum.reverse(acc)})
+    end
+  end
+
   defp policy(name, max \\ @quota), do: %{"name" => name, "max_store_bytes" => max}
 
   ## Bases and change sets
@@ -290,6 +320,81 @@ defmodule AtlasRuntime.Sources.ImportTest do
                Import.base(home, policy("flow-prod"), lease(manifest), fetch(src))
 
       refute Store.has?(home, "flow-prod", sha)
+    end
+  end
+
+  describe "the store quota costs one listing per import (B1)" do
+    test "an import of many blobs lists the source's folder once and stats each blob a bounded number of times",
+         %{home: home} do
+      n = 300
+      files = Map.new(1..n, fn i -> {"f/#{i}.txt", "content #{i}\n"} end)
+      {manifest, blobs} = base(files)
+      src = source(blobs)
+      dir = Store.blobs_dir(home, "flow-prod")
+
+      {result, calls} =
+        calls(fn -> Import.base(home, policy("flow-prod"), lease(manifest), fetch(src)) end)
+
+      assert {:ok, %{baseline_id: "sha256:" <> _}} = result
+      assert length(fetched(src)) == n + 1
+
+      # One listing, not one per blob.
+      assert for({:ls, ^dir} <- calls, do: dir) == [dir]
+      # Stats grow with the blob count, not its square (n²/2 = 45000 before the fix).
+      stats = for {:lstat, path} <- calls, Path.dirname(path) == dir, do: path
+      assert length(stats) <= 3 * (n + 1)
+
+      # The running total ended exactly where a fresh count is.
+      assert {:ok, used} = Store.scan(home, "flow-prod")
+      assert used == blobs |> Map.values() |> Enum.map(&byte_size/1) |> Enum.sum()
+    end
+
+    test "the running total still refuses at the quota, mid-import", %{home: home} do
+      # Four blobs of 1000 bytes and a manifest: the quota is crossed by the last blobs.
+      files = Map.new(1..4, fn i -> {"#{i}", :binary.copy(Integer.to_string(i), 1000)} end)
+      {manifest, blobs} = base(files)
+      src = source(blobs)
+
+      assert {:refused, :too_large, "max_store_bytes"} =
+               Import.base(home, policy("flow-prod", 2500), lease(manifest), fetch(src))
+
+      assert {:ok, used} = Store.scan(home, "flow-prod")
+      assert used <= 2500
+      refute File.exists?(Path.join(home, "snapshots"))
+    end
+
+    test "an orphan temporary file from a killed import is removed by the next import", %{
+      home: home
+    } do
+      dir = Store.blobs_dir(home, "flow-prod")
+      File.mkdir_p!(dir)
+      File.write!(Path.join(dir, ".partial-12345"), :binary.copy("o", 5000))
+
+      {manifest, blobs} = base(@files)
+
+      # Not counted against the quota (the base needs far less than 5000 bytes) and removed.
+      assert {:ok, _} =
+               Import.base(home, policy("flow-prod", 1000), lease(manifest), fetch(source(blobs)))
+
+      refute Enum.any?(File.ls!(dir), &String.starts_with?(&1, ".partial-"))
+    end
+
+    test "a store that cannot be read fails the import before anything is fetched", %{home: home} do
+      dir = Store.blobs_dir(home, "flow-prod")
+      File.mkdir_p!(dir)
+      File.chmod!(dir, 0o000)
+      on_exit(fn -> File.chmod(dir, 0o700) end)
+
+      case File.ls(dir) do
+        {:ok, _} ->
+          :ok
+
+        {:error, _} ->
+          {manifest, blobs} = base(@files)
+          src = source(blobs)
+          assert {:error, _} = Import.base(home, policy("flow-prod"), lease(manifest), fetch(src))
+          assert fetched(src) == []
+      end
     end
   end
 

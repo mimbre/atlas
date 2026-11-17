@@ -15,8 +15,16 @@ defmodule AtlasRuntime.Sources.Store do
   the store past it is refused `too_large` before a byte is written, and the count is kept
   while streaming, so a stream that runs past its declared size is aborted at once.
 
-  One process writes a source's store at a time (the source's puller); concurrent `put/4`s
-  for the same source could each pass the quota check.
+  **One listing per import.** `scan/2` lists the source's folder once: it removes the
+  `.partial-*` files a killed writer left behind and counts the complete blobs. `put/6` then
+  takes that count and answers the new one, so an import of N blobs lists the folder once,
+  not N times. The count is exact: it changes only when a blob is renamed into place. A
+  folder that cannot be listed, or a blob that cannot be stat'ed, fails the scan (fails
+  closed) rather than counting as empty.
+
+  One process writes a source's store at a time (the source's puller); concurrent writers
+  for the same source could each pass the quota check, and a scan removes the other's
+  temporary file.
   """
 
   # The same rule as the policy's source names: one plain path segment.
@@ -58,44 +66,94 @@ defmodule AtlasRuntime.Sources.Store do
     end
   end
 
-  @doc "The bytes of source `name`'s complete blobs (temporary files are not counted)."
-  @spec used_bytes(Path.t(), String.t()) :: non_neg_integer()
-  def used_bytes(home, name) do
-    dir = blobs_dir(home, name)
+  @doc """
+  Starts writing source `name`'s store: removes the `.partial-*` files a killed writer left
+  behind, and answers `{:ok, used}`, the bytes of its complete blobs, for `put/6`. A store
+  that does not exist yet holds 0 bytes; one that cannot be read is `{:error, {:io, reason}}`.
+  """
+  @spec scan(Path.t(), String.t()) :: {:ok, non_neg_integer()} | {:error, refusal()}
+  def scan(home, name) do
+    if valid_source?(name), do: count(blobs_dir(home, name)), else: {:error, :invalid}
+  end
 
+  defp count(dir) do
     case File.ls(dir) do
       {:ok, names} ->
-        for file <- names, valid_sha256?(file), reduce: 0 do
-          sum ->
-            case File.lstat(Path.join(dir, file)) do
-              {:ok, %File.Stat{type: :regular, size: size}} -> sum + size
-              _ -> sum
-            end
+        Enum.reduce_while(names, {:ok, 0}, fn file, {:ok, sum} ->
+          case entry(dir, file) do
+            {:ok, size} -> {:cont, {:ok, sum + size}}
+            error -> {:halt, error}
+          end
+        end)
+
+      {:error, :enoent} ->
+        {:ok, 0}
+
+      {:error, reason} ->
+        {:error, {:io, reason}}
+    end
+  end
+
+  # A complete blob counts its size; an orphan temporary file is removed; anything else
+  # (no blob name, or not a regular file) is never served and not counted.
+  defp entry(dir, file) do
+    path = Path.join(dir, file)
+
+    cond do
+      String.starts_with?(file, ".partial-") ->
+        case File.rm(path) do
+          :ok -> {:ok, 0}
+          {:error, :enoent} -> {:ok, 0}
+          {:error, reason} -> {:error, {:io, reason}}
         end
 
-      {:error, _} ->
-        0
+      valid_sha256?(file) ->
+        case File.lstat(path) do
+          {:ok, %File.Stat{type: :regular, size: size}} -> {:ok, size}
+          {:ok, %File.Stat{}} -> {:ok, 0}
+          {:error, :enoent} -> {:ok, 0}
+          {:error, reason} -> {:error, {:io, reason}}
+        end
+
+      true ->
+        {:ok, 0}
     end
   end
 
   @doc """
-  Stores `blob` as source `name`'s blob `sha256`, within `max_store_bytes`.
+  Stores `blob` as source `name`'s blob `sha256` within `max_store_bytes`, listing the folder
+  once (`scan/2`). An import of many blobs calls `scan/2` once and then `put/6`.
+  """
+  @spec put(Path.t(), String.t(), String.t(), blob(), pos_integer()) ::
+          {:ok, Path.t()} | {:error, refusal()}
+  def put(home, name, sha256, blob, max_store_bytes) do
+    with {:ok, used} <- scan(home, name),
+         {:ok, path, _used} <- put(home, name, sha256, blob, max_store_bytes, used) do
+      {:ok, path}
+    end
+  end
 
-  - `{:ok, path}` once the blob is complete, or at once when the source already holds it;
+  @doc """
+  Stores `blob` as source `name`'s blob `sha256`, within `max_store_bytes`, given `used`, the
+  bytes the store holds (from `scan/2`, or the previous `put/6`). It never lists the folder.
+
+  - `{:ok, path, used}` once the blob is complete, `used` grown by its size; or at once, with
+    `used` unchanged, when the source already holds it;
   - `{:error, :too_large}` when its declared size would take the store past
     `max_store_bytes`, checked before a byte is read;
   - `{:error, :too_long}` when its stream runs past its declared size: it is aborted as soon
     as that chunk arrives, so at most the size plus one chunk is read;
   - `{:error, :mismatch}` when the bytes are fewer than declared or their sha256 differs;
-  - `{:error, :invalid}` for a malformed name, sha256 or size;
+  - `{:error, :invalid}` for a malformed name, sha256, size or count;
   - `{:error, {:io, reason}}` when the file cannot be written, or the stream raised.
 
   On every refusal nothing is stored.
   """
-  @spec put(Path.t(), String.t(), String.t(), blob(), pos_integer()) ::
-          {:ok, Path.t()} | {:error, refusal()}
-  def put(home, name, sha256, %{size: size, content: content}, max_store_bytes)
-      when is_integer(max_store_bytes) and max_store_bytes > 0 do
+  @spec put(Path.t(), String.t(), String.t(), blob(), pos_integer(), non_neg_integer()) ::
+          {:ok, Path.t(), non_neg_integer()} | {:error, refusal()}
+  def put(home, name, sha256, %{size: size, content: content}, max_store_bytes, used)
+      when is_integer(max_store_bytes) and max_store_bytes > 0 and is_integer(used) and
+             used >= 0 do
     cond do
       not (valid_source?(name) and valid_sha256?(sha256)) ->
         {:error, :invalid}
@@ -103,18 +161,23 @@ defmodule AtlasRuntime.Sources.Store do
       not (is_integer(size) and size >= 0) ->
         {:error, :invalid}
 
-      has?(home, name, sha256) ->
-        get(home, name, sha256)
-
-      used_bytes(home, name) + size > max_store_bytes ->
-        {:error, :too_large}
-
       true ->
-        write(home, name, sha256, size, content)
+        # One lookup: a blob that disappears after it is simply written again.
+        case get(home, name, sha256) do
+          {:ok, path} ->
+            {:ok, path, used}
+
+          :not_found when used + size > max_store_bytes ->
+            {:error, :too_large}
+
+          :not_found ->
+            with {:ok, path} <- write(home, name, sha256, size, content),
+                 do: {:ok, path, used + size}
+        end
     end
   end
 
-  def put(_home, _name, _sha256, _blob, _max_store_bytes), do: {:error, :invalid}
+  def put(_home, _name, _sha256, _blob, _max_store_bytes, _used), do: {:error, :invalid}
 
   defp write(home, name, sha256, size, content) do
     dir = blobs_dir(home, name)

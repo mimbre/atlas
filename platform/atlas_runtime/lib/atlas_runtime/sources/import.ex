@@ -14,7 +14,10 @@ defmodule AtlasRuntime.Sources.Import do
   then counted as it streams and aborted as soon as it runs past its declared size, so no
   more than a cap plus one chunk is ever read. The manifest blobs are capped by the helper's
   own line limits (the base line 64 MiB, a change set 256 MiB). The source's
-  `max_store_bytes` bounds its store.
+  `max_store_bytes` bounds its store: its folder is listed once per import
+  (`Store.scan/2`, which also removes what a killed import left behind), and the bytes it
+  holds are then kept as a running total through every `Store.put/6`, so an import costs
+  one listing however many blobs it stores.
 
   **Validation.** The base is checked by the S5c P6 validator, the helper's
   `workspace base-import` (entries, roots, paths, symlinks, modes, case folding and every
@@ -69,12 +72,13 @@ defmodule AtlasRuntime.Sources.Import do
   def base(home, source, lease, fetch, options \\ []) when is_function(fetch, 1) do
     with {:ok, source} <- source(source),
          {:ok, base, change_set} <- input(lease),
-         {:ok, base_file} <-
+         {:ok, source} <- scan(home, source),
+         {:ok, base_file, source} <-
            obtain(home, source, base.manifest, fetch, {:at_most, @max_base_line}),
          base_files = base_files(base_file),
-         {:ok, change_set} <- change_set(home, source, change_set, fetch),
+         {:ok, change_set, source} <- change_set(home, source, change_set, fetch),
          :ok <- caps(base_files, change_set, options),
-         :ok <- obtain_all(home, source, base_files.files, fetch),
+         {:ok, source} <- obtain_all(home, source, base_files.files, fetch),
          {:ok, baseline_id} <- import_base(home, source, base_file, base_files, options),
          {:ok, change_set} <- compose_input(home, source, change_set, baseline_id, fetch) do
       {:ok, %{baseline_id: baseline_id, change_set: change_set}}
@@ -91,6 +95,14 @@ defmodule AtlasRuntime.Sources.Import do
   end
 
   defp source(_source), do: {:error, "a source needs a name and max_store_bytes"}
+
+  # The one listing of the source's store in this import; from here `used` is a running total.
+  defp scan(home, source) do
+    case Store.scan(home, source.name) do
+      {:ok, used} -> {:ok, Map.put(source, :used, used)}
+      {:error, _} -> {:error, "cannot read the store of source #{source.name}"}
+    end
+  end
 
   defp input(%{work: %{input: %{base: %{manifest: manifest}} = input}}) do
     change_set =
@@ -116,12 +128,13 @@ defmodule AtlasRuntime.Sources.Import do
 
   ## Blobs, from this source only
 
-  # The path of this source's blob sha256: from its store, or downloaded and stored. want
-  # is the size its entry declares, or {:at_most, cap} for a manifest.
+  # The path of this source's blob sha256: from its store, or downloaded and stored, with
+  # the source's running total. want is the size its entry declares, or {:at_most, cap} for
+  # a manifest.
   defp obtain(home, source, sha256, fetch, want) do
     case Store.get(home, source.name, sha256) do
       {:ok, path} ->
-        {:ok, path}
+        {:ok, path, source}
 
       :not_found ->
         case fetch.(sha256) do
@@ -146,8 +159,8 @@ defmodule AtlasRuntime.Sources.Import do
         {:refused, :invalid, "blob_size"}
 
       true ->
-        case Store.put(home, source.name, sha256, blob, source.max_store_bytes) do
-          {:ok, path} -> {:ok, path}
+        case Store.put(home, source.name, sha256, blob, source.max_store_bytes, source.used) do
+          {:ok, path, used} -> {:ok, path, %{source | used: used}}
           {:error, :too_large} -> {:refused, :too_large, "max_store_bytes"}
           {:error, :too_long} -> {:refused, :too_large, "stream_too_long"}
           {:error, :mismatch} -> {:refused, :invalid, "blob_mismatch"}
@@ -162,9 +175,9 @@ defmodule AtlasRuntime.Sources.Import do
 
   # Every file blob, each with the size its entry declares.
   defp obtain_all(home, source, files, fetch) do
-    Enum.reduce_while(files, :ok, fn {sha256, size}, :ok ->
+    Enum.reduce_while(files, {:ok, source}, fn {sha256, size}, {:ok, source} ->
       case obtain(home, source, sha256, fetch, size) do
-        {:ok, _path} -> {:cont, :ok}
+        {:ok, _path, source} -> {:cont, {:ok, source}}
         other -> {:halt, other}
       end
     end)
@@ -342,14 +355,15 @@ defmodule AtlasRuntime.Sources.Import do
 
   # Its manifest, checked before any of its content blobs is fetched: the change set's
   # shape (AtlasChangeset) and each root's csf_ fingerprint against the request.
-  defp change_set(_home, _source, nil, _fetch), do: {:ok, nil}
+  defp change_set(_home, source, nil, _fetch), do: {:ok, nil, source}
 
   defp change_set(home, source, ref, fetch) do
-    with {:ok, file} <- obtain(home, source, ref.manifest, fetch, {:at_most, @max_change_set}),
+    with {:ok, file, source} <-
+           obtain(home, source, ref.manifest, fetch, {:at_most, @max_change_set}),
          {:ok, set} <- decode_change_set(file),
          :ok <- fingerprints(set, ref.fingerprints) do
       entries = for %{"entries" => entries} <- set["roots"], e <- entries, do: e
-      {:ok, Map.merge(summary(entries), %{file: file, set: set})}
+      {:ok, Map.merge(summary(entries), %{file: file, set: set}), source}
     end
   end
 
@@ -387,7 +401,7 @@ defmodule AtlasRuntime.Sources.Import do
 
   defp compose_input(home, source, change_set, baseline_id, fetch) do
     if change_set.set["base"] == baseline_id do
-      with :ok <- obtain_all(home, source, change_set.files, fetch) do
+      with {:ok, _source} <- obtain_all(home, source, change_set.files, fetch) do
         {:ok, %{file: change_set.file, blobs: Store.blobs_dir(home, source.name)}}
       end
     else
