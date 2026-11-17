@@ -16,7 +16,7 @@ defmodule AtlasCode.Running do
   home has a registered instance of its own (decision 1, Code in the core): then a route
   names its instance, not its settings.
 
-  The Service names a review's pull request `review_url`; the contract calls it `link`.
+  The Service names a review's URL `review_url`; the contract calls it `link`.
 
   An answer the contract does not declare (another error code, a field it lacks) raises:
   the contract and the Service have drifted apart.

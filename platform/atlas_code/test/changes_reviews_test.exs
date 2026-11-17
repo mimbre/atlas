@@ -3,7 +3,7 @@ defmodule AtlasCode.ChangesReviewsTest do
   # put_change_blob, seal_change, create_review, update_review) on a running Code: a
   # temporary home with a local bare repository, started with register: true. No GitHub:
   # github.com/test/app reaches the bare remote through a GitHub URL that Code's cache
-  # rewrites to it, and its pull requests go to the fixture `gh` of atlas_code_test. Not
+  # rewrites to it, and its provider reviews go to the fixture `gh` of atlas_code_test. Not
   # async: one instance holds the registered name at a time.
   use ExUnit.Case, async: false
 
@@ -19,7 +19,7 @@ defmodule AtlasCode.ChangesReviewsTest do
   @client {"test:flow", [:snapshot, :change, :review]}
   @hub "https://github.com/test/app.git"
   # The fixture provider of atlas_code_test: records each call; `fail-before` makes
-  # `pr create` fail before it creates the pull request.
+  # `pr create` fail before it creates the provider review.
   @gh """
   #!/bin/sh
   state=$(dirname "$0")
@@ -330,9 +330,9 @@ defmodule AtlasCode.ChangesReviewsTest do
   end
 
   describe "create_review" do
-    test "opens a GitHub review once, as its pull request; a repeat answers the open review",
+    test "opens a GitHub review once, on its provider; a repeat answers the open review",
          %{dir: dir, port: port, home: home, remote: remote} = context do
-      sealed(context, uuid(40), "github.com/test/app", %{"README.md" => "pull request\n"})
+      sealed(context, uuid(40), "github.com/test/app", %{"README.md" => "review\n"})
       input = review(uuid(41), uuid(40))
 
       assert %Outcome.Review{
@@ -349,14 +349,14 @@ defmodule AtlasCode.ChangesReviewsTest do
       assert revision == File.read!(Path.join([home, "changes", uuid(40), "revision"]))
       assert Boundary.create_review(@client, input) == opened
 
-      # Over HTTP the link is the pull request's review_url, as before the facade.
+      # Over HTTP the link is the provider review's review_url, as before the facade.
       assert {200, %{"review_url" => "https://github.com/test/app/pull/7"} = body} =
                orchestrate(port, "/v1/reviews", input)
 
       assert body == Service.create_review(AtlasCode.settings(), stringify(input)) |> elem(1)
       assert Map.delete(body, "review_url") == Map.delete(Outcome.Review.dump(opened), "link")
 
-      # One pull request, at the review's location, with the review's body.
+      # One provider review, at the review's location, with the review's body.
       location = "work/review-" <> uuid(41)
       assert git(remote, ["rev-parse", "refs/heads/" <> location]) != ""
       assert File.read!(Path.join(dir, "pr-body")) == input.body
@@ -377,7 +377,7 @@ defmodule AtlasCode.ChangesReviewsTest do
       refute File.exists?(Path.join(dir, "gh-calls"))
     end
 
-    test "a pull request that fails after the push is review_incomplete; a repeat opens it",
+    test "a provider review that fails after the push is review_incomplete; a repeat opens it",
          %{dir: dir, port: port} = context do
       sealed(context, uuid(44), "github.com/test/app", %{"README.md" => "retried\n"})
       input = review(uuid(45), uuid(44))
@@ -459,7 +459,7 @@ defmodule AtlasCode.ChangesReviewsTest do
                inspect(body)
       end
 
-      # Nothing was opened: no review record, no location, no pull request.
+      # Nothing was opened: no review record, no location, no provider review.
       refute File.exists?(Path.join([home, "reviews", uuid(58) <> ".json"]))
 
       assert {_, status} =

@@ -4,7 +4,7 @@ defmodule AtlasCodeBoundary.Code do
   of it, in Code's own words: resolving a reference, creating a snapshot (C1.0), reading
   one, its manifest and its blobs (C1a), and changing a snapshot's repository and putting
   that change up for review (C1b): a change is created, its blobs put and then sealed into
-  a revision; a review of a sealed change opens it (on GitHub, as a pull request) and an
+  a revision; a review of a sealed change opens it on the repository's provider (GitHub) and an
   update moves an open review to another sealed change.
 
   A caller sees repository names, reference names, `sha256:` snapshot IDs and opaque
@@ -136,6 +136,7 @@ defmodule AtlasCodeBoundary.Code do
     # Carries the attribution "Written by an AI agent".
     field :body, :string, required: true
     # When given, the change's content must have this fingerprint.
+    # Without it, Code does not check the content; Flow (F3) always passes the fingerprint it decided on.
     field :fingerprint, :string
   end
 
@@ -219,7 +220,7 @@ defmodule AtlasCodeBoundary.Code do
     field :target, :string, required: true
     field :revision, :string, required: true
     field :state, {:enum, [:open]}, required: true
-    # Where people see the review (a pull request), when the repository's provider has one.
+    # The review's URL on the repository's provider, when the provider has one.
     field :link, :string
   end
 
