@@ -17,7 +17,7 @@ defmodule AtlasFlow.Runs.Store do
   """
 
   require Logger
-  alias AtlasFlow.Runs.Run
+  alias AtlasFlow.Runs.{HandOver, Run}
   alias AtlasFlow.Talk
   alias AtlasFlow.Activities.Gate
   alias AtlasFlow.Activities.Effect
@@ -203,6 +203,7 @@ defmodule AtlasFlow.Runs.Store do
           |> Map.put("selection", selection)
           |> Map.put("composition", composition)
           |> Map.put("supervision", supervision)
+          |> Map.put("hand_over", hand_over(model, supervision))
 
         {config,
          validate_selection(config, flows) || two_writers(selection) || refused || unsupported}
@@ -230,6 +231,20 @@ defmodule AtlasFlow.Runs.Store do
         {nil, nil}
     end
   end
+
+  # The To-Do a hand-over gives its holder (`AtlasFlow.Runs.HandOver`), as configured
+  # (`config :atlas_flow, :hand_over`) and checked against the model's relations: nil
+  # when the runs are not supervised, it is not configured, or the model has no part to
+  # assign it through. A hand-over then makes no To-Do.
+  defp hand_over(_model, nil), do: nil
+
+  defp hand_over(model, supervision),
+    do:
+      HandOver.resolve(
+        Application.get_env(:atlas_flow, :hand_over),
+        model.relations(),
+        supervision["holders"]
+      )
 
   # The links and counts Flow applies: those whose child subflow is selected and some
   # selected subflow runs on the parent; the tallies whose parent a selected subflow runs
@@ -631,17 +646,26 @@ defmodule AtlasFlow.Runs.Store do
     case run["pending"]["writes"] do
       [_ | _] ->
         stored(config, d, run, :all, flow, now, remaining, fn d, run ->
-          with :ok <- send_writes(run["pending"]["writes"]),
-               do:
-                 step(
-                   config,
-                   d,
-                   run,
-                   put_in(run, ["pending", "writes"], []),
-                   flow,
-                   now,
-                   remaining
-                 )
+          case send_writes(config, run) do
+            :ok ->
+              step(config, d, run, sent(run), flow, now, remaining)
+
+            # A hand-over's To-Do number was taken meanwhile: the run is stored with the
+            # next one before it is sent again.
+            {:renumbered, writes} ->
+              step(
+                config,
+                d,
+                run,
+                put_in(run, ["pending", "writes"], writes),
+                flow,
+                now,
+                remaining
+              )
+
+            error ->
+              error
+          end
         end)
 
       [] ->
@@ -913,13 +937,76 @@ defmodule AtlasFlow.Runs.Store do
     end
   end
 
-  # Each pending write, in order, under its stable id.
-  defp send_writes(writes) do
+  # Each pending write, in order, under its stable id. A hand-over's To-Do create that
+  # Facts refuses because another fact holds its key (an id taken meanwhile) is
+  # renumbered: `{:renumbered, writes}`, the run's pending writes with the next free
+  # number, stored before they are sent again.
+  defp send_writes(config, run) do
+    writes = run["pending"]["writes"]
+
     Enum.reduce_while(writes, :ok, fn write, :ok ->
       case Talk.put(write["kind"], write["content"], write["id"]) do
-        {:stored, _} -> {:cont, :ok}
-        error -> {:halt, {:error, {:pending, error}}}
+        {:stored, _} ->
+          {:cont, :ok}
+
+        error ->
+          case taken(config, write) do
+            :ours -> {:cont, :ok}
+            {:taken, number} -> {:halt, {:renumbered, renumber(config, run, write, number)}}
+            :unknown -> {:halt, {:error, {:pending, error}}}
+          end
       end
+    end)
+  end
+
+  # Whether a refused write is a hand-over's To-Do whose key another fact holds: by what
+  # Facts holds at the key (`AtlasFlow.Runs.HandOver.met/2`), with the next free number
+  # when it is taken.
+  defp taken(config, write) do
+    with true <- config["hand_over"] != nil and HandOver.create?(write),
+         %{"fact" => fact} <-
+           Talk.transition_read(write["kind"], %{
+             "key" => write["content"]["key"],
+             "plain" => true
+           }),
+         :taken <- HandOver.met(write, fact) do
+      after_ = write["hand_over"]["number"] + 1
+
+      case Talk.transition_read(write["kind"], %{"plain" => true}) do
+        %{"facts" => facts} ->
+          {:taken,
+           max(after_, HandOver.next_number(config["hand_over"], Enum.map(facts, & &1["key"])))}
+
+        _ ->
+          {:taken, after_}
+      end
+    else
+      :ours -> :ours
+      _ -> :unknown
+    end
+  end
+
+  defp renumber(config, run, write, number),
+    do:
+      HandOver.renumber(
+        config["hand_over"],
+        run,
+        run["pending"]["writes"],
+        write["hand_over"]["input"],
+        number
+      )
+
+  # The run once its pending writes are acknowledged: none left, and its hand-over, once
+  # its To-Do was among them, done.
+  defp sent(run) do
+    hand_over = run["pending"]["hand_over"]
+
+    run
+    |> put_in(["pending", "writes"], [])
+    |> then(fn sent ->
+      if is_map(hand_over) and HandOver.holds?(run["pending"]["writes"], hand_over["input"]),
+        do: update_in(sent, ["pending"], &Map.delete(&1, "hand_over")),
+        else: sent
     end)
   end
 
@@ -1218,7 +1305,7 @@ defmodule AtlasFlow.Runs.Store do
   # A pickup or hand-over input is taken first, ahead of the mechanism branches: it moves
   # no state, so a run that runs a task takes it too (`AtlasFlow.Runs.Run.supervision/4`).
   defp next(config, run, flow, subject, now, inputs) do
-    case Run.supervision(run, flow, inputs, supervision_check(config, run)) do
+    case Run.supervision(run, flow, inputs, supervision_check(config, run), to_do(config)) do
       :none -> moved(config, run, flow, subject, now, inputs)
       taken -> taken
     end
@@ -1293,6 +1380,27 @@ defmodule AtlasFlow.Runs.Store do
 
       _ ->
         nil
+    end
+  end
+
+  # How a hand-over's To-Do is built (`AtlasFlow.Runs.HandOver.writes/5`): numbered after
+  # the To-Dos Facts holds now. nil when no hand-over makes one.
+  defp to_do(config) do
+    case config["hand_over"] do
+      nil ->
+        nil
+
+      spec ->
+        fn run, hand_over, from ->
+          case Talk.transition_read(spec["kind"], %{"plain" => true}) do
+            %{"facts" => facts} ->
+              number = HandOver.next_number(spec, Enum.map(facts, & &1["key"]))
+              {:ok, HandOver.writes(spec, run, hand_over, from, number)}
+
+            _ ->
+              :unavailable
+          end
+        end
     end
   end
 
