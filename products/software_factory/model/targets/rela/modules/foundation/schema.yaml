@@ -318,6 +318,36 @@ entities:
       base_revision:
         type: string
         description: The revision of that snapshot
+      lease_id:
+        type: string
+        description: 'The current lease of its work: opaque to the Runtime, never reused'
+      runtime:
+        type: string
+        description: The Runtime that holds the current lease
+      expires_at:
+        type: datetime
+        description: When the current lease expires, as granted; renewals are not written
+      granted_at:
+        type: datetime
+        description: When the current lease was granted
+      lease_state:
+        type: string
+        description: 'Where the current lease is: offered, accepted, started, ended, done, expired, lost or cancel requested'
+      lease_end_cause:
+        type: string
+        description: 'Why Flow ended the lease: supervision, expired or late accept'
+      lease_revision:
+        type: integer
+        description: The revision of the last report recorded on the lease
+      lease_report:
+        type: string
+        description: The sha256 of the last recorded report
+      result_manifest:
+        type: string
+        description: The sha256 of its result's stored manifest
+      result_state:
+        type: string
+        description: 'Whether its result is stored: incomplete, complete, too large or invalid'
   task_attempt:
     label: Task attempt
     plural: task_attempts
@@ -369,6 +399,9 @@ entities:
       ended_at:
         type: datetime
         description: When it ended
+      lease_id:
+        type: string
+        description: The lease of its task the attempt ran under
   worker_execution:
     label: Worker execution
     plural: worker_executions
