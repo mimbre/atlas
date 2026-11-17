@@ -1,0 +1,35 @@
+# Software: Package, a bounded part of an issue that becomes one pull request (F1.4).
+# It waits for its instructions, then one author task (role developer, deep_coding, on a
+# fresh develop of the repository, bin/check after the work) runs on the machinery its
+# Assignment names. It ends authored, check_failed or stuck; an abandoned task is stuck.
+flows:
+  package:
+    label: Package
+    subject: package
+    per_subject: one
+    start:
+      - on: create
+    initial: waiting
+    states:
+      waiting:
+        label: Waiting
+        on:
+          change:
+            - { to: authoring, when: "not (entity.instructions == '')" }
+      authoring:
+        label: Authoring
+        on:
+          change:
+            - { to: authored, roles: [atlas-flow], when: "entity.task_result == 'completed'" }
+            - { to: check_failed, roles: [atlas-flow], when: "entity.task_result == 'check_failed'" }
+            - { to: stuck, roles: [atlas-flow], when: "entity.task_result == 'stuck'" }
+            - { to: stuck, roles: [atlas-flow], when: "entity.task_result == 'abandoned'" }
+      authored:
+        label: Authored
+        final: true
+      check_failed:
+        label: Check failed
+        final: true
+      stuck:
+        label: Stuck
+        final: true

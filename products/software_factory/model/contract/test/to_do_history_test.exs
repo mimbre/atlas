@@ -34,7 +34,8 @@ defmodule Model.ToDoHistoryTest do
         end)
       end)
 
-    assert Map.delete(document["subflows"], "to_do") == expected
+    # F1.4's package is new too: no history before its own digest.
+    assert Map.drop(document["subflows"], ["to_do", "package"]) == expected
     # F0's migration from the restored digest is approved against the base that has it
     # (develop's digests.json, model-base); this older base predates that digest. The one
     # from the slice-14 digest straight to F0's is approved here.
@@ -44,9 +45,13 @@ defmodule Model.ToDoHistoryTest do
     assert [problem] = RunIdentity.base_problems(@base, document, migrations)
     assert problem =~ "migrate pr_review from 05019b5d"
 
-    for environment <- ~w(prod test) do
-      entry = document["subflows"]["to_do"][environment]
-      assert entry["states"] == ~w(done open wont_do)
+    for {name, states} <- [
+          {"to_do", ~w(done open wont_do)},
+          {"package", ~w(authored authoring check_failed stuck waiting)}
+        ],
+        environment <- ~w(prod test) do
+      entry = document["subflows"][name][environment]
+      assert entry["states"] == states
 
       assert entry["history"] == [
                %{"digest" => entry["digest"], "states" => entry["states"]}

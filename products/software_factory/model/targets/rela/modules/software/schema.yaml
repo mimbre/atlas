@@ -90,6 +90,9 @@ entities:
       state:
         type: string
         description: The state of its run, as Flow keeps it
+      task_result:
+        type: string
+        description: 'Flow: how its author task ended (completed, check_failed, stuck, abandoned); the run''s own, never written'
   pull_request:
     label: Pull request
     plural: pull_requests

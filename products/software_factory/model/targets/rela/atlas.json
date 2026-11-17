@@ -617,6 +617,12 @@
             "flow"
           ]
         },
+        "task_result": {
+          "label": "Task result",
+          "set_by": [
+            "flow"
+          ]
+        },
         "title": {
           "set_by": [
             "flow"

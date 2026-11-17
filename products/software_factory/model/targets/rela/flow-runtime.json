@@ -146,6 +146,21 @@
           }
         ]
       },
+      "package": {
+        "choices": [],
+        "choice_states": [],
+        "migrations": [],
+        "subject": "package",
+        "projection": {
+          "on": "assignment",
+          "state_field": "flow_state",
+          "handover_field": "handover",
+          "owner_relation": "assigned_to",
+          "field": "expected"
+        },
+        "admission": [],
+        "imports": []
+      },
       "pull_request": {
         "choices": [],
         "choice_states": [],

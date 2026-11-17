@@ -4,6 +4,11 @@ defmodule RelaDSL.Flow.Code do
   values and the filling of a text. Pure; it knows no kind and no field by name.
   """
 
+  @doc "A negated condition: `not` of a truth, `:missing` when it cannot be known."
+  def negate(true), do: false
+  def negate(false), do: true
+  def negate(_), do: :missing
+
   @doc "One step of a condition: `op` on two values, `:missing` when it cannot be known."
   def op(op, a, b) do
     case {op, a, b} do
