@@ -625,6 +625,26 @@ defmodule AtlasFlow.Runs.Run do
     |> Map.put("last_input", Map.merge(last, %{"version" => 1, "input" => input["key"]}))
   end
 
+  @doc """
+  `run` after one transition from `previous`, with its supervisor (`supervised_by`)
+  cleared when the transition left the supervised span `previous` was in (work
+  acquisition decision 2026-11-17 §5.6, S2). `spans` are the run's subflow's spans, each
+  with its `states`. The supervisor stays only while both states lie in one span: a move
+  to another span, even an adjacent one, out of every span or into a final state clears
+  it, and only a new pickup sets it again. A new generation (another run key) is not a
+  transition of `previous`, and starts without a supervisor of its own (`new/6`).
+  """
+  def leave_span(previous, run, spans) do
+    kept? =
+      previous["key"] != run["key"] or
+        Enum.any?(spans, fn span ->
+          states = span["states"] || []
+          previous["state"] in states and run["state"] in states
+        end)
+
+    if kept?, do: run, else: Map.delete(run, "supervised_by")
+  end
+
   # Flow's own writer role: the branches a subflow takes `by: :atlas` and its `await`s.
   @writer "atlas-flow"
 

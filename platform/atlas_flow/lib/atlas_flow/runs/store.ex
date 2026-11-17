@@ -771,6 +771,8 @@ defmodule AtlasFlow.Runs.Store do
   # One transition taken: the next one from it, or the end of the reaction when it
   # changed nothing. A new generation is another run: the one it ends is stored first.
   defp step(config, d, run, updated, flow, now, remaining) do
+    updated = left_span(config, run, updated)
+
     cond do
       updated == run ->
         finish(config, d, run, flow, now, remaining)
@@ -897,6 +899,17 @@ defmodule AtlasFlow.Runs.Store do
 
       _ ->
         content
+    end
+  end
+
+  # A transition that leaves the run's supervised span clears its supervisor in the run it
+  # leads to (`AtlasFlow.Runs.Run.leave_span/3`), before that run is stored: the write that
+  # stores the new state also clears the supervisor link (`supervisor_link/4`), so no
+  # write holds the new state with the old supervisor.
+  defp left_span(config, run, updated) do
+    case config["supervision"] do
+      %{} = s -> Run.leave_span(run, updated, (s["spans"] || %{})[run["flow"]] || [])
+      _ -> updated
     end
   end
 
