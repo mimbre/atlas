@@ -3,7 +3,7 @@ defmodule AtlasCodeBoundary.CodeTest do
 
   alias AtlasCodeBoundary.Code
 
-  # Flow Engine plan §5 C1.0, written out by hand: a change to the contract's shape must
+  # Flow Engine plan §5 C1.0 and C1a, written out by hand: a change to the contract's shape must
   # change this file too.
 
   defp f(name, type, required \\ false), do: %{name: name, type: type, required: required}
@@ -31,10 +31,15 @@ defmodule AtlasCodeBoundary.CodeTest do
         f(:revision, :string),
         f(:path, :string),
         f(:paths, {:list, :string}),
-        f(:entries, {:list, :unsupported_entry})
+        f(:entries, {:list, :unsupported_entry}),
+        f(:snapshot_id, :string),
+        f(:sha256, :string),
+        f(:successor, :string)
       ],
       resolve_reference_input: [f(:repository, :string, true), f(:reference, :string, true)],
       create_snapshot_input: [f(:repositories, {:list, :snapshot_repository}, true)],
+      get_manifest_input: [f(:snapshot_id, :string, true)],
+      get_blob_input: [f(:snapshot_id, :string, true), f(:sha256, :string, true)],
       resolved_reference: [
         f(:repository, :string, true),
         f(:reference, :string, true),
@@ -43,7 +48,24 @@ defmodule AtlasCodeBoundary.CodeTest do
       snapshot: [
         f(:snapshot_id, :string, true),
         f(:repositories, {:list, :snapshot_repository}, true)
-      ]
+      ],
+      manifest_entry: [
+        f(:repository, :string, true),
+        f(:path, :string, true),
+        f(:kind, {:enum, [:file, :symlink]}, true),
+        f(:mode, :string, true),
+        f(:size, :integer, true),
+        f(:sha256, :string, true),
+        f(:target, :string)
+      ],
+      manifest: [
+        f(:snapshot_id, :string, true),
+        f(:version, :integer, true),
+        f(:repositories, {:list, :snapshot_repository}, true),
+        f(:entries, {:list, :manifest_entry}, true)
+      ],
+      # A blob's bytes are a stream, never a field held whole.
+      blob: [f(:sha256, :string, true), f(:size, :integer, true), f(:content, :stream, true)]
     }
   end
 
@@ -68,6 +90,26 @@ defmodule AtlasCodeBoundary.CodeTest do
          not_found: :problem,
          unsupported_content: :problem,
          provider_unavailable: :problem
+       ]},
+    get_manifest:
+      {:snapshot, :get_manifest_input,
+       [
+         manifest: :manifest,
+         invalid_request: :problem,
+         not_found: :problem,
+         snapshot_superseded: :problem
+       ]},
+    get_blob:
+      {:snapshot, :get_blob_input,
+       [
+         blob: :blob,
+         invalid_request: :problem,
+         not_found: :problem,
+         snapshot_superseded: :problem,
+         forbidden: :problem,
+         unknown_revision: :problem,
+         repository_mismatch: :problem,
+         provider_unavailable: :problem
        ]}
   ]
 
@@ -81,7 +123,7 @@ defmodule AtlasCodeBoundary.CodeTest do
     for {name, fields} <- expected_models(), do: assert(actual[name] == fields, "model #{name}")
   end
 
-  test "starts with exactly resolve_reference and create_snapshot" do
+  test "declares exactly resolve_reference, create_snapshot, get_manifest and get_blob" do
     actual = for c <- schema().capabilities, do: {c.name, {c.right, c.input, outcomes(c)}}
     assert actual == @capabilities
   end

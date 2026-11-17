@@ -10,8 +10,9 @@ defmodule AtlasCode.Service do
   the token digests, `gh`; `:role` added per request by the HTTP routes). Who may call is
   not decided here: the HTTP routes check the bearer token and the reviewing role before
   they call, and the boundary facade (`AtlasCode.Boundary`, implemented by
-  `AtlasCode.Running`) checks its caller's right. `resolve_reference/2` and
-  `create_snapshot/2` are reached through that facade; the others are called directly
+  `AtlasCode.Running`) checks its caller's right. `resolve_reference/2`,
+  `create_snapshot/2` and `get_manifest/2` are reached through that facade, and
+  `get_blob/3` only through it (it has no HTTP route); the others are called directly
   until the contract (`AtlasCodeBoundary.Code`) declares them.
   """
   import AtlasCode,
@@ -35,6 +36,8 @@ defmodule AtlasCode.Service do
     "core.hooksPath=/dev/null"
   ]
   @ustar_size 0o77777777777
+  # The largest chunk of a blob's stream (`get_blob/3`).
+  @chunk_bytes 64 * 1024
 
   @typedoc "The settings of a started Code (see `AtlasCode.start/2`)."
   @type settings :: %{
@@ -145,6 +148,28 @@ defmodule AtlasCode.Service do
   def get_manifest(settings, id) do
     with {:ok, id, manifest} <- manifest(settings.home, id),
          do: {200, Map.put(manifest, "snapshot_id", id)}
+  end
+
+  @doc """
+  One blob of a snapshot, by the sha256 of a manifest entry (a file's bytes, or a symlink's
+  target): `{200, %{"sha256", "size", "content"}}`. No HTTP route serves it; the boundary
+  facade does (`get_blob`).
+
+  Before it answers, the entry's revision is reached as for an archive (fetched into the
+  cache when it is not there), so its refusals are those of `get_archive/3` plus
+  `invalid_request` for a malformed sha256 and `not_found` for one no entry has.
+
+  `content` is a lazy stream of binary chunks of at most #{div(@chunk_bytes, 1024)} KiB: no
+  byte is read until it is enumerated, and then one chunk at a time from `git cat-file`,
+  started in the enumerating process and stopped when the enumeration ends or halts. Each
+  enumeration reads anew. At the end the bytes are checked against the entry's size and
+  sha256; a mismatch, or a cache that lost the object, raises in the enumerating process.
+  """
+  @spec get_blob(settings(), String.t(), String.t()) :: response()
+  def get_blob(settings, id, digest) do
+    if sha256?(digest),
+      do: blob_entry(settings, id, digest),
+      else: error(400, "invalid_request", "sha256 must be 64 lowercase hex characters")
   end
 
   @doc """
@@ -585,6 +610,106 @@ defmodule AtlasCode.Service do
         end)
 
       {:tar, size, fn deliver -> send_tar(deliver, dir, members) end}
+    end
+  end
+
+  # The blob of the first entry with `digest` (entries with the same digest have the same
+  # bytes), named inside its repository's revision.
+  defp blob_entry(settings, id, digest) do
+    with {:ok, id, manifest} <- manifest(settings.home, id),
+         %{"repository" => repository, "path" => full, "size" => size} <-
+           Enum.find(manifest["entries"], &(&1["sha256"] == digest)) ||
+             error(404, "not_found", "No entry of the snapshot has this sha256", %{
+               "snapshot_id" => id,
+               "sha256" => digest
+             }),
+         %{"path" => root, "revision" => handle} =
+           Enum.find(
+             manifest["repositories"],
+             &(&1["repository"] == repository and String.starts_with?(full, &1["path"] <> "/"))
+           ),
+         {:ok, commit} <- revision(settings.home, repository, handle),
+         {:ok, dir} <- acquire(settings, repository, commit, handle) do
+      name = binary_part(full, byte_size(root) + 1, byte_size(full) - byte_size(root) - 1)
+
+      {200,
+       %{
+         "sha256" => digest,
+         "size" => size,
+         "content" => blob_stream(dir, commit <> ":" <> name, size, digest)
+       }}
+    end
+  end
+
+  defp blob_stream(dir, object, size, digest) do
+    Stream.resource(
+      fn -> open_blob(dir, object, size) end,
+      &next_chunk(&1, digest),
+      fn {port, _left, _buffer, _hash} -> close_port(port) end
+    )
+  end
+
+  # Git's complaints come as data, so a cache without the object fails on the header line
+  # (Git output is never passed on).
+  defp open_blob(dir, object, size) do
+    port =
+      Port.open({:spawn_executable, System.find_executable("git")}, [
+        :binary,
+        :exit_status,
+        :stderr_to_stdout,
+        args: ["--git-dir", dir, "cat-file", "--batch"]
+      ])
+
+    try do
+      true = Port.command(port, [object, ?\n])
+      {line, rest} = line(port, "")
+      expected = Integer.to_string(size)
+
+      case String.split(line, " ") do
+        [_oid, "blob", ^expected] -> {port, size, rest, :crypto.hash_init(:sha256)}
+        _ -> raise "the cache does not hold the blob of #{object} with #{size} bytes"
+      end
+    rescue
+      error ->
+        close_port(port)
+        reraise error, __STACKTRACE__
+    end
+  end
+
+  # One chunk per step: of what the pipe delivered, at most @chunk_bytes, never past the blob.
+  defp next_chunk({port, 0, buffer, hash} = state, digest) do
+    case buffer do
+      "\n" <> _ ->
+        hex = Base.encode16(:crypto.hash_final(hash), case: :lower)
+        unless hex == digest, do: raise("the blob read has sha256 #{hex}, not #{digest}")
+        {:halt, state}
+
+      "" ->
+        next_chunk({port, 0, receive_data(port), hash}, digest)
+    end
+  end
+
+  defp next_chunk({port, left, "", hash}, digest),
+    do: next_chunk({port, left, receive_data(port), hash}, digest)
+
+  defp next_chunk({port, left, buffer, hash}, _digest) do
+    take = Enum.min([byte_size(buffer), left, @chunk_bytes])
+    <<chunk::binary-size(take), rest::binary>> = buffer
+    {[chunk], {port, left - take, rest, :crypto.hash_update(hash, chunk)}}
+  end
+
+  # Closes a cat-file port and drops what it sent that nobody read.
+  defp close_port(port) do
+    # A port whose git has exited is closed already.
+    if Port.info(port), do: Port.close(port)
+    flush_port(port)
+  end
+
+  defp flush_port(port) do
+    receive do
+      {^port, _message} -> flush_port(port)
+    after
+      0 -> :ok
     end
   end
 

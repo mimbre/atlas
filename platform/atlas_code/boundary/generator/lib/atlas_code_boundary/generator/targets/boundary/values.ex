@@ -4,8 +4,13 @@ defmodule AtlasCodeBoundary.Generator.Targets.Boundary.Values do
   call at run time: building, checking and dumping values against a struct's fields, and
   a facade's call. Every struct module has `__fields__/0`: `[{name, type, required}]`,
   with a type of `:string`, `:integer`, `:boolean`, `:datetime`, `{:enum, [atom]}`,
-  `{:model, module}`, `{:one_of, [{name, module}], tag}`, `{:list, type}` or
-  `{:map, type}`.
+  `{:model, module}`, `{:one_of, [{name, module}], tag}`, `{:list, type}`,
+  `{:map, type}` or `:stream`.
+
+  A `:stream` value is anything that implements `Enumerable` (a list, a `Stream`, a
+  `File.Stream`, a function of arity 2), except a plain map. It is checked without being
+  enumerated, and passed on as it is. `dump/1` refuses to dump a struct with a stream in
+  it: a stream is sent as bytes, never as JSON.
   """
 
   alias AtlasCodeBoundary.Generator.{ContractError, InvalidInput, NotPermitted}
@@ -107,8 +112,17 @@ defmodule AtlasCodeBoundary.Generator.Targets.Boundary.Values do
     for {field, type, _required} <- module.__fields__(),
         (item = Map.fetch!(value, field)) != nil,
         into: %{},
-        do: {Atom.to_string(field), dump(type, item)}
+        do: {Atom.to_string(field), dump(type, item, module, field)}
   end
+
+  defp dump(:stream, _value, module, field),
+    do:
+      raise(
+        ContractError,
+        "#{inspect(module)}.#{field} is a :stream; a stream is sent as bytes, never dumped as JSON"
+      )
+
+  defp dump(type, value, _module, _field), do: dump(type, value)
 
   defp dump(:datetime, value), do: DateTime.to_iso8601(value)
   defp dump({:enum, _values}, value), do: Atom.to_string(value)
@@ -204,6 +218,23 @@ defmodule AtlasCodeBoundary.Generator.Targets.Boundary.Values do
     case DateTime.from_iso8601(value) do
       {:ok, datetime, _offset} -> {:ok, datetime}
       {:error, _} -> {:error, ["#{at} must be an ISO-8601 datetime, got #{inspect(value)}"]}
+    end
+  end
+
+  # Never enumerated: only its type is looked at.
+  defp value(:stream, value, at, _mode) do
+    cond do
+      is_map(value) and not is_struct(value) ->
+        {:error, ["#{at} must be a stream (an Enumerable), got a map"]}
+
+      is_function(value) and not is_function(value, 2) ->
+        {:error, ["#{at} must be a stream (an Enumerable), got a function of another arity"]}
+
+      Enumerable.impl_for(value) != nil ->
+        {:ok, value}
+
+      true ->
+        {:error, ["#{at} must be a stream (an Enumerable), got #{inspect(value)}"]}
     end
   end
 

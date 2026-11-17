@@ -6,8 +6,8 @@ defmodule AtlasCode.Boundary do
   input before it calls `AtlasCode.Running`, and checks what that answers against the
   declared outcomes.
 
-  A caller is `{id, rights}`; `:snapshot` lets it resolve references and create
-  snapshots. Its calls act on the Code instance registered in this BEAM
+  A caller is `{id, rights}`; `:snapshot` lets it resolve references, create snapshots and
+  read them (`get_manifest`, and `get_blob`, whose bytes come as a lazy stream). Its calls act on the Code instance registered in this BEAM
   (`AtlasCode.settings/0`).
   """
   use AtlasCodeBoundary.Generator.Targets.Boundary,

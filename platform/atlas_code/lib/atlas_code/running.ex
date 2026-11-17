@@ -21,7 +21,14 @@ defmodule AtlasCode.Running do
   """
   use AtlasCode.Boundary.Implementation
 
-  alias AtlasCode.Boundary.{CreateSnapshotInput, Outcome, ResolveReferenceInput}
+  alias AtlasCode.Boundary.{
+    CreateSnapshotInput,
+    GetBlobInput,
+    GetManifestInput,
+    Outcome,
+    ResolveReferenceInput
+  }
+
   alias AtlasCode.Service
 
   @impl true
@@ -49,6 +56,35 @@ defmodule AtlasCode.Running do
       "repository_mismatch" => Outcome.RepositoryMismatch,
       "not_found" => Outcome.NotFound,
       "unsupported_content" => Outcome.UnsupportedContent,
+      "provider_unavailable" => Outcome.ProviderUnavailable
+    })
+  end
+
+  @impl true
+  def get_manifest(client, %GetManifestInput{snapshot_id: id}) do
+    client
+    |> settings()
+    |> Service.get_manifest(id)
+    |> outcome(Outcome.Manifest, %{
+      "invalid_request" => Outcome.InvalidRequest,
+      "not_found" => Outcome.NotFound,
+      "snapshot_superseded" => Outcome.SnapshotSuperseded
+    })
+  end
+
+  # The blob's content stays the Service's lazy stream: the facade passes it on unread.
+  @impl true
+  def get_blob(client, %GetBlobInput{snapshot_id: id, sha256: digest}) do
+    client
+    |> settings()
+    |> Service.get_blob(id, digest)
+    |> outcome(Outcome.Blob, %{
+      "invalid_request" => Outcome.InvalidRequest,
+      "not_found" => Outcome.NotFound,
+      "snapshot_superseded" => Outcome.SnapshotSuperseded,
+      "forbidden" => Outcome.Forbidden,
+      "unknown_revision" => Outcome.UnknownRevision,
+      "repository_mismatch" => Outcome.RepositoryMismatch,
       "provider_unavailable" => Outcome.ProviderUnavailable
     })
   end

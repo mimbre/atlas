@@ -273,6 +273,11 @@ defmodule AtlasCodeBoundary.Generator.Targets.Boundary.Translations do
 
   defp conversion!(:string, {:enum, _values}, _renames, _where, _context), do: :to_enum
 
+  # No model type is a stream: the facade's caller supplies it.
+  defp conversion!(_model, :stream, _renames, where, context),
+    do:
+      context.fail.("#{context.at}: #{where}: a boundary :stream takes no model field; supply it")
+
   defp conversion!({:list, model}, {:list, boundary}, renames, where, context),
     do: {:list, conversion!(model, boundary, renames, where, context)}
 

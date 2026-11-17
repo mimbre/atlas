@@ -60,9 +60,13 @@ defmodule AtlasCodeBoundary.Generator.Targets.Boundary do
     4. calls the implementation's function of the same name with the client and the
        built input struct;
     5. returns its result when it is one of the capability's outcome structs and
-       validates, and raises `ContractError` otherwise.
+       validates, and raises `ContractError` otherwise. A `:stream` field is checked by
+       its type only and never enumerated, so the stream reaches the caller unconsumed.
   - `@type client :: {id :: term(), rights :: [atom()] | MapSet.t(atom())}`: an opaque
     caller, as the facade receives it and passes it on.
+
+  A `:stream` field has the type `Enumerable.t()`. Its struct's `dump/1` raises
+  `ContractError`: a stream is sent as bytes, never as JSON.
 
   **Compile-time checks.** The first is `use F.Implementation`'s `@before_compile` check
   above, run whenever the implementation compiles. As a backstop, the facade registers an
@@ -597,7 +601,9 @@ defmodule AtlasCodeBoundary.Generator.Targets.Boundary do
   defp resolve({:one_of, members, tag: tag}, models),
     do: {:one_of, Enum.map(members, &{Atom.to_string(&1), models[&1]}), tag}
 
-  defp resolve(type, _models) when type in [:string, :integer, :boolean, :datetime], do: type
+  defp resolve(type, _models) when type in [:string, :integer, :boolean, :datetime, :stream],
+    do: type
+
   defp resolve(model, models), do: {:model, Map.fetch!(models, model)}
 
   defp union_type?({:list, inner}), do: union_type?(inner)
@@ -609,6 +615,7 @@ defmodule AtlasCodeBoundary.Generator.Targets.Boundary do
   defp typespec(:integer), do: quote(do: integer())
   defp typespec(:boolean), do: quote(do: boolean())
   defp typespec(:datetime), do: quote(do: DateTime.t())
+  defp typespec(:stream), do: quote(do: Enumerable.t())
   defp typespec({:enum, values}), do: union(values)
   defp typespec({:model, module}), do: quote(do: unquote(module).t())
 
