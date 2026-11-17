@@ -176,6 +176,27 @@ defmodule AtlasFlow.ResultsTest do
       assert Results.room(0, server) == 20
     end
 
+    test "a stale room: exactly the store's free bytes are stored, free + 1 is refused before a byte",
+         ctx do
+      server = start(ctx, store_cap: 1_000, result_cap: 2_000)
+      stale = Results.room(0, server)
+      {:ok, _} = Results.put_manifest(change_set(["one"]), server)
+      assert put(server, String.duplicate("a", 80), room: stale) == :stored
+      free = Results.room(0, server)
+      assert free > 0 and free < stale - 80
+
+      over = String.duplicate("e", free + 1)
+      assert put(server, over, room: stale, content: reporting(over)) == :too_large
+      assert reads() == 0
+      assert Path.wildcard(Path.join([ctx.dir, "tmp", "*"])) == []
+      refute Map.has_key?(Store.scan(ctx.dir).blobs, sha(over))
+
+      fit = String.duplicate("f", free)
+      assert put(server, fit, room: stale, content: reporting(fit)) == :stored
+      assert reads() == free
+      assert Results.room(0, server) == 0
+    end
+
     test "the store cap holds while bytes stream, even against a stale room", ctx do
       server = start(ctx, store_cap: 10, result_cap: 1_000)
       bytes = String.duplicate("s", 20)
