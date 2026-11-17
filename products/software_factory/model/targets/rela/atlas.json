@@ -800,6 +800,18 @@
             "flow"
           ]
         },
+        "expires_at": {
+          "label": "Expires at",
+          "set_by": [
+            "flow"
+          ]
+        },
+        "granted_at": {
+          "label": "Granted at",
+          "set_by": [
+            "flow"
+          ]
+        },
         "input": {
           "multiline": true,
           "set_by": [
@@ -807,6 +819,36 @@
           ]
         },
         "kind": {
+          "set_by": [
+            "flow"
+          ]
+        },
+        "lease_end_cause": {
+          "label": "Lease end cause",
+          "set_by": [
+            "flow"
+          ]
+        },
+        "lease_id": {
+          "label": "Lease id",
+          "set_by": [
+            "flow"
+          ]
+        },
+        "lease_report": {
+          "label": "Lease report",
+          "set_by": [
+            "flow"
+          ]
+        },
+        "lease_revision": {
+          "label": "Lease revision",
+          "set_by": [
+            "flow"
+          ]
+        },
+        "lease_state": {
+          "label": "Lease state",
           "set_by": [
             "flow"
           ]
@@ -833,7 +875,24 @@
             "flow"
           ]
         },
+        "result_manifest": {
+          "label": "Result manifest",
+          "set_by": [
+            "flow"
+          ]
+        },
+        "result_state": {
+          "label": "Result state",
+          "set_by": [
+            "flow"
+          ]
+        },
         "role": {
+          "set_by": [
+            "flow"
+          ]
+        },
+        "runtime": {
           "set_by": [
             "flow"
           ]
@@ -886,6 +945,12 @@
         },
         "harness_version": {
           "label": "Harness version",
+          "set_by": [
+            "flow"
+          ]
+        },
+        "lease_id": {
+          "label": "Lease id",
           "set_by": [
             "flow"
           ]
