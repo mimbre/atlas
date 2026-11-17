@@ -147,9 +147,12 @@ defmodule AtlasCode do
           document_root: String.to_charlist(settings.home),
           modules: [__MODULE__],
           max_body_size: @blob_bytes,
-          # Bodies over one chunk reach `do/1` in pieces, so the token and the per-endpoint
-          # limit are checked before more than 64 KiB is buffered.
+          # Content-Length bodies over one chunk reach `do/1` in pieces, so the token and the
+          # per-endpoint limit are checked before more than 64 KiB is buffered. inets would
+          # buffer a chunked body whole first, so `AtlasCode.Http` makes inets refuse it (501)
+          # before reading it.
           max_client_body_chunk: 64 * 1024,
+          customize: AtlasCode.Http,
           atlas_code: served(settings)
         )
       rescue
