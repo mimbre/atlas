@@ -9,7 +9,8 @@ defmodule AtlasCode.Boundary do
   A caller is `{id, rights}`. `:snapshot` lets it resolve references, create snapshots and
   read them (`get_manifest`, and `get_blob`, whose bytes come as a lazy stream); `:change`
   lets it create changes, put their blobs and seal them; `:review` lets it open a review of
-  a sealed change and update an open one. Its calls act on the Code instance registered in
+  a sealed change (as a draft, too), update an open one, mark a draft ready (`mark_ready`) and
+  read what the provider holds of it (`review_status`). Its calls act on the Code instance registered in
   this BEAM (`AtlasCode.settings/0`).
   """
   use AtlasCodeBoundary.Generator.Targets.Boundary,

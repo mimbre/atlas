@@ -347,6 +347,68 @@
         }
       ],
       "right": "review"
+    },
+    {
+      "input": "mark_ready_input",
+      "name": "mark_ready",
+      "outcomes": [
+        {
+          "model": "review_ready",
+          "name": "ready"
+        },
+        {
+          "model": "problem",
+          "name": "invalid_request"
+        },
+        {
+          "model": "problem",
+          "name": "not_found"
+        },
+        {
+          "model": "problem",
+          "name": "review_not_open"
+        },
+        {
+          "model": "problem",
+          "name": "forbidden"
+        },
+        {
+          "model": "problem",
+          "name": "provider_unavailable"
+        }
+      ],
+      "right": "review"
+    },
+    {
+      "input": "review_report_input",
+      "name": "review_status",
+      "outcomes": [
+        {
+          "model": "review_report",
+          "name": "report"
+        },
+        {
+          "model": "problem",
+          "name": "invalid_request"
+        },
+        {
+          "model": "problem",
+          "name": "not_found"
+        },
+        {
+          "model": "problem",
+          "name": "review_not_open"
+        },
+        {
+          "model": "problem",
+          "name": "forbidden"
+        },
+        {
+          "model": "problem",
+          "name": "provider_unavailable"
+        }
+      ],
+      "right": "review"
     }
   ],
   "models": [
@@ -685,6 +747,11 @@
           "name": "fingerprint",
           "required": false,
           "type": "string"
+        },
+        {
+          "name": "draft",
+          "required": false,
+          "type": "boolean"
         }
       ],
       "name": "create_review_input"
@@ -718,6 +785,26 @@
         }
       ],
       "name": "update_review_input"
+    },
+    {
+      "fields": [
+        {
+          "name": "review_id",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "name": "mark_ready_input"
+    },
+    {
+      "fields": [
+        {
+          "name": "review_id",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "name": "review_report_input"
     },
     {
       "fields": [
@@ -963,7 +1050,103 @@
         }
       ],
       "name": "review_update"
+    },
+    {
+      "fields": [
+        {
+          "name": "review_id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "revision",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "link",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "name": "review_ready"
+    },
+    {
+      "fields": [
+        {
+          "name": "review_id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "revision",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "state",
+          "required": true,
+          "type": "enum",
+          "values": [
+            "open",
+            "merged",
+            "closed"
+          ]
+        },
+        {
+          "name": "draft",
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "name": "at_revision",
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "name": "ci",
+          "required": true,
+          "type": "enum",
+          "values": [
+            "success",
+            "failure",
+            "pending",
+            "none"
+          ]
+        },
+        {
+          "name": "failing",
+          "required": false,
+          "type": "list of string"
+        },
+        {
+          "name": "approvals",
+          "required": true,
+          "type": "list of string"
+        },
+        {
+          "name": "changes_requested",
+          "required": true,
+          "type": "list of string"
+        },
+        {
+          "name": "mergeable",
+          "required": false,
+          "type": "boolean"
+        },
+        {
+          "name": "behind_base",
+          "required": false,
+          "type": "boolean"
+        },
+        {
+          "name": "link",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "name": "review_report"
     }
   ],
-  "version": "0.3.0"
+  "version": "0.4.0"
 }

@@ -14,7 +14,8 @@ defmodule AtlasCode.Service do
   (`AtlasCodeBoundary.Code`) declares is reached through that facade: `resolve_reference/2`,
   `create_snapshot/2`, `get_manifest/2`, the changes (`create_change/2`,
   `put_change_blob/4`, `seal_change/2`) and the reviews (`create_review/2`,
-  `update_review/2`); `get_blob/3` only through it (it has no HTTP route). The others
+  `update_review/2`, `mark_ready/2`, `review_status/2`); `get_blob/3`, `mark_ready/2` and
+  `review_status/2` only through it (they have no HTTP route). The others
   (`health/0`, `get_archive/3`, `create_integration/2`) are called directly.
   """
   import AtlasCode,
@@ -164,7 +165,7 @@ defmodule AtlasCode.Service do
       error(
         400,
         "invalid_request",
-        ~s(Body must be {"review_id", "change_id", "target", "title", "body", "fingerprint"?})
+        ~s(Body must be {"review_id", "change_id", "target", "title", "body", "fingerprint"?, "draft"?})
       )
 
   def malformed(:update_review),
@@ -254,6 +255,35 @@ defmodule AtlasCode.Service do
   @spec update_review(settings(), term()) :: response()
   def update_review(settings, request),
     do: with({:ok, request} <- update_request(request), do: update(settings, request))
+
+  @doc """
+  A draft review made ready for review (K2): `{200, %{"review_id", "revision",
+  "review_url"?}}`. On GitHub the pull is read first: a closed or merged one is
+  `review_not_open`, one that is no longer a draft is ready without a write; otherwise
+  `"ready" => "asked"` is journaled in the review's record before `gh pr ready`, and
+  `"marked"` after it. A review without a provider is ready once its record says so.
+  The caller has checked the reviewing right.
+  """
+  @spec mark_ready(settings(), term()) :: response()
+  def mark_ready(settings, id) do
+    if uuid?(id),
+      do: locked(Path.join(settings.home, "reviews"), fn -> ready(settings, id) end),
+      else: error(400, "invalid_request", "review_id must be a lowercase UUID")
+  end
+
+  @doc """
+  What the review's provider holds of it now (K2), read only: `{200, %{"review_id",
+  "revision", "state", "draft", "at_revision", "ci", "failing"?, "approvals",
+  "changes_requested", "mergeable"?, "behind_base"?, "review_url"?}}`. CI is read on the
+  pull's head exactly as `AtlasCode.Effects.GitHub.conclusion/2` reads it for `integrate`.
+  The caller has checked the reviewing right.
+  """
+  @spec review_status(settings(), term()) :: response()
+  def review_status(settings, id) do
+    if uuid?(id),
+      do: report(settings, id),
+      else: error(400, "invalid_request", "review_id must be a lowercase UUID")
+  end
 
   @doc "`POST /v1/integrations`. The caller has checked the reviewing role."
   @spec create_integration(settings(), term()) :: response()
@@ -1319,6 +1349,8 @@ defmodule AtlasCode.Service do
     end
   end
 
+  @review_members ~w(review_id change_id target title body fingerprint draft)
+
   defp review_request(request) do
     case request do
       %{
@@ -1329,13 +1361,18 @@ defmodule AtlasCode.Service do
         "body" => text
       } =
           request
-      when (map_size(request) == 5 or
-              (map_size(request) == 6 and is_map_key(request, "fingerprint"))) and
-             is_binary(id) and is_binary(change) and is_binary(target) and is_binary(title) and
-             is_binary(text) ->
+      when map_size(request) in 5..7 and is_binary(id) and is_binary(change) and
+             is_binary(target) and is_binary(title) and is_binary(text) ->
         cond do
+          # Only `fingerprint` and `draft` are optional; any other member is malformed.
+          Map.drop(request, @review_members) != %{} ->
+            malformed(:create_review)
+
           not uuid?(id) ->
             error(400, "invalid_request", "review_id must be a lowercase UUID")
+
+          not is_boolean(Map.get(request, "draft", false)) ->
+            error(400, "invalid_request", "draft must be a boolean")
 
           not optional_fingerprint?(request) ->
             error(400, "invalid_request", "fingerprint must be fpr_<64 lowercase hex characters>")
@@ -1361,8 +1398,9 @@ defmodule AtlasCode.Service do
               ~s(body must carry the attribution "Written by an AI agent")
             )
 
+          # draft false is the review without draft, as before K2: one request, one record.
           true ->
-            {:ok, request}
+            {:ok, if(request["draft"] == false, do: Map.delete(request, "draft"), else: request)}
         end
 
       _ ->
@@ -1411,7 +1449,7 @@ defmodule AtlasCode.Service do
 
   # Repository and revision come only from the sealed change. A location is claimed by the
   # first review that records it, even if that review later failed.
-  defp review_record(settings, %{"review_id" => id, "change_id" => change_id} = request) do
+  defp review_record(settings, %{"change_id" => change_id} = request) do
     dir = Path.join([settings.home, "changes", change_id])
 
     case {File.read(Path.join(dir, "request.json")), File.read(Path.join(dir, "revision"))} do
@@ -1425,7 +1463,7 @@ defmodule AtlasCode.Service do
 
       {{:ok, json}, {:ok, revision}} ->
         %{"repository" => repository} = stored = JSON.decode!(json)
-        location = "work/review-" <> id
+        location = location(request)
         reviews = Path.join(settings.home, "reviews")
 
         names =
@@ -1463,6 +1501,15 @@ defmodule AtlasCode.Service do
         end
     end
   end
+
+  # Where a review is pushed. A draft is Flow's (F3): it gets its own prefix, which the
+  # laptop's auto-lander skips, so only Flow (through `integrate`) merges it, also once ready.
+  @flow_location "work/flow-review-"
+  @doc false
+  def flow_location, do: @flow_location
+
+  defp location(%{"review_id" => id, "draft" => true}), do: @flow_location <> id
+  defp location(%{"review_id" => id}), do: "work/review-" <> id
 
   defp optional_fingerprint?(%{"fingerprint" => value}),
     do: is_binary(value) and Regex.match?(~r/\Afpr_[0-9a-f]{64}\z/, value)
@@ -1616,18 +1663,10 @@ defmodule AtlasCode.Service do
   defp pull_request(gh, file, %{"request" => request, "location" => location} = record, %{
          slug: slug
        }) do
-    executable = System.find_executable(gh)
-
-    run = fn args ->
-      System.cmd(executable, args,
-        cd: Path.dirname(file),
-        env: [{"GH_PROMPT_DISABLED", "1"}, {"GIT_TERMINAL_PROMPT", "0"}],
-        stderr_to_stdout: true
-      )
-    end
+    run = gh_runner(gh, Path.dirname(file))
 
     url =
-      executable &&
+      run &&
         case run.([
                "pr",
                "list",
@@ -1662,16 +1701,33 @@ defmodule AtlasCode.Service do
         )
   end
 
-  defp create_pull_request(run, file, slug, location, %{
-         "target" => base,
-         "title" => title,
-         "body" => body
-       }) do
+  # `gh` as Code calls it, in `dir`: never prompting; nil when the executable is not there.
+  # Its credentials are gh's own (`gh auth`), as for the review's push.
+  defp gh_runner(gh, dir) do
+    if executable = System.find_executable(gh) do
+      fn args ->
+        System.cmd(executable, args,
+          cd: dir,
+          env: [{"GH_PROMPT_DISABLED", "1"}, {"GIT_TERMINAL_PROMPT", "0"}],
+          stderr_to_stdout: true
+        )
+      end
+    end
+  end
+
+  defp create_pull_request(
+         run,
+         file,
+         slug,
+         location,
+         %{"target" => base, "title" => title, "body" => body} = request
+       ) do
     body_file = file <> ".body.tmp"
     File.write!(body_file, body)
 
     try do
       args = ["pr", "create", "--repo=" <> slug, "--head=" <> location, "--base=" <> base]
+      args = if request["draft"] == true, do: args ++ ["--draft"], else: args
 
       case run.(args ++ ["--title=" <> title, "--body-file=" <> body_file]) do
         {output, 0} ->
@@ -1700,6 +1756,247 @@ defmodule AtlasCode.Service do
 
     {200, if(url = record["review_url"], do: Map.put(reply, "review_url", url), else: reply)}
   end
+
+  # -- mark_ready and review_status (K2) --
+
+  # The open review's record and its pull on GitHub (`%{slug, number}`), or nil for a review
+  # without one: a remote that is not GitHub, or a publication migrated without a pull.
+  defp provided_review(settings, id, what) do
+    file = Path.join([settings.home, "reviews", id <> ".json"])
+
+    case File.read(file) do
+      {:error, :enoent} ->
+        error(404, "not_found", "Review not found", %{"review_id" => id})
+
+      {:ok, json} ->
+        case JSON.decode!(json) do
+          %{"phase" => "open", "repository" => repository} = record ->
+            case settings.repositories[repository] do
+              nil ->
+                error(403, "forbidden", "Repository is not allowed", %{"repository" => repository})
+
+              url ->
+                {:ok, file, record, pull_address(github_slug(url), record["review_url"])}
+            end
+
+          _ ->
+            error(409, "review_not_open", "Only an open review can be #{what}", %{
+              "review_id" => id
+            })
+        end
+    end
+  end
+
+  defp pull_address(slug, url) when is_binary(slug) and is_binary(url) do
+    case Regex.run(~r{/pull/([0-9]+)\z}, url) do
+      [_, number] -> %{slug: slug, number: number}
+      nil -> nil
+    end
+  end
+
+  defp pull_address(_slug, _url), do: nil
+
+  # The pull is read before any write: a closed one is not open, one that is no longer a draft
+  # is ready as it is. Otherwise "asked" is journaled before `gh pr ready` and "marked" after,
+  # so a repeat after a lost answer reads the pull again rather than trusting the journal.
+  defp ready(settings, id) do
+    with {:ok, file, record, pull} <- provided_review(settings, id, "marked ready") do
+      case pull do
+        nil ->
+          ready_reply(journal_ready(file, record, "marked"))
+
+        %{slug: slug, number: number} ->
+          run = gh_runner(settings.gh, Path.dirname(file))
+
+          with {:ok, p} <- gh_json(run, ["api", "repos/#{slug}/pulls/#{number}"], :map) do
+            cond do
+              p["merged"] == true or p["state"] != "open" ->
+                error(409, "review_not_open", "The review's pull request is closed", %{
+                  "review_id" => id
+                })
+
+              p["draft"] != true ->
+                ready_reply(journal_ready(file, record, "marked"))
+
+              true ->
+                record = journal_ready(file, record, "asked")
+
+                case run.(["pr", "ready", number, "--repo=" <> slug]) do
+                  {_output, 0} ->
+                    ready_reply(journal_ready(file, record, "marked"))
+
+                  {_output, status} ->
+                    error(
+                      503,
+                      "provider_unavailable",
+                      "gh pr ready failed with exit status #{status}"
+                    )
+                end
+            end
+          end
+      end
+    end
+  end
+
+  defp journal_ready(_file, %{"ready" => value} = record, value), do: record
+  defp journal_ready(file, record, value), do: save(file, Map.put(record, "ready", value))
+
+  defp ready_reply(record) do
+    reply = %{"review_id" => record["request"]["review_id"], "revision" => record["revision"]}
+    {200, if(url = record["review_url"], do: Map.put(reply, "review_url", url), else: reply)}
+  end
+
+  # Read only. A review without a pull is what Code holds: open, a draft until marked ready.
+  defp report(settings, id) do
+    with {:ok, file, record, pull} <- provided_review(settings, id, "reported") do
+      reply = %{"review_id" => id, "revision" => record["revision"]}
+      reply = if url = record["review_url"], do: Map.put(reply, "review_url", url), else: reply
+
+      case pull do
+        nil ->
+          {200,
+           Map.merge(reply, %{
+             "state" => "open",
+             "draft" => record["request"]["draft"] == true and record["ready"] != "marked",
+             "at_revision" => true,
+             "ci" => "none",
+             "approvals" => [],
+             "changes_requested" => []
+           })}
+
+        %{slug: slug, number: number} ->
+          run = gh_runner(settings.gh, Path.dirname(file))
+
+          with {:ok, provided} <- provided(run, slug, number),
+               do: {200, Map.merge(reply, provided_report(record, provided))}
+      end
+    end
+  end
+
+  # Everything is read on the pull's head as GitHub has it now.
+  defp provided(run, slug, number) do
+    with {:ok, p} <- gh_json(run, ["api", "repos/#{slug}/pulls/#{number}"], :map),
+         {:ok, head} <- pull_head(p),
+         {:ok, reviews} <-
+           gh_json(run, ["api", "repos/#{slug}/pulls/#{number}/reviews?per_page=100"], :list),
+         :ok <- one_page(reviews),
+         {:ok, runs} <-
+           gh_json(run, ["api", "repos/#{slug}/commits/#{head}/check-runs?per_page=100"], :map),
+         {:ok, status} <-
+           gh_json(run, ["api", "repos/#{slug}/commits/#{head}/status?per_page=100"], :map),
+         {:ok, behind} <- behind_base(run, slug, p, head) do
+      {:ok,
+       %{
+         pull: p,
+         head: head,
+         reviews: reviews,
+         ci: AtlasCode.Effects.GitHub.conclusion(runs, status),
+         behind: behind
+       }}
+    end
+  end
+
+  # shortcut: one page of reviews; a pull with more is not read rather than misread.
+  defp one_page(reviews) when length(reviews) < 100, do: :ok
+
+  defp one_page(_reviews),
+    do: error(503, "provider_unavailable", "The pull has too many reviews to read")
+
+  defp pull_head(%{"head" => %{"sha" => head}}) when is_binary(head) do
+    if sha?(head), do: {:ok, head}, else: unreadable_pull()
+  end
+
+  defp pull_head(_pull), do: unreadable_pull()
+
+  defp unreadable_pull,
+    do: error(503, "provider_unavailable", "GitHub answered an unreadable pull")
+
+  # Only an open pull is compared with its base.
+  defp behind_base(run, slug, %{"state" => "open", "base" => %{"ref" => base}} = p, head)
+       when is_binary(base) do
+    if p["merged"] == true do
+      {:ok, nil}
+    else
+      path = "repos/#{slug}/compare/#{ref(base)}...#{head}"
+
+      with {:ok, c} <- gh_json(run, ["api", path], :map) do
+        case c["behind_by"] do
+          n when is_integer(n) and n >= 0 -> {:ok, n > 0}
+          _ -> error(503, "provider_unavailable", "GitHub answered an unreadable comparison")
+        end
+      end
+    end
+  end
+
+  defp behind_base(_run, _slug, _pull, _head), do: {:ok, nil}
+
+  defp provided_report(%{"repository" => repository, "revision" => revision}, provided) do
+    %{pull: p, head: head, reviews: reviews, ci: ci, behind: behind} = provided
+    latest = latest_reviews(reviews)
+
+    report = %{
+      "state" =>
+        cond do
+          p["merged"] == true -> "merged"
+          p["state"] == "open" -> "open"
+          true -> "closed"
+        end,
+      "draft" => p["draft"] == true,
+      "at_revision" => handle(repository, head) == revision,
+      "ci" => ci_name(ci),
+      # An approval counts only for the head it approved; requested changes stand until the
+      # reviewer reviews again or the review is dismissed.
+      "approvals" =>
+        for({login, %{"state" => "APPROVED", "commit_id" => ^head}} <- latest, do: login),
+      "changes_requested" => for({login, %{"state" => "CHANGES_REQUESTED"}} <- latest, do: login)
+    }
+
+    report
+    |> put_known("failing", with({:failure, names} <- ci, do: names, else: (_ -> nil)))
+    |> put_known("mergeable", if(is_boolean(p["mergeable"]), do: p["mergeable"]))
+    |> put_known("behind_base", behind)
+  end
+
+  defp ci_name(:success), do: "success"
+  defp ci_name(:pending), do: "pending"
+  defp ci_name({:failure, _names}), do: "failure"
+
+  defp put_known(map, _key, nil), do: map
+  defp put_known(map, key, value), do: Map.put(map, key, value)
+
+  # Each reviewer's latest review that decides (approves, asks for changes or was dismissed),
+  # sorted by login; comments and pending reviews decide nothing.
+  defp latest_reviews(reviews) do
+    reviews
+    |> Enum.filter(fn r ->
+      is_map(r) and is_binary(get_in(r, ["user", "login"])) and is_integer(r["id"]) and
+        r["state"] in ["APPROVED", "CHANGES_REQUESTED", "DISMISSED"]
+    end)
+    |> Enum.sort_by(& &1["id"])
+    |> Enum.reduce(%{}, fn r, acc -> Map.put(acc, r["user"]["login"], r) end)
+    |> Enum.sort()
+  end
+
+  # One `gh api` read, decoded and of the expected shape; anything else tells nothing.
+  # gh output is never returned.
+  defp gh_json(nil, _args, _shape),
+    do: error(503, "provider_unavailable", "gh is not available")
+
+  defp gh_json(run, args, shape) do
+    with {output, 0} <- run.(args),
+         {:ok, value} <- JSON.decode(output),
+         true <- (shape == :map and is_map(value)) or (shape == :list and is_list(value)) do
+      {:ok, value}
+    else
+      {_output, status} when is_integer(status) ->
+        error(503, "provider_unavailable", "gh api failed with exit status #{status}")
+
+      _ ->
+        error(503, "provider_unavailable", "GitHub answered something unreadable")
+    end
+  end
+
+  defp ref(name), do: URI.encode(name, &(URI.char_unreserved?(&1) or &1 == ?/))
 
   defp update_request(request) do
     case request do

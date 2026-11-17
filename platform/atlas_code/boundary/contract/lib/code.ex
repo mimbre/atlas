@@ -5,7 +5,13 @@ defmodule AtlasCodeBoundary.Code do
   one, its manifest and its blobs (C1a), and changing a snapshot's repository and putting
   that change up for review (C1b): a change is created, its blobs put and then sealed into
   a revision; a review of a sealed change opens it on the repository's provider (GitHub) and an
-  update moves an open review to another sealed change.
+  update moves an open review to another sealed change. A review may open as a draft (Flow's
+  publications, F3), which is marked ready once it is approved and green; its status reports
+  the provider's approvals, requested changes and CI on the review's head (K2).
+
+  A draft review is Flow's: Code opens it at a location of its own (`work/flow-review-<id>`, not
+  the `work/review-<id>` of other reviews), so nothing but Flow, through Code's `integrate`
+  effect, merges it, also after it is marked ready.
 
   A caller sees repository names, reference names, `sha256:` snapshot IDs and opaque
   `rev_<64 hex>` revision handles; commits, remotes and Git output stay inside Code. A
@@ -16,7 +22,7 @@ defmodule AtlasCodeBoundary.Code do
   """
   use AtlasCodeBoundary.Generator.Schema
 
-  version "0.3.0"
+  version "0.4.0"
 
   ## Values
 
@@ -138,6 +144,9 @@ defmodule AtlasCodeBoundary.Code do
     # When given, the change's content must have this fingerprint.
     # Without it, Code does not check the content; Flow (F3) always passes the fingerprint it decided on.
     field :fingerprint, :string
+    # true: the review opens as a draft, at Flow's own location (see the moduledoc). Left out
+    # or false: a review ready at once, as before. Part of the request a repeat must match.
+    field :draft, :boolean
   end
 
   defmodel :update_review_input do
@@ -151,6 +160,16 @@ defmodule AtlasCodeBoundary.Code do
     field :revision, :string, required: true
     # The fingerprint of the change's content, decided on.
     field :fingerprint, :string, required: true
+  end
+
+  defmodel :mark_ready_input do
+    # An open review.
+    field :review_id, :string, required: true
+  end
+
+  defmodel :review_report_input do
+    # An open review.
+    field :review_id, :string, required: true
   end
 
   ## Outcomes
@@ -233,6 +252,41 @@ defmodule AtlasCodeBoundary.Code do
     field :previous_revision, :string, required: true
     field :revision, :string, required: true
     field :state, {:enum, [:open]}, required: true
+    field :link, :string
+  end
+
+  # A review that is no longer a draft (or never was one).
+  defmodel :review_ready do
+    field :review_id, :string, required: true
+    # The review's current revision.
+    field :revision, :string, required: true
+    field :link, :string
+  end
+
+  # What the review's provider holds of it now. Approvals, requested changes and CI are those
+  # of the provider's head of the review, which `at_revision` says is the review's revision;
+  # a review without a provider is open, without approvals and with CI `none`.
+  defmodel :review_report do
+    field :review_id, :string, required: true
+    # The review's current revision, as Code moved it.
+    field :revision, :string, required: true
+    field :state, {:enum, [:open, :merged, :closed]}, required: true
+    field :draft, :boolean, required: true
+    # false when someone else moved the review's head: what follows is not about `revision`.
+    field :at_revision, :boolean, required: true
+    # As Code's integrate reads CI: success only when every check and status passed; none
+    # when the review has no provider.
+    field :ci, {:enum, [:success, :failure, :pending, :none]}, required: true
+    # The names of the failed checks and statuses, sorted; only when `ci` is failure.
+    field :failing, {:list, :string}
+    # The reviewers whose latest review approves the head, sorted.
+    field :approvals, {:list, :string}, required: true
+    # The reviewers whose latest review asks for changes, sorted.
+    field :changes_requested, {:list, :string}, required: true
+    # Left out while the provider has not worked it out, and without a provider.
+    field :mergeable, :boolean
+    # Whether the target has moved on since the head; left out unless open on a provider.
+    field :behind_base, :boolean
     field :link, :string
   end
 
@@ -368,6 +422,33 @@ defmodule AtlasCodeBoundary.Code do
       provider_unavailable: :problem,
       location_moved: :problem,
       update_refused: :problem
+    ],
+    right: :review
+
+  # A draft review becomes ready for review, once: a repeat, or a review that never was a
+  # draft, answers ready without changing it again.
+  defcapability :mark_ready,
+    input: :mark_ready_input,
+    outcomes: [
+      ready: :review_ready,
+      invalid_request: :problem,
+      not_found: :problem,
+      review_not_open: :problem,
+      forbidden: :problem,
+      provider_unavailable: :problem
+    ],
+    right: :review
+
+  # Reads only; changes nothing.
+  defcapability :review_status,
+    input: :review_report_input,
+    outcomes: [
+      report: :review_report,
+      invalid_request: :problem,
+      not_found: :problem,
+      review_not_open: :problem,
+      forbidden: :problem,
+      provider_unavailable: :problem
     ],
     right: :review
 end

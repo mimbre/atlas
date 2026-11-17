@@ -29,9 +29,11 @@ defmodule AtlasCode.Running do
     CreateSnapshotInput,
     GetBlobInput,
     GetManifestInput,
+    MarkReadyInput,
     Outcome,
     PutChangeBlobInput,
     ResolveReferenceInput,
+    ReviewReportInput,
     SealChangeInput,
     UpdateReviewInput
   }
@@ -181,6 +183,36 @@ defmodule AtlasCode.Running do
       "provider_unavailable" => Outcome.ProviderUnavailable,
       "location_moved" => Outcome.LocationMoved,
       "update_refused" => Outcome.UpdateRefused
+    })
+  end
+
+  @impl true
+  def mark_ready(client, %MarkReadyInput{review_id: id}) do
+    client
+    |> settings()
+    |> Service.mark_ready(id)
+    |> link()
+    |> outcome(Outcome.Ready, %{
+      "invalid_request" => Outcome.InvalidRequest,
+      "not_found" => Outcome.NotFound,
+      "review_not_open" => Outcome.ReviewNotOpen,
+      "forbidden" => Outcome.Forbidden,
+      "provider_unavailable" => Outcome.ProviderUnavailable
+    })
+  end
+
+  @impl true
+  def review_status(client, %ReviewReportInput{review_id: id}) do
+    client
+    |> settings()
+    |> Service.review_status(id)
+    |> link()
+    |> outcome(Outcome.Report, %{
+      "invalid_request" => Outcome.InvalidRequest,
+      "not_found" => Outcome.NotFound,
+      "review_not_open" => Outcome.ReviewNotOpen,
+      "forbidden" => Outcome.Forbidden,
+      "provider_unavailable" => Outcome.ProviderUnavailable
     })
   end
 

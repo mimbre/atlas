@@ -78,7 +78,8 @@ defmodule AtlasCodeBoundary.CodeTest do
         f(:target, :string, true),
         f(:title, :string, true),
         f(:body, :string, true),
-        f(:fingerprint, :string)
+        f(:fingerprint, :string),
+        f(:draft, :boolean)
       ],
       update_review_input: [
         f(:update_id, :string, true),
@@ -86,6 +87,27 @@ defmodule AtlasCodeBoundary.CodeTest do
         f(:change_id, :string, true),
         f(:revision, :string, true),
         f(:fingerprint, :string, true)
+      ],
+      mark_ready_input: [f(:review_id, :string, true)],
+      review_report_input: [f(:review_id, :string, true)],
+      review_ready: [
+        f(:review_id, :string, true),
+        f(:revision, :string, true),
+        f(:link, :string)
+      ],
+      review_report: [
+        f(:review_id, :string, true),
+        f(:revision, :string, true),
+        f(:state, {:enum, [:open, :merged, :closed]}, true),
+        f(:draft, :boolean, true),
+        f(:at_revision, :boolean, true),
+        f(:ci, {:enum, [:success, :failure, :pending, :none]}, true),
+        f(:failing, {:list, :string}),
+        f(:approvals, {:list, :string}, true),
+        f(:changes_requested, {:list, :string}, true),
+        f(:mergeable, :boolean),
+        f(:behind_base, :boolean),
+        f(:link, :string)
       ],
       resolved_reference: [
         f(:repository, :string, true),
@@ -244,6 +266,26 @@ defmodule AtlasCodeBoundary.CodeTest do
          provider_unavailable: :problem,
          location_moved: :problem,
          update_refused: :problem
+       ]},
+    mark_ready:
+      {:review, :mark_ready_input,
+       [
+         ready: :review_ready,
+         invalid_request: :problem,
+         not_found: :problem,
+         review_not_open: :problem,
+         forbidden: :problem,
+         provider_unavailable: :problem
+       ]},
+    review_status:
+      {:review, :review_report_input,
+       [
+         report: :review_report,
+         invalid_request: :problem,
+         not_found: :problem,
+         review_not_open: :problem,
+         forbidden: :problem,
+         provider_unavailable: :problem
        ]}
   ]
 
@@ -260,6 +302,10 @@ defmodule AtlasCodeBoundary.CodeTest do
   test "declares exactly the snapshot, change and review capabilities, each with its right" do
     actual = for c <- schema().capabilities, do: {c.name, {c.right, c.input, outcomes(c)}}
     assert actual == @capabilities
+  end
+
+  test "is version 0.4.0: draft, mark_ready and review_status (K2)" do
+    assert schema().version == "0.4.0"
   end
 
   test "refusals are outcomes; the facade answers malformed input itself" do
