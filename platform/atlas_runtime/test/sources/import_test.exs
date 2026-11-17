@@ -8,7 +8,9 @@ defmodule AtlasRuntime.Sources.ImportTest do
   """
   use ExUnit.Case, async: true
 
+  alias AtlasRuntime.Model.Work, as: M
   alias AtlasRuntime.Sources.{Import, Store}
+  alias AtlasRuntime.Work.Frozen
   alias AtlasRuntime.Workspaces
 
   @quota 10_000_000
@@ -637,6 +639,161 @@ defmodule AtlasRuntime.Sources.ImportTest do
 
       refute Store.has?(home, "flow-prod", readme)
       refute File.exists?(Path.join(home, "snapshots"))
+    end
+  end
+
+  # The base a Runtime reports (the frozen change set's `base`, which Flow stores as reported
+  # and later serves back as an input's change set base) is the id of the baseline it
+  # imported: sha256 of the canonical version 3 manifest of the served entries, nothing of the
+  # Runtime in it. So two Runtimes that import one served base agree on it, and a change set
+  # one Runtime froze imports on any other (work-source-base-meaning, Main's option A).
+  describe "the imported base id: content-derived, equal on every Runtime" do
+    # A second, independent Runtime home: another path (another length, a space in it).
+    defp other_home do
+      parent =
+        Path.join(System.tmp_dir!(), "atlas-import-other-#{System.unique_integer([:positive])}")
+
+      home = Path.join([parent, "a Runtime", "home"])
+      File.mkdir_p!(home)
+
+      on_exit(fn ->
+        System.cmd("chmod", ["-R", "u+w", parent])
+        File.rm_rf!(parent)
+      end)
+
+      home
+    end
+
+    defp snapshot_manifest(home, "sha256:" <> hex),
+      do: File.read!(Path.join([home, "snapshots", hex, "manifest.json"]))
+
+    test "one served base imports to the identical id in two Runtime homes", %{home: home} do
+      {line, blobs} = shared_fixture()
+      manifest = sha256(line)
+      served = Map.put(blobs, manifest, line)
+      other = other_home()
+
+      # Other homes, sources, lease base_ids and chunkings: none of it is in the id.
+      assert {:ok, %{baseline_id: id}} =
+               Import.base(home, policy("flow-prod"), lease(manifest), fetch(source(served)))
+
+      assert {:ok, %{baseline_id: ^id}} =
+               Import.base(
+                 other,
+                 policy("flow-other"),
+                 put_in(lease(manifest), [:work, :input, :base, :base_id], "b-other"),
+                 fetch(source(served), 3)
+               )
+
+      assert id == @fixture_baseline
+      assert snapshot_manifest(home, id) == snapshot_manifest(other, id)
+      assert id == "sha256:" <> sha256(snapshot_manifest(other, id))
+    end
+
+    test "the same files served in another entry order import to the same id", %{home: home} do
+      {line, blobs} = shared_fixture()
+      %{"roots" => [root]} = decoded = JSON.decode!(line)
+
+      reordered =
+        JSON.encode!(%{
+          decoded
+          | "roots" => [%{root | "entries" => Enum.reverse(root["entries"])}]
+        }) <>
+          "\n"
+
+      assert reordered != line
+
+      assert {:ok, %{baseline_id: id}} =
+               Import.base(
+                 other_home(),
+                 policy("flow-prod"),
+                 lease(sha256(reordered)),
+                 fetch(source(Map.put(blobs, sha256(reordered), reordered)))
+               )
+
+      assert {:ok, %{baseline_id: ^id}} =
+               Import.base(
+                 home,
+                 policy("flow-prod"),
+                 lease(sha256(line)),
+                 fetch(source(Map.put(blobs, sha256(line), line)))
+               )
+    end
+
+    test "a change set frozen on one Runtime imports, on its reported base, into a fresh one",
+         %{home: home} do
+      {line, blobs} = shared_fixture()
+      manifest = sha256(line)
+      served = Map.put(blobs, manifest, line)
+
+      # Runtime A, as its executor does: import, compose the folder (the base and an empty
+      # change set), change it, freeze it.
+      assert {:ok, %{baseline_id: id, change_set: nil}} =
+               Import.base(home, policy("flow-prod"), lease(manifest), fetch(source(served)))
+
+      empty = Path.join(home, "empty-change-set.json")
+      File.write!(empty, JSON.encode!(%{"base" => id, "roots" => []}))
+      dest = Path.join([home, "workers", "work-w-1"])
+      File.mkdir_p!(Path.dirname(dest))
+
+      assert {:ok, _} =
+               Workspaces.compose(home, id, empty, Store.blobs_dir(home, "flow-prod"), dest,
+                 timeout_ms: 60_000
+               )
+
+      new = "frozen on A\n"
+      File.write!(Path.join([dest, "app", "new.txt"]), new)
+      File.rm!(Path.join([dest, "app", "empty"]))
+
+      frozen_blobs = Path.join(home, "frozen-blobs")
+      File.mkdir_p!(frozen_blobs)
+      assert {:ok, output} = Workspaces.changes(home, dest, frozen_blobs, timeout_ms: 60_000)
+
+      assert {:ok, frozen} =
+               Frozen.build(output, work_record(id), 1, ~U[2026-11-17 09:00:00.000Z])
+
+      # The base A reports is the id it imported.
+      assert frozen.base == id
+
+      set = Frozen.change_set(frozen)
+      cs_bytes = JSON.encode!(set)
+      ref = %{manifest: sha256(cs_bytes), fingerprints: AtlasChangeset.fingerprints(set)}
+
+      # Runtime B: a fresh home, the same base served afresh, and A's change set on it.
+      b = other_home()
+
+      src =
+        served
+        |> Map.put(ref.manifest, cs_bytes)
+        |> Map.put(sha256(new), File.read!(Path.join(frozen_blobs, sha256(new))))
+
+      assert {:ok, %{baseline_id: ^id, change_set: %{file: file, blobs: blobs_dir}}} =
+               Import.base(b, policy("flow-prod"), lease(manifest, ref), fetch(source(src)))
+
+      b_dest = Path.join([b, "workers", "work-w-2"])
+      File.mkdir_p!(Path.dirname(b_dest))
+      assert {:ok, _} = Workspaces.compose(b, id, file, blobs_dir, b_dest, timeout_ms: 60_000)
+      assert File.read!(Path.join([b_dest, "app", "new.txt"])) == new
+      refute File.exists?(Path.join([b_dest, "app", "empty"]))
+    end
+
+    defp work_record(base_id) do
+      M.WorkRecord.new!(
+        work_id: "work-0123456789abcdef",
+        client: "c1",
+        idempotency_key: "k",
+        revision: 1,
+        sequence: 1,
+        request:
+          M.Request.new!(
+            title: "t",
+            instructions: "t",
+            profile: "light_work",
+            cost_class: :standard,
+            workspace: M.Base.new!(base_id: base_id, permissions: :workspace_write)
+          ),
+        attempts: []
+      )
     end
   end
 
