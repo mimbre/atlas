@@ -443,6 +443,33 @@
     },
     {
       "call": "open",
+      "name": "tasks",
+      "page": "tasks",
+      "params": [
+        "kind",
+        "key"
+      ],
+      "path": "/k/:kind/:key/tasks",
+      "replies": {
+        "page": "view model"
+      },
+      "wire": "open"
+    },
+    {
+      "call": "open",
+      "name": "task",
+      "page": "task",
+      "params": [
+        "task"
+      ],
+      "path": "/tasks/:task",
+      "replies": {
+        "page": "view model"
+      },
+      "wire": "open"
+    },
+    {
+      "call": "open",
       "name": "faults",
       "page": "faults",
       "params": [],
@@ -2997,6 +3024,23 @@
         "relation"
       ],
       "path": "/k/:kind/:key/remove/:relation",
+      "returns": "view model"
+    },
+    {
+      "name": "tasks",
+      "params": [
+        "kind",
+        "key"
+      ],
+      "path": "/k/:kind/:key/tasks",
+      "returns": "view model"
+    },
+    {
+      "name": "task",
+      "params": [
+        "task"
+      ],
+      "path": "/tasks/:task",
       "returns": "view model"
     },
     {

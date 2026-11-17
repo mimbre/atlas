@@ -29,9 +29,13 @@ defmodule AtlasFlow.MixProject do
   # to by configuration (AtlasFlow.Model) and depends on none; its tests write neutral
   # models in the Rela DSL. The Runtime is a test dependency only: the client's contract
   # test starts its real backend in the test (AtlasFlow.Runtime.Client.Http).
+  # Its own boundary contract (boundary/contract, plan §3.3), which the facade
+  # AtlasFlow.Boundary.Tasks is generated from and callers in the same BEAM (Control) call;
+  # it brings its generator (boundary/generator).
   defp deps,
     do: [
       {:atlas_bus, in_umbrella: true},
+      {:atlas_flow_boundary, path: "boundary/contract"},
       {:req, "~> 0.5.16"},
       {:atlas_runtime, in_umbrella: true, only: :test},
       {:rela_dsl, path: "../../products/software_factory/model/generator", only: :test}

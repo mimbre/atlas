@@ -214,6 +214,53 @@ jobs:
       - run: mix code_boundary.gen --check
       - run: mix test --warnings-as-errors
 
+  flow-boundary-generator:
+    name: Flow boundary generator on its own
+    needs: tested-tree
+    if: ${{ !cancelled() && needs.tested-tree.outputs.tested != 'true' }}
+    runs-on: ubuntu-latest
+    env:
+      MIX_ENV: test
+    defaults:
+      run:
+        working-directory: platform/atlas_flow/boundary/generator
+    steps:
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28"
+          elixir-version: "1.18"
+      - name: The generator holds none of Flow's values
+        run: |
+          if grep -rniE 'AtlasFlow\.|AtlasFlowBoundary\.Tasks\b|AtlasRuntime|AtlasCode|AtlasControl|AtlasBFF|boundary/contract|\.\./contract|tasks\.json|list_tasks|get_task|machinery|task_attempt|task_id|native_check|verdict|deep_coding|independent_review|work_id' lib test mix.exs; then
+            echo "::error::platform/atlas_flow/boundary/generator mentions Flow's contract, the Runtime, Code or Control. Keep Flow's values in platform/atlas_flow/boundary/contract."
+            exit 1
+          fi
+      # Compiled and tested without platform/atlas_flow/boundary/contract, on a neutral example contract.
+      - run: mix compile --warnings-as-errors
+      - run: mix format --check-formatted
+      - run: mix test --warnings-as-errors
+
+  flow-boundary-contract:
+    name: Flow boundary contract and its file targets
+    needs: tested-tree
+    if: ${{ !cancelled() && needs.tested-tree.outputs.tested != 'true' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: platform/atlas_flow/boundary/contract
+    steps:
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28"
+          elixir-version: "1.18"
+      - run: mix compile --warnings-as-errors
+      - run: mix format --check-formatted
+      # Fails when a file in platform/atlas_flow/boundary/targets differs from what the contract generates, or is left over.
+      - run: mix flow_boundary.gen --check
+      - run: mix test --warnings-as-errors
+
   contract:
     name: Contract and its file targets
     needs: tested-tree
@@ -623,7 +670,7 @@ jobs:
   # run tested it itself, and never from a fork.
   record-tested-tree:
     name: Record the tested tree
-    needs: [tested-tree, generator, runtime-boundary-generator, runtime-boundary-contract, code-boundary-generator, code-boundary-contract, contract, runtime-model, model-dsl, model-contract, beam, tui, agent, swift, apple, runtime-backend-generator, runtime-backend-contract, frameworks-changeset]
+    needs: [tested-tree, generator, runtime-boundary-generator, runtime-boundary-contract, code-boundary-generator, code-boundary-contract, flow-boundary-generator, flow-boundary-contract, contract, runtime-model, model-dsl, model-contract, beam, tui, agent, swift, apple, runtime-backend-generator, runtime-backend-contract, frameworks-changeset]
     if: >-
       needs.tested-tree.outputs.tested != 'true' && needs.tested-tree.outputs.tree != ''
       && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)

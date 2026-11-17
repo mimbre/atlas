@@ -65,6 +65,9 @@ defmodule AtlasControl.Pages do
       {:ok, page, params} when page in [:workers, :worker, :worker_guidance] ->
         {:worker_page, page, params}
 
+      {:ok, page, params} when page in [:tasks, :task] ->
+        {:task_page, page, params}
+
       {:ok, :kinds, _} ->
         :kinds
 
@@ -272,6 +275,7 @@ defmodule AtlasControl.Pages do
 
   def path(:home), do: Blocks.path(:home)
   def path({:worker_page, page, params}), do: Blocks.path(page, params)
+  def path({:task_page, page, params}), do: Blocks.path(page, params)
   def path(:kinds), do: Blocks.path(:kinds)
   def path({:list, kind}), do: Blocks.path(:list, kind: kind)
   def path({:new, kind}), do: Blocks.path(:new, kind: kind)
@@ -318,6 +322,7 @@ defmodule AtlasControl.Pages do
   def kind_of(:home), do: :all
   def kind_of(:unknown), do: nil
   def kind_of({:worker_page, _, _}), do: nil
+  def kind_of({:task_page, _, _}), do: nil
   def kind_of({:unavailable, _path, _failed}), do: nil
   def kind_of(:kinds), do: nil
   def kind_of(route), do: elem(route, 1)
@@ -342,6 +347,8 @@ defmodule AtlasControl.Pages do
 
   @doc "The reads a route needs: `[{kind, content}]`."
   def reads({:worker_page, _, _}, _m), do: []
+  # Read through Flow's facade as the page renders (AtlasControl.TaskPages), not as Facts reads.
+  def reads({:task_page, _, _}, _m), do: []
 
   def reads(:home, m) do
     case top_kinds(m) do
