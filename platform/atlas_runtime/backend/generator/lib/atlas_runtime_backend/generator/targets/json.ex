@@ -11,7 +11,8 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Json do
        "events": [{"name", "model", "id"?}],
        "targets": [{"name", "carries",
          "resources": [{"method", "path", "capability", "query": {param: field},
-                        "headers": {header: field}, "body": [field]?, "etag": field?}],
+                        "headers": {header: field}, "body": [field]?, "etag": field?,
+                        "upload": {"field", "content_type"}?}],
          "streams": [{"path", "capability", "events": [name], "resume_header", "into",
                       "open": {outcome: event | null}}],
          "statuses": [{"outcome", "status"?, "type"?, "by"?,
@@ -73,6 +74,7 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Json do
     }
     |> put("body", r.body && texts(r.body))
     |> put("etag", Map.get(r, :etag) && text(r.etag))
+    |> put("upload", AtlasRuntimeBackend.Generator.Targets.Routes.upload(r))
   end
 
   defp stream(s) do

@@ -59,7 +59,15 @@ defmodule AtlasRuntimeBackend.Generator.Example.PlugTransport do
         target =
           if request.query == "", do: request.path, else: request.path <> "?" <> request.query
 
-        conn = Plug.Test.conn(request.method, target, request.body || "")
+        # A streamed body (an upload) goes to Plug.Test whole: it reads no socket.
+        body =
+          case request.body do
+            nil -> ""
+            body when is_binary(body) -> body
+            chunks -> chunks |> Enum.to_list() |> IO.iodata_to_binary()
+          end
+
+        conn = Plug.Test.conn(request.method, target, body)
 
         conn =
           Enum.reduce(request.headers, conn, fn {k, v}, conn -> put_req_header(conn, k, v) end)
@@ -148,7 +156,7 @@ defmodule AtlasRuntimeBackend.Generator.Example.GoneApi do
   boundary AtlasRuntimeBackend.Generator.Example.GoneBoundary
 
   expose [:find_book]
-  not_exposed [:lend, :search, :list_books, :give_back, :count, :watch, :scan, :audit]
+  not_exposed [:lend, :search, :list_books, :give_back, :count, :watch, :scan, :deposit, :audit]
 
   rights :socket, [:browse]
 

@@ -48,10 +48,28 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest do
   1. takes the client from `conn.assigns.client`, an opaque `{id, rights}` set by the
      listener (it raises without one);
   2. matches method and path (`AtlasRuntimeBackend.Generator.Paths`), then the query
-     parameters, which must all be declared; no match is the `:no_route` error;
+     parameters, which must all be declared; no match is the `:no_route` error (its
+     detail names the method only: no router text repeats the request's path);
   3. decodes strictly: the query, the bound headers and the body (a JSON object holding
      only the declared body fields, at most 1 MiB) become the input map, which goes
      through the facade's `new/1`. Any failure is the `:invalid` error;
+     A resource with a streamed body (`body: {:stream, field}`) reads no JSON. Its
+     request must have the declared `Content-Type` (parameters aside), else the
+     `:unsupported_media_type` error (415), and a `Content-Length` above the limit is
+     the `:too_large` error (413); in both cases the facade is not called. The limit is
+     `max_bytes:` (asked for each request), but never more than 1 MiB: every body, on
+     every listener, has the same 1 MiB cap as a JSON body. Otherwise the input's
+     `field` is a lazy `Stream.resource` over `Plug.Conn.read_body/2`: each element is
+     the next chunk of the body, read (with a 60 s timeout per read) only when the facade
+     enumerates it, never held whole by the router. It must be enumerated in the
+     process that called the facade, before the facade returns. Reading past the limit
+     raises `AtlasRuntimeBackend.Generator.Targets.Rest.BodyError` (`kind: :too_large`),
+     and a read that fails raises it with `kind: :unreadable`; a facade lets it pass (an
+     `after` may clean up), and the router answers the `:too_large` error, or the
+     `:invalid` error, instead of an outcome. When the router answers before the body
+     has been read to its end (an outcome given early, a refusal, any of those errors),
+     it adds `connection: close` and reads no more of it. No text of these answers
+     repeats what the request sent;
   4. calls the route's facade;
   5. answers with the outcome's declared status and headers. A status of 400 or more
      has an `application/problem+json` body (RFC 9457: `type`, `title`, `status`, then
@@ -88,6 +106,9 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest do
   alias AtlasRuntimeBackend.Generator.Targets.Rest.Runtime
 
   @max_body 1_048_576
+  # A streamed body's errors: each contract answers its own, so routers of several
+  # contracts need not agree on them.
+  @upload_errors [:too_large, :unsupported_media_type]
 
   defmacro __using__(opts) do
     caller = __CALLER__
@@ -123,8 +144,20 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest do
           Enum.find(c.models[capability.input].fields, &(&1.name == field)).type
         end
 
-        case kind do
-          :resource ->
+        case {kind, Map.get(item, :upload)} do
+          {:resource, upload} when upload != nil ->
+            {upload_handler(
+               key,
+               item,
+               capability,
+               input,
+               modules,
+               c.facade,
+               field_type,
+               c.errors
+             ), []}
+
+          {:resource, nil} ->
             tagged = tagged(item, capability, c.statuses, c.outcome_module)
 
             {resource_handler(
@@ -138,7 +171,7 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest do
                tagged
              ), []}
 
-          :stream ->
+          {:stream, _} ->
             stream_handler(
               key,
               item,
@@ -186,14 +219,20 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest do
       |> Enum.group_by(& &1.listener, & &1.rights)
       |> Map.new(fn {listener, lists} -> {listener, lists |> Enum.concat() |> Enum.uniq()} end)
 
-    errors = hd(prepared).errors
+    errors = Map.drop(hd(prepared).errors, @upload_errors)
 
     quote do
       unquote_splicing(for c <- prepared, do: quote(do: require(unquote(c.contract))))
       unquote_splicing(for c <- prepared, do: quote(do: require(unquote(c.facade))))
       @behaviour Plug
       @compile {:nowarn_unused_function,
-                read_json: 2, header: 3, read_headers: 2, with_conn: 2, refused: 2, send_stream: 2}
+                read_json: 2,
+                header: 3,
+                read_headers: 2,
+                with_conn: 2,
+                refused: 2,
+                send_stream: 2,
+                close: 1}
 
       @routes unquote(Macro.escape(Enum.map(routes, &Map.drop(&1, [:contract, :path]))))
       @errors unquote(Macro.escape(errors))
@@ -309,7 +348,10 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest do
 
       defp error(conn, kind, detail) do
         %{status: status, type: type} = Map.fetch!(@errors, kind)
+        problem(conn, status, type, detail)
+      end
 
+      defp problem(conn, status, type, detail) do
         body =
           Runtime.problem(status, type, Plug.Conn.Status.reason_phrase(status), %{
             "detail" => detail
@@ -317,6 +359,10 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest do
 
         send_json(conn, status, "application/problem+json", body)
       end
+
+      # An answer given before a streamed body was read to its end: the connection is
+      # closed after it, so nothing more of the body is read.
+      defp close(conn), do: Plug.Conn.put_resp_header(conn, "connection", "close")
 
       defp send_json(conn, status, content_type, body) do
         conn
@@ -518,7 +564,8 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest do
 
     [first | others] = prepared
 
-    for c <- others, c.errors != first.errors do
+    for c <- others,
+        Map.drop(c.errors, @upload_errors) != Map.drop(first.errors, @upload_errors) do
       fail.(
         "contracts #{first.name} and #{c.name} declare different errors " <>
           "(#{errors_text(first.errors)} against #{errors_text(c.errors)}); one router answers them alike"
@@ -531,6 +578,7 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest do
   defp errors_text(errors),
     do:
       errors
+      |> Map.drop(@upload_errors)
       |> Map.values()
       |> Enum.sort()
       |> Enum.map_join(", ", &"#{&1.kind} #{&1.status} #{&1.type}")
@@ -598,7 +646,7 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest do
         end
       end
 
-    %{
+    row = %{
       contract: c.name,
       method: if(kind == :stream, do: :get, else: item.method),
       path: item.path,
@@ -607,6 +655,19 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest do
       etag: if(kind == :stream, do: nil, else: item.etag),
       outcomes: outcomes
     }
+
+    # A streamed body: its field and content type, and the errors only it answers.
+    case kind == :resource && Map.get(item, :upload) do
+      upload when is_map(upload) ->
+        Map.put(row, :upload, %{
+          field: upload.field,
+          content_type: upload.content_type,
+          errors: for(error <- @upload_errors, do: Map.fetch!(c.errors, error))
+        })
+
+      _none ->
+        row
+    end
   end
 
   defp snake?(name),
@@ -750,6 +811,144 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest do
 
           {:error, conn, reasons} ->
             error(conn, :invalid, Enum.join(reasons, "; "))
+        end
+      end
+    end
+  end
+
+  # A resource whose body is the input's :stream field (`body: {:stream, field}`).
+  defp upload_handler(key, item, capability, input, modules, facade, field_type, errors) do
+    name = capability.name
+
+    %{field: field, content_type: content_type, max_bytes: {limit_module, limit_function}} =
+      item.upload
+
+    %{status: large_status, type: large_type} = Map.fetch!(errors, :too_large)
+    %{status: media_status, type: media_type} = Map.fetch!(errors, :unsupported_media_type)
+
+    param_values =
+      for p <- item.params do
+        type = field_type.(capability, p)
+
+        quote(
+          do:
+            {unquote(Atom.to_string(p)),
+             Runtime.coerce(unquote(Macro.escape(type)), Map.fetch!(params, unquote(p)))}
+        )
+      end
+
+    query_values =
+      for {q, f} <- item.query do
+        type = field_type.(capability, f)
+
+        quote do
+          {unquote(Atom.to_string(f)),
+           case Map.fetch(query, unquote(q)) do
+             {:ok, text} -> Runtime.coerce(unquote(Macro.escape(type)), text)
+             :error -> nil
+           end}
+        end
+      end
+
+    header_reads =
+      for {h, f} <- item.headers do
+        type = field_type.(capability, f)
+        {Atom.to_string(f), h, Macro.escape(type)}
+      end
+
+    quote do
+      defp handle(unquote(key), conn, client, params, query) do
+        _ = params
+        _ = query
+
+        # The resource's limit, within the 1 MiB cap every body has (no route lifts it).
+        limit =
+          min(
+            Runtime.limit!(
+              unquote(limit_module).unquote(limit_function)(),
+              unquote(limit_module),
+              unquote(limit_function)
+            ),
+            unquote(@max_body)
+          )
+
+        cond do
+          not Runtime.media_type?(
+            Plug.Conn.get_req_header(conn, "content-type"),
+            unquote(content_type)
+          ) ->
+            conn
+            |> close()
+            |> problem(
+              unquote(media_status),
+              unquote(media_type),
+              unquote("the body's content type is not #{content_type}")
+            )
+
+          Runtime.longer?(Plug.Conn.get_req_header(conn, "content-length"), limit) ->
+            conn
+            |> close()
+            |> problem(
+              unquote(large_status),
+              unquote(large_type),
+              "the body is larger than #{limit} bytes"
+            )
+
+          true ->
+            case read_headers(conn, unquote(Macro.escape(header_reads))) do
+              {:ok, headers} ->
+                {ref, body} = Runtime.upload(conn, limit, &Plug.Conn.read_body/2)
+
+                values =
+                  Map.new(unquote(param_values))
+                  |> Map.merge(Map.new(unquote(query_values)))
+                  |> Map.merge(Map.new(headers))
+                  |> Map.reject(fn {_k, v} -> is_nil(v) end)
+                  |> Map.put(unquote(Atom.to_string(field)), body)
+
+                try do
+                  case unquote(input).new(values) do
+                    {:ok, input} ->
+                      outcome = unquote(facade).unquote(name)(client, input)
+                      {conn, read?} = Runtime.uploaded(ref)
+                      conn = if read?, do: conn, else: close(conn)
+
+                      case outcome do
+                        %{__struct__: module} when module in unquote(modules) ->
+                          respond(conn, outcome)
+
+                        other ->
+                          refused(conn, other)
+                      end
+
+                    {:error, reasons} ->
+                      conn |> close() |> error(:invalid, Enum.join(reasons, "; "))
+                  end
+                rescue
+                  e in AtlasRuntimeBackend.Generator.Targets.Rest.BodyError ->
+                    unless e.ref == ref, do: reraise(e, __STACKTRACE__)
+                    {conn, _read?} = Runtime.uploaded(ref)
+                    conn = close(conn)
+
+                    case e.kind do
+                      :too_large ->
+                        problem(
+                          conn,
+                          unquote(large_status),
+                          unquote(large_type),
+                          "the body is larger than #{limit} bytes"
+                        )
+
+                      :unreadable ->
+                        error(conn, :invalid, "the body could not be read to its end")
+                    end
+                after
+                  Runtime.discard(ref)
+                end
+
+              {:error, conn, reasons} ->
+                conn |> close() |> error(:invalid, Enum.join(reasons, "; "))
+            end
         end
       end
     end

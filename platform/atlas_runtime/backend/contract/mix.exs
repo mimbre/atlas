@@ -20,13 +20,15 @@ defmodule AtlasRuntimeBackend.MixProject do
       # other languages, in ../targets/rest/<contract>/. Clients of the tcp listener send a
       # bearer token (§8.1); only the work contract declares that listener, and naming a
       # listener a contract declares no rights for fails generation. The OpenAPI has no
-      # servers: the host is configuration. Headers name the contract file from the
-      # repository's root.
+      # servers: the host is configuration. The work source contract (M1) gets its route
+      # description only: its OpenAPI is deferred until a second source implements it.
+      # Headers name the contract file from the repository's root.
       runtime_backend: [
         contracts: [
           work_api: AtlasRuntimeBackend.Work,
           operations_api: AtlasRuntimeBackend.Operations,
-          history_api: AtlasRuntimeBackend.History
+          history_api: AtlasRuntimeBackend.History,
+          work_source_api: AtlasRuntimeBackend.WorkSource
         ],
         targets: [
           routes: "../targets/rest",

@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"syscall"
 	"testing"
@@ -888,5 +889,164 @@ func TestWorkspaceFolderScopeExemptsOnlyTheRuntimeWorkFolder(t *testing.T) {
 	}
 	if RuntimeWorkFolder("", filepath.Join("workers", "work-work-0123456789abcdef")) {
 		t.Error("RuntimeWorkFolder needs a home")
+	}
+}
+
+// workspaceTestStageBase writes the core's staging folder <home>/bases/.staging-<name> for a base of
+// one root holding files (path → content, mode 100644) and returns it. Cleanup makes the read-only
+// baselines removable again.
+func workspaceTestStageBase(t *testing.T, home, name, root string, files map[string]string) string {
+	t.Helper()
+	staging := filepath.Join(home, "bases", ".staging-"+name)
+	if err := os.MkdirAll(filepath.Join(staging, "blobs"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		filepath.WalkDir(home, func(path string, d fs.DirEntry, err error) error {
+			if err == nil && d.IsDir() {
+				os.Chmod(path, 0700)
+			}
+			return nil
+		})
+	})
+	entries, paths := []any{}, []string{}
+	for path := range files {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	for _, path := range paths {
+		sum := sha256.Sum256([]byte(files[path]))
+		digest := hex.EncodeToString(sum[:])
+		entries = append(entries, map[string]any{"path": path, "op": "write", "kind": "file", "mode": "100644", "size": len(files[path]), "sha256": digest})
+		workspaceTestWrite(t, filepath.Join(staging, "blobs", digest), files[path])
+	}
+	line, err := json.Marshal(map[string]any{"format": "atlas-base", "version": 1, "roots": []any{map[string]any{"root": root, "entries": entries}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspaceTestWrite(t, filepath.Join(staging, "entries.json"), string(line)+"\n")
+	return staging
+}
+
+// TestWorkspaceMaterializeAcceptsOnlyTheRuntimeWorkFolder (S5c P6, B10, A16): workspace base-import
+// builds the baseline, and workspace materialize builds a folder from it only at exactly
+// <home>/workers/work-<work_id>, the shape of the core's Folders.path/2, and never onto an existing path.
+func TestWorkspaceMaterializeAcceptsOnlyTheRuntimeWorkFolder(t *testing.T) {
+	root := workspaceTestRoot(t)
+	home := filepath.Join(root, "runtime")
+	workers := filepath.Join(home, "workers")
+	if err := os.MkdirAll(workers, 0700); err != nil {
+		t.Fatal(err)
+	}
+	staging := workspaceTestStageBase(t, home, "1", "atlas", map[string]string{"README.md": "hello\n"})
+	imported := workspaceTestCall(t, "base-import", "--home", home, "--staging", staging).(map[string]any)
+	id, _ := imported["baseline_id"].(string)
+	if !strings.HasPrefix(id, "sha256:") || imported["files"] != 1.0 || imported["bytes"] != 6.0 {
+		t.Fatalf("base-import: %v", imported)
+	}
+	t.Setenv("PATH", "") // no Git, no Code: nothing may run
+
+	work := filepath.Join(workers, "work-work-0123456789abcdef")
+	existing := filepath.Join(workers, "work-work-1111111111111111")
+	if err := os.Mkdir(existing, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(workers, "w1"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(workers, filepath.Join(workers, "link")); err != nil {
+		t.Fatal(err)
+	}
+	paths := func() []string {
+		var names []string
+		filepath.WalkDir(home, func(path string, d fs.DirEntry, err error) error {
+			names = append(names, path)
+			return nil
+		})
+		return names
+	}
+	before := paths()
+	notWorkFolder := "destination_not_allowed"
+	for dest, code := range map[string]string{
+		filepath.Join(workers, "w1"):                                 notWorkFolder, // a slot folder
+		filepath.Join(workers, "w2"):                                 notWorkFolder, // a slot folder not yet created
+		filepath.Join(home, "snapshots", "x"):                        notWorkFolder,
+		filepath.Join(workers, "work-a", "b"):                        notWorkFolder,
+		filepath.Join(workers, "work-a"):                             notWorkFolder,
+		filepath.Join(workers, "work-0123456789abcdef"):              notWorkFolder,
+		filepath.Join(workers, "work-work-0123456789ABCDEF"):         notWorkFolder,
+		filepath.Join(home, "work-work-0123456789abcdef"):            notWorkFolder,
+		filepath.Join(root, "outside"):                               notWorkFolder,
+		workers + "/./work-work-0123456789abcdef":                    notWorkFolder,
+		workers + "//work-work-0123456789abcdef":                     notWorkFolder,
+		filepath.Join(workers, "link", "work-work-0123456789abcdef"): notWorkFolder,
+		"workers/work-work-0123456789abcdef":                         notWorkFolder,
+		existing:                                                     "destination_exists",
+	} {
+		var output bytes.Buffer
+		err := Run([]string{"materialize", "--home", home, "--baseline", id, "--dest", dest}, &output)
+		var failure *snapshot.Failure
+		if !errors.As(err, &failure) || failure.Code != code || output.Len() != 0 {
+			t.Errorf("materialize --dest %s: wanted code %q, got %v (%+v) %s", dest, code, err, failure, output.String())
+		}
+	}
+	// A malformed command is a usage error: refused, and without an invented code.
+	for _, args := range [][]string{{"materialize", "--home", home, "--dest", work}, {"materialize", "--home", home, "--baseline", id, "--dest", work, "--extra", "x"},
+		{"materialize", "--home", home, "--baseline", id, "--baseline", id, "--dest", work}, {"base-import", "--home", home}} {
+		var output bytes.Buffer
+		err := Run(args, &output)
+		var failure *snapshot.Failure
+		if err == nil || errors.As(err, &failure) || output.Len() != 0 {
+			t.Errorf("workspace %v: wanted an uncoded usage error, got %v (%+v) %s", args, err, failure, output.String())
+		}
+	}
+	if after := paths(); !reflect.DeepEqual(after, before) {
+		t.Fatalf("a refused materialize changed the home:\n%v\n%v", before, after)
+	}
+	if entries, err := os.ReadDir(existing); err != nil || len(entries) != 0 {
+		t.Fatalf("the existing destination was changed: %v %v", entries, err)
+	}
+
+	result := workspaceTestCall(t, "materialize", "--home", home, "--baseline", id, "--dest", work)
+	if !reflect.DeepEqual(result, map[string]any{"baseline_id": id, "destination": work}) {
+		t.Fatalf("materialize: %v", result)
+	}
+	if data, err := os.ReadFile(filepath.Join(work, "atlas", "README.md")); err != nil || string(data) != "hello\n" {
+		t.Fatalf("materialized content: %q %v", data, err)
+	}
+	if scope, err := FolderScope(work, home); err != nil || !reflect.DeepEqual(scope["repositories"], []any{"atlas"}) {
+		t.Fatalf("folder scope of the materialized base: %v %v", scope, err)
+	}
+}
+
+// TestWorkspaceFolderScopeOfAnUploadedBaseEqualsItsV2Scope: a v3 baseline's folder scope has the
+// same keys and repositories as a v2 one of the same tree; only the baseline identity differs.
+func TestWorkspaceFolderScopeOfAnUploadedBaseEqualsItsV2Scope(t *testing.T) {
+	root := workspaceTestRoot(t)
+	home := filepath.Join(root, "runtime")
+	workers := filepath.Join(home, "workers")
+	v2 := filepath.Join(workers, "work-work-1111111111111111")
+	workspaceTestMaterialize(t, home, v2) // one empty repository "repo"
+	staging := workspaceTestStageBase(t, home, "1", "repo", map[string]string{})
+	id := workspaceTestCall(t, "base-import", "--home", home, "--staging", staging).(map[string]any)["baseline_id"].(string)
+	v3 := filepath.Join(workers, "work-work-0123456789abcdef")
+	workspaceTestCall(t, "materialize", "--home", home, "--baseline", id, "--dest", v3)
+	t.Setenv("PATH", "")
+	scopes := []map[string]any{}
+	for _, dest := range []string{v2, v3} {
+		scope, err := FolderScope(dest, home)
+		if err != nil {
+			t.Fatalf("%s: %v", dest, err)
+		}
+		if scope["root"] != dest || !strings.HasSuffix(scope["baseline"].(string), strings.TrimPrefix(scope["snapshot_id"].(string), "sha256:")) {
+			t.Fatalf("%s: scope %v", dest, scope)
+		}
+		for _, key := range []string{"root", "snapshot_id", "record", "baseline"} {
+			delete(scope, key)
+		}
+		scopes = append(scopes, scope)
+	}
+	if !reflect.DeepEqual(scopes[0], scopes[1]) {
+		t.Fatalf("v2 scope %v\nv3 scope %v", scopes[0], scopes[1])
 	}
 }
