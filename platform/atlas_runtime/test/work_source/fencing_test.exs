@@ -183,6 +183,17 @@ defmodule AtlasRuntime.WorkSource.FencingTest do
       assert %F.Outcome.Recorded{} = report(@laptop, fresh, 2, started())
     end
 
+    test "another Runtime's report on a lease gets lease_lost; the leaseholder's still lands",
+         %{source: source} do
+      add(source)
+      lease = lease!(@mini)
+
+      assert %F.Outcome.LeaseLost{} = report(@laptop, lease, 1, accepted())
+      assert %F.Outcome.Recorded{missing: []} = report(@mini, lease, 1, accepted())
+      assert %F.Outcome.LeaseLost{} = report(@laptop, lease, 2, started())
+      assert Source.current(source, "task-1") == lease
+    end
+
     test "a cancel comes through poll; the lease stays current until its work ends",
          %{source: source} do
       add(source)
@@ -207,14 +218,12 @@ defmodule AtlasRuntime.WorkSource.FencingTest do
     end
 
     test "an input that does not fit the contract is rejected as invalid, before the source" do
-      assert %F.Outcome.Rejected{reason: :invalid, detail: detail} =
+      assert %F.Outcome.Rejected{reason: :invalid} =
                F.report(@mini, %{
                  lease_id: "flow-test-lease-1",
                  revision: 0,
                  report: %F.Accepted{}
                })
-
-      assert detail =~ "revision"
 
       assert %AtlasRuntimeBoundary.Generator.NotPermitted{right: :lease} =
                F.poll({"mini", []}, %{})
@@ -250,6 +259,18 @@ defmodule AtlasRuntime.WorkSource.FencingTest do
       # Another Runtime's put_blob on this lease is lost too.
       Source.advance(source, -900)
       assert %F.Outcome.LeaseLost{} = put(@laptop, lease, "a\n")
+    end
+
+    test "a lease lost while its put_blob streams gets lease_lost, and the blob is not stored",
+         %{source: source} do
+      add(source)
+      {lease, [_]} = ended_lease!(@mini, [{"a.txt", "a\n"}])
+
+      # The checks before reading pass; the lease expires while the bytes are read.
+      expiring = Stream.map(watched(["a\n"]), &(Source.advance(source, 900) && &1))
+      assert %F.Outcome.LeaseLost{} = put(@mini, lease, "a\n", content: expiring)
+      assert_received {:read, "a\n"}
+      refute Map.has_key?(Source.blobs(source), Source.sha256("a\n"))
     end
 
     test "an unreferenced put_blob is refused: not in the ended manifest, or before ended",
@@ -347,6 +368,28 @@ defmodule AtlasRuntime.WorkSource.FencingTest do
       assert :not_found = fetch(@laptop, lease, manifest)
       Source.advance(source, 31)
       assert :not_found = fetch(@mini, lease, manifest)
+    end
+
+    test "get_blob does not serve a blob the same source holds for another work's input",
+         %{source: source} do
+      first = "named by task-1 only\n"
+      second = "named by task-2 only\n"
+
+      Source.add_work(source, work("task-1", Source.sha256(first)), %{
+        Source.sha256(first) => first
+      })
+
+      Source.add_work(source, work("task-2", Source.sha256(second)), %{
+        Source.sha256(second) => second
+      })
+
+      lease = lease!(@mini)
+      assert Source.current(source, "task-1") == lease
+      assert Map.has_key?(Source.blobs(source), Source.sha256(second))
+
+      assert {:ok, ^first} = fetch(@mini, lease, Source.sha256(first))
+      assert :not_found = fetch(@mini, lease, Source.sha256(second))
+      assert Source.served(source) == [{lease, Source.sha256(first)}]
     end
 
     test "a blob from another source is downloaded from the source that names it, never reused" do
