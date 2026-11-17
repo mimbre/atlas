@@ -410,8 +410,13 @@ defmodule AtlasRuntime.Work.RestartTest do
              F.cancel(client(), %{work_id: work.work_id, mode: "graceful"})
 
     # The leader has ended on the SIGINT; its child keeps the group.
+    # The fake appends to work-ends.jsonl only once it has handled the signal, so the file
+    # may not exist yet: no file is no end yet, until the await's deadline.
     await(fn ->
-      File.read!(Path.join(bench.dir, "work-ends.jsonl")) =~ work.request.instructions
+      case File.read(Path.join(bench.dir, "work-ends.jsonl")) do
+        {:ok, bytes} -> bytes =~ work.request.instructions
+        {:error, :enoent} -> false
+      end
     end)
 
     assert [%{state: :cancelling, cancel_stage: :signalled}] = work!(work.work_id).attempts
