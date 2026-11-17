@@ -6,7 +6,10 @@ defmodule RelaDSL.Control.Model do
     * `shell(settings)`: the title and tabs of the native shell (`shell`), with the tabs
       the environment's settings add (`"tabs"`); nil without `shell`;
     * `start_page/0`: what a client opens on (`start_page`): `assigned` (what is assigned
-      to it), `open` (open work, for everyone) and the start page's `actions`;
+      to it), `open` (open work, for everyone), `open_for_you` (the supervised spans a
+      person may pick a run up in, with their words) and `supervised_by_you` (the runs
+      whose supervisor is the client, through the supervision relation), both nil
+      without supervision, and the start page's `actions`;
     * `kinds/0`: every kind, sorted by name, with its names, its id, its fields in the
       order pages show them, the relations that start at it, and what its pages show
       besides (counts, progress, lateness, the fields a flow keeps to itself);
@@ -40,7 +43,7 @@ defmodule RelaDSL.Control.Model do
         do: RelaDSL.Control.Rules.shell(unquote(Macro.escape(d["shell"])), settings)
 
       @doc "What a client opens on: what is assigned to it, open work and the start actions."
-      def start_page, do: unquote(Macro.escape(start_page(d)))
+      def start_page, do: unquote(Macro.escape(start_page(d, flow_runtime)))
 
       @doc "Every kind, as pages show it, sorted by name."
       def kinds, do: unquote(Macro.escape(kinds))
@@ -394,7 +397,9 @@ defmodule RelaDSL.Control.Model do
 
   # -- The start page ---------------------------------------------------------------------
 
-  defp start_page(d) do
+  defp start_page(d, flow_runtime) do
+    supervision = get_in(flow_runtime || %{}, ["flow_runtime", "supervision"])
+
     assigned =
       case get_in(d, ["start", "assigned"]) do
         %{"relation" => relation} = rule when is_binary(relation) ->
@@ -413,9 +418,55 @@ defmodule RelaDSL.Control.Model do
           nil
       end
 
+    # The flows that need a human supervisor and have none, each with Pick up (work
+    # acquisition design 2026-11-17, §5.8): the spans the subflows declare; and the flows the
+    # client supervises, through the run's relation to its supervisor. Both only when
+    # the model declares supervision.
+    open_for_you =
+      case {get_in(d, ["start", "open_for_you"]), supervision} do
+        {%{} = rule, %{} = s} ->
+          subjects = get_in(flow_runtime, ["flow_runtime", "selection"]) || %{}
+
+          %{
+            title: rule["title"],
+            empty: rule["empty"],
+            count: rule["count"],
+            spans:
+              for {subflow, spans} <- Enum.sort(s["spans"] || %{}), span <- spans do
+                %{
+                  subflow: subflow,
+                  subject: get_in(subjects, [subflow, "subject"]),
+                  span: span["name"],
+                  label: span["label"],
+                  states: span["states"],
+                  with: span["with"] || []
+                }
+              end
+          }
+
+        _ ->
+          nil
+      end
+
+    supervised_by_you =
+      case {get_in(d, ["start", "supervised_by_you"]), supervision} do
+        {%{} = rule, %{} = s} ->
+          %{
+            relation: s["relation"],
+            title: rule["title"],
+            empty: rule["empty"],
+            count: rule["count"]
+          }
+
+        _ ->
+          nil
+      end
+
     %{
       assigned: assigned,
       open: open,
+      open_for_you: open_for_you,
+      supervised_by_you: supervised_by_you,
       actions:
         for(
           {kind, %{"start" => %{"key" => key, "label" => label}}} <-

@@ -115,6 +115,15 @@ defmodule RelaDSL.Schema do
   `deadline:` names the state timer whose due time is presented. It goes to the Atlas
   target only; Rela never sees it.
 
+  ## Supervised spans
+
+  `supervise name, states: [...], label:, with: [subflows]` names states of the subflow
+  that need a human supervisor (work acquisition design 2026-11-17, §5.6): a person picks a run up
+  there, and is its supervisor until the run leaves the span; the runs of `with:`
+  subflows, on facts under the subject, belong to it. Spans are not part of a subflow's
+  definition (`flows.json`, its digest) nor of Rela's `flows.yaml`: the composition
+  maps them, with its `flow_runtime`'s `supervision:`, into `flow-runtime.json`.
+
   ## Gates
 
   A gate is data for the shared Gates framework, which evaluates it, records each
@@ -194,6 +203,10 @@ defmodule RelaDSL.Schema do
       (its own or the subflow's; given twice is ambiguous, and a final state has none);
       an owner names `relation:` or `default:`, `via:` comes with `relation:`, and a
       default is `{kind, key}` or `{kind, config: role}`;
+    * a span names known states that are not final, a state lies in at most one span,
+      a span is named once, and takes only `states:`, `label:` and `with:`; in a
+      subflow with a span, the state a gate's person verdict leads to lies in a span or
+      names its own owner (such as the configured decider), so a fallback is written;
     * a state presents at most once, a final state not at all; `expected` is a text,
       a section is `[field:, heading:]` or `[field:, label:]`, and each answer has a
       key of its own, a
@@ -228,6 +241,7 @@ defmodule RelaDSL.Schema do
   @name ~r/^[a-z][a-z0-9_-]{0,63}$/
   @once [:run_as, :per_subject, :owner, :channel, :initial]
   @owner_keys [:via, :relation, :default, :preserve_kind]
+  @span_keys [:states, :label, :with]
   @present_keys [:expected, :why, :instructions, :section, :answers, :deadline]
 
   @macros [
@@ -240,6 +254,7 @@ defmodule RelaDSL.Schema do
     start: 1,
     start: 2,
     initial: 1,
+    supervise: 2,
     state: 2,
     state: 3,
     final: 1,
@@ -326,6 +341,15 @@ defmodule RelaDSL.Schema do
 
   @doc "The state a new run begins in."
   defmacro initial(state), do: header(:initial, state)
+
+  @doc """
+  A supervised span (work acquisition design 2026-11-17, §5.6): `name`, with `states:` (the states
+  that need a human supervisor), `label:` and `with:` (the subflows whose runs, on
+  facts under the subject, belong to it). A run picked up in a span is supervised
+  until it leaves the span. A subflow may declare several spans; a state lies in at
+  most one.
+  """
+  defmacro supervise(name, opts), do: header(:supervise, {name, opts})
 
   defp header(key, value) do
     quote do
@@ -565,7 +589,7 @@ defmodule RelaDSL.Schema do
     {flows, problems} =
       Enum.reduce(raw, {[], []}, fn r, {flows, problems} ->
         {flow, ps} = build_flow(r, known)
-        {flows ++ [flow], problems ++ ps ++ check_flow(flow)}
+        {flows ++ [flow], problems ++ ps ++ check_flow(flow) ++ check_spans(flow, known)}
       end)
 
     refuse!(problems, file)
@@ -855,6 +879,24 @@ defmodule RelaDSL.Schema do
         %{on: on, when: o[:when], permission: o[:permission], every: o[:every], line: l}
       end
 
+    spans =
+      for {{:supervise, {span, o}}, l} <- header do
+        o = if Keyword.keyword?(o), do: o, else: []
+
+        %{
+          name: span,
+          label: o[:label],
+          states: List.wrap(o[:states]),
+          with: List.wrap(o[:with]),
+          line: l
+        }
+      end
+
+    span_shapes =
+      for {{:supervise, {span, o}}, l} <- header,
+          p <- span_shape_problems(span, o),
+          do: {l, "subflow #{name}: supervise #{span}: " <> p}
+
     {built, problems} =
       Enum.reduce(states, {[], twice}, fn s, {acc, ps} ->
         {state, more} = build_state(s, gates)
@@ -873,7 +915,8 @@ defmodule RelaDSL.Schema do
       initial: get.(:initial),
       line: line,
       initial_line: at.(:initial),
-      states: built
+      states: built,
+      spans: spans
     }
 
     owned = for p <- owner_problems(get.(:owner), "subflow #{name}: "), do: {at.(:owner), p}
@@ -888,7 +931,26 @@ defmodule RelaDSL.Schema do
           target.timers != [],
           do: {target.line, "a person_always destination cannot have a timer"}
 
-    {flow, problems ++ owned ++ fixed_timers}
+    {flow, problems ++ owned ++ fixed_timers ++ span_shapes}
+  end
+
+  defp span_shape_problems(span, opts) do
+    if Keyword.keyword?(opts) do
+      unknown = Keyword.keys(opts) -- @span_keys
+
+      [
+        not valid_name?(span) && "#{inspect(span)} is not a valid name",
+        unknown != [] && "knows no #{list(unknown)} (only states:, label:, with:)",
+        List.wrap(opts[:states]) == [] && "needs states: the states it supervises",
+        not Enum.all?(List.wrap(opts[:states]), &valid_name?/1) &&
+          "states: are state names",
+        not Enum.all?(List.wrap(opts[:with]), &valid_name?/1) && "with: are subflow names",
+        not (opts[:label] == nil or is_binary(opts[:label])) && "label: is a text"
+      ]
+      |> Enum.filter(& &1)
+    else
+      ["takes states:, label: and with:"]
+    end
   end
 
   # The default owner as `%{kind:, key:}`, as an assignee is named, or `%{kind:, config:}`
@@ -1286,6 +1348,71 @@ defmodule RelaDSL.Schema do
     header = header ++ owners(flow, pre)
 
     for {line, p} <- header ++ states ++ reach, p, do: {line, p}
+  end
+
+  # The supervised spans (work acquisition design 2026-11-17, §5.6): each names states of this subflow
+  # that are not final, a state lies in at most one span, and a span is named once.
+  # S3: in a subflow with a span, the state a gate's person verdict leads to lies in a
+  # span, so its escalation goes to the human supervisor; or that state names its own
+  # owner (such as the configured decider), so the fallback is written, never implied.
+  defp check_spans(%{spans: []}, _gates), do: []
+
+  defp check_spans(flow, gates) do
+    by_name = Map.new(flow.states, &{&1.name, &1})
+    pre = "subflow #{flow.name}: "
+    names = Enum.map(flow.spans, & &1.name)
+
+    twice =
+      for {span, i} <- Enum.with_index(flow.spans),
+          span.name in Enum.take(names, i),
+          do: {span.line, pre <> "supervise #{span.name} is given more than once"}
+
+    states =
+      for span <- flow.spans, state <- span.states, is_atom(state) do
+        cond do
+          not Map.has_key?(by_name, state) ->
+            {span.line, pre <> "supervise #{span.name}: names unknown state #{state}"}
+
+          by_name[state].final ->
+            {span.line,
+             pre <>
+               "supervise #{span.name}: state #{state} is final; a final state needs no supervisor"}
+
+          true ->
+            nil
+        end
+      end
+
+    supervised = for span <- flow.spans, state <- span.states, do: {state, span.name}
+
+    shared =
+      for {state, spans} <- Enum.group_by(supervised, &elem(&1, 0), &elem(&1, 1)),
+          length(Enum.uniq(spans)) > 1 do
+        {Enum.find(flow.spans, &(&1.name in spans)).line,
+         pre <> "state #{state} lies in more than one span (#{list(Enum.uniq(spans))})"}
+      end
+
+    in_span = MapSet.new(supervised, &elem(&1, 0))
+
+    escalations =
+      for s <- flow.states,
+          {:gate, %{gate: name}} <- [s.mechanism],
+          gate = Enum.find(gates, &(&1.name == name)),
+          gate != nil,
+          b <- s.branches,
+          b.when == "entity.gate_result == '#{gate.person}'",
+          target = by_name[b.to],
+          target != nil,
+          not MapSet.member?(in_span, target.name),
+          target.owner == nil do
+        {s.line,
+         pre <>
+           "state #{s.name}: gate #{name}'s #{gate.person} verdict leads to #{target.name}, " <>
+           "which lies in no supervised span; add #{target.name} to a span, or give it its own " <>
+           "owner (such as default: {:person, config: :decider}) so the fallback is written"}
+      end
+
+    twice ++ Enum.filter(states, & &1) ++ shared ++ escalations
   end
 
   # Every open item has exactly one owner (D-0054): the subflow names one, and each

@@ -31,10 +31,11 @@ defmodule AtlasBus.BoundaryTest do
   @readers [{"platform/atlas_learn", "AtlasLearn"}]
   # A remote client's contract test against the real backend it calls (ADR 0006: remote
   # clients call a backend, not the Bus). The client app may depend on the backend's app for
-  # its tests only, and only this test file may name it; the client's own code reaches it
-  # over HTTP (plan 2026-11-17 §3.4, F1.1).
+  # its tests only, and only a contract test file listed here may name it; the client's own
+  # code reaches it over HTTP (plan 2026-11-17 §3.4, F1.1). Flow's contract test went with the
+  # S3 TCP listener (work acquisition M0); its test-only dependency goes in M5.
   @test_only_dependencies %{atlas_flow: ["atlas_runtime"]}
-  @contract_tests %{"platform/atlas_flow/test/runtime/http_contract_test.exs" => ["AtlasRuntime"]}
+  @contract_tests %{}
   # Clients of Control: the TUI, and the command line agents drive Atlas with.
   @clients [{"platform/clients/tui", "AtlasTui"}, {"platform/clients/agent", "AtlasAgent"}]
 

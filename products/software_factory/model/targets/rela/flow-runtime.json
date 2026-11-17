@@ -487,7 +487,9 @@
         "status": "status",
         "position": "position",
         "prepared_at": "prepared_at",
-        "applied_at": "applied_at"
+        "applied_at": "applied_at",
+        "operation": "operation",
+        "hand_to": "hand_to"
       },
       "acl": {
         "decider": {
@@ -548,6 +550,32 @@
         "maintainer": "verdict_by",
         "tester": "verdict_by",
         "maintainer": "verdict_by"
+      }
+    },
+    "supervision": {
+      "version": 1,
+      "relation": "supervised_by",
+      "inputs": {
+        "operation": "operation",
+        "operations": [
+          "pickup",
+          "hand_over"
+        ],
+        "hand_to": "hand_to"
+      },
+      "spans": {
+        "issue": [
+          {
+            "name": "build",
+            "label": "Build",
+            "states": [
+              "author"
+            ],
+            "with": [
+              "package"
+            ]
+          }
+        ]
       }
     }
   }

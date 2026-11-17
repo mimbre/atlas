@@ -14,24 +14,20 @@ defmodule AtlasRuntimeBackend.WorkTest do
     assert [%{name: :rest, carries: :entities}] = @schema.targets
   end
 
-  test "§8.1: the socket gets every work right, choose_slot and choose_path included; TCP neither" do
+  # Work acquisition M0 (2026-11-17): the S3 loopback TCP listener is gone; the
+  # owner-only socket is the one listener.
+  test "§8.1: the socket is the one listener and gets every work right, choose_slot and choose_path included" do
     assert @schema.rights == [
              %{
                listener: :socket,
                rights: [:submit, :cancel, :read, :read_all, :choose_slot, :choose_path]
-             },
-             %{listener: :tcp, rights: [:submit, :cancel, :read, :read_all]}
+             }
            ]
   end
 
-  test "§8.1: the TCP ceiling is within the socket's rights and excludes choose_slot and choose_path" do
+  test "§8.1: every right a listener names is a client right of the boundary" do
     rights = Map.new(@schema.rights, &{&1.listener, &1.rights})
 
-    assert MapSet.subset?(MapSet.new(rights.tcp), MapSet.new(rights.socket))
-    refute :choose_slot in rights.tcp
-    # D44: a TCP client never names a path on the Runtime's machine.
-    refute :choose_path in rights.tcp
-    # Every right a listener names is a client right of the boundary.
     [client_rights] =
       for %{name: :client, fields: fields} <- AtlasRuntimeBoundary.Work.__schema__().models,
           %{name: :rights, type: {:list, {:enum, values}}} <- fields,
@@ -156,9 +152,7 @@ defmodule AtlasRuntimeBackend.WorkTest do
     assert Enum.sort(for e <- @rest.errors, do: {e.kind, e.status, e.type}) == [
              {:invalid, 400, "invalid"},
              {:no_route, 404, "no-route"},
-             {:not_permitted, 403, "not-permitted"},
-             {:origin_refused, 403, "origin-refused"},
-             {:unauthenticated, 401, "unauthenticated"}
+             {:not_permitted, 403, "not-permitted"}
            ]
   end
 

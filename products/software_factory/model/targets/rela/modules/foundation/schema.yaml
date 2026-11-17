@@ -126,6 +126,19 @@ types:
     descriptions:
       uncertain: The gate could not tell; its policy took the safe outcome
       error: The evaluation failed or timed out; never a pass
+  flow_input_operation:
+    values:
+    - choice
+    - pickup
+    - hand_over
+    labels:
+      choice: Choice
+      pickup: Pick up
+      hand_over: Hand over
+    descriptions:
+      choice: A choice its owner makes, written on the subject (the default when empty)
+      pickup: Makes the person who sends it the run's human supervisor
+      hand_over: Clears the run's human supervisor and gives hand_to a To-Do to pick it up
 entities:
   person:
     label: Person
@@ -227,8 +240,9 @@ entities:
     plural: machineries
     id_type: manual
     description: |
-      A machinery assignee: one Runtime backend Flow hands tasks to. The id is short and
-      lower case, its name in Flow's configuration, e.g. mac-mini.
+      A machinery assignee: the Runtimes of a flow's human supervisor, which pull its
+      tasks as work. The id is short and lower case, its name in Flow's configuration,
+      e.g. mac-mini.
     properties:
       name:
         type: string
@@ -776,6 +790,12 @@ entities:
         type: string
       applied_at:
         type: string
+      operation:
+        type: flow_input_operation
+        description: 'What it asks of the run: a choice (when empty), a pickup or a hand-over'
+      hand_to:
+        type: string
+        description: A hand-over's person, who is given a To-Do to pick the run up
 relations:
   assigned_to:
     label: assigned to
@@ -812,6 +832,17 @@ relations:
     inverse:
       id: turns_by
       label: turns
+  done_for:
+    label: done for
+    description: The human supervisor of its flow when Flow offered it, copied for audit. Only Flow sets it.
+    from:
+    - task
+    to:
+    - person
+    max_outgoing: 1
+    inverse:
+      id: tasks_done_for
+      label: tasks done for
   attempt_of:
     label: attempt of
     description: An attempt belongs to one task; a task has its attempts.
@@ -910,3 +941,14 @@ relations:
     inverse:
       id: reviewed_verdicts
       label: confirmed verdicts
+  supervised_by:
+    label: supervised by
+    description: 'The human supervisor of a run in a supervised span: who picked it up. Only Flow sets it.'
+    from:
+    - flow_run
+    to:
+    - person
+    max_outgoing: 1
+    inverse:
+      id: supervises
+      label: supervises

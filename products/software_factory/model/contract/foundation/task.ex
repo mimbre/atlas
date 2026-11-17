@@ -3,7 +3,8 @@ defmodule Model.Task do
   One unit of work Flow defines for an assignee (the Flow Engine plan, §3.1 and §3.2).
   Flow names it `TK-<package>-<n>`; that key is also the Runtime work's client key. It
   belongs to a package or an issue (`task_of`, in the composition, since both are
-  software's) and has its attempts (`task_attempt`, `attempt_of`).
+  software's) and has its attempts (`task_attempt`, `attempt_of`). It is done for the
+  human supervisor of its flow (`done_for`), whom Flow copies onto it.
 
   A record: Flow writes every field (`set_by: [:flow]`), and no state of a subflow reads
   it; branches read the run's own task results. The fields Code adds from F3 on (change
@@ -142,4 +143,17 @@ defmodule Model.Task do
     by_hand(false)
     order(:newest)
   end
+
+  # Whom the work is done for (decision 2026-11-17 §5.6): Flow copies the human
+  # supervisor of the task's flow onto it, for audit and subscription; only Flow sets it.
+  relation(:done_for,
+    label: "done for",
+    description:
+      "The human supervisor of its flow when Flow offered it, copied for audit. Only Flow sets it.",
+    from: [:task],
+    to: [:person],
+    max_outgoing: 1,
+    inverse: {:tasks_done_for, "tasks done for"},
+    set_by: [:flow]
+  )
 end

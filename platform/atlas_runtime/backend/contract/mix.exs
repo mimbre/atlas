@@ -17,12 +17,10 @@ defmodule AtlasRuntimeBackend.MixProject do
       ],
       # What `mix runtime_backend.gen` generates, and where (§1.8, §8.5): per contract of
       # the one router (S2), its route description and OpenAPI document, for clients in
-      # other languages, in ../targets/rest/<contract>/. Clients of the tcp listener send a
-      # bearer token (§8.1); only the work contract declares that listener, and naming a
-      # listener a contract declares no rights for fails generation. The OpenAPI has no
-      # servers: the host is configuration. The work source contract (M1) gets its route
-      # description only: its OpenAPI is deferred until a second source implements it.
-      # Headers name the contract file from the repository's root.
+      # other languages, in ../targets/rest/<contract>/. The OpenAPI has no servers: the
+      # host is configuration. The work source contract (M1) gets its route description
+      # only: its OpenAPI is deferred until a second source implements it. Headers name the
+      # contract file from the repository's root.
       runtime_backend: [
         contracts: [
           work_api: AtlasRuntimeBackend.Work,
@@ -33,10 +31,7 @@ defmodule AtlasRuntimeBackend.MixProject do
         targets: [
           routes: "../targets/rest",
           openapi:
-            {"../targets/rest",
-             contracts: [:work_api],
-             title: "Atlas Runtime backend: work",
-             security: [tcp: :bearer]},
+            {"../targets/rest", contracts: [:work_api], title: "Atlas Runtime backend: work"},
           openapi:
             {"../targets/rest",
              contracts: [:operations_api], title: "Atlas Runtime backend: operations"},
