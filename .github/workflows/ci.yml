@@ -167,6 +167,53 @@ jobs:
       - run: mix runtime_boundary.gen --check
       - run: mix test --warnings-as-errors
 
+  code-boundary-generator:
+    name: Code boundary generator on its own
+    needs: tested-tree
+    if: ${{ !cancelled() && needs.tested-tree.outputs.tested != 'true' }}
+    runs-on: ubuntu-latest
+    env:
+      MIX_ENV: test
+    defaults:
+      run:
+        working-directory: platform/atlas_code/boundary/generator
+    steps:
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28"
+          elixir-version: "1.18"
+      - name: The generator holds none of Code's values
+        run: |
+          if grep -rniE 'AtlasCode\.|AtlasCodeBoundary\.Code\b|AtlasRuntime|AtlasControl|AtlasBFF|boundary/contract|\.\./contract|code\.json|resolve_reference|create_snapshot|snapshot_id|snapshot_repository|unsupported_entry|\brev_|repository_mismatch|unknown_revision|unknown_reference|provider_unavailable|atlas-code|ATLAS_CODE_HOME' lib test mix.exs; then
+            echo "::error::platform/atlas_code/boundary/generator mentions Code's contract, the Runtime or Control. Keep Code's values in platform/atlas_code/boundary/contract."
+            exit 1
+          fi
+      # Compiled and tested without platform/atlas_code/boundary/contract, on a neutral example contract.
+      - run: mix compile --warnings-as-errors
+      - run: mix format --check-formatted
+      - run: mix test --warnings-as-errors
+
+  code-boundary-contract:
+    name: Code boundary contract and its file targets
+    needs: tested-tree
+    if: ${{ !cancelled() && needs.tested-tree.outputs.tested != 'true' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: platform/atlas_code/boundary/contract
+    steps:
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28"
+          elixir-version: "1.18"
+      - run: mix compile --warnings-as-errors
+      - run: mix format --check-formatted
+      # Fails when a file in platform/atlas_code/boundary/targets differs from what the contract generates, or is left over.
+      - run: mix code_boundary.gen --check
+      - run: mix test --warnings-as-errors
+
   contract:
     name: Contract and its file targets
     needs: tested-tree
@@ -576,7 +623,7 @@ jobs:
   # run tested it itself, and never from a fork.
   record-tested-tree:
     name: Record the tested tree
-    needs: [tested-tree, generator, runtime-boundary-generator, runtime-boundary-contract, contract, runtime-model, model-dsl, model-contract, beam, tui, agent, swift, apple, runtime-backend-generator, runtime-backend-contract, frameworks-changeset]
+    needs: [tested-tree, generator, runtime-boundary-generator, runtime-boundary-contract, code-boundary-generator, code-boundary-contract, contract, runtime-model, model-dsl, model-contract, beam, tui, agent, swift, apple, runtime-backend-generator, runtime-backend-contract, frameworks-changeset]
     if: >-
       needs.tested-tree.outputs.tested != 'true' && needs.tested-tree.outputs.tree != ''
       && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)

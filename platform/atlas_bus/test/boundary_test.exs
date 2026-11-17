@@ -47,7 +47,8 @@ defmodule AtlasBus.BoundaryTest do
   # and PR handoff"). Runtime keeps the record in its own home; it never becomes a fact.
   # Code uses GitHub's pull request names in its provider protocol and legacy records.
   @protocol_names %{
-    "platform/atlas_code/lib/atlas_code.ex" => ["pull request", "pull_request"],
+    "platform/atlas_code/lib/atlas_code.ex" => ["pull request"],
+    "platform/atlas_code/lib/atlas_code/service.ex" => ["pull request", "pull_request"],
     "platform/atlas_code/lib/atlas_code/migration.ex" => ["pull_request"],
     "platform/atlas_code/test/atlas_code_test.exs" => ["pull request", "pull_request"],
     "platform/atlas_code/test/github_slug_test.exs" => ["pull request", "pull requests"],
@@ -140,6 +141,20 @@ defmodule AtlasBus.BoundaryTest do
           Path.join([
             @root,
             "platform/atlas_runtime/{boundary,model,backend}/contract",
+            "{lib,test}",
+            "**",
+            "*.{ex,exs}"
+          ])
+        )
+
+  # Code's own boundary contract, which only Code compiles.
+  defp sources(dir, "AtlasCode"),
+    do:
+      sources(dir) ++
+        Path.wildcard(
+          Path.join([
+            @root,
+            "platform/atlas_code/boundary/contract",
             "{lib,test}",
             "**",
             "*.{ex,exs}"
@@ -294,6 +309,7 @@ defmodule AtlasBus.BoundaryTest do
       assert Path.join(@root, "platform/atlas_control/backend/contract/lib/blocks.ex") in files
       assert Path.join(@root, "platform/atlas_runtime/boundary/contract/lib/work.ex") in files
       assert Path.join(@root, "platform/atlas_runtime/model/contract/lib/work.ex") in files
+      assert Path.join(@root, "platform/atlas_code/boundary/contract/lib/code.ex") in files
       assert length(files) > 20
 
       for file <- files do
