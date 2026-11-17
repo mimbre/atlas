@@ -438,4 +438,75 @@ defmodule AtlasRuntime.Sources.TransportTest do
       refute full(events) =~ ctx.token
     end
   end
+
+  describe "re-opening (credential rotation)" do
+    # Open new, then close old: the natural rotation order. The new connection must survive
+    # the old one's close/1, and the old one must be dead.
+    defp reopen(ctx, conn, url) do
+      assert {:ok, new} = Transport.open(@name, url, home: ctx.home, cacertfile: ctx.cacertfile)
+      on_exit(fn -> Transport.close(new) end)
+      assert :ok = Transport.close(conn)
+      new
+    end
+
+    defp rotated?(ctx, old, new, new_token) do
+      # The newer connection still has its profile and its log filter, at the head.
+      assert [{filter, _} | _] = :logger.get_primary_config().filters
+      assert filter == new.filter
+
+      assert {:ok, %{status: 200}} = Transport.request(get(), conn: new)
+      assert_received {:served, "GET", "/v1/poll", headers, ""}
+      assert {"authorization", "Bearer " <> new_token} in headers
+
+      {text, _events} = raw_log(fn -> Logger.error("plain #{new_token} text") end)
+      assert text =~ "[redacted]"
+      refute text =~ new_token
+
+      # The superseded connection sends nothing, with neither token.
+      log =
+        capture_log(fn ->
+          assert {:error, :not_open} = Transport.request(get(), conn: old)
+          assert {:error, :not_open} = Transport.stream(get(), conn: old)
+        end)
+
+      refute_received {:served, _, _, _, _}
+      refute log =~ ctx.token
+      refute log =~ new_token
+
+      # Closing the newer one does close it.
+      assert :ok = Transport.close(new)
+      refute List.keymember?(:logger.get_primary_config().filters, new.filter, 0)
+      assert {:error, :not_open} = capture(fn -> Transport.request(get(), conn: new) end)
+    end
+
+    defp capture(fun) do
+      parent = self()
+      _ = capture_log(fn -> send(parent, {:result, fun.()}) end)
+      assert_received {:result, result}
+      result
+    end
+
+    test "opening a new connection and then closing the old one leaves the new one working",
+         ctx do
+      old = connect(ctx, ok_answer())
+      url = "https://localhost:#{old.base |> URI.parse() |> Map.fetch!(:port)}"
+
+      new_token = "t0k." <> Base.encode16(:crypto.strong_rand_bytes(24), case: :lower)
+      path = Credential.path(ctx.home, @name)
+      File.write!(path, new_token <> "\n")
+      File.chmod!(path, 0o600)
+
+      new = reopen(ctx, old, url)
+      rotated?(ctx, old, new, new_token)
+    end
+
+    test "the same holds when the token is unchanged (equal closures)", ctx do
+      old = connect(ctx, ok_answer())
+      url = "https://localhost:#{old.base |> URI.parse() |> Map.fetch!(:port)}"
+
+      new = reopen(ctx, old, url)
+      assert new.secret.() == old.secret.()
+      rotated?(ctx, old, new, ctx.token)
+    end
+  end
 end

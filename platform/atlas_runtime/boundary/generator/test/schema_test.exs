@@ -22,7 +22,8 @@ defmodule AtlasRuntimeBoundary.Generator.SchemaTest do
                :find_input,
                :tally,
                :scan,
-               :download_input
+               :download_input,
+               :upload_input
              ]
 
     assert Enum.find(schema.models, &(&1.name == :scan)).fields == [
@@ -72,6 +73,12 @@ defmodule AtlasRuntimeBoundary.Generator.SchemaTest do
                input: :download_input,
                right: :browse,
                outcomes: [%{name: :downloaded, model: :scan}, %{name: :missing, model: nil}]
+             },
+             %{
+               name: :upload,
+               input: :upload_input,
+               right: :lend,
+               outcomes: [%{name: :received, model: nil}, %{name: :declined, model: :refusal}]
              }
            ]
   end
@@ -297,14 +304,12 @@ defmodule AtlasRuntimeBoundary.Generator.SchemaTest do
                %{outcome: :no, set: [why: :bad, count: 0], detail: nil}
     end
 
-    test "a :stream anywhere but as a direct field of an outcome model, at the field's line" do
+    test "a :stream anywhere but as a direct field of an input or outcome model, at the field's line" do
       scan = "defmodel :scan do\nfield :content, :stream, required: true\nend\n"
-      rule = "a :stream is allowed only as a direct field of an outcome model"
+      rule = "a :stream is allowed only as a direct field of an input or outcome model"
 
       for {body, message} <- [
-            # As or in an input.
-            {scan <> "defcapability :up, input: :scan, outcomes: [ok: nil], right: :r",
-             "scan.content: #{rule}; :scan is the input of capability :up"},
+            # In a model an input holds.
             {scan <>
                "defmodel :up_input do field :scan, :scan end\n" <>
                "defcapability :get, outcomes: [got: :scan], right: :r\n" <>
@@ -331,23 +336,54 @@ defmodule AtlasRuntimeBoundary.Generator.SchemaTest do
                "defcapability :get, outcomes: [got: :c], right: :r",
              "scan.content: #{rule}; :scan is held by c.z"},
             # A model that no outcome carries.
-            {scan, "scan.content: #{rule}; no outcome carries :scan"},
+            {scan, "scan.content: #{rule}; no outcome carries :scan and no capability takes it"},
             {"defmodel :stream do field :x, :string end", ":stream clashes with a primitive type"}
           ] do
         error = assert_raise CompileError, ~r/#{Regex.escape(message)}/, fn -> spec(body) end
         if String.starts_with?(body, scan), do: assert(error.line == 5, inspect(error))
       end
 
-      # The one place it is allowed: an outcome model, also for two outcomes.
-      schema =
-        spec(
-          scan <>
+      # The two places it is allowed: an outcome model, also for two outcomes, and an input.
+      for capabilities <- [
             "defcapability :get, outcomes: [got: :scan], right: :r\n" <>
-            "defcapability :fetch, outcomes: [got: :scan, none: nil], right: :r"
-        ).__schema__()
+              "defcapability :fetch, outcomes: [got: :scan, none: nil], right: :r",
+            "defcapability :up, input: :scan, outcomes: [ok: nil], right: :r"
+          ] do
+        schema = spec(scan <> capabilities).__schema__()
 
-      assert [%{name: :scan, fields: [%{name: :content, type: :stream, required: true}]}] =
-               schema.models
+        assert [%{name: :scan, fields: [%{name: :content, type: :stream, required: true}]}] =
+                 schema.models
+      end
+    end
+
+    test "an input model's :stream is required, even when required: is left out or false" do
+      for options <- ["", ", required: false"] do
+        model = "defmodel :scan do\nfield :id, :string\nfield :content, :stream#{options}\nend\n"
+
+        input = spec(model <> "defcapability :up, input: :scan, outcomes: [ok: nil], right: :r")
+
+        assert [%{fields: [%{name: :id, required: false}, %{name: :content, required: true}]}] =
+                 input.__schema__().models
+
+        # An outcome's stream keeps what the contract says (S5a).
+        outcome = spec(model <> "defcapability :get, outcomes: [got: :scan], right: :r")
+
+        assert [%{fields: [%{name: :id, required: false}, %{name: :content, required: false}]}] =
+                 outcome.__schema__().models
+      end
+    end
+
+    test "an input model with two :stream fields, at the second one's line" do
+      body =
+        "defmodel :up_input do\nfield :tree, :stream, required: true\n" <>
+          "field :more, :stream\nend\n" <>
+          "defcapability :up, input: :up_input, outcomes: [ok: nil], right: :r"
+
+      # Asserted by the error, its line and the fields it names, not by its wording.
+      error = assert_raise CompileError, fn -> spec(body) end
+      assert error.line == 6
+      assert String.starts_with?(error.description, "up_input.more: "), error.description
+      assert error.description =~ "up_input.tree"
     end
 
     test "a capability inside a model, and a contract without a version" do

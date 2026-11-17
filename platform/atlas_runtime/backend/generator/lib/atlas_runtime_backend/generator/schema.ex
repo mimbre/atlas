@@ -70,6 +70,16 @@ defmodule AtlasRuntimeBackend.Generator.Schema do
     must be bound. Path, query and header values are text; they are converted to the
     field's type (`:string`, `:integer`, `:boolean`, an enum or a datetime) and then go
     through the input's `new/1` like a body.
+    `body: {:stream, field}, content_type: "type/subtype", max_bytes: {Module, :function}`
+    (a POST, PUT or PATCH) takes the request body as it is, as the input's one `:stream`
+    field `field`, never as JSON: the router hands the facade a lazy stream of the
+    body's chunks, read only as it is enumerated. The request must carry that
+    `Content-Type` (its parameters aside); `Module.function()` gives, at run time, the
+    most bytes the body may have (a positive integer; the router never takes more than
+    1 MiB, its cap for every body, whatever it gives). The other input fields are bound
+    to the path, the query or headers. An input with a `:stream` field needs this body,
+    and a target with such a resource needs the errors `:too_large` and
+    `:unsupported_media_type`.
     Two resources with the same method and path shape are told apart by their required
     query parameters: at most one of them has none.
     `etag: field` (GET only) makes the resource conditional: its capability has exactly
@@ -104,6 +114,10 @@ defmodule AtlasRuntimeBackend.Generator.Schema do
     `:unauthenticated` (no valid credential; always 401) and `:origin_refused` (a request
     the listener does not take from a browser). A listener sends them, and any other error
     kind, with the router's `__problem__/2`, so it writes no problem body itself.
+    A streamed request body's refusals, needed once each when a resource takes one and
+    optional otherwise: `:too_large` (always 413: the body is longer than its
+    `max_bytes`, or than 1 MiB) and `:unsupported_media_type` (always 415: another
+    `Content-Type`).
 
   Every mistake fails at compile time with a `CompileError` at its line, among them: an
   exposed name that is no boundary capability; a capability neither exposed nor
@@ -111,8 +125,8 @@ defmodule AtlasRuntimeBackend.Generator.Schema do
   resource naming a capability that is not exposed; an outcome of a mapped capability
   without a status; a boundary target carried by no backend target; a right that is no
   value of the boundary's client rights; an outcome with a `:stream` field whose status
-  has no `stream:` (or `stream:` naming no such field); a `:stream` field in an input, an
-  event or an outcome of a stream (S5a carries a stream only as an outcome's body).
+  has no `stream:` (or `stream:` naming no such field); a `:stream` input field that no
+  `body: {:stream, field}` takes; a `:stream` field in an event or an outcome of a stream.
 
   ## The schema as data
 
@@ -131,7 +145,9 @@ defmodule AtlasRuntimeBackend.Generator.Schema do
           %{name: atom, carries: atom,
             resources: [%{method: atom, path: text, capability: atom, params: [atom],
                           query: [{text, atom}], required: [text], headers: [{text, atom}],
-                          body: [atom] | nil, etag: atom | nil}],
+                          body: [atom] | nil, etag: atom | nil,
+                          upload: %{field: atom, content_type: text,
+                                    max_bytes: {module, atom}} | nil}],
             streams: [%{path: text, capability: atom, events: [atom], resume_header: text,
                         into: atom, open: [{atom, atom | nil}]}],
             statuses: [%{outcome: atom, status: integer | nil, type: text | nil, by: atom | nil,
@@ -152,6 +168,10 @@ defmodule AtlasRuntimeBackend.Generator.Schema do
   # A listener's own refusals: optional, each at most once, with the status they must have
   # (nil: any status of 400 or more).
   @listener_error_kinds [unauthenticated: 401, origin_refused: nil]
+  # A streamed request body's refusals: needed when a resource takes one, each with its status.
+  @upload_error_kinds [too_large: 413, unsupported_media_type: 415]
+  @upload_methods [:post, :put, :patch]
+  @media_type ~r{^[a-z0-9][a-z0-9!#$&^_.+-]*/[a-z0-9][a-z0-9!#$&^_.+-]*$}
 
   defmacro __using__(_opts) do
     quote do
@@ -554,7 +574,7 @@ defmodule AtlasRuntimeBackend.Generator.Schema do
 
     for item <- resources, item.etag, do: etag!(item, ctx, statuses)
 
-    errors = errors!(Map.get(by_kind, :error, []), file, line)
+    errors = errors!(Map.get(by_kind, :error, []), file, line, Enum.any?(resources, & &1.upload))
 
     %{
       name: name,
@@ -577,10 +597,12 @@ defmodule AtlasRuntimeBackend.Generator.Schema do
         )
 
     unless Keyword.keyword?(opts) and
-             Keyword.keys(opts) -- [:capability, :body, :header, :query, :etag] == [],
+             Keyword.keys(opts) --
+               [:capability, :body, :header, :query, :etag, :content_type, :max_bytes] == [],
            do:
              fail.(
-               "resource #{inspect(path)}: the options are capability:, body:, header:, query: and etag:"
+               "resource #{inspect(path)}: the options are capability:, body:, header:, query:, " <>
+                 "etag:, content_type: and max_bytes:"
              )
 
     capability = capability!(opts[:capability], ctx, fail)
@@ -589,12 +611,7 @@ defmodule AtlasRuntimeBackend.Generator.Schema do
     segments = segments!(path, fail)
     params = for {:param, p} <- segments, do: p
 
-    for field <- stream_fields(input) do
-      fail.(
-        "resource #{method} #{path}: input field #{inspect(field)} is a :stream; a stream " <>
-          "is carried only as an outcome's body"
-      )
-    end
+    upload = upload!(method, path, opts, input, fail)
 
     for p <- params, not Map.has_key?(fields, p) do
       fail.(
@@ -641,6 +658,9 @@ defmodule AtlasRuntimeBackend.Generator.Schema do
         nil ->
           nil
 
+        {:stream, _field} ->
+          nil
+
         :input ->
           unless input,
             do:
@@ -670,7 +690,8 @@ defmodule AtlasRuntimeBackend.Generator.Schema do
 
         other ->
           fail.(
-            "resource #{method} #{path}: body: is :input or a list of input fields, got #{inspect(other)}"
+            "resource #{method} #{path}: body: is :input, a list of input fields or " <>
+              "{:stream, field}, got #{inspect(other)}"
           )
       end
 
@@ -693,7 +714,8 @@ defmodule AtlasRuntimeBackend.Generator.Schema do
     for field <- Map.values(fields),
         field.required,
         field.name not in bound,
-        field.name not in (body || []) do
+        field.name not in (body || []),
+        field.name != (upload && upload.field) do
       fail.(
         "resource #{method} #{path}: required input field #{inspect(field.name)} is bound to nothing"
       )
@@ -709,8 +731,72 @@ defmodule AtlasRuntimeBackend.Generator.Schema do
       headers: headers,
       body: body,
       etag: etag,
+      upload: upload,
       at: {f, l}
     }
+  end
+
+  # A streamed request body (`body: {:stream, field}`): the input's one :stream field, its
+  # content type and where its byte limit comes from. Gives the upload, or nil. An input
+  # with a :stream field needs one; content_type: and max_bytes: go only with one.
+  defp upload!(method, path, opts, input, fail) do
+    at = "resource #{method} #{path}"
+    streams = stream_fields(input)
+
+    case {opts[:body], streams} do
+      {{:stream, field}, _} ->
+        unless field in streams and
+                 match?(%{required: true}, Enum.find(input.fields, &(&1.name == field))),
+               do:
+                 fail.(
+                   "#{at}: body: {:stream, #{inspect(field)}} names no required :stream field of " <>
+                     "#{inspect(input && input.name)}"
+                 )
+
+        case streams -- [field] do
+          [] -> :ok
+          [other | _] -> fail.("#{at}: its input has a second :stream field, #{inspect(other)}")
+        end
+
+        unless method in @upload_methods,
+          do:
+            fail.(
+              "#{at}: a streamed body goes with #{Enum.map_join(@upload_methods, ", ", &inspect/1)}"
+            )
+
+        content_type = opts[:content_type]
+
+        unless is_binary(content_type) and Regex.match?(@media_type, content_type),
+          do: fail.("#{at}: body: {:stream, _} needs content_type: \"type/subtype\" (lowercase)")
+
+        max_bytes =
+          case opts[:max_bytes] do
+            {module, function} = mf
+            when is_atom(module) and is_atom(function) and module != nil ->
+              if snake?(function),
+                do: mf,
+                else:
+                  fail.("#{at}: max_bytes: is {Module, :function}, a function of no arguments")
+
+            _ ->
+              fail.("#{at}: body: {:stream, _} needs max_bytes: {Module, :function}")
+          end
+
+        %{field: field, content_type: content_type, max_bytes: max_bytes}
+
+      {_body, [field | _]} ->
+        fail.(
+          "#{at}: input field #{inspect(field)} is a :stream; take it as the request body " <>
+            "with body: {:stream, #{inspect(field)}}"
+        )
+
+      {_body, []} ->
+        for key <- [:content_type, :max_bytes], Keyword.has_key?(opts, key) do
+          fail.("#{at}: #{key}: goes with body: {:stream, field}")
+        end
+
+        nil
+    end
   end
 
   # etag: is a required integer field of what the capability's one success outcome sends.
@@ -1060,12 +1146,14 @@ defmodule AtlasRuntimeBackend.Generator.Schema do
   defp stream_fields(nil), do: []
   defp stream_fields(model), do: for(%{type: :stream, name: name} <- model.fields, do: name)
 
-  defp errors!(entries, file, line) do
+  defp errors!(entries, file, line, uploads?) do
+    fixed = @listener_error_kinds ++ @upload_error_kinds
+
     errors =
       for {:error, {kind, code, opts}, f, l} <- entries do
         fail = &__fail__(f, l, &1)
 
-        kinds = @error_kinds ++ Keyword.keys(@listener_error_kinds)
+        kinds = @error_kinds ++ Keyword.keys(fixed)
 
         unless kind in kinds,
           do:
@@ -1081,7 +1169,7 @@ defmodule AtlasRuntimeBackend.Generator.Schema do
 
         code!(code, opts[:type], "error #{inspect(kind)}", fail)
 
-        case @listener_error_kinds[kind] do
+        case fixed[kind] do
           nil -> :ok
           ^code -> :ok
           required -> fail.("error #{inspect(kind)}: the status is #{required}")
@@ -1098,9 +1186,20 @@ defmodule AtlasRuntimeBackend.Generator.Schema do
       end
     end
 
-    for {kind, _status} <- @listener_error_kinds,
+    for {kind, _status} <- fixed,
         Enum.count(errors, &(&1.kind == kind)) > 1 do
       __fail__(file, line, "error #{inspect(kind)} is declared twice")
+    end
+
+    for {kind, status} <- @upload_error_kinds,
+        uploads?,
+        not Enum.any?(errors, &(&1.kind == kind)) do
+      __fail__(
+        file,
+        line,
+        "a resource takes a streamed body, so the target needs `error #{inspect(kind)}, " <>
+          "#{status}, type: ...`"
+      )
     end
 
     errors

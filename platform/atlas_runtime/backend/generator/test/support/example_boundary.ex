@@ -73,6 +73,22 @@ defmodule AtlasRuntimeBackend.Generator.Example.Boundary do
           %{name: :content, type: :stream, required: true}
         ]
       },
+      # A book's scanned pages, uploaded: the request body is the :stream.
+      %{
+        name: :deposit_input,
+        fields: [
+          %{name: :book_id, type: :string, required: true},
+          %{name: :pages, type: :stream, required: true}
+        ]
+      },
+      %{
+        name: :deposit,
+        fields: [
+          %{name: :book_id, type: :string, required: true},
+          %{name: :bytes, type: :integer, required: true},
+          %{name: :sha256, type: :string, required: true}
+        ]
+      },
       %{name: :audit_input, fields: []},
       %{
         name: :counts,
@@ -155,6 +171,16 @@ defmodule AtlasRuntimeBackend.Generator.Example.Boundary do
         input: :scan_input,
         right: :browse,
         outcomes: [%{name: :scanned, model: :scan}, %{name: :missing, model: nil}]
+      },
+      %{
+        name: :deposit,
+        input: :deposit_input,
+        right: :lend,
+        outcomes: [
+          %{name: :deposited, model: :deposit},
+          %{name: :missing, model: nil},
+          %{name: :refused, model: :refused}
+        ]
       },
       %{
         name: :audit,

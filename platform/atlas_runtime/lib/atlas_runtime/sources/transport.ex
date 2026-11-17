@@ -42,6 +42,13 @@ defmodule AtlasRuntime.Sources.Transport do
   a logger primary filter that `open/3` puts at the head of the filter list (ahead of
   Elixir's translator) and `close/1` removes. If the redaction fails, the event is replaced
   by a one-line notice.
+
+  One source name has one `:httpc` profile and one log filter, so each `open/3` supersedes
+  the connection an earlier `open/3` of that name answered (credential rotation is
+  re-opening): the earlier one's profile is stopped and its filter replaced. Each
+  connection carries the tag of its own `open/3`, which its filter holds too. A superseded
+  connection answers every request with `:not_open` (its token is no longer redacted), and
+  `close/1` of it changes nothing, so closing an old connection never breaks a newer one.
   """
 
   @behaviour AtlasRuntimeBackend.Generator.Targets.Client.Transport
@@ -55,7 +62,7 @@ defmodule AtlasRuntime.Sources.Transport do
   @connect_timeout 5_000
   @idle_timeout @timeout
 
-  @enforce_keys [:name, :base, :profile, :ssl, :filter, :secret]
+  @enforce_keys [:name, :base, :profile, :ssl, :filter, :secret, :tag]
   defstruct @enforce_keys
 
   @typedoc "An open connection to one source: pass it as the client's `transport: [conn: t]`."
@@ -84,7 +91,8 @@ defmodule AtlasRuntime.Sources.Transport do
          {:ok, trust} <- trust(Keyword.get(opts, :cacertfile)),
          {:ok, profile} <- start_profile(name) do
       filter = :"atlas_runtime_source_token_#{name}"
-      :ok = add_log_filter(filter, secret)
+      tag = make_ref()
+      :ok = add_log_filter(filter, secret, tag)
 
       {:ok,
        %__MODULE__{
@@ -93,16 +101,32 @@ defmodule AtlasRuntime.Sources.Transport do
          profile: profile,
          ssl: ssl(host, trust),
          filter: filter,
-         secret: secret
+         secret: secret,
+         tag: tag
        }}
     end
   end
 
-  @doc "Closes `conn`: stops its `:httpc` profile and removes its log filter."
+  @doc """
+  Closes `conn`: stops its `:httpc` profile and removes its log filter, unless a later
+  `open/3` of the same source has superseded it (then those are the later connection's, and
+  are left alone).
+  """
   def close(%__MODULE__{} = conn) do
-    _ = :inets.stop(:httpc, conn.profile)
-    _ = :logger.remove_primary_filter(conn.filter)
+    if current?(conn) do
+      _ = :inets.stop(:httpc, conn.profile)
+      _ = :logger.remove_primary_filter(conn.filter)
+    end
+
     :ok
+  end
+
+  # Whether conn is its source's latest open: the log filter of its name holds its tag.
+  defp current?(%__MODULE__{filter: filter, tag: tag}) do
+    case List.keyfind(:logger.get_primary_config().filters, filter, 0) do
+      {^filter, {_fun, {_secret, ^tag}}} -> true
+      _ -> false
+    end
   end
 
   @doc """
@@ -199,9 +223,16 @@ defmodule AtlasRuntime.Sources.Transport do
   defp conn(request, opts) do
     case Keyword.get(opts, :conn) do
       %__MODULE__{} = conn ->
-        if String.starts_with?(request.path, "/") and not String.starts_with?(request.path, "//"),
-          do: {:ok, conn},
-          else: failed(conn, request, :invalid_path)
+        cond do
+          not current?(conn) ->
+            failed(conn, request, :not_open)
+
+          String.starts_with?(request.path, "/") and not String.starts_with?(request.path, "//") ->
+            {:ok, conn}
+
+          true ->
+            failed(conn, request, :invalid_path)
+        end
 
       _ ->
         Logger.warning("AtlasRuntime.Sources: #{request.method} #{request.path}: not open")
@@ -387,16 +418,19 @@ defmodule AtlasRuntime.Sources.Transport do
 
   # At the head of the primary filters, so it sees each event before Elixir's translator
   # formats it (with inspect limits that could cut the token into a part no match finds).
-  defp add_log_filter(filter, secret) do
+  defp add_log_filter(filter, secret, tag) do
     others = List.keydelete(:logger.get_primary_config().filters, filter, 0)
-    :logger.set_primary_config(:filters, [{filter, {&__MODULE__.log_filter/2, secret}} | others])
+
+    :logger.set_primary_config(:filters, [
+      {filter, {&__MODULE__.log_filter/2, {secret, tag}}} | others
+    ])
   end
 
   @doc false
   # The logger primary filter: the event with the token replaced by `[redacted]`. It never
   # raises (logger would drop a raising filter, and with it the redaction): when the
   # redaction fails, the event is replaced by a notice.
-  def log_filter(%{msg: msg, meta: meta} = event, secret) do
+  def log_filter(%{msg: msg, meta: meta} = event, {secret, _tag}) do
     "Bearer " <> token = secret.()
     %{event | msg: Credential.redact(msg, token), meta: Credential.redact(meta, token)}
   catch
@@ -409,7 +443,7 @@ defmodule AtlasRuntime.Sources.Transport do
       }
   end
 
-  def log_filter(event, _secret), do: event
+  def log_filter(event, _config), do: event
 
   defimpl Inspect do
     def inspect(conn, _opts), do: "#AtlasRuntime.Sources.Transport<#{conn.name} #{conn.base}>"
