@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -606,4 +607,94 @@ func TestCaseCollisionsNeverWriteThroughSymlinks(t *testing.T) {
 	id, raw := snapshotOf(t, []repository{one}, symlink(one, "L", "sub"), file(one, "l/y", "100644", "y"))
 	f := newFixture(t, raw, map[string][]byte{"one": archiveOf(t, member{"L", tar.TypeSymlink, 0777, "", "sub"}, member{"l/y", tar.TypeReg, 0644, "y", ""})})
 	f.refused(t, id, `cannot create directory "one/l"`)
+}
+
+func TestMaterializeReportsItWasNotSealed(t *testing.T) {
+	f, id := codeFixture(t)
+	dest := filepath.Join(f.parent, "work")
+	result, err := Materialize(f.home, id, dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys := []string{}
+	for key := range result {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	if !slices.Equal(keys, []string{"baseline", "destination", "read_only", "repositories", "snapshot_id"}) || result["read_only"] != false {
+		t.Fatalf("result %v", result)
+	}
+	equal(t, describe(t, dest), codeTree(0644, 0755, 0755))
+}
+
+func TestMaterializeReadOnlySealsTheFolder(t *testing.T) {
+	f, id := codeFixture(t)
+	dest := filepath.Join(f.parent, "work")
+	t.Cleanup(func() { remove(dest) })
+	result, err := MaterializeReadOnly(f.home, id, dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseline := filepath.Join(f.home, "snapshots", strings.TrimPrefix(id, "sha256:"))
+	if result["read_only"] != true || result["destination"] != dest || result["baseline"] != baseline || result["snapshot_id"] != id {
+		t.Fatalf("result %v", result)
+	}
+	// Sealed like the baseline: files without write bits, directories 0555, the root included.
+	equal(t, describe(t, dest), codeTree(0444, 0555, 0555))
+	equal(t, describe(t, filepath.Join(baseline, "tree")), codeTree(0444, 0555, 0555))
+	if err = os.WriteFile(filepath.Join(dest, "new"), nil, 0644); err == nil {
+		t.Fatal("the sealed root accepted a new file")
+	}
+	// The record is the one an unsealed materialization writes, so its changes are relative to it.
+	if recordedID, err := recorded(f.home, dest); err != nil || recordedID != id {
+		t.Fatalf("record %v %v", recordedID, err)
+	}
+	if left, _ := os.ReadDir(f.parent); len(left) != 1 {
+		t.Fatalf("staging left behind: %v", left)
+	}
+	set, err := Changes(f.home, dest, filepath.Join(t.TempDir(), "blobs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, root := range set["roots"].([]changedRoot) {
+		if len(root.Entries) != 0 {
+			t.Fatalf("a sealed folder has changes: %v", set)
+		}
+	}
+	if len(set["roots"].([]changedRoot)) != 2 || len(set["outside"].([]string)) != 0 {
+		t.Fatalf("changes %v", set)
+	}
+}
+
+// The real Code snapshot's names (non-ASCII, U+2028, quotes, control characters in a symlink
+// target) survive changes and compose unchanged.
+func TestComposeRoundTripsTheRealCodeSnapshot(t *testing.T) {
+	f, id := codeFixture(t)
+	dest := filepath.Join(f.parent, "work")
+	if _, err := Materialize(f.home, id, dest); err != nil {
+		t.Fatal(err)
+	}
+	must(t, os.WriteFile(filepath.Join(dest, "repos/alpha/naïve/日本 & <tag> \"q\".txt"), []byte("edited\n"), 0644))
+	must(t, os.Remove(filepath.Join(dest, "repos/alpha/weird")))
+	must(t, os.WriteFile(filepath.Join(dest, "beta/new \"file\".txt"), []byte{0, 1, 2}, 0755))
+	must(t, os.Remove(filepath.Join(dest, "beta/tools/build")))
+	must(t, os.Symlink("../README.md", filepath.Join(dest, "beta/tools/build")))
+	blobs := filepath.Join(t.TempDir(), "blobs")
+	set, err := Changes(f.home, dest, blobs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(t.TempDir(), "set.json")
+	data, err := json.Marshal(map[string]any{"base": set["snapshot_id"], "roots": set["roots"]})
+	must(t, err)
+	must(t, os.WriteFile(file, data, 0600))
+	composed := filepath.Join(f.parent, "composed")
+	if _, err = Compose(f.home, id, file, blobs, composed, false); err != nil {
+		t.Fatal(err)
+	}
+	equal(t, describe(t, composed), describe(t, dest))
+	again, err := Changes(f.home, composed, t.TempDir())
+	if err != nil || !jsonEqual(again, set) {
+		t.Fatalf("changes of the composed folder: %v %v", again, err)
+	}
 }
