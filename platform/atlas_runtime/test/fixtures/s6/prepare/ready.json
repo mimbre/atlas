@@ -1,0 +1,1080 @@
+{
+  "version": 1,
+  "rows": [
+    {
+      "id": "ready.ci-succeeded",
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "record": {
+          "destination": "{tmp}/dest",
+          "ended_at": "2026-11-17T00:01:00Z",
+          "exit_code": 0,
+          "kind": "npm-ci",
+          "outputs": [
+            "repo/app/node_modules"
+          ],
+          "path": "repo/app",
+          "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "started_at": "2026-11-17T00:00:00Z",
+          "state": "succeeded",
+          "version": 1
+        }
+      },
+      "expect": {
+        "ready": true
+      }
+    },
+    {
+      "id": "ready.ci-running",
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "record": {
+          "destination": "{tmp}/dest",
+          "kind": "npm-ci",
+          "outputs": [
+            "repo/app/node_modules"
+          ],
+          "path": "repo/app",
+          "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "started_at": "2026-11-17T00:00:00Z",
+          "state": "running",
+          "version": 1
+        }
+      },
+      "expect": {
+        "not_ready": "Materialized folder {tmp}/dest is not ready: its npm-ci preparation of repo/app has no recorded outcome: it is still running or was interrupted. The folder and the diagnostics in {home}/preparations/{sha256:{tmp}/dest}/private are kept; materialize the snapshot into a fresh folder and prepare that one",
+        "ready": false
+      }
+    },
+    {
+      "id": "ready.ci-failed-exit",
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "record": {
+          "destination": "{tmp}/dest",
+          "ended_at": "2026-11-17T00:01:00Z",
+          "exit_code": 1,
+          "kind": "npm-ci",
+          "outputs": [
+            "repo/app/node_modules"
+          ],
+          "path": "repo/app",
+          "reason": "exit",
+          "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "started_at": "2026-11-17T00:00:00Z",
+          "state": "failed",
+          "version": 1
+        }
+      },
+      "expect": {
+        "not_ready": "Materialized folder {tmp}/dest is not ready: its npm-ci preparation of repo/app failed (exit). The folder and the diagnostics in {home}/preparations/{sha256:{tmp}/dest}/private are kept; materialize the snapshot into a fresh folder and prepare that one",
+        "ready": false
+      }
+    },
+    {
+      "id": "ready.ci-failed-timeout",
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "record": {
+          "destination": "{tmp}/dest",
+          "ended_at": "2026-11-17T00:01:00Z",
+          "exit_code": 1,
+          "kind": "npm-ci",
+          "outputs": [
+            "repo/app/node_modules"
+          ],
+          "path": "repo/app",
+          "reason": "timeout",
+          "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "started_at": "2026-11-17T00:00:00Z",
+          "state": "failed",
+          "version": 1
+        }
+      },
+      "expect": {
+        "not_ready": "Materialized folder {tmp}/dest is not ready: its npm-ci preparation of repo/app failed (timeout). The folder and the diagnostics in {home}/preparations/{sha256:{tmp}/dest}/private are kept; materialize the snapshot into a fresh folder and prepare that one",
+        "ready": false
+      }
+    },
+    {
+      "id": "ready.run-succeeded",
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "record": {
+          "destination": "{tmp}/dest",
+          "ended_at": "2026-11-17T00:03:00Z",
+          "exit_code": 0,
+          "kind": "npm-run",
+          "outputs": [
+            "repo/app/dist"
+          ],
+          "path": "repo/app",
+          "previous": {
+            "destination": "{tmp}/dest",
+            "ended_at": "2026-11-17T00:01:00Z",
+            "exit_code": 0,
+            "kind": "npm-ci",
+            "outputs": [
+              "repo/app/node_modules"
+            ],
+            "path": "repo/app",
+            "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "started_at": "2026-11-17T00:00:00Z",
+            "state": "succeeded",
+            "version": 1
+          },
+          "script": "build",
+          "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "started_at": "2026-11-17T00:02:00Z",
+          "state": "succeeded",
+          "version": 2
+        }
+      },
+      "expect": {
+        "ready": true
+      }
+    },
+    {
+      "id": "ready.run-running",
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "record": {
+          "destination": "{tmp}/dest",
+          "kind": "npm-run",
+          "outputs": [
+            "repo/app/dist"
+          ],
+          "path": "repo/app",
+          "previous": {
+            "destination": "{tmp}/dest",
+            "ended_at": "2026-11-17T00:01:00Z",
+            "exit_code": 0,
+            "kind": "npm-ci",
+            "outputs": [
+              "repo/app/node_modules"
+            ],
+            "path": "repo/app",
+            "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "started_at": "2026-11-17T00:00:00Z",
+            "state": "succeeded",
+            "version": 1
+          },
+          "script": "build",
+          "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "started_at": "2026-11-17T00:02:00Z",
+          "state": "running",
+          "version": 2
+        }
+      },
+      "expect": {
+        "not_ready": "Materialized folder {tmp}/dest is not ready: its npm-run preparation of repo/app (script build) has no recorded outcome: it is still running or was interrupted. The folder and the diagnostics in {home}/preparations/{sha256:{tmp}/dest}/private/npm-run are kept; materialize the snapshot into a fresh folder and prepare that one",
+        "ready": false
+      }
+    },
+    {
+      "id": "ready.run-failed-changed",
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "record": {
+          "destination": "{tmp}/dest",
+          "ended_at": "2026-11-17T00:03:00Z",
+          "exit_code": 1,
+          "kind": "npm-run",
+          "outputs": [
+            "repo/app/dist"
+          ],
+          "path": "repo/app",
+          "previous": {
+            "destination": "{tmp}/dest",
+            "ended_at": "2026-11-17T00:01:00Z",
+            "exit_code": 0,
+            "kind": "npm-ci",
+            "outputs": [
+              "repo/app/node_modules"
+            ],
+            "path": "repo/app",
+            "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "started_at": "2026-11-17T00:00:00Z",
+            "state": "succeeded",
+            "version": 1
+          },
+          "reason": "changed",
+          "script": "build",
+          "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "started_at": "2026-11-17T00:02:00Z",
+          "state": "failed",
+          "version": 2
+        }
+      },
+      "expect": {
+        "not_ready": "Materialized folder {tmp}/dest is not ready: its npm-run preparation of repo/app (script build) failed (changed). The folder and the diagnostics in {home}/preparations/{sha256:{tmp}/dest}/private/npm-run are kept; materialize the snapshot into a fresh folder and prepare that one",
+        "ready": false
+      }
+    },
+    {
+      "id": "invalid.other-destination",
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "record": {
+          "destination": "{tmp}/other",
+          "ended_at": "2026-11-17T00:01:00Z",
+          "exit_code": 0,
+          "kind": "npm-ci",
+          "outputs": [
+            "repo/app/node_modules"
+          ],
+          "path": "repo/app",
+          "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "started_at": "2026-11-17T00:00:00Z",
+          "state": "succeeded",
+          "version": 1
+        }
+      },
+      "expect": {
+        "error": "invalid preparation result {home}/preparations/{sha256:{tmp}/dest}/result.json for {tmp}/dest"
+      }
+    },
+    {
+      "id": "invalid.snapshot-id",
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "record": {
+          "destination": "{tmp}/dest",
+          "ended_at": "2026-11-17T00:01:00Z",
+          "exit_code": 0,
+          "kind": "npm-ci",
+          "outputs": [
+            "repo/app/node_modules"
+          ],
+          "path": "repo/app",
+          "snapshot_id": "sha256:XYZ",
+          "started_at": "2026-11-17T00:00:00Z",
+          "state": "succeeded",
+          "version": 1
+        }
+      },
+      "expect": {
+        "error": "invalid preparation result {home}/preparations/{sha256:{tmp}/dest}/result.json for {tmp}/dest"
+      }
+    },
+    {
+      "id": "invalid.snapshot-id-newline",
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "record": {
+          "destination": "{tmp}/dest",
+          "ended_at": "2026-11-17T00:01:00Z",
+          "exit_code": 0,
+          "kind": "npm-ci",
+          "outputs": [
+            "repo/app/node_modules"
+          ],
+          "path": "repo/app",
+          "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111\n",
+          "started_at": "2026-11-17T00:00:00Z",
+          "state": "succeeded",
+          "version": 1
+        }
+      },
+      "expect": {
+        "error": "invalid preparation result {home}/preparations/{sha256:{tmp}/dest}/result.json for {tmp}/dest"
+      },
+      "note": "Go's $ matches only at the end of the text"
+    },
+    {
+      "id": "invalid.unknown-field",
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "record": {
+          "destination": "{tmp}/dest",
+          "ended_at": "2026-11-17T00:01:00Z",
+          "exit_code": 0,
+          "kind": "npm-ci",
+          "log": "x",
+          "outputs": [
+            "repo/app/node_modules"
+          ],
+          "path": "repo/app",
+          "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "started_at": "2026-11-17T00:00:00Z",
+          "state": "succeeded",
+          "version": 1
+        }
+      },
+      "expect": {
+        "error": "invalid preparation result {home}/preparations/{sha256:{tmp}/dest}/result.json for {tmp}/dest"
+      }
+    },
+    {
+      "id": "invalid.unsafe-path",
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "record": {
+          "destination": "{tmp}/dest",
+          "ended_at": "2026-11-17T00:01:00Z",
+          "exit_code": 0,
+          "kind": "npm-ci",
+          "outputs": [
+            "repo/../app/node_modules"
+          ],
+          "path": "repo/../app",
+          "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "started_at": "2026-11-17T00:00:00Z",
+          "state": "succeeded",
+          "version": 1
+        }
+      },
+      "expect": {
+        "error": "invalid preparation result {home}/preparations/{sha256:{tmp}/dest}/result.json for {tmp}/dest"
+      }
+    },
+    {
+      "id": "invalid.state",
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "record": {
+          "destination": "{tmp}/dest",
+          "ended_at": "2026-11-17T00:01:00Z",
+          "exit_code": 0,
+          "kind": "npm-ci",
+          "outputs": [
+            "repo/app/node_modules"
+          ],
+          "path": "repo/app",
+          "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "started_at": "2026-11-17T00:00:00Z",
+          "state": "done",
+          "version": 1
+        }
+      },
+      "expect": {
+        "error": "invalid preparation result {home}/preparations/{sha256:{tmp}/dest}/result.json for {tmp}/dest"
+      }
+    },
+    {
+      "id": "invalid.version-3",
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "record": {
+          "destination": "{tmp}/dest",
+          "ended_at": "2026-11-17T00:01:00Z",
+          "exit_code": 0,
+          "kind": "npm-ci",
+          "outputs": [
+            "repo/app/node_modules"
+          ],
+          "path": "repo/app",
+          "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "started_at": "2026-11-17T00:00:00Z",
+          "state": "succeeded",
+          "version": 3
+        }
+      },
+      "expect": {
+        "error": "invalid preparation result {home}/preparations/{sha256:{tmp}/dest}/result.json for {tmp}/dest"
+      }
+    },
+    {
+      "id": "invalid.version-string",
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "record": {
+          "destination": "{tmp}/dest",
+          "ended_at": "2026-11-17T00:01:00Z",
+          "exit_code": 0,
+          "kind": "npm-ci",
+          "outputs": [
+            "repo/app/node_modules"
+          ],
+          "path": "repo/app",
+          "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "started_at": "2026-11-17T00:00:00Z",
+          "state": "succeeded",
+          "version": "1"
+        }
+      },
+      "expect": {
+        "error": "invalid preparation result {home}/preparations/{sha256:{tmp}/dest}/result.json for {tmp}/dest"
+      }
+    },
+    {
+      "id": "invalid.version-float",
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "record": {
+          "destination": "{tmp}/dest",
+          "ended_at": "2026-11-17T00:01:00Z",
+          "exit_code": 0,
+          "kind": "npm-ci",
+          "outputs": [
+            "repo/app/node_modules"
+          ],
+          "path": "repo/app",
+          "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "started_at": "2026-11-17T00:00:00Z",
+          "state": "succeeded",
+          "version": 1.5
+        }
+      },
+      "expect": {
+        "error": "invalid preparation result {home}/preparations/{sha256:{tmp}/dest}/result.json for {tmp}/dest"
+      }
+    },
+    {
+      "id": "invalid.exit-code-float",
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "record": {
+          "destination": "{tmp}/dest",
+          "ended_at": "2026-11-17T00:01:00Z",
+          "exit_code": 0.5,
+          "kind": "npm-ci",
+          "outputs": [
+            "repo/app/node_modules"
+          ],
+          "path": "repo/app",
+          "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "started_at": "2026-11-17T00:00:00Z",
+          "state": "succeeded",
+          "version": 1
+        }
+      },
+      "expect": {
+        "error": "invalid preparation result {home}/preparations/{sha256:{tmp}/dest}/result.json for {tmp}/dest"
+      }
+    },
+    {
+      "id": "invalid.outputs-not-strings",
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "record": {
+          "destination": "{tmp}/dest",
+          "ended_at": "2026-11-17T00:01:00Z",
+          "exit_code": 0,
+          "kind": "npm-ci",
+          "outputs": [
+            1
+          ],
+          "path": "repo/app",
+          "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "started_at": "2026-11-17T00:00:00Z",
+          "state": "succeeded",
+          "version": 1
+        }
+      },
+      "expect": {
+        "error": "invalid preparation result {home}/preparations/{sha256:{tmp}/dest}/result.json for {tmp}/dest"
+      }
+    },
+    {
+      "id": "invalid.ci-with-script",
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "record": {
+          "destination": "{tmp}/dest",
+          "ended_at": "2026-11-17T00:01:00Z",
+          "exit_code": 0,
+          "kind": "npm-ci",
+          "outputs": [
+            "repo/app/node_modules"
+          ],
+          "path": "repo/app",
+          "script": "build",
+          "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "started_at": "2026-11-17T00:00:00Z",
+          "state": "succeeded",
+          "version": 1
+        }
+      },
+      "expect": {
+        "error": "invalid preparation result {home}/preparations/{sha256:{tmp}/dest}/result.json for {tmp}/dest"
+      }
+    },
+    {
+      "id": "invalid.ci-wrong-outputs",
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "record": {
+          "destination": "{tmp}/dest",
+          "ended_at": "2026-11-17T00:01:00Z",
+          "exit_code": 0,
+          "kind": "npm-ci",
+          "outputs": [
+            "repo/app"
+          ],
+          "path": "repo/app",
+          "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "started_at": "2026-11-17T00:00:00Z",
+          "state": "succeeded",
+          "version": 1
+        }
+      },
+      "expect": {
+        "error": "invalid preparation result {home}/preparations/{sha256:{tmp}/dest}/result.json for {tmp}/dest"
+      }
+    },
+    {
+      "id": "invalid.ci-with-previous",
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "record": {
+          "destination": "{tmp}/dest",
+          "ended_at": "2026-11-17T00:01:00Z",
+          "exit_code": 0,
+          "kind": "npm-ci",
+          "outputs": [
+            "repo/app/node_modules"
+          ],
+          "path": "repo/app",
+          "previous": {
+            "destination": "{tmp}/dest",
+            "ended_at": "2026-11-17T00:01:00Z",
+            "exit_code": 0,
+            "kind": "npm-ci",
+            "outputs": [
+              "repo/app/node_modules"
+            ],
+            "path": "repo/app",
+            "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "started_at": "2026-11-17T00:00:00Z",
+            "state": "succeeded",
+            "version": 1
+          },
+          "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "started_at": "2026-11-17T00:00:00Z",
+          "state": "succeeded",
+          "version": 1
+        }
+      },
+      "expect": {
+        "error": "invalid preparation result {home}/preparations/{sha256:{tmp}/dest}/result.json for {tmp}/dest"
+      }
+    },
+    {
+      "id": "invalid.ci-kind",
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "record": {
+          "destination": "{tmp}/dest",
+          "ended_at": "2026-11-17T00:01:00Z",
+          "exit_code": 0,
+          "kind": "npm-run",
+          "outputs": [
+            "repo/app/node_modules"
+          ],
+          "path": "repo/app",
+          "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "started_at": "2026-11-17T00:00:00Z",
+          "state": "succeeded",
+          "version": 1
+        }
+      },
+      "expect": {
+        "error": "invalid preparation result {home}/preparations/{sha256:{tmp}/dest}/result.json for {tmp}/dest"
+      }
+    },
+    {
+      "id": "invalid.run-without-previous",
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "record": {
+          "destination": "{tmp}/dest",
+          "ended_at": "2026-11-17T00:03:00Z",
+          "exit_code": 0,
+          "kind": "npm-run",
+          "outputs": [
+            "repo/app/dist"
+          ],
+          "path": "repo/app",
+          "script": "build",
+          "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "started_at": "2026-11-17T00:02:00Z",
+          "state": "succeeded",
+          "version": 2
+        }
+      },
+      "expect": {
+        "error": "invalid preparation result {home}/preparations/{sha256:{tmp}/dest}/result.json for {tmp}/dest"
+      }
+    },
+    {
+      "id": "invalid.run-previous-failed",
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "record": {
+          "destination": "{tmp}/dest",
+          "ended_at": "2026-11-17T00:03:00Z",
+          "exit_code": 0,
+          "kind": "npm-run",
+          "outputs": [
+            "repo/app/dist"
+          ],
+          "path": "repo/app",
+          "previous": {
+            "destination": "{tmp}/dest",
+            "ended_at": "2026-11-17T00:01:00Z",
+            "exit_code": 1,
+            "kind": "npm-ci",
+            "outputs": [
+              "repo/app/node_modules"
+            ],
+            "path": "repo/app",
+            "reason": "exit",
+            "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "started_at": "2026-11-17T00:00:00Z",
+            "state": "failed",
+            "version": 1
+          },
+          "script": "build",
+          "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "started_at": "2026-11-17T00:02:00Z",
+          "state": "succeeded",
+          "version": 2
+        }
+      },
+      "expect": {
+        "error": "invalid preparation result {home}/preparations/{sha256:{tmp}/dest}/result.json for {tmp}/dest"
+      }
+    },
+    {
+      "id": "invalid.run-previous-other-path",
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "record": {
+          "destination": "{tmp}/dest",
+          "ended_at": "2026-11-17T00:03:00Z",
+          "exit_code": 0,
+          "kind": "npm-run",
+          "outputs": [
+            "repo/app/dist"
+          ],
+          "path": "repo/app",
+          "previous": {
+            "destination": "{tmp}/dest",
+            "ended_at": "2026-11-17T00:01:00Z",
+            "exit_code": 0,
+            "kind": "npm-ci",
+            "outputs": [
+              "repo/web/node_modules"
+            ],
+            "path": "repo/web",
+            "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "started_at": "2026-11-17T00:00:00Z",
+            "state": "succeeded",
+            "version": 1
+          },
+          "script": "build",
+          "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "started_at": "2026-11-17T00:02:00Z",
+          "state": "succeeded",
+          "version": 2
+        }
+      },
+      "expect": {
+        "error": "invalid preparation result {home}/preparations/{sha256:{tmp}/dest}/result.json for {tmp}/dest"
+      }
+    },
+    {
+      "id": "invalid.run-previous-other-snapshot",
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "record": {
+          "destination": "{tmp}/dest",
+          "ended_at": "2026-11-17T00:03:00Z",
+          "exit_code": 0,
+          "kind": "npm-run",
+          "outputs": [
+            "repo/app/dist"
+          ],
+          "path": "repo/app",
+          "previous": {
+            "destination": "{tmp}/dest",
+            "ended_at": "2026-11-17T00:01:00Z",
+            "exit_code": 0,
+            "kind": "npm-ci",
+            "outputs": [
+              "repo/app/node_modules"
+            ],
+            "path": "repo/app",
+            "snapshot_id": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+            "started_at": "2026-11-17T00:00:00Z",
+            "state": "succeeded",
+            "version": 1
+          },
+          "script": "build",
+          "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "started_at": "2026-11-17T00:02:00Z",
+          "state": "succeeded",
+          "version": 2
+        }
+      },
+      "expect": {
+        "error": "invalid preparation result {home}/preparations/{sha256:{tmp}/dest}/result.json for {tmp}/dest"
+      }
+    },
+    {
+      "id": "invalid.run-previous-version-2",
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "record": {
+          "destination": "{tmp}/dest",
+          "ended_at": "2026-11-17T00:03:00Z",
+          "exit_code": 0,
+          "kind": "npm-run",
+          "outputs": [
+            "repo/app/dist"
+          ],
+          "path": "repo/app",
+          "previous": {
+            "destination": "{tmp}/dest",
+            "ended_at": "2026-11-17T00:03:00Z",
+            "exit_code": 0,
+            "kind": "npm-run",
+            "outputs": [
+              "repo/app/dist"
+            ],
+            "path": "repo/app",
+            "previous": {
+              "destination": "{tmp}/dest",
+              "ended_at": "2026-11-17T00:01:00Z",
+              "exit_code": 0,
+              "kind": "npm-ci",
+              "outputs": [
+                "repo/app/node_modules"
+              ],
+              "path": "repo/app",
+              "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+              "started_at": "2026-11-17T00:00:00Z",
+              "state": "succeeded",
+              "version": 1
+            },
+            "script": "build",
+            "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "started_at": "2026-11-17T00:02:00Z",
+            "state": "succeeded",
+            "version": 2
+          },
+          "script": "build",
+          "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "started_at": "2026-11-17T00:02:00Z",
+          "state": "succeeded",
+          "version": 2
+        }
+      },
+      "expect": {
+        "error": "invalid preparation result {home}/preparations/{sha256:{tmp}/dest}/result.json for {tmp}/dest"
+      }
+    },
+    {
+      "id": "invalid.run-unsorted-outputs",
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "record": {
+          "destination": "{tmp}/dest",
+          "ended_at": "2026-11-17T00:03:00Z",
+          "exit_code": 0,
+          "kind": "npm-run",
+          "outputs": [
+            "repo/app/dist",
+            "repo/app/build"
+          ],
+          "path": "repo/app",
+          "previous": {
+            "destination": "{tmp}/dest",
+            "ended_at": "2026-11-17T00:01:00Z",
+            "exit_code": 0,
+            "kind": "npm-ci",
+            "outputs": [
+              "repo/app/node_modules"
+            ],
+            "path": "repo/app",
+            "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "started_at": "2026-11-17T00:00:00Z",
+            "state": "succeeded",
+            "version": 1
+          },
+          "script": "build",
+          "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "started_at": "2026-11-17T00:02:00Z",
+          "state": "succeeded",
+          "version": 2
+        }
+      },
+      "expect": {
+        "error": "invalid preparation result {home}/preparations/{sha256:{tmp}/dest}/result.json for {tmp}/dest"
+      }
+    },
+    {
+      "id": "invalid.run-no-outputs",
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "record": {
+          "destination": "{tmp}/dest",
+          "ended_at": "2026-11-17T00:03:00Z",
+          "exit_code": 0,
+          "kind": "npm-run",
+          "outputs": [],
+          "path": "repo/app",
+          "previous": {
+            "destination": "{tmp}/dest",
+            "ended_at": "2026-11-17T00:01:00Z",
+            "exit_code": 0,
+            "kind": "npm-ci",
+            "outputs": [
+              "repo/app/node_modules"
+            ],
+            "path": "repo/app",
+            "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "started_at": "2026-11-17T00:00:00Z",
+            "state": "succeeded",
+            "version": 1
+          },
+          "script": "build",
+          "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "started_at": "2026-11-17T00:02:00Z",
+          "state": "succeeded",
+          "version": 2
+        }
+      },
+      "expect": {
+        "error": "invalid preparation result {home}/preparations/{sha256:{tmp}/dest}/result.json for {tmp}/dest"
+      }
+    },
+    {
+      "id": "invalid.run-node-modules-output",
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "record": {
+          "destination": "{tmp}/dest",
+          "ended_at": "2026-11-17T00:03:00Z",
+          "exit_code": 0,
+          "kind": "npm-run",
+          "outputs": [
+            "repo/app/node_modules"
+          ],
+          "path": "repo/app",
+          "previous": {
+            "destination": "{tmp}/dest",
+            "ended_at": "2026-11-17T00:01:00Z",
+            "exit_code": 0,
+            "kind": "npm-ci",
+            "outputs": [
+              "repo/app/node_modules"
+            ],
+            "path": "repo/app",
+            "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "started_at": "2026-11-17T00:00:00Z",
+            "state": "succeeded",
+            "version": 1
+          },
+          "script": "build",
+          "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "started_at": "2026-11-17T00:02:00Z",
+          "state": "succeeded",
+          "version": 2
+        }
+      },
+      "expect": {
+        "error": "invalid preparation result {home}/preparations/{sha256:{tmp}/dest}/result.json for {tmp}/dest"
+      }
+    },
+    {
+      "id": "invalid.run-bad-script",
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "record": {
+          "destination": "{tmp}/dest",
+          "ended_at": "2026-11-17T00:03:00Z",
+          "exit_code": 0,
+          "kind": "npm-run",
+          "outputs": [
+            "repo/app/dist"
+          ],
+          "path": "repo/app",
+          "previous": {
+            "destination": "{tmp}/dest",
+            "ended_at": "2026-11-17T00:01:00Z",
+            "exit_code": 0,
+            "kind": "npm-ci",
+            "outputs": [
+              "repo/app/node_modules"
+            ],
+            "path": "repo/app",
+            "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "started_at": "2026-11-17T00:00:00Z",
+            "state": "succeeded",
+            "version": 1
+          },
+          "script": "-x",
+          "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "started_at": "2026-11-17T00:02:00Z",
+          "state": "succeeded",
+          "version": 2
+        }
+      },
+      "expect": {
+        "error": "invalid preparation result {home}/preparations/{sha256:{tmp}/dest}/result.json for {tmp}/dest"
+      }
+    },
+    {
+      "id": "invalid.run-kind",
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "record": {
+          "destination": "{tmp}/dest",
+          "ended_at": "2026-11-17T00:03:00Z",
+          "exit_code": 0,
+          "kind": "npm-ci",
+          "outputs": [
+            "repo/app/dist"
+          ],
+          "path": "repo/app",
+          "previous": {
+            "destination": "{tmp}/dest",
+            "ended_at": "2026-11-17T00:01:00Z",
+            "exit_code": 0,
+            "kind": "npm-ci",
+            "outputs": [
+              "repo/app/node_modules"
+            ],
+            "path": "repo/app",
+            "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "started_at": "2026-11-17T00:00:00Z",
+            "state": "succeeded",
+            "version": 1
+          },
+          "script": "build",
+          "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "started_at": "2026-11-17T00:02:00Z",
+          "state": "succeeded",
+          "version": 2
+        }
+      },
+      "expect": {
+        "error": "invalid preparation result {home}/preparations/{sha256:{tmp}/dest}/result.json for {tmp}/dest"
+      }
+    },
+    {
+      "id": "invalid.null",
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "record": null
+      },
+      "expect": {
+        "error": "invalid preparation result {home}/preparations/{sha256:{tmp}/dest}/result.json for {tmp}/dest"
+      }
+    },
+    {
+      "id": "invalid.array",
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "record": [
+          {
+            "destination": "{tmp}/dest",
+            "ended_at": "2026-11-17T00:01:00Z",
+            "exit_code": 0,
+            "kind": "npm-ci",
+            "outputs": [
+              "repo/app/node_modules"
+            ],
+            "path": "repo/app",
+            "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "started_at": "2026-11-17T00:00:00Z",
+            "state": "succeeded",
+            "version": 1
+          }
+        ]
+      },
+      "expect": {
+        "error": "invalid preparation result {home}/preparations/{sha256:{tmp}/dest}/result.json for {tmp}/dest"
+      }
+    },
+    {
+      "id": "valid.null-optional-fields",
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "record": {
+          "destination": "{tmp}/dest",
+          "ended_at": null,
+          "exit_code": 0,
+          "kind": "npm-ci",
+          "outputs": [
+            "repo/app/node_modules"
+          ],
+          "path": "repo/app",
+          "previous": null,
+          "reason": null,
+          "script": null,
+          "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "started_at": "2026-11-17T00:00:00Z",
+          "state": "succeeded",
+          "version": 1
+        }
+      },
+      "expect": {
+        "ready": true
+      },
+      "note": "null leaves a field's zero value"
+    },
+    {
+      "id": "valid.folded-field-names",
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "record": {
+          "STATE": "succeeded",
+          "Version": 1,
+          "destination": "{tmp}/dest",
+          "ended_at": "2026-11-17T00:01:00Z",
+          "exit_code": 0,
+          "kind": "npm-ci",
+          "outputs": [
+            "repo/app/node_modules"
+          ],
+          "path": "repo/app",
+          "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "started_at": "2026-11-17T00:00:00Z"
+        }
+      },
+      "expect": {
+        "ready": true
+      },
+      "note": "encoding/json matches field names case-insensitively"
+    }
+  ]
+}

@@ -1,0 +1,788 @@
+{
+  "version": 1,
+  "rows": [
+    {
+      "id": "ok",
+      "input": {
+        "branch": "task/s6",
+        "home": "{home}/workers/w1",
+        "url": "https://github.com/eyra/atlas.git"
+      },
+      "expect": {
+        "request": {
+          "permissions": {
+            "git_dir": "{home}/workers/w1/repositories/eyra/atlas/.git",
+            "network_hosts": [
+              "github.com",
+              "api.github.com"
+            ],
+            "profile": "dedicated-repository",
+            "root": "{home}/workers/w1/repositories/eyra/atlas",
+            "version": 1
+          },
+          "repository": {
+            "branch": "task/s6",
+            "url": "https://github.com/eyra/atlas.git"
+          }
+        }
+      }
+    },
+    {
+      "id": "ok_no_git_suffix",
+      "input": {
+        "branch": "task/s6",
+        "home": "{home}/workers/w1",
+        "url": "https://github.com/eyra/atlas"
+      },
+      "expect": {
+        "request": {
+          "permissions": {
+            "git_dir": "{home}/workers/w1/repositories/eyra/atlas/.git",
+            "network_hosts": [
+              "github.com",
+              "api.github.com"
+            ],
+            "profile": "dedicated-repository",
+            "root": "{home}/workers/w1/repositories/eyra/atlas",
+            "version": 1
+          },
+          "repository": {
+            "branch": "task/s6",
+            "url": "https://github.com/eyra/atlas.git"
+          }
+        }
+      }
+    },
+    {
+      "id": "ok_upper_case",
+      "input": {
+        "branch": "task/s6",
+        "home": "{home}/workers/w1",
+        "url": "https://github.com/Eyra/ATLAS.Git"
+      },
+      "expect": {
+        "request": {
+          "permissions": {
+            "git_dir": "{home}/workers/w1/repositories/eyra/atlas/.git",
+            "network_hosts": [
+              "github.com",
+              "api.github.com"
+            ],
+            "profile": "dedicated-repository",
+            "root": "{home}/workers/w1/repositories/eyra/atlas",
+            "version": 1
+          },
+          "repository": {
+            "branch": "task/s6",
+            "url": "https://github.com/eyra/atlas.git"
+          }
+        }
+      },
+      "note": "owner and name are lower-cased; .git is trimmed after lower-casing"
+    },
+    {
+      "id": "ok_git_suffix_once",
+      "input": {
+        "branch": "task/s6",
+        "home": "{home}/workers/w1",
+        "url": "https://github.com/eyra/atlas.git.git"
+      },
+      "expect": {
+        "request": {
+          "permissions": {
+            "git_dir": "{home}/workers/w1/repositories/eyra/atlas.git/.git",
+            "network_hosts": [
+              "github.com",
+              "api.github.com"
+            ],
+            "profile": "dedicated-repository",
+            "root": "{home}/workers/w1/repositories/eyra/atlas.git",
+            "version": 1
+          },
+          "repository": {
+            "branch": "task/s6",
+            "url": "https://github.com/eyra/atlas.git.git"
+          }
+        }
+      }
+    },
+    {
+      "id": "ok_dotted_name",
+      "input": {
+        "branch": "task/s6",
+        "home": "{home}/workers/w1",
+        "url": "https://github.com/eyra/a.b_c-d"
+      },
+      "expect": {
+        "request": {
+          "permissions": {
+            "git_dir": "{home}/workers/w1/repositories/eyra/a.b_c-d/.git",
+            "network_hosts": [
+              "github.com",
+              "api.github.com"
+            ],
+            "profile": "dedicated-repository",
+            "root": "{home}/workers/w1/repositories/eyra/a.b_c-d",
+            "version": 1
+          },
+          "repository": {
+            "branch": "task/s6",
+            "url": "https://github.com/eyra/a.b_c-d.git"
+          }
+        }
+      }
+    },
+    {
+      "id": "ok_hyphen_digit_owner",
+      "input": {
+        "branch": "task/s6",
+        "home": "{home}/workers/w1",
+        "url": "https://github.com/0e-yra/atlas"
+      },
+      "expect": {
+        "request": {
+          "permissions": {
+            "git_dir": "{home}/workers/w1/repositories/0e-yra/atlas/.git",
+            "network_hosts": [
+              "github.com",
+              "api.github.com"
+            ],
+            "profile": "dedicated-repository",
+            "root": "{home}/workers/w1/repositories/0e-yra/atlas",
+            "version": 1
+          },
+          "repository": {
+            "branch": "task/s6",
+            "url": "https://github.com/0e-yra/atlas.git"
+          }
+        }
+      }
+    },
+    {
+      "id": "name_dotdot",
+      "input": {
+        "branch": "task/s6",
+        "home": "{home}/workers/w1",
+        "url": "https://github.com/eyra/.."
+      },
+      "expect": {
+        "error": "Invalid repository name"
+      }
+    },
+    {
+      "id": "name_dot",
+      "input": {
+        "branch": "task/s6",
+        "home": "{home}/workers/w1",
+        "url": "https://github.com/eyra/."
+      },
+      "expect": {
+        "error": "Invalid repository name"
+      }
+    },
+    {
+      "id": "name_dotgit",
+      "input": {
+        "branch": "task/s6",
+        "home": "{home}/workers/w1",
+        "url": "https://github.com/eyra/.git"
+      },
+      "expect": {
+        "error": "Invalid repository name"
+      }
+    },
+    {
+      "id": "name_dotdotgit",
+      "input": {
+        "branch": "task/s6",
+        "home": "{home}/workers/w1",
+        "url": "https://github.com/eyra/...git"
+      },
+      "expect": {
+        "error": "Invalid repository name"
+      }
+    },
+    {
+      "id": "url_dotdot_path",
+      "input": {
+        "branch": "task/s6",
+        "home": "{home}/workers/w1",
+        "url": "https://github.com/test/../repo"
+      },
+      "expect": {
+        "error": "Repository must be an HTTPS github.com owner/repository URL"
+      }
+    },
+    {
+      "id": "url_non_github",
+      "input": {
+        "branch": "task/s6",
+        "home": "{home}/workers/w1",
+        "url": "https://example.com/eyra/atlas"
+      },
+      "expect": {
+        "error": "Repository must be an HTTPS github.com owner/repository URL"
+      }
+    },
+    {
+      "id": "url_http",
+      "input": {
+        "branch": "task/s6",
+        "home": "{home}/workers/w1",
+        "url": "http://github.com/eyra/atlas"
+      },
+      "expect": {
+        "error": "Repository must be an HTTPS github.com owner/repository URL"
+      }
+    },
+    {
+      "id": "url_upper_scheme",
+      "input": {
+        "branch": "task/s6",
+        "home": "{home}/workers/w1",
+        "url": "HTTPS://github.com/eyra/atlas"
+      },
+      "expect": {
+        "error": "Repository must be an HTTPS github.com owner/repository URL"
+      }
+    },
+    {
+      "id": "url_subdomain",
+      "input": {
+        "branch": "task/s6",
+        "home": "{home}/workers/w1",
+        "url": "https://www.github.com/eyra/atlas"
+      },
+      "expect": {
+        "error": "Repository must be an HTTPS github.com owner/repository URL"
+      }
+    },
+    {
+      "id": "url_lookalike_host",
+      "input": {
+        "branch": "task/s6",
+        "home": "{home}/workers/w1",
+        "url": "https://github.com.evil/eyra/atlas"
+      },
+      "expect": {
+        "error": "Repository must be an HTTPS github.com owner/repository URL"
+      }
+    },
+    {
+      "id": "url_userinfo",
+      "input": {
+        "branch": "task/s6",
+        "home": "{home}/workers/w1",
+        "url": "https://x@github.com/eyra/atlas"
+      },
+      "expect": {
+        "error": "Repository must be an HTTPS github.com owner/repository URL"
+      }
+    },
+    {
+      "id": "url_port",
+      "input": {
+        "branch": "task/s6",
+        "home": "{home}/workers/w1",
+        "url": "https://github.com:443/eyra/atlas"
+      },
+      "expect": {
+        "error": "Repository must be an HTTPS github.com owner/repository URL"
+      }
+    },
+    {
+      "id": "url_trailing_slash",
+      "input": {
+        "branch": "task/s6",
+        "home": "{home}/workers/w1",
+        "url": "https://github.com/eyra/atlas/"
+      },
+      "expect": {
+        "error": "Repository must be an HTTPS github.com owner/repository URL"
+      }
+    },
+    {
+      "id": "url_query",
+      "input": {
+        "branch": "task/s6",
+        "home": "{home}/workers/w1",
+        "url": "https://github.com/eyra/atlas?x=1"
+      },
+      "expect": {
+        "error": "Repository must be an HTTPS github.com owner/repository URL"
+      }
+    },
+    {
+      "id": "url_extra_path",
+      "input": {
+        "branch": "task/s6",
+        "home": "{home}/workers/w1",
+        "url": "https://github.com/eyra/atlas/tree"
+      },
+      "expect": {
+        "error": "Repository must be an HTTPS github.com owner/repository URL"
+      }
+    },
+    {
+      "id": "url_trailing_newline",
+      "input": {
+        "branch": "task/s6",
+        "home": "{home}/workers/w1",
+        "url": "https://github.com/eyra/atlas\n"
+      },
+      "expect": {
+        "error": "Repository must be an HTTPS github.com owner/repository URL"
+      },
+      "note": "Go's $ is end of text; a PCRE $ would accept the newline"
+    },
+    {
+      "id": "url_dotted_owner",
+      "input": {
+        "branch": "task/s6",
+        "home": "{home}/workers/w1",
+        "url": "https://github.com/ey.ra/atlas"
+      },
+      "expect": {
+        "error": "Repository must be an HTTPS github.com owner/repository URL"
+      }
+    },
+    {
+      "id": "url_owner_leading_hyphen",
+      "input": {
+        "branch": "task/s6",
+        "home": "{home}/workers/w1",
+        "url": "https://github.com/-eyra/atlas"
+      },
+      "expect": {
+        "error": "Repository must be an HTTPS github.com owner/repository URL"
+      }
+    },
+    {
+      "id": "url_owner_underscore",
+      "input": {
+        "branch": "task/s6",
+        "home": "{home}/workers/w1",
+        "url": "https://github.com/ey_ra/atlas"
+      },
+      "expect": {
+        "error": "Repository must be an HTTPS github.com owner/repository URL"
+      }
+    },
+    {
+      "id": "url_name_slash_encoded",
+      "input": {
+        "branch": "task/s6",
+        "home": "{home}/workers/w1",
+        "url": "https://github.com/eyra/at%2Flas"
+      },
+      "expect": {
+        "error": "Repository must be an HTTPS github.com owner/repository URL"
+      }
+    },
+    {
+      "id": "url_empty",
+      "input": {
+        "branch": "task/s6",
+        "home": "{home}/workers/w1",
+        "url": ""
+      },
+      "expect": {
+        "error": "Repository must be an HTTPS github.com owner/repository URL"
+      }
+    },
+    {
+      "id": "url_file",
+      "input": {
+        "branch": "task/s6",
+        "home": "{home}/workers/w1",
+        "url": "file:///tmp/repo"
+      },
+      "expect": {
+        "error": "Repository must be an HTTPS github.com owner/repository URL"
+      }
+    },
+    {
+      "id": "branch_develop",
+      "input": {
+        "branch": "develop",
+        "home": "{home}/workers/w1",
+        "url": "https://github.com/eyra/atlas.git"
+      },
+      "expect": {
+        "error": "Task branch must be a new explicit Git branch other than develop"
+      }
+    },
+    {
+      "id": "branch_develop_case",
+      "input": {
+        "branch": "Develop",
+        "home": "{home}/workers/w1",
+        "url": "https://github.com/eyra/atlas.git"
+      },
+      "expect": {
+        "request": {
+          "permissions": {
+            "git_dir": "{home}/workers/w1/repositories/eyra/atlas/.git",
+            "network_hosts": [
+              "github.com",
+              "api.github.com"
+            ],
+            "profile": "dedicated-repository",
+            "root": "{home}/workers/w1/repositories/eyra/atlas",
+            "version": 1
+          },
+          "repository": {
+            "branch": "Develop",
+            "url": "https://github.com/eyra/atlas.git"
+          }
+        }
+      },
+      "note": "only the exact name develop is refused"
+    },
+    {
+      "id": "branch_parent",
+      "input": {
+        "branch": "../branch",
+        "home": "{home}/workers/w1",
+        "url": "https://github.com/eyra/atlas.git"
+      },
+      "expect": {
+        "error": "Task branch must be a new explicit Git branch other than develop"
+      }
+    },
+    {
+      "id": "branch_force",
+      "input": {
+        "branch": "--force",
+        "home": "{home}/workers/w1",
+        "url": "https://github.com/eyra/atlas.git"
+      },
+      "expect": {
+        "error": "Task branch must be a new explicit Git branch other than develop"
+      }
+    },
+    {
+      "id": "branch_double_dot",
+      "input": {
+        "branch": "a..b",
+        "home": "{home}/workers/w1",
+        "url": "https://github.com/eyra/atlas.git"
+      },
+      "expect": {
+        "error": "Task branch must be a new explicit Git branch other than develop"
+      }
+    },
+    {
+      "id": "branch_empty",
+      "input": {
+        "branch": "",
+        "home": "{home}/workers/w1",
+        "url": "https://github.com/eyra/atlas.git"
+      },
+      "expect": {
+        "error": "Task branch must be a new explicit Git branch other than develop"
+      }
+    },
+    {
+      "id": "branch_leading_space",
+      "input": {
+        "branch": " task",
+        "home": "{home}/workers/w1",
+        "url": "https://github.com/eyra/atlas.git"
+      },
+      "expect": {
+        "error": "Task branch must be a new explicit Git branch other than develop"
+      }
+    },
+    {
+      "id": "branch_lock_suffix",
+      "input": {
+        "branch": "task.lock",
+        "home": "{home}/workers/w1",
+        "url": "https://github.com/eyra/atlas.git"
+      },
+      "expect": {
+        "error": "Task branch must be a new explicit Git branch other than develop"
+      }
+    },
+    {
+      "id": "branch_trailing_slash",
+      "input": {
+        "branch": "task/",
+        "home": "{home}/workers/w1",
+        "url": "https://github.com/eyra/atlas.git"
+      },
+      "expect": {
+        "error": "Task branch must be a new explicit Git branch other than develop"
+      }
+    },
+    {
+      "id": "branch_previous",
+      "input": {
+        "branch": "@{-1}",
+        "home": "{home}/workers/w1",
+        "url": "https://github.com/eyra/atlas.git"
+      },
+      "expect": {
+        "error": "Task branch must be a new explicit Git branch other than develop"
+      }
+    },
+    {
+      "id": "branch_head",
+      "input": {
+        "branch": "HEAD",
+        "home": "{home}/workers/w1",
+        "url": "https://github.com/eyra/atlas.git"
+      },
+      "expect": {
+        "error": "Task branch must be a new explicit Git branch other than develop"
+      }
+    },
+    {
+      "id": "branch_nested",
+      "input": {
+        "branch": "feature/x/y",
+        "home": "{home}/workers/w1",
+        "url": "https://github.com/eyra/atlas.git"
+      },
+      "expect": {
+        "request": {
+          "permissions": {
+            "git_dir": "{home}/workers/w1/repositories/eyra/atlas/.git",
+            "network_hosts": [
+              "github.com",
+              "api.github.com"
+            ],
+            "profile": "dedicated-repository",
+            "root": "{home}/workers/w1/repositories/eyra/atlas",
+            "version": 1
+          },
+          "repository": {
+            "branch": "feature/x/y",
+            "url": "https://github.com/eyra/atlas.git"
+          }
+        }
+      }
+    },
+    {
+      "id": "branch_dash_inside",
+      "input": {
+        "branch": "task-1",
+        "home": "{home}/workers/w1",
+        "url": "https://github.com/eyra/atlas.git"
+      },
+      "expect": {
+        "request": {
+          "permissions": {
+            "git_dir": "{home}/workers/w1/repositories/eyra/atlas/.git",
+            "network_hosts": [
+              "github.com",
+              "api.github.com"
+            ],
+            "profile": "dedicated-repository",
+            "root": "{home}/workers/w1/repositories/eyra/atlas",
+            "version": 1
+          },
+          "repository": {
+            "branch": "task-1",
+            "url": "https://github.com/eyra/atlas.git"
+          }
+        }
+      }
+    },
+    {
+      "id": "branch_trailing_nbsp",
+      "input": {
+        "branch": "task/s6 ",
+        "home": "{home}/workers/w1",
+        "url": "https://github.com/eyra/atlas.git"
+      },
+      "expect": {
+        "error": "Task branch must be a new explicit Git branch other than develop"
+      },
+      "note": "git check-ref-format accepts and echoes it; Go TrimSpace strips U+00A0, so stdout != branch"
+    },
+    {
+      "id": "home_absent",
+      "input": {
+        "branch": "task/s6",
+        "home": "{home}/workers/w1",
+        "url": "https://github.com/eyra/atlas.git"
+      },
+      "expect": {
+        "request": {
+          "permissions": {
+            "git_dir": "{home}/workers/w1/repositories/eyra/atlas/.git",
+            "network_hosts": [
+              "github.com",
+              "api.github.com"
+            ],
+            "profile": "dedicated-repository",
+            "root": "{home}/workers/w1/repositories/eyra/atlas",
+            "version": 1
+          },
+          "repository": {
+            "branch": "task/s6",
+            "url": "https://github.com/eyra/atlas.git"
+          }
+        }
+      },
+      "note": "nothing exists yet under the home; resolution of absent parts is literal"
+    },
+    {
+      "id": "home_unnormalized",
+      "input": {
+        "branch": "task/s6",
+        "home": "{home}//workers/./w1/",
+        "url": "https://github.com/eyra/atlas.git"
+      },
+      "expect": {
+        "request": {
+          "permissions": {
+            "git_dir": "{home}/workers/w1/repositories/eyra/atlas/.git",
+            "network_hosts": [
+              "github.com",
+              "api.github.com"
+            ],
+            "profile": "dedicated-repository",
+            "root": "{home}/workers/w1/repositories/eyra/atlas",
+            "version": 1
+          },
+          "repository": {
+            "branch": "task/s6",
+            "url": "https://github.com/eyra/atlas.git"
+          }
+        }
+      }
+    },
+    {
+      "id": "home_dotdot",
+      "input": {
+        "branch": "task/s6",
+        "home": "{home}/workers/w1/../w2",
+        "url": "https://github.com/eyra/atlas.git"
+      },
+      "expect": {
+        "error": "Managed repository path must not contain symlinks"
+      },
+      "note": "pathlib keeps '..'; resolution removes it, so the path is not canonical"
+    },
+    {
+      "id": "home_symlink",
+      "fs": [
+        {
+          "path": "{home}",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/link",
+          "target": "{home}",
+          "type": "symlink"
+        }
+      ],
+      "input": {
+        "branch": "task/s6",
+        "home": "{tmp}/link/workers/w1",
+        "url": "https://github.com/eyra/atlas.git"
+      },
+      "expect": {
+        "error": "Managed repository path must not contain symlinks"
+      }
+    },
+    {
+      "id": "managed_path_symlink",
+      "fs": [
+        {
+          "path": "{tmp}/elsewhere",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/workers/w1/repositories",
+          "target": "{tmp}/elsewhere",
+          "type": "symlink"
+        }
+      ],
+      "input": {
+        "branch": "task/s6",
+        "home": "{home}/workers/w1",
+        "url": "https://github.com/eyra/atlas.git"
+      },
+      "expect": {
+        "error": "Managed repository path must not contain symlinks"
+      }
+    },
+    {
+      "id": "managed_owner_symlink",
+      "fs": [
+        {
+          "path": "{home}/workers/w1/repositories/other",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/workers/w1/repositories/eyra",
+          "target": "other",
+          "type": "symlink"
+        }
+      ],
+      "input": {
+        "branch": "task/s6",
+        "home": "{home}/workers/w1",
+        "url": "https://github.com/eyra/atlas.git"
+      },
+      "expect": {
+        "error": "Managed repository path must not contain symlinks"
+      }
+    },
+    {
+      "id": "managed_symlink_loop",
+      "fs": [
+        {
+          "path": "{home}/workers/w1/repositories",
+          "target": "repositories",
+          "type": "symlink"
+        }
+      ],
+      "input": {
+        "branch": "task/s6",
+        "home": "{home}/workers/w1",
+        "url": "https://github.com/eyra/atlas.git"
+      },
+      "expect": {
+        "error": "Symlink loop from {home}/workers/w1/repositories"
+      },
+      "detail_has_path": true
+    },
+    {
+      "id": "managed_path_exists",
+      "fs": [
+        {
+          "path": "{home}/workers/w1/repositories/eyra/atlas",
+          "type": "git"
+        }
+      ],
+      "input": {
+        "branch": "task/s6",
+        "home": "{home}/workers/w1",
+        "url": "https://github.com/eyra/atlas.git"
+      },
+      "expect": {
+        "request": {
+          "permissions": {
+            "git_dir": "{home}/workers/w1/repositories/eyra/atlas/.git",
+            "network_hosts": [
+              "github.com",
+              "api.github.com"
+            ],
+            "profile": "dedicated-repository",
+            "root": "{home}/workers/w1/repositories/eyra/atlas",
+            "version": 1
+          },
+          "repository": {
+            "branch": "task/s6",
+            "url": "https://github.com/eyra/atlas.git"
+          }
+        }
+      }
+    }
+  ]
+}

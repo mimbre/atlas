@@ -1,0 +1,822 @@
+{
+  "version": 1,
+  "rows": [
+    {
+      "id": "dedicated_ok",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/repo",
+          "type": "git"
+        }
+      ],
+      "input": {
+        "origin": {
+          "runtime_chosen": {
+            "work": "w1"
+          }
+        },
+        "path": "{tmp}/repo"
+      },
+      "expect": {
+        "git_dir": "{tmp}/repo/.git",
+        "network_hosts": [
+          "github.com",
+          "api.github.com"
+        ],
+        "profile": "dedicated-repository",
+        "root": "{tmp}/repo",
+        "version": 1
+      }
+    },
+    {
+      "id": "dedicated_alias_not_canonical",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/repo",
+          "type": "git"
+        },
+        {
+          "path": "{tmp}/alias",
+          "target": "{tmp}/repo",
+          "type": "symlink"
+        }
+      ],
+      "input": {
+        "origin": {
+          "runtime_chosen": {
+            "work": "w1"
+          }
+        },
+        "path": "{tmp}/alias"
+      },
+      "expect": {
+        "error": "Dedicated repository requires a canonical root with its own .git directory"
+      }
+    },
+    {
+      "id": "dedicated_dotdot_not_canonical",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/repo",
+          "type": "git"
+        },
+        {
+          "path": "{tmp}/alias",
+          "target": "{tmp}/repo",
+          "type": "symlink"
+        }
+      ],
+      "input": {
+        "origin": {
+          "runtime_chosen": {
+            "work": "w1"
+          }
+        },
+        "path": "{tmp}/alias/../repo"
+      },
+      "expect": {
+        "error": "Dedicated repository requires a canonical root with its own .git directory"
+      },
+      "note": "Pathlib keeps '..' until resolution, so the given root is not the resolved one"
+    },
+    {
+      "id": "dedicated_subdirectory",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/repo",
+          "type": "git"
+        },
+        {
+          "path": "{tmp}/repo/child",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "origin": {
+          "runtime_chosen": {
+            "work": "w1"
+          }
+        },
+        "path": "{tmp}/repo/child"
+      },
+      "expect": {
+        "error": "Dedicated repository requires a canonical root with its own .git directory"
+      }
+    },
+    {
+      "id": "dedicated_missing",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/repo",
+          "type": "git"
+        }
+      ],
+      "input": {
+        "origin": {
+          "runtime_chosen": {
+            "work": "w1"
+          }
+        },
+        "path": "{tmp}/absent"
+      },
+      "expect": {
+        "error": "Dedicated repository requires a canonical root with its own .git directory"
+      }
+    },
+    {
+      "id": "dedicated_git_file",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/repo",
+          "type": "git"
+        },
+        {
+          "content": "gitdir: ../repo/.git\n",
+          "path": "{tmp}/plain/.git",
+          "type": "file"
+        }
+      ],
+      "input": {
+        "origin": {
+          "runtime_chosen": {
+            "work": "w1"
+          }
+        },
+        "path": "{tmp}/plain"
+      },
+      "expect": {
+        "error": "Dedicated repository requires a canonical root with its own .git directory"
+      }
+    },
+    {
+      "id": "dedicated_git_symlink",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/repo",
+          "type": "git"
+        },
+        {
+          "path": "{tmp}/linked",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/linked/.git",
+          "target": "{tmp}/repo/.git",
+          "type": "symlink"
+        }
+      ],
+      "input": {
+        "origin": {
+          "runtime_chosen": {
+            "work": "w1"
+          }
+        },
+        "path": "{tmp}/linked"
+      },
+      "expect": {
+        "error": "Dedicated repository requires a canonical root with its own .git directory"
+      }
+    },
+    {
+      "id": "dedicated_worktree_checkout",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/repo",
+          "type": "git"
+        },
+        {
+          "path": "{tmp}/repo/.git/worktrees/wt",
+          "type": "dir"
+        },
+        {
+          "content": "gitdir: ../repo/.git/worktrees/wt\n",
+          "path": "{tmp}/wt/.git",
+          "type": "file"
+        }
+      ],
+      "input": {
+        "origin": {
+          "runtime_chosen": {
+            "work": "w1"
+          }
+        },
+        "path": "{tmp}/wt"
+      },
+      "expect": {
+        "error": "Dedicated repository requires a canonical root with its own .git directory"
+      },
+      "note": "a linked worktree's checkout has a .git file"
+    },
+    {
+      "id": "dedicated_symlink_loop",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/repo",
+          "type": "git"
+        },
+        {
+          "path": "{tmp}/loop",
+          "target": "{tmp}/loop",
+          "type": "symlink"
+        }
+      ],
+      "input": {
+        "origin": {
+          "runtime_chosen": {
+            "work": "w1"
+          }
+        },
+        "path": "{tmp}/loop"
+      },
+      "expect": {
+        "error": "Symlink loop from {tmp}/loop"
+      },
+      "detail_has_path": true
+    },
+    {
+      "id": "dedicated_external_git_dir",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/repo",
+          "type": "git"
+        },
+        {
+          "path": "{tmp}/main",
+          "type": "git"
+        },
+        {
+          "content": "../../main/.git\n",
+          "path": "{tmp}/repo/.git/commondir",
+          "type": "file"
+        }
+      ],
+      "input": {
+        "origin": {
+          "runtime_chosen": {
+            "work": "w1"
+          }
+        },
+        "path": "{tmp}/repo"
+      },
+      "expect": {
+        "error": "Dedicated repository cannot use worktree or external Git metadata"
+      },
+      "note": "commondir points at another repository's metadata, so rev-parse names another common dir"
+    },
+    {
+      "id": "dedicated_git_inspection_failed",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/empty/.git",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "origin": {
+          "runtime_chosen": {
+            "work": "w1"
+          }
+        },
+        "path": "{tmp}/empty"
+      },
+      "expect": {
+        "error": "Git repository inspection failed: fatal: not a git repository (or any of the parent directories): .git"
+      },
+      "note": "an empty .git directory is no repository; the text is git's own"
+    },
+    {
+      "id": "dedicated_commondir",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/repo",
+          "type": "git"
+        },
+        {
+          "content": ".\n",
+          "path": "{tmp}/repo/.git/commondir",
+          "type": "file"
+        }
+      ],
+      "input": {
+        "origin": {
+          "runtime_chosen": {
+            "work": "w1"
+          }
+        },
+        "path": "{tmp}/repo"
+      },
+      "expect": {
+        "error": "Dedicated repository cannot share Git metadata or object stores"
+      },
+      "note": "a commondir naming the repository's own metadata passes rev-parse; its presence is refused"
+    },
+    {
+      "id": "dedicated_alternates",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/repo",
+          "type": "git"
+        },
+        {
+          "content": "/elsewhere/objects\n",
+          "path": "{tmp}/repo/.git/objects/info/alternates",
+          "type": "file"
+        }
+      ],
+      "input": {
+        "origin": {
+          "runtime_chosen": {
+            "work": "w1"
+          }
+        },
+        "path": "{tmp}/repo"
+      },
+      "expect": {
+        "error": "Dedicated repository cannot share Git metadata or object stores"
+      }
+    },
+    {
+      "id": "dedicated_http_alternates",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/repo",
+          "type": "git"
+        },
+        {
+          "content": "https://example.invalid/objects\n",
+          "path": "{tmp}/repo/.git/objects/info/http-alternates",
+          "type": "file"
+        }
+      ],
+      "input": {
+        "origin": {
+          "runtime_chosen": {
+            "work": "w1"
+          }
+        },
+        "path": "{tmp}/repo"
+      },
+      "expect": {
+        "error": "Dedicated repository cannot share Git metadata or object stores"
+      }
+    },
+    {
+      "id": "dedicated_worktrees_dir",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/repo",
+          "type": "git"
+        },
+        {
+          "path": "{tmp}/repo/.git/worktrees",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "origin": {
+          "runtime_chosen": {
+            "work": "w1"
+          }
+        },
+        "path": "{tmp}/repo"
+      },
+      "expect": {
+        "error": "Dedicated repository cannot share Git metadata or object stores"
+      }
+    },
+    {
+      "id": "dedicated_symlink_in_git",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/repo",
+          "type": "git"
+        },
+        {
+          "path": "{tmp}/repo/.git/linked",
+          "target": "{tmp}",
+          "type": "symlink"
+        }
+      ],
+      "input": {
+        "origin": {
+          "runtime_chosen": {
+            "work": "w1"
+          }
+        },
+        "path": "{tmp}/repo"
+      },
+      "expect": {
+        "error": "Dedicated Git metadata cannot contain symlinks or shared hardlinks"
+      }
+    },
+    {
+      "id": "dedicated_hardlink_in_git",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/repo",
+          "type": "git"
+        },
+        {
+          "path": "{tmp}/shared-head",
+          "target": "{tmp}/repo/.git/HEAD",
+          "type": "hardlink"
+        }
+      ],
+      "input": {
+        "origin": {
+          "runtime_chosen": {
+            "work": "w1"
+          }
+        },
+        "path": "{tmp}/repo"
+      },
+      "expect": {
+        "error": "Dedicated Git metadata cannot contain symlinks or shared hardlinks"
+      }
+    },
+    {
+      "id": "dedicated_project_codex_config",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/repo",
+          "type": "git"
+        },
+        {
+          "content": "sandbox_mode = \"read-only\"\n",
+          "path": "{tmp}/repo/.codex/config.toml",
+          "type": "file"
+        }
+      ],
+      "input": {
+        "origin": {
+          "runtime_chosen": {
+            "work": "w1"
+          }
+        },
+        "path": "{tmp}/repo"
+      },
+      "expect": {
+        "error": "Dedicated repository cannot load project or system Codex config"
+      }
+    },
+    {
+      "id": "dedicated_ancestor_codex_config",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/repo",
+          "type": "git"
+        },
+        {
+          "content": "sandbox_mode = \"read-only\"\n",
+          "path": "{tmp}/.codex/config.toml",
+          "type": "file"
+        }
+      ],
+      "input": {
+        "origin": {
+          "runtime_chosen": {
+            "work": "w1"
+          }
+        },
+        "path": "{tmp}/repo"
+      },
+      "expect": {
+        "error": "Dedicated repository cannot load project or system Codex config"
+      }
+    },
+    {
+      "id": "dedicated_codex_home_config_ignored",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/repo",
+          "type": "git"
+        },
+        {
+          "content": "",
+          "path": "{tmp}/.codex/config.toml",
+          "type": "file"
+        }
+      ],
+      "env": {
+        "CODEX_HOME": "{tmp}/.codex"
+      },
+      "input": {
+        "origin": {
+          "runtime_chosen": {
+            "work": "w1"
+          }
+        },
+        "path": "{tmp}/repo"
+      },
+      "expect": {
+        "git_dir": "{tmp}/repo/.git",
+        "network_hosts": [
+          "github.com",
+          "api.github.com"
+        ],
+        "profile": "dedicated-repository",
+        "root": "{tmp}/repo",
+        "version": 1
+      },
+      "note": "the user's own Codex home config is not a project config"
+    },
+    {
+      "id": "dedicated_codex_home_unset_default_ignored",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/repo",
+          "type": "git"
+        },
+        {
+          "content": "",
+          "path": "{tmp}/.codex/config.toml",
+          "type": "file"
+        }
+      ],
+      "env": {
+        "CODEX_HOME": "{unset}",
+        "HOME": "{tmp}"
+      },
+      "input": {
+        "origin": {
+          "runtime_chosen": {
+            "work": "w1"
+          }
+        },
+        "path": "{tmp}/repo"
+      },
+      "expect": {
+        "git_dir": "{tmp}/repo/.git",
+        "network_hosts": [
+          "github.com",
+          "api.github.com"
+        ],
+        "profile": "dedicated-repository",
+        "root": "{tmp}/repo",
+        "version": 1
+      },
+      "note": "without CODEX_HOME the ignored config is $HOME/.codex/config.toml"
+    },
+    {
+      "id": "dedicated_codex_home_symlink_ignored",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/repo",
+          "type": "git"
+        },
+        {
+          "content": "",
+          "path": "{tmp}/.codex/config.toml",
+          "type": "file"
+        },
+        {
+          "path": "{user}/codex",
+          "target": "{tmp}/.codex",
+          "type": "symlink"
+        }
+      ],
+      "env": {
+        "CODEX_HOME": "{user}/codex"
+      },
+      "input": {
+        "origin": {
+          "runtime_chosen": {
+            "work": "w1"
+          }
+        },
+        "path": "{tmp}/repo"
+      },
+      "expect": {
+        "git_dir": "{tmp}/repo/.git",
+        "network_hosts": [
+          "github.com",
+          "api.github.com"
+        ],
+        "profile": "dedicated-repository",
+        "root": "{tmp}/repo",
+        "version": 1
+      },
+      "note": "the ignored config is compared after resolving CODEX_HOME"
+    },
+    {
+      "id": "dedicated_unreadable_ancestor_codex",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/repo",
+          "type": "git"
+        },
+        {
+          "mode": "0000",
+          "path": "{tmp}/.codex",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "origin": {
+          "runtime_chosen": {
+            "work": "w1"
+          }
+        },
+        "path": "{tmp}/repo"
+      },
+      "expect": {
+        "error": "Dedicated repository cannot load project or system Codex config: stat {tmp}/.codex/config.toml: permission denied"
+      },
+      "detail_has_path": true
+    },
+    {
+      "id": "dedicated_order_shared_before_link",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/repo",
+          "type": "git"
+        },
+        {
+          "content": "",
+          "path": "{tmp}/repo/.git/objects/info/alternates",
+          "type": "file"
+        },
+        {
+          "path": "{tmp}/repo/.git/linked",
+          "target": "{tmp}",
+          "type": "symlink"
+        }
+      ],
+      "input": {
+        "origin": {
+          "runtime_chosen": {
+            "work": "w1"
+          }
+        },
+        "path": "{tmp}/repo"
+      },
+      "expect": {
+        "error": "Dedicated repository cannot share Git metadata or object stores"
+      }
+    },
+    {
+      "id": "dedicated_order_link_before_codex_config",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/repo",
+          "type": "git"
+        },
+        {
+          "path": "{tmp}/repo/.git/linked",
+          "target": "{tmp}",
+          "type": "symlink"
+        },
+        {
+          "content": "",
+          "path": "{tmp}/repo/.codex/config.toml",
+          "type": "file"
+        }
+      ],
+      "input": {
+        "origin": {
+          "runtime_chosen": {
+            "work": "w1"
+          }
+        },
+        "path": "{tmp}/repo"
+      },
+      "expect": {
+        "error": "Dedicated Git metadata cannot contain symlinks or shared hardlinks"
+      }
+    },
+    {
+      "id": "dedicated_order_canonical_before_codex_config",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/repo",
+          "type": "git"
+        },
+        {
+          "path": "{tmp}/alias",
+          "target": "{tmp}/repo",
+          "type": "symlink"
+        },
+        {
+          "content": "",
+          "path": "{tmp}/repo/.codex/config.toml",
+          "type": "file"
+        }
+      ],
+      "input": {
+        "origin": {
+          "runtime_chosen": {
+            "work": "w1"
+          }
+        },
+        "path": "{tmp}/alias"
+      },
+      "expect": {
+        "error": "Dedicated repository requires a canonical root with its own .git directory"
+      }
+    }
+  ]
+}
