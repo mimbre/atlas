@@ -23,6 +23,8 @@ defmodule AtlasFlow.ResultsTest do
           dir: ctx.dir,
           clock: {ManualClock, ctx.clock},
           sweep_ms: 1,
+          retention_ms: @retention,
+          pins: fn -> [] end,
           store_cap: 1_000,
           result_cap: 500
         ],
@@ -107,17 +109,50 @@ defmodule AtlasFlow.ResultsTest do
     end
   end
 
-  defp eventually(fun, tries \\ 100) do
-    cond do
-      fun.() -> :ok
-      tries == 0 -> flunk("condition never held")
-      true -> eventually_later(fun, tries)
+  # A writer that has streamed `bytes` of a blob declared one byte longer, and then holds
+  # them in flight until it is killed. Answers once the bytes are written, or flunks if the
+  # writer ended first. No timeout: the answer does not depend on how loaded the VM is.
+  defp held_writer(server, bytes) do
+    test = self()
+    size = byte_size(bytes) + 1
+
+    held =
+      Stream.concat(
+        [bytes],
+        Stream.map([:wait], fn :wait ->
+          send(test, {:written, self()})
+          Process.sleep(:infinity)
+        end)
+      )
+
+    {writer, monitor} =
+      spawn_monitor(fn -> Results.put(sha(bytes <> "!"), size, held, size, server) end)
+
+    receive do
+      {:written, ^writer} -> {writer, monitor}
+      {:DOWN, ^monitor, :process, ^writer, _} -> flunk("writer ended before it held its bytes")
     end
   end
 
-  defp eventually_later(fun, tries) do
-    Process.sleep(10)
-    eventually(fun, tries - 1)
+  # Kills a held writer, waits for it to be dead, then until the store has handled its
+  # `:DOWN` (its room is `room` again). The store's `:DOWN` and this test's calls come from
+  # different processes, so their order is not guaranteed: the test asks again until the
+  # room holds, with no deadline (ExUnit's per-test timeout is the only backstop).
+  defp kill_writer(server, {writer, monitor}, room) do
+    Process.exit(writer, :kill)
+
+    receive do
+      {:DOWN, ^monitor, :process, ^writer, _} -> :ok
+    end
+
+    until(fn -> Results.room(0, server) == room end)
+  end
+
+  defp until(fun) do
+    if not fun.() do
+      Process.sleep(1)
+      until(fun)
+    end
   end
 
   describe "storing" do
@@ -250,26 +285,36 @@ defmodule AtlasFlow.ResultsTest do
 
     test "a writer killed between its temp write and the rename leaves no visible blob", ctx do
       server = start(ctx, result_cap: 1_000)
-      test = self()
-
-      held =
-        Stream.concat(
-          ["partial"],
-          Stream.map([:wait], fn :wait ->
-            send(test, :written)
-            Process.sleep(:infinity)
-          end)
-        )
-
-      writer = spawn(fn -> Results.put(sha("partial!"), 8, held, 1_000, server) end)
-      assert_receive :written
+      writer = held_writer(server, "partial")
       assert Results.room(0, server) == 993
       assert [_temp] = Path.wildcard(Path.join([ctx.dir, "tmp", "*"]))
-      Process.exit(writer, :kill)
 
-      eventually(fn -> Results.room(0, server) == 1_000 end)
+      kill_writer(server, writer, 1_000)
       assert Results.blob(sha("partial!"), server) == :not_found
       assert Store.scan(ctx.dir).blobs == %{}
+      assert Path.wildcard(Path.join([ctx.dir, "tmp", "*"])) == []
+    end
+
+    test "bytes still streaming count against the store cap before a byte of a stale-room put",
+         ctx do
+      server = start(ctx, store_cap: 100, result_cap: 1_000)
+      stale = Results.room(0, server)
+      assert stale == 100
+      writer = held_writer(server, String.duplicate("w", 60))
+      assert Results.room(0, server) == 40
+
+      over = String.duplicate("g", 41)
+      assert put(server, over, room: stale, content: reporting(over)) == :too_large
+      assert reads() == 0
+      assert [_held] = Path.wildcard(Path.join([ctx.dir, "tmp", "*"]))
+
+      fit = String.duplicate("h", 40)
+      assert put(server, fit, room: stale, content: reporting(fit)) == :stored
+      assert reads() == 40
+      assert Results.room(0, server) == 0
+
+      kill_writer(server, writer, 60)
+      assert Store.scan(ctx.dir).blobs == %{sha(fit) => 40}
       assert Path.wildcard(Path.join([ctx.dir, "tmp", "*"])) == []
     end
 
