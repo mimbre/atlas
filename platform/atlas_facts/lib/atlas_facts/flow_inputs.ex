@@ -262,8 +262,8 @@ defmodule AtlasFacts.FlowInputs do
     end
   end
 
-  # A pickup or hand-over (work acquisition design 2026-11-17, §5.6): a request from a
-  # person at Control to become, or stop being, a run's human supervisor. Facts checks the
+  # A pickup or hand-over (work acquisition design 2026-11-17, §5.6): a request from
+  # someone at Control to become, or stop being, a run's human supervisor. Facts checks the
   # record and its sender, and keeps it applied; it writes neither the supervisor link nor
   # the subject. Flow alone consumes it and moves the link, after checking it again.
   def write(rela, d, e, %{"op" => op, "by" => actor, "values" => v} = content, now, position, _)
@@ -294,7 +294,7 @@ defmodule AtlasFacts.FlowInputs do
           with :ok <- need(run["status"] == "active", :not_active),
                :ok <- current_generation(rela, d, run),
                :ok <- need(in_span?(s, run), :outside_span),
-               :ok <- need(person?(rela, d, s, actor), :not_a_person),
+               :ok <- need(supervising_kind?(rela, d, s, actor), :not_a_person),
                {:ok, supervisor} <- supervisor(rela, d, s, run),
                :ok <- acquisition(rela, d, s, op, run, supervisor, actor, v),
                {:ok, subject} <- subject(rela, d, run) do
@@ -520,11 +520,11 @@ defmodule AtlasFacts.FlowInputs do
   def reasons(:not_active, _d),
     do: ["Its flow is not running now; open it again to see where it is."]
 
-  def reasons(:outside_span, _d),
-    do: ["Its flow is not at a step a person supervises now; open it again."]
+  def reasons(:outside_span, d),
+    do: ["Its flow is not at a step #{supervising(d)} supervises now; open it again."]
 
-  def reasons(:not_a_person, _d),
-    do: ["Only a person may pick up or hand over a flow, for themselves."]
+  def reasons(:not_a_person, d),
+    do: ["Only #{supervising(d)} may pick up or hand over a flow, for themselves."]
 
   def reasons(:already_supervised, _d),
     do: ["Someone supervises it already; open it again to see who."]
@@ -538,8 +538,8 @@ defmodule AtlasFacts.FlowInputs do
   def reasons(:hand_to_self, _d),
     do: ["Hand it over to someone else."]
 
-  def reasons(:hand_to_not_a_person, _d),
-    do: ["It can only be handed over to a person."]
+  def reasons(:hand_to_not_a_person, d),
+    do: ["It can only be handed over to #{supervising(d)}."]
 
   def reasons(:prepared_input_needs_reconciliation, _d),
     do: ["An earlier answer to it is still being applied; try again shortly."]
@@ -548,6 +548,21 @@ defmodule AtlasFacts.FlowInputs do
     do: ["Facts refused it: " <> String.replace(Atom.to_string(reason), "_", " ") <> "."]
 
   def reasons(_reason, _d), do: ["Facts refused it."]
+
+  # Who may supervise, in words: the one kind the model's supervision relation leads to,
+  # named as the description names it ("a <kind>"). The model names it, never Facts.
+  defp supervising(d) do
+    relation = get_in(d, ["flow_runtime", "supervision", "relation"])
+
+    case is_binary(relation) && get_in(d, ["relations", relation, "to"]) do
+      [kind] when is_binary(kind) ->
+        noun = String.replace(kind, "_", " ")
+        if String.match?(noun, ~r/^[aeiou]/i), do: "an " <> noun, else: "a " <> noun
+
+      _ ->
+        "a supervisor"
+    end
+  end
 
   defp choice_state?(d, run) do
     states = get_in(d, ["flow_runtime", "selection", run["flow"], "choice_states"])
@@ -624,7 +639,8 @@ defmodule AtlasFacts.FlowInputs do
     do:
       Enum.any?(get_in(s, ["spans", run["flow"]]) || [], &(run["state"] in (&1["states"] || [])))
 
-  defp person?(rela, d, s, key),
+  # A fact of the kind the supervision relation leads to (`s["to"]`, from the model).
+  defp supervising_kind?(rela, d, s, key),
     do:
       is_binary(key) and
         match?({:ok, _}, Rela.get(rela, Description.kind(d, s["to"])["plural"], key))
@@ -655,7 +671,7 @@ defmodule AtlasFacts.FlowInputs do
   defp acquisition(rela, d, s, "hand_over", _run, supervisor, actor, v) do
     with :ok <- need(actor in supervisor, :not_supervisor),
          :ok <- need(v["hand_to"] != actor, :hand_to_self),
-         do: need(person?(rela, d, s, v["hand_to"]), :hand_to_not_a_person)
+         do: need(supervising_kind?(rela, d, s, v["hand_to"]), :hand_to_not_a_person)
   end
 
   defp current_generation(rela, d, run) do
