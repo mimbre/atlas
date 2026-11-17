@@ -71,10 +71,14 @@ defmodule AtlasRuntime.Sandbox.SpecSecurityTest do
           do: {name, spec}
 
     assert length(managed) >= 5
+    # S5c P3: the stored bases (model/contract stored_base) are a denied name, named here
+    # rather than taken from HomeLayout, so a dropped name fails.
+    assert HomeLayout.class("bases") == :denied
 
     for {name, spec} <- managed do
       home = spec["runtime_home"]
       refute denied?(spec, home), name
+      assert denied?(spec, home <> "/bases"), "#{name}: bases"
 
       assert spec["home_names"] == HomeLayout.managed_denied(), name
 

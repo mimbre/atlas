@@ -5,7 +5,8 @@ config :atlas_runtime_model_generator,
   contracts: [
     work: AtlasRuntimeModel.Work,
     runtime_mode: AtlasRuntimeModel.RuntimeMode,
-    frozen_result: AtlasRuntimeModel.FrozenResult
+    frozen_result: AtlasRuntimeModel.FrozenResult,
+    base: AtlasRuntimeModel.Base
   ],
   targets: [json: "../targets/json"],
   # Headers name the contract file from the repository's root.

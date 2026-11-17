@@ -108,6 +108,16 @@
           "name": "roots",
           "required": true,
           "type": "list of frozen_root"
+        },
+        {
+          "name": "base_owner",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "baseline_id",
+          "required": false,
+          "type": "string"
         }
       ],
       "name": "frozen_result",

@@ -22,6 +22,7 @@ defmodule AtlasRuntimeBoundary.WorkMappings do
   S5a (design §3.9, §3.10) adds the `base` and `from_work` workspaces and `after_check` to
   the request, and the frozen reference, `based_on` and the check to a work product. What
   the core keeps for itself is dropped, never projected: a work's pinned `source` (B4),
+  its `base_owner` and `baseline_id` (S5c: whose base and which baseline),
   and an attempt's `checking`/`check_pgid` (the check's sub-stage and process group),
   `folder` (the Runtime-chosen folder), `preparing` and `prepare_pid` (its preparation).
   The frozen result's own record (`frozen_result`) belongs to another model and is
@@ -31,8 +32,9 @@ defmodule AtlasRuntimeBoundary.WorkMappings do
 
   # The records.
 
-  # Private: the frozen result a from_work work composes from, pinned at accept.
-  defmapping :work_record, :work, supply: [:state], drop: [:source]
+  # Private: the frozen result a from_work work composes from, pinned at accept; a base
+  # work's base owner and baseline, resolved at submit (S5c).
+  defmapping :work_record, :work, supply: [:state], drop: [:source, :base_owner, :baseline_id]
 
   # A tombstone (I7): the work it named, and how that ended.
   defmapping :key_index_entry, :pruned,

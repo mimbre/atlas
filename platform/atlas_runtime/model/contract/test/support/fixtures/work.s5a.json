@@ -1,0 +1,172 @@
+{
+  "attempts": [
+    {
+      "attempt": 1,
+      "cancel_reason": "superseded",
+      "cancel_stage": "forced",
+      "provenance": {
+        "configured_model": "model-a",
+        "conversation_id": "c-1",
+        "ended_at": "2026-11-16T09:00:05.250000Z",
+        "executor_kind": "agent",
+        "harness": "h",
+        "machine": "m",
+        "provider": "p",
+        "reported_model": "model-a",
+        "runtime_build": "build",
+        "selection": {
+          "option": {
+            "harness": "h",
+            "model": "model-a",
+            "provider": "p"
+          },
+          "policy_version": 4,
+          "profile": "deep_coding",
+          "reason": "preferred",
+          "skipped": [
+            {
+              "option": {
+                "harness": "h2",
+                "model": "model-b",
+                "provider": "p2"
+              },
+              "why": "quota"
+            }
+          ]
+        },
+        "slot": "s1",
+        "started_at": "2026-11-16T09:00:05.250000Z",
+        "turn_id": "t-1"
+      },
+      "quiescent": true,
+      "result": {
+        "kind": "cancelled",
+        "log": {
+          "complete": false,
+          "missing_bytes": 12,
+          "ref": "t-1"
+        },
+        "native_outcome": "killed",
+        "never_started": false,
+        "reason": "superseded",
+        "retryable": false
+      },
+      "resume_point": {
+        "conversation_id": "c-1",
+        "turn_id": "t-1",
+        "workspace": {
+          "branch": "b",
+          "commit": "abc",
+          "path": "/w"
+        }
+      },
+      "slot": "s1",
+      "state": "cancelled",
+      "timestamps": {
+        "accepted_at": "2026-11-16T09:00:00.000000Z",
+        "ended_at": "2026-11-16T09:00:05.250000Z",
+        "received_at": "2026-11-16T09:00:00.000000Z",
+        "started_at": "2026-11-16T09:00:05.250000Z"
+      },
+      "turn_folder": "turns/t-1",
+      "turn_id": "t-1"
+    },
+    {
+      "attempt": 2,
+      "check_pgid": 4242,
+      "checking": false,
+      "folder": "/home/workers/work-work-0123456789abcdef",
+      "prepare_pid": 4241,
+      "preparing": false,
+      "quiescent": true,
+      "result": {
+        "answer": "Done.",
+        "kind": "completed",
+        "log": {
+          "complete": true,
+          "missing_bytes": 0
+        },
+        "never_started": false,
+        "retryable": false,
+        "work_product": {
+          "based_on": {
+            "attempt": 3,
+            "fingerprints": [
+              {
+                "fingerprint": "csf_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "root": "atlas"
+              }
+            ],
+            "work_id": "work-fedcba9876543210"
+          },
+          "check": {
+            "cancelled": true,
+            "command": [
+              "mix",
+              "test"
+            ],
+            "duration_ms": 1500,
+            "interrupted": false,
+            "output": {
+              "complete": true,
+              "tail": "ok\n"
+            },
+            "signal": "SIGINT",
+            "timed_out": false
+          },
+          "frozen": {
+            "base": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "fingerprints": [
+              {
+                "fingerprint": "csf_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "root": "atlas"
+              }
+            ]
+          },
+          "workspace": {
+            "changed": true,
+            "path": "/w"
+          }
+        }
+      },
+      "state": "completed",
+      "timestamps": {
+        "check_ended_at": "2026-11-16T09:42:10.000000Z",
+        "check_started_at": "2026-11-16T09:00:05.250000Z",
+        "ended_at": "2026-11-16T09:42:10.000000Z",
+        "received_at": "2026-11-16T09:00:05.250000Z",
+        "started_at": "2026-11-16T09:00:05.250000Z"
+      }
+    }
+  ],
+  "client": "local:someone",
+  "client_key": "key-1",
+  "format_version": 1,
+  "idempotency_key": "key-1",
+  "request": {
+    "after_check": {
+      "command": [
+        "mix",
+        "test"
+      ],
+      "timeout": 120
+    },
+    "cost_class": "standard",
+    "instructions": "Do the thing.",
+    "profile": "deep_coding",
+    "title": "Fix it",
+    "workspace": {
+      "base_id": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "kind": "base",
+      "permissions": "workspace_write"
+    }
+  },
+  "revision": 7,
+  "sequence": 42,
+  "source": {
+    "attempt": 3,
+    "work_id": "work-fedcba9876543210"
+  },
+  "work_id": "w-1"
+}
+

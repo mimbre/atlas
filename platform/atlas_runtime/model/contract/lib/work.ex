@@ -60,8 +60,10 @@ defmodule AtlasRuntimeModel.Work do
       required: true
   end
 
-  # A Code snapshot the Runtime materializes itself, at start, into a folder it chooses
-  # (§3.3, §3.9). Until S5c, base_id is a Code snapshot id.
+  # A base the Runtime materializes itself, at start, into a folder it chooses (§3.3,
+  # §3.9). On an S5a-era record base_id is a Code snapshot id; from S5c it is the
+  # client's name of an uploaded base, and the record's base_owner and baseline_id say
+  # which.
   defmodel :base do
     field :base_id, :string, required: true
     field :permissions, {:enum, [:read_only, :workspace_write]}, required: true
@@ -284,6 +286,11 @@ defmodule AtlasRuntimeModel.Work do
     # In order; the last is the current one.
     field :attempts, {:list, :attempt}, required: true
     field :source, :source
+    # Private (S5c, B10): a base or from_work work's base, resolved once at submit and
+    # never by name again: the client whose base it is, and its baseline
+    # (`sha256:<hex>`). Absent on an S5a-era record (B11).
+    field :base_owner, :string
+    field :baseline_id, :string
   end
 
   defrecord :key_index_entry,

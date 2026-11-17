@@ -16,7 +16,8 @@ defmodule AtlasRuntimeModel.FrozenResult do
   declared here:
   - `frozen_id` is `<work_id>.<attempt>` of the same record;
   - which fields a write or a delete carries, and that `mode` matches `kind`;
-  - a frozen result is written before the work record that names it (I2).
+  - a frozen result is written before the work record that names it (I2);
+  - `base_owner` and `baseline_id` are the work record's, as they were at freeze.
   """
   use AtlasRuntimeModel.Generator.Schema
 
@@ -54,5 +55,10 @@ defmodule AtlasRuntimeModel.FrozenResult do
     # A tombstone: the entries are dropped, the fingerprints kept (retention).
     field :pruned, :boolean, required: true
     field :roots, {:list, :frozen_root}, required: true
+    # Private (S5c, N4): copied from the work record at freeze, so base retention and a
+    # from_work still find the base once the record is pruned. Absent on an S5a-era
+    # result.
+    field :base_owner, :string
+    field :baseline_id, :string
   end
 end
