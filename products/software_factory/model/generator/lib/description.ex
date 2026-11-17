@@ -31,6 +31,13 @@ defmodule RelaDSL.Description do
   rules`, which add rules to a kind or relation another file defines. Every leaf has
   one author: two declarations that say the same leaf are refused, even when equal.
 
+  `flow_runtime runs:, writer:, inputs:, supervision:` maps the durable runs; its
+  `supervision: [relation:, operation:, hand_to:]` names the relation from a run to its
+  one human supervisor and the input fields of a pickup or hand-over, and writes every
+  subflow's `supervise` spans beside them (`flow-runtime.json` `supervision`).
+  `start_page` takes `assigned:`, `open:`, and, with supervision, `open_for_you:` and
+  `supervised_by_you:` (each `title:`, `count:`, `empty:`).
+
   Values are written as Elixir terms: atoms become strings (but `true`, `false` and
   `nil`), keyword lists become objects in the order written, other lists stay lists.
   """

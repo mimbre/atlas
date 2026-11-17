@@ -73,6 +73,13 @@ def without_ledger(schema):
     schema['relations']['assigned_to']['description'] = schema['relations']['assigned_to']['description'].replace(
         'one, a person, an agent or a machinery.', 'one, a person or an agent.')
     schema['relations']['assignment']['from'].remove('package')
+    # Supervision (work acquisition M3a): a run's and a task's person, and the pickup and
+    # hand-over fields of an input, all optional.
+    for name in ('supervised_by', 'done_for'):
+        schema['relations'].pop(name)
+    schema['types'].pop('flow_input_operation')
+    for name in ('operation', 'hand_to'):
+        assert not schema['entities']['flow_input']['properties'].pop(name).get('required', False)
     return schema
 
 
@@ -87,7 +94,7 @@ class SchemaTest(unittest.TestCase):
         baseline = yaml.load((ROOT / 'tests/fixtures/baseline-schema.yaml').read_text(), Loader=config.StrictLoader)
         _, resolved = config.closure(self.root)
         self.assertEqual(list(resolved['entities']['flow_run']['properties']), 'flow subject_kind subject_key generation definition_sha256 state entry entered_at status deadlines pending input_cursor last_input blocked_reason'.split())
-        self.assertEqual(list(resolved['entities']['flow_input']['properties']), 'request_id run flow subject_kind subject_key generation entry source_version subject_version actor roles changed_fields links payload_digest status position prepared_at applied_at'.split())
+        self.assertEqual(list(resolved['entities']['flow_input']['properties']), 'request_id run flow subject_kind subject_key generation entry source_version subject_version actor roles changed_fields links payload_digest status position prepared_at applied_at operation hand_to'.split())
         prior = without_ledger(resolved)
         for kind in ('worker_execution', 'interaction', 'interaction_receipt'):
             self.assertIn(kind, prior['entities'])

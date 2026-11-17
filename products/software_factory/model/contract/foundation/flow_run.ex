@@ -1,6 +1,28 @@
 defmodule Model.FlowRun do
-  @moduledoc "The durable runs of the subflows, and the trusted inputs that move them."
+  @moduledoc """
+  The durable runs of the subflows, and the trusted inputs that move them.
+
+  Supervision (decision 2026-11-17 §5.6, "you supervise a flow; you never own an
+  item"): a run inside a supervised span of its subflow (`supervise`) may have one
+  human supervisor (`supervised_by`, run → person). Only the run's writer, Flow, sets
+  it: from a checked pickup input (`operation` `pickup`, from a person at the TUI, for
+  themselves alone) and clears it from a hand-over (`hand_over`, naming in `hand_to`
+  the person who is given a To-Do to pick it up), and in the same write as the run
+  leaves the span. A new run generation starts without one. A choice input
+  (`operation` empty or `choice`) is the subject write it always was. The flow's agent
+  work runs only on its supervisor's Runtimes, and its agents and smart gates ask them.
+  """
   use RelaDSL
+
+  type(:flow_input_operation,
+    values: [:choice, :pickup, :hand_over],
+    labels: [choice: "Choice", pickup: "Pick up", hand_over: "Hand over"],
+    descriptions: [
+      choice: "A choice its owner makes, written on the subject (the default when empty)",
+      pickup: "Makes the person who sends it the run's human supervisor",
+      hand_over: "Clears the run's human supervisor and gives hand_to a To-Do to pick it up"
+    ]
+  )
 
   entity :flow_run,
     label: "Flow run",
@@ -48,10 +70,37 @@ defmodule Model.FlowRun do
     field(:position, :integer)
     field(:prepared_at, :string)
     field(:applied_at, :string)
+
+    field(:operation, :flow_input_operation,
+      description: "What it asks of the run: a choice (when empty), a pickup or a hand-over"
+    )
+
+    field(:hand_to, :string,
+      description: "A hand-over's person, who is given a To-Do to pick the run up"
+    )
+
     top(false)
     by_hand(false)
   end
 
+  # The human supervisor of a run inside a supervised span: Flow alone sets and clears it.
+  relation(:supervised_by,
+    label: "supervised by",
+    description:
+      "The human supervisor of a run in a supervised span: who picked it up. Only Flow sets it.",
+    from: [:flow_run],
+    to: [:person],
+    max_outgoing: 1,
+    inverse: {:supervises, "supervises"},
+    set_by: [:flow]
+  )
+
   # The durable runs are facts of flow_run, their inputs of flow_input; the writer is Flow.
-  flow_runtime(runs: :flow_run, writer: [sender: :flow, by: :flow], inputs: :flow_input)
+  # A run's human supervisor is its supervised_by, moved by pickup and hand-over inputs.
+  flow_runtime(
+    runs: :flow_run,
+    writer: [sender: :flow, by: :flow],
+    inputs: :flow_input,
+    supervision: [relation: :supervised_by, operation: :operation, hand_to: :hand_to]
+  )
 end

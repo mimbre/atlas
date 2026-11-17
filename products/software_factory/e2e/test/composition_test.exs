@@ -118,9 +118,11 @@ defmodule AtlasE2E.CompositionTest do
 
   # Read the private native store directly: Control deliberately refuses unscoped
   # guidance reads. Markdown paths are empty with the SQLite backend.
+  defp rela_url(ctx),
+    do: (Path.join(ctx.dir, "test.json") |> File.read!() |> JSON.decode!())["rela"]["url"]
+
   defp stored_records(ctx) do
-    settings = Path.join(ctx.dir, "test.json") |> File.read!() |> JSON.decode!()
-    url = settings["rela"]["url"]
+    url = rela_url(ctx)
     {schema, 0} = System.cmd("curl", ["-fsS", url <> "/_schema"])
 
     for {kind, spec} <- JSON.decode!(schema)["entities"], into: %{} do
@@ -199,6 +201,23 @@ defmodule AtlasE2E.CompositionTest do
 
     for name <- ["scene", "use_case", "issue", "pull_request", "accepted_by"],
         do: refute(tools =~ name)
+
+    # Supervision (decision 2026-11-17 §5.6, M3a) is foundation's: its relations are
+    # served without software or Eyra, and no subflow here declares a span.
+    {schema, 0} = System.cmd("curl", ["-fsS", rela_url(ctx) <> "/_schema"])
+    relations = JSON.decode!(schema)["relations"]
+    assert %{"from" => ["flow_run"], "to" => ["person"]} = relations["supervised_by"]
+    assert %{"from" => ["task"], "to" => ["person"]} = relations["done_for"]
+
+    runtime =
+      Path.join(ctx.dir, "products/software_factory/model/targets/rela/flow-runtime.json")
+      |> File.read!()
+      |> JSON.decode!()
+
+    assert %{"relation" => "supervised_by", "spans" => spans} =
+             runtime["flow_runtime"]["supervision"]
+
+    assert spans == %{}
 
     person = command(ctx, ["put", "person", "--name", "Tester"])
     assert person["key"] == "tester"
