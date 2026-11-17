@@ -41,8 +41,8 @@ defmodule AtlasRuntime.Sources.Puller do
   per lease at a time. Its answer comes back as a message. Each task but the poll has a
   deadline, read from the puller's clock at each check:
   - an import: `import_timeout_ms`, always below the grace (`lease_ttl` + 2 min). A timeout
-    kills the task, and the lease is refused (`too_large`: its input could not be imported
-    in time); no work is created;
+    kills the task, and the accepted attempt ends `failed` (reason `workspace`, never
+    started), which is reported `ended`;
   - a report: `report_timeout_ms` (35 s); an upload: `upload_timeout_ms` (10 min). A
     timeout kills the task, and the next check sends the report again.
 
@@ -66,17 +66,20 @@ defmodule AtlasRuntime.Sources.Puller do
     that lease is reported again.
   - `cancel`: the attempt is cancelled through the cancel stages (§3.7); the lease stays
     current, and its `ended` is uploaded.
-  - each lease: its input is imported first, in a task (M2 A3:
+  - each lease: **accepted first** (Main's #330 F5 (b)): `Work.accept_lease/2` (persisted,
+    held, its import pending), then the report `accepted`, well within the source's 30 s
+    accept deadline. A refused accept is reported `refused(reason)` and creates no work.
+    On `recorded`, a remote lease's input is imported in a task (phase `:importing`; M2 A3:
     `AtlasRuntime.Sources.Import.base/5`, every blob from this source through the target's
-    `get_blob`, into its own store). The leases being imported stay promised to this source
-    (`Work.importing/2`) after `Work.offer_done/2` gave back the rest of the offer. Then
-    `Work.accept_lease/3` with what was imported (persisted, held), then the report
-    `accepted`; only on `recorded` does `Work.release_lease/1` let the attempt start. A
-    refused import, like a refused accept, is reported `refused(reason)` and creates no
-    work. An import that fails for another reason (the source did not serve a blob, the
-    store or the helper failed) is logged and the lease left unanswered: the source's accept
-    deadline gives it back. The local source's leases carry their request and no input, so
-    nothing is imported: they are accepted at once.
+    `get_blob`, into its own store), under the lease's normal renewal and fenced like any
+    running work. Its held attempt keeps its slot while that import runs, and only then
+    (F5 (a)). Once imported, `Work.lease_imported/2` sets the base and
+    `Work.release_lease/1` lets the attempt start. An import that is refused, fails or
+    passes its deadline ends the attempt `failed` (never started), so its slot is free, and
+    it is reported `ended`. The local source's leases carry their request and no input, so
+    nothing is imported: they are released on `recorded`. A local retry's lease whose
+    profile is unavailable now (`{:unavailable, _}`, F5 (c)) is left unanswered, so the
+    source queues it again at its accept deadline.
 
   **Reports.** The revision of a lease's report follows from its attempt, so nothing more is
   persisted and a restart sends the same revisions again (each is idempotent at the source):
@@ -96,9 +99,20 @@ defmodule AtlasRuntime.Sources.Puller do
   **Pause and drain.** The offer is empty and the polls go on, renewing. A drain returns
   the held and unstarted attempts (the executor's rule); each is reported `ended(returned)`.
 
-  **Restart.** The puller takes over the holdings the records name, renewed at its start;
-  each is reported again from its attempt as above (an interrupted attempt is ended), and
-  the source decides on a fresh attempt.
+  **Restart (P3).** The puller takes over the holdings the records name, each reported
+  again from its attempt as above (an interrupted attempt is ended); the source decides on
+  a fresh attempt. A restart never renews a lease: each one keeps its **last real
+  renewal**, which the puller hands to the core (`Work.renewed/3`) whenever it changes and
+  reads back at its start (`Work.renewals/1`), with `lease_ttl`. So a puller that crashed
+  and restarted fences on the same schedule as before. A lease whose renewal the core does
+  not know (the core started since) is fenced conservatively: it is `unrenewed` until a
+  poll renews it, and it is fenced when a poll fails before that, or when none renewed it
+  within the accept deadline of the puller's start.
+
+  **The cancel** of a fenced, lost or source-cancelled lease goes to the executor itself
+  (`AtlasRuntime.Work.cancel/2`, under the source's client), never through
+  `AtlasRuntime.Boundary.Work`, whose implementation is the local source's process (which
+  writes to disk): the fence waits on nothing but the executor.
 
   `poll_now/1` and `check_now/1` answer once the tasks they started (and what those led to,
   such as a lease's `accepted` after its import) have ended; the puller goes on checking
@@ -132,7 +146,7 @@ defmodule AtlasRuntime.Sources.Puller do
   @grace_ms 120_000
   @report_timeout_ms 35_000
   @upload_timeout_ms 600_000
-  @active [:accepting, :released, :started]
+  @active [:accepting, :importing, :released, :started]
 
   ## API
 
@@ -176,6 +190,7 @@ defmodule AtlasRuntime.Sources.Puller do
         clock = Keyword.get(opts, :clock, &LeaseClock.now/0)
         boot = LeaseClock.stamp(clock)
         {:ok, tasks} = Task.Supervisor.start_link()
+        kept = Work.renewals(name) || %{ttl_ms: nil, stamps: %{}}
 
         state = %{
           name: name,
@@ -193,8 +208,11 @@ defmodule AtlasRuntime.Sources.Puller do
           import_timeout_ms: Keyword.get(opts, :import_timeout_ms),
           report_timeout_ms: Keyword.get(opts, :report_timeout_ms, @report_timeout_ms),
           upload_timeout_ms: Keyword.get(opts, :upload_timeout_ms, @upload_timeout_ms),
-          lease_ttl_ms: nil,
-          leases: adopt(name, boot),
+          lease_ttl_ms: kept.ttl_ms,
+          boot: boot,
+          leases: adopt(name, kept.stamps, boot),
+          # What was last handed to the core with Work.renewed/3: {ttl_ms, stamps}.
+          renewed: {kept.ttl_ms, kept.stamps},
           poll: nil,
           waiting: [],
           next_poll: nil,
@@ -202,7 +220,6 @@ defmodule AtlasRuntime.Sources.Puller do
           # ctx}; at most one per lease.
           tasks: tasks,
           jobs: %{},
-          importing: 0,
           # The callers of poll_now/check_now waiting for the tasks of their group:
           # group => {reply, [from]}; `group` is the one new tasks join now.
           groups: %{},
@@ -234,13 +251,35 @@ defmodule AtlasRuntime.Sources.Puller do
     end
   end
 
-  # The leases the records name, renewed now (§5.3 item 5): each one goes on from what its
-  # attempt shows.
-  defp adopt(name, boot) do
+  # The leases the records name (§5.3 item 5): each one goes on from what its attempt
+  # shows, with its last real renewal and the send time of the poll that delivered it (P3),
+  # as the core kept them. A lease the core kept nothing of is `:unrenewed` (fenced
+  # conservatively), its accept deadline counted from the puller's start.
+  defp adopt(name, stamps, boot) do
     for h <- Work.holdings(name), into: %{} do
       phase = if h.held, do: :accepting, else: :released
-      {h.lease_id, %{work_id: h.work_id, phase: phase, stamp: boot, received: boot}}
+      kept = Map.get(stamps, h.lease_id, %{stamp: :unrenewed, received: boot})
+
+      {h.lease_id,
+       %{work_id: h.work_id, phase: phase, stamp: kept.stamp, received: kept.received}}
     end
+  end
+
+  # Hands the last real renewal of every live lease to the core when it changed (P3).
+  defp remember(state) do
+    stamps =
+      for {id, %{phase: phase, stamp: stamp} = lease} <- state.leases,
+          phase in @active and stamp != :unrenewed,
+          into: %{},
+          do: {id, %{stamp: stamp, received: lease.received}}
+
+    kept = {state.lease_ttl_ms, stamps}
+
+    if kept != state.renewed do
+      _ = Work.renewed(state.name, state.lease_ttl_ms, stamps)
+    end
+
+    %{state | renewed: kept}
   end
 
   @impl true
@@ -252,7 +291,9 @@ defmodule AtlasRuntime.Sources.Puller do
   def handle_call(:check_now, from, state),
     do: {:noreply, grouped(state, :ok, [from], &check/1)}
 
-  def handle_call(:leases, _from, state), do: {:reply, state.leases, state}
+  # Without the lease's body, which only the import reads.
+  def handle_call(:leases, _from, state),
+    do: {:reply, Map.new(state.leases, fn {id, l} -> {id, Map.delete(l, :lease)} end), state}
 
   def handle_call(:jobs, _from, state) do
     jobs =
@@ -311,7 +352,6 @@ defmodule AtlasRuntime.Sources.Puller do
   @impl true
   def terminate(_reason, state) do
     _ = Work.offer_done(state.name, 0)
-    _ = Work.importing(state.name, 0)
     {module, ref} = state.target
     if function_exported?(module, :close, 1), do: module.close(ref)
     :ok
@@ -381,7 +421,7 @@ defmodule AtlasRuntime.Sources.Puller do
         %{state | jobs: Map.delete(state.jobs, ref)}
       end)
 
-    state |> update_importing() |> settle()
+    settle(state)
   end
 
   # Runs `fun` on `state` with the tasks it starts in a new group, whose waiters (`froms`)
@@ -401,51 +441,42 @@ defmodule AtlasRuntime.Sources.Puller do
     %{state | groups: groups}
   end
 
-  # The executor keeps the leases being imported promised to this source.
-  defp update_importing(state) do
-    count = Enum.count(state.jobs, fn {_ref, job} -> job.kind == :import end)
+  # The import of an accepted lease ended (F5 (b)): imported, the attempt may start;
+  # otherwise it ends failed, never started, and its slot is free.
+  defp job_done(state, %{kind: :import, lease_id: id}, outcome) do
+    case state.leases[id] do
+      %{phase: :importing, work_id: work_id} ->
+        case outcome do
+          {:done, {:ok, %{} = imported}} ->
+            case Work.lease_imported(work_id, {:ok, imported}) do
+              :ok ->
+                _ = Work.release_lease(work_id)
+                state = put_in(state.leases[id].phase, :released)
+                next_step(state, id)
 
-    if count != state.importing do
-      _ = Work.importing(state.name, count)
-      %{state | importing: count}
-    else
-      state
+              other ->
+                give_up(state, id, "the import does not match the lease (#{inspect(other)})")
+            end
+
+          {:done, {:refused, reason, rule}} ->
+            give_up(state, id, "its input was refused: #{reason}: #{rule}", false)
+
+          {:done, {:error, detail}} ->
+            give_up(state, id, "its input was not imported: #{detail}")
+
+          {:done, _other} ->
+            give_up(state, id, "its input was not imported")
+
+          {:exit, :timeout} ->
+            give_up(state, id, "its input was not imported within #{import_timeout(state)} ms")
+
+          {:exit, reason} ->
+            give_up(state, id, "its import failed: #{inspect(short(reason))}")
+        end
+
+      _ ->
+        state
     end
-  end
-
-  defp job_done(state, %{kind: :import, lease_id: id, ctx: ctx}, outcome) do
-    state =
-      case outcome do
-        {:done, {:ok, imported}} ->
-          {state, _used} = accepted(state, id, ctx.lease, imported, ctx.sent)
-          state
-
-        {:done, {:refused, reason, rule}} ->
-          Logger.info("work source #{state.name}: lease #{id} refused: its input: #{rule}")
-          refuse(state, id, reason)
-
-        {:done, {:error, detail}} ->
-          Logger.warning("work source #{state.name}: lease #{id} not accepted: #{detail}")
-          state
-
-        {:exit, :timeout} ->
-          Logger.warning(
-            "work source #{state.name}: lease #{id} refused: its input was not imported " <>
-              "within #{import_timeout(state)} ms"
-          )
-
-          refuse(state, id, :too_large)
-
-        {:exit, reason} ->
-          Logger.warning(
-            "work source #{state.name}: lease #{id} not accepted: its import failed: " <>
-              "#{inspect(short(reason))}"
-          )
-
-          state
-      end
-
-    update_importing(state)
   end
 
   defp job_done(state, %{kind: :report, lease_id: id, ctx: %{on: on}}, outcome) do
@@ -546,12 +577,12 @@ defmodule AtlasRuntime.Sources.Puller do
         {:rejected, reason} ->
           Logger.warning("work source #{state.name}: poll rejected: #{inspect(short(reason))}")
           _ = Work.offer_done(state.name, 0)
-          {grouped(state, :rejected, waiting, & &1), false}
+          {grouped(state, :rejected, waiting, &fence_unrenewed/1), false}
 
         {:error, reason} ->
           Logger.warning("work source #{state.name}: poll failed: #{inspect(short(reason))}")
           _ = Work.offer_done(state.name, 0)
-          {grouped(state, :error, waiting, & &1), false}
+          {grouped(state, :error, waiting, &fence_unrenewed/1), false}
       end
 
     if state.polling == :auto do
@@ -612,10 +643,8 @@ defmodule AtlasRuntime.Sources.Puller do
         accept(state, lease, poll.sent, used)
       end)
 
-    # The leases being imported stay promised before the rest of the offer is given back.
-    state = update_importing(state)
     _ = Work.offer_done(state.name, used)
-    state
+    remember(state)
   end
 
   defp renew(state, id, sent) do
@@ -640,12 +669,16 @@ defmodule AtlasRuntime.Sources.Puller do
     end
   end
 
-  # A lease from the poll: its input imported (in a task), then persisted and held by the
-  # executor, then reported accepted.
+  # A lease from the poll: persisted and held by the executor, then reported accepted; a
+  # remote lease's input is imported once that accept is recorded (F5 (b)).
   defp accept(state, lease, sent, used) do
     case lease_id(lease) do
       nil ->
-        Logger.warning("work source #{state.name}: a lease without a usable lease_id was dropped")
+        Logger.warning(
+          "work source #{state.name}: a lease without a usable lease_id was dropped",
+          lease_dropped: :no_lease_id
+        )
+
         {state, used}
 
       id ->
@@ -653,22 +686,36 @@ defmodule AtlasRuntime.Sources.Puller do
     end
   end
 
-  # The local source's lease has no input: it is accepted at once.
-  defp accept(%{name: "local"} = state, id, lease, sent, used),
-    do: accepted(state, id, lease, nil, sent, used)
+  defp accept(state, id, lease, sent, used), do: accepted(state, id, lease, sent, used)
 
-  # A lease delivered again while its import (or a report) still runs waits for that.
-  defp accept(state, id, lease, sent, used) do
-    if busy?(state, id) do
-      {state, used}
-    else
-      import_input = import_fun(state, id, lease, runtime_home())
+  # Imports the input of accepted lease `id` in a task (its accept was recorded). A lease
+  # adopted at a restart has no input known here: it waits, renewed and fenced as usual,
+  # for the source to deliver it again (then `step/3` imports it), at most the import's
+  # deadline from now.
+  defp start_import(state, id) do
+    state = put_in(state.leases[id].phase, :importing)
 
-      {start_job(state, id, :import, import_timeout(state), import_input, %{
-         lease: lease,
-         sent: sent
-       }), used}
+    case state.leases[id] do
+      %{lease: %{} = lease} ->
+        import_input = import_fun(state, id, lease, runtime_home())
+        start_job(state, id, :import, import_timeout(state), import_input)
+
+      _ ->
+        Logger.info(
+          "work source #{state.name}: lease #{id}: its input waits to be delivered again"
+        )
+
+        put_in(state.leases[id][:waiting], LeaseClock.stamp(state.clock))
     end
+  end
+
+  # The accepted lease's import did not complete: its attempt ends failed, never started
+  # (its slot free again), and the lease goes on to report that end.
+  defp give_up(state, id, why, retryable \\ true) do
+    Logger.warning("work source #{state.name}: lease #{id}: #{why}")
+    _ = Work.lease_imported(state.leases[id].work_id, {:failed, retryable, why})
+    state = put_in(state.leases[id].phase, :released)
+    next_step(state, id)
   end
 
   defp runtime_home do
@@ -714,36 +761,37 @@ defmodule AtlasRuntime.Sources.Puller do
   defp policy_source(home, name),
     do: Enum.find(Policy.sources(Policy.load(home)), &(&1["name"] == name))
 
-  defp accepted(state, id, lease, imported, sent, used \\ 0) do
-    case Work.accept_lease(state.name, lease, imported) do
+  defp accepted(state, id, lease, sent, used) do
+    case Work.accept_lease(state.name, lease) do
       {:accepted, work_id} ->
-        state =
-          put_in(state.leases[id], %{
-            work_id: work_id,
-            phase: :accepting,
-            stamp: sent,
-            received: sent
-          })
-
-        {send_accepted(state, id), used + 1}
+        state = put_in(state.leases[id], fresh(work_id, lease, sent))
+        {state |> remember() |> send_accepted(id), used + 1}
 
       {:existing, work_id} ->
-        if Map.has_key?(state.leases, id) do
-          {state, used}
-        else
-          state =
-            put_in(state.leases[id], %{
-              work_id: work_id,
-              phase: :accepting,
-              stamp: sent,
-              received: sent
-            })
+        case state.leases[id] do
+          nil ->
+            state = put_in(state.leases[id], fresh(work_id, lease, sent))
+            {state |> remember() |> send_accepted(id), used}
 
-          {send_accepted(state, id), used}
+          %{} = known ->
+            # Delivered again: the lease's input is kept for an import still to come, and
+            # a lease waiting for it (adopted at a restart) imports it now.
+            state = put_in(state.leases[id], Map.put(known, :lease, lease))
+
+            if known.phase == :importing and not busy?(state, id),
+              do: {start_import(state, id), used},
+              else: {state, used}
         end
 
       {:refused, reason} ->
         {refuse(state, id, reason), used}
+
+      {:unavailable, _reason} ->
+        Logger.info(
+          "work source #{state.name}: lease #{id} left unanswered: its profile is unavailable now"
+        )
+
+        {state, used}
 
       :not_running ->
         Logger.warning(
@@ -753,6 +801,9 @@ defmodule AtlasRuntime.Sources.Puller do
         {state, used}
     end
   end
+
+  defp fresh(work_id, lease, sent),
+    do: %{work_id: work_id, phase: :accepting, stamp: sent, received: sent, lease: lease}
 
   defp refuse(state, id, reason), do: report(state, id, 1, %{state: :refused, reason: reason})
 
@@ -791,26 +842,53 @@ defmodule AtlasRuntime.Sources.Puller do
     |> Enum.reduce(state, fn id, state -> step(state, id, holdings[id]) end)
   end
 
-  defp fence(%{lease_ttl_ms: nil} = state), do: state
-
   defp fence(state) do
     Enum.reduce(Enum.sort(Map.keys(state.leases)), state, fn id, state ->
       lease = state.leases[id]
 
-      if lease.phase in @active and
-           LeaseClock.expired?(lease.stamp, state.clock, state.lease_ttl_ms) do
-        Logger.warning(
-          "work source #{state.name}: lease #{id} not renewed for #{state.lease_ttl_ms} ms: " <>
-            "self-fencing, cancelling #{lease.work_id}"
-        )
+      cond do
+        lease.phase not in @active ->
+          state
 
-        cancel_attempt(state, lease.work_id)
-        state = put_in(state.leases[id].phase, :fenced)
-        drop_jobs(state, id)
-      else
-        state
+        lease.stamp == :unrenewed ->
+          if LeaseClock.age(state.boot, state.clock) >= state.accept_deadline_ms,
+            do:
+              fence(
+                state,
+                id,
+                "no poll renewed it within #{state.accept_deadline_ms} ms of a restart"
+              ),
+            else: state
+
+        is_integer(state.lease_ttl_ms) and
+            LeaseClock.expired?(lease.stamp, state.clock, state.lease_ttl_ms) ->
+          fence(state, id, "not renewed for #{state.lease_ttl_ms} ms")
+
+        true ->
+          state
       end
     end)
+  end
+
+  # A poll failed: every lease whose renewal is not known since a restart is fenced (P3).
+  defp fence_unrenewed(state) do
+    state.leases
+    |> Enum.filter(fn {_id, l} -> l.phase in @active and l.stamp == :unrenewed end)
+    |> Enum.map(&elem(&1, 0))
+    |> Enum.sort()
+    |> Enum.reduce(state, &fence(&2, &1, "a poll failed before any renewed it since a restart"))
+  end
+
+  defp fence(state, id, why) do
+    lease = state.leases[id]
+
+    Logger.warning(
+      "work source #{state.name}: lease #{id} #{why}: self-fencing, cancelling #{lease.work_id}"
+    )
+
+    cancel_attempt(state, lease.work_id)
+    state = put_in(state.leases[id].phase, :fenced)
+    drop_jobs(state, id)
   end
 
   defp step(state, id, holding) do
@@ -829,6 +907,19 @@ defmodule AtlasRuntime.Sources.Puller do
 
       busy?(state, id) ->
         state
+
+      # Adopted at a restart: imported once delivered again, or given up at the deadline.
+      lease.phase == :importing and is_map_key(lease, :lease) ->
+        start_import(state, id)
+
+      lease.phase == :importing and is_map_key(lease, :waiting) ->
+        if LeaseClock.age(lease.waiting, state.clock) >= import_timeout(state),
+          do:
+            give_up(state, id, "its input was not delivered again within the import's deadline"),
+          else: state
+
+      lease.phase == :importing ->
+        give_up(state, id, "its import ended without an answer")
 
       lease.phase == :accepting ->
         send_accepted(state, id)
@@ -871,9 +962,15 @@ defmodule AtlasRuntime.Sources.Puller do
   defp reported_now(state, id, on, answer) do
     case answer do
       {:recorded, _} when on == :accepted ->
-        _ = Work.release_lease(state.leases[id].work_id)
-        state = put_in(state.leases[id].phase, :released)
-        next_step(state, id)
+        case Work.release_lease(state.leases[id].work_id) do
+          # F5 (b): the input is imported now, and the attempt released once it is.
+          :importing ->
+            start_import(state, id)
+
+          _ ->
+            state = put_in(state.leases[id].phase, :released)
+            next_step(state, id)
+        end
 
       {:recorded, _} ->
         state = put_in(state.leases[id].phase, :started)
@@ -945,8 +1042,10 @@ defmodule AtlasRuntime.Sources.Puller do
     end
   end
 
+  # Straight to the executor (round-2 rule (2)): never through the CLI facade, whose
+  # implementation is the local source's process.
   defp cancel_attempt(state, work_id),
-    do: B.cancel(state.client, %{work_id: work_id, mode: :graceful})
+    do: Work.cancel(state.client, %B.CancelInput{work_id: work_id, mode: :graceful})
 
   # A report of lease `id`, sent in a task; its answer comes back to `reported/4` as `on`.
   defp report(state, id, revision, report, on \\ :refused) do

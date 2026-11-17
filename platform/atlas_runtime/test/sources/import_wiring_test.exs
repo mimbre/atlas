@@ -1,13 +1,14 @@
 defmodule AtlasRuntime.Sources.ImportWiringTest do
   @moduledoc """
   M2 A3, the base import's wiring (decision §3 "Inputs (F6)", §5.1; W5's
-  `AtlasRuntime.Sources.Import` in the puller): before a lease is accepted, the puller
-  imports its input from the source that offered it, every blob through that source's
-  `get_blob`, into its own store, the base through the real `workspace base-import`. The
-  work then runs on the imported tree, composed by the helper from the imported baseline
-  plus exactly the imported change set, without Code (no Code stand-in runs here). An
-  import the input is refused for (too large, invalid, over the source's quota) is reported
-  `refused` and creates no work record.
+  `AtlasRuntime.Sources.Import` in the puller): once a lease is accepted and that accept
+  recorded (accept first, Main's #330 F5 (b)), the puller imports its input from the source
+  that offered it, every blob through that source's `get_blob`, into its own store, the base
+  through the real `workspace base-import`. The work then runs on the imported tree,
+  composed by the helper from the imported baseline plus exactly the imported change set,
+  without Code (no Code stand-in runs here). An import the input is refused for (too
+  large, invalid, over the source's quota) ends the accepted attempt `failed` (never
+  started, reason `workspace`), reported `ended`; nothing is materialized or launched.
   """
   use ExUnit.Case, async: false
 
@@ -100,12 +101,25 @@ defmodule AtlasRuntime.Sources.ImportWiringTest do
         do: {Path.relative_to(path, Path.join(folder, "atlas")), File.read!(path)}
   end
 
-  defp assert_refused(ctx, reason) do
+  # Accepted first, then the import refused: the attempt ends failed, never started, and
+  # that end is reported; nothing was materialized or launched.
+  defp assert_import_refused(ctx) do
     assert :polled = Puller.poll_now(ctx.puller)
-    assert [%S.Refused{reason: ^reason}] = reports(ctx.source, "task-1")
-    assert Work.holdings(@name) == []
-    assert works(ctx.bench) == []
-    assert %B.Outcome.Works{works: []} = B.list_work(@client, %{})
+
+    assert [
+             %S.Accepted{},
+             %S.Ended{result: %{kind: :failed, reason: :workspace, never_started: true}}
+           ] = reports(ctx.source, "task-1")
+
+    assert [%{work_id: work_id, state: :failed, held: false, ran: false}] = Work.holdings(@name)
+    assert [_one] = works(ctx.bench)
+
+    assert [%{result: %{kind: :failed, never_started: true}} = attempt] =
+             AtlasRuntime.Work.Store.read_work(ctx.bench.dir, work_id).attempts
+
+    assert is_nil(attempt.timestamps.running_at)
+    refute File.exists?(Folders.path(ctx.bench.dir, work_id))
+    assert launches(ctx.bench) == []
   end
 
   test "a leased base work runs on the imported tree: its blobs from this source, no Code",
@@ -196,25 +210,25 @@ defmodule AtlasRuntime.Sources.ImportWiringTest do
              @files |> Map.delete("README.md") |> Map.put("lib/b.ex", new)
   end
 
-  describe "a refused import is reported refused and creates no work" do
+  describe "a refused import ends the accepted lease failed, never started" do
     @tag import: [max_base_bytes: 4]
     test "too large: the base's declared bytes are past the cap", ctx do
       {manifest, blobs} = Source.base(@files)
       Source.add_work(ctx.source, offered(%{base: %{base_id: "b-1", manifest: manifest}}), blobs)
-      assert_refused(ctx, :too_large)
+      assert_import_refused(ctx)
     end
 
     test "invalid: the validator refuses the base (an unsafe path)", ctx do
       {manifest, blobs} = Source.base(%{"../escape" => "x\n"})
       Source.add_work(ctx.source, offered(%{base: %{base_id: "b-1", manifest: manifest}}), blobs)
-      assert_refused(ctx, :invalid)
+      assert_import_refused(ctx)
     end
 
     @tag max_store_bytes: 16
     test "quota: the source's store would pass max_store_bytes", ctx do
       {manifest, blobs} = Source.base(@files)
       Source.add_work(ctx.source, offered(%{base: %{base_id: "b-1", manifest: manifest}}), blobs)
-      assert_refused(ctx, :too_large)
+      assert_import_refused(ctx)
     end
   end
 end

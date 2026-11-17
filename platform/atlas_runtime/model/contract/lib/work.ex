@@ -275,6 +275,8 @@ defmodule AtlasRuntimeModel.Work do
   defmodel :imported do
     field :source, :string, required: true
     field :change_set, :string
+    # Main's #330 F5 (b): accepted before its import; the base is set once it is imported.
+    field :pending, :boolean
   end
 
   # The records.

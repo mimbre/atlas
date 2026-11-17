@@ -11,6 +11,7 @@ defmodule AtlasRuntime.Sources.LocalTest do
 
   import AtlasRuntime.WorkHarness
 
+  alias AtlasRuntime.Availability
   alias AtlasRuntime.Boundary.Work, as: B
   alias AtlasRuntime.CodeStandIn
   alias AtlasRuntime.Model.LocalSource.QueuedWork
@@ -302,10 +303,70 @@ defmodule AtlasRuntime.Sources.LocalTest do
 
     assert {:ok, %QueuedWork{state: :ended, result: %{kind: :failed}}} = Local.get(id)
 
-    # One record, one attempt, never started.
+    # One record, one attempt, still held (never released, so it cannot start).
     assert [_one] = Path.wildcard(Path.join(bench.dir, "work/work-*.json"))
-    assert [%{state: :buffered}] = AtlasRuntime.Work.Store.read_work(bench.dir, id).attempts
-    Process.sleep(300)
+
+    assert [%{state: :buffered, lease_hold: true} = attempt] =
+             AtlasRuntime.Work.Store.read_work(bench.dir, id).attempts
+
+    assert is_nil(attempt.timestamps.running_at)
+    assert [%{work_id: ^id, held: true}] = Work.holdings("local")
+  end
+
+  # Review dev1 finding 2 (V15): Q1 after a prune. The executor's record of a local work is
+  # pruned (a tombstone is left); the source, whose lease was never recorded, leases it
+  # again. That lease is refused, the work ends failed at the source, and nothing runs.
+  test "A6 Q1 after a prune: a re-lease of a pruned local work is refused, ends failed, never runs",
+       %{bench: bench} do
+    retention = 3600
+    {:ok, clock} = Agent.start_link(fn -> 0 end)
+    local!(bench, clock: fn -> Agent.get(clock, & &1) end)
+    {:added, id} = Local.add(client(), folder_work(bench, "complete pruned"))
+
+    assert %{leases: [first]} = poll(%{"light_work" => 1})
+    assert {:accepted, ^id} = Work.accept_lease("local", first)
+
+    # The held attempt is given up (cancelled, never started), and the record is pruned.
+    Work.cancel(@client, %B.CancelInput{work_id: id, mode: :graceful})
+
+    await(fn ->
+      match?([%{quiescent: true}], AtlasRuntime.Work.Store.read_work(bench.dir, id).attempts)
+    end)
+
+    stop_work()
+
+    old =
+      DateTime.utc_now()
+      |> DateTime.add(-2 * retention, :second)
+      |> DateTime.truncate(:millisecond)
+
+    record = AtlasRuntime.Work.Store.read_work(bench.dir, id)
+
+    AtlasRuntime.Work.Store.put_work!(bench.dir, %{
+      record
+      | attempts: Enum.map(record.attempts, &%{&1 | timestamps: %{&1.timestamps | ended_at: old}})
+    })
+
+    start_work!(bench, retention: retention)
+
+    await(fn ->
+      match?(%B.Outcome.Pruned{}, Work.get_work(@client, %B.GetWorkInput{work_id: id}))
+    end)
+
+    # The source never got `accepted`: past its accept deadline it leases the work again.
+    Agent.update(clock, &(&1 + 31_000))
+    assert %{leases: [second]} = poll(%{"light_work" => 1})
+    assert second.work.work_key == id and second.lease_id != first.lease_id
+
+    assert {:refused, _reason} = Work.accept_lease("local", second)
+    assert match?(%B.Outcome.Pruned{}, Work.get_work(@client, %B.GetWorkInput{work_id: id}))
+    assert Work.holdings("local") == []
+
+    assert %LocalFacade.Outcome.Recorded{} =
+             report(second.lease_id, 1, %{state: :refused, reason: :invalid})
+
+    assert {:ok, %QueuedWork{state: :ended, result: %{kind: :failed}}} = Local.get(id)
+    assert Path.wildcard(Path.join(bench.dir, "work/work-*.json")) == []
     assert launches(bench) == []
   end
 
@@ -414,6 +475,99 @@ defmodule AtlasRuntime.Sources.LocalTest do
                AtlasRuntime.Work.Store.read_work(bench.dir, retried).attempts
 
       assert length(launches(bench)) == 3
+    end
+  end
+
+  # Main's #330 F5 (c): a retry that meets a profile unavailable now (here: between the
+  # offer and the accept) stays queued, not failed. Nothing is recorded; the lease is left
+  # unanswered, the source queues the same attempt again at its accept deadline, nothing
+  # offers it while the profile is unavailable, and it runs once the profile is back.
+  describe "F5 (c): a retry whose profile is unavailable now" do
+    setup %{bench: bench} do
+      write_policy!(bench.dir, put_in(@sources, ["sources", Access.at(0), "max_slots"], 1))
+      {:ok, clock} = Agent.start_link(fn -> 0 end)
+      local!(bench, clock: fn -> Agent.get(clock, & &1) end)
+      %{clock: clock}
+    end
+
+    test "stays queued, not failed, and runs as attempt 2 once the profile is back",
+         %{bench: bench, clock: clock} do
+      {:added, id} = Local.add(client(), folder_work(bench, "complete waits"))
+      id |> lease!(1) |> run!(1)
+      assert %B.Outcome.Accepted{} = B.retry(client(), %{work_id: id})
+
+      offer = Work.offer("local")
+      assert offer == %{"light_work" => 1}
+      assert %{leases: [lease]} = poll(offer)
+      assert %{work_key: ^id, attempt: 2} = lease.work
+
+      # The profile's only harness is quota-marked (a human's mark) before the accept.
+      mark = %{
+        "evidence" => %{"source" => "operator", "note" => "no credits", "resetsAt" => nil},
+        "turn_id" => nil,
+        "observed_at" => System.system_time(:second),
+        "reenabled_at" => nil
+      }
+
+      Availability.persist(
+        bench.dir,
+        put_in(Availability.load(bench.dir), ["quota", "codex"], mark)
+      )
+
+      assert {:unavailable, _reason} = Work.accept_lease("local", lease)
+      assert :ok = Work.offer_done("local", 0)
+      assert [%{state: :completed}] = AtlasRuntime.Work.Store.read_work(bench.dir, id).attempts
+      assert {:ok, %QueuedWork{state: :leased}} = Local.get(id)
+
+      # Unanswered past the source's accept deadline: queued again for attempt 2, not ended.
+      Agent.update(clock, &(&1 + 31_000))
+      assert %{leases: []} = poll(%{})
+      assert {:ok, %QueuedWork{state: :queued, attempt: 2, result: nil}} = Local.get(id)
+      assert Work.offer("local") == %{}
+      assert :ok = Work.offer_done("local", 0)
+
+      # The profile is back: leased again, attempt 2 runs on the same record.
+      assert :cleared = Work.clear_quota_mark("codex")
+      id |> lease!(2) |> run!(2)
+
+      assert {:ok, %QueuedWork{state: :ended, result: %{kind: :completed, attempt: 2}}} =
+               Local.get(id)
+
+      assert [%{state: :completed}, %{attempt: 2, state: :completed}] =
+               AtlasRuntime.Work.Store.read_work(bench.dir, id).attempts
+    end
+  end
+
+  # Review dev1 finding 2 (V16): a retry's lease (attempt 2) delivered again is the same
+  # lease: `existing`, still one attempt 2, and it runs once.
+  describe "round 2: a retry lease delivered twice" do
+    setup %{bench: bench} do
+      write_policy!(bench.dir, put_in(@sources, ["sources", Access.at(0), "max_slots"], 1))
+      local!(bench)
+      :ok
+    end
+
+    test "an attempt-2 lease delivered again is existing: one attempt 2, and it runs once",
+         %{bench: bench} do
+      {:added, id} = Local.add(client(), folder_work(bench, "complete delivered twice"))
+      id |> lease!(1) |> run!(1)
+
+      assert %B.Outcome.Accepted{} = B.retry(client(), %{work_id: id})
+      lease = lease!(id, 2)
+      assert {:existing, ^id} = Work.accept_lease("local", lease)
+
+      assert [%{state: :completed}, %{attempt: 2, state: :buffered, lease_hold: true}] =
+               AtlasRuntime.Work.Store.read_work(bench.dir, id).attempts
+
+      run!(lease, 2)
+
+      assert {:ok, %QueuedWork{state: :ended, result: %{kind: :completed, attempt: 2}}} =
+               Local.get(id)
+
+      assert [%{state: :completed}, %{attempt: 2, state: :completed}] =
+               AtlasRuntime.Work.Store.read_work(bench.dir, id).attempts
+
+      assert length(launches(bench)) == 2
     end
   end
 

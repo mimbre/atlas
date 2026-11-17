@@ -1,3 +1,14 @@
+defmodule AtlasRuntime.Sources.MalformedLeaseTest.Tags do
+  @moduledoc false
+  # A `:logger` handler that sends the test the refusal tags (metadata) of each event, so a
+  # test checks what was refused, never the wording of a log line.
+  def log(%{meta: meta}, %{config: %{pid: pid}}) do
+    tags = Map.take(meta, [:malformed_lease, :lease_dropped])
+    if tags != %{}, do: send(pid, {:log_tags, tags})
+    :ok
+  end
+end
+
 defmodule AtlasRuntime.Sources.MalformedLeaseTest do
   @moduledoc """
   The lease security fix (M2 assembly A, after A2): a lease that is not exactly the
@@ -82,23 +93,46 @@ defmodule AtlasRuntime.Sources.MalformedLeaseTest do
 
   defp reports(source, lease_id), do: Agent.get(source, & &1.leases[lease_id].reports)
 
+  # `fun`'s log, and the refusal tags its events carried, in order.
+  defp tagged(fun) do
+    id = :"malformed_lease_tags_#{System.unique_integer([:positive])}"
+    :ok = :logger.add_handler(id, __MODULE__.Tags, %{config: %{pid: self()}})
+
+    log =
+      try do
+        capture_log(fun)
+      after
+        :logger.remove_handler(id)
+      end
+
+    {log, collect_tags()}
+  end
+
+  defp collect_tags do
+    receive do
+      {:log_tags, tags} -> [tags | collect_tags()]
+    after
+      0 -> []
+    end
+  end
+
   # Refused structurally: nothing accepted, the source told, both processes up, and nothing
-  # of the lease in the log.
+  # of the lease in the log. Answers the log and the refusal's `{rule, path}` tag.
   defp assert_refused(ctx, bend) do
     core = GenServer.whereis(Work.Server)
     bend(ctx.target, bend)
 
-    log = capture_log(fn -> assert :polled = Puller.poll_now(ctx.puller) end)
+    {log, tags} = tagged(fn -> assert :polled = Puller.poll_now(ctx.puller) end)
 
     assert Work.holdings(@name) == []
     assert %B.Outcome.Works{works: []} = B.list_work(@client, %{})
     assert [%S.Refused{reason: :invalid}] = reports(ctx.source, "flow-test-lease-1")
     assert Process.alive?(ctx.puller)
     assert GenServer.whereis(Work.Server) == core
-    assert log =~ "malformed lease"
+    assert [%{malformed_lease: {rule, path}}] = tags
     refute log =~ ctx.sentinel
     refute log =~ "flow-test-lease-1"
-    log
+    %{log: log, rule: rule, path: path}
   end
 
   # The next lease, well formed, is accepted and runs.
@@ -121,15 +155,17 @@ defmodule AtlasRuntime.Sources.MalformedLeaseTest do
   end
 
   test "a missing optional field (after_check) is refused invalid, not a crash", ctx do
-    log = assert_refused(ctx, &update_in(&1.work, fn work -> Map.delete(work, :after_check) end))
-    assert log =~ "missing_field at lease.work.after_check"
+    refused =
+      assert_refused(ctx, &update_in(&1.work, fn work -> Map.delete(work, :after_check) end))
+
+    assert {refused.rule, refused.path} == {:missing_field, [:lease, :work, :after_check]}
     assert_next_runs(ctx)
   end
 
   test "a field of a wrong type is refused invalid", ctx do
     # The enum as text, as a source that does not speak the contract would send it.
-    log = assert_refused(ctx, &put_in(&1.work.input.permissions, "workspace-write"))
-    assert log =~ "wrong_type at lease.work.input.permissions"
+    refused = assert_refused(ctx, &put_in(&1.work.input.permissions, "workspace-write"))
+    assert {refused.rule, refused.path} == {:wrong_type, [:lease, :work, :input, :permissions]}
     assert_next_runs(ctx)
   end
 
@@ -142,14 +178,14 @@ defmodule AtlasRuntime.Sources.MalformedLeaseTest do
     # The local source's own fields, which no remote lease may carry (C1).
     folder = "/etc/" <> ctx.sentinel
 
-    log =
+    %{log: log, rule: rule} =
       assert_refused(ctx, fn lease ->
         lease
         |> put_in([:work, :folder], folder)
         |> Map.put(:slot, ctx.sentinel)
       end)
 
-    assert log =~ "undeclared_field"
+    assert rule == :undeclared_field
     refute log =~ "folder"
     refute log =~ "/etc/"
     assert_next_runs(ctx)
@@ -160,12 +196,12 @@ defmodule AtlasRuntime.Sources.MalformedLeaseTest do
     core = GenServer.whereis(Work.Server)
     bend(ctx.target, fn _lease -> %{work: ctx.sentinel} end)
 
-    log = capture_log(fn -> assert :polled = Puller.poll_now(ctx.puller) end)
+    {log, tags} = tagged(fn -> assert :polled = Puller.poll_now(ctx.puller) end)
 
     assert Work.holdings(@name) == []
     assert reports(ctx.source, "flow-test-lease-1") == []
     assert Process.alive?(ctx.puller) and GenServer.whereis(Work.Server) == core
-    assert log =~ "without a usable lease_id"
+    assert tags == [%{lease_dropped: :no_lease_id}]
     refute log =~ ctx.sentinel
   end
 

@@ -6,7 +6,12 @@ defmodule AtlasRuntime.Sources.SelfFencingTest do
   wall-clock time since the send time of its last successful poll, read from an injected
   clock: a sleep (wall clock on, monotonic still) fences, and so does a backward wall jump;
   a reply that comes late renews only from when its poll was sent. The fence check never
-  waits on I/O (Main's round 2): a hung import or report of another lease does not delay it.
+  waits on I/O (Main's round 2): a hung import or report of another lease does not delay it,
+  nor does a local work source that does not answer (the cancel goes to the executor), and a
+  fenced lease's own task is killed. A restarted puller keeps each lease's last real renewal
+  (P3); one the core does not know is fenced conservatively. A lease is accepted before
+  its import, which runs under the lease's renewal and is fenced like running work; its
+  held attempt holds its slot only while that import runs (Main's #330 F5).
   """
   use ExUnit.Case, async: false
 
@@ -25,8 +30,8 @@ defmodule AtlasRuntime.Sources.SelfFencingTest do
   # The source's lease_ttl (900 s), as the puller takes it from `timing`.
   @ttl 900_000
 
-  setup do
-    _bench =
+  setup ctx do
+    bench =
       start!(%{
         "sources" => [
           %{
@@ -58,15 +63,16 @@ defmodule AtlasRuntime.Sources.SelfFencingTest do
     {:ok, clock} = Agent.start_link(fn -> {0, 0} end)
     target = FakeSourceTarget.new(source)
 
-    puller =
-      start_supervised!(
-        {Puller,
-         name: @name,
-         target: target,
-         clock: fn -> Agent.get(clock, & &1) end,
-         tick: :manual,
-         polling: :manual}
-      )
+    opts =
+      [
+        name: @name,
+        target: target,
+        clock: fn -> Agent.get(clock, & &1) end,
+        tick: :manual,
+        polling: :manual
+      ] ++ Map.get(ctx, :puller_opts, [])
+
+    puller = start_supervised!({Puller, opts})
 
     # Leased at {0, 0}, recorded, running, and reported started.
     assert :polled = Puller.poll_now(puller)
@@ -76,13 +82,24 @@ defmodule AtlasRuntime.Sources.SelfFencingTest do
     [lease_id] = Map.keys(Puller.leases(puller))
 
     %{
+      bench: bench,
       source: source,
       clock: clock,
       target: target,
+      opts: opts,
       puller: puller,
       work_id: work_id,
       lease_id: lease_id
     }
+  end
+
+  # The executor's own record (never through the work facade, whose implementation is the
+  # local source's process).
+  defp attempts(client \\ @client, work_id) do
+    assert %B.Outcome.Found{work: %{attempts: attempts}} =
+             AtlasRuntime.Work.get_work(client, %B.GetWorkInput{work_id: work_id})
+
+    attempts
   end
 
   defp move(clock, mono, sys), do: Agent.update(clock, fn {m, s} -> {m + mono, s + sys} end)
@@ -90,10 +107,17 @@ defmodule AtlasRuntime.Sources.SelfFencingTest do
   defp phase(ctx), do: Puller.leases(ctx.puller)[ctx.lease_id].phase
 
   defp cancel_requested?(ctx) do
-    assert %B.Outcome.Found{work: %{attempts: [attempt]}} =
-             B.get_work(@client, %{work_id: ctx.work_id})
-
+    assert [attempt] = attempts(ctx.work_id)
     attempt.timestamps.cancel_requested_at != nil
+  end
+
+  # Bounded: a puller that waits on a hung call fails the test instead of hanging it.
+  defp check!(ctx), do: GenServer.call(ctx.puller, :check_now, 5_000)
+
+  # The puller stopped and started again with the same options (its clock included).
+  defp restart!(ctx) do
+    :ok = stop_supervised({Puller, @name})
+    %{ctx | puller: start_supervised!({Puller, ctx.opts})}
   end
 
   defp reports(ctx), do: Agent.get(ctx.source, & &1.leases[ctx.lease_id].reports)
@@ -162,6 +186,88 @@ defmodule AtlasRuntime.Sources.SelfFencingTest do
     assert phase(ctx) == :fenced
   end
 
+  # Review dev1 finding 1: the fence's cancel goes to the executor, not through the work
+  # facade, whose implementation is the local source's process. A local source that never
+  # answers (a stand-in registered under its name) does not delay a remote lease's fence.
+  test "a local source that does not answer: the remote lease is fenced at once, and the puller stays up",
+       ctx do
+    stand_in = spawn(fn -> receive do: (:stop -> :ok) end)
+    true = Process.register(stand_in, AtlasRuntime.Sources.Local)
+    on_exit(fn -> send(stand_in, :stop) end)
+
+    move(ctx.clock, @ttl, @ttl)
+    assert :ok = check!(ctx)
+    assert phase(ctx) == :fenced
+    assert cancel_requested?(ctx)
+    assert Process.alive?(ctx.puller)
+    assert Process.info(stand_in, :message_queue_len) == {:message_queue_len, 0}
+  end
+
+  # P3: a restart is no renewal. The core keeps each lease's last real renewal for the
+  # source, and the restarted puller fences from it.
+  describe "P3: a restarted puller" do
+    test "keeps the last real renewal: fenced lease_ttl after it, with no poll since", ctx do
+      move(ctx.clock, @ttl - 1, @ttl - 1)
+      ctx = restart!(ctx)
+
+      assert :ok = check!(ctx)
+      refute phase(ctx) == :fenced
+      refute cancel_requested?(ctx)
+      assert Puller.leases(ctx.puller)[ctx.lease_id].stamp == {0, 0}
+
+      move(ctx.clock, 1, 1)
+      assert :ok = check!(ctx)
+      assert phase(ctx) == :fenced
+      assert cancel_requested?(ctx)
+      assert FakeSourceTarget.calls(ctx.target, :poll) |> length() == 1
+    end
+
+    # The core knows no renewal of the lease (as after its own restart): it is unrenewed,
+    # renewed only by a poll, and fenced when a poll fails first or none renews it within
+    # the accept deadline of the start.
+    test "a lease whose renewal the core does not know: a failing poll fences it", ctx do
+      :ok = stop_supervised({Puller, @name})
+      assert :ok = AtlasRuntime.Work.renewed(@name, nil, %{})
+      ctx = %{ctx | puller: start_supervised!({Puller, ctx.opts})}
+      assert Puller.leases(ctx.puller)[ctx.lease_id].stamp == :unrenewed
+
+      assert :ok = check!(ctx)
+      refute phase(ctx) == :fenced
+
+      FakeSourceTarget.hook(ctx.target, :poll, fn _call, _input -> {:error, :unreachable} end)
+      assert :error = Puller.poll_now(ctx.puller)
+      assert phase(ctx) == :fenced
+      assert cancel_requested?(ctx)
+    end
+
+    test "a lease whose renewal the core does not know: renewed by a poll, else fenced after the accept deadline",
+         ctx do
+      # Twice: first a poll renews it; then, after another such restart, none does.
+      for renewed? <- [true, false] do
+        :ok = stop_supervised({Puller, @name})
+        assert :ok = AtlasRuntime.Work.renewed(@name, nil, %{})
+        ctx = %{ctx | puller: start_supervised!({Puller, ctx.opts})}
+
+        if renewed? do
+          move(ctx.clock, 1_000, 1_000)
+          assert :polled = Puller.poll_now(ctx.puller)
+          assert Puller.leases(ctx.puller)[ctx.lease_id].stamp != :unrenewed
+          move(ctx.clock, 30_000, 30_000)
+          assert :ok = check!(ctx)
+          refute phase(ctx) == :fenced
+        else
+          move(ctx.clock, 29_999, 29_999)
+          assert :ok = check!(ctx)
+          refute phase(ctx) == :fenced
+          move(ctx.clock, 1, 1)
+          assert :ok = check!(ctx)
+          assert phase(ctx) == :fenced
+          assert cancel_requested?(ctx)
+        end
+      end
+    end
+  end
+
   # Main's round 2 (2): the fence check never waits on I/O. A second lease's import, or its
   # report, hangs at the source (an injected hook that never answers); the running lease is
   # still fenced at the check that finds it lease_ttl old, on the injected clock.
@@ -194,44 +300,85 @@ defmodule AtlasRuntime.Sources.SelfFencingTest do
       end
     end
 
-    # Bounded: a puller that waits on a hung call fails the test instead of hanging it.
-    defp check!(ctx), do: GenServer.call(ctx.puller, :check_now, 5_000)
-
-    test "a slow import: the running lease is fenced on time; the import's deadline refuses its lease",
+    # Main's #330 F5 (a), (b): accept first. The slow import's lease is accepted and that
+    # accept recorded before anything is imported; it holds its own slot while its import
+    # runs, is renewed by the polls like running work, and once fenced its import is killed
+    # and its attempt never starts.
+    test "a slow import keeps its lease through renewals; fenced, its import is killed and it never starts",
          ctx do
       FakeSourceTarget.hook(ctx.target, :get_blob, hang(:importing))
       poll = Task.async(fn -> Puller.poll_now(ctx.puller) end)
       assert_receive {:importing, importer, {slow, _sha}}, 5_000
 
-      # The import runs in a task of its own; the puller answers meanwhile.
+      # Accepted and recorded at the source before the import; the import runs in a task.
+      assert [%S.Accepted{}] = Agent.get(ctx.source, & &1.leases[slow].reports)
+      assert Puller.leases(ctx.puller)[slow].phase == :importing
       assert [%{lease_id: ^slow, kind: :import}] = Puller.jobs(ctx.puller)
+      slow_work = Puller.leases(ctx.puller)[slow].work_id
 
-      # Its slot stays promised to this source after the poll is over: of max_slots 2, the
-      # running lease holds one and the import the other, so nothing more is offered.
+      assert [%{work_id: ^slow_work, held: true, importing: true}] =
+               Enum.filter(AtlasRuntime.Work.holdings(@name), &(&1.lease_id == slow))
+
+      # Its held attempt holds its own slot (of max_slots 2, the running lease the other).
       assert AtlasRuntime.Work.offer(@name) == %{}
       assert :ok = AtlasRuntime.Work.offer_done(@name, 0)
 
-      # lease_ttl after the poll was sent: fenced at this check, the import still hanging.
-      move(ctx.clock, @ttl, @ttl)
+      # Renewed by a poll like running work: past the first lease_ttl it is not fenced.
+      move(ctx.clock, @ttl - 1, @ttl - 1)
+      assert :polled = GenServer.call(ctx.puller, :poll_now, 5_000)
+      assert %{holdings: held} = List.last(FakeSourceTarget.calls(ctx.target, :poll))
+      assert slow in Enum.map(held, & &1.lease_id)
+      move(ctx.clock, 2, 2)
       assert :ok = check!(ctx)
-      assert phase(ctx) == :fenced
-      assert cancel_requested?(ctx)
+      assert Puller.leases(ctx.puller)[slow].phase == :importing
       assert Process.alive?(importer)
 
-      # The import's deadline is below the grace (lease_ttl + 2 min): at lease_ttl + 2 min the
-      # task is killed and the lease refused; no work is created for it.
-      move(ctx.clock, 120_000, 120_000)
+      # No renewal for lease_ttl (the import's own deadline is further off): fenced, the
+      # import killed, and the attempt never starts.
+      move(ctx.clock, @ttl, @ttl)
       assert :ok = check!(ctx)
+      assert Puller.leases(ctx.puller)[slow].phase == :fenced
       refute Process.alive?(importer)
       assert Puller.jobs(ctx.puller) == []
       assert :polled = Task.await(poll, 5_000)
 
-      assert [%S.Refused{reason: :too_large}] =
+      assert [%{state: :cancelled, result: %{never_started: true}} = attempt] =
+               attempts(slow_work)
+
+      assert is_nil(attempt.timestamps.running_at)
+      # An import answer that came now would not start it either.
+      late = %{baseline_id: "sha256:" <> String.duplicate("a", 64), change_set: nil}
+      assert :not_pending = AtlasRuntime.Work.lease_imported(slow_work, {:ok, late})
+      assert [%S.Accepted{}] = Agent.get(ctx.source, & &1.leases[slow].reports)
+    end
+
+    test "a slow import past its own deadline: the accepted attempt ends failed, never started; its slot is free",
+         ctx do
+      FakeSourceTarget.hook(ctx.target, :get_blob, hang(:importing))
+      poll = Task.async(fn -> Puller.poll_now(ctx.puller) end)
+      assert_receive {:importing, importer, {slow, _sha}}, 5_000
+      slow_work = Puller.leases(ctx.puller)[slow].work_id
+
+      # Renewed, so only the import's deadline (below the grace: lease_ttl + 2 min) ends it.
+      for _ <- 1..2 do
+        move(ctx.clock, 60_000, 60_000)
+        assert :polled = GenServer.call(ctx.puller, :poll_now, 5_000)
+      end
+
+      move(ctx.clock, @ttl, @ttl)
+      assert :polled = GenServer.call(ctx.puller, :poll_now, 5_000)
+      assert :ok = check!(ctx)
+      refute Process.alive?(importer)
+      assert :polled = Task.await(poll, 5_000)
+
+      assert [%{state: :failed, result: %{never_started: true}}] = attempts(slow_work)
+
+      assert [%S.Accepted{}, %S.Ended{result: %{kind: :failed, never_started: true}}] =
                Agent.get(ctx.source, & &1.leases[slow].reports)
 
-      assert %B.Outcome.Works{works: [%{work_id: work_id}]} = B.list_work(@client, %{})
-      assert work_id == ctx.work_id
-      refute Map.has_key?(Puller.leases(ctx.puller), slow)
+      # F5 (a): nothing is held for the source once that import is over.
+      assert AtlasRuntime.Work.offer(@name) == %{"light_work" => 1}
+      assert :ok = AtlasRuntime.Work.offer_done(@name, 0)
     end
 
     test "a slow report: the running lease is fenced on time; the hung report is dropped with its lease",
@@ -264,6 +411,71 @@ defmodule AtlasRuntime.Sources.SelfFencingTest do
                B.get_work(@client, %{work_id: slow_work})
 
       assert is_nil(attempt.timestamps.running_at)
+    end
+
+    # Review dev1 finding 3 (V2): the fence kills the fenced lease's own task. Its `started`
+    # report hangs, and the report deadline is far off, so only the fence can end it.
+    @tag puller_opts: [report_timeout_ms: 10 * @ttl]
+    test "a fenced lease's own hung report is killed by the fence; the source gets nothing more of it",
+         ctx do
+      test = self()
+      first = ctx.lease_id
+
+      FakeSourceTarget.hook(ctx.target, :report, fn real, input ->
+        case input do
+          %{lease_id: id, report: %{state: :started}} when id != first ->
+            send(test, {:reporting, self(), input})
+            receive do: (:never -> {:error, :unreachable})
+
+          _ ->
+            real.()
+        end
+      end)
+
+      assert :polled = Puller.poll_now(ctx.puller)
+      [slow] = Map.keys(Puller.leases(ctx.puller)) -- [first]
+      await_state(Puller.leases(ctx.puller)[slow].work_id, :running, @client)
+
+      check = Task.async(fn -> Puller.check_now(ctx.puller) end)
+      assert_receive {:reporting, reporter, %{lease_id: ^slow}}, 5_000
+      assert [%{lease_id: ^slow, kind: :report}] = Puller.jobs(ctx.puller)
+
+      move(ctx.clock, @ttl, @ttl)
+      assert :ok = check!(ctx)
+      assert Puller.leases(ctx.puller)[slow].phase == :fenced
+      refute Process.alive?(reporter)
+      assert Puller.jobs(ctx.puller) == []
+      assert :ok = Task.await(check, 5_000)
+      assert [%S.Accepted{}] = Agent.get(ctx.source, & &1.leases[slow].reports)
+    end
+
+    # Review dev1 finding 4 (V8): a lease being imported keeps its slot on the start path
+    # too. A direct submit (Deviation 2: no local source runs here) is admitted, but does
+    # not start in that slot; the lease runs once imported.
+    test "a direct submit while a lease imports does not start in its slot; the lease runs once imported",
+         ctx do
+      test = self()
+
+      FakeSourceTarget.hook(ctx.target, :get_blob, fn real, input ->
+        send(test, {:importing, self(), input})
+        receive do: (:go -> real.())
+      end)
+
+      poll = Task.async(fn -> Puller.poll_now(ctx.puller) end)
+      assert_receive {:importing, importer, {slow, _sha}}, 5_000
+
+      assert %B.Outcome.Accepted{work: %{work_id: direct}} =
+               B.submit(client(), request(ctx.bench, "hang direct"))
+
+      assert [%{state: :buffered, slot: nil}] = attempts(client(), direct)
+
+      FakeSourceTarget.hook(ctx.target, :get_blob, nil)
+      send(importer, :go)
+      assert :polled = Task.await(poll, 5_000)
+
+      leased = Puller.leases(ctx.puller)[slow].work_id
+      await_state(leased, :running, @client)
+      assert [%{state: :buffered, slot: nil}] = attempts(client(), direct)
     end
   end
 end

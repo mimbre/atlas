@@ -125,17 +125,26 @@ defmodule AtlasRuntime.Work do
   `imported` (M2 A3) is what the puller imported of the lease's input from that source
   (`AtlasRuntime.Sources.Import.base/5`: `baseline_id`, and `change_set` when the lease
   names one): the work materializes from that baseline and change set, from the source's
-  own store, never from the source's `base_id`. A lease of any source but `local` without
-  it, or whose change set it lacks, is `{:refused, :invalid}`.
+  own store, never from the source's `base_id`; a change set it lacks is
+  `{:refused, :invalid}`. **Accept first (Main's #330 F5 (b)):** without `imported` (as
+  the puller accepts every remote lease), the work is recorded with its import pending:
+  held, `holdings/1` shows it `importing`, and `release_lease/1` keeps it held until
+  `lease_imported/2` set the imported base.
 
   Answers `{:accepted, work_id}`, `{:existing, work_id}` (the same lease again: the same
   work, one attempt), `{:refused, reason}` with a reason of the work source contract's
-  `refused`, or `:not_running` while the core is not running. Never `at_capacity`. A lease
+  `refused`, `{:unavailable, reason}` for a local retry's lease whose profile is
+  unavailable now (F5 (c): nothing recorded; the lease is to be left unanswered, so the
+  work stays queued at the source), or `:not_running` while the core is not running.
+  Never `at_capacity`. A lease
   that is not exactly the contract's shape (`AtlasRuntime.Sources.LeaseShape`) is
   `{:refused, :invalid}`, and nothing of it is used or logged.
   """
   @spec accept_lease(String.t(), map(), nil | AtlasRuntime.Sources.Import.imported()) ::
-          {:accepted | :existing, String.t()} | {:refused, atom()} | :not_running
+          {:accepted | :existing, String.t()}
+          | {:refused, atom()}
+          | {:unavailable, atom()}
+          | :not_running
   def accept_lease(source, lease, imported \\ nil) when is_binary(source),
     do: call({:accept_lease, source, lease, imported}, fn -> :not_running end)
 
@@ -165,9 +174,10 @@ defmodule AtlasRuntime.Work do
 
   @doc """
   The source recorded the accept of `work_id`'s lease: its held attempt may start.
-  `:released` (also when nothing was held), `:not_found`, or `:not_running`.
+  `:released` (also when nothing was held), `:importing` (still held: its import is
+  pending, F5 (b)), `:not_found`, or `:not_running`.
   """
-  @spec release_lease(String.t()) :: :released | :not_found | :not_running
+  @spec release_lease(String.t()) :: :released | :importing | :not_found | :not_running
   def release_lease(work_id) when is_binary(work_id),
     do: call({:release_lease, work_id}, fn -> :not_running end)
 
@@ -201,20 +211,42 @@ defmodule AtlasRuntime.Work do
     do: call({:offer_done, name, used}, fn -> :not_running end)
 
   @doc """
-  Source `name`'s puller (the calling process, which the core monitors) is importing `count`
-  leases of its polls now (Main's round 2: the import runs off the puller, in a task). They
-  stay promised, against every offer and the free slots, after their poll is over: each
-  imported lease accepted takes one, and the puller sets the count again as its imports end
-  (0 when none is left). `:ok`, or `:not_running`.
+  The import of accepted work `work_id`'s input ended (Main's #330 F5 (b)).
+  `{:ok, imported}` (`AtlasRuntime.Sources.Import.base/5`'s answer) sets the imported
+  baseline as its base, with the change set the lease named: `:ok`, then
+  `release_lease/1` lets it start; an import that does not match the lease is
+  `{:refused, :invalid}` and ends it as below. `{:failed, retryable, detail}` ends the held
+  attempt `failed` (reason `workspace`, never started), so its slot is free: `:failed`.
+  `:not_pending` when its import is not pending (or its attempt not held), `:not_found`,
+  or `:not_running`.
   """
-  @spec importing(String.t(), non_neg_integer()) :: :ok | :not_running
-  def importing(name, count) when is_binary(name) and is_integer(count) and count >= 0,
-    do: call({:importing, name, count}, fn -> :not_running end)
+  @spec lease_imported(String.t(), {:ok, map()} | {:failed, boolean(), String.t()}) ::
+          :ok | :failed | {:refused, :invalid} | :not_pending | :not_found | :not_running
+  def lease_imported(work_id, outcome) when is_binary(work_id),
+    do: call({:lease_imported, work_id, outcome}, fn -> :not_running end)
+
+  @doc """
+  Source `name`'s puller renewed its leases (P3): `stamps` is `lease_id => %{stamp,
+  received}` for every live lease it holds (replacing what was kept), the `LeaseClock`
+  stamps of its last real renewal and of the send time of the poll that delivered it; and
+  `ttl_ms` the source's `lease_ttl` (or nil). Kept in the core's memory, so a restarted
+  puller fences from the real renewal (`renewals/1`). `:ok`, or `:not_running`.
+  """
+  @spec renewed(String.t(), pos_integer() | nil, %{String.t() => term()}) :: :ok | :not_running
+  def renewed(name, ttl_ms, stamps) when is_binary(name) and is_map(stamps),
+    do: call({:renewed, name, ttl_ms, stamps}, fn -> :not_running end)
+
+  @doc """
+  What `renewed/3` last kept for source `name`: `%{ttl_ms, stamps}`, or nil when nothing
+  was kept (the core started since) or the core is not running.
+  """
+  @spec renewals(String.t()) :: %{ttl_ms: pos_integer() | nil, stamps: map()} | nil
+  def renewals(name) when is_binary(name), do: call({:renewals, name}, fn -> nil end)
 
   @doc """
   The leases source `name` holds here, from the persisted records of its client
   (decision §5.1, §5.3 item 5): one map per work it leased, `lease_id`, `work_id`, the
-  current attempt's `attempt` number and `state`, `held` (waiting for `release_lease/1`),
+  current attempt's `attempt` number and `state`, `held` (waiting for `release_lease/1`), `importing` (its import pending, F5 (b)),
   `ran` (it reached `running`), `quiescent` and `last_progress_at` (or nil). `[]` while the
   core is not running.
   """

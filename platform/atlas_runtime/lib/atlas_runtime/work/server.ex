@@ -116,7 +116,12 @@ defmodule AtlasRuntime.Work.Server do
   imported}` turns a lease's offered work into a request and runs the same submit checks as
   the source's client. A remote source's base is the one its puller imported (A3, W5:
   `imported`), recorded on the work as `imported` and composed by the preparer from the
-  source's own store, never fetched from Code. The local source's lease carries its request
+  source's own store, never fetched from Code. **Accept first (Main's #330 F5 (b)):** the
+  puller accepts a remote lease before its import (`imported` nil): the record is created
+  held, its `imported` is `pending`, and its base a placeholder until
+  `{:lease_imported, work_id, outcome}` sets the imported baseline (or ends the attempt
+  `failed`, never started, when the import failed). `{:release_lease, …}` keeps a pending
+  attempt held, so a turn never starts before its import completed. The local source's lease carries its request
   (Deviation 1) and its work keeps the local work id (A6 Q1); a fresh lease of an attempt
   already recorded is refused, so it never runs twice, and a lease of the next attempt (a
   local retry, Main's round 2) adds that attempt to the same record, held like a first one,
@@ -126,7 +131,8 @@ defmodule AtlasRuntime.Work.Server do
   is `buffered` with the private `lease_hold: true`, persisted before the answer (I2). A
   lease is never answered `at_capacity`: it was taken within an offer, so neither the mode
   nor the buffer refuses it (a draining Runtime returns it; an unavailable profile is a
-  refusal). A held attempt never starts and keeps its hold across a restart, until
+  refusal, except for a local retry's lease, answered `{:unavailable, reason}` so that it
+  stays queued at the source, Main's #330 F5 (c)). A held attempt never starts and keeps its hold across a restart, until
   `{:release_lease, work_id}` (the source recorded the accept) clears it and dispatches.
 
   **The offer (decision §5.5; M2 plan A1; Main's O1, O2).** `{:offer, source}` gives a
@@ -138,11 +144,10 @@ defmodule AtlasRuntime.Work.Server do
   not name. What it offers is reserved for that poll only (in memory: a restart drops every
   offer, and the source's puller offers again), until `{:offer_done, source, used}` gives
   back what is left or the asking process ends (it is monitored). Each lease accepted
-  meanwhile takes one reserved slot, and its held attempt keeps that slot. The leases a
-  puller is still importing when its poll is over (Main's round 2: the import runs off the
-  puller, in a task) stay promised as that source's `{:importing, source, count}`, which the
-  puller sets to the number it imports and each imported lease accepted takes one of, until
-  that puller ends (it is monitored). The reservations, the importing leases and the held attempts are the promised slots
+  meanwhile takes one reserved slot, and its held attempt keeps that slot: while its
+  accept is reported and while its own import runs (Main's #330 F5 (a)). Nothing else is
+  held for a source: an import that fails or a lease that is lost ends that attempt, and
+  its slot is free. The reservations and the held attempts are the promised slots
   (`Queue.promised/2`): an attempt that came in without a lease starts only into a free
   slot beyond them, and room for a direct submit counts them as taken, so a direct submit
   between an offer and its accept never takes the slot the lease was offered. A leased
@@ -224,9 +229,10 @@ defmodule AtlasRuntime.Work.Server do
       room: true,
       # The offers outstanding (M2 plan A1): source name => %{offered, left}, never persisted.
       reservations: %{},
-      # The leases each source's puller is importing (Main's round 2): name => %{count,
-      # monitor}, never persisted; they stay promised until accepted or given up.
-      importing: %{},
+      # The last real renewal of each source's leases, on its puller's clock (P3): name =>
+      # %{ttl_ms, stamps: %{lease_id => stamp}}, in memory only. It outlives a puller, so a
+      # restarted one fences from the real renewal, never from its own start.
+      renewals: %{},
       blocked: MapSet.new(),
       # Slots a latch of a turn not the core's holds: free again only on `{:released, slot}`.
       latched: MapSet.new(),
@@ -390,10 +396,18 @@ defmodule AtlasRuntime.Work.Server do
     {:reply, reply, state}
   end
 
-  def handle_call({:importing, source, count}, {pid, _tag}, state)
-      when is_binary(source) and is_integer(count) and count >= 0 do
-    {:reply, :ok, importing(state, source, count, pid), {:continue, :dispatch}}
+  def handle_call({:lease_imported, id, outcome}, _from, state) do
+    {reply, state} = lease_imported(state, id, outcome)
+    {:reply, reply, state, {:continue, :dispatch}}
   end
+
+  def handle_call({:renewed, source, ttl_ms, stamps}, _from, state)
+      when is_binary(source) and is_map(stamps) do
+    {:reply, :ok, put_in(state.renewals[source], %{ttl_ms: ttl_ms, stamps: stamps})}
+  end
+
+  def handle_call({:renewals, source}, _from, state) when is_binary(source),
+    do: {:reply, Map.get(state.renewals, source), state}
 
   def handle_call({:offer_done, source, used}, _from, state) when is_binary(source) do
     {:reply, :ok, offer_done(state, source, used), {:continue, :dispatch}}
@@ -711,17 +725,12 @@ defmodule AtlasRuntime.Work.Server do
   # The process that holds a poll's offer ended (a puller that died): what it was offered is
   # free again (Main's O2: nothing is held beyond a poll).
   def handle_info({:DOWN, ref, :process, pid, reason}, state) do
-    case {Enum.find(state.reservations, fn {_name, r} -> r.monitor == ref end),
-          Enum.find(state.importing, fn {_name, i} -> i.monitor == ref end)} do
-      {{source, _reservation}, _} ->
+    case Enum.find(state.reservations, fn {_name, r} -> r.monitor == ref end) do
+      {source, _reservation} ->
         state = %{state | reservations: Map.delete(state.reservations, source)}
         {:noreply, state |> check_room() |> dispatch()}
 
-      {nil, {source, _importing}} ->
-        state = %{state | importing: Map.delete(state.importing, source)}
-        {:noreply, state |> check_room() |> dispatch()}
-
-      {nil, nil} ->
+      nil ->
         down(state, pid, reason)
     end
   end
@@ -1034,9 +1043,11 @@ defmodule AtlasRuntime.Work.Server do
         accept_well_formed(state, source, lease, imported)
 
       {:error, {rule, path}} ->
+        # `malformed_lease: {rule, path}` is the stable tag (metadata) of this refusal.
         Logger.warning(
           "runtime work: a malformed lease of #{source} was refused (invalid): " <>
-            "#{rule} at #{Enum.join([:lease | path], ".")}"
+            "#{rule} at #{Enum.join([:lease | path], ".")}",
+          malformed_lease: {rule, [:lease | path]}
         )
 
         {{:refused, :invalid}, state}
@@ -1130,9 +1141,16 @@ defmodule AtlasRuntime.Work.Server do
       {:refused, reason, detail} ->
         {lease_refused("local", lease_id, reason, detail), state}
 
-      {:at_capacity, _reason, _} ->
-        {lease_refused("local", lease_id, :no_permitted_option, "the profile is unavailable now"),
-         state}
+      # Main's #330 F5 (c): unavailable now (between the offer and this accept) is no
+      # refusal. Nothing is recorded; the lease is left unanswered, so the source queues the
+      # attempt again at its accept deadline, and it is offered once the profile is back.
+      {:at_capacity, reason, _} ->
+        Logger.info(
+          "runtime work: lease #{lease_id} of local: attempt of #{record.work_id} waits: " <>
+            "its profile is unavailable now"
+        )
+
+        {{:unavailable, reason}, state}
 
       {:ok, _selection} ->
         state = add_attempt(state, record, current, :after, resume, true)
@@ -1162,18 +1180,26 @@ defmodule AtlasRuntime.Work.Server do
 
     case lease_request(lease_id, work, imported) do
       {:ok, input} ->
+        # Accept first (F5 (b)): without an import yet, the base is a placeholder and the
+        # import pending; the change set is the one the lease names.
+        change_set =
+          if imported,
+            do: imported.change_set && work.input.change_set.manifest,
+            else: work.input.change_set && work.input.change_set.manifest
+
         lease = %{
           work_key: work.work_key,
           imported:
             M.Imported.new!(
               source: source,
-              change_set: imported.change_set && work.input.change_set.manifest
+              change_set: change_set,
+              pending: if(is_nil(imported), do: true)
             )
         }
 
         case submit(state, client, input, lease) do
           {:reply, %B.Outcome.Accepted{work: %{work_id: id}}, state} ->
-            {{:accepted, id}, take_reserved(state, source, lease_id, true)}
+            {{:accepted, id}, take_reserved(state, source, lease_id)}
 
           {:reply, %B.Outcome.Existing{work: %{work_id: id}}, state} ->
             {{:existing, id}, state}
@@ -1196,8 +1222,13 @@ defmodule AtlasRuntime.Work.Server do
   # never the source's own base_id, which names nothing here), and a change set on top is
   # composed from the source's store. A lease whose input was not imported, or not as the
   # lease names it, is refused.
-  defp lease_request(lease_id, _work, nil),
-    do: {:refused, :invalid, "lease #{lease_id}: its input was not imported"}
+  # The base of a lease accepted before its import: no snapshot (all zeros); it never
+  # materializes, as the attempt stays held until the import set the real baseline.
+  @pending_base "sha256:" <> String.duplicate("0", 64)
+
+  # Accept first (F5 (b)): the import follows, `lease_imported/3` sets the base.
+  defp lease_request(lease_id, work, nil),
+    do: lease_request(lease_id, work, %{baseline_id: @pending_base})
 
   defp lease_request(lease_id, %{input: %{change_set: change_set}}, %{change_set: imported})
        when is_nil(change_set) != is_nil(imported),
@@ -1220,6 +1251,56 @@ defmodule AtlasRuntime.Work.Server do
          work.after_check &&
            %B.AfterCheck{command: work.after_check.command, timeout: work.after_check.timeout}
      }}
+  end
+
+  # F5 (b): the import of an accepted lease ended. `{:ok, imported}` sets the imported
+  # baseline as the request's base (its change set as the lease named it) and clears
+  # `pending`; `{:failed, retryable, detail}` ends the held attempt failed (reason
+  # `workspace`, the contract's word for an input that could not be prepared), never started.
+  # Only a held attempt whose import is pending is changed.
+  defp lease_imported(state, id, outcome) do
+    with %M.WorkRecord{imported: %M.Imported{pending: true} = imported} = record <-
+           state.works[id],
+         %{lease_hold: true, state: :buffered} = attempt <- Queue.current(record) do
+      case outcome do
+        {:ok, %{baseline_id: "sha256:" <> _ = baseline, change_set: change_set}}
+        when is_nil(change_set) == is_nil(imported.change_set) ->
+          request = %{record.request | workspace: %{record.request.workspace | base_id: baseline}}
+          record = %{record | request: request, imported: %{imported | pending: nil}}
+          {:ok, commit(state, record)}
+
+        {:ok, _other} ->
+          {{:refused, :invalid}, import_failed(state, record, attempt, false, "not as named")}
+
+        {:failed, retryable, detail} ->
+          {:failed, import_failed(state, record, attempt, retryable == true, detail)}
+      end
+    else
+      nil -> {:not_found, state}
+      _ -> {:not_pending, state}
+    end
+  end
+
+  defp import_failed(state, record, attempt, retryable, detail) do
+    Logger.warning("runtime work: #{record.work_id}'s input was not imported: #{detail}")
+    now = now()
+
+    attempt = %{
+      attempt
+      | state: :failed,
+        quiescent: true,
+        lease_hold: nil,
+        timestamps: %{attempt.timestamps | ended_at: now},
+        result:
+          M.Result.new!(
+            kind: :failed,
+            reason: "workspace",
+            retryable: retryable,
+            never_started: true
+          )
+    }
+
+    commit(state, put_attempt(record, attempt))
   end
 
   @lease_reasons [
@@ -1271,8 +1352,8 @@ defmodule AtlasRuntime.Work.Server do
     policy = Policy.load(state.dir)
     sources = Policy.sources(policy)
     others = Map.delete(state.reservations, source)
-    # What the other polls hold, and every source's leases still importing (this one's too).
-    held = Map.merge(reserved(others), importing_counts(state), fn _name, a, b -> a + b end)
+    # What the other polls hold.
+    held = reserved(others)
 
     slots =
       if open?(state) and Enum.any?(sources, &(&1["name"] == source)) do
@@ -1337,14 +1418,10 @@ defmodule AtlasRuntime.Work.Server do
     state |> drop_reservation(source) |> check_room()
   end
 
-  # An accepted lease takes one slot of its source's offer; its held attempt keeps it. An
-  # imported lease takes one of its source's importing leases first: its poll may be over.
-  defp take_reserved(state, source, lease_id, imported? \\ false) do
-    case {state.importing[source], state.reservations[source]} do
-      {%{count: count} = importing, _} when imported? and count > 0 ->
-        put_in(state.importing[source], %{importing | count: count - 1})
-
-      {_, %{left: left} = reservation} when left > 0 ->
+  # An accepted lease takes one slot of its source's offer; its held attempt keeps it.
+  defp take_reserved(state, source, lease_id) do
+    case state.reservations[source] do
+      %{left: left} = reservation when left > 0 ->
         put_in(state.reservations[source], %{reservation | left: left - 1})
 
       _ ->
@@ -1355,37 +1432,9 @@ defmodule AtlasRuntime.Work.Server do
 
   defp reserved(reservations), do: Map.new(reservations, fn {name, r} -> {name, r.left} end)
 
-  defp importing_counts(state), do: Map.new(state.importing, fn {name, i} -> {name, i.count} end)
-
-  # The slots promised to the sources and not taken yet: the open offers and the leases
-  # being imported.
-  defp promised(state),
-    do:
-      Map.merge(reserved(state.reservations), importing_counts(state), fn _name, a, b ->
-        a + b
-      end)
-
-  # The puller of `source` (`pid`) imports `count` leases now (Main's round 2).
-  defp importing(state, source, 0, _pid) do
-    case Map.pop(state.importing, source) do
-      {nil, _} ->
-        state
-
-      {%{monitor: monitor}, importing} ->
-        Process.demonitor(monitor, [:flush])
-        check_room(%{state | importing: importing})
-    end
-  end
-
-  defp importing(state, source, count, pid) do
-    entry =
-      case state.importing[source] do
-        %{monitor: _} = entry -> %{entry | count: count}
-        nil -> %{count: count, monitor: Process.monitor(pid)}
-      end
-
-    check_room(%{state | importing: Map.put(state.importing, source, entry)})
-  end
+  # The slots promised to the sources and not taken yet: the open offers (a lease being
+  # imported holds its slot as its own held attempt, F5 (a)).
+  defp promised(state), do: reserved(state.reservations)
 
   # The slots a start may take: the policy's, without those a foreign latch or a block holds.
   defp usable_slots(state, policy) do
@@ -1411,6 +1460,8 @@ defmodule AtlasRuntime.Work.Server do
         attempt: attempt.attempt,
         state: attempt.state,
         held: attempt.lease_hold == true,
+        # F5 (b): accepted, its input not imported yet.
+        importing: match?(%M.Imported{pending: true}, record.imported),
         ran: attempt.timestamps.running_at != nil,
         quiescent: attempt.quiescent == true,
         last_progress_at: attempt.turn_id && progress(state.dir, attempt.turn_id)
@@ -1422,10 +1473,12 @@ defmodule AtlasRuntime.Work.Server do
   # The source recorded the accept: the held attempt may start (C3).
   defp release_lease(state, id) do
     with %M.WorkRecord{} = record <- state.works[id],
+         false <- match?(%M.Imported{pending: true}, record.imported),
          %{lease_hold: true} = attempt <- Queue.current(record) do
       {:released, commit(state, put_attempt(record, %{attempt | lease_hold: nil}))}
     else
       nil -> {:not_found, state}
+      true -> {:importing, state}
       _ -> {:released, state}
     end
   end

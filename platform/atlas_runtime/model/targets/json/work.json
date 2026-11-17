@@ -775,6 +775,11 @@
           "name": "change_set",
           "required": false,
           "type": "string"
+        },
+        {
+          "name": "pending",
+          "required": false,
+          "type": "boolean"
         }
       ],
       "name": "imported",

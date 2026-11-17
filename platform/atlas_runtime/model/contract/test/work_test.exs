@@ -249,7 +249,13 @@ defmodule AtlasRuntimeModel.WorkTest do
       assert Enum.take(shape.(:work_record), -2) ==
                [{:source, :source, false}, {:imported, :imported, false}]
 
-      assert shape.(:imported) == [{:source, :string, true}, {:change_set, :string, false}]
+      # Main's #330 F5 (b): `pending` (accepted before its import), optional and last.
+      assert shape.(:imported) == [
+               {:source, :string, true},
+               {:change_set, :string, false},
+               {:pending, :boolean, false}
+             ]
+
       # r2's folder.base_id is not added (r3, G1).
       assert Enum.map(entities.folder.fields, & &1.name) == [:path, :permissions]
       assert entities.work_record.persistence.format_version == 1

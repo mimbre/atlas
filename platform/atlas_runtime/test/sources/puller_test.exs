@@ -321,18 +321,67 @@ defmodule AtlasRuntime.Sources.PullerTest do
     Work.set_mode(:open, "test")
   end
 
+  # service.exs as code: its top-level steps in order, each named by what it calls.
+  defp service_steps do
+    {:__block__, _, steps} =
+      Path.expand("../../host/service.exs", __DIR__) |> File.read!() |> Code.string_to_quoted!()
+
+    steps
+  end
+
+  # The remote calls `{module, fun}` and the local calls `{name}` anywhere in `ast`.
+  defp calls(ast) do
+    {_, found} =
+      Macro.prewalk(ast, [], fn
+        {{:., _, [{:__aliases__, _, parts}, fun]}, _, _} = node, acc ->
+          {node, [{Module.concat(parts), fun} | acc]}
+
+        {{:., _, [{name, _, nil}]}, _, _} = node, acc when is_atom(name) ->
+          {node, [{name} | acc]}
+
+        node, acc ->
+          {node, acc}
+      end)
+
+    Enum.reverse(found)
+  end
+
+  # The index of each top-level step that calls `call`, in order.
+  defp step_indexes(steps, call),
+    do: for({step, i} <- Enum.with_index(steps), call in calls(step), do: i)
+
+  # The expressions interpolated into the line the service prints once its sources started.
+  defp printed_count(steps) do
+    [step] =
+      for step <- steps, {AtlasRuntime.Sources.Supervisor, :start_link} in calls(step), do: step
+
+    {:case, _, [_, [do: clauses]]} = step
+    [ok] = for {:->, _, [[{:ok, _}], body]} <- clauses, do: body
+
+    {_, exprs} =
+      Macro.prewalk(ok, [], fn
+        {:"::", _, [{{:., _, [Kernel, :to_string]}, _, [expr]}, _]} = node, acc ->
+          {node, [expr | acc]}
+
+        node, acc ->
+          {node, acc}
+      end)
+
+    exprs
+  end
+
   test "the service starts pullers after the work core; without sources, local's only" do
-    script = File.read!(Path.expand("../../host/service.exs", __DIR__))
+    steps = service_steps()
+    [work] = step_indexes(steps, {AtlasRuntime.Work, :start_link})
+    [sources] = step_indexes(steps, {AtlasRuntime.Sources.Supervisor, :start_link})
+    [backend] = step_indexes(steps, {AtlasRuntime.Backend.Listener, :start_link})
+    [first_check, last_check] = step_indexes(steps, {:listener_check})
 
-    [work, sources, ready] =
-      for text <- [
-            "AtlasRuntime.Work.start_link(dir)",
-            "AtlasRuntime.Sources.Supervisor.start_link(dir)",
-            ~s(IO.puts("Runtime ready)
-          ],
-          do: script |> :binary.match(text) |> elem(0)
-
-    assert work < sources and sources < ready
+    # #320: the listener check before backend.sock and again before ready; the pullers after
+    # the work core and the first check, before backend.sock.
+    assert work < first_check and first_check < sources and sources < backend
+    assert backend < last_check
+    [count] = printed_count(steps)
 
     dir = Path.join(System.tmp_dir!(), "a2-sup-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
@@ -369,9 +418,10 @@ defmodule AtlasRuntime.Sources.PullerTest do
       ]
     })
 
-    # The count the service reports includes the builtin `local`.
+    # The count the service prints (its own expression, run here) includes the builtin
+    # `local`.
     assert [%{"name" => "local"}] = AtlasRuntime.Sources.Supervisor.sources(dir)
-    assert script =~ "length(AtlasRuntime.Sources.Supervisor.sources(dir))"
+    assert {1, _} = Code.eval_quoted(count, dir: dir)
 
     # M2 A5: the builtin entry starts the local work source and its puller.
     assert {:ok, sup} = AtlasRuntime.Sources.Supervisor.start_link(dir)
