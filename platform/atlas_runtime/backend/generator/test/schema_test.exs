@@ -8,7 +8,7 @@ defmodule AtlasRuntimeBackend.Generator.SchemaTest do
     shared =
       Keyword.get(parts, :shared, """
         expose [:lend, :find_book, :search, :list_books, :give_back, :count, :watch]
-        not_exposed [:audit, :scan]
+        not_exposed [:audit, :scan, :deposit]
         rights :socket, [:lend, :browse]
         event :book, :book_changed, id: :sequence
         event :restart, :restart, id: :current_sequence
@@ -73,7 +73,7 @@ defmodule AtlasRuntimeBackend.Generator.SchemaTest do
   defp shared_without_rights,
     do: """
       expose [:lend, :find_book, :search, :list_books, :give_back, :count, :watch]
-      not_exposed [:audit, :scan]
+      not_exposed [:audit, :scan, :deposit]
       event :book, :book_changed, id: :sequence
       event :restart, :restart, id: :current_sequence
     """
@@ -108,7 +108,7 @@ defmodule AtlasRuntimeBackend.Generator.SchemaTest do
       fails(
         [
           shared:
-            "  expose [:lend, :find_book, :search, :list_books, :give_back, :count, :watch, :scan]\n"
+            "  expose [:lend, :find_book, :search, :list_books, :give_back, :count, :watch, :scan, :deposit]\n"
         ],
         "capability :audit of AtlasRuntimeBackend.Generator.Example.Boundary is neither exposed nor not_exposed"
       )
@@ -122,14 +122,14 @@ defmodule AtlasRuntimeBackend.Generator.SchemaTest do
 
     test "an exposed name that is no capability, and a resource for a capability not exposed" do
       fails(
-        [shared: "  expose [:lend, :shelve]\n  not_exposed [:audit, :scan]\n"],
+        [shared: "  expose [:lend, :shelve]\n  not_exposed [:audit, :scan, :deposit]\n"],
         "expose :shelve: no capability of the boundary"
       )
 
       fails(
         [
           shared:
-            "  expose [:lend]\n  not_exposed [:audit, :find_book, :search, :list_books, :give_back, :count, :watch, :scan]\n",
+            "  expose [:lend]\n  not_exposed [:audit, :find_book, :search, :list_books, :give_back, :count, :watch, :scan, :deposit]\n",
           resources:
             ~s(    resource :post, "/v1/books", capability: :lend, body: :input\n    resource :get, "/v1/count", capability: :count\n),
           stream: "",
@@ -528,7 +528,7 @@ defmodule AtlasRuntimeBackend.Generator.SchemaTest do
       fails(
         [
           shared:
-            "  expose [:lend, :find_book, :search, :list_books, :give_back, :count, :watch]\n  not_exposed [:audit, :scan]\n  event :book, :novel\n"
+            "  expose [:lend, :find_book, :search, :list_books, :give_back, :count, :watch]\n  not_exposed [:audit, :scan, :deposit]\n  event :book, :novel\n"
         ],
         "event :book: :novel is no boundary model"
       )
@@ -536,7 +536,7 @@ defmodule AtlasRuntimeBackend.Generator.SchemaTest do
       fails(
         [
           shared:
-            "  expose [:lend, :find_book, :search, :list_books, :give_back, :count, :watch]\n  not_exposed [:audit, :scan]\n  event :book, :book_changed, id: :book_id\n"
+            "  expose [:lend, :find_book, :search, :list_books, :give_back, :count, :watch]\n  not_exposed [:audit, :scan, :deposit]\n  event :book, :book_changed, id: :book_id\n"
         ],
         "id :book_id is no required integer field of :book_changed"
       )
@@ -583,7 +583,7 @@ defmodule AtlasRuntimeBackend.Generator.SchemaTest do
       [
         shared: """
           expose [:lend, :find_book, :search, :list_books, :give_back, :count, :watch, :scan]
-          not_exposed :audit
+          not_exposed [:audit, :deposit]
           event :book, :book_changed, id: :sequence
           event :restart, :restart, id: :current_sequence
         """,
@@ -765,13 +765,13 @@ defmodule AtlasRuntimeBackend.Generator.SchemaTest do
       )
     end
 
-    test "a :stream in an input, an event or an outcome of an event stream" do
+    test "a :stream input field no body takes, a :stream in an event or an outcome of an event stream" do
       fails(
         with_scan("    status :scanned, 200, stream: :content, #{@octet}\n",
           boundary: inspect(__MODULE__.StreamInput)
         ),
-        "resource get /v1/books/:book_id/scan: input field :pages is a :stream; a stream is " <>
-          "carried only as an outcome's body"
+        "resource get /v1/books/:book_id/scan: input field :pages is a :stream; take it as " <>
+          "the request body with body: {:stream, :pages}"
       )
 
       fails(
@@ -786,7 +786,7 @@ defmodule AtlasRuntimeBackend.Generator.SchemaTest do
           boundary: inspect(__MODULE__.StreamRestart),
           shared: """
             expose [:lend, :find_book, :search, :list_books, :give_back, :count, :watch, :scan]
-            not_exposed :audit
+            not_exposed [:audit, :deposit]
             event :book, :book_changed, id: :sequence
           """,
           stream:
@@ -852,6 +852,173 @@ defmodule AtlasRuntimeBackend.Generator.SchemaTest do
       do: Changed.schema(:refused, [%{name: :blob, type: :stream, required: true}])
   end
 
+  # The default contract with `deposit` exposed: `resource` is its resource line, and the
+  # target declares the two errors a streamed body needs unless `errors:` says otherwise.
+  defp with_deposit(resource, parts \\ []) do
+    Keyword.merge(
+      [
+        shared: """
+          expose [:lend, :find_book, :search, :list_books, :give_back, :count, :watch, :deposit]
+          not_exposed [:audit, :scan]
+          event :book, :book_changed, id: :sequence
+          event :restart, :restart, id: :current_sequence
+        """,
+        resources: """
+            resource :post, "/v1/books", capability: :lend, body: :input
+            resource :get, "/v1/books/:book_id", capability: :find_book
+            resource :get, "/v1/books", capability: :search, query: [title: :title]
+            resource :get, "/v1/books", capability: :list_books, query: [limit: :limit]
+            resource :post, "/v1/books/:book_id/return", capability: :give_back, body: [:note]
+            resource :get, "/v1/count", capability: :count
+        #{resource}
+        """,
+        statuses: """
+            status :lent, 201
+            status :busy, 503, type: "busy"
+            status :refused, by: :reason, cases: [invalid: {400, "invalid"}, taken: {409, "taken"}, not_permitted: {403, "not-permitted"}]
+            status :found, 200
+            status :missing, 404, type: "not-found"
+            status :listed, 200
+            status :returned, 200
+            status :counted, 200
+            status :deposited, 201
+        """,
+        errors: """
+            error :invalid, 400, type: "invalid"
+            error :not_permitted, 403, type: "not-permitted"
+            error :no_route, 404, type: "no-route"
+            error :too_large, 413, type: "too-large"
+            error :unsupported_media_type, 415, type: "unsupported-media-type"
+        """
+      ],
+      parts
+    )
+  end
+
+  @upload ~s(body: {:stream, :pages}, content_type: "application/octet-stream", max_bytes: {Limits, :pages})
+
+  describe "a streamed request body (body: {:stream, field})" do
+    test "compiles, and is in the schema as the resource's upload" do
+      [{module, _}] =
+        compile(
+          with_deposit(
+            ~s(    resource :put, "/v1/books/:book_id/pages", capability: :deposit, #{@upload})
+          )
+        )
+
+      [rest] = module.__schema__().targets
+      deposit = Enum.find(rest.resources, &(&1.capability == :deposit))
+
+      assert deposit.upload == %{
+               field: :pages,
+               content_type: "application/octet-stream",
+               max_bytes: {Limits, :pages}
+             }
+
+      assert deposit.body == nil
+      assert Enum.all?(rest.resources -- [deposit], &(&1.upload == nil))
+    end
+
+    test "an input :stream field without body: {:stream, field}" do
+      fails(
+        with_deposit(~s(    resource :put, "/v1/books/:book_id/pages", capability: :deposit)),
+        "resource put /v1/books/:book_id/pages: input field :pages is a :stream; take it as " <>
+          "the request body with body: {:stream, :pages}"
+      )
+
+      fails(
+        with_deposit(
+          ~s(    resource :put, "/v1/books/:book_id/pages", capability: :deposit, body: :input)
+        ),
+        "input field :pages is a :stream; take it as the request body"
+      )
+    end
+
+    test "a field that is no :stream field of the input" do
+      fails(
+        with_deposit(
+          ~s(    resource :put, "/v1/books/:book_id/pages", capability: :deposit, body: {:stream, :book_id}, content_type: "application/octet-stream", max_bytes: {Limits, :pages})
+        ),
+        "body: {:stream, :book_id} names no required :stream field of :deposit_input"
+      )
+    end
+
+    test "a GET or DELETE" do
+      for method <- [:get, :delete] do
+        fails(
+          with_deposit(
+            ~s(    resource #{inspect(method)}, "/v1/books/:book_id/pages", capability: :deposit, #{@upload})
+          ),
+          "a streamed body goes with :post, :put, :patch"
+        )
+      end
+    end
+
+    test "without content_type: or max_bytes:, or with a bad one" do
+      for {opts, message} <- [
+            {~s(body: {:stream, :pages}, max_bytes: {Limits, :pages}),
+             ~s(needs content_type: "type/subtype")},
+            {~s(body: {:stream, :pages}, content_type: "Octet", max_bytes: {Limits, :pages}),
+             ~s(needs content_type: "type/subtype")},
+            {~s(body: {:stream, :pages}, content_type: "application/octet-stream"),
+             "needs max_bytes: {Module, :function}"},
+            {~s(body: {:stream, :pages}, content_type: "application/octet-stream", max_bytes: 1024),
+             "needs max_bytes: {Module, :function}"}
+          ] do
+        fails(
+          with_deposit(
+            ~s(    resource :put, "/v1/books/:book_id/pages", capability: :deposit, #{opts})
+          ),
+          message
+        )
+      end
+    end
+
+    test "content_type: or max_bytes: without a streamed body" do
+      fails(
+        [
+          resources:
+            ~s(    resource :post, "/v1/books", capability: :lend, body: :input, content_type: "application/json"\n) <>
+              ~s(    resource :get, "/v1/books/:book_id", capability: :find_book\n    resource :get, "/v1/books", capability: :search, query: [title: :title]\n    resource :get, "/v1/books", capability: :list_books, query: [limit: :limit]\n    resource :post, "/v1/books/:book_id/return", capability: :give_back, body: [:note]\n    resource :get, "/v1/count", capability: :count\n)
+        ],
+        "resource post /v1/books: content_type: goes with body: {:stream, field}"
+      )
+    end
+
+    test "a target with a streamed body needs both of its errors, each with its status" do
+      resource =
+        ~s(    resource :put, "/v1/books/:book_id/pages", capability: :deposit, #{@upload})
+
+      base = """
+          error :invalid, 400, type: "invalid"
+          error :not_permitted, 403, type: "not-permitted"
+          error :no_route, 404, type: "no-route"
+      """
+
+      fails(
+        with_deposit(resource,
+          errors:
+            base <> ~s(    error :unsupported_media_type, 415, type: "unsupported-media-type"\n)
+        ),
+        "a resource takes a streamed body, so the target needs `error :too_large, 413, type: ...`"
+      )
+
+      fails(
+        with_deposit(resource, errors: base <> ~s(    error :too_large, 413, type: "too-large"\n)),
+        "needs `error :unsupported_media_type, 415, type: ...`"
+      )
+
+      fails(
+        with_deposit(resource,
+          errors:
+            base <>
+              ~s(    error :too_large, 400, type: "too-large"\n    error :unsupported_media_type, 415, type: "unsupported-media-type"\n)
+        ),
+        "error :too_large: the status is 413"
+      )
+    end
+  end
+
   describe "__schema__/0" do
     test "the contract as plain data" do
       schema = Api.__schema__()
@@ -866,7 +1033,8 @@ defmodule AtlasRuntimeBackend.Generator.SchemaTest do
                :give_back,
                :count,
                :watch,
-               :scan
+               :scan,
+               :deposit
              ]
 
       assert schema.not_exposed == [:audit]
@@ -913,6 +1081,8 @@ defmodule AtlasRuntimeBackend.Generator.SchemaTest do
                %{kind: :invalid, status: 400, type: "invalid"},
                %{kind: :not_permitted, status: 403, type: "not-permitted"},
                %{kind: :no_route, status: 404, type: "no-route"},
+               %{kind: :too_large, status: 413, type: "too-large"},
+               %{kind: :unsupported_media_type, status: 415, type: "unsupported-media-type"},
                %{kind: :unauthenticated, status: 401, type: "unauthenticated"},
                %{kind: :origin_refused, status: 403, type: "origin-refused"}
              ]
