@@ -132,7 +132,7 @@ defmodule AtlasRuntime.Work.AfterCheckStopTest do
   # The first heartbeat entry for attempt 1 of `work_id` whose `alive` is `alive`.
   defp await_running(work_id, alive) do
     await(fn ->
-      Enum.find_value(notifications(300), fn
+      Enum.find_value(notifications(), fn
         %F.Heartbeat{running: running} ->
           Enum.find(running, &(&1.work_id == work_id and &1.attempt == 1 and &1.alive == alive))
 
@@ -392,7 +392,7 @@ defmodule AtlasRuntime.Work.AfterCheckStopTest do
     assert File.dir?(scratch)
 
     # Heartbeats go by; the group is not proven gone, so nothing settles or is removed.
-    Process.sleep(600)
+    heartbeats(6)
     refute private_attempt(bench.dir, work.work_id, 1).quiescent
     assert [%{quiescent: false}] = work!(work.work_id).attempts
     assert File.dir?(scratch)
@@ -438,7 +438,7 @@ defmodule AtlasRuntime.Work.AfterCheckStopTest do
 
     assert checks(bench) == []
     await_state(crashed.work_id, :crashed)
-    Process.sleep(300)
+    heartbeats(3)
     assert checks(bench) == []
 
     for work <- [failed, cancelled, crashed] do
@@ -461,7 +461,7 @@ defmodule AtlasRuntime.Work.AfterCheckStopTest do
     start_work!(bench)
     [attempt] = await_state(work.work_id, :interrupted).attempts
     File.rm(Path.join(bench.dir, "gate-p10b"))
-    Process.sleep(300)
+    heartbeats(3)
     assert checks(bench) == []
     assert attempt.timestamps.check_started_at == nil
   end

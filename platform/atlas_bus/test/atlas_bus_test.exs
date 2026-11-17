@@ -17,6 +17,7 @@ defmodule AtlasBusTest do
       end)
 
     assert_receive {:ready, ^name}
+    Process.put({:endpoint, name}, pid)
     pid
   end
 
@@ -24,9 +25,20 @@ defmodule AtlasBusTest do
     receive do
       {:atlas_bus, envelope, content} -> send(test, {name, envelope, content})
       {:send, envelope, content} -> send(test, {:sent, name, AtlasBus.send(envelope, content)})
+      {:settle, ref} -> send(test, {:settled, ref})
     end
 
     loop(test, name)
+  end
+
+  # Once endpoint `name` has passed on all it was delivered: the Router has handled all it
+  # was sent (it delivers there), and the endpoint forwards in order, so a refute after it
+  # needs no window.
+  defp settled(name) do
+    :sys.get_state(AtlasBus.Router)
+    ref = make_ref()
+    send(Process.get({:endpoint, name}), {:settle, ref})
+    assert_receive {:settled, ^ref}
   end
 
   defp send_from(pid, envelope, content \\ %{}) do
@@ -74,7 +86,8 @@ defmodule AtlasBusTest do
       sender_name = c.sender
       other = c.other
       assert_receive {^sender_name, %Envelope{class: ^reply}, _}
-      refute_receive {^other, %Envelope{class: ^reply}, _}, 50
+      settled(other)
+      refute_received {^other, %Envelope{class: ^reply}, _}
     end
   end
 
@@ -113,8 +126,10 @@ defmodule AtlasBusTest do
                     }, %{"events" => []}}
 
     store_name = c.store
-    refute_receive {^store_name, _, _}, 50
-    refute_receive {^listener_name, _, _}, 50
+    settled(store_name)
+    refute_received {^store_name, _, _}
+    settled(listener_name)
+    refute_received {^listener_name, _, _}
   end
 
   test "a listener gets only hints of the kinds it listens to", c do
@@ -131,7 +146,8 @@ defmodule AtlasBusTest do
 
     other = c.other
     assert_receive {^other, %Envelope{kind: "a"}, _}
-    refute_receive {^other, %Envelope{kind: "b"}, _}, 50
+    settled(other)
+    refute_received {^other, %Envelope{kind: "b"}, _}
   end
 
   test "the Bus never reads content: any term passes through unchanged", c do
@@ -194,7 +210,8 @@ defmodule AtlasBusTest do
     assert_receive {^other, %Envelope{class: "fault", sender: sender_name}, _}
     assert sender_name == c.sender
     store = c.store
-    refute_receive {^store, _, _}, 50
+    settled(store)
+    refute_received {^store, _, _}
   end
 
   test "a dropped hint still acknowledges the sender", c do
@@ -210,7 +227,8 @@ defmodule AtlasBusTest do
     sender_name = c.sender
     other = c.other
     assert_receive {^sender_name, %Envelope{class: "stored"}, _}
-    refute_receive {^other, _, _}, 50
+    settled(other)
+    refute_received {^other, _, _}
   end
 
   test "an endpoint name is taken once", c do

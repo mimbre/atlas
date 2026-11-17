@@ -1,4 +1,4 @@
-ExUnit.start()
+ExUnit.start(AtlasTestAwait.exunit_options())
 
 defmodule AtlasLearn.Fixtures do
   @moduledoc "Recorded source data for Learn's tests: a window, Runtime turns, a Code home, ledger facts."

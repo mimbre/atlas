@@ -40,20 +40,10 @@ defmodule AtlasFlow.BasesTest do
   defp count(fake, capability),
     do: fake |> FakeCode.calls() |> Enum.count(&(elem(&1, 0) == capability))
 
-  # Waits until Bases has handled everything sent to it so far, and its task has answered.
+  # Once `until` holds, checked after each message Bases handles (its task's answer among
+  # them), each time once Bases has handled it.
   defp settle(context, until) do
-    Enum.reduce_while(1..200, nil, fn _, _ ->
-      :sys.get_state(context.name)
-
-      if until.() do
-        {:halt, :ok}
-      else
-        Process.sleep(5)
-        {:cont, nil}
-      end
-    end)
-
-    assert until.()
+    assert AtlasTestAwait.until(until, wake: {:trace, context.name})
   end
 
   describe "a base" do

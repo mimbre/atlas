@@ -25,5 +25,10 @@ defmodule AtlasLearn.MixProject do
   # Test only: a Bandit listener stands in for Runtime's backend socket (the versions
   # products/software_factory/mix.lock already pins).
   defp deps,
-    do: [{:plug, "~> 1.19", only: :test}, {:bandit, "~> 1.10", only: :test}]
+    do: [
+      {:plug, "~> 1.19", only: :test},
+      {:bandit, "~> 1.10", only: :test},
+      # Tests wait on events, never on the clock (platform/frameworks/test_await).
+      {:atlas_test_await, path: "../frameworks/test_await", only: :test}
+    ]
 end

@@ -13,6 +13,7 @@ defmodule AtlasFlow.Backend.RouterTest do
   alias AtlasFlow.FakeFacts
   alias AtlasFlow.FakeFacts.Leasing, as: L
   alias AtlasFlow.WorkSource.Credentials
+  require AtlasTestAwait, as: Await
 
   @mib 1_048_576
 
@@ -388,7 +389,7 @@ defmodule AtlasFlow.Backend.RouterTest do
       holders = for _ <- 1..4, do: assert_receive({:streaming, pid}) && pid
       fifth = get.("tok-mini")
 
-      assert_eventually(fn -> Limits.status(limits)["mini"] == %{held: 4, waiting: 1} end)
+      assert_eventually(limits, fn -> Limits.status(limits)["mini"] == %{held: 4, waiting: 1} end)
       refute_received {:streaming, _}
 
       # Another Runtime is not held up.
@@ -405,7 +406,10 @@ defmodule AtlasFlow.Backend.RouterTest do
 
       for pid <- tl(holders), do: send(pid, :go)
       assert Enum.map(first, &Task.await/1) == [200, 200, 200, 200]
-      assert_eventually(fn -> Limits.status(limits)["mini"] in [nil, %{held: 0, waiting: 0}] end)
+
+      assert_eventually(limits, fn ->
+        Limits.status(limits)["mini"] in [nil, %{held: 0, waiting: 0}]
+      end)
     end
 
     test "a stream whose holder dies frees its slot", %{limits: limits} do
@@ -423,7 +427,7 @@ defmodule AtlasFlow.Backend.RouterTest do
 
       for _ <- 1..4, do: assert_receive(:holding)
       waiter = Task.async(fn -> Limits.stream(limits, "mini", fn -> :ran end) end)
-      assert_eventually(fn -> Limits.status(limits)["mini"] == %{held: 4, waiting: 1} end)
+      assert_eventually(limits, fn -> Limits.status(limits)["mini"] == %{held: 4, waiting: 1} end)
       Process.exit(hd(holders), :kill)
       assert Task.await(waiter) == :ran
       for pid <- tl(holders), do: Process.exit(pid, :kill)
@@ -735,11 +739,6 @@ defmodule AtlasFlow.Backend.RouterTest do
     end
   end
 
-  defp assert_eventually(check, tries \\ 50) do
-    cond do
-      check.() -> :ok
-      tries == 0 -> flunk("the condition never held")
-      true -> Process.sleep(10) && assert_eventually(check, tries - 1)
-    end
-  end
+  # `check` once it holds, re-checked after each message the Limits server has handled.
+  defp assert_eventually(limits, check), do: assert(Await.until(check, wake: {:trace, limits}))
 end

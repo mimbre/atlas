@@ -10,8 +10,6 @@ defmodule AtlasRuntime.Work.DrainTest do
 
   @moduletag capture_log: true
 
-  @bound 800
-
   setup do
     %{bench: start!(%{"slots" => ["s1"], "buffer_size" => 2})}
   end
@@ -59,7 +57,9 @@ defmodule AtlasRuntime.Work.DrainTest do
 
     assert Work.set_mode(:draining, "local:op") == :draining
 
-    changes = for %F.WorkChanged{state: :returned} = n <- notifications(300), do: n.work_id
+    changes =
+      for %F.WorkChanged{state: :returned} = n <- notifications(heartbeats: 3), do: n.work_id
+
     assert Enum.sort(changes) == Enum.sort(Enum.map(buffered, & &1.work_id))
   end
 
@@ -74,7 +74,7 @@ defmodule AtlasRuntime.Work.DrainTest do
     # The slot is free and the Runtime open: a new work starts, the returned ones do not.
     later = submit!(bench, "complete later")
     await_state(later.work_id, :completed)
-    Process.sleep(@bound)
+    heartbeats(8)
 
     goals = Enum.map(launches(bench), & &1["goal"])
     assert goals == ["wait gate", "complete later"]

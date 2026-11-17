@@ -13,25 +13,32 @@ defmodule AtlasRuntime.Work.LifecycleTest do
   defmodule LateAnswer do
     @moduledoc false
     # In front of the Service: the first start runs at once, but its answer comes only after
-    # its turn has ended and `hold_ms` have passed, so the core gives up waiting and reads
-    # the turn's end events before it learns the turn ID.
+    # its turn has ended and the core has given up waiting (its start_timeout_ms), so the
+    # core reads the turn's end events before it learns the turn ID.
     use GenServer
 
     @impl true
-    def init({service, dir, hold_ms}), do: {:ok, {service, dir, hold_ms}}
+    def init({service, dir, hold?}), do: {:ok, {service, dir, hold?}}
 
     @impl true
-    def handle_call(%{"command" => "start"} = request, _from, {service, dir, hold_ms})
-        when is_integer(hold_ms) do
-      asked = System.monotonic_time(:millisecond)
-      {%{"turn_id" => turn}, _} = reply = GenServer.call(service, request, :infinity)
+    def handle_call(%{"command" => "start"} = request, {core, _} = from, {service, dir, true}) do
+      # Answered from a process of its own: the core's other calls (its reads) still pass
+      # through while the answer waits on the core.
+      spawn_link(fn ->
+        {%{"turn_id" => turn}, _} = reply = GenServer.call(service, request, :infinity)
 
-      AtlasRuntime.WorkHarness.await(fn ->
-        (t = Turns.read_turn(dir, turn)) && not Turns.live?(t)
+        # The turn ends: the Service records it. The core waits on this call, so the wait
+        # wakes on what the Service handles, not on the core's notifications.
+        AtlasTestAwait.until(fn -> (t = Turns.read_turn(dir, turn)) && not Turns.live?(t) end,
+          wake: {:trace, service}
+        )
+
+        # The core gives up waiting: it answers a `:sys` request only once it has.
+        :sys.get_state(core, AtlasTestAwait.cap())
+        GenServer.reply(from, reply)
       end)
 
-      Process.sleep(max(hold_ms - (System.monotonic_time(:millisecond) - asked), 0))
-      {:reply, reply, {service, dir, nil}}
+      {:noreply, {service, dir, false}}
     end
 
     def handle_call(request, _from, {service, _, _} = state),
@@ -51,8 +58,9 @@ defmodule AtlasRuntime.Work.LifecycleTest do
 
     first = submit!(bench, "complete though slow to start")
     assert_receive :start_held, 5_000
-    # The core gives up waiting; then another dispatch while the first start is still held.
-    Process.sleep(1_200)
+    # The core gives up waiting (start_timeout_ms); then another dispatch while the first
+    # start is still held.
+    core_idle()
     second = submit!(bench, "complete beside it")
     send(slow, :go)
 
@@ -65,7 +73,7 @@ defmodule AtlasRuntime.Work.LifecycleTest do
   test "a start answered only after its turn ended still ends the attempt with that turn",
        %{bench: bench} do
     stop_work()
-    {:ok, late} = GenServer.start(LateAnswer, {bench.service, bench.dir, 1_200})
+    {:ok, late} = GenServer.start(LateAnswer, {bench.service, bench.dir, true})
     on_exit(fn -> Process.exit(late, :kill) end)
     start_work!(%{bench | service: late}, heartbeat_ms: 60_000, start_timeout_ms: 1_000)
 
@@ -107,7 +115,7 @@ defmodule AtlasRuntime.Work.LifecycleTest do
     assert done.idempotency_key == "first"
 
     changes =
-      for %F.WorkChanged{work_id: id} = change <- notifications(200),
+      for %F.WorkChanged{work_id: id} = change <- notifications(heartbeats: 2),
           id == work.work_id,
           do: change
 

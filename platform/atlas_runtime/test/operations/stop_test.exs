@@ -162,7 +162,9 @@ defmodule AtlasRuntime.Operations.StopTest do
     # s1 is free once its turn ended on the signal; the buffered work stays where it was.
     await_state(soft.work_id, :interrupted)
     assert %{slots: %{free: 1}} = W.capacity(client())
-    Process.sleep(500)
+
+    # The core has handled all it was sent (no heartbeat comes: 60 s); none of it started the work.
+    core_idle()
     assert work!(waiting.work_id) == held
     refute Enum.any?(launches(bench), &(&1["goal"] == "complete after the stop"))
   end
@@ -180,7 +182,7 @@ defmodule AtlasRuntime.Operations.StopTest do
              again = F.stop(@operator, %{force: true})
 
     assert Map.delete(again, :slots) == Map.delete(first, :slots)
-    Process.sleep(200)
+    core_idle()
     assert signals() == []
   end
 
@@ -210,7 +212,7 @@ defmodule AtlasRuntime.Operations.StopTest do
     bench = restart(bench)
     assert %{mode: :paused} = F.runtime_info(@operator)
     assert File.read!(mode_file(bench)) == bytes
-    Process.sleep(500)
+    core_idle()
     assert work!(waiting.work_id).state == :buffered
   end
 

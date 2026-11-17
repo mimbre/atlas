@@ -110,7 +110,7 @@ defmodule AtlasRuntime.Work.FolderRebuildTest do
     [attempt] = await_state(work.work_id, :interrupted).attempts
     refute attempt.quiescent
     assert %F.Outcome.Accepted{} = F.retry(client(), %{work_id: work.work_id})
-    Process.sleep(500)
+    heartbeats(5)
     assert [%{state: :interrupted}, %{state: :buffered}] = work!(work.work_id).attempts
     assert File.read!(Path.join(folder, "a.txt")) == "agent\n"
     assert inode(folder) == before

@@ -126,7 +126,7 @@ defmodule AtlasRuntime.Work.RestartTest do
 
     stop_work()
     start_work!(bench)
-    Process.sleep(300)
+    heartbeats(3)
     assert [%{state: :running, turn_id: ^turn}] = work!(work.work_id).attempts
 
     File.rm!(Path.join(bench.dir, "gate"))
@@ -167,7 +167,7 @@ defmodule AtlasRuntime.Work.RestartTest do
     # on the Service's refusal, `buffered` again, moving its record's sequence.
     second = submit!(bench, "after the kept turn")
     assert %{sequence: waiting, attempts: [%{state: :buffered}]} = work!(second.work_id)
-    Process.sleep(500)
+    heartbeats(5)
     assert %{sequence: ^waiting, attempts: [%{state: :buffered}]} = work!(second.work_id)
     refute Enum.any?(launches(bench), &(&1["goal"] == second.request.instructions))
 
@@ -220,7 +220,7 @@ defmodule AtlasRuntime.Work.RestartTest do
 
     assert first.result.reason == :superseded
     refute first.quiescent
-    Process.sleep(300)
+    heartbeats(3)
     assert [_, %{state: :buffered}] = work!(work.work_id).attempts
     assert second.state == :buffered
 
@@ -246,7 +246,7 @@ defmodule AtlasRuntime.Work.RestartTest do
     [attempt] = await_state(work.work_id, :interrupted).attempts
     refute attempt.quiescent
     next = submit!(bench, "complete after the probe")
-    Process.sleep(300)
+    heartbeats(3)
     assert work!(next.work_id).state == :buffered
 
     assert F.subscribe(client(), %{}) == %F.Outcome.Subscribed{}
@@ -324,7 +324,7 @@ defmodule AtlasRuntime.Work.RestartTest do
   defp await_alive(ids, want \\ nil) do
     await(fn ->
       alive =
-        for %F.Heartbeat{running: running} <- notifications(300), reduce: nil do
+        for %F.Heartbeat{running: running} <- notifications(), reduce: nil do
           _ ->
             running
             |> Enum.filter(&(&1.work_id in ids))
@@ -345,7 +345,7 @@ defmodule AtlasRuntime.Work.RestartTest do
     [attempt] = await_state(work.work_id, :interrupted).attempts
     refute attempt.quiescent
     next = submit!(bench, "complete after release")
-    Process.sleep(300)
+    heartbeats(3)
     assert work!(next.work_id).state == :buffered
 
     assert {%{worker_id: "s1"}, false} =
@@ -402,7 +402,9 @@ defmodule AtlasRuntime.Work.RestartTest do
     assert %F.Outcome.Subscribed{} = F.subscribe(client(), %{from: current})
 
     missed =
-      for %F.WorkChanged{work_id: id} = n <- notifications(200), id == second.work_id, do: n.state
+      for %F.WorkChanged{work_id: id} = n <- notifications(heartbeats: 2),
+          id == second.work_id,
+          do: n.state
 
     assert List.first(missed) == :buffered
     assert List.last(missed) == :completed

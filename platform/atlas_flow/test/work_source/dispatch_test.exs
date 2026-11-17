@@ -293,19 +293,33 @@ defmodule AtlasFlow.WorkSource.DispatchTest do
     end
   end
 
+  # Once Dispatch holds the task's poll: the task waits in its call, which Dispatch then
+  # has handled (a `:sys` request is answered only after it).
+  defp held_by_dispatch(%Task{pid: pid}) do
+    AtlasTestAwait.until(
+      fn ->
+        {:current_stacktrace, stack} = Process.info(pid, :current_stacktrace)
+        Enum.any?(stack, &match?({:gen, :do_call, _, _}, &1))
+      end,
+      wake: {:trace, Dispatch}
+    )
+
+    :sys.get_state(Dispatch)
+  end
+
   describe "long poll" do
     test "a held poll is answered early by a grant, else empty at poll_max", ctx do
       :ok = stop_supervised(Dispatch)
       L.start_dispatch(ctx.clock, poll_wait: 25_000)
 
       held = Task.async(fn -> poll(@mini) end)
-      Process.sleep(50)
+      held_by_dispatch(held)
       L.supervised_task("B-1", "ada")
       Dispatch.ready("TK-B-1-1")
       assert {:polled, %{leases: [%{work: %{work_key: "TK-B-1-1"}}]}} = Task.await(held)
 
       held = Task.async(fn -> poll(@mini) end)
-      Process.sleep(50)
+      held_by_dispatch(held)
       L.advance(ctx, 25)
       assert {:polled, %{leases: []}} = Task.await(held)
     end

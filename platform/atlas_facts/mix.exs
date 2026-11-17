@@ -29,6 +29,8 @@ defmodule AtlasFacts.MixProject do
   defp deps,
     do: [
       {:atlas_bus, in_umbrella: true},
-      {:rela_dsl, path: "../../products/software_factory/model/generator", only: :test}
+      {:rela_dsl, path: "../../products/software_factory/model/generator", only: :test},
+      # Tests wait on events, never on the clock (platform/frameworks/test_await).
+      {:atlas_test_await, path: "../frameworks/test_await", only: :test}
     ]
 end

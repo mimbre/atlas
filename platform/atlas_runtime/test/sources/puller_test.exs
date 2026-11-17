@@ -279,7 +279,7 @@ defmodule AtlasRuntime.Sources.PullerTest do
 
     # A source that holds a poll with an empty offer open, as a long poll does (≤ poll_max).
     FakeSourceTarget.hook(ctx.target, :poll, fn call, input ->
-      if input.offer == %{}, do: Process.sleep(60_000)
+      if input.offer == %{}, do: Process.sleep(:infinity)
       call.()
     end)
 

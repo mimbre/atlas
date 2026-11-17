@@ -9,8 +9,6 @@ defmodule AtlasRuntime.Work.ModeRestartTest do
 
   @moduletag capture_log: true
 
-  @bound 800
-
   setup do
     %{bench: start!(%{"slots" => ["s1"]})}
   end
@@ -60,7 +58,7 @@ defmodule AtlasRuntime.Work.ModeRestartTest do
     assert Work.mode() == :paused
     # The hung turn is gone with the old Runtime: the slot is free.
     await_state(first.work_id, :interrupted)
-    Process.sleep(@bound)
+    heartbeats(8)
 
     assert work!(second.work_id).state == :buffered
     refute Enum.any?(launches(bench), &(&1["goal"] == "complete second"))

@@ -1,0 +1,49 @@
+# Real-timer waits still allowed in tests (bin/lib/test_waits.rb). One line per file and rule:
+#   PATH  RULE  COUNT  REASON
+# COUNT is exact (a ratchet). "kept:" a wait that is the behaviour under test or teardown only;
+# "pending:" not migrated yet (delivery-evidence/await-helper/report.md). Add none without a reason.
+
+platform/atlas_bus/test/link_test.exs  receive_timeout  1  pending: refute over 10 ms after a direct handle_info call; needs a Router barrier
+platform/atlas_bus/test/link_test.exs  sleep  1  pending: local eventually/2 polls Link reconciliation every 10 ms
+platform/atlas_code/test/core_test.exs  sleep  1  pending (develop, port): local wait_for/2 polls every 50 ms for a lock file, a released Lock, an OS pid's end (ps) and Code's registration; mixed OS and BEAM sources
+platform/atlas_control/test/output_test.exs  receive_timeout  3  pending: three negative checks over 20 ms windows on Runtime requests; needs a barrier on the session
+platform/atlas_control/test/output_test.exs  sleep  1  pending: local eventually/2 polls every 10 ms
+platform/atlas_facts/test/connector_test.exs  sleep  1  pending: local eventually/2 polls every 20 ms
+platform/atlas_facts/test/guidance_native_test.exs  sleep  1  pending: polls a native rela every 20 ms (integration-tagged)
+platform/atlas_flow/test/activities/task_test.exs  receive_timeout  2  pending (develop, port): two negative checks (100 ms, 50 ms) that no reconcile cast arrives; needs a Bases/Engine barrier
+platform/atlas_flow/test/activities/task_test.exs  sleep  1  pending (develop, port): local wait_until/2 polls Bases, FakeCode and the run every 20 ms; wake on {:trace, Bases} and the fakes
+platform/atlas_flow/test/runtime/client_http_test.exs  receive_timeout  1  pending: negative check over 300 ms on a stub HTTP server
+platform/atlas_flow/test/runtime/link_test.exs  sleep  1  kept: a fake Runtime that holds its stream open after the frames (the behaviour under test); pending hold-until-released
+platform/atlas_flow/test/work_source/delivery_test.exs  after_timeout  1  pending: casts/0 collects reconcile casts within 50 ms windows
+platform/atlas_flow/test/work_source/handover_test.exs  after_timeout  1  pending: casts/0 collects reconcile casts within 50 ms windows
+platform/atlas_runtime/test/codex_model_test.exs  sleep  1  pending: polls for a file a native script touches (no BEAM event after it) every 20 ms
+platform/atlas_runtime/test/guidance_inbox_test.exs  receive_timeout  4  pending: four refutes over the 100 ms default after FakeInbox calls; needs a barrier on the inbox
+platform/atlas_runtime/test/history/boot_home_test.exs  sleep  1  pending: polls a :peer node's captured output for "Runtime ready" every 20 ms
+platform/atlas_runtime/test/history/service_turns_test.exs  sleep  1  pending: local await/2 polls Service records every 10 ms; wake on {:trace, service}
+platform/atlas_runtime/test/lifecycle_control_test.exs  sleep  3  pending: local await polls every 10 ms, and two negative checks over 3.5 s and 1 s that a stop does not escalate
+platform/atlas_runtime/test/native_admission_test.exs  sleep  1  pending: local await/2 polls native admission evidence every 10 ms
+platform/atlas_runtime/test/native_claude_test.exs  receive_timeout  1  pending: a refute over the 100 ms default after the agent's DOWN
+platform/atlas_runtime/test/native_question_test.exs  receive_timeout  1  pending: a refute over 30 ms that an answer is not yet processed
+platform/atlas_runtime/test/output_test.exs  after_timeout  1  pending: assert_ended/2 retries every 1 ms
+platform/atlas_runtime/test/peer_question_service_test.exs  sleep  2  pending: local await_run/await_file poll every 10 ms
+platform/atlas_runtime/test/policy_test.exs  sleep  1  pending: finished/2 polls a turn's status every 25 ms
+platform/atlas_runtime/test/server_lifecycle_test.exs  sleep  3  pending: local await polls every 10 ms; two negative windows (100 ms, 300 ms) on the reporter
+platform/atlas_runtime/test/service_test.exs  sleep  1  kept: a stand-in that answers its stop late on purpose (the behaviour under test); pending a hold-until-released stand-in
+platform/atlas_runtime/test/socket_journal_test.exs  sleep  1  pending: local await/2 polls every 10 ms
+platform/atlas_runtime/test/sources/transport_test.exs  sleep  3  pending: two fake servers slow on purpose (1 s, below the 25 s transport timeout) and a 100 ms log-collection pause
+platform/atlas_runtime/test/support/work_harness.ex  sleep  1  kept: teardown retries rm_rf while native groups (OS processes, not BEAM children: no BEAM event) end; never decides a test
+platform/atlas_runtime/test/work/after_check_stop_test.exs  sleep  1  kept: on_exit waits for check helpers (OS processes; the core is stopped, so no BEAM event) to log their end; never decides a test
+platform/atlas_runtime/test/work/after_check_test.exs  sleep  1  kept: on_exit waits for check helpers (OS processes; the core is stopped, so no BEAM event) to log their end; never decides a test
+platform/atlas_runtime/viewer/test/atlas_viewer_test.exs  receive_timeout  5  pending: negative checks over 200/100 ms windows on fake socket traffic; needs a barrier on the fake servers
+platform/atlas_runtime/viewer/test/atlas_viewer_test.exs  sleep  2  kept: fake sockets that stay silent on purpose (the viewer's own timeout under test); pending hold-until-released
+platform/clients/agent/test/transport_test.exs  sleep  4  pending: fake Control servers with delays (10-100 ms) in the transport tests (agent CLI, not umbrella)
+platform/clients/tui/test/console_transport_test.exs  sleep  1  pending: a fake transport pause of 30 ms (TUI, not umbrella)
+platform/clients/tui/test/control_tls_test.exs  sleep  1  pending (#329): the TLS fake's console script polls a quit file every 20 ms inside a tmux-run `mix run`; needs a socket signal
+platform/clients/tui/test/worker_output_connection_test.exs  receive_timeout  17  pending: negative checks over 30-200 ms windows on a fake connection; needs a barrier on the fake (TUI, not umbrella)
+products/software_factory/e2e/test/composition_test.exs  sleep  1  e2e (live tmux/rela/HTTP processes; run only by the orchestrator): pending migration of a live-system poll
+products/software_factory/e2e/test/control_ready_test.exs  sleep  1  e2e (live tmux/rela/HTTP processes; run only by the orchestrator): pending migration of a live-system poll
+products/software_factory/e2e/test/deploy_order_test.exs  sleep  1  e2e (live tmux/rela/HTTP processes; run only by the orchestrator): pending migration of a live-system poll
+products/software_factory/e2e/test/page_freshness/held_time.exs  sleep  1  e2e (live tmux/rela/HTTP processes; run only by the orchestrator): pending migration of a live-system poll
+products/software_factory/e2e/test/page_freshness/sessions.exs  sleep  1  e2e (live tmux/rela/HTTP processes; run only by the orchestrator): pending migration of a live-system poll
+products/software_factory/e2e/test/page_freshness_test.exs  sleep  1  e2e (live tmux/rela/HTTP processes; run only by the orchestrator): pending migration of a live-system poll
+products/software_factory/e2e/test/rela_data_test.exs  after_timeout  1  e2e (live tmux/rela/HTTP processes; run only by the orchestrator): pending migration of a live-system poll

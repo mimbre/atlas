@@ -1,4 +1,4 @@
-ExUnit.start()
+ExUnit.start(AtlasTestAwait.exunit_options())
 
 # Gates evaluates the gates of the model it is wired to: here the neutral one.
 Application.put_env(:atlas, :model, AtlasGates.Neutral)

@@ -4,13 +4,17 @@ defmodule AtlasRuntime.WorkHarness do
   on `PATH` (`fake-native work`, which never launches a provider), the real Service and
   `AtlasRuntime.Work`. Callers go through the facade `AtlasRuntime.Boundary.Work` only.
 
-  Timer values: heartbeat 100 ms, cancel grace 300 ms, every wait at most 10 s.
+  Timer values: heartbeat 100 ms, cancel grace 300 ms. Waits wake on the core's own
+  notifications (`work_events/0`: each work change and each heartbeat), never on the clock;
+  a negative check counts heartbeats (`heartbeats/1`) instead of sleeping. Every wait has
+  `AtlasTestAwait`'s safety cap.
   """
   import ExUnit.Assertions
   import ExUnit.Callbacks
 
   alias AtlasRuntime.Boundary.Work, as: F
   alias AtlasRuntime.Service
+  require AtlasTestAwait, as: Await
 
   defmodule SlowStart do
     @moduledoc false
@@ -37,6 +41,8 @@ defmodule AtlasRuntime.WorkHarness do
   end
 
   @wait 10_000
+  # A reader of every work, for waits only (`work_events/0`).
+  @watcher {"harness-await", [:read, :read_all]}
   @options [heartbeat_ms: 100, cancel_grace_ms: 300]
 
   @doc "Starts a home, a Service and the core; `policy` overrides policy.json fields."
@@ -150,12 +156,8 @@ defmodule AtlasRuntime.WorkHarness do
   defp kill(pid) do
     monitor = Process.monitor(pid)
     Process.exit(pid, :kill)
-
-    receive do
-      {:DOWN, ^monitor, :process, ^pid, _} -> :ok
-    after
-      5_000 -> flunk("#{inspect(pid)} did not stop")
-    end
+    Await.down(monitor)
+    :ok
   end
 
   @doc """
@@ -301,23 +303,118 @@ defmodule AtlasRuntime.WorkHarness do
     }
 
   @doc """
-  The value of `fun` once it is truthy; fails after 10 s naming `what` (a string, or a
-  function giving one at the failure).
+  The value of `fun` once it is truthy. It is checked now and after each of the core's
+  notifications (`work_events/0`), so at the latest on its next heartbeat. `what` (a string,
+  or a function giving one at the failure) names the wait in the cap's report.
   """
-  def await(fun, what \\ "condition"),
-    do: await(fun, what, System.monotonic_time(:millisecond) + @wait)
+  def await(fun, what \\ nil) do
+    label = if is_binary(what), do: [label: what], else: []
 
-  defp await(fun, what, deadline) do
-    case fun.() do
-      value when value not in [nil, false] ->
-        value
+    Await.until(
+      fun,
+      [wake: work_events(), state: fn -> %{what: describe(what), core: diagnostics()} end] ++
+        label
+    )
+  end
 
-      _ ->
-        if System.monotonic_time(:millisecond) > deadline,
-          do: flunk("not met in #{@wait} ms: #{if is_function(what), do: what.(), else: what}")
+  # The report's `what`: a function is called (it may read the work through the core) in a
+  # task of its own, so a held or stuck core cannot block the report of a wait that already
+  # reached its cap. The bound decides nothing; the test has already failed.
+  defp describe(what) when is_binary(what) or is_nil(what), do: what
 
-        Process.sleep(20)
-        await(fun, what, deadline)
+  defp describe(what) when is_function(what, 0) do
+    task =
+      Task.async(fn ->
+        try do
+          {:ok, what.()}
+        rescue
+          error -> {:raised, error}
+        catch
+          kind, reason -> {kind, reason}
+        end
+      end)
+
+    case Task.yield(task, 5_000) || Task.shutdown(task, :brutal_kill) do
+      {:ok, {:ok, text}} -> text
+      {:ok, failed} -> {:description_failed, failed}
+      {:exit, reason} -> {:description_failed, reason}
+      nil -> :description_blocked
+    end
+  end
+
+  @doc """
+  The core's next `count` heartbeats, each sent once its pass (probe, ask, prune, dispatch)
+  is done: for a check that something did not happen, made after the passes that would have
+  done it.
+  """
+  def heartbeats(count) do
+    Await.events(count,
+      wake: work_events(),
+      match: &match?({:atlas_runtime_work, %F.Heartbeat{}}, &1),
+      state: &diagnostics/0
+    )
+
+    :ok
+  end
+
+  @doc """
+  What a harness wait wakes on: the work core's notifications to a reader of every work,
+  subscribed by `AtlasTestAwait`'s relay (the test's own mailbox and subscription are left
+  alone), and each message a running Service handles: a native's output reaches the
+  Service after the fixture logged its launch, and the Service writes `turn.json`, neither
+  of which the core announces when its heartbeat is slow. The core must be running.
+  """
+  def work_events do
+    subscribe =
+      {:subscribe,
+       fn ->
+         assert GenServer.whereis(AtlasRuntime.Work.Server), "the work core is not running"
+         assert F.subscribe(@watcher, %{}) == %F.Outcome.Subscribed{}
+       end}
+
+    [subscribe | for(service <- services(), do: {:trace, service})]
+  end
+
+  defp services do
+    for pid <- Process.list(),
+        {:dictionary, dictionary} <- [Process.info(pid, :dictionary)],
+        dictionary[:"$initial_call"] == {Service, :init, 1},
+        do: pid
+  end
+
+  @doc """
+  The value of `fun` once it is truthy, checked after each message the Service
+  (`context.service`) has handled: for what the Service records (a turn's `turn.json`) while
+  the core is held (`:sys.suspend/1`) and sends no notification.
+  """
+  def await_service(context, fun),
+    do: Await.until(fun, wake: {:trace, context.service}, state: &diagnostics/0)
+
+  @doc """
+  Once the core has finished what it is doing now (a start it waits on the Service for, up
+  to its `start_timeout_ms`): it answers a `:sys` request only between messages.
+  """
+  def core_idle do
+    :sys.get_state(GenServer.whereis(AtlasRuntime.Work.Server), Await.cap())
+    :ok
+  end
+
+  @doc "Once `pid` (held by `:sys.suspend/1`) has a message waiting: a call that reached it."
+  def await_message_queued(pid) do
+    Await.until(
+      fn -> match?({:message_queue_len, n} when n > 0, Process.info(pid, :message_queue_len)) end,
+      wake: {:trace, pid}
+    )
+  end
+
+  # The core as a process, never a call to it: a wait's report must not block on a held core.
+  defp diagnostics do
+    case GenServer.whereis(AtlasRuntime.Work.Server) do
+      nil ->
+        :work_core_not_running
+
+      core ->
+        Process.info(core, [:status, :message_queue_len, :current_stacktrace])
     end
   end
 
@@ -382,12 +479,31 @@ defmodule AtlasRuntime.WorkHarness do
   def turn(context, turn_id),
     do: Path.join([context.dir, "turns", turn_id, "turn.json"]) |> File.read!() |> JSON.decode!()
 
-  @doc "Notifications received so far (or within `timeout` for the first), in order."
-  def notifications(timeout \\ 0) do
+  @doc """
+  The test's own notifications (it subscribed with `F.subscribe/2`), in order: those received
+  so far, or with `heartbeats: n`, those up to and including its `n`th heartbeat from now. A
+  heartbeat goes out once the core's pass is done, after the changes of every message the
+  core handled before it.
+  """
+  def notifications(opts \\ [])
+
+  def notifications([]) do
     receive do
-      {:atlas_runtime_work, notification} -> [notification | notifications(0)]
+      {:atlas_runtime_work, notification} -> [notification | notifications([])]
     after
-      timeout -> []
+      0 -> []
+    end
+  end
+
+  def notifications(heartbeats: n) when n >= 0, do: notifications([]) ++ beats(n)
+
+  # The next notifications up to and including the `n`th heartbeat to arrive.
+  defp beats(0), do: []
+
+  defp beats(n) do
+    case Await.message({:atlas_runtime_work, _}, state: &diagnostics/0) do
+      {_, %F.Heartbeat{} = beat} -> [beat | beats(n - 1)]
+      {_, notification} -> [notification | beats(n)]
     end
   end
 end

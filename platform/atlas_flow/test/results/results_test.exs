@@ -136,8 +136,8 @@ defmodule AtlasFlow.ResultsTest do
 
   # Kills a held writer, waits for it to be dead, then until the store has handled its
   # `:DOWN` (its room is `room` again). The store's `:DOWN` and this test's calls come from
-  # different processes, so their order is not guaranteed: the test asks again until the
-  # room holds, with no deadline (ExUnit's per-test timeout is the only backstop).
+  # different processes, so their order is not guaranteed: the test asks again after each
+  # message the store handles, until the room holds.
   defp kill_writer(server, {writer, monitor}, room) do
     Process.exit(writer, :kill)
 
@@ -145,14 +145,7 @@ defmodule AtlasFlow.ResultsTest do
       {:DOWN, ^monitor, :process, ^writer, _} -> :ok
     end
 
-    until(fn -> Results.room(0, server) == room end)
-  end
-
-  defp until(fun) do
-    if not fun.() do
-      Process.sleep(1)
-      until(fun)
-    end
+    AtlasTestAwait.until(fn -> Results.room(0, server) == room end, wake: {:trace, server})
   end
 
   describe "storing" do

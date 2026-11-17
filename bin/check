@@ -6,6 +6,7 @@
 #   bin/check              every Linux job of .github/workflows/ci.yml
 #   bin/check beam tui     only those jobs (job ids from ci.yml)
 #   bin/check --list       the job ids
+#   bin/check test-waits   only bin/check's own check below
 #
 # It reads the jobs from ci.yml, so it stays in step with CI. It runs each job's `run:` steps in
 # the job's working directory with the job's own env, but ONLY the fast static checks: format,
@@ -14,6 +15,11 @@
 # CI runner: `uses:` steps, steps that need a GitHub expression (`${{ … }}`) or an env value that
 # comes from one, installers (pip, hex/rebar, the pinned rela), and the macOS, record and deploy
 # jobs. A failing step fails its job; the other jobs still run. Exit 1 when any job failed.
+#
+# One check is bin/check's own, not a ci.yml job: test-waits (bin/lib/test_waits.rb, with
+# its test and its allowlist test_waits.allow) fails when a test under platform/ or
+# products/ waits on the clock (Process.sleep, a short assert_receive/refute_receive or
+# `after`) outside the allowlist. It runs first, in well under a second.
 
 require 'yaml'
 require 'open3'
@@ -30,17 +36,40 @@ fast = /mix format|mix compile|deps\.get --check-locked|\.gen --check|grep /
 
 linux = jobs.reject { |id, job| skip_jobs.(id, job) }
 
+# bin/check's own checks: each a list of commands run from the repository's root.
+own = {
+  'test-waits' => {
+    'name' => 'No real-timer waits in tests (bin/lib/test_waits.rb)',
+    'run' => ['ruby bin/lib/test_waits_test.rb', 'ruby bin/lib/test_waits.rb']
+  }
+}
+
 if ARGV.include?('--list')
-  linux.each { |id, job| puts "#{id}\t#{job['name']}" }
+  own.merge(linux).each { |id, job| puts "#{id}\t#{job['name']}" }
   exit 0
 end
 
-selected = ARGV.empty? ? linux.keys : ARGV
-unknown = selected - linux.keys
+selected = ARGV.empty? ? own.keys + linux.keys : ARGV
+unknown = selected - linux.keys - own.keys
 abort "bin/check: unknown job(s): #{unknown.join(', ')} (see bin/check --list)" unless unknown.empty?
 
 failed = []
 selected.each do |id|
+  if (check = own[id])
+    started = Time.now
+    puts "== #{id} (#{check['name']})"
+    ok = check['run'].all? do |run|
+      print "   run   #{run} … "
+      out, status = Open3.capture2e('bash', '-eo', 'pipefail', '-c', run, chdir: root)
+      puts(status.success? ? 'ok' : 'FAILED')
+      puts out.lines.last(40).map { |l| "      #{l}" }.join unless status.success?
+      status.success?
+    end
+    puts "   #{ok ? 'PASS' : 'FAIL'} #{id} in #{(Time.now - started).round}s"
+    failed << id unless ok
+    next
+  end
+
   job = linux.fetch(id)
   started = Time.now
   env = {}

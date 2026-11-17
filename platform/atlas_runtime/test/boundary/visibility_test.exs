@@ -50,7 +50,8 @@ defmodule AtlasRuntime.Boundary.VisibilityTest do
     assert %F.Outcome.NotFound{} = F.turn_output(bob, %{turn_id: turn})
     assert %F.Outcome.NotFound{} = F.cancel(bob, %{work_id: mine.work_id, mode: "force"})
     assert %F.Outcome.NotFound{} = F.retry(bob, %{work_id: mine.work_id})
-    Process.sleep(250)
+    # Heartbeats while it runs, to every subscriber: Bob's must not list it, the admin's must.
+    heartbeats(3)
     File.rm!(gate)
     await_state(mine.work_id, :completed, alice)
 
