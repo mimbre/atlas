@@ -14,6 +14,7 @@ defmodule AtlasCode.CoreTest do
   @repository "github.com/test/public"
   @private "github.com/test/private"
   @runtime_exs Path.expand("../../../products/software_factory/config/runtime.exs", __DIR__)
+  @environments Path.expand("../../../products/software_factory/environments", __DIR__)
 
   setup %{tmp_dir: dir} do
     source = Path.join(dir, "source")
@@ -225,17 +226,87 @@ defmodule AtlasCode.CoreTest do
       refute File.exists?(would_be)
     end
 
-    test "with code.home and code.sources it starts supervised and registered, and restarts its server",
+    test "with code.home and code.sources but no flow.work_source nothing is configured, started or written",
+         %{tmp_dir: dir, url: url} do
+      would_be = Path.join(dir, "code-home")
+
+      code = %{
+        "data" => Path.join(dir, "effects"),
+        "repositories" => ["o/r"],
+        "home" => would_be,
+        "sources" => %{@repository => %{"url" => url, "credentials" => "none"}}
+      }
+
+      # No flow block, and a flow block without a work source.
+      for flow <- [nil, %{"tick_seconds" => 5}] do
+        config = runtime_config(dir, code, if(flow, do: %{"flow" => flow}, else: %{}))
+        assert config[:atlas_code][:service] == nil
+        assert config[:atlas_flow][:work_source] == nil
+        # The rest of the code block still applies: Code's effect receiver is configured.
+        assert %{"dir" => _} = config[:atlas_code][:effects]
+        children = AtlasCode.Application.children(config[:atlas_code])
+        refute Enum.any?(children, &match?({Core, _}, &1))
+      end
+
+      refute Process.whereis(Core)
+      refute File.exists?(would_be)
+      assert_raise RuntimeError, ~r/No Code instance/, fn -> AtlasCode.settings() end
+
+      # A home waiting for its work source is still checked.
+      assert_raise RuntimeError, ~r/code.sources/, fn ->
+        runtime_config(dir, Map.delete(code, "sources"))
+      end
+    end
+
+    test "the real prod and test settings configure no Code service", %{tmp_dir: dir} do
+      for env <- ["prod", "test"] do
+        file = Path.join([@environments, env, "core.json"])
+        settings = JSON.decode!(File.read!(file))
+        # What this case is about: no work source in either environment, while prod
+        # carries the Code home, ready for one.
+        assert get_in(settings, ["flow", "work_source"]) == nil
+        assert is_binary(get_in(settings, ["code", "home"])) == (env == "prod")
+
+        config = read_runtime(env, file)
+        assert config[:atlas_code][:service] == nil
+        assert config[:atlas_flow][:work_source] == nil
+        assert %{"dir" => _} = config[:atlas_code][:effects]
+        children = AtlasCode.Application.children(config[:atlas_code])
+        refute Enum.any?(children, &match?({Core, _}, &1))
+
+        # The same settings with a work source added (one key) do configure it.
+        with_source = Map.put(settings, "flow", %{"work_source" => work_source(dir)})
+        on = Path.join(dir, "#{env}-with-source.json")
+        File.write!(on, JSON.encode!(with_source))
+        service = read_runtime(env, on)[:atlas_code][:service]
+
+        if env == "prod" do
+          assert %{"home" => home, "repositories" => repositories} = service
+          assert home == Path.expand(settings["code"]["home"])
+          assert repositories == settings["code"]["sources"]
+        else
+          assert service == nil
+        end
+      end
+    end
+
+    test "with code.home, code.sources and flow.work_source it starts supervised and registered, and restarts its server",
          %{tmp_dir: dir, url: url} do
       sources = %{@repository => %{"url" => url, "credentials" => "none"}}
 
       config =
-        runtime_config(dir, %{
-          "data" => Path.join(dir, "effects"),
-          "repositories" => ["o/r"],
-          "home" => Path.join(dir, "code-home"),
-          "sources" => sources
-        })
+        runtime_config(
+          dir,
+          %{
+            "data" => Path.join(dir, "effects"),
+            "repositories" => ["o/r"],
+            "home" => Path.join(dir, "code-home"),
+            "sources" => sources
+          },
+          %{"flow" => %{"work_source" => work_source(dir)}}
+        )
+
+      assert config[:atlas_flow][:work_source][:credentials_env] == "ATLAS_TEST_RUNTIMES"
 
       service = config[:atlas_code][:service]
       assert service == %{"home" => Path.join(dir, "code-home"), "repositories" => sources}
@@ -431,7 +502,10 @@ defmodule AtlasCode.CoreTest do
 
   defp helpers(argv), do: Enum.filter(argv, &String.starts_with?(&1, "credential.helper"))
 
-  defp runtime_config(dir, code) do
+  defp work_source(dir),
+    do: %{"credentials_env" => "ATLAS_TEST_RUNTIMES", "results" => Path.join(dir, "results")}
+
+  defp runtime_config(dir, code, extra \\ %{}) do
     file = Path.join(dir, "settings.json")
 
     settings =
@@ -442,9 +516,21 @@ defmodule AtlasCode.CoreTest do
         "facts" => %{"data" => Path.join(dir, "facts")}
       }
       |> then(&if(code, do: Map.put(&1, "code", code), else: &1))
+      |> Map.merge(extra)
 
     File.write!(file, JSON.encode!(settings))
-    variables = [{"ATLAS_ENV", "test"}, {"ATLAS_ENV_FILE", file}]
+    read_runtime("test", file)
+  end
+
+  # runtime.exs for an environment and its settings file. The bus link token is a dummy,
+  # only so that a file with `bus_link` (prod) evaluates.
+  defp read_runtime(env, file) do
+    variables = [
+      {"ATLAS_ENV", env},
+      {"ATLAS_ENV_FILE", file},
+      {"ATLAS_BUS_LINK_TOKEN", "{}"}
+    ]
+
     prior = Map.new(variables, fn {key, _} -> {key, System.get_env(key)} end)
 
     try do

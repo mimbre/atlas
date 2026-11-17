@@ -4,8 +4,8 @@ defmodule AtlasCode.Core do
   `register: true`) on a home the core's settings name, so that callers in the core's BEAM
   (Flow's work source, through `AtlasCode.Boundary`) reach Code. `AtlasCode.Application`
   starts it only when the core configures it (`config :atlas_code, :service`, from the
-  `code.home` and `code.sources` of the settings); otherwise there is no such child and no
-  file is written.
+  `code.home` and `code.sources` of the settings, set only together with Flow's
+  `flow.work_source`); otherwise there is no such child and no file is written.
 
   `settings`: `%{"home" => path, "repositories" => %{name => remote}}`, a remote as in the
   home's `config.json` (`AtlasCode`), e.g. `{"url": …, "credentials": "none"}`.

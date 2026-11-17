@@ -4,7 +4,8 @@ defmodule AtlasCode.Application do
   - Code's effect receiver (`AtlasCode.Effects.Endpoint`) with `config :atlas_code, :effects`;
   - the registered Code service of the core (`AtlasCode.Core`) with
     `config :atlas_code, :service`, which the core's `runtime.exs` sets only when its
-    settings name a Code home and the repositories Flow's work source reads bases from.
+    settings name a Code home, the repositories Flow's work source reads bases from, and
+    that work source (`flow.work_source`) itself.
   The local Code service (`mix atlas_code.server`, the `atlas_code` release) has neither
   configuration and starts only through `AtlasCode.Server`.
   """
