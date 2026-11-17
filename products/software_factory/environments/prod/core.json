@@ -17,7 +17,17 @@
     "ipv6": true
   },
   "facts": { "data": "/data/beam" },
-  "code": { "data": "/data/code", "repositories": ["mimbre/atlas"] },
+  "code": {
+    "data": "/data/code",
+    "repositories": ["mimbre/atlas"],
+    "home": "/data/code-home",
+    "sources": {
+      "github.com/mimbre/atlas": {
+        "url": "https://github.com/mimbre/atlas.git",
+        "credentials": "none"
+      }
+    }
+  },
   "connectors": {
     "github": {
       "api": "https://api.github.com",

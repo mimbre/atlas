@@ -61,9 +61,16 @@ RUN arch="${TARGETARCH:-amd64}" \
 
 FROM debian:bookworm-slim
 
+# git for the core's Code service (AtlasCode.Core), pinned: it reads base repositories
+# anonymously ("credentials": "none"), so no gh. perl, which Code's home lock
+# (AtlasCode.Lock) runs, comes with Debian's essential perl-base. A pin apt no longer
+# offers fails the build here; update GIT_VERSION to bookworm's current one.
+ARG GIT_VERSION=1:2.39.5-0+deb12u2
 RUN apt-get update \
   && apt-get install -y --no-install-recommends libstdc++6 openssl libncurses6 ca-certificates python3 \
-  && rm -rf /var/lib/apt/lists/*
+       "git=${GIT_VERSION}" \
+  && rm -rf /var/lib/apt/lists/* \
+  && git --version && perl -e 'use Fcntl qw(:flock); exit 0'
 
 COPY --from=tailscale /tailscale/tailscale /tailscale/tailscaled /usr/local/bin/
 

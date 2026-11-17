@@ -100,6 +100,20 @@ if config_env() != :test do
       effect_receivers: %{
         "code" => %{"contract" => 1, "address" => "code/effects", "operations" => ["integrate"]}
       }
+
+    # The Code service in the core (AtlasCode.Core): a registered Code on its own home
+    # (`code.home`, not `code.data`'s effects journal) that reads the repositories Flow's work
+    # source takes bases from (`code.sources`: name → remote, as in a Code home's config.json,
+    # e.g. {"url": …, "credentials": "none"} for an anonymous read). Without `code.home`
+    # nothing starts and nothing is written: the core has no Code service.
+    if home = code["home"] do
+      sources = code["sources"]
+
+      unless is_map(sources) and map_size(sources) > 0,
+        do: raise("#{file} has code.home but no code.sources")
+
+      config :atlas_code, service: %{"home" => expand.(home), "repositories" => sources}
+    end
   end
 
   # Who fills each role the model's owners name (`"actors": {"decider": "<key>"}`): the
