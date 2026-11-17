@@ -40,6 +40,7 @@ defmodule Model.PackageRunsTest do
 
         # waiting: on to authoring once it has its instructions, and not before.
         assert f.next("waiting", %{"title" => "Build it"}, nil) == :stay
+        assert f.next("waiting", %{"instructions" => ""}, nil) == :stay
         assert f.next("waiting", %{"instructions" => "Do it."}, nil) == {:to, "authoring"}
 
         # authoring: each task result leads where the plan says; abandoned is stuck.

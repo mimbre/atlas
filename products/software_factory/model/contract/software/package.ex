@@ -102,7 +102,8 @@ defmodule Model.Package do
     # presents nothing: its move to `authoring` is then the first thing presented, which
     # keeps the machinery someone handed it to (`AtlasFlow.Runs.Projection`).
     state :waiting, label: "Waiting" do
-      branch to: :authoring, when: "entity.instructions != ''"
+      # `not (… == '')`: the pinned rela has no `!=`. An absent field is no match either.
+      branch to: :authoring, when: "not (entity.instructions == '')"
     end
 
     state :authoring, label: "Authoring" do

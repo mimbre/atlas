@@ -319,10 +319,10 @@
     },
     "package": {
       "prod": {
-        "digest": "1342490c252702196b6c4963cac0f41825b0b908d16f4002dd0acf3cb13171cb",
+        "digest": "ed9ae978d163fa3b7d7baf396b8fafab0bebbaf06edfe5028fe4f853d9c99d2c",
         "history": [
           {
-            "digest": "1342490c252702196b6c4963cac0f41825b0b908d16f4002dd0acf3cb13171cb",
+            "digest": "ed9ae978d163fa3b7d7baf396b8fafab0bebbaf06edfe5028fe4f853d9c99d2c",
             "states": [
               "authored",
               "authoring",
@@ -341,10 +341,10 @@
         ]
       },
       "test": {
-        "digest": "1342490c252702196b6c4963cac0f41825b0b908d16f4002dd0acf3cb13171cb",
+        "digest": "ed9ae978d163fa3b7d7baf396b8fafab0bebbaf06edfe5028fe4f853d9c99d2c",
         "history": [
           {
-            "digest": "1342490c252702196b6c4963cac0f41825b0b908d16f4002dd0acf3cb13171cb",
+            "digest": "ed9ae978d163fa3b7d7baf396b8fafab0bebbaf06edfe5028fe4f853d9c99d2c",
             "states": [
               "authored",
               "authoring",

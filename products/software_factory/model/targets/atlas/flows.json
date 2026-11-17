@@ -759,7 +759,7 @@
             {
               "roles": [],
               "to": "authoring",
-              "when": "entity.instructions != ''"
+              "when": "not (entity.instructions == '')"
             }
           ],
           "creates": [],
@@ -1905,6 +1905,6 @@
       "version": 1
     }
   },
-  "rela_flows_sha256": "f8e7b43f99257b7c33d350ba9e6d43c71e7a00dbb43015053c538199015848b6",
+  "rela_flows_sha256": "0fc3b926ddcfe2256cda582e3a9b9c08ebcc19f4e7254b3edb683e43086cc8d3",
   "writer": "system:atlas-flow"
 }

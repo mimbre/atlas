@@ -372,7 +372,7 @@ flows:
         label: Waiting
         on:
           change:
-            - { to: authoring, when: "entity.instructions != ''" }
+            - { to: authoring, when: "not (entity.instructions == '')" }
       authoring:
         label: Authoring
         on:
