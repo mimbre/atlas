@@ -554,11 +554,15 @@ func toAny(values map[string]string) map[string]any {
 	return result
 }
 
+// scratchModeCommand prints the scratch directory's POSIX `ls -ld` mode string from inside the sandboxed
+// command (portable across BSD and GNU userlands, unlike `stat -f`/`stat -c`), then writes in the folder.
+const scratchModeCommand = `ls -ld "$(dirname "$TMPDIR")" | cut -c1-10; touch repo/written`
+
 func TestCheckArgvIsTheTurnsProfile(t *testing.T) {
 	fixture := newCheckFixture(t)
 	scratch := fixture.scratch()
-	line := ended(t, fixture.args(t, 30, 1, 16384, "sh", "-c", `stat -f %Lp "$(dirname "$TMPDIR")"; touch repo/written`), 20*time.Second)
-	if tail, _ := tailOf(line); tail != "700\n" || line["exit_status"] != 0.0 {
+	line := ended(t, fixture.args(t, 30, 1, 16384, "sh", "-c", scratchModeCommand), 20*time.Second)
+	if tail, _ := tailOf(line); tail != "drwx------\n" || line["exit_status"] != 0.0 {
 		t.Fatalf("scratch mode: %q %v", tail, line)
 	}
 	inspector, err := os.Executable()
@@ -586,7 +590,7 @@ func TestCheckArgvIsTheTurnsProfile(t *testing.T) {
 	}
 	ended(t, fixture.readOnlyArgs(30, 1, 16384, "true"), 20*time.Second)
 	want := [][]string{
-		slices.Concat([]string{codex, "sandbox", "-P", "atlas_folder", "-C", fixture.dest}, folder, []string{"--", "sh", "-c", `stat -f %Lp "$(dirname "$TMPDIR")"; touch repo/written`}),
+		slices.Concat([]string{codex, "sandbox", "-P", "atlas_folder", "-C", fixture.dest}, folder, []string{"--", "sh", "-c", scratchModeCommand}),
 		slices.Concat([]string{codex, "sandbox", "-P", "atlas_read_only", "-C", fixture.dest}, readOnly, []string{"--", "true"}),
 	}
 	if calls := fixture.recordedCalls(t); !slices.EqualFunc(calls, want, slices.Equal[[]string]) {
