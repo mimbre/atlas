@@ -17,7 +17,8 @@ defmodule AtlasRuntimeBoundary.MixProject do
         contracts: [
           work: AtlasRuntimeBoundary.Work,
           operations: AtlasRuntimeBoundary.Operations,
-          history: AtlasRuntimeBoundary.History
+          history: AtlasRuntimeBoundary.History,
+          work_source: AtlasRuntimeBoundary.WorkSource
         ],
         targets: [json: "../targets/json"],
         root: "../../../.."
