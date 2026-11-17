@@ -470,7 +470,8 @@ defmodule AtlasFlow.Runs.Run do
 
       # A pickup or hand-over is taken before the early return below: it moves no state,
       # so it is taken in a state that runs a task, or waits on its writes, too.
-      (supervised = supervision(run, flow, inputs, opts[:supervision])) != :none ->
+      (supervised = supervision(run, flow, inputs, opts[:supervision], opts[:hand_over])) !=
+          :none ->
         supervised
 
       run["pending"]["writes"] != [] or flow.mechanism(run["state"]) != nil ->
@@ -564,14 +565,20 @@ defmodule AtlasFlow.Runs.Run do
   input's check (`AtlasFlow.Runs.Inputs.supervision/4`, nil for any other input); nil
   checks none.
 
+  `to_do` builds the writes that give a hand-over's holder their To-Do
+  (`AtlasFlow.Runs.HandOver`): called with the run, its `pending.hand_over` and the
+  supervisor who handed it over, it answers `{:ok, writes}`, or `:unavailable` when they
+  cannot be built now (nothing is decided then). nil builds none.
+
   Inputs are taken in position order: a supervision input waits behind an earlier
   input of the run's entry that the run can take now (a choice, or one it passes over),
   so the cursor never moves past it. In a state that runs a mechanism, or waits on its
   writes, no other input is taken, so a supervision input does not wait there.
   """
-  def supervision(_run, _flow, _inputs, nil), do: :none
+  def supervision(run, flow, inputs, check, to_do \\ nil)
+  def supervision(_run, _flow, _inputs, nil, _to_do), do: :none
 
-  def supervision(run, flow, inputs, check) do
+  def supervision(run, flow, inputs, check, to_do) do
     takes_others? =
       run["status"] == "active" and run["pending"]["writes"] == [] and
         flow.mechanism(run["state"]) == nil
@@ -592,19 +599,30 @@ defmodule AtlasFlow.Runs.Run do
           {:halt, {:error, :supervision_unavailable}}
 
         checked ->
-          {:halt, {:ok, supervise(run, input, checked)}}
+          case to_do(to_do, run, input, checked) do
+            {:ok, writes} -> {:halt, {:ok, supervise(run, input, checked, writes)}}
+            _ -> {:halt, {:error, :supervision_unavailable}}
+          end
       end
     end)
   end
 
+  # The To-Do writes of a hand-over (none for anything else, or without a builder).
+  defp to_do(to_do, run, input, {:hand_over, from, to}) when is_function(to_do, 3),
+    do: to_do.(run, %{"to" => to, "input" => input["key"]}, from)
+
+  defp to_do(_to_do, _run, _input, _checked), do: {:ok, []}
+
   @doc """
   Apply one checked supervision input (`AtlasFlow.Runs.Inputs.supervision/4`) to `run`:
   a pickup sets its supervisor (`supervised_by`); a hand-over clears it and keeps the
-  holder it is handed to, with the input, as `pending.hand_over`; a refusal changes
-  nothing else. Each moves the cursor to the input and names it as the last input, with
-  what it did, or why it was refused, as `supervision`.
+  holder it is handed to, with the input, as `pending.hand_over`, and its To-Do's
+  `writes` (`AtlasFlow.Runs.HandOver`) join the run's pending writes, so they are sent
+  only once the run that holds them is stored; a refusal changes nothing else. Each
+  moves the cursor to the input and names it as the last input, with what it did, or
+  why it was refused, as `supervision`.
   """
-  def supervise(run, input, checked) do
+  def supervise(run, input, checked, writes \\ []) do
     {run, last} =
       case checked do
         {:pick_up, holder} ->
@@ -613,7 +631,8 @@ defmodule AtlasFlow.Runs.Run do
         {:hand_over, _from, to} ->
           {run
            |> Map.delete("supervised_by")
-           |> put_in(["pending", "hand_over"], %{"to" => to, "input" => input["key"]}),
+           |> put_in(["pending", "hand_over"], %{"to" => to, "input" => input["key"]})
+           |> update_in(["pending", "writes"], &((&1 || []) ++ writes)),
            %{"supervision" => "hand_over"}}
 
         {:refused, tag} ->

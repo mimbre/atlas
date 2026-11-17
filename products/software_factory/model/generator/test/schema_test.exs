@@ -927,6 +927,38 @@ defmodule RelaDSL.SchemaTest do
       )
     end
 
+    test "preserving several assignee kinds: a list with the fallback's kind among them" do
+      module =
+        compile!(
+          owned(
+            "owner relation: :held_by, default: {:clerk, :ada}, preserve_kind: [:clerk, :robot, :desk]"
+          )
+        )
+
+      [flow] = module.__flows__()
+      assert flow.owner.preserve_kind == [:clerk, :robot, :desk]
+
+      for bad <- [
+            "[:robot, :desk]",
+            "[]",
+            "[:clerk, :clerk]",
+            ~s|[:clerk, "Robot"]|,
+            "[:clerk, nil]"
+          ] do
+        refused(
+          owned("owner relation: :held_by, default: {:clerk, :ada}, preserve_kind: #{bad}"),
+          2,
+          "preserve_kind needs a relation and a default of that kind"
+        )
+      end
+
+      refused(
+        owned("owner default: {:clerk, :ada}, preserve_kind: [:clerk, :robot]"),
+        2,
+        "preserve_kind needs a relation and a default of that kind"
+      )
+    end
+
     test "an owner with a key it does not know" do
       refused(owned("owner relation: :held_by, fallback: :desk"), 2, "owner knows no fallback")
     end

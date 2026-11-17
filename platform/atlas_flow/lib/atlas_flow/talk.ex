@@ -98,14 +98,29 @@ defmodule AtlasFlow.Talk do
   end
 
   @doc "Put a fact: `{:stored, position}`, `{:refused, reasons}` or `{:error, :no_answer}`."
-  def put(kind, content), do: transmit(Envelope.new("fact", kind), content, @tries)
+  def put(kind, content), do: transmit(Envelope.new("fact", kind), content, @tries, false)
 
   def put(kind, content, id) when is_binary(kind) and is_binary(id),
-    do: transmit(Envelope.new("fact", kind, id: id), content, @tries)
+    do: put(kind, content, id, [])
 
-  defp transmit(_envelope, _content, 0), do: {:error, :no_answer}
+  @doc """
+  Put a fact under `id`, as `put/3`. With `code: true` a refusal is `{:refused, reasons,
+  code}`: the code Facts gave it (`"exists"`, `"reserved"`: the key is taken), or nil.
+  Facts records a coded refusal under its id and answers a resend of that id from it, so a
+  sender that made the key up tries another key under a new id.
+  """
+  def put(kind, content, id, opts) when is_binary(kind) and is_binary(id) and is_list(opts),
+    do:
+      transmit(
+        Envelope.new("fact", kind, id: id),
+        content,
+        @tries,
+        Keyword.get(opts, :code, false)
+      )
 
-  defp transmit(envelope, content, tries) do
+  defp transmit(_envelope, _content, 0, _code), do: {:error, :no_answer}
+
+  defp transmit(envelope, content, tries, code?) do
     id = envelope.id
     :ok = AtlasBus.send(envelope, content)
 
@@ -115,9 +130,11 @@ defmodule AtlasFlow.Talk do
         {:stored, stored.position}
 
       {:atlas_bus, %Envelope{id: ^id, class: "refused"}, refusal} ->
-        {:refused, refusal["reasons"]}
+        if code?,
+          do: {:refused, refusal["reasons"], refusal["code"]},
+          else: {:refused, refusal["reasons"]}
     after
-      @wait -> transmit(envelope, content, tries - 1)
+      @wait -> transmit(envelope, content, tries - 1, code?)
     end
   end
 end

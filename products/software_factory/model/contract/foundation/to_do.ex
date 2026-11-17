@@ -8,7 +8,8 @@ defmodule Model.ToDo do
 
     * a To-Do is assigned through its Assignment (`assigned_to`, a person or an agent), so
       it is under "Assigned to you" for a person, and an agent's Runtime starts a turn on
-      it; while nobody is assigned, the configured decider owns it;
+      it; whoever is assigned (a person, an agent or a machinery) owns it, whoever wrote
+      the link; while nobody is assigned, the configured decider owns it;
     * one deadline, its Assignment's (`deadline`, set when it is handed to someone, as
       for every assigned item); a To-Do has none of its own;
     * `open` presents "Do it" to its owner, with its `instructions` (required) shown in
@@ -79,7 +80,14 @@ defmodule Model.ToDo do
   end
 
   subflow :to_do, label: "To-Do", subject: :to_do do
-    owner via: :assignment, relation: :assigned_to, default: {:person, config: :decider}
+    # Owned by its assignee, whoever wrote the link (Flow writes a hand-over's, #325 B2):
+    # a person, an agent or a machinery assigned stays, whatever the state; nobody
+    # assigned, the decider. The kinds are those `assigned_to` links.
+    owner via: :assignment,
+          relation: :assigned_to,
+          default: {:person, config: :decider},
+          preserve_kind: [:person, :agent, :machinery]
+
     start :create
     initial :open
 
@@ -133,5 +141,17 @@ defmodule Model.ToDo do
       [when: [status: [:wont_do]], state: :wont_do]
     ],
     reopen: :explicit
+  )
+
+  # #325 B2, owner rule (ii): owned by its assignee of any kind `assigned_to` links
+  # (`preserve_kind: [:person, :agent, :machinery]`) instead of by who wrote the link. The
+  # states and what they wait for are unchanged, so an open To-Do keeps its entry and the
+  # choices made for it.
+  migrate(:to_do,
+    from: "8e387a008256b3c65947e0063dd48fbd4ab70417021cd1bc6cb54d947d59156b",
+    to: "1e2e70b748c304b99eeba9643baf4ab745fdd11e7d8285642b9461b5ba3e5dfc",
+    states: :same,
+    preserve_entry: true,
+    reason: "M3 S3: a To-Do is owned by its assignee, whoever wrote the link"
   )
 end

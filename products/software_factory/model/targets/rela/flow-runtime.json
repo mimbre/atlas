@@ -99,7 +99,9 @@
       "to_do": {
         "choices": ["status"],
         "choice_states": ["open"],
-        "migrations": [],
+        "migrations": [
+          {"from":"8e387a008256b3c65947e0063dd48fbd4ab70417021cd1bc6cb54d947d59156b","to":"1e2e70b748c304b99eeba9643baf4ab745fdd11e7d8285642b9461b5ba3e5dfc","states":{"done":"done","open":"open","wont_do":"wont_do"},"preserve_entry":true,"reason":"M3 S3: a To-Do is owned by its assignee, whoever wrote the link"}
+        ],
         "subject": "to_do",
         "projection": {
           "on": "assignment",

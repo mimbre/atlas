@@ -22,6 +22,9 @@ defmodule Model.ToDoHistoryTest do
     # identities and histories remain byte-for-byte data.
     restored = "05019b5d840dc936ea1f6f59f7be2849967f321a975b62bba01dacde16fa1682"
     without_pass = "2b5680643a5f8b8add93dd9f25d545901110dfe4ef1688ee5d3a6fd4a52ce86b"
+    # M3 S3 (#325 B2) owns a To-Do by its assignee: one approved migration from To-Do's
+    # first digest, which this older base predates as well.
+    to_do_first = "8e387a008256b3c65947e0063dd48fbd4ab70417021cd1bc6cb54d947d59156b"
 
     expected =
       Map.update!(@base["subflows"], "pr_review", fn environments ->
@@ -39,11 +42,12 @@ defmodule Model.ToDoHistoryTest do
     # F0's migration from the restored digest is approved against the base that has it
     # (develop's digests.json, model-base); this older base predates that digest. The one
     # from the slice-14 digest straight to F0's is approved here.
-    older = Enum.reject(migrations, &(&1.opts[:from] == restored))
+    older = Enum.reject(migrations, &(&1.opts[:from] in [restored, to_do_first]))
     assert RunIdentity.base_problems(@base, document, older) == []
 
-    assert [problem] = RunIdentity.base_problems(@base, document, migrations)
-    assert problem =~ "migrate pr_review from 05019b5d"
+    assert [_, _] = problems = RunIdentity.base_problems(@base, document, migrations)
+    assert Enum.any?(problems, &(&1 =~ "migrate pr_review from 05019b5d"))
+    assert Enum.any?(problems, &(&1 =~ "migrate to_do from 8e387a00"))
 
     for {name, states} <- [
           {"to_do", ~w(done open wont_do)},
@@ -52,10 +56,13 @@ defmodule Model.ToDoHistoryTest do
         environment <- ~w(prod test) do
       entry = document["subflows"][name][environment]
       assert entry["states"] == states
+      before = if name == "to_do", do: [to_do_first], else: []
 
-      assert entry["history"] == [
-               %{"digest" => entry["digest"], "states" => entry["states"]}
-             ]
+      assert entry["history"] ==
+               Enum.sort_by(
+                 for(d <- [entry["digest"] | before], do: %{"digest" => d, "states" => states}),
+                 & &1["digest"]
+               )
     end
   end
 end

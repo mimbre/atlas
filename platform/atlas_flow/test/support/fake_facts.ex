@@ -10,6 +10,11 @@ defmodule AtlasFlow.FakeFacts do
   `submit` is sent of: a submit applies the choice to the run's subject and records it
   applied; a read by `run` answers the run's inputs; Flow's `consume` is taken only for the
   input the stored run names as its last, at or past its position.
+
+  Like Facts, it answers a resent id from its ledger: what was stored, and a refusal with a
+  code (`"exists"`: another fact holds the key; `"reserved"`: the key is held back after its
+  fact was deleted, `reserve/2`). Such a refusal stays the answer to its id, even once the
+  key is free again; refusals without a code are not recorded.
   """
   use GenServer
 
@@ -41,6 +46,13 @@ defmodule AtlasFlow.FakeFacts do
   def put(kind, fact), do: GenServer.call(__MODULE__, {:put, kind, fact})
 
   def lose_ack(kind), do: GenServer.call(__MODULE__, {:lose_ack, kind})
+
+  @doc "Delete the fact at `key` and hold the key back: a create of it is refused `reserved`."
+  def reserve(kind, key), do: GenServer.call(__MODULE__, {:reserve, kind, key})
+
+  @doc "Free a held-back key again (rela let it go); the ledger keeps what it answered."
+  def release(kind, key), do: GenServer.call(__MODULE__, {:release, kind, key})
+
   def get(kind, key), do: GenServer.call(__MODULE__, {:get, kind, key})
 
   @doc "Every fact content Flow sent, oldest first."
@@ -95,6 +107,7 @@ defmodule AtlasFlow.FakeFacts do
        busy: MapSet.new(),
        blocked_reads: MapSet.new(),
        refused_writes: MapSet.new(),
+       reserved: MapSet.new(),
        busy_after_write: MapSet.new(),
        description: Keyword.get(opts, :description, description())
      }}
@@ -107,6 +120,19 @@ defmodule AtlasFlow.FakeFacts do
   end
 
   def handle_call({:lose_ack, kind}, _from, s), do: {:reply, :ok, %{s | lose_ack: kind}}
+
+  def handle_call({:reserve, kind, key}, _from, s),
+    do:
+      {:reply, :ok,
+       %{
+         s
+         | facts: Map.delete(s.facts, {kind, key}),
+           reserved: MapSet.put(s.reserved, {kind, key})
+       }}
+
+  def handle_call({:release, kind, key}, _from, s),
+    do: {:reply, :ok, %{s | reserved: MapSet.delete(s.reserved, {kind, key})}}
+
   def handle_call({:get, kind, key}, _from, s), do: {:reply, s.facts[{kind, key}], s}
   def handle_call(:sent, _from, s), do: {:reply, Enum.reverse(s.sent), s}
   def handle_call(:from_flow, _from, s), do: {:reply, Enum.reverse(s.from_flow), s}
@@ -336,7 +362,13 @@ defmodule AtlasFlow.FakeFacts do
 
         {:noreply, s}
 
-      conflict or (old != nil and c["op"] == "create") ->
+      old != nil and c["op"] == "create" ->
+        {:noreply, refuse(e, c, s, "exists")}
+
+      old == nil and c["op"] == "create" and MapSet.member?(s.reserved, {e.kind, key}) ->
+        {:noreply, refuse(e, c, s, "reserved")}
+
+      conflict ->
         AtlasBus.send(Envelope.reply(e, "refused"), %{"reasons" => ["conflict"]})
         {:noreply, s}
 
@@ -398,6 +430,14 @@ defmodule AtlasFlow.FakeFacts do
           {:noreply, s}
         end
     end
+  end
+
+  # A refusal with a code, as Facts answers it: recorded under the id, so a resend of the
+  # same id gets it again.
+  defp refuse(e, c, s, code) do
+    refusal = %{"op" => c["op"], "key" => c["key"], "reasons" => [code], "code" => code}
+    AtlasBus.send(Envelope.reply(e, "refused"), refusal)
+    %{s | ledger: Map.put(s.ledger, e.id, {"refused", refusal, nil})}
   end
 
   defp fact_links(nil), do: %{}
