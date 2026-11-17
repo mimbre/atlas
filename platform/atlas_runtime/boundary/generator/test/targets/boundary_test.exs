@@ -225,6 +225,24 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.BoundaryTest do
       refute_received {:received, _}
     end
 
+    test "a missing stream is refused even when the field is not marked required" do
+      for options <- ["", ", required: false"] do
+        f = optional_stream_facade(options)
+        input = Module.concat(f, PutInput)
+        invalid = %InvalidInput{capability: :put, reasons: ["input.tree is required"]}
+
+        assert f.put({self(), [:r]}, %{"id" => "x"}) == invalid
+        assert f.put({self(), [:r]}, %{"id" => "x", "tree" => nil}) == invalid
+        assert f.put({self(), [:r]}, struct!(input, id: "x", tree: nil)) == invalid
+        assert input.new(%{id: "x"}) == {:error, ["put_input.tree is required"]}
+        refute_received {:put, _}
+
+        # A stream is still taken, unread.
+        assert %{__struct__: _} = f.put({self(), [:r]}, %{"id" => "x", "tree" => ["a"]})
+        assert_received {:put, %{tree: ["a"]}}
+      end
+    end
+
     test "its type is Enumerable.t(), and dump/1 refuses it" do
       {:ok, types} = Code.Typespec.fetch_types(B.UploadInput)
       {:type, t} = Enum.find(types, &match?({:type, {:t, _, _}}, &1))
@@ -269,6 +287,40 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.BoundaryTest do
         guarded_facade("AtlasRuntimeBoundary.Generator.Example", ~s("see"))
       end
     end
+  end
+
+  # An input model whose :stream field leaves `required:` out or sets it false (F1).
+  defp optional_stream_facade(options) do
+    n = System.unique_integer([:positive])
+
+    Code.compile_string("""
+    defmodule OptionalStreamContract#{n} do
+      use AtlasRuntimeBoundary.Generator.Schema
+      version "0"
+      defmodel :put_input do
+        field :id, :string, required: true
+        field :tree, :stream#{options}
+      end
+      defcapability :put, input: :put_input, outcomes: [ok: nil], right: :r
+    end
+
+    defmodule OptionalStreamFacade#{n} do
+      use AtlasRuntimeBoundary.Generator.Targets.Boundary,
+        contract: OptionalStreamContract#{n},
+        implementation: OptionalStreamDesk#{n}
+    end
+
+    defmodule OptionalStreamDesk#{n} do
+      use OptionalStreamFacade#{n}.Implementation
+      @impl true
+      def put({owner, _rights}, input) do
+        send(owner, {:put, input})
+        %OptionalStreamFacade#{n}.Outcome.Ok{}
+      end
+    end
+    """)
+
+    Module.concat([:"OptionalStreamFacade#{n}"])
   end
 
   defp required_detail_contract do

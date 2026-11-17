@@ -356,6 +356,23 @@ defmodule AtlasRuntimeBoundary.Generator.SchemaTest do
       end
     end
 
+    test "an input model's :stream is required, even when required: is left out or false" do
+      for options <- ["", ", required: false"] do
+        model = "defmodel :scan do\nfield :id, :string\nfield :content, :stream#{options}\nend\n"
+
+        input = spec(model <> "defcapability :up, input: :scan, outcomes: [ok: nil], right: :r")
+
+        assert [%{fields: [%{name: :id, required: false}, %{name: :content, required: true}]}] =
+                 input.__schema__().models
+
+        # An outcome's stream keeps what the contract says (S5a).
+        outcome = spec(model <> "defcapability :get, outcomes: [got: :scan], right: :r")
+
+        assert [%{fields: [%{name: :id, required: false}, %{name: :content, required: false}]}] =
+                 outcome.__schema__().models
+      end
+    end
+
     test "an input model with two :stream fields, at the second one's line" do
       body =
         "defmodel :up_input do\nfield :tree, :stream, required: true\n" <>

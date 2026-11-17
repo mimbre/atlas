@@ -63,7 +63,9 @@ defmodule AtlasRuntimeBoundary.Generator.Schema do
       passes on without enumerating it. It is allowed only as a direct field of a model
       that an outcome carries or that is a capability's input, and of no other model: not
       in a `list`, a `map` or a `one_of`, and not in a model held by another model. A
-      capability's input model has at most one `:stream` field (an upload is one body).
+      capability's input model has at most one `:stream` field (an upload is one body),
+      and that field is always required, whatever `required:` says: an upload without
+      its body is not valid, so `new/1` and the facade refuse a missing one.
       Anywhere else it is a `CompileError` at the field's line.
   - `defcapability`: an operation the system offers, by name, with options:
     - `input:` the model it takes, or `nil` / left out when it takes none;
@@ -279,6 +281,7 @@ defmodule AtlasRuntimeBoundary.Generator.Schema do
     {models, streams} = validate_models!(models)
     capabilities = validate_capabilities!(capabilities, Enum.map(models, & &1.name))
     validate_streams!(streams, models, capabilities)
+    models = require_input_streams(models, capabilities)
     invalid_input = validate_invalid_input!(invalid_inputs, capabilities, models)
 
     spec = %{
@@ -400,6 +403,26 @@ defmodule AtlasRuntimeBoundary.Generator.Schema do
     end)
 
     :ok
+  end
+
+  # An input's :stream is its upload body, so it is required whatever `required:` says
+  # (S5c P1: new/1 refuses a missing value). Forced here, in the schema data, so every
+  # target (struct keys, new/1, the facade, JSON, the backend) sees the same flag.
+  defp require_input_streams(models, capabilities) do
+    inputs = for %{input: input} <- capabilities, input != nil, into: MapSet.new(), do: input
+
+    for model <- models do
+      if model.name in inputs do
+        fields =
+          for field <- model.fields do
+            if field.type == @stream, do: %{field | required: true}, else: field
+          end
+
+        %{model | fields: fields}
+      else
+        model
+      end
+    end
   end
 
   # The models a field type holds.

@@ -75,7 +75,8 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Boundary do
   `ContractError`: a stream is sent as bytes, never as JSON. In an input (S5c, an upload)
   it is checked the same way: `new/1` and the facade take any `Enumerable` there and keep
   the same term, never enumerated, so the implementation reads it; a binary, a list that
-  is not of binary chunks, or a missing value does not validate (step 3). A mapping onto
+  is not of binary chunks, or a missing value does not validate (step 3); the schema makes
+  such a field required even when the contract leaves `required:` out. A mapping onto
   such an input model is a `CompileError`: its stream is never translated.
 
   **Compile-time checks.** The first is `use F.Implementation`'s `@before_compile` check
