@@ -706,21 +706,22 @@
           "present": {
             "expected": "Author it on the machinery",
             "todo": {
-              "instructions": "Its machinery builds it on a fresh base of develop and runs bin/check after the work. Nothing is done while it is not assigned to a machinery."
+              "instructions": "Its machinery builds it on a fresh base of develop and runs atlas/bin/check after the work. Nothing is done while it is not assigned to a machinery."
             },
             "why": "it is ready to be built"
           },
           "set": [],
           "spec": {
-            "check": ["bin/check"],
+            "check": ["atlas/bin/check"],
             "cost_class": "standard",
             "field": "task_result",
             "fields": ["title", "instructions", "acceptance"],
             "input": {
               "base": "develop",
-              "repository": "https://github.com/mimbre/atlas.git"
+              "code": "github.com/mimbre/atlas",
+              "root": "atlas"
             },
-            "instructions": "Build the package below in the repository you are given, starting from its base. Keep to the worker rules: the boundary greps that CI runs must stay clean (bin/check runs them, and runs after you), and do no web search. Run the tests of every system you change. End your answer with what you changed, the tests you ran with their results, and what is left open.",
+            "instructions": "Build the package below in the repository you are given, at atlas/ in your folder, starting from its base. Keep to the worker rules: the boundary greps that CI runs must stay clean (atlas/bin/check runs them, and runs after you), and do no web search. Run the tests of every system you change. End your answer with what you changed, the tests you ran with their results, and what is left open.",
             "kind": "author",
             "machinery": "machinery",
             "profile": "deep_coding",

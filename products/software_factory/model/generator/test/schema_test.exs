@@ -93,7 +93,7 @@ defmodule RelaDSL.SchemaTest do
                 role: :developer,
                 profile: :deep_coding,
                 cost_class: :standard,
-                input: [repository: "https://example.invalid/r.git", base: "develop"],
+                input: [code: "example.invalid/r", base: "develop", root: "r"],
                 check: ["bin/check"],
                 records: [kind: "task", relation: "task_of"],
                 machinery: "machinery"
@@ -632,18 +632,41 @@ defmodule RelaDSL.SchemaTest do
     end
 
     test "a task never names a path on the machinery's machine (D44)" do
+      message =
+        "state a: task author: input: must be [code: repository, base: branch, root: relative path]"
+
       refused(
         task_source(~s(input: [folder: "/Users/someone/work", base: "develop"],)),
         6,
-        "state a: task author: input: must be [repository: url, base: ref]"
+        message
+      )
+
+      refused(
+        task_source(~s(input: [code: "example.invalid/r", base: "develop", root: "/w"],)),
+        6,
+        message
+      )
+
+      refused(
+        task_source(~s(input: [code: "example.invalid/r", base: "develop", root: "../w"],)),
+        6,
+        message
+      )
+    end
+
+    test "a task starts from a Code base, never a repository workspace (F1.5a)" do
+      refused(
+        task_source(~s(input: [repository: "https://example.invalid/r.git", base: "develop"],)),
+        6,
+        "state a: task author: input: must be [code: repository, base: branch, root: relative path]"
       )
 
       refused(
         task_source(
-          ~s(input: [repository: "https://example.invalid/r.git", base: "develop", path: "/w"],)
+          ~s(input: [repository: "https://example.invalid/r.git", code: "example.invalid/r", base: "develop", root: "r"],)
         ),
         6,
-        "state a: task author: input: must be [repository: url, base: ref]"
+        "state a: task author: input: must be [code: repository, base: branch, root: relative path]"
       )
     end
 
@@ -1196,7 +1219,7 @@ defmodule RelaDSL.SchemaTest do
   # A task in state a of a subflow f, with `extra` options first (each ends with a comma)
   # and its result mapping.
   defp task_source(extra, on \\ "on: [completed: :b, check_failed: :c, stuck: :c, abandoned: :c]") do
-    input = ~s(input: [repository: "https://example.invalid/r.git", base: "develop"],)
+    input = ~s(input: [code: "example.invalid/r", base: "develop", root: "r"],)
     input = if extra =~ "input:", do: "", else: input
 
     """

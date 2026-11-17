@@ -66,8 +66,8 @@ defmodule RelaDSL.Schema do
         role: :developer,
         profile: :deep_coding,
         cost_class: :standard,
-        input: [repository: "https://example.invalid/repo.git", base: "develop"],
-        check: ["bin/check"],
+        input: [code: "example.invalid/repo", base: "develop", root: "repo"],
+        check: ["repo/bin/check"],
         instructions: "Build what the package says.",
         fields: [:title, :instructions],
         records: [kind: "task", relation: "task_of"],
@@ -77,8 +77,10 @@ defmodule RelaDSL.Schema do
 
   `kind` is `plan`, `author`, `review` or `fix`; `role` `architect` or `developer`;
   `profile` `deep_coding` or `independent_review`; `cost_class` `low`, `standard` (the
-  default) or `high`. `input` is where the work starts: a repository and its base. It
-  never names a path on the machinery's machine, which the Runtime chooses (its D44).
+  default) or `high`. `input` is where the work starts: `code`, the repository's name in
+  Code; `base`, the branch whose current revision Flow snapshots as the work's base; and
+  `root`, the relative path the repository is placed at in the work's folder. It never
+  names a path on the machinery's machine, which the Runtime chooses (its D44).
   `check` is the command (argv) run after the work, `instructions` the standard text,
   and `fields` the subject's fields added to it. `records` names the kind and relation
   of its task records, `machinery` the kind of the assignee it runs for.
@@ -1152,6 +1154,9 @@ defmodule RelaDSL.Schema do
 
     input = spec[:input]
 
+    root? =
+      &(text?.(&1) and Path.type(&1) == :relative and ".." not in Path.split(&1))
+
     [
       unknown != [] && pre <> "knows no #{list(unknown)}",
       kind not in @task_kinds && pre <> "kind must be one of #{list(@task_kinds)}",
@@ -1161,11 +1166,11 @@ defmodule RelaDSL.Schema do
       spec[:cost_class] not in @task_costs &&
         pre <> "cost_class: must be one of #{list(@task_costs)}",
       not (Keyword.keyword?(input || []) and input != nil and
-             Enum.sort(Keyword.keys(input)) == [:base, :repository] and
-             text?.(input[:repository]) and text?.(input[:base])) &&
+             Enum.sort(Keyword.keys(input)) == [:base, :code, :root] and
+             text?.(input[:code]) and text?.(input[:base]) and root?.(input[:root])) &&
         pre <>
-          "input: must be [repository: url, base: ref]; a task never names a path on the " <>
-          "machinery's machine",
+          "input: must be [code: repository, base: branch, root: relative path]; a task " <>
+          "never names a path on the machinery's machine",
       not (spec[:check] == nil or
              (is_list(spec[:check]) and spec[:check] != [] and Enum.all?(spec[:check], text?))) &&
         pre <> "check: must be a command, a list of texts",

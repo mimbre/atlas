@@ -6,15 +6,18 @@ defmodule AtlasFlow.Activities.TaskTest do
   410 → stuck; at_capacity → submit after capacity; nothing without a machinery assignee
   (E1); an assignment moved away → abandoned; snapshots by revision; and, through the
   engine, the boot reconcile for intent with and without a `work_id`, and the Link's
-  messages.
+  messages. The base (F1.5a) comes from a fake `AtlasFlow.Code.Client`
+  (`AtlasFlow.FakeCode`): the task submits a `base` workspace of its snapshot ID, never a
+  repository one.
   """
   use ExUnit.Case, async: false
 
-  alias AtlasFlow.{Engine, FakeFacts, FakeRuntime, ManualClock, Sorts, TestModel}
+  alias AtlasFlow.{Engine, FakeCode, FakeFacts, FakeRuntime, ManualClock, Sorts, TestModel}
   alias AtlasFlow.Activities.Task
   alias AtlasFlow.Runs.{Run, Store}
 
   @now ~U[2026-11-17 09:00:00Z]
+  @input %{"code" => "example.invalid/depot", "base" => "develop", "root" => "depot"}
 
   defmodule Authored do
     @moduledoc false
@@ -27,20 +30,24 @@ defmodule AtlasFlow.Activities.TaskTest do
     Application.put_env(:atlas_bus, :store, "state-#{System.unique_integer([:positive])}")
     machinery = Application.get_env(:atlas_flow, :machinery)
     client = Application.get_env(:atlas_flow, :runtime_client)
+    code = Application.get_env(:atlas_flow, :code_client)
 
     Application.put_env(:atlas_flow, :machinery, %{
       "mac-mini" => %{url: "http://127.0.0.1:9", token_env: "ATLAS_FLOW_TASK_TEST_TOKEN"}
     })
 
     Application.put_env(:atlas_flow, :runtime_client, FakeRuntime)
+    Application.put_env(:atlas_flow, :code_client, FakeCode)
 
     on_exit(fn ->
       restore(:machinery, machinery)
       restore(:runtime_client, client)
+      restore(:code_client, code)
     end)
 
     start_supervised!(FakeFacts)
     start_supervised!(FakeRuntime)
+    start_supervised!(FakeCode)
     clock = start_supervised!({ManualClock, @now})
     FakeFacts.put("machinery", %{"key" => "mac-mini", "values" => %{"name" => "mac-mini"}})
     FakeFacts.put("clerk", %{"key" => "ada"})
@@ -110,13 +117,19 @@ defmodule AtlasFlow.Activities.TaskTest do
                [:find_work, :capacity, :submit, :get_work]
 
       assert [[^key, request]] = FakeRuntime.calls(:submit)
-      # A repository workspace on the task's own branch: never a folder or a path (D44).
+      # A base workspace of the snapshot Code made of the input's branch when the intent
+      # was: never a repository workspace, a folder or a path (D44, F1.5a).
+      assert FakeCode.calls() == [@input]
+      base_id = FakeCode.id(@input)
+
       assert request["workspace"] == %{
-               "kind" => "repository",
-               "url" => "https://example.invalid/depot.git",
-               "branch" => "flow/" <> key,
-               "base" => "develop"
+               "kind" => "base",
+               "base_id" => base_id,
+               "permissions" => "workspace-write"
              }
+
+      assert JSON.decode!(record["values"]["input"]) == Map.put(@input, "base_id", base_id)
+      assert stored["pending"]["task"]["request"] == request
 
       assert request["after_check"] == %{"command" => ["bin/check"]}
       assert request["profile"] == "deep_coding" and request["cost_class"] == "standard"
@@ -663,15 +676,90 @@ defmodule AtlasFlow.Activities.TaskTest do
     end
   end
 
+  describe "the base (F1.5a)" do
+    setup do
+      :ok = AtlasBus.attach("flow")
+      :ok
+    end
+
+    test "the base is asked of Code once, when the intent is made; a resubmit keeps it", c do
+      box("B-1", "mac-mini")
+      FakeRuntime.script(:submit, [{:unreachable, :timeout}])
+      first = reconcile(c)
+      base_id = FakeCode.id(@input)
+      assert first["pending"]["task"]["request"]["workspace"]["base_id"] == base_id
+      assert first["pending"]["task"]["work_id"] == nil
+
+      # Sent again under the same key with the same request, the base not asked again.
+      again = reconcile(c)
+      assert again["pending"]["task"]["work_id"] == "w-1"
+      assert [[k, r1], [k, r2]] = FakeRuntime.calls(:submit)
+      assert r1 == r2 and r1["workspace"]["base_id"] == base_id
+      assert FakeCode.calls() == [@input]
+    end
+
+    test "without a base from Code no intent is made and nothing is sent", c do
+      box("B-1", "mac-mini")
+
+      FakeCode.script([
+        {:unavailable, "No Code instance is registered"},
+        {:refused, :forbidden},
+        {:ok, ""}
+      ])
+
+      for _ <- 1..3 do
+        run = reconcile(c)
+        assert run["state"] == "authoring" and run["pending"]["task"] == nil
+        assert FakeRuntime.calls() == []
+        assert task_record("TK-B-1-1") == nil
+      end
+
+      assert reconcile(c)["pending"]["task"]["work_id"] == "w-1"
+      assert length(FakeCode.calls()) == 4
+    end
+
+    test "plan and review tasks read their base; author and fix tasks write it" do
+      {:task, spec} = Sorts.Authoring.mechanism("authoring")
+      subject = %{"key" => "B-1", "values" => %{}}
+
+      for {kind, permissions} <- [
+            {"plan", "read-only"},
+            {"review", "read-only"},
+            {"author", "workspace-write"},
+            {"fix", "workspace-write"}
+          ] do
+        assert Task.request(Map.put(spec, "kind", kind), subject, "sha256:abc")["workspace"] ==
+                 %{"kind" => "base", "base_id" => "sha256:abc", "permissions" => permissions}
+      end
+    end
+  end
+
   describe "the spec" do
-    test "a task names a repository and its base, never a path" do
+    test "a task names Code's repository, its branch and root, never a path" do
       {:task, spec} = Sorts.Authoring.mechanism("authoring")
       assert Task.valid?(spec)
+      assert spec["input"] == @input
       refute Task.valid?(put_in(spec, ["input", "path"], "/Users/someone/work"))
       refute Task.valid?(Map.put(spec, "input", %{"folder" => "/tmp/x", "base" => "develop"}))
+      refute Task.valid?(put_in(spec, ["input", "root"], "/Users/someone/work"))
+      refute Task.valid?(put_in(spec, ["input", "root"], "../elsewhere"))
       refute Task.valid?(Map.put(spec, "profile", "light_work"))
       refute Task.valid?(Map.put(spec, "check", []))
       refute Task.valid?(Map.delete(spec, "records"))
+    end
+
+    test "no repository input remains: a repository workspace's input is not a task's" do
+      {:task, spec} = Sorts.Authoring.mechanism("authoring")
+      refute Map.has_key?(spec["input"], "repository")
+
+      refute Task.valid?(
+               Map.put(spec, "input", %{
+                 "repository" => "https://example.invalid/depot.git",
+                 "base" => "develop"
+               })
+             )
+
+      refute Task.valid?(put_in(spec, ["input", "repository"], "https://example.invalid/d.git"))
     end
 
     test "room: accepting, the profile available, and a free slot or buffer place" do

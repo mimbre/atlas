@@ -12,7 +12,8 @@ defmodule AtlasFlow.Activities.Task do
      relation, on the projection's component when it names one) is not a fact of the
      spec's `machinery` kind that Flow's configuration names, nothing is done: no task.
   2. **Intent first (obligation 2).** The task's key, `TK-<subject>-<n>`, and its request
-     are stored in the run (`pending.task`) before anything is sent, and the task record
+     are stored in the run (`pending.task`) before anything is sent to the Runtime, and
+     the task record
      (`records`: its kind and relation to the subject) is written before the first
      `submit`. The key names no machine; it is the work's client key and its
      `Idempotency-Key`.
@@ -38,14 +39,23 @@ defmodule AtlasFlow.Activities.Task do
   ends the task `abandoned`: a late result is ignored, because the run left the state and
   no longer holds its key. The task record is a record only, which no state reads.
 
-  The workspace is a `repository` one (`input: [repository:, base:]`) on the branch
-  `flow/<key>`: a remote client never names a path on the machinery's machine (Runtime
-  D44), so `folder` is never sent.
+  **Base (plan §6 F1.5a).** The workspace is a `base` one, `{kind: base, base_id,
+  permissions}`, so the Runtime freezes the work's result (Runtime §3.9) for the tasks
+  that build on it. The task's input, `[code:, base:, root:]`, names Code's repository, the
+  branch it starts from and where the repository is placed in the work's folder; when the
+  intent is made, `AtlasFlow.Code.Client.base/1` snapshots that branch as it is then, and
+  the snapshot ID is the `base_id` (the Runtime's declared S5a exception, D41). The request
+  the run holds keeps it, so a resubmit sends the same base. A `plan` or `review` task gets
+  the base read-only, an `author` or `fix` task `workspace-write`. While Code does not
+  answer, or refuses the input, no intent is made and nothing is sent. A remote client
+  never names a path on the machinery's machine (Runtime D44): neither `folder` nor a
+  `repository` workspace is sent.
   """
 
   require Logger
 
   alias AtlasBus.Digest
+  alias AtlasFlow.Code
   alias AtlasFlow.Runtime.Config
   alias AtlasFlow.Talk
 
@@ -54,6 +64,7 @@ defmodule AtlasFlow.Activities.Task do
   @roles ~w(architect developer)
   @profiles ~w(deep_coding independent_review)
   @costs ~w(low standard high)
+  @read_only ~w(plan review)
   @terminal ~w(completed failed crashed interrupted cancelled returned)
   @answer_bytes 8192
   @retry_after 60
@@ -71,11 +82,16 @@ defmodule AtlasFlow.Activities.Task do
       texts?(spec["fields"] || []) and records?(spec["records"]) and text?(spec["machinery"])
   end
 
-  # A repository and its base, nothing else: never a path (D44).
-  defp input?(%{"repository" => r, "base" => b} = input),
-    do: map_size(input) == 2 and text?(r) and text?(b)
+  # Code's repository, the branch it starts from and its root in the work's folder, nothing
+  # else: never a path on the machinery's machine (D44).
+  defp input?(%{"code" => c, "base" => b, "root" => r} = input),
+    do: map_size(input) == 3 and text?(c) and text?(b) and root?(r)
 
   defp input?(_), do: false
+
+  # A relative path inside the work's folder.
+  defp root?(root),
+    do: text?(root) and Path.type(root) == :relative and ".." not in Path.split(root)
 
   defp check?(nil), do: true
   defp check?(command), do: is_list(command) and command != [] and texts?(command)
@@ -161,8 +177,11 @@ defmodule AtlasFlow.Activities.Task do
     end
   end
 
-  @doc "The work request of task `key` on `subject` (string keys; the key goes as header)."
-  def request(spec, subject, key) do
+  @doc """
+  The work request of a task on `subject`, starting from the base `base_id` (string keys;
+  the task's key goes as header, not in the request).
+  """
+  def request(spec, subject, base_id) do
     values = subject["values"] || %{}
 
     sections =
@@ -177,16 +196,18 @@ defmodule AtlasFlow.Activities.Task do
       "profile" => spec["profile"],
       "cost_class" => spec["cost_class"],
       "workspace" => %{
-        "kind" => "repository",
-        "url" => spec["input"]["repository"],
-        "branch" => "flow/" <> key,
-        "base" => spec["input"]["base"]
+        "kind" => "base",
+        "base_id" => base_id,
+        "permissions" => permissions(spec)
       }
     }
     |> then(
       &if(spec["check"], do: Map.put(&1, "after_check", %{"command" => spec["check"]}), else: &1)
     )
   end
+
+  defp permissions(%{"kind" => kind}) when kind in @read_only, do: "read-only"
+  defp permissions(_spec), do: "workspace-write"
 
   @doc """
   Whether `capacity` (as `capacity/1` or the Link gives it) has room for a work of
@@ -237,9 +258,10 @@ defmodule AtlasFlow.Activities.Task do
 
   defp intend(spec, subject, %{assignee: {:machinery, name}} = ctx) do
     with {:ok, _machinery} <- Config.fetch(name),
-         {:ok, n} <- ctx.number.() do
+         {:ok, n} <- ctx.number.(),
+         {:ok, base_id} <- base(spec) do
       key = key(subject["key"], n)
-      request = request(spec, subject, key)
+      request = request(spec, subject, base_id)
 
       intent = %{
         "version" => 1,
@@ -262,7 +284,7 @@ defmodule AtlasFlow.Activities.Task do
               "kind" => spec["kind"],
               "role" => spec["role"],
               "profile" => spec["profile"],
-              "input" => JSON.encode!(spec["input"]),
+              "input" => JSON.encode!(Map.put(spec["input"], "base_id", base_id)),
               "client_key" => key,
               "state" => "waiting"
             }),
@@ -274,10 +296,27 @@ defmodule AtlasFlow.Activities.Task do
     else
       :error -> unconfigured(name)
       :unavailable -> :none
+      :no_base -> :none
     end
   end
 
   defp intend(_spec, _subject, _ctx), do: :none
+
+  # The base the task starts from: a fresh Code snapshot of its input's branch.
+  defp base(spec) do
+    case Code.Client.base(spec["input"]) do
+      {:ok, base_id} when is_binary(base_id) and base_id != "" ->
+        {:ok, base_id}
+
+      other ->
+        Logger.warning(
+          "flow: no base for a #{spec["kind"]} task from #{spec["input"]["code"]} " <>
+            "#{spec["input"]["base"]}: #{inspect(other)}; it waits"
+        )
+
+        :no_base
+    end
+  end
 
   defp unconfigured(name) do
     Logger.warning("flow: machinery #{name} is not configured; its tasks wait")
