@@ -93,7 +93,7 @@ defmodule RelaDSL.SchemaTest do
                 role: :developer,
                 profile: :deep_coding,
                 cost_class: :standard,
-                input: [repository: "https://example.invalid/r.git", base: "develop"],
+                input: [repository: "example.invalid/r", base: "develop"],
                 check: ["bin/check"],
                 records: [kind: "task", relation: "task_of"],
                 machinery: "machinery"
@@ -631,20 +631,55 @@ defmodule RelaDSL.SchemaTest do
       )
     end
 
+    # Structural: the problem's tag (`RelaDSL.Schema.input_problem/1`) and where the
+    # composition refuses, never the text.
     test "a task never names a path on the machinery's machine (D44)" do
-      refused(
-        task_source(~s(input: [folder: "/Users/someone/work", base: "develop"],)),
-        6,
-        "state a: task author: input: must be [repository: url, base: ref]"
+      for input <- [
+            [folder: "/Users/someone/work", base: "develop"],
+            [repository: "example.invalid/r", base: "develop", path: "/w"],
+            [repository: "example.invalid/r"],
+            [repository: "", base: "develop"],
+            nil
+          ] do
+        assert RelaDSL.Schema.input_problem(input) == :input_shape, inspect(input)
+      end
+
+      refused_at(task_source(~s(input: [folder: "/Users/someone/work", base: "develop"],)), 6)
+
+      refused_at(
+        task_source(~s(input: [repository: "example.invalid/r", base: "develop", path: "/w"],)),
+        6
+      )
+    end
+
+    test "a task's input is a Code repository's name and a reference, never a URL (M3 A4)" do
+      for input <- [
+            [repository: "https://example.invalid/r.git", base: "develop"],
+            [repository: "ssh://git@example.invalid/r.git", base: "develop"],
+            [repository: "git@example.invalid:owner/r.git", base: "develop"],
+            [repository: "file:///srv/r", base: "develop"],
+            [repository: "example.invalid/r", base: "https://example.invalid/r.git"]
+          ] do
+        assert RelaDSL.Schema.input_problem(input) == :input_url, inspect(input)
+      end
+
+      for input <- [
+            [repository: "github.com/mimbre/atlas", base: "develop"],
+            [repository: "example.invalid/r", base: "release/1.2"]
+          ],
+          do: assert(RelaDSL.Schema.input_problem(input) == nil, inspect(input))
+
+      refused_at(
+        task_source(~s(input: [repository: "https://example.invalid/r.git", base: "develop"],)),
+        6
       )
 
-      refused(
-        task_source(
-          ~s(input: [repository: "https://example.invalid/r.git", base: "develop", path: "/w"],)
-        ),
-        6,
-        "state a: task author: input: must be [repository: url, base: ref]"
+      refused_at(
+        task_source(~s(input: [repository: "git@example.invalid:owner/r.git", base: "develop"],)),
+        6
       )
+
+      assert compile!(task_source(~s(input: [repository: "example.invalid/r", base: "develop"],)))
     end
 
     test "a task with an unknown kind, profile or option" do
@@ -1228,7 +1263,7 @@ defmodule RelaDSL.SchemaTest do
   # A task in state a of a subflow f, with `extra` options first (each ends with a comma)
   # and its result mapping.
   defp task_source(extra, on \\ "on: [completed: :b, check_failed: :c, stuck: :c, abandoned: :c]") do
-    input = ~s(input: [repository: "https://example.invalid/r.git", base: "develop"],)
+    input = ~s(input: [repository: "example.invalid/r", base: "develop"],)
     input = if extra =~ "input:", do: "", else: input
 
     """
@@ -1272,6 +1307,14 @@ defmodule RelaDSL.SchemaTest do
 
     [{^module, _}] = Code.compile_string(src, file)
     module
+  end
+
+  # Refused at fixture line `line`, whatever its text says.
+  defp refused_at(body, line) do
+    error = assert_raise CompileError, fn -> compile!(body) end
+    assert error.file =~ ~r/fixture_\d+\.ex$/
+    assert error.line == line + 1, "expected line #{line + 1}, got #{error.line}"
+    error
   end
 
   defp refused(body, line, message) do

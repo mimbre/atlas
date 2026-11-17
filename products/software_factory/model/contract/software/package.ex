@@ -16,17 +16,20 @@ defmodule Model.Package do
       only Flow writes a package. The packages it waits for (`after`) are not read yet:
       that ordering comes with F4.
     * `authoring` is one author task (`AtlasFlow.Activities.Task`): role developer,
-      profile `deep_coding`, on a fresh `develop` of the repository, with `bin/check`
+      profile `deep_coding`, on a base of the repository's `develop`, with `bin/check`
       after the work. Its record is a `task` linked `task_of` the package. It runs only
       while the package's Assignment is with a machinery (E1); otherwise nothing is
-      done for it.
+      done for it. It is offered to a Runtime of its issue's human supervisor (the
+      issue's span `build`), through Flow's work source.
     * It ends `authored` (the check passed), `check_failed` (the check failed, timed
       out, did not finish or did not run) or `stuck` (any other end of the work, or its
       assignment moved away from the machinery). A person who takes a stuck package
       back restarts it or does it by hand; F2 reviews and fixes the other two.
 
-  The workspace is a repository and its base, never a path on the machinery's machine
-  (the Runtime's D44): the Runtime chooses where it is.
+  Where the work starts is a base, never a path on the machinery's machine (the
+  Runtime's D44): `input` names the Code repository (`github.com/mimbre/atlas`, as Code's
+  settings name it) and the reference (`develop`) Flow resolves the base from in Code. No
+  URL, and nothing of it but the resolved base reaches the Runtime.
   """
   use RelaDSL
 
@@ -118,7 +121,7 @@ defmodule Model.Package do
         role: :developer,
         profile: :deep_coding,
         cost_class: :standard,
-        input: [repository: "https://github.com/mimbre/atlas.git", base: "develop"],
+        input: [repository: "github.com/mimbre/atlas", base: "develop"],
         check: ["bin/check"],
         instructions: @author_instructions,
         fields: [:title, :instructions, :acceptance],
@@ -152,5 +155,19 @@ defmodule Model.Package do
     ],
     admission: [],
     imports: []
+  )
+
+  # The approved migrations of the runs of package; each from is a digest the base
+  # branch recorded (RelaDSL.RunIdentity).
+  # M3 A4: the author task's input names a Code repository (no longer a Git URL); its
+  # base is resolved by Flow and the task goes through Flow's work source. No state
+  # changes, so a live run keeps its state, entry and timers. Prod and test share both
+  # digests.
+  migrate(:package,
+    from: "ed9ae978d163fa3b7d7baf396b8fafab0bebbaf06edfe5028fe4f853d9c99d2c",
+    to: "457c90fddd78d1aa85729dee951b6acd6beccdbd9fb109b6adfb89f7686d8747",
+    preserve_entry: true,
+    states: :same,
+    reason: "The author task's input is a Code repository and reference; same states"
   )
 end

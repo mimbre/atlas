@@ -434,7 +434,7 @@ defmodule AtlasFlow.Sorts.Written do
         task(:author,
           role: :developer,
           profile: :deep_coding,
-          input: [repository: "https://example.invalid/depot.git", base: "develop"],
+          input: [repository: "example.invalid/depot", base: "develop"],
           check: ["bin/check"],
           instructions: "Pack the box.",
           fields: [:step],

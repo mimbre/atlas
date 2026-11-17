@@ -160,7 +160,9 @@
       "package": {
         "choices": [],
         "choice_states": [],
-        "migrations": [],
+        "migrations": [
+          {"from":"ed9ae978d163fa3b7d7baf396b8fafab0bebbaf06edfe5028fe4f853d9c99d2c","to":"457c90fddd78d1aa85729dee951b6acd6beccdbd9fb109b6adfb89f7686d8747","preserve_entry":true,"states":{"authored":"authored","authoring":"authoring","check_failed":"check_failed","stuck":"stuck","waiting":"waiting"},"reason":"The author task's input is a Code repository and reference; same states"}
+        ],
         "subject": "package",
         "projection": {
           "on": "assignment",

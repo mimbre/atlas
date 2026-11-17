@@ -19,7 +19,8 @@ defmodule AtlasFlow.Application do
           []
         end
 
-      children = [AtlasFlow.Activities.Effect.Inbox] ++ engine ++ work_source
+      # The work source first: the Engine's first round already finds Bases (M3 A4).
+      children = [AtlasFlow.Activities.Effect.Inbox] ++ work_source ++ engine
 
       Supervisor.start_link(children, strategy: :one_for_one, name: AtlasFlow.Root)
     end
@@ -32,7 +33,8 @@ defmodule AtlasFlow.Application do
   Flow does not start: every result would be too large.
 
   They run under one supervisor, in that order, `rest_for_one`: the store rebuilds its pins
-  from Facts before it serves a call, and Dispatch and Delivery start after it.
+  from Facts before it serves a call, and Dispatch and Delivery start after it. That
+  supervisor starts before the Engine, so the Engine's first round finds Bases' table.
 
   The HTTP listener (`AtlasFlow.Backend.Listener`, A3) comes last, and only when the work
   source has a `port`: without one there is no listener. It binds 127.0.0.1 only.

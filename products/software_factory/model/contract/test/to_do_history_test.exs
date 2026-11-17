@@ -25,6 +25,9 @@ defmodule Model.ToDoHistoryTest do
     # M3 S3 (#325 B2) owns a To-Do by its assignee: one approved migration from To-Do's
     # first digest, which this older base predates as well.
     to_do_first = "8e387a008256b3c65947e0063dd48fbd4ab70417021cd1bc6cb54d947d59156b"
+    # M3 A4: the package's author task input names a Code repository; one approved
+    # migration from package's first digest, which this older base predates too.
+    package_first = "ed9ae978d163fa3b7d7baf396b8fafab0bebbaf06edfe5028fe4f853d9c99d2c"
 
     expected =
       Map.update!(@base["subflows"], "pr_review", fn environments ->
@@ -42,12 +45,13 @@ defmodule Model.ToDoHistoryTest do
     # F0's migration from the restored digest is approved against the base that has it
     # (develop's digests.json, model-base); this older base predates that digest. The one
     # from the slice-14 digest straight to F0's is approved here.
-    older = Enum.reject(migrations, &(&1.opts[:from] in [restored, to_do_first]))
+    older = Enum.reject(migrations, &(&1.opts[:from] in [restored, to_do_first, package_first]))
     assert RunIdentity.base_problems(@base, document, older) == []
 
-    assert [_, _] = problems = RunIdentity.base_problems(@base, document, migrations)
+    assert [_, _, _] = problems = RunIdentity.base_problems(@base, document, migrations)
     assert Enum.any?(problems, &(&1 =~ "migrate pr_review from 05019b5d"))
     assert Enum.any?(problems, &(&1 =~ "migrate to_do from 8e387a00"))
+    assert Enum.any?(problems, &(&1 =~ "migrate package from ed9ae978"))
 
     for {name, states} <- [
           {"to_do", ~w(done open wont_do)},
@@ -56,7 +60,7 @@ defmodule Model.ToDoHistoryTest do
         environment <- ~w(prod test) do
       entry = document["subflows"][name][environment]
       assert entry["states"] == states
-      before = if name == "to_do", do: [to_do_first], else: []
+      before = if name == "to_do", do: [to_do_first], else: [package_first]
 
       assert entry["history"] ==
                Enum.sort_by(

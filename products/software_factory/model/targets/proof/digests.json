@@ -319,8 +319,18 @@
     },
     "package": {
       "prod": {
-        "digest": "ed9ae978d163fa3b7d7baf396b8fafab0bebbaf06edfe5028fe4f853d9c99d2c",
+        "digest": "457c90fddd78d1aa85729dee951b6acd6beccdbd9fb109b6adfb89f7686d8747",
         "history": [
+          {
+            "digest": "457c90fddd78d1aa85729dee951b6acd6beccdbd9fb109b6adfb89f7686d8747",
+            "states": [
+              "authored",
+              "authoring",
+              "check_failed",
+              "stuck",
+              "waiting"
+            ]
+          },
           {
             "digest": "ed9ae978d163fa3b7d7baf396b8fafab0bebbaf06edfe5028fe4f853d9c99d2c",
             "states": [
@@ -341,8 +351,18 @@
         ]
       },
       "test": {
-        "digest": "ed9ae978d163fa3b7d7baf396b8fafab0bebbaf06edfe5028fe4f853d9c99d2c",
+        "digest": "457c90fddd78d1aa85729dee951b6acd6beccdbd9fb109b6adfb89f7686d8747",
         "history": [
+          {
+            "digest": "457c90fddd78d1aa85729dee951b6acd6beccdbd9fb109b6adfb89f7686d8747",
+            "states": [
+              "authored",
+              "authoring",
+              "check_failed",
+              "stuck",
+              "waiting"
+            ]
+          },
           {
             "digest": "ed9ae978d163fa3b7d7baf396b8fafab0bebbaf06edfe5028fe4f853d9c99d2c",
             "states": [

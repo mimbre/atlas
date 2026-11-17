@@ -718,7 +718,7 @@
             "fields": ["title", "instructions", "acceptance"],
             "input": {
               "base": "develop",
-              "repository": "https://github.com/mimbre/atlas.git"
+              "repository": "github.com/mimbre/atlas"
             },
             "instructions": "Build the package below in the repository you are given, starting from its base. Keep to the worker rules: the boundary greps that CI runs must stay clean (bin/check runs them, and runs after you), and do no web search. Run the tests of every system you change. End your answer with what you changed, the tests you ran with their results, and what is left open.",
             "kind": "author",

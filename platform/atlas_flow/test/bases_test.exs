@@ -31,7 +31,8 @@ defmodule AtlasFlow.BasesTest do
 
   defp ready(context, reference \\ "develop") do
     :ok = Bases.request(@repository, reference, {self(), {:ready, reference}}, context.name)
-    assert_receive {:ready, ^reference}
+    # The base is resolved in Bases' own task: a loaded machine may take longer than 100 ms.
+    assert_receive {:ready, ^reference}, 2_000
     {:ok, base} = Bases.cached(@repository, reference, context.name)
     base
   end
@@ -318,6 +319,194 @@ defmodule AtlasFlow.BasesTest do
     end
   end
 
+  describe "pinned by snapshot (M3 A4)" do
+    defp bytes(context, sha, snapshot_id) do
+      assert {:ok, size, stream} = Bases.blob(sha, snapshot_id, context.name)
+      content = IO.iodata_to_binary(Enum.to_list(stream))
+      assert byte_size(content) == size
+      content
+    end
+
+    # The branch moves on: develop now names another revision with other files.
+    defp move(fake),
+      do:
+        FakeCode.put(fake, @repository, "develop", "rev_2", %{
+          "README.md" => "moved\n",
+          "bin/run" => "#!/bin/sh\necho moved\n"
+        })
+
+    test "after a restart, a lease's base is restored from its snapshot id, byte for byte, the branch moved",
+         context do
+      start_bases(context)
+      base = ready(context)
+      manifest = bytes(context, base.manifest, base.snapshot_id)
+      readme = bytes(context, sha256(@readme), base.snapshot_id)
+      run = bytes(context, sha256(@run), base.snapshot_id)
+
+      move(context.fake)
+      stop_supervised!(context.name)
+      start_bases(context)
+      assert Bases.names(base.manifest, context.name) == :not_found
+      resolved = count(context.fake, :resolve_reference)
+      snapshotted = count(context.fake, :create_snapshot)
+
+      assert :ok = Bases.restore(@repository, base.snapshot_id, base.manifest, context.name)
+      settle(context, fn -> match?({:ok, _}, Bases.names(base.manifest, context.name)) end)
+
+      # The same base: its manifest blob and its files, as they were before the move.
+      assert {:ok, names} = Bases.names(base.manifest, context.name)
+      assert names == Bases.names_of(base.manifest, JSON.decode!(manifest))
+      assert bytes(context, base.manifest, base.snapshot_id) == manifest
+      assert bytes(context, sha256(@readme), base.snapshot_id) == readme
+      assert bytes(context, sha256(@run), base.snapshot_id) == run
+
+      # From the snapshot id alone: no reference resolved, no snapshot made.
+      assert count(context.fake, :resolve_reference) == resolved
+      assert count(context.fake, :create_snapshot) == snapshotted
+      assert Bases.cached(@repository, "develop", context.name) == :missing
+
+      # The branch did move: a fresh request gives another base.
+      assert ready(context).manifest != base.manifest
+
+      # Restored again (it is held): nothing more is asked of Code.
+      calls = length(FakeCode.calls(context.fake))
+      assert :ok = Bases.restore(@repository, base.snapshot_id, base.manifest, context.name)
+      :sys.get_state(context.name)
+      assert length(FakeCode.calls(context.fake)) == calls
+    end
+
+    test "a snapshot that does not give the lease's manifest is not kept", context do
+      start_bases(context)
+      base = ready(context)
+      stop_supervised!(context.name)
+      start_bases(context)
+      other = String.duplicate("0", 64)
+
+      assert :ok = Bases.restore(@repository, base.snapshot_id, other, context.name)
+      # Its task answered, and nothing waits for a retry.
+      settle(context, fn -> :sys.get_state(context.name).pending == %{} end)
+      assert Bases.names(other, context.name) == :not_found
+      assert Bases.names(base.manifest, context.name) == :not_found
+    end
+
+    test "Code failing: the restore is tried again after 30 s", context do
+      start_bases(context)
+      base = ready(context)
+      stop_supervised!(context.name)
+      start_bases(context)
+      FakeCode.mode(context.fake, :failing)
+
+      assert :ok = Bases.restore(@repository, base.snapshot_id, base.manifest, context.name)
+      # Its task answered: the restore waits for its retry.
+      settle(context, fn ->
+        match?([%{status: :waiting}], Map.values(:sys.get_state(context.name).pending))
+      end)
+
+      assert Bases.names(base.manifest, context.name) == :not_found
+
+      FakeCode.mode(context.fake, :ok)
+      ManualClock.advance(context.clock, 30_000)
+      settle(context, fn -> match?({:ok, _}, Bases.names(base.manifest, context.name)) end)
+      assert count(context.fake, :resolve_reference) == 1
+    end
+
+    # develop moves to a revision with the same files: another snapshot, the same manifest.
+    defp same_tree(fake), do: FakeCode.put(fake, @repository, "develop", "rev_2", files())
+
+    # Awaits the answer of Bases' task for `snapshot_id` as Bases receives it (traced, an
+    # event; no sleep), then lets Bases handle it.
+    defp restoring(context, snapshot_id, fun) do
+      bases = Process.whereis(context.name)
+      1 = :erlang.trace(bases, true, [:receive])
+
+      try do
+        fun.()
+
+        assert_receive {:trace, ^bases, :receive,
+                        {ref, {:ok, :pinned, %{base: %{snapshot_id: ^snapshot_id}}}}}
+                       when is_reference(ref),
+                       2_000
+
+        :sys.get_state(bases)
+      after
+        :erlang.trace(bases, false, [:receive])
+      end
+    end
+
+    test "one manifest from two snapshots: a restore, then a resolution, serve it to both",
+         context do
+      start_bases(context)
+      base = ready(context)
+      manifest = bytes(context, base.manifest, base.snapshot_id)
+      same_tree(context.fake)
+      stop_supervised!(context.name)
+      start_bases(context)
+
+      restoring(context, base.snapshot_id, fn ->
+        Bases.restore(@repository, base.snapshot_id, base.manifest, context.name)
+      end)
+
+      again = ready(context)
+      assert again.manifest == base.manifest and again.snapshot_id != base.snapshot_id
+
+      for snapshot <- [base.snapshot_id, again.snapshot_id] do
+        assert Bases.held?(base.manifest, snapshot, context.name)
+        assert bytes(context, base.manifest, snapshot) == manifest
+      end
+    end
+
+    test "one manifest from two snapshots: a resolution, then a restore, serve it to both",
+         context do
+      start_bases(context)
+      base = ready(context)
+      manifest = bytes(context, base.manifest, base.snapshot_id)
+      same_tree(context.fake)
+      stop_supervised!(context.name)
+      start_bases(context)
+
+      again = ready(context)
+      assert again.manifest == base.manifest and again.snapshot_id != base.snapshot_id
+      # Bases holds the manifest, but not for the lease's snapshot: it is restored.
+      refute Bases.held?(base.manifest, base.snapshot_id, context.name)
+      assert Bases.blob(base.manifest, base.snapshot_id, context.name) == :not_found
+
+      restoring(context, base.snapshot_id, fn ->
+        Bases.restore(@repository, base.snapshot_id, base.manifest, context.name)
+      end)
+
+      for snapshot <- [base.snapshot_id, again.snapshot_id] do
+        assert Bases.held?(base.manifest, snapshot, context.name)
+        assert bytes(context, base.manifest, snapshot) == manifest
+      end
+    end
+
+    test "a manifest blob is served only to a snapshot it was derived from", context do
+      start_bases(context)
+      base = ready(context)
+      FakeCode.put(context.fake, @repository, "release", "rev_3", %{"README.md" => "other\n"})
+      other = ready(context, "release")
+      assert other.manifest != base.manifest
+
+      for snapshot <- [other.snapshot_id, "sha256:" <> String.duplicate("b", 64)] do
+        refute Bases.held?(base.manifest, snapshot, context.name)
+        assert Bases.blob(base.manifest, snapshot, context.name) == :not_found
+      end
+
+      assert Bases.held?(base.manifest, base.snapshot_id, context.name)
+      refute Bases.held?(base.manifest, base.snapshot_id, :bases_not_running)
+    end
+
+    test "with Bases not running, a restore is :ok and nothing raises", context do
+      assert :ok =
+               Bases.restore(
+                 @repository,
+                 "sha256:" <> String.duplicate("a", 64),
+                 "x",
+                 context.name
+               )
+    end
+  end
+
   describe "no caller waits on Code" do
     test "with Code blocked, cached/3 and request/4 answer at once and never call Code",
          context do
@@ -344,8 +533,8 @@ defmodule AtlasFlow.BasesTest do
 
       FakeCode.mode(context.fake, :ok)
       FakeCode.release(context.fake)
-      assert_receive :first
-      assert_receive :second
+      assert_receive :first, 2_000
+      assert_receive :second, 2_000
       assert {:ok, _base} = Bases.cached(@repository, "develop", context.name)
       assert count(context.fake, :resolve_reference) == 1
       refute Enum.any?(FakeCode.calls(context.fake), &(elem(&1, 1) in [caller_pid, self()]))
@@ -367,7 +556,7 @@ defmodule AtlasFlow.BasesTest do
 
       FakeCode.mode(context.fake, :ok)
       ManualClock.advance(context.clock, 30_000)
-      assert_receive :ready
+      assert_receive :ready, 2_000
       assert {:ok, _base} = Bases.cached(@repository, "develop", context.name)
     end
 
@@ -392,8 +581,8 @@ defmodule AtlasFlow.BasesTest do
       refute_received :first
 
       ManualClock.advance(context.clock, 1)
-      assert_receive :first
-      assert_receive :second
+      assert_receive :first, 2_000
+      assert_receive :second, 2_000
       assert {:ok, _base} = Bases.cached(@repository, "develop", context.name)
     end
 
