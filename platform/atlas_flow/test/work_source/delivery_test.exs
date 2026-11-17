@@ -293,10 +293,12 @@ defmodule AtlasFlow.WorkSource.DeliveryTest do
       fits = String.duplicate("d", 20)
       ctx = ended_lease!(ctx, [{"c.bin", big}, {"d.bin", fits}], bin: "B-2")
 
-      # What the store holds now (every blob and manifest file), plus 20 bytes of room.
+      # What the store holds now (every blob and manifest file), plus 20 bytes of room. Its
+      # own temp dir is left out by its place in the store, not by a "/tmp" anywhere in the
+      # path: the store dir itself sits under the host's temp dir (`/tmp/…` on Linux CI).
       used =
         for path <- Path.wildcard(Path.join(ctx.dir, "**")),
-            not String.contains?(path, "/tmp"),
+            hd(Path.split(Path.relative_to(path, ctx.dir))) != "tmp",
             File.regular?(path),
             reduce: 0,
             do: (acc -> acc + File.stat!(path).size)
