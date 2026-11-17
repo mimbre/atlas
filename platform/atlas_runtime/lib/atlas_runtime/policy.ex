@@ -9,6 +9,13 @@ defmodule AtlasRuntime.Policy do
 
   `load/1` returns `{:ok, policy}` or `{:error, reason}`; every other function takes that
   result as it is. Quota evidence is not policy: it lives in `AtlasRuntime.Availability`.
+
+  A `sources` entry has exactly its kind's fields. A `remote` entry may also name a
+  `ca_file`: a PEM file of the CAs its TLS peer is verified against instead of the OS store,
+  under `sources/<name>/` like its `credential_file` (a test source whose certificate no
+  public CA signs; pull-e2e D5). Without it the OS store applies. A `builtin` entry has none.
+  This checks the path as a string only; at each open `AtlasRuntime.Sources.Supervisor.open/5`
+  also refuses a symbolic link on it (lstat) and trusts the certificates it read.
   """
 
   @file_name "policy.json"
@@ -46,6 +53,8 @@ defmodule AtlasRuntime.Policy do
     "builtin" => ~w(name kind priority max_slots max_store_bytes),
     "remote" => ~w(name kind url credential_file priority max_slots max_store_bytes)
   }
+  # Keys an entry of that kind may add (pull-e2e D5): a remote source's own CA file.
+  @optional_source_keys %{"builtin" => [], "remote" => ~w(ca_file)}
 
   @type loaded :: {:ok, map()} | {:error, :missing | {:invalid, String.t()}}
   @type option :: %{String.t() => String.t()}
@@ -557,16 +566,21 @@ defmodule AtlasRuntime.Policy do
     do: {:error, {:invalid, "a source needs a name and a kind, builtin or remote"}}
 
   defp source_fields(source, name, kind) do
-    keys = @source_keys[kind]
+    required = @source_keys[kind]
+    optional = @optional_source_keys[kind]
+    keys = Map.keys(source)
 
     first_failure([
-      {Enum.sort(Map.keys(source)) == Enum.sort(keys),
-       "a #{kind} source has exactly the fields #{Enum.join(keys, ", ")}"},
+      {required -- keys == [] and keys -- (required ++ optional) == [],
+       "a #{kind} source has exactly the fields #{Enum.join(required, ", ")}" <>
+         if(optional == [], do: "", else: ", and may have #{Enum.join(optional, ", ")}")},
       {kind == "builtin" == (name == @builtin_source),
        "only #{inspect(@builtin_source)} is builtin, and it is never remote"},
       {kind == "builtin" or https?(source["url"]), "url must be an https:// URL with a host"},
-      {kind == "builtin" or credential_file?(source["credential_file"], name),
+      {kind == "builtin" or source_file?(source["credential_file"], name),
        "credential_file must be a relative path under sources/#{name}/"},
+      {optional(source, "ca_file", &source_file?(&1, name)),
+       "ca_file must be a relative path under sources/#{name}/"},
       {is_integer(source["priority"]), "priority must be an integer"},
       {is_integer(source["max_slots"]) and source["max_slots"] >= 0,
        "max_slots must be a non-negative integer"},
@@ -594,10 +608,11 @@ defmodule AtlasRuntime.Policy do
 
   defp https?(_), do: false
 
-  # Relative to the Runtime home and inside that source's own directory: every segment is
-  # a plain name, so neither `..`, `.`, an empty segment nor an absolute path can leave it;
-  # no control character (NUL included) either.
-  defp credential_file?(path, name) when is_binary(path) do
+  # A source's file (its credential_file, its ca_file): relative to the Runtime home and
+  # inside that source's own directory. Every segment is a plain name, so neither `..`,
+  # `.`, an empty segment nor an absolute path can leave it; no control character (NUL
+  # included) either.
+  defp source_file?(path, name) when is_binary(path) do
     segments = String.split(path, "/")
 
     Path.type(path) == :relative and not String.match?(path, ~r/[\x00-\x1f\x7f]/) and
@@ -605,7 +620,7 @@ defmodule AtlasRuntime.Policy do
       Enum.all?(segments, &(&1 not in ["", ".", ".."]))
   end
 
-  defp credential_file?(_, _), do: false
+  defp source_file?(_, _), do: false
 
   defp profile(name, profile) do
     first_failure(

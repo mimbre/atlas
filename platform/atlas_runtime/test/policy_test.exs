@@ -479,29 +479,33 @@ defmodule AtlasRuntime.PolicyTest do
           do: assert_refused(dir, [@local, flow(%{"url" => url})])
     end
 
+    # Paths a source's file (credential_file, ca_file) may not have: outside its own
+    # directory, escaping it, absolute, empty, with a control character, or not a string.
+    @outside_paths [
+      "../x",
+      "/etc/token",
+      "/sources/flow-prod/token",
+      "sources/flow-prod/../other/token",
+      "sources/flow-prod/../../token",
+      "sources/../flow-prod/token",
+      "./sources/flow-prod/token",
+      "sources/flow-prod/./token",
+      "sources//flow-prod/token",
+      "sources/flow-prod//token",
+      "sources/other/token",
+      "sources/flow-prod",
+      "sources/flow-prod/",
+      "token",
+      "sources/flow-prod/tok\0en",
+      "sources/flow-prod/tok\nen",
+      "sources/flow-prod/tok\ten",
+      "sources/flow-prod/tok\x7Fen",
+      "",
+      nil
+    ]
+
     test "credential file stays under sources/<name>/", %{tmp_dir: dir} do
-      for path <- [
-            "../x",
-            "/etc/token",
-            "/sources/flow-prod/token",
-            "sources/flow-prod/../other/token",
-            "sources/flow-prod/../../token",
-            "sources/../flow-prod/token",
-            "./sources/flow-prod/token",
-            "sources/flow-prod/./token",
-            "sources//flow-prod/token",
-            "sources/flow-prod//token",
-            "sources/other/token",
-            "sources/flow-prod",
-            "sources/flow-prod/",
-            "token",
-            "sources/flow-prod/tok\0en",
-            "sources/flow-prod/tok\nen",
-            "sources/flow-prod/tok\ten",
-            "sources/flow-prod/tok\x7Fen",
-            "",
-            nil
-          ],
+      for path <- @outside_paths,
           do: assert_refused(dir, [@local, flow(%{"credential_file" => path})])
 
       # A deeper file in its own directory is fine.
@@ -510,6 +514,25 @@ defmodule AtlasRuntime.PolicyTest do
                  dir,
                  with_sources([flow(%{"credential_file" => "sources/flow-prod/a/token"})])
                )
+    end
+
+    # pull-e2e D5: a remote source may trust its own CA file (a test source); the same path
+    # rule as its credential applies, and the builtin source has none.
+    test "a remote source may name a ca_file under sources/<name>/", %{tmp_dir: dir} do
+      with_ca = flow(%{"ca_file" => "sources/flow-prod/ca.pem"})
+      policy = with_sources([@local, with_ca])
+      assert {:ok, ^policy} = loaded = loaded(dir, policy)
+      assert Policy.sources(loaded) == [@local, with_ca]
+
+      deeper = flow(%{"ca_file" => "sources/flow-prod/tls/ca.pem"})
+      assert {:ok, _} = loaded(dir, with_sources([deeper]))
+
+      for path <- @outside_paths ++ ["/etc/ssl/cert.pem", "sources/other/ca.pem", 7, %{}],
+          do: assert_refused(dir, [@local, flow(%{"ca_file" => path})])
+
+      # Never on the builtin source, and an unknown key stays refused next to it.
+      assert_refused(dir, [Map.put(@local, "ca_file", "sources/local/ca.pem"), @flow])
+      assert_refused(dir, [@local, Map.put(with_ca, "weight", 1)])
     end
 
     test "priorities are unique", %{tmp_dir: dir} do
