@@ -297,14 +297,12 @@ defmodule AtlasRuntimeBoundary.Generator.SchemaTest do
                %{outcome: :no, set: [why: :bad, count: 0], detail: nil}
     end
 
-    test "a :stream anywhere but as a direct field of an outcome model, at the field's line" do
+    test "a :stream anywhere but as a direct field of an outcome or input model, at the field's line" do
       scan = "defmodel :scan do\nfield :content, :stream, required: true\nend\n"
-      rule = "a :stream is allowed only as a direct field of an outcome model"
+      rule = "a :stream is allowed only as a direct field of an outcome or input model"
 
       for {body, message} <- [
-            # As or in an input.
-            {scan <> "defcapability :up, input: :scan, outcomes: [ok: nil], right: :r",
-             "scan.content: #{rule}; :scan is the input of capability :up"},
+            # In a model an input holds.
             {scan <>
                "defmodel :up_input do field :scan, :scan end\n" <>
                "defcapability :get, outcomes: [got: :scan], right: :r\n" <>
@@ -330,15 +328,16 @@ defmodule AtlasRuntimeBoundary.Generator.SchemaTest do
                "defmodel :c do field :z, :scan end\n" <>
                "defcapability :get, outcomes: [got: :c], right: :r",
              "scan.content: #{rule}; :scan is held by c.z"},
-            # A model that no outcome carries.
-            {scan, "scan.content: #{rule}; no outcome carries :scan"},
+            # A model that no outcome carries and no capability takes.
+            {scan, "scan.content: #{rule}; no outcome carries :scan and no capability takes it"},
             {"defmodel :stream do field :x, :string end", ":stream clashes with a primitive type"}
           ] do
         error = assert_raise CompileError, ~r/#{Regex.escape(message)}/, fn -> spec(body) end
         if String.starts_with?(body, scan), do: assert(error.line == 5, inspect(error))
       end
 
-      # The one place it is allowed: an outcome model, also for two outcomes.
+      # The two places it is allowed: an outcome model, also for two outcomes, and a
+      # capability's input (an upload).
       schema =
         spec(
           scan <>
@@ -348,6 +347,11 @@ defmodule AtlasRuntimeBoundary.Generator.SchemaTest do
 
       assert [%{name: :scan, fields: [%{name: :content, type: :stream, required: true}]}] =
                schema.models
+
+      schema =
+        spec(scan <> "defcapability :up, input: :scan, outcomes: [ok: nil], right: :r").__schema__()
+
+      assert [%{name: :up, input: :scan}] = schema.capabilities
     end
 
     test "a capability inside a model, and a contract without a version" do

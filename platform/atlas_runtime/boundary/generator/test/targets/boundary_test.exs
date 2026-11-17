@@ -177,6 +177,66 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.BoundaryTest do
       {:type, t} = Enum.find(types, &match?({:type, {:t, _, _}}, &1))
       assert Code.Typespec.type_to_quoted(t) |> Macro.to_string() =~ "content: Enumerable.t()"
     end
+
+    test "as an input field (an upload), it reaches the implementation unconsumed" do
+      n = System.unique_integer([:positive])
+
+      [{facade, _} | _] =
+        Code.compile_string("""
+        defmodule UploadContract#{n} do
+          use AtlasRuntimeBoundary.Generator.Schema
+          version "0.1.0"
+
+          defmodel :upload_input do
+            field :title, :string, required: true
+            field :content, :stream, required: true
+          end
+
+          defmodel :stored do
+            field :bytes, :integer, required: true
+          end
+
+          defcapability :upload, input: :upload_input, outcomes: [stored: :stored], right: :lend
+        end
+
+        defmodule UploadFacade#{n} do
+          use AtlasRuntimeBoundary.Generator.Targets.Boundary,
+            contract: UploadContract#{n},
+            implementation: UploadDesk#{n}
+        end
+
+        defmodule UploadDesk#{n} do
+          use UploadFacade#{n}.Implementation
+
+          def upload({owner, _rights}, %UploadFacade#{n}.UploadInput{content: content}) do
+            send(owner, :called)
+            %UploadFacade#{n}.Outcome.Stored{bytes: content |> Enum.join() |> byte_size()}
+          end
+        end
+        """)
+        |> Enum.sort_by(fn {module, _} -> Atom.to_string(module) end)
+        |> Enum.filter(fn {module, _} -> Atom.to_string(module) =~ "UploadFacade" end)
+
+      lazy = Stream.map(["ab", "c"], fn chunk -> send(self(), :enumerated) && chunk end)
+      stored = Module.concat(facade, Outcome.Stored)
+
+      # A refused call never reads the stream, nor calls the implementation.
+      assert %NotPermitted{capability: :upload} =
+               facade.upload({self(), []}, %{title: "t", content: lazy})
+
+      assert %InvalidInput{reasons: ["input.content must be a stream" <> _]} =
+               facade.upload({self(), [:lend]}, %{title: "t", content: "bytes"})
+
+      refute_received :called
+      refute_received :enumerated
+
+      # The implementation reads it, not the facade.
+      assert %{__struct__: ^stored, bytes: 3} =
+               facade.upload({self(), [:lend]}, %{title: "t", content: lazy})
+
+      assert_received :called
+      assert_received :enumerated
+    end
   end
 
   describe "invalid_detail_right:" do

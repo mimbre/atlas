@@ -61,9 +61,9 @@ defmodule AtlasRuntimeBoundary.Generator.Schema do
       `:datetime` values;
     - `:stream`: an opaque byte stream, an `Enumerable` of binary chunks that the facade
       passes on without enumerating it. It is allowed only as a direct field of a model
-      that is carried by an outcome and used nowhere else: not as or in a capability's
-      input, not in a `list`, a `map` or a `one_of`, and not in a model held by another
-      model. Anywhere else it is a `CompileError` at the field's line.
+      that an outcome carries or a capability takes as its input (an upload), and that
+      is used nowhere else: not in a `list`, a `map` or a `one_of`, and not in a model
+      held by another model. Anywhere else it is a `CompileError` at the field's line.
   - `defcapability`: an operation the system offers, by name, with options:
     - `input:` the model it takes, or `nil` / left out when it takes none;
     - `outcomes:` `[outcome: model]`, at least one, in order: each outcome by name, with
@@ -354,9 +354,10 @@ defmodule AtlasRuntimeBoundary.Generator.Schema do
     {models, streams}
   end
 
-  # A :stream is a direct field of a model that only outcomes carry (§1.3, S5a): not an
-  # input, not held by another model (directly, in a list or in a one_of), and carried by
-  # at least one outcome.
+  # A :stream is a direct field of a model that outcomes carry (a download, S5a) or that
+  # capabilities take as their input (an upload): not held by another model (directly, in
+  # a list or in a one_of), and carried by at least one outcome or taken by at least one
+  # capability.
   defp validate_streams!(streams, models, capabilities) do
     for {model, field} <- streams do
       fail =
@@ -364,19 +365,18 @@ defmodule AtlasRuntimeBoundary.Generator.Schema do
           field.file,
           field.line,
           "#{model}.#{field.name}: a :stream is allowed only as a direct field of an " <>
-            "outcome model; " <> &1
+            "outcome or input model; " <> &1
         )
-
-      for %{name: capability, input: ^model} <- capabilities,
-          do: fail.("#{inspect(model)} is the input of capability #{inspect(capability)}")
 
       for holder <- models,
           holding <- holder.fields,
           model in held(holding.type),
           do: fail.("#{inspect(model)} is held by #{holder.name}.#{holding.name}")
 
-      unless Enum.any?(capabilities, fn c -> Enum.any?(c.outcomes, &(&1.model == model)) end),
-        do: fail.("no outcome carries #{inspect(model)}")
+      unless Enum.any?(capabilities, fn c ->
+               c.input == model or Enum.any?(c.outcomes, &(&1.model == model))
+             end),
+             do: fail.("no outcome carries #{inspect(model)} and no capability takes it")
     end
 
     :ok
@@ -519,7 +519,8 @@ defmodule AtlasRuntimeBoundary.Generator.Schema do
   defp check_type!({:list, @stream}, _models, at, fail),
     do:
       fail.(
-        "#{at} is a list of :stream; a :stream is allowed only as a direct field of an outcome model"
+        "#{at} is a list of :stream; a :stream is allowed only as a direct field of an " <>
+          "outcome or input model"
       )
 
   defp check_type!({:list, inner}, models, at, fail),
