@@ -229,7 +229,7 @@ func TestWorkArgumentShapes(t *testing.T) {
 		{[]string{"continue", "--turn", "t", "x"}, "flag provided but not defined: -turn"},
 		{[]string{"status", "--worker", "w"}, "flag provided but not defined: -worker"},
 		{[]string{"stop", "--worker", "w", "--turn", "t"}, "flag provided but not defined: -worker"},
-		{[]string{"output", "--follow"}, "flag provided but not defined: -follow"},
+		{[]string{"output", "--follow"}, "use output --turn TURN_ID"},
 		{[]string{"output", "--worker", "w"}, "flag provided but not defined: -worker"},
 	} {
 		t.Run(strings.Join(test.args, " "), func(t *testing.T) {
@@ -289,6 +289,99 @@ func historyServer(t *testing.T, dir string, pages map[string]map[string]any) *[
 	server.Start()
 	t.Cleanup(server.Close)
 	return seen
+}
+
+// outputServer serves a turn's output pages on dir/backend.sock, one per request in order, and
+// records each request's cursor.
+func outputServer(t *testing.T, dir string, pages []map[string]any) *[]string {
+	t.Helper()
+	listener, err := net.Listen("unix", filepath.Join(dir, backendSocket))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cursors := &[]string{}
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := len(*cursors)
+		*cursors = append(*cursors, r.URL.Query().Get("cursor"))
+		if n >= len(pages) || r.URL.Path != "/v1/turns/turn-0123456789abcdef/output" {
+			w.Header().Set("Content-Type", "application/problem+json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]any{"type": "invalid", "title": "Bad Request", "status": 400})
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(pages[n])
+	}))
+	server.Listener.Close()
+	server.Listener = listener
+	server.Start()
+	t.Cleanup(server.Close)
+	return cursors
+}
+
+func outputPage(cursor string, more, ended bool, texts ...string) map[string]any {
+	events := []any{}
+	for i, text := range texts {
+		events = append(events, map[string]any{"sequence": float64(i + 1), "kind": "text", "text": text})
+	}
+	return map[string]any{"events": events, "cursor": cursor, "more": more, "ended": ended}
+}
+
+// M2 A6 (Main's Q3): output --follow reads on from each page's cursor, at once while more is
+// there and after a wait otherwise, and stops at the page that says ended.
+func TestOutputFollowReadsUntilTheOutputEnded(t *testing.T) {
+	wait := outputFollowWait
+	outputFollowWait = 0
+	t.Cleanup(func() { outputFollowWait = wait })
+	dir := socketDirectory(t)
+	t.Setenv("ATLAS_RUNTIME_HOME", dir)
+	pages := []map[string]any{
+		outputPage("o:1", true, false, "first"),
+		outputPage("o:2", false, false, "second"),
+		outputPage("o:2", false, false),
+		outputPage("o:3", false, true, "last"),
+	}
+	cursors := outputServer(t, dir, pages)
+	var out bytes.Buffer
+	result, err := executeTo([]string{"output", "--turn", "turn-0123456789abcdef", "--follow"}, &out)
+	if err != nil || result != nil {
+		t.Fatalf("follow: %#v, %v", result, err)
+	}
+	if want := []string{"", "o:1", "o:2", "o:2"}; !reflect.DeepEqual(*cursors, want) {
+		t.Fatalf("cursors\n got %#v\nwant %#v", *cursors, want)
+	}
+	decoder := json.NewDecoder(&out)
+	for i, want := range pages {
+		var line map[string]any
+		if err := decoder.Decode(&line); err != nil {
+			t.Fatalf("line %d: %v", i, err)
+		}
+		if !reflect.DeepEqual(line, want) {
+			t.Fatalf("line %d\n got %#v\nwant %#v", i, line, want)
+		}
+	}
+	if decoder.More() {
+		t.Fatal("printed past the ended page")
+	}
+}
+
+// A Runtime from before the page's ended cannot say when to stop: follow is refused at its
+// first page, never left waiting.
+func TestOutputFollowRefusesAPageWithoutEnded(t *testing.T) {
+	dir := socketDirectory(t)
+	t.Setenv("ATLAS_RUNTIME_HOME", dir)
+	old := outputPage("o:1", false, false, "x")
+	delete(old, "ended")
+	cursors := outputServer(t, dir, []map[string]any{old, old})
+	var out bytes.Buffer
+	_, err := executeTo([]string{"output", "--turn", "turn-0123456789abcdef", "--follow"}, &out)
+	if err == nil || len(*cursors) != 1 || out.Len() != 0 {
+		t.Fatalf("expected a refusal after one page, got %v after %d, printed %q", err, len(*cursors), out.String())
+	}
+	// Without --follow the same page is printed as it is.
+	if _, err := executeTo([]string{"output", "--turn", "turn-0123456789abcdef"}, &out); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestTurnsReadsEveryHistoryPageOnce(t *testing.T) {

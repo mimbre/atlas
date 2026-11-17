@@ -234,15 +234,28 @@ defmodule AtlasRuntimeModel.WorkTest do
                {:check, :check_result, false}
              ]
 
-      assert Enum.take(shape.(:attempt), -5) == [
+      # S5a's private fields, then M2's lease hold (M2 plan C3), the last one.
+      assert Enum.take(shape.(:attempt), -6) == [
                {:checking, :boolean, false},
                {:check_pgid, :integer, false},
                {:folder, :string, false},
                {:preparing, :boolean, false},
-               {:prepare_pid, :integer, false}
+               {:prepare_pid, :integer, false},
+               {:lease_hold, :boolean, false}
              ]
 
-      assert List.last(shape.(:work_record)) == {:source, :source, false}
+      # M2 A3's imported input is the last field: optional, so a record without it is
+      # written as before (format_version 1).
+      assert Enum.take(shape.(:work_record), -2) ==
+               [{:source, :source, false}, {:imported, :imported, false}]
+
+      # Main's #330 F5 (b): `pending` (accepted before its import), optional and last.
+      assert shape.(:imported) == [
+               {:source, :string, true},
+               {:change_set, :string, false},
+               {:pending, :boolean, false}
+             ]
+
       # r2's folder.base_id is not added (r3, G1).
       assert Enum.map(entities.folder.fields, & &1.name) == [:path, :permissions]
       assert entities.work_record.persistence.format_version == 1
@@ -512,6 +525,7 @@ defmodule AtlasRuntimeModel.WorkTest do
       encoded = WorkRecord.encode(record())
       assert encoded["format_version"] == 1
       refute Map.has_key?(encoded, "source")
+      refute Map.has_key?(encoded, "imported")
       refute Map.has_key?(encoded["request"], "after_check")
 
       for attempt <- encoded["attempts"] do

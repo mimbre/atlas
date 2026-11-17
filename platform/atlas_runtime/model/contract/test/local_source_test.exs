@@ -83,7 +83,10 @@ defmodule AtlasRuntimeModel.LocalSourceTest do
                {:position, :integer, true},
                {:state, states, true},
                {:lease_id, :string, false},
-               {:result, :result_ref, false}
+               {:result, :result_ref, false},
+               {:attempt, :integer, false},
+               {:resume, :boolean, false},
+               {:retry, :retry_request, false}
              ]
     end
 

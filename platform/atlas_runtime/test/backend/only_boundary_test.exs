@@ -102,6 +102,17 @@ defmodule AtlasRuntime.BackendTest.OnlyBoundary do
         do: assert(module in modules)
   end
 
+  # M2 A6: the CLI reaches the executor only through the local work source. The facade the
+  # router calls names the local source's implementation, and never the executor.
+  test "the work facade's implementation is the local work source, never the executor" do
+    {:ok, {_, [atoms: atoms]}} =
+      :beam_lib.chunks(:code.which(AtlasRuntime.Boundary.Work), [:atoms])
+
+    names = for {_index, atom} <- atoms, do: atom
+    assert AtlasRuntime.Sources.Local.Work in names
+    refute AtlasRuntime.Work in names
+  end
+
   test "the router generated on the test facades calls only those facades" do
     beam = :code.which(AtlasRuntime.Test.WorkRest)
 

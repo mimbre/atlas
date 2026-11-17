@@ -53,6 +53,24 @@ end
 
 listener_check.()
 
+# The work sources' pullers (M2): one per entry of the policy's `sources`, `local` included,
+# after the work core they feed. No such entry: none starts, and the Runtime runs as before.
+# Unlinked, so a puller's failure never ends the service.
+case AtlasRuntime.Sources.Supervisor.start_link(dir) do
+  {:ok, pid} ->
+    Process.unlink(pid)
+
+    IO.puts(
+      "Runtime pulling work from #{length(AtlasRuntime.Sources.Supervisor.sources(dir))} source(s)"
+    )
+
+  :ignore ->
+    :ok
+
+  {:error, reason} ->
+    IO.puts(:stderr, "Runtime work sources not started: #{inspect(reason)}")
+end
+
 # The work contract's REST backend on backend.sock (mode 0600, the socket owner as client):
 # the work commands are served there, no longer on runtime.sock. A listener that cannot start
 # stops the service, so a running service always serves work.

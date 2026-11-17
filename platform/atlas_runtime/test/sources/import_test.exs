@@ -229,6 +229,20 @@ defmodule AtlasRuntime.Sources.ImportTest do
       refute File.exists?(Path.join(home, "snapshots"))
     end
 
+    test "import_deadline: past the import's deadline nothing is fetched, and it is too_large",
+         %{home: home} do
+      {manifest, blobs} = base(%{"a" => "1"})
+      src = source(blobs)
+
+      assert {:refused, :too_large, "import_deadline"} =
+               Import.base(home, policy("flow-prod"), lease(manifest), fetch(src),
+                 deadline_at: System.monotonic_time(:millisecond) - 1
+               )
+
+      assert fetched(src) == []
+      refute File.exists?(Path.join(home, "snapshots"))
+    end
+
     test "max_base_bytes counts every file entry, repeated contents included", %{home: home} do
       same = :binary.copy("r", 1000)
       {manifest, blobs} = base(%{"a" => same, "b" => same, "c" => same})

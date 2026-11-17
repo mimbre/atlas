@@ -16,8 +16,11 @@ defmodule AtlasRuntimeBoundary.WorkMappingsTest do
   test "S1: work_record both ways with work, key_index_entry one way to pruned" do
     by_model = Map.new(mappings(), &{&1.model, &1})
 
-    assert %{boundary: :work, direction: :both, supply: [:state], rename: [], drop: [:source]} =
+    assert %{boundary: :work, direction: :both, supply: [:state], rename: []} =
              by_model.work_record
+
+    # S5a's pinned source and M2 A3's imported input are private.
+    assert by_model.work_record.drop == [:source, :imported]
 
     assert %{
              boundary: :pruned,
@@ -50,10 +53,11 @@ defmodule AtlasRuntimeBoundary.WorkMappingsTest do
   test "S5a: the private additions are dropped, and the new entities are mapped one to one" do
     by_model = Map.new(mappings(), &{&1.model, &1})
 
-    assert by_model.work_record.drop == [:source]
+    assert :source in by_model.work_record.drop
 
+    # M2 (plan C3) adds the private lease hold, dropped as well.
     assert by_model.attempt.drop -- [:turn_folder, :stop_latch, :released_by, :released_at] ==
-             @private_s5a
+             @private_s5a ++ [:lease_hold]
 
     for {model, boundary} <- [
           base: :base,
@@ -82,7 +86,9 @@ defmodule AtlasRuntimeBoundary.WorkMappingsTest do
     refute Map.has_key?(by_model, :frozen_result)
 
     names = for {_m, fields} <- models(), name <- fields, uniq: true, do: name
-    for name <- [:source | @private_s5a], do: refute(name in names, "#{name} is public")
+
+    for name <- [:source, :imported | @private_s5a],
+        do: refute(name in names, "#{name} is public")
   end
 
   test "renames and drops only: every name is an atom" do

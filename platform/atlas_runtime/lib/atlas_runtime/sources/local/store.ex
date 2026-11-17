@@ -145,6 +145,29 @@ defmodule AtlasRuntime.Sources.Local.Store do
   defp final(_work), do: nil
 
   @doc """
+  Queues an ended work again for its next attempt (Main's round 2, a local retry): state
+  `queued`, no lease, no result and no pending retry, `attempt` one more than its last,
+  `resume` as asked, and a `position` after every one in `loaded`, so it waits behind what
+  was added before.
+  Returns `{work, loaded}`.
+  """
+  def requeue!(home, loaded, %QueuedWork{state: :ended} = work, resume?) do
+    queued =
+      QueuedWork.new!(%{
+        work
+        | state: :queued,
+          lease_id: nil,
+          result: nil,
+          retry: nil,
+          attempt: (work.attempt || 1) + 1,
+          resume: if(resume?, do: true),
+          position: next_position(loaded)
+      })
+
+    {queued, put!(home, loaded, queued)}
+  end
+
+  @doc """
   Prunes an ended work: its index entry becomes a tombstone (I7), written before the
   queued work is deleted. A work without a client key gets a tombstone under its own
   `work_id`. Raises for a work that has not ended.

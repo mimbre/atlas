@@ -2,8 +2,11 @@ defmodule AtlasRuntime.Boundary.Work do
   @moduledoc """
   The Boundary Elixir target of the Runtime's work contract (design §1.5): the only way in
   for every caller (the backend, tests, any co-located system). It checks the right, builds
-  the input, calls `AtlasRuntime.Work` and checks that the answer is a declared outcome.
-  `AtlasRuntime.Work` implements `AtlasRuntime.Boundary.Work.Implementation`. The
+  the input, calls its implementation and checks that the answer is a declared outcome.
+  Since the CLI cut-over (M2 A6) the implementation is the built-in local work source's,
+  `AtlasRuntime.Sources.Local.Work`: a work is added to the local source, which leases it
+  to the executor (`AtlasRuntime.Work`, which implements the same behaviour) through its
+  puller. No caller reaches the executor except through it. The
   translations between the private model (`AtlasRuntime.Model.Work`) and the contract's
   models are checked here against `AtlasRuntimeBoundary.WorkMappings` (§1.5 (c)).
 
@@ -17,7 +20,7 @@ defmodule AtlasRuntime.Boundary.Work do
   """
   use AtlasRuntimeBoundary.Generator.Targets.Boundary,
     contract: AtlasRuntimeBoundary.Work,
-    implementation: AtlasRuntime.Work,
+    implementation: AtlasRuntime.Sources.Local.Work,
     mappings: AtlasRuntimeBoundary.WorkMappings,
     model: AtlasRuntime.Model.Work,
     invalid_detail_right: :choose_path
