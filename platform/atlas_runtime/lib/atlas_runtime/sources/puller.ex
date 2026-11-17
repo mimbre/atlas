@@ -107,7 +107,16 @@ defmodule AtlasRuntime.Sources.Puller do
   and restarted fences on the same schedule as before. A lease whose renewal the core does
   not know (the core started since) is fenced conservatively: it is `unrenewed` until a
   poll renews it, and it is fenced when a poll fails before that, or when none renewed it
-  within the accept deadline of the puller's start.
+  within the accept deadline of the puller's start. A held lease whose accept the source
+  had recorded (kept with its renewal, Main's #330 round 3) is restored as accepted and
+  importing: renewed and fenced as before, and never given up for the accept deadline, how
+  long ago its poll was. It waits for the source to deliver it again, then imports it (or
+  starts it at once when its import had already set the base).
+
+  **Expired work never starts (round 3).** Before an attempt is released (its accept
+  recorded, its import done) the lease's age is checked as the fence checks it: a lease due
+  to be fenced is fenced then, so an answer that comes after a sleep, before the next
+  check, never starts its work.
 
   **The cancel** of a fenced, lost or source-cancelled lease goes to the executor itself
   (`AtlasRuntime.Work.cancel/2`, under the source's client), never through
@@ -255,13 +264,31 @@ defmodule AtlasRuntime.Sources.Puller do
   # shows, with its last real renewal and the send time of the poll that delivered it (P3),
   # as the core kept them. A lease the core kept nothing of is `:unrenewed` (fenced
   # conservatively), its accept deadline counted from the puller's start.
+  #
+  # A held lease whose accept the source recorded (Main's #330 round 3, kept with its
+  # renewal) is accepted and importing again, renewed and fenced as before, never given up
+  # for its accept deadline: it waits for the source to deliver it again, at most the
+  # import's deadline from when its import began. Without that kept (the core restarted
+  # too), it is accepting, as conservative as before.
   defp adopt(name, stamps, boot) do
     for h <- Work.holdings(name), into: %{} do
-      phase = if h.held, do: :accepting, else: :released
       kept = Map.get(stamps, h.lease_id, %{stamp: :unrenewed, received: boot})
 
-      {h.lease_id,
-       %{work_id: h.work_id, phase: phase, stamp: kept.stamp, received: kept.received}}
+      phase =
+        cond do
+          not h.held -> :released
+          Map.get(kept, :recorded) == true -> :importing
+          true -> :accepting
+        end
+
+      lease = %{work_id: h.work_id, phase: phase, stamp: kept.stamp, received: kept.received}
+
+      lease =
+        if phase == :importing,
+          do: Map.merge(lease, %{importing_at: kept.importing_at, waiting: kept.importing_at}),
+          else: lease
+
+      {h.lease_id, lease}
     end
   end
 
@@ -271,7 +298,7 @@ defmodule AtlasRuntime.Sources.Puller do
       for {id, %{phase: phase, stamp: stamp} = lease} <- state.leases,
           phase in @active and stamp != :unrenewed,
           into: %{},
-          do: {id, %{stamp: stamp, received: lease.received}}
+          do: {id, kept(lease)}
 
     kept = {state.lease_ttl_ms, stamps}
 
@@ -281,6 +308,18 @@ defmodule AtlasRuntime.Sources.Puller do
 
     %{state | renewed: kept}
   end
+
+  # What the core keeps of a live lease: its last renewal and, once the source recorded its
+  # accept (round 3), that, with when its import began.
+  defp kept(%{phase: :importing} = lease),
+    do: %{
+      stamp: lease.stamp,
+      received: lease.received,
+      recorded: true,
+      importing_at: lease.importing_at
+    }
+
+  defp kept(lease), do: %{stamp: lease.stamp, received: lease.received}
 
   @impl true
   def handle_call(:poll_now, from, state) do
@@ -447,12 +486,11 @@ defmodule AtlasRuntime.Sources.Puller do
     case state.leases[id] do
       %{phase: :importing, work_id: work_id} ->
         case outcome do
+          # Round 3: `release/2` checks the lease's age first; expired work never starts.
           {:done, {:ok, %{} = imported}} ->
             case Work.lease_imported(work_id, {:ok, imported}) do
               :ok ->
-                _ = Work.release_lease(work_id)
-                state = put_in(state.leases[id].phase, :released)
-                next_step(state, id)
+                release(state, id)
 
               other ->
                 give_up(state, id, "the import does not match the lease (#{inspect(other)})")
@@ -693,7 +731,10 @@ defmodule AtlasRuntime.Sources.Puller do
   # for the source to deliver it again (then `step/3` imports it), at most the import's
   # deadline from now.
   defp start_import(state, id) do
-    state = put_in(state.leases[id].phase, :importing)
+    # Kept from the first import of the lease: a restart measures from that one (round 3).
+    began = Map.get(state.leases[id], :importing_at) || LeaseClock.stamp(state.clock)
+    state = update_in(state.leases[id], &%{&1 | phase: :importing})
+    state = put_in(state.leases[id][:importing_at], began)
 
     case state.leases[id] do
       %{lease: %{} = lease} ->
@@ -846,28 +887,44 @@ defmodule AtlasRuntime.Sources.Puller do
     Enum.reduce(Enum.sort(Map.keys(state.leases)), state, fn id, state ->
       lease = state.leases[id]
 
-      cond do
-        lease.phase not in @active ->
-          state
-
-        lease.stamp == :unrenewed ->
-          if LeaseClock.age(state.boot, state.clock) >= state.accept_deadline_ms,
-            do:
-              fence(
-                state,
-                id,
-                "no poll renewed it within #{state.accept_deadline_ms} ms of a restart"
-              ),
-            else: state
-
-        is_integer(state.lease_ttl_ms) and
-            LeaseClock.expired?(lease.stamp, state.clock, state.lease_ttl_ms) ->
-          fence(state, id, "not renewed for #{state.lease_ttl_ms} ms")
-
-        true ->
-          state
+      case lease.phase in @active and due(state, lease) do
+        why when is_binary(why) -> fence(state, id, why)
+        _ -> state
       end
     end)
+  end
+
+  # Why live lease `lease` is to be fenced now, or nil (its age on the puller's clock). The
+  # check runs at each check and, round 3, before any of its work is released: so expired
+  # work never starts, also when a task's answer comes before the next check (a sleep stops
+  # the monotonic timers, not the wall clock).
+  defp due(state, lease) do
+    cond do
+      lease.stamp == :unrenewed ->
+        if LeaseClock.age(state.boot, state.clock) >= state.accept_deadline_ms,
+          do: "no poll renewed it within #{state.accept_deadline_ms} ms of a restart"
+
+      is_integer(state.lease_ttl_ms) and
+          LeaseClock.expired?(lease.stamp, state.clock, state.lease_ttl_ms) ->
+        "not renewed for #{state.lease_ttl_ms} ms"
+
+      true ->
+        nil
+    end
+  end
+
+  # Lets lease `id`'s held attempt start (its accept recorded, its input imported), unless
+  # the lease is due to be fenced: then it is fenced, and the attempt never starts.
+  defp release(state, id) do
+    case due(state, state.leases[id]) do
+      nil ->
+        _ = Work.release_lease(state.leases[id].work_id)
+        state = put_in(state.leases[id].phase, :released)
+        state |> remember() |> next_step(id)
+
+      why ->
+        fence(state, id, why)
+    end
   end
 
   # A poll failed: every lease whose renewal is not known since a restart is fenced (P3).
@@ -907,6 +964,10 @@ defmodule AtlasRuntime.Sources.Puller do
 
       busy?(state, id) ->
         state
+
+      # Adopted at a restart after its import set the base: it may start now.
+      lease.phase == :importing and not holding.importing ->
+        release(state, id)
 
       # Adopted at a restart: imported once delivered again, or given up at the deadline.
       lease.phase == :importing and is_map_key(lease, :lease) ->
@@ -962,14 +1023,22 @@ defmodule AtlasRuntime.Sources.Puller do
   defp reported_now(state, id, on, answer) do
     case answer do
       {:recorded, _} when on == :accepted ->
-        case Work.release_lease(state.leases[id].work_id) do
-          # F5 (b): the input is imported now, and the attempt released once it is.
-          :importing ->
-            start_import(state, id)
+        # Round 3: a lease expired by the time its accept was recorded never starts.
+        case due(state, state.leases[id]) do
+          nil ->
+            case Work.release_lease(state.leases[id].work_id) do
+              # F5 (b): the input is imported now, and the attempt released once it is.
+              # Kept with the renewal, so a restart restores it as accepted and importing.
+              :importing ->
+                state |> start_import(id) |> remember()
 
-          _ ->
-            state = put_in(state.leases[id].phase, :released)
-            next_step(state, id)
+              _ ->
+                state = put_in(state.leases[id].phase, :released)
+                state |> remember() |> next_step(id)
+            end
+
+          why ->
+            fence(state, id, why)
         end
 
       {:recorded, _} ->

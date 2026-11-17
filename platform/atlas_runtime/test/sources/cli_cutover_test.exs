@@ -15,7 +15,7 @@ defmodule AtlasRuntime.Sources.CliCutoverTest do
   alias AtlasRuntime.Backend.Rest
   alias AtlasRuntime.Model.LocalSource.QueuedWork
   alias AtlasRuntime.Model.Work, as: M
-  alias AtlasRuntime.Sources.Local
+  alias AtlasRuntime.Sources.{Local, Puller}
   alias AtlasRuntime.Work
   alias AtlasRuntime.Work.Store
 
@@ -148,7 +148,11 @@ defmodule AtlasRuntime.Sources.CliCutoverTest do
     # the local source, which is offered no slot here.
     test "start reaches the executor only through the local source", %{bench: bench} do
       assert {201, %{"work_id" => id, "state" => "buffered"}} = start(bench, "complete", "k-q")
-      Process.sleep(300)
+      # The event: two polls of the local puller answered, so the second was sent after the
+      # add (the first may have been open already). The work is still queued at the source.
+      for _ <- 1..2, do: assert(:polled = Puller.poll_now(Local.puller_name()))
+      assert Work.offer("local") == %{}
+      assert :ok = Work.offer_done("local", 0)
       assert {:ok, %QueuedWork{state: :queued}} = Local.get(id)
       assert Path.wildcard(Path.join(bench.dir, "work/work-*.json")) == []
       assert Work.holdings("local") == []

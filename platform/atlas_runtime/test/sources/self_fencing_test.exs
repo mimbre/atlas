@@ -478,4 +478,145 @@ defmodule AtlasRuntime.Sources.SelfFencingTest do
       assert [%{state: :buffered, slot: nil}] = attempts(client(), direct)
     end
   end
+
+  # Main's #330 round 3, dev2's findings 2 and 3, on the injected clock. A second lease
+  # (task-2) has an input to import; its import is held by a hook.
+  describe "round 3: an accepted lease's import and its age" do
+    setup ctx do
+      Source.add_base_work(
+        ctx.source,
+        %{
+          work_key: "task-2",
+          title: "task-2",
+          instructions: "hang",
+          profile: "light_work",
+          cost_class: :standard,
+          input: %{permissions: :"workspace-write"}
+        },
+        %{"slow.txt" => "slow\n"}
+      )
+
+      :ok
+    end
+
+    # The import's get_blob tells the test it was called and waits for `:go` (or never).
+    defp held_import(ctx) do
+      test = self()
+
+      FakeSourceTarget.hook(ctx.target, :get_blob, fn real, input ->
+        send(test, {:importing, self(), input})
+        receive do: (:go -> real.())
+      end)
+    end
+
+    # The leases each poll answer carried, sent to the test.
+    defp tell_leases(ctx) do
+      test = self()
+
+      FakeSourceTarget.hook(ctx.target, :poll, fn call, _input ->
+        {:polled, polled} = answer = call.()
+        send(test, {:leased, polled.leases})
+        answer
+      end)
+    end
+
+    # Finding 2: the puller restarts 40 s into the import (past the 30 s accept deadline).
+    # The lease is restored as accepted and importing: renewed, fenced as usual, never
+    # given up for its accept deadline; delivered again, it is imported and runs once.
+    test "a restart 40 s into an import keeps the lease accepted and importing; it runs once delivered again",
+         ctx do
+      tell_leases(ctx)
+      held_import(ctx)
+      poll = Task.async(fn -> catch_exit(Puller.poll_now(ctx.puller)) end)
+      assert_receive {:importing, _importer, {slow, _sha}}, 5_000
+      assert_received {:leased, leases}
+      redelivered = Enum.find(leases, &(&1.lease_id == slow))
+      slow_work = Puller.leases(ctx.puller)[slow].work_id
+      assert [%S.Accepted{}] = Agent.get(ctx.source, & &1.leases[slow].reports)
+
+      # 40 s on, a poll renews it; then the puller restarts.
+      move(ctx.clock, 40_000, 40_000)
+      assert :polled = GenServer.call(ctx.puller, :poll_now, 5_000)
+      ctx = restart!(ctx)
+      Task.await(poll, 5_000)
+
+      assert %{phase: :importing, stamp: {40_000, 40_000}} = Puller.leases(ctx.puller)[slow]
+      assert :ok = check!(ctx)
+      assert Puller.leases(ctx.puller)[slow].phase == :importing
+
+      # Still renewed by the polls and kept, 40 s more.
+      move(ctx.clock, 40_000, 40_000)
+      assert :polled = GenServer.call(ctx.puller, :poll_now, 5_000)
+      assert %{holdings: held} = List.last(FakeSourceTarget.calls(ctx.target, :poll))
+      assert slow in Enum.map(held, & &1.lease_id)
+      assert :ok = check!(ctx)
+      assert Puller.leases(ctx.puller)[slow].phase == :importing
+
+      assert [%{work_id: ^slow_work, held: true, importing: true, ran: false}] =
+               Enum.filter(AtlasRuntime.Work.holdings(@name), &(&1.lease_id == slow))
+
+      assert [%{state: :buffered} = attempt] = attempts(slow_work)
+      assert is_nil(attempt.timestamps.cancel_requested_at)
+
+      # The source delivers it again: imported now, released, and it runs as one attempt.
+      FakeSourceTarget.hook(ctx.target, :get_blob, nil)
+
+      FakeSourceTarget.hook(ctx.target, :poll, fn call, _input ->
+        {:polled, polled} = call.()
+        {:polled, %{polled | leases: [redelivered | polled.leases]}}
+      end)
+
+      assert :polled = GenServer.call(ctx.puller, :poll_now, 5_000)
+      assert Puller.leases(ctx.puller)[slow].phase in [:released, :started]
+      await_state(slow_work, :running, @client)
+      assert [_one] = attempts(slow_work)
+      assert [%S.Accepted{}] = Agent.get(ctx.source, & &1.leases[slow].reports)
+    end
+
+    # Finding 3: the import answers after lease_ttl and the grace (a sleep: no check or poll
+    # ran meanwhile). The lease is fenced at that answer; its work never starts.
+    test "an import that answers after lease_ttl and the grace never starts its work", ctx do
+      held_import(ctx)
+      poll = Task.async(fn -> Puller.poll_now(ctx.puller) end)
+      assert_receive {:importing, importer, {slow, _sha}}, 5_000
+      slow_work = Puller.leases(ctx.puller)[slow].work_id
+
+      move(ctx.clock, @ttl + 120_000 + 1, @ttl + 120_000 + 1)
+      FakeSourceTarget.hook(ctx.target, :get_blob, nil)
+      send(importer, :go)
+      assert :polled = Task.await(poll, 5_000)
+
+      assert Puller.leases(ctx.puller)[slow].phase == :fenced
+
+      assert [%{state: :cancelled, result: %{never_started: true}} = attempt] =
+               attempts(slow_work)
+
+      assert is_nil(attempt.timestamps.running_at)
+      assert [%S.Accepted{}] = Agent.get(ctx.source, & &1.leases[slow].reports)
+    end
+
+    # The same rule where the accept's answer is what releases: recorded after lease_ttl
+    # (its report took that long), the lease is fenced, and nothing is imported or started.
+    test "an accept recorded after lease_ttl is fenced: nothing is imported, its work never starts",
+         ctx do
+      FakeSourceTarget.hook(ctx.target, :report, fn real, input ->
+        answer = real.()
+        if input.report.state == :accepted, do: move(ctx.clock, @ttl, @ttl)
+        answer
+      end)
+
+      assert :polled = Puller.poll_now(ctx.puller)
+      [slow] = Map.keys(Puller.leases(ctx.puller)) -- [ctx.lease_id]
+      slow_work = Puller.leases(ctx.puller)[slow].work_id
+
+      assert Puller.leases(ctx.puller)[slow].phase == :fenced
+      assert for({^slow, _sha} <- FakeSourceTarget.calls(ctx.target, :get_blob), do: 1) == []
+      assert Puller.jobs(ctx.puller) == []
+
+      assert [%{state: :cancelled, result: %{never_started: true}} = attempt] =
+               attempts(slow_work)
+
+      assert is_nil(attempt.timestamps.running_at)
+    end
+  end
 end

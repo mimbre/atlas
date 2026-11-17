@@ -409,6 +409,19 @@ defmodule AtlasRuntime.Work.Server do
   def handle_call({:renewals, source}, _from, state) when is_binary(source),
     do: {:reply, Map.get(state.renewals, source), state}
 
+  def handle_call({:available, pairs}, _from, state) when is_list(pairs) do
+    policy = Policy.load(state.dir)
+    availability = availability(state)
+    now = now_s()
+
+    available =
+      for {profile, permission} = pair <- Enum.uniq(pairs),
+          Policy.available?(policy, availability, profile, permission, &installed?/1, now),
+          do: pair
+
+    {:reply, available, state}
+  end
+
   def handle_call({:offer_done, source, used}, _from, state) when is_binary(source) do
     {:reply, :ok, offer_done(state, source, used), {:continue, :dispatch}}
   end

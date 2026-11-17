@@ -148,9 +148,10 @@ defmodule AtlasRuntime.Sources.PullerTest do
     puller = puller!(ctx)
 
     assert :polled = Puller.poll_now(puller)
-    assert [%{held: true, state: :buffered}] = Work.holdings(@name)
-    Process.sleep(300)
-    assert %{state: :buffered, attempts: [%{turn_id: nil}]} = only_work()
+    # Answered after the dispatch the accept led to (the poll and its report task ended):
+    # held, in no slot, never run.
+    assert [%{held: true, state: :buffered, ran: false}] = Work.holdings(@name)
+    assert %{state: :buffered, attempts: [%{turn_id: nil, slot: nil}]} = only_work()
 
     FakeSourceTarget.hook(ctx.target, :report, nil)
     assert :ok = Puller.check_now(puller)

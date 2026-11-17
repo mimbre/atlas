@@ -146,7 +146,12 @@ defmodule AtlasRuntime.Sources.EndToEndTest do
     # The first Runtime reaches the source again: it sends nothing of the stale lease, and a
     # stale report is lease_lost.
     FakeSourceTarget.hook(ctx.target, :poll, nil)
-    Process.sleep(200)
+
+    # The event: a poll answered (so sent after the hook was cleared), then a check with its
+    # tasks ended. The poll held nothing, and no report of the stale lease was sent.
+    assert await(fn -> Puller.poll_now(puller) == :polled end)
+    assert :ok = Puller.check_now(puller)
+    assert %{holdings: []} = List.last(FakeSourceTarget.calls(ctx.target, :poll))
 
     assert [%{id: ^stale, reports: [%S.Accepted{}, %S.Started{}]}, %{id: ^fresh, reports: []}] =
              leases(ctx.source, "task-1")

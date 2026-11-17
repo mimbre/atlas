@@ -172,8 +172,12 @@ defmodule AtlasRuntime.Work.LeaseAdmissionTest do
       assert {:accepted, id} =
                accept(code, lease(code, "lease-1", "wk-1", "complete held"))
 
-      Process.sleep(300)
-      assert %F.Outcome.Found{work: %{state: :buffered}} = F.get_work(@client, %{work_id: id})
+      # The core's next call is answered after the dispatch the accept led to.
+      assert [%{work_id: ^id, held: true, state: :buffered, ran: false}] = Work.holdings(@source)
+
+      assert %F.Outcome.Found{work: %{state: :buffered, attempts: [%{slot: nil}]}} =
+               F.get_work(@client, %{work_id: id})
+
       assert launches(bench) == []
 
       assert :released = Work.release_lease(id)
@@ -190,8 +194,12 @@ defmodule AtlasRuntime.Work.LeaseAdmissionTest do
 
       stop_work()
       start_work!(bench)
-      Process.sleep(300)
-      assert %F.Outcome.Found{work: %{state: :buffered}} = F.get_work(@client, %{work_id: id})
+      # The boot's dispatch runs before the core answers any call.
+      assert [%{work_id: ^id, held: true, state: :buffered, ran: false}] = Work.holdings(@source)
+
+      assert %F.Outcome.Found{work: %{state: :buffered, attempts: [%{slot: nil}]}} =
+               F.get_work(@client, %{work_id: id})
+
       assert launches(bench) == []
 
       assert :released = Work.release_lease(id)
@@ -405,16 +413,17 @@ defmodule AtlasRuntime.Work.LeaseAdmissionTest do
 
       assert Work.offer(@source) == %{"light_work" => 1}
 
+      # Each call below is answered after the dispatch the call before it led to: the local
+      # work is buffered in no slot after its submit, after the accept and after offer_done.
       local = submit!(bench, "hang local")
-      Process.sleep(300)
-      assert work!(local.work_id).state == :buffered
+      assert %{state: :buffered, attempts: [%{slot: nil}]} = work!(local.work_id)
 
       assert {:accepted, id} =
                accept(code, lease(code, "lease-1", "wk-1", "hang lease"))
 
       assert :ok = Work.offer_done(@source, 1)
-      Process.sleep(300)
-      assert work!(local.work_id).state == :buffered
+      assert %{state: :buffered, attempts: [%{slot: nil}]} = work!(local.work_id)
+      assert [%{work_id: ^id, held: true, state: :buffered}] = Work.holdings(@source)
       assert launches(bench) == []
 
       # Recorded: the lease takes the slot it was offered; the local work waits behind it.

@@ -253,8 +253,14 @@ defmodule AtlasRuntime.Sources.LocalTest do
 
     assert %{leases: [lease]} = poll(%{"light_work" => 1})
     assert {:accepted, work_id} = Work.accept_lease("local", lease)
-    Process.sleep(300)
-    assert %B.Outcome.Found{work: %{state: :buffered}} = B.get_work(@client, %{work_id: work_id})
+    # The core's next call is answered after the dispatch the accept led to: held, buffered,
+    # in no slot, never run.
+    assert [%{work_id: ^work_id, held: true, state: :buffered, ran: false}] =
+             Work.holdings("local")
+
+    assert %B.Outcome.Found{work: %{state: :buffered, attempts: [%{slot: nil}]}} =
+             B.get_work(@client, %{work_id: work_id})
+
     assert launches(bench) == []
 
     # The source restarts while the lease is held; the accept is recorded after it.
@@ -535,6 +541,93 @@ defmodule AtlasRuntime.Sources.LocalTest do
 
       assert [%{state: :completed}, %{attempt: 2, state: :completed}] =
                AtlasRuntime.Work.Store.read_work(bench.dir, id).attempts
+    end
+  end
+
+  # Main's #330 round 3, dev2's probe: one availability rule for the offer and the retry's
+  # check. light_work is [codex, claude]; claude cannot serve workspace-write. With codex
+  # quota-marked, light_work is offered (claude serves a read-only work), but a
+  # workspace-write retry is not leased, across two accept deadlines, so it never cycles;
+  # once codex can serve it again, it is leased and runs as attempt 2.
+  describe "round 3: a workspace-write retry, light_work = [codex (quota-marked), claude]" do
+    setup %{bench: bench} do
+      options = [
+        %{"provider" => "openai", "harness" => "codex", "model" => "gpt-test"},
+        %{"provider" => "anthropic", "harness" => "claude", "model" => "claude-test"}
+      ]
+
+      policy =
+        @sources
+        |> put_in(["sources", Access.at(0), "max_slots"], 1)
+        |> Map.put("profiles", %{
+          "light_work" => %{
+            "permissions" => ["read-only", "workspace-write", "materialized-folder"],
+            "cost_classes" => ["low", "standard"],
+            "options" => options
+          }
+        })
+
+      write_policy!(bench.dir, policy)
+      {:ok, clock} = Agent.start_link(fn -> 0 end)
+      local!(bench, clock: fn -> Agent.get(clock, & &1) end)
+      %{clock: clock}
+    end
+
+    defp quota_mark!(bench, harness) do
+      mark = %{
+        "evidence" => %{"source" => "operator", "note" => "no credits", "resetsAt" => nil},
+        "turn_id" => nil,
+        "observed_at" => System.system_time(:second),
+        "reenabled_at" => nil
+      }
+
+      availability = put_in(Availability.load(bench.dir), ["quota", harness], mark)
+      Availability.persist(bench.dir, availability)
+    end
+
+    # The harness each attempt's turn ran on, from its turn record.
+    defp harnesses(bench, id) do
+      for %{turn_id: turn_id} <- AtlasRuntime.Work.Store.read_work(bench.dir, id).attempts do
+        turn = AtlasRuntime.Work.Turns.read_turn(bench.dir, turn_id)
+        AtlasRuntime.Work.Turns.option(turn)["harness"]
+      end
+    end
+
+    test "the retry is not leased while no option serves it, never cycles, and runs once one does",
+         %{bench: bench, code: code, clock: clock} do
+      {:added, id} = Local.add(client(), base_work(code, "complete write"))
+      id |> lease!(1) |> run!(1)
+      assert harnesses(bench, id) == ["codex"]
+
+      assert %B.Outcome.Accepted{} = B.retry(client(), %{work_id: id})
+      quota_mark!(bench, "codex")
+
+      # Two accept deadlines: each poll's offer names light_work (claude serves read-only),
+      # and the retry is not leased; nothing is recorded, and it stays queued for attempt 2.
+      for _deadline <- 1..2 do
+        offer = Work.offer("local")
+        assert offer == %{"light_work" => 1}
+        assert %{leases: []} = poll(offer)
+        assert :ok = Work.offer_done("local", 0)
+        assert {:ok, %QueuedWork{state: :queued, attempt: 2, lease_id: nil}} = Local.get(id)
+        assert [%{state: :completed}] = AtlasRuntime.Work.Store.read_work(bench.dir, id).attempts
+        Agent.update(clock, &(&1 + 31_000))
+      end
+
+      # The same profile still leases a read-only work, which claude serves.
+      {:added, read} = Local.add(client(), folder_work(bench, "complete read"))
+      read |> lease!(1) |> run!(1)
+      assert harnesses(bench, read) == ["claude"]
+      assert {:ok, %QueuedWork{state: :queued, attempt: 2}} = Local.get(id)
+
+      # Codex can serve it again: leased, and attempt 2 runs on the same record.
+      assert :cleared = Work.clear_quota_mark("codex")
+      id |> lease!(2) |> run!(2)
+
+      assert [%{state: :completed}, %{attempt: 2, state: :completed}] =
+               AtlasRuntime.Work.Store.read_work(bench.dir, id).attempts
+
+      assert harnesses(bench, id) == ["codex", "codex"]
     end
   end
 

@@ -238,18 +238,60 @@ defmodule AtlasRuntime.Policy do
   end
 
   @doc """
-  Per-profile availability for `capacity` (design §3.4): steps 3–5 for every profile,
-  without a request's permission or cost class and without the independence step.
+  The one availability rule (Main's #330 round 3): profile `name` is available for a work
+  of `permission` now only when one of its options can serve that permission and is
+  installed and not quota-marked, the same test `resolve/5` picks an option with. A
+  profile that does not permit `permission`, an unknown profile, or no valid policy: false.
+  Arguments as for `profiles/4`.
+  """
+  @spec available?(
+          loaded(),
+          map(),
+          String.t(),
+          String.t() | atom(),
+          [String.t()] | (String.t() -> boolean()),
+          integer()
+        ) :: boolean()
+  def available?({:ok, policy}, availability, name, permission, installed, now) do
+    permission = to_string(permission)
+
+    case policy["profiles"][to_string(name)] do
+      %{"permissions" => permissions, "options" => options} ->
+        permission in permissions and
+          Enum.any?(options, &usable?(&1, availability, permission, installed, now))
+
+      _ ->
+        false
+    end
+  end
+
+  def available?(_loaded, _availability, _name, _permission, _installed, _now), do: false
+
+  @doc """
+  Per-profile availability for `capacity` (design §3.4) and the offer's list of profiles
+  (O1): a profile is available when it is `available?/6` for at least one permission it
+  permits. A source's work is then leased only where it is `available?/6` for that work's
+  own permission (round 3). Without a request's cost class and the independence step.
   """
   @spec profiles(loaded(), map(), [String.t()] | (String.t() -> boolean()), integer()) ::
           %{String.t() => %{available: boolean(), reason: atom(), until: DateTime.t() | nil}}
-  def profiles({:ok, policy}, availability, installed, now) do
+  def profiles({:ok, policy} = loaded, availability, installed, now) do
     Map.new(policy["profiles"], fn {name, profile} ->
-      skipped = Enum.map(profile["options"], &skip(&1, availability, nil, installed, now))
+      # The reason, when it is not available: an option that serves none of the profile's
+      # permissions counts as unsupported, so none is left without a reason.
+      skipped =
+        Enum.map(profile["options"], fn option ->
+          if Enum.any?(profile["permissions"], &capable?(option["harness"], &1)),
+            do: skip(option, availability, nil, installed, now),
+            else: %{why: "unsupported_permission"}
+        end)
 
       status =
         cond do
-          Enum.any?(skipped, &is_nil/1) ->
+          Enum.any?(
+            profile["permissions"],
+            &available?(loaded, availability, name, &1, installed, now)
+          ) ->
             %{available: true}
 
           Enum.any?(skipped, &(&1.why == "quota")) ->
@@ -368,6 +410,10 @@ defmodule AtlasRuntime.Policy do
            Enum.map_join(skipped, ", ", &"#{&1.option["harness"]} #{&1.why}")}
     end
   end
+
+  # The test both `available?/6` and `walk/7` apply to an option for a permission.
+  defp usable?(option, availability, permission, installed, now),
+    do: is_nil(skip(option, availability, permission, installed, now))
 
   # Why an option cannot be used now, or nil when it can. Order matters only for the reason
   # recorded: a permanent cause is reported before quota.

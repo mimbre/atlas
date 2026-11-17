@@ -203,6 +203,16 @@ defmodule AtlasRuntime.Work do
   def offer(name) when is_binary(name), do: call({:offer, name}, fn -> :not_running end)
 
   @doc """
+  The `{profile, permission}` pairs of `pairs` that are available now, by the one rule the
+  offer and a retry's check use (`AtlasRuntime.Policy.available?/6`, Main's #330 round 3):
+  an option of the profile that serves that permission is installed and not quota-marked.
+  The local source leases a queued work only when its pair is among them. `[]` while the
+  core is not running.
+  """
+  @spec available([{String.t(), String.t()}]) :: [{String.t(), String.t()}]
+  def available(pairs) when is_list(pairs), do: call({:available, pairs}, fn -> [] end)
+
+  @doc """
   The poll that carried source `name`'s offer is over, with `used` leases accepted from it:
   what is left of the reservation is free again. `:ok`, or `:not_running`.
   """

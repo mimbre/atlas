@@ -27,7 +27,10 @@ defmodule AtlasRuntime.Sources.Local do
   executor's offer, as for any source (decision §5.5).
 
   **Leases.** The puller's poll (`poll_local/1`, in-BEAM) leases queued work within the
-  offer (Main's O1: at most its total, among the profiles it names), in order. A local lease
+  offer (Main's O1: at most its total, among the profiles it names), in order, and only a
+  work whose profile is available for its own permission (`Work.available/1`, the one rule
+  the executor's offer and a retry's check use, Main's #330 round 3): a work no option can
+  serve now stays queued, unleased, until one can. A local lease
   carries the work contract's request as it was added: the work source contract's offered
   work cannot carry a folder, a repository, a slot or `resume_from`, which only this source
   may name (C1). The executor takes such a lease only from the source `local`
@@ -460,16 +463,28 @@ defmodule AtlasRuntime.Sources.Local do
   ## Rules
 
   # Leases within the offer (O1: at most its total, among the profiles it names), in the
-  # queue's order.
+  # queue's order. The offer names a profile available for some permission; a work is
+  # leased only where its profile is available for that work's own permission (Main's #330
+  # round 3, the executor's one rule, `Work.available/1`). So a retry the executor could
+  # not take now stays queued, and is leased once an option can serve it.
   defp grant(state, offer, now) do
     {total, profiles} =
       if map_size(offer) == 0,
         do: {0, []},
         else: {offer |> Map.values() |> Enum.min(), Map.keys(offer)}
 
-    state.loaded
-    |> Store.queued()
-    |> Enum.filter(&(&1.request.profile in profiles))
+    candidates =
+      state.loaded
+      |> Store.queued()
+      |> Enum.filter(&(&1.request.profile in profiles))
+
+    available =
+      if candidates == [] or total <= 0,
+        do: MapSet.new(),
+        else: candidates |> Enum.map(&need/1) |> Work.available() |> MapSet.new()
+
+    candidates
+    |> Enum.filter(&MapSet.member?(available, need(&1)))
     |> Enum.take(max(total, 0))
     |> Enum.map_reduce(state, fn work, state ->
       id = "local-lease-" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
@@ -493,6 +508,13 @@ defmodule AtlasRuntime.Sources.Local do
       {wire, state}
     end)
   end
+
+  # What a queued work needs of its profile: its permission (as `Policy` names it).
+  defp need(%QueuedWork{request: %{profile: profile, workspace: workspace}}),
+    do: {profile, permission(workspace)}
+
+  defp permission(%{url: _}), do: "dedicated-repository"
+  defp permission(%{permissions: permissions}), do: to_string(perm_to_request(permissions))
 
   # The lease if it is its work's current one and has not expired.
   defp live(state, id) do
