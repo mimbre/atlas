@@ -42,7 +42,9 @@ defmodule RelaDSL.Description.Build do
     :restart_by
   ]
   @migrate_keys [:from, :to, :states, :rekey, :preserve_entry, :reason]
-  @flow_runtime_keys [:runs, :writer, :inputs]
+  @flow_runtime_keys [:runs, :writer, :inputs, :supervision]
+  @supervision_keys [:relation, :operation, :hand_to]
+  @operations ["pickup", "hand_over"]
   @writer "atlas-flow"
 
   @doc "Every contribution, in order: `[{origin, kind, value}]` of each module's concepts, the module, then the composition."
@@ -429,9 +431,223 @@ defmodule RelaDSL.Description.Build do
                    {"acl", {:ordered, acl}},
                    {"roles", {:ordered, input_roles}}
                  ]}}
-             ]}}
+             ] ++ supervision(opts[:supervision], flows)}}
          ]}
     end
+  end
+
+  # Who supervises a run (work acquisition design 2026-11-17, §5.6), only when `flow_runtime` declares
+  # it: the relation from a run to its human supervisor, which only the run's writer
+  # sets; the fields of a pickup or hand-over input (`operation`, `hand_to`); and each
+  # running subflow's supervised spans, as its `supervise` gives them. It sits beside
+  # the subflows, never in one, so it changes no subflow's digest.
+  defp supervision(nil, _flows), do: []
+
+  defp supervision(opts, flows) do
+    spans =
+      for f <- flows, f.spans != [] do
+        {to_string(f.name),
+         for span <- f.spans do
+           {:ordered,
+            [
+              {"name", to_string(span.name)},
+              {"label", span.label},
+              {"states", Enum.map(span.states, &to_string/1)},
+              {"with", Enum.map(span.with, &to_string/1)}
+            ]
+            |> Enum.reject(&(elem(&1, 1) == nil))}
+         end}
+      end
+
+    [
+      {"supervision",
+       {:ordered,
+        [
+          {"version", 1},
+          {"relation", Plain.of(opts[:relation])},
+          {"inputs",
+           {:ordered,
+            [
+              {"operation", Plain.of(opts[:operation])},
+              {"operations", @operations},
+              {"hand_to", Plain.of(opts[:hand_to])}
+            ]}},
+          {"spans", {:ordered, spans}}
+        ]}}
+    ]
+  end
+
+  @doc """
+  Problems of supervision (work acquisition design 2026-11-17, §5.6) on the composition: a subflow
+  with a span needs `flow_runtime`'s `supervision:`; that names a relation from the
+  runs to one supervisor, and the inputs' `operation` (whose values hold `pickup` and
+  `hand_over`) and `hand_to` fields; a span's `with:` names a running subflow whose
+  subject points at the span's subject. `[{file, line, RelaDSL.Problem}]`.
+  """
+  def supervision_problems(items, flows, schema) do
+    declared =
+      Enum.find_value(items, fn
+        %{kind: :root, value: {:flow_runtime, opts}} = i -> {i, opts}
+        _ -> nil
+      end)
+
+    spanned = for f <- flows, span <- f.spans, do: {f, span}
+
+    supervised? =
+      case declared do
+        {_, opts} when is_list(opts) -> opts[:supervision] != nil
+        _ -> false
+      end
+
+    # The start page's two supervision entries read the declared supervision.
+    entries =
+      for %{kind: :root, value: {:start_page, o}} = i <- items,
+          Keyword.keyword?(o),
+          entry <- [:open_for_you, :supervised_by_you],
+          Keyword.has_key?(o, entry),
+          not supervised? do
+        {i.file, i.line,
+         problem(
+           :supervision_undeclared,
+           [entry],
+           "start_page #{entry}: no flow_runtime declares supervision: (the relation to a run's human supervisor)"
+         )}
+      end
+
+    entries ++
+      case {declared, spanned} do
+        {nil, []} ->
+          []
+
+        {nil, [{f, span} | _]} ->
+          [
+            {f.file, span.line,
+             problem(
+               :supervision_undeclared,
+               [f.name, span.name],
+               "subflow #{f.name}: supervise #{span.name}: no flow_runtime declares supervision: (the relation to a run's human supervisor)"
+             )}
+          ]
+
+        {{i, opts}, _} ->
+          with_problems(spanned, flows, schema) ++
+            case opts[:supervision] do
+              nil when spanned == [] ->
+                []
+
+              nil ->
+                [{f, span} | _] = spanned
+
+                [
+                  {f.file, span.line,
+                   problem(
+                     :supervision_undeclared,
+                     [f.name, span.name],
+                     "subflow #{f.name}: supervise #{span.name}: flow_runtime declares no supervision: (the relation to a run's human supervisor)"
+                   )}
+                ]
+
+              s ->
+                for p <- supervision_shape(s, opts, schema), do: {i.file, i.line, p}
+            end
+      end
+  end
+
+  defp supervision_shape(s, opts, schema) do
+    if Keyword.keyword?(s) do
+      run = to_string(opts[:runs])
+      inputs = to_string(opts[:inputs])
+      relation = schema["relations"][Plain.of(s[:relation])]
+      unknown = Keyword.keys(s) -- @supervision_keys
+      at = "flow_runtime.supervision: "
+
+      operation_type =
+        get_in(schema, ["entities", inputs, "properties", Plain.of(s[:operation]), "type"])
+
+      values = get_in(schema, ["types", operation_type || "", "values"]) || []
+
+      values =
+        Enum.map(values, fn
+          %{"value" => v} -> v
+          v -> v
+        end)
+
+      [
+        unknown != [] &&
+          problem(
+            :supervision_keys,
+            Enum.map(unknown, &to_string/1),
+            at <> "unknown keys #{Enum.map_join(unknown, ", ", &to_string/1)}"
+          ),
+        (relation == nil or run not in (relation["from"] || []) or
+           relation["max_outgoing"] != 1) &&
+          problem(
+            :supervision_relation,
+            [Plain.of(s[:relation])],
+            at <>
+              "relation #{Plain.of(s[:relation])} must lead from #{run} to one supervisor (max_outgoing 1)"
+          ),
+        Enum.any?(@operations, &(&1 not in values)) &&
+          problem(
+            :supervision_operation,
+            [inputs, Plain.of(s[:operation])],
+            at <>
+              "#{inputs}.#{Plain.of(s[:operation])} must be a field whose type has the values #{Enum.join(@operations, " and ")}"
+          ),
+        get_in(schema, ["entities", inputs, "properties", Plain.of(s[:hand_to])]) == nil &&
+          problem(
+            :supervision_hand_to,
+            [inputs, Plain.of(s[:hand_to])],
+            at <> "#{inputs}.#{Plain.of(s[:hand_to])} must be a field (the person handed to)"
+          )
+      ]
+      |> Enum.filter(& &1)
+    else
+      [
+        problem(
+          :supervision_keys,
+          [],
+          "flow_runtime.supervision: takes relation:, operation: and hand_to:"
+        )
+      ]
+    end
+  end
+
+  # A span's `with:` names a subflow the composition runs whose subject points at the
+  # span's subject (a part is under the thing it is part of), so its runs belong to the span.
+  defp with_problems(spanned, flows, schema) do
+    subjects = Map.new(flows, &{&1.name, to_string(&1.subject)})
+
+    for {f, span} <- spanned, other <- span.with, is_atom(other) do
+      subject = to_string(f.subject)
+
+      under? =
+        Enum.any?(schema["relations"] || %{}, fn {_, r} ->
+          subjects[other] in (r["from"] || []) and subject in (r["to"] || [])
+        end)
+
+      cond do
+        not Map.has_key?(subjects, other) ->
+          {f.file, span.line,
+           problem(
+             :supervision_with,
+             [f.name, span.name, other],
+             "subflow #{f.name}: supervise #{span.name}: with: #{other} is no subflow the composition runs"
+           )}
+
+        not under? ->
+          {f.file, span.line,
+           problem(
+             :supervision_with,
+             [f.name, span.name, other],
+             "subflow #{f.name}: supervise #{span.name}: with: #{other} runs on #{subjects[other]}, which points at no #{subject}"
+           )}
+
+        true ->
+          nil
+      end
+    end
+    |> Enum.filter(& &1)
   end
 
   defp identity(items, kind) do

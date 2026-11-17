@@ -9,6 +9,7 @@ flow_dsl = [
   start: 1,
   start: 2,
   initial: 1,
+  supervise: 2,
   state: 2,
   state: 3,
   final: 1,

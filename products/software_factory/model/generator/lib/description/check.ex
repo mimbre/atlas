@@ -300,7 +300,13 @@ defmodule RelaDSL.Description.Check do
   defp start(%{x: %{"start" => start}} = ctx) do
     path = ["start"]
 
-    keys(start, ~w(assigned open), path) ++
+    keys(start, ~w(assigned open open_for_you supervised_by_you), path) ++
+      Enum.flat_map(~w(open_for_you supervised_by_you), fn entry ->
+        case is_map(start) && start[entry] do
+          spec when is_map(spec) -> keys(spec, ~w(title count empty), path ++ [entry])
+          _ -> []
+        end
+      end) ++
       case is_map(start) && start["assigned"] do
         spec when is_map(spec) ->
           keys(spec, ~w(relation title count empty), path ++ ["assigned"]) ++
