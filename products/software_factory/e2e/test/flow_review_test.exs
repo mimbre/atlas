@@ -3,8 +3,8 @@ defmodule AtlasE2E.FlowReviewTest do
   Slice 7 on real persistence: the review and the test of a pull request run on Flow's
   durable runs, against a private Rela and real Facts (`products/software_factory/integration/flow_review_native.exs`).
   Imports, restart while waiting, trusted verdicts, a replaced child whose late result is
-  ignored, and review and test completing on one exact revision; and one review pass on an
-  agent reviewer's Runtime, waiting while it is offline, whose verdict is the reviewer's.
+  ignored, and review and test completing on one exact revision; and an agent reviewer
+  answering by hand, with no review pass (F0).
   """
   use ExUnit.Case, async: false
   @root Path.expand("../../../..", __DIR__)

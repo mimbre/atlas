@@ -27,9 +27,6 @@
           "set_by": [
             "runtime"
           ]
-        },
-        "machine": {
-          "label": "Machine"
         }
       },
       "start": {

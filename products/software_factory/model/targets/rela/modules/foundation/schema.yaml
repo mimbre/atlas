@@ -129,9 +129,6 @@ entities:
       cannot_run:
         type: string
         description: Where and since when it cannot run, and why (3 crashes in 10 minutes); Runtime writes and clears it (IS-Atlas-18)
-      machine:
-        type: string
-        description: 'The machine whose Runtime runs it (its runtime settings name it); Flow sends its passes there. Empty: it works by hand'
   assignment:
     label: Assignment
     plural: assignments

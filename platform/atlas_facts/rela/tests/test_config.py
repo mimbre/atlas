@@ -44,8 +44,8 @@ def without_ledger(schema):
         schema['entities'].pop(kind)
     for name in ('review_of', 'test_of', 'verdict_by', 'review_by'):
         schema['relations'].pop(name)
-    # The machine whose Runtime runs an agent, where Flow sends its passes.
-    assert not schema['entities']['agent']['properties'].pop('machine').get('required', False)
+    # The agent has no machine field (F0: Flow sends no passes), as at the baseline.
+    assert 'machine' not in schema['entities']['agent']['properties']
     flow_fields = {
         'issue': ('pass_result', 'gate_result', 'effect_result', 'pr_outcome'),
         'pull_request': ('review_outcome', 'test_outcome', 'update', 'integration', 'revision'),

@@ -17,23 +17,32 @@ defmodule Model.ToDoHistoryTest do
 
     migrations = Model.AtlasEyra.__rela__(:migrations)
     document = RunIdentity.document(current, migrations)
-    # Restoration adds exactly one approved review migration after this frozen base;
-    # all other production and test identities and histories remain byte-for-byte data.
+    # Restoration added exactly one approved review migration after this frozen base, and
+    # F0 (the review pass removed) one more digest; all other production and test
+    # identities and histories remain byte-for-byte data.
     restored = "05019b5d840dc936ea1f6f59f7be2849967f321a975b62bba01dacde16fa1682"
+    without_pass = "2b5680643a5f8b8add93dd9f25d545901110dfe4ef1688ee5d3a6fd4a52ce86b"
 
     expected =
       Map.update!(@base["subflows"], "pr_review", fn environments ->
         Map.new(environments, fn {environment, entry} ->
-          history =
-            (entry["history"] ++ [%{"digest" => restored, "states" => entry["states"]}])
-            |> Enum.sort_by(& &1["digest"])
+          added =
+            for d <- [restored, without_pass], do: %{"digest" => d, "states" => entry["states"]}
 
-          {environment, %{entry | "digest" => restored, "history" => history}}
+          history = Enum.sort_by(entry["history"] ++ added, & &1["digest"])
+          {environment, %{entry | "digest" => without_pass, "history" => history}}
         end)
       end)
 
     assert Map.delete(document["subflows"], "to_do") == expected
-    assert RunIdentity.base_problems(@base, document, migrations) == []
+    # F0's migration from the restored digest is approved against the base that has it
+    # (develop's digests.json, model-base); this older base predates that digest. The one
+    # from the slice-14 digest straight to F0's is approved here.
+    older = Enum.reject(migrations, &(&1.opts[:from] == restored))
+    assert RunIdentity.base_problems(@base, document, older) == []
+
+    assert [problem] = RunIdentity.base_problems(@base, document, migrations)
+    assert problem =~ "migrate pr_review from 05019b5d"
 
     for environment <- ~w(prod test) do
       entry = document["subflows"]["to_do"][environment]
