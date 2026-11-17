@@ -40,6 +40,19 @@ case AtlasRuntime.Work.start_link(dir) do
   {:error, reason} -> IO.puts(:stderr, "Runtime work core not started: #{inspect(reason)}")
 end
 
+# No network listener on an agent machine (the pull design): an IP listen socket in this VM,
+# whatever opened it, fails the start (AtlasRuntime.ListenerCheck). It is checked before
+# backend.sock serves anything, since the host takes an answer there as started, and again
+# before ready is reported, so nothing the backend brought up is left out.
+listener_check = fn ->
+  case AtlasRuntime.ListenerCheck.verify() do
+    :ok -> :ok
+    {:error, refusal} -> raise("Runtime not ready: " <> JSON.encode!(refusal))
+  end
+end
+
+listener_check.()
+
 # The work contract's REST backend on backend.sock (mode 0600, the socket owner as client):
 # the work commands are served there, no longer on runtime.sock. A listener that cannot start
 # stops the service, so a running service always serves work.
@@ -48,5 +61,6 @@ case AtlasRuntime.Backend.Listener.start_link(home: dir, router: AtlasRuntime.Ba
   {:error, reason} -> raise("Runtime backend not listening on backend.sock: #{inspect(reason)}")
 end
 
+listener_check.()
 IO.puts("Runtime ready; Atlas core services remain stopped")
 Process.sleep(:infinity)

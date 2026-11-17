@@ -139,8 +139,14 @@ var censusNotHome = map[string]string{
 	"inbox.dets":    "the fake inbox's own directory",
 	"identity.json": "the fake inbox's own directory",
 	"build":         "the host's build directory",
-	"products":      "the repository root (software_factory)",
-	"platform":      "the repository root (service.exs)",
+	// Below the host's build directory (<home>/build), which the service runs from without Mix
+	// (host/main.go serviceCommands, host/boot.exs): <build>/lib/*/ebin and <build>/consolidated.
+	"lib":          "the host's build directory (<home>/build/lib)",
+	"*":            "the host's build directory (the ebin wildcard <home>/build/lib/*/ebin, which elixir expands)",
+	"ebin":         "the host's build directory (<home>/build/lib/<app>/ebin)",
+	"consolidated": "the host's build directory (<home>/build/consolidated)",
+	"products":     "the repository root (software_factory)",
+	"platform":     "the repository root (service.exs)",
 	// verify_sandbox.exs: its own test directory.
 	"workspace":     "verify_sandbox.exs test directory",
 	"codex-home":    "verify_sandbox.exs test directory",

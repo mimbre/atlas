@@ -47,6 +47,17 @@ func TestServiceStartsWithServerLifecycleAndItsModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	build, run := serviceCommands(dir, executable)
+	// The service runs without Mix: `mix run` starts Mix's PubSub, a loopback TCP listener,
+	// and service.exs fails its start on any IP listener before it reports ready. Neither
+	// `mix …` nor `elixir -S mix …` is accepted.
+	if filepath.Base(run.Path) != "elixir" || len(run.Args) < 2 {
+		t.Fatalf("service command = %q, want elixir without mix", run.Args)
+	}
+	for _, arg := range run.Args[1:] {
+		if arg == "-S" || arg == "mix" || filepath.Base(arg) == "mix" {
+			t.Fatalf("service command = %q, want elixir without mix", run.Args)
+		}
+	}
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("Runtime build: %v\n%s", err, output)
 	}

@@ -79,13 +79,18 @@ func environment(dir string) []string {
 // deps hold the model the service is wired to with server.json (products/software_factory/mix.exs, D-0083): atlas_runtime's own project has the model neither compiled nor on its code
 // path, and no platform app depends on it. The build first fetches the umbrella's Hex dependencies
 // as products/software_factory/mix.lock pins them (Plug and Bandit, for the backend); when they are
-// all present it changes nothing.
+// all present it changes nothing. The service itself runs without Mix, on the build's ebin paths with
+// the configuration host/boot.exs loads: `mix run` starts Mix's PubSub, a loopback TCP listener, and an
+// agent machine runs no network listener. elixir expands the ebin wildcard itself.
 func serviceCommands(dir, executable string) (build, run *exec.Cmd) {
 	project := filepath.Join(repoRoot, "products/software_factory")
 	build = exec.Command("mix", "do", "deps.get", "+", "compile", "--warnings-as-errors")
 	build.Dir = project
 	build.Env = environment(dir)
-	run = exec.Command("mix", "run", "--no-start", "--no-compile", "--no-deps-check",
+	output := filepath.Join(dir, "build")
+	run = exec.Command("elixir",
+		"-pz", filepath.Join(output, "lib", "*", "ebin"), "-pa", filepath.Join(output, "consolidated"),
+		"-r", filepath.Join(repoRoot, "platform/atlas_runtime/host/boot.exs"),
 		filepath.Join(repoRoot, "platform/atlas_runtime/host/service.exs"), dir)
 	run.Dir = project
 	run.Env = append(environment(dir), "ATLAS_RUNTIME_EXECUTABLE="+executable)
