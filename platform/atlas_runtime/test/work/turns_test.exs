@@ -21,12 +21,54 @@ defmodule AtlasRuntime.Work.TurnsTest do
     assert outcome(%{"state" => "failed", "error" => "{:codex_failed, 1, 1}"}) ==
              {:failed, nil, :failed, true}
 
-    assert outcome(%{"state" => "failed", "error" => "{:claude_failed, 1, nil}", "quota" => %{}}) ==
+    assert outcome(%{"state" => "failed", "error" => "{:claude_failed, 1, 1}", "quota" => %{}}) ==
              {:failed, "quota", :failed, true}
+
+    # Codex's dispatch failure is raised only after a reported exit 0: the group is gone.
+    assert outcome(%{
+             "state" => "failed",
+             "error" => ~S|{:codex_failed, "every tool call failed"}|
+           }) ==
+             {:failed, nil, :failed, true}
 
     # The helper died: crashed, and nothing proves its group gone yet.
     assert outcome(%{"state" => "failed", "error" => ":native_transport_closed"}) ==
              {:crashed, nil, :failed, false}
+  end
+
+  test "quiescent only from a group-gone result, never from the error text (Q-A1b)" do
+    # No reported exit: the helper died before its group-gone probe, for either harness.
+    for harness <- ["claude", "codex"] do
+      error = "{:#{harness}_failed, 137, nil}"
+
+      assert outcome(%{"state" => "failed", "error" => error}) == {:failed, nil, :failed, false}
+
+      assert outcome(%{"state" => "failed", "error" => error, "quota" => %{}}) ==
+               {:failed, "quota", :failed, false}
+
+      assert outcome(
+               %{
+                 "state" => "failed",
+                 "error" => error,
+                 "termination" => %{"confirmed_at" => nil}
+               },
+               attempt(:signalled, :cancel)
+             ) == {:cancelled, "cancel", :failed, false}
+
+      # Text that merely contains the failure name proves nothing.
+      assert outcome(%{"state" => "failed", "error" => "lost: #{error}"}) ==
+               {:failed, nil, :failed, false}
+    end
+
+    # The Runtime's recorded confirmation settles any end.
+    assert outcome(
+             %{
+               "state" => "failed",
+               "error" => "Native execution ended before the stop was applied",
+               "termination" => %{"confirmed_at" => "2026-11-17T00:00:00Z"}
+             },
+             attempt(:signalled, :cancel)
+           ) == {:cancelled, "cancel", :failed, true}
   end
 
   test "stops the core did not ask for are interruptions" do

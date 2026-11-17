@@ -450,6 +450,75 @@ case "`+mode+`" in fail) exit 7 ;; stop) while :; do sleep 60 3>&- & wait $!; do
 	}
 }
 
+// TestClaudeStopConfirmedOnlyAfterGroupGone is S5b SB1 for Claude: a stop is confirmed (the one
+// runtime.process_ended) only once the reaped leader's process group has no member left, and the
+// private temp and the repository lock outlive every member.
+func TestClaudeStopConfirmedOnlyAfterGroupGone(t *testing.T) {
+	_, repository, scope := claudeRepository(t)
+	folder := t.TempDir()
+	// sh ignores SIGINT in its asynchronous child, which stays in the leader's group; the leader
+	// itself exits 0 on the stop.
+	native := fixture(t, folder, `printf '%s\n' "$CLAUDE_CODE_TMPDIR" > "$0.temporary"
+trap 'exit 0' INT
+sleep 60 </dev/null >/dev/null 2>&1 &
+echo $! > "$0.child"
+printf '%s\n' '{"type":"ready"}'
+while :; do sleep 0.1; done
+`)
+	host := startHost(t, claudeScopedArgs(t, native, repository, folder, scope))
+	records := host.stream(t)
+	group := started(t, records)
+	if event := next(t, records, 5*time.Second); event["type"] != "runtime.event" {
+		t.Fatalf("native event not forwarded: %v", event)
+	}
+	child := readPID(t, native+".child")
+	t.Cleanup(func() { syscall.Kill(child, syscall.SIGKILL) })
+	temporary := strings.TrimSpace(readText(t, native+".temporary"))
+	if info, err := os.Stat(temporary); err != nil || !info.IsDir() {
+		t.Fatalf("private temp %q missing at launch: %v", temporary, err)
+	}
+	host.stdin.Write([]byte("stop\n"))
+	if signal := next(t, records, 5*time.Second); signal["type"] != "runtime.signal" || signal["control"] != "stop" ||
+		signal["error"] != nil {
+		t.Fatalf("stop not delivered: %v", signal)
+	}
+	// The leader ends on the stop; its child keeps the group, so nothing is confirmed.
+	quiet(t, records, 3500*time.Millisecond)
+	if err := syscall.Kill(group, 0); err != syscall.ESRCH {
+		t.Fatalf("the stop did not end the leader %d: %v", group, err)
+	}
+	if !alive(t, child) {
+		t.Fatalf("stop escalated to the group member %d", child)
+	}
+	if _, err := os.Stat(temporary); err != nil {
+		t.Fatalf("private temp removed while the group still has a member: %v", err)
+	}
+	if lock, _, err := workspace.Lock(repository, false); err == nil || !strings.Contains(err.Error(), "active Runtime owner") {
+		if lock != nil {
+			lock.Close()
+		}
+		t.Fatalf("lock released while the group still has a member: %v", err)
+	}
+	host.stdin.Write([]byte("kill\n"))
+	if signal := next(t, records, 5*time.Second); signal["control"] != "kill" || signal["error"] != nil {
+		t.Fatalf("kill not delivered: %v", signal)
+	}
+	rest, code := host.drain(t, records, group, child)
+	if code != 0 || len(rest) != 1 || rest[0]["type"] != "runtime.process_ended" || rest[0]["stopped"] != true ||
+		rest[0]["control"] != "kill" {
+		t.Fatalf("code=%d records=%v stderr=%s", code, rest, host.stderr.String())
+	}
+	assertDead(t, child)
+	if _, err := os.Stat(temporary); !os.IsNotExist(err) {
+		t.Fatalf("private temp survived the confirmed end: %v", err)
+	}
+	lock, _, err := workspace.Lock(repository, false)
+	if err != nil {
+		t.Fatalf("lock not released after the group was confirmed gone: %v", err)
+	}
+	lock.Close()
+}
+
 func TestClaudeLongHomeRefusesAndRemovesCreatedTemp(t *testing.T) {
 	// A test-owned home far too long for the private temp, outside /tmp and /var/tmp. TMPDIR moves
 	// to a sibling, so the repository beneath the home lies outside every system temp root.

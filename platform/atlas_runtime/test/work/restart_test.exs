@@ -362,4 +362,81 @@ defmodule AtlasRuntime.Work.RestartTest do
     assert List.last(missed) == :completed
     assert %F.Outcome.Reset{} = F.subscribe(client(), %{from: current + 10_000})
   end
+
+  # S5b SB1, design §6: a Claude attempt still cancelling at a restart ends cancelled, and it
+  # is quiescent only once its process group is provably gone. The probe is the group check
+  # the host's group-gone probe makes (`kill -0 -PGID` on the recorded leader), so it does not
+  # need a `ps` listing; it only reads, and Elixir never signals the turn (D7).
+  def group(pid, _launched) do
+    case System.cmd("/bin/kill", ["-0", "--", "-#{pid}"], stderr_to_stdout: true) do
+      {_, 0} -> :alive
+      _ -> {:gone, "test: process group #{pid} is gone"}
+    end
+  end
+
+  test "Claude: a restart while cancelling ends it cancelled, not quiescent until its group is gone; the slot waits",
+       %{bench: bench} do
+    write_policy!(bench.dir, %{
+      "slots" => ["s1"],
+      "profiles" => %{
+        "light_work" => %{
+          "permissions" => ["read-only"],
+          "cost_classes" => ["standard"],
+          "options" => [
+            %{"provider" => "anthropic", "harness" => "claude", "model" => "claude-test"}
+          ]
+        }
+      }
+    })
+
+    stop_work()
+    start_work!(bench, cancel_grace_ms: 60_000)
+    work = submit!(bench, "linger across the restart")
+    [%{turn_id: turn_id}] = await_launch(bench, work).attempts
+    launch = Enum.find(launches(bench), &(&1["goal"] == work.request.instructions))
+    assert launch["backend"] == "claude"
+    file = Path.join(launch["cwd"], "linger.pid")
+
+    child =
+      await(fn ->
+        with {:ok, text} <- File.read(file),
+             do: String.to_integer(String.trim(text)),
+             else: (_ -> nil)
+      end)
+
+    on_exit(fn -> System.cmd("/bin/kill", ["-9", "#{child}"], stderr_to_stdout: true) end)
+
+    assert %F.Outcome.Cancelling{stage: :signalled} =
+             F.cancel(client(), %{work_id: work.work_id, mode: "graceful"})
+
+    # The leader has ended on the SIGINT; its child keeps the group.
+    await(fn ->
+      File.read!(Path.join(bench.dir, "work-ends.jsonl")) =~ work.request.instructions
+    end)
+
+    assert [%{state: :cancelling, cancel_stage: :signalled}] = work!(work.work_id).attempts
+
+    # The Runtime dies, and the turn's helper (the fake's parent) with it before it can end the
+    # group on its parent's loss: the group lives on with nobody to confirm its end.
+    stop_all()
+    System.cmd("/bin/kill", ["-9", "#{launch["ppid"]}"], stderr_to_stdout: true)
+    bench = crash_and_restart(bench, &__MODULE__.group/2, probe: &__MODULE__.group/2)
+
+    [attempt] = await_state(work.work_id, :cancelled).attempts
+    assert attempt.cancel_reason == :cancel
+    refute attempt.quiescent
+    # Left as recorded (reads show it unknown), and its child alive.
+    assert turn(bench, turn_id)["state"] == "stopping"
+    assert group(launch["pid"], nil) == :alive
+
+    next = submit!(bench, "complete after the group is gone")
+    Process.sleep(300)
+    assert work!(next.work_id).state == :buffered
+    refute hd(work!(work.work_id).attempts).quiescent
+
+    # The test ends the child; the next heartbeat's probe finds the group gone (I1).
+    System.cmd("/bin/kill", ["-9", "#{child}"], stderr_to_stdout: true)
+    assert [%{quiescent: true}] = await_work(work.work_id, &hd(&1.attempts).quiescent).attempts
+    await_state(next.work_id, :completed)
+  end
 end
