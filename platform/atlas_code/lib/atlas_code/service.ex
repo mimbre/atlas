@@ -51,6 +51,7 @@ defmodule AtlasCode.Service do
   @typedoc "The settings of a started Code (see `AtlasCode.start/2`)."
   @type settings :: %{
           required(:home) => Path.t(),
+          optional(:effects) => Path.t(),
           required(:repositories) => %{String.t() => String.t()},
           required(:token) => binary(),
           required(:orchestrator) => binary() | nil,
@@ -2239,6 +2240,7 @@ defmodule AtlasCode.Service do
 
   # Fast-forwards the location from the review's head to the update's commit. Every attempt asks
   # the remote first: a location already at the commit is an earlier push whose response was lost.
+  # A location that Code's own integrate moved on from the head is moved to the commit too (K3).
   defp move(
          settings,
          file,
@@ -2253,56 +2255,7 @@ defmodule AtlasCode.Service do
         advanced(settings, file, record)
 
       [^head] ->
-        args =
-          @git_config ++
-            [
-              "--git-dir",
-              dir,
-              "push",
-              "--porcelain",
-              "--force-with-lease=#{ref}:#{head}",
-              url,
-              "#{child}:#{ref}"
-            ]
-
-        {output, status} =
-          System.cmd("git", args, env: [{"GIT_TERMINAL_PROMPT", "0"}], stderr_to_stdout: true)
-
-        flag = flag(output, "#{child}:#{ref}")
-
-        cond do
-          status == 0 and flag in [" ", "="] ->
-            advanced(settings, file, record)
-
-          # No status line: the outcome is unknown, so the phase stays pushing for a repeat.
-          flag == nil ->
-            error(503, "provider_unavailable", "git push failed with exit status #{status}")
-
-          true ->
-            case ls_remote(["--git-dir", dir], url, ref) do
-              [^child] ->
-                advanced(settings, file, record)
-
-              # Still at the head: the remote itself refused the update.
-              [^head] ->
-                update_outcome(
-                  save(
-                    file,
-                    %{record | "phase" => "refused"} |> Map.put("code", "update_refused")
-                  )
-                )
-
-              {:failed, _} ->
-                error(
-                  503,
-                  "provider_unavailable",
-                  "git push was refused with exit status #{status}"
-                )
-
-              current ->
-                diverged(settings, file, record, target, child, current)
-            end
-        end
+        push(settings, file, record, target, child, head)
 
       {:failed, status} ->
         error(503, "provider_unavailable", "git ls-remote failed with exit status #{status}")
@@ -2312,14 +2265,79 @@ defmodule AtlasCode.Service do
     end
   end
 
+  # Pushes the update's commit, leased on the commit the location is at (`lease`).
+  defp push(
+         settings,
+         file,
+         %{"location" => location} = record,
+         %{url: url, dir: dir} = target,
+         child,
+         lease
+       ) do
+    ref = "refs/heads/" <> location
+
+    args =
+      @git_config ++
+        [
+          "--git-dir",
+          dir,
+          "push",
+          "--porcelain",
+          "--force-with-lease=#{ref}:#{lease}",
+          url,
+          "#{child}:#{ref}"
+        ]
+
+    {output, status} =
+      System.cmd("git", args, env: [{"GIT_TERMINAL_PROMPT", "0"}], stderr_to_stdout: true)
+
+    flag = flag(output, "#{child}:#{ref}")
+
+    cond do
+      status == 0 and flag in [" ", "="] ->
+        advanced(settings, file, record)
+
+      # No status line: the outcome is unknown, so the phase stays pushing for a repeat.
+      flag == nil ->
+        error(503, "provider_unavailable", "git push failed with exit status #{status}")
+
+      true ->
+        case ls_remote(["--git-dir", dir], url, ref) do
+          [^child] ->
+            advanced(settings, file, record)
+
+          # Still at the lease: the remote itself refused the update.
+          [^lease] ->
+            update_outcome(
+              save(file, %{record | "phase" => "refused"} |> Map.put("code", "update_refused"))
+            )
+
+          {:failed, _} ->
+            error(503, "provider_unavailable", "git push was refused with exit status #{status}")
+
+          current ->
+            diverged(settings, file, record, target, child, current)
+        end
+    end
+  end
+
   # The location is at neither the head nor the update: someone else moved or removed it. It
   # holds the update only when it contains the update's commit (pushed on top after a lost reply).
-  defp diverged(settings, file, record, %{url: url, dir: dir}, child, [commit]) do
+  # A head Code's own integrate produced from the review's head is moved on from, leased on that
+  # head (`integrated?/4`); any other is never overwritten.
+  defp diverged(settings, file, record, %{url: url, dir: dir} = target, child, [commit]) do
     case locked(dir, fn -> fetch(dir, url, commit) end) do
       :ok ->
-        if ancestor?(dir, child, commit),
-          do: advanced(settings, file, record),
-          else: location_moved(settings, file, record, commit)
+        cond do
+          ancestor?(dir, child, commit) ->
+            advanced(settings, file, record)
+
+          integrated?(settings, record, target.head, commit) ->
+            push(settings, file, record, target, child, commit)
+
+          true ->
+            location_moved(settings, file, record, commit)
+        end
 
       :missing ->
         location_moved(settings, file, record, commit)
@@ -2334,6 +2352,38 @@ defmodule AtlasCode.Service do
 
   defp diverged(_settings, _file, _record, _target, _child, _current),
     do: error(503, "provider_unavailable", "Git returned an ambiguous reference")
+
+  # Whether `commit` is a head Code's own integrate (`AtlasCode.Effects`) moved the review's pull
+  # to: in its journal (`settings.effects`), a refused integrate of this pull whose line holds the
+  # review's head and, after it, `commit` (each a merge of the one before and its base). One
+  # still working, or done, or a line that only starts at `commit`, is not.
+  defp integrated?(settings, %{"review_url" => url}, head, commit) when is_binary(url) do
+    dir = Path.join(Map.get(settings, :effects, settings.home), "effects")
+
+    case File.ls(dir) do
+      {:ok, names} ->
+        Enum.any?(names, fn name ->
+          with true <- String.ends_with?(name, ".json"),
+               {:ok, bytes} <- File.read(Path.join(dir, name)),
+               {:ok,
+                %{
+                  "request" => %{"target" => ^url},
+                  "line" => line,
+                  "outcome" => %{"status" => "refused"}
+                }}
+               when is_list(line) <- JSON.decode(bytes) do
+            commit in (line |> Enum.drop_while(&(&1 != head)) |> Enum.drop(1))
+          else
+            _ -> false
+          end
+        end)
+
+      {:error, _} ->
+        false
+    end
+  end
+
+  defp integrated?(_settings, _record, _head, _commit), do: false
 
   defp location_moved(settings, file, record, commit) do
     current = commit && put_revision(settings.home, record["repository"], commit)

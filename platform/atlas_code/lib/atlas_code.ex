@@ -64,7 +64,9 @@ defmodule AtlasCode do
   - `review-updates/<update id>.json`: `{"request", "phase", "review_id", "change_id",
     "previous_revision", "revision", …}`, written before the push. Phases: `pushing`, then
     `updated`; or the terminal `refused` (with `"code"`) when the location moved or the remote
-    refused. The pushed commit keeps the private ref `refs/atlas/updates/<update id>`.
+    refused. The pushed commit keeps the private ref `refs/atlas/updates/<update id>`. A location
+    that Code's own integrate moved on from the review's head (a refused integrate of the review's
+    pull, in `<effects>/effects/`, whose `line` leads there) is not moved: the update replaces it.
   - `integrations/<integration id>.json`: `{"request", "phase", "repository", "target", …}`.
     Phases: `integrating`, then `integrated`; or the terminal `target_moved`, `conflicted` or
     `refused`.
@@ -128,6 +130,9 @@ defmodule AtlasCode do
   that `settings/0` (and with it the facade `AtlasCode.Boundary`) reaches it, until it stops
   or its server goes down. Only one instance can be registered: while another is, start
   stops the new server, gives up its home and raises.
+
+  `effects:` names the folder of Code's integrate journal (`AtlasCode.Effects`' `dir`), the home
+  by default: `update_review` moves on from a review head that Code's own integrate produced.
   """
   def start(home, opts \\ []) do
     settings = open!(home, opts)
@@ -295,6 +300,7 @@ defmodule AtlasCode do
       repositories: repositories,
       anonymous: anonymous,
       home: home,
+      effects: Path.expand(Keyword.get(opts, :effects, home)),
       gh: gh,
       owner: owner
     }
