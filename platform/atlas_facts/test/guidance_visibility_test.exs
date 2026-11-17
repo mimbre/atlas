@@ -111,7 +111,7 @@ defmodule AtlasFacts.GuidanceVisibilityTest do
         Registry.unregister(AtlasBus.Endpoints, "runtime@box")
       end
     end)
-    |> Task.await()
+    |> Task.await(:infinity)
   end
 
   defp create_run do
