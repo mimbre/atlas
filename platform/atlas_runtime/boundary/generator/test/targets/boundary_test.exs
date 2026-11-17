@@ -200,28 +200,36 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.BoundaryTest do
       refute_received :enumerated
     end
 
+    # The refusal is asserted by its structure (the outcome, `why:` and the field it names),
+    # never by its wording. `echoes?: false` also checks the note does not repeat the value;
+    # a list's chunks are still shown in the note (values.ex), so lists do not check it.
     test "a binary, a list of non-binaries or a missing value is refused: invalid" do
-      for {pages, reason} <- [
-            {"bytes", ~s(input.pages must be a stream (an Enumerable\), got "bytes")},
-            {[1, 2], "input.pages must be a stream of binary chunks, got [1, 2]"},
-            {["a", :b], ~s(input.pages must be a stream of binary chunks, got ["a", :b])},
-            {["a" | "b"], ~s(input.pages must be a stream of binary chunks, got ["a" | "b"])},
-            {%{}, "input.pages must be a stream (an Enumerable), got a map"},
-            {nil, "input.pages is required"}
+      for {pages, echoes?} <- [
+            {"raw page bytes", false},
+            {[1, 2], true},
+            {["a", :b], true},
+            {["a" | "b"], true},
+            {%{"secret" => "raw page bytes"}, false},
+            {nil, false}
           ] do
-        assert B.upload({self(), [:lend]}, %{"title" => "Dune", "pages" => pages}) ==
-                 %B.Outcome.Declined{why: :unreadable, note: reason}
+        for input <- [
+              %{"title" => "Dune", "pages" => pages},
+              %B.UploadInput{title: "Dune", pages: pages}
+            ] do
+          assert %B.Outcome.Declined{why: :unreadable, note: note} =
+                   B.upload({self(), [:lend]}, input)
 
-        assert B.upload({self(), [:lend]}, %B.UploadInput{title: "Dune", pages: pages}) ==
-                 %B.Outcome.Declined{why: :unreadable, note: reason}
+          assert_refuses_only(note, "input.pages", pages, echoes?)
+        end
 
-        assert B.UploadInput.new(%{title: "Dune", pages: pages}) ==
-                 {:error, ["upload_" <> reason]}
+        assert {:error, [reason]} = B.UploadInput.new(%{title: "Dune", pages: pages})
+        assert_refuses_only(reason, "upload_input.pages", pages, echoes?)
       end
 
-      assert %B.Outcome.Declined{note: "input.pages is required"} =
+      assert %B.Outcome.Declined{why: :unreadable, note: note} =
                B.upload({self(), [:lend]}, %{"title" => "Dune"})
 
+      assert_refuses_only(note, "input.pages", nil, false)
       refute_received {:received, _}
     end
 
@@ -229,12 +237,18 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.BoundaryTest do
       for options <- ["", ", required: false"] do
         f = optional_stream_facade(options)
         input = Module.concat(f, PutInput)
-        invalid = %InvalidInput{capability: :put, reasons: ["input.tree is required"]}
 
-        assert f.put({self(), [:r]}, %{"id" => "x"}) == invalid
-        assert f.put({self(), [:r]}, %{"id" => "x", "tree" => nil}) == invalid
-        assert f.put({self(), [:r]}, struct!(input, id: "x", tree: nil)) == invalid
-        assert input.new(%{id: "x"}) == {:error, ["put_input.tree is required"]}
+        for given <- [
+              %{"id" => "x"},
+              %{"id" => "x", "tree" => nil},
+              struct!(input, id: "x", tree: nil)
+            ] do
+          assert %InvalidInput{capability: :put, reasons: [reason]} = f.put({self(), [:r]}, given)
+          assert_refuses_only(reason, "input.tree", nil, false)
+        end
+
+        assert {:error, [reason]} = input.new(%{id: "x"})
+        assert_refuses_only(reason, "put_input.tree", nil, false)
         refute_received {:put, _}
 
         # A stream is still taken, unread.
@@ -248,9 +262,13 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.BoundaryTest do
       {:type, t} = Enum.find(types, &match?({:type, {:t, _, _}}, &1))
       assert Code.Typespec.type_to_quoted(t) |> Macro.to_string() =~ "pages: Enumerable.t()"
 
-      assert_raise ContractError, ~r/UploadInput.pages is a :stream/, fn ->
-        B.UploadInput.dump(%B.UploadInput{title: "t", pages: ["a"]})
-      end
+      # Asserted by the exception and the field it names, not by its wording.
+      error =
+        assert_raise ContractError, fn ->
+          B.UploadInput.dump(%B.UploadInput{title: "t", pages: ["a"]})
+        end
+
+      assert error.message =~ "UploadInput.pages"
     end
   end
 
@@ -286,6 +304,19 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.BoundaryTest do
       assert_raise CompileError, ~r/invalid_detail_right: expects a right/, fn ->
         guarded_facade("AtlasRuntimeBoundary.Generator.Example", ~s("see"))
       end
+    end
+  end
+
+  # One refusal, of the field at `path` and of no other field: the reason starts with that
+  # path. Unless `echoes?`, the given value is not repeated in it.
+  defp assert_refuses_only(reason, path, value, echoes?) do
+    assert String.starts_with?(reason, path <> " "), inspect(reason)
+    refute reason =~ "; ", inspect(reason)
+
+    unless echoes? do
+      refute reason =~ inspect(value), inspect(reason)
+      if is_binary(value), do: refute(reason =~ value, inspect(reason))
+      if is_map(value), do: refute(reason =~ "raw page bytes", inspect(reason))
     end
   end
 

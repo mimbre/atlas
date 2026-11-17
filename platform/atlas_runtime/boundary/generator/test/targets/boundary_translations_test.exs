@@ -366,12 +366,11 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.BoundaryTranslationsTest do
   describe "a :stream input field (S5c)" do
     test "a mapping onto its input model fails at the mapping's line, either direction" do
       for options <- ["supply: [:content]", "direction: :from_model, supply: [:content]"] do
-        error =
-          assert_raise CompileError,
-                       ~r/defmapping :shelf_spot -> :scan: scan.content is the :stream of an input; an input's stream reaches the implementation unread, so no mapping takes it/,
-                       fn -> stream_facade(options, :input) end
-
+        # Asserted by the error, its line, the mapping and the field, not by its wording.
+        error = assert_raise CompileError, fn -> stream_facade(options, :input) end
         assert error.line == 13
+        assert String.starts_with?(error.description, "defmapping :shelf_spot -> :scan: ")
+        assert error.description =~ "scan.content"
       end
     end
   end

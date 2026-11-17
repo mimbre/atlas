@@ -379,12 +379,11 @@ defmodule AtlasRuntimeBoundary.Generator.SchemaTest do
           "field :more, :stream\nend\n" <>
           "defcapability :up, input: :up_input, outcomes: [ok: nil], right: :r"
 
-      error =
-        assert_raise CompileError,
-                     ~r/up_input\.more: an input model has at most one :stream field, and up_input\.tree is one already/,
-                     fn -> spec(body) end
-
+      # Asserted by the error, its line and the fields it names, not by its wording.
+      error = assert_raise CompileError, fn -> spec(body) end
       assert error.line == 6
+      assert String.starts_with?(error.description, "up_input.more: "), error.description
+      assert error.description =~ "up_input.tree"
     end
 
     test "a capability inside a model, and a contract without a version" do
