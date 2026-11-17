@@ -4,22 +4,26 @@ package host
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"os/signal"
 	"os/user"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
+	"unsafe"
 
 	"github.com/eyra/atlas/platform/atlas_runtime/host/workspace"
 )
@@ -468,6 +472,23 @@ func run(args []string) (err error) {
 		}
 		return emit(record)
 	}
+	// listed holds the leader's descendants, taken just before a stop or kill is delivered: after the
+	// signal, a member that left the group can be reparented and no ppid walk finds it any more.
+	// It only feeds the escapee record after the confirmed end; a failed listing never holds the signal.
+	listed, listingFailed := map[int]int{}, false
+	list := func() {
+		descendants, failure := listDescendants(leader.pid)
+		if failure != nil {
+			if !listingFailed {
+				listingFailed = true
+				escapeeWarning(errorsFile, "descendant listing failed: "+failure.Error())
+			}
+			return
+		}
+		for _, member := range descendants {
+			listed[member.pid] = member.pgid
+		}
+	}
 	var partial, controlPartial []byte
 	for !confirmed {
 		select {
@@ -509,6 +530,7 @@ func run(args []string) (err error) {
 							questions.cancel()
 						}
 						control, deadline = "stop", nil
+						list()
 						if err = deliver("stop", syscall.SIGINT); err != nil {
 							return err
 						}
@@ -519,6 +541,7 @@ func run(args []string) (err error) {
 							questions.cancel()
 						}
 						control, deadline = "kill", nil
+						list()
 						if err = deliver("kill", syscall.SIGKILL); err != nil {
 							return err
 						}
@@ -611,6 +634,15 @@ func run(args []string) (err error) {
 			return errors.New("Native host interrupted")
 		}
 	}
+	// Record only: an escapee is never signalled, and the end below is the same with or without one.
+	for _, pid := range slices.Sorted(maps.Keys(listed)) {
+		if pgid := listed[pid]; pgid != leader.pid {
+			if probe := kill(pid, 0); probe == nil || probe == syscall.EPERM {
+				escapeeWarning(errorsFile, fmt.Sprintf(
+					"process %d (pgid %d) left the turn's process group and survived the confirmed end", pid, pgid))
+			}
+		}
+	}
 	if err = protocol.complete(control != ""); err != nil {
 		return err
 	}
@@ -623,6 +655,8 @@ func run(args []string) (err error) {
 
 // groupGone probes the reaped leader's process group: no remaining member can receive signals.
 // Descendants that left the group (setsid/setpgid) are outside this check and Runtime's reach.
+// After a stop or kill the host only records those it listed that are still alive; it cannot see
+// one reparented before the control arrived, and natural ends and parent loss list nothing.
 func groupGone(pgid int) (bool, error) {
 	err := kill(-pgid, 0)
 	switch err {
@@ -776,6 +810,133 @@ func (leader *process) code() int {
 
 // kill is replaced in tests to inject a denial without signalling foreign processes.
 var kill = syscall.Kill
+
+// escapeeWarning appends one line to the turn's stderr.log and the host's stderr, like the
+// cleanup warning; it never changes the turn's outcome.
+func escapeeWarning(errorsFile *os.File, message string) {
+	warning := "Native runner escapee warning: " + message + "\n"
+	errorsFile.WriteString(warning)
+	os.Stderr.WriteString(warning)
+}
+
+// descendant is a process below the turn's leader and the process group it was in when listed.
+type descendant struct{ pid, pgid int }
+
+// listDescendants is replaced in tests (through the host child's environment) to force a failure.
+var listDescendants = descendantsOf
+
+// descendantsOf lists every process once and returns the leader's descendants.
+func descendantsOf(leader int) ([]descendant, error) {
+	var table [][3]int // pid, ppid, pgid
+	var err error
+	if runtime.GOOS == "darwin" {
+		table, err = kernelProcesses()
+	} else {
+		table, err = psProcesses()
+	}
+	if err != nil {
+		return nil, err
+	}
+	return descendantsIn(table, leader), nil
+}
+
+// descendantsIn walks ppid down from leader, visiting each pid once: a listing that is not atomic can
+// show a cycle through a reused pid, and the walk runs before a stop or kill is delivered.
+func descendantsIn(table [][3]int, leader int) []descendant {
+	children := map[int][][3]int{}
+	for _, entry := range table {
+		children[entry[1]] = append(children[entry[1]], entry)
+	}
+	var found []descendant
+	seen := map[int]bool{leader: true}
+	for queue := []int{leader}; len(queue) > 0; queue = queue[1:] {
+		for _, entry := range children[queue[0]] {
+			if !seen[entry[0]] {
+				seen[entry[0]] = true
+				found = append(found, descendant{entry[0], entry[2]})
+				queue = append(queue, entry[0])
+			}
+		}
+	}
+	return found
+}
+
+// psProcesses lists every process through ps; darwin uses kernelProcesses instead.
+func psProcesses() ([][3]int, error) {
+	out, err := exec.Command("/bin/ps", "-A", "-o", "pid=,ppid=,pgid=").Output()
+	if err != nil {
+		return nil, fmt.Errorf("/bin/ps: %w", err)
+	}
+	var table [][3]int
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		var entry [3]int
+		if _, err = fmt.Sscan(line, &entry[0], &entry[1], &entry[2]); err != nil {
+			return nil, fmt.Errorf("/bin/ps line %q: %w", line, err)
+		}
+		table = append(table, entry)
+	}
+	return table, nil
+}
+
+// On darwin LP64, struct kinfo_proc is 648 bytes; kp_proc.p_pid sits at 40 and kp_eproc.e_ppid and
+// e_pgid at 560 and 564 (offsetof against the macOS SDK <sys/sysctl.h>).
+const (
+	darwinSysctl          = 202 // SYS___SYSCTL; a sandbox allows it where it denies exec of the setuid ps
+	darwinKinfoProcSize   = 648
+	darwinProcPIDOffset   = 40
+	darwinEprocPPIDOffset = 560
+	darwinEprocPGIDOffset = 564
+)
+
+// kernelProcesses reads sysctl kern.proc.all and checks the layout against this process.
+func kernelProcesses() ([][3]int, error) {
+	mib := [3]int32{1, 14, 0} // CTL_KERN, KERN_PROC, KERN_PROC_ALL
+	sysctl := func(buffer []byte, size *uintptr) syscall.Errno {
+		var data unsafe.Pointer
+		if len(buffer) > 0 {
+			data = unsafe.Pointer(&buffer[0])
+		}
+		_, _, errno := syscall.Syscall6(darwinSysctl, uintptr(unsafe.Pointer(&mib[0])), uintptr(len(mib)),
+			uintptr(data), uintptr(unsafe.Pointer(size)), 0, 0)
+		return errno
+	}
+	var buffer []byte
+	size := uintptr(0)
+	for attempt := 0; ; attempt++ {
+		if errno := sysctl(nil, &size); errno != 0 {
+			return nil, fmt.Errorf("sysctl kern.proc.all: %w", errno)
+		}
+		// Room for processes started between the two calls.
+		size += size / 4
+		buffer = make([]byte, size)
+		errno := sysctl(buffer, &size)
+		if errno == 0 {
+			break
+		}
+		if errno != syscall.ENOMEM || attempt == 2 {
+			return nil, fmt.Errorf("sysctl kern.proc.all: %w", errno)
+		}
+	}
+	if size%darwinKinfoProcSize != 0 {
+		return nil, errors.New("sysctl kern.proc.all returned an unexpected kinfo_proc size")
+	}
+	field := func(entry []byte, offset int) int {
+		return int(int32(binary.NativeEndian.Uint32(entry[offset:])))
+	}
+	table, self := make([][3]int, 0, size/darwinKinfoProcSize), false
+	for offset := 0; offset < int(size); offset += darwinKinfoProcSize {
+		entry := buffer[offset : offset+darwinKinfoProcSize]
+		row := [3]int{field(entry, darwinProcPIDOffset), field(entry, darwinEprocPPIDOffset), field(entry, darwinEprocPGIDOffset)}
+		if row[0] == os.Getpid() {
+			self = row[1] == os.Getppid() && row[2] == syscall.Getpgrp()
+		}
+		table = append(table, row)
+	}
+	if !self {
+		return nil, errors.New("sysctl kern.proc.all: the kinfo_proc layout does not match this process")
+	}
+	return table, nil
+}
 
 func (leader *process) signalGroup(sig syscall.Signal) error {
 	err := kill(-leader.pid, sig)
