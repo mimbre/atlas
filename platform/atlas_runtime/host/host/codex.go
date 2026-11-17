@@ -165,7 +165,7 @@ func socketEntries(home string, projects ...string) ([][2]string, error) {
 //   - frozen: the work core's private frozen results and their blobs (model/contract frozen_result, S5a);
 //   - execution-events.json: the durable execution-event outbox (persistence/execution_events.ex);
 //   - mode.json: the persisted Runtime mode (model/contract runtime_mode, S2);
-//   - clients.json: the backend clients and their tokens (S3), reserved before it has a code site;
+//   - clients.json: the loopback TCP clients, their token hashes and rights (backend/clients.ex, S3);
 //   - <name>.json.tmp for each <name>.json above: the sibling an atomic write (write <path>.tmp, then
 //     rename) fills before the rename, with the whole new content (execution_events.ex and
 //     availability.ex write execution-events.json and availability.json so on every change). A

@@ -1,18 +1,19 @@
 defmodule AtlasFlow.Runtime.HttpContractTest do
   @moduledoc """
   The contract test of Flow's Runtime client (plan 2026-11-17 §6 F1.1): `Client.Http` and
-  `Link` against the Runtime's real backend, started here with only its work core and a
-  loopback TCP listener on a temporary `ATLAS_RUNTIME_HOME`, with a test `clients.json` and
-  no `server.json`. The stub harness (`fake_native`, which never launches a provider) and
-  the Runtime's workspace command (`ATLAS_RUNTIME_EXECUTABLE`) are built in `setup_all`
-  with `go build`.
+  `Link` against the Runtime's real backend, started here with only its work core and its
+  loopback TCP listener (S3, `AtlasRuntime.Backend.TcpListener`) on a temporary
+  `ATLAS_RUNTIME_HOME`, with a test `clients.json` and no `server.json`. The stub harness
+  (`fake_native`, which never launches a provider) and the Runtime's workspace command
+  (`ATLAS_RUNTIME_EXECUTABLE`) are built in `setup_all` with `go build`.
 
-  The Runtime's own TCP listener (S3) is not in the tree yet; its interface is (S3 P1: the
-  `:tcp` rights ceiling, `__problem__/2` with `unauthenticated` and `origin-refused`). The
-  listener below is a test stand-in on that interface: a Bearer token from `clients.json`
-  (stored as a sha256, compared in constant time), its rights cut to the TCP ceiling,
-  Origin refused, then the generated router. Replace it with the Runtime's listener when
-  that lands.
+  Flow is a TCP client: its token's rights are `submit`, `cancel` and `read`, cut to the
+  TCP ceiling, and it never holds `choose_path`. So it names no path on the Runtime's
+  machine (D44): its work uses `repository` workspaces. Here every
+  `https://github.com/flow-contract/<name>.git` is cloned from `<home>/src/<name>.git`
+  through `insteadOf`, by a `codex sandbox` stand-in that runs Git (as S3's
+  `integration/runtime_backend_tcp.exs` and the host's tests do). A `folder` workspace
+  over TCP is refused `not_permitted`.
 
   This is the one Flow source that names the Runtime's modules: it starts the Runtime in
   the test (`atlas_runtime` is a test-only dependency). Flow's own code reaches the Runtime
@@ -22,57 +23,16 @@ defmodule AtlasFlow.Runtime.HttpContractTest do
 
   alias AtlasFlow.Runtime.{Config, Link}
   alias AtlasFlow.Runtime.Client.Http, as: C
+  alias AtlasRuntime.Backend.TcpListener
 
   @token_env "ATLAS_FLOW_CONTRACT_TEST_TOKEN"
   @token "flow-contract-token"
   @rights [:submit, :cancel, :read]
+  # The work's client as the TCP listener names it: "token:" and the clients.json entry.
+  @client "token:flow"
   @wait 10_000
-
-  defmodule TcpListener do
-    @moduledoc false
-    # The S3 listener's work, on its P1 interface: Origin refused, Bearer token required,
-    # rights cut to the router's :tcp ceiling.
-    @behaviour Plug
-    import Plug.Conn
-
-    @rights %{
-      "submit" => :submit,
-      "cancel" => :cancel,
-      "read" => :read,
-      "read_all" => :read_all,
-      "choose_slot" => :choose_slot
-    }
-
-    @impl true
-    def init(home), do: home
-
-    @impl true
-    def call(conn, home) do
-      router = AtlasRuntime.Backend.Rest
-
-      with [] <- get_req_header(conn, "origin"),
-           {:ok, client} <- authenticate(conn, home, router) do
-        conn |> assign(:client, client) |> router.call(router.init([]))
-      else
-        [_origin | _] -> router.__problem__(:origin_refused, conn)
-        :error -> router.__problem__(:unauthenticated, conn)
-      end
-    end
-
-    defp authenticate(conn, home, router) do
-      with ["Bearer " <> token] <- get_req_header(conn, "authorization"),
-           {:ok, json} <- File.read(Path.join(home, "clients.json")),
-           %{"clients" => clients} <- JSON.decode!(json),
-           digest = Base.encode16(:crypto.hash(:sha256, token), case: :lower),
-           %{"name" => name, "rights" => rights} <-
-             Enum.find(clients, &Plug.Crypto.secure_compare(&1["token_sha256"], digest)) do
-        granted = for r <- rights, right = @rights[r], right in router.__rights__(:tcp), do: right
-        {:ok, {name, granted}}
-      else
-        _ -> :error
-      end
-    end
-  end
+  # Repository workspaces (D44): every URL under here is cloned from <home>/src/<name>.git.
+  @repositories "https://github.com/flow-contract/"
 
   setup_all do
     root = Path.expand("../../..", __DIR__)
@@ -109,24 +69,45 @@ defmodule AtlasFlow.Runtime.HttpContractTest do
     home = Path.join(System.tmp_dir!(), "afr-#{System.unique_integer([:positive])}")
     bin = Path.join(home, "bin")
     File.mkdir_p!(bin)
-    File.mkdir_p!(Path.join(home, "workspace"))
+    for dir <- ["workspace", "src", "git-home"], do: File.mkdir_p!(Path.join(home, dir))
 
     for tool <- ["git", "mkfifo"],
         do: File.ln_s!(System.find_executable(tool), Path.join(bin, tool))
 
+    sources = sh_quote("url.file://#{Path.join(home, "src")}/.insteadOf=#{@repositories}")
+
     for harness <- ["codex", "claude"] do
       script = Path.join(bin, harness)
-      File.write!(script, "#!/bin/sh\nexec '#{fake}' work '#{home}' \"$0\" \"$@\"\n")
+
+      # As Codex's sandbox prefix (managed repository preparation, D44), run Git in -C over a
+      # local transport; otherwise act as the harness.
+      File.write!(script, """
+      #!/bin/sh
+      if [ "$1" = sandbox ]; then
+        while [ "$1" != -C ]; do shift; done
+        cd "$2" || exit 1
+        while [ "$1" != -- ]; do shift; done
+        shift 2
+        exec git -c #{sources} "$@"
+      fi
+      exec #{sh_quote(fake)} work #{sh_quote(home)} "$0" "$@"
+      """)
+
       File.chmod!(script, 0o700)
     end
 
+    names = ["PATH", "HOME", "CODEX_HOME", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM"]
+
     previous =
-      for name <- ["PATH", "CODEX_HOME", "GIT_CONFIG_GLOBAL", "ATLAS_RUNTIME_HOME", @token_env],
-          do: {name, System.get_env(name)}
+      for name <- names ++ ["ATLAS_RUNTIME_HOME", @token_env], do: {name, System.get_env(name)}
 
     System.put_env("PATH", bin <> ":/usr/bin:/bin")
+    # The Runtime passes HOME (not GIT_CONFIG_GLOBAL) on to the host, whose repository
+    # preparation runs Git: a HOME of the test's own, so no user configuration is read.
+    System.put_env("HOME", Path.join(home, "git-home"))
     System.put_env("CODEX_HOME", Path.join(home, "codex-home"))
     System.put_env("GIT_CONFIG_GLOBAL", "/dev/null")
+    System.put_env("GIT_CONFIG_NOSYSTEM", "1")
     System.put_env("ATLAS_RUNTIME_HOME", home)
     System.put_env(@token_env, @token)
 
@@ -138,7 +119,12 @@ defmodule AtlasFlow.Runtime.HttpContractTest do
         "buffer_size" => 1,
         "profiles" => %{
           "deep_coding" => %{
-            "permissions" => ["read-only", "workspace-write", "materialized-folder"],
+            "permissions" => [
+              "read-only",
+              "workspace-write",
+              "materialized-folder",
+              "dedicated-repository"
+            ],
             "cost_classes" => ["standard"],
             "options" => [%{"provider" => "openai", "harness" => "codex", "model" => "gpt-test"}]
           }
@@ -146,9 +132,15 @@ defmodule AtlasFlow.Runtime.HttpContractTest do
       })
     )
 
+    # As the runbook writes it (host/README.md): the token's hash only, mode 0600. Flow's
+    # rights never include choose_path (D44), nor could they: the TCP ceiling has none.
+    clients = Path.join(home, "clients.json")
+
     File.write!(
-      Path.join(home, "clients.json"),
+      clients,
       JSON.encode!(%{
+        "version" => 1,
+        "listen" => %{"port" => free_port()},
         "clients" => [
           %{
             "name" => "flow",
@@ -159,6 +151,8 @@ defmodule AtlasFlow.Runtime.HttpContractTest do
       })
     )
 
+    File.chmod!(clients, 0o600)
+
     runtime = %{
       home: home,
       # A test's own `@tag work:` options win over these.
@@ -166,7 +160,7 @@ defmodule AtlasFlow.Runtime.HttpContractTest do
     }
 
     start_runtime(runtime)
-    port = listen(home, 0)
+    port = listen(home)
 
     on_exit(fn ->
       stop_runtime()
@@ -216,27 +210,31 @@ defmodule AtlasFlow.Runtime.HttpContractTest do
     :ok
   end
 
-  defp listen(home, port) do
-    {:ok, pid} =
-      Bandit.start_link(
-        plug: {TcpListener, home},
-        ip: {127, 0, 0, 1},
-        port: port,
-        startup_log: false
-      )
-
+  # The Runtime's TCP listener, as host/service.exs starts it (TcpListener.serve!/2): on
+  # the port clients.json names, so a listener started again is on the same port.
+  defp listen(home) do
+    {:ok, pid} = TcpListener.start_link(home: home, router: AtlasRuntime.Backend.Rest)
     Process.unlink(pid)
     Process.put(:listener, pid)
-    {:ok, {_ip, port}} = ThousandIsland.listener_info(pid)
+    {{127, 0, 0, 1}, port} = TcpListener.address(pid)
     port
   end
 
   defp stop_listener do
     case Process.delete(:listener) do
       nil -> :ok
-      pid -> if Process.alive?(pid), do: Supervisor.stop(pid)
+      pid -> if Process.alive?(pid), do: GenServer.stop(pid)
     end
   end
+
+  defp free_port do
+    {:ok, socket} = :gen_tcp.listen(0, ip: {127, 0, 0, 1})
+    {:ok, port} = :inet.port(socket)
+    :gen_tcp.close(socket)
+    port
+  end
+
+  defp sh_quote(word), do: "'" <> String.replace(word, "'", "'\\''") <> "'"
 
   defp kill(pid) do
     monitor = Process.monitor(pid)
@@ -251,17 +249,35 @@ defmodule AtlasFlow.Runtime.HttpContractTest do
 
   ## Requests and waiting
 
-  # A request in a folder of its own (the Runtime refuses two turns in overlapping folders).
-  # The S1 Runtime runs only `folder` work, so the test names a folder of its own home; the
-  # client passes the request through and names no path itself (D44).
+  # A request in a repository of its own, named by its instructions: the same instructions
+  # are the same request. Flow passes the request through and names no path (D44); the
+  # Runtime chooses the folder. The source is made once, with an empty develop.
   defp request(home, instructions) do
-    folder =
-      Path.join([
-        home,
-        "workspace",
-        Base.encode16(:crypto.hash(:md5, instructions), case: :lower)
-      ])
+    name = Base.encode16(:crypto.hash(:md5, instructions), case: :lower)
+    source = Path.join([home, "src", name <> ".git"])
 
+    unless File.dir?(source) do
+      git!(home, ["init", "-q", "-b", "develop", source])
+      git!(source, ["commit", "--allow-empty", "-qm", "base"])
+    end
+
+    %{
+      title: instructions,
+      instructions: instructions,
+      profile: "deep_coding",
+      cost_class: "standard",
+      workspace: %{
+        kind: "repository",
+        url: @repositories <> name <> ".git",
+        branch: "task/" <> name,
+        base: "develop"
+      }
+    }
+  end
+
+  # A folder on the Runtime's machine: only a client holding choose_path names one (D44).
+  defp folder_request(home, instructions) do
+    folder = Path.join([home, "workspace", Base.encode16(:crypto.hash(:md5, instructions))])
     File.mkdir_p!(folder)
 
     %{
@@ -271,6 +287,16 @@ defmodule AtlasFlow.Runtime.HttpContractTest do
       cost_class: "standard",
       workspace: %{kind: "folder", path: folder, permissions: "read-only"}
     }
+  end
+
+  defp git!(cd, args) do
+    identity = ["-c", "user.name=flow-contract", "-c", "user.email=flow@example.invalid"]
+    env = [{"GIT_CONFIG_GLOBAL", "/dev/null"}, {"GIT_CONFIG_NOSYSTEM", "1"}]
+
+    case System.cmd("git", identity ++ args, cd: cd, env: env, stderr_to_stdout: true) do
+      {_, 0} -> :ok
+      {output, _} -> raise "git #{Enum.join(args, " ")} failed:\n#{output}"
+    end
   end
 
   defp link!(m, options \\ []) do
@@ -329,7 +355,7 @@ defmodule AtlasFlow.Runtime.HttpContractTest do
     key = "TK-alpha-1"
     assert {:accepted, work} = C.submit(m, key, request(home, "complete keyed"))
     assert work["client_key"] == key
-    assert work["client"] == "flow"
+    assert work["client"] == @client
     assert work["idempotency_key"] == key
 
     # Sent again (as after a transport error): the same work, not a second one.
@@ -403,7 +429,7 @@ defmodule AtlasFlow.Runtime.HttpContractTest do
 
     assert %AtlasRuntime.Boundary.Work.Outcome.Accepted{work: missed} =
              AtlasRuntime.Boundary.Work.submit(
-               {"flow", @rights},
+               {@client, @rights},
                Map.put(request(home, "complete while away"), :client_key, "TK-sse-2")
              )
 
@@ -411,13 +437,13 @@ defmodule AtlasFlow.Runtime.HttpContractTest do
     await(fn ->
       match?(
         %AtlasRuntime.Boundary.Work.Outcome.Found{work: %{state: :completed}},
-        AtlasRuntime.Boundary.Work.get_work({"flow", @rights}, %{work_id: missed.work_id})
+        AtlasRuntime.Boundary.Work.get_work({@client, @rights}, %{work_id: missed.work_id})
       )
     end)
 
     missed_id = missed.work_id
     refute_received {:work_changed, %{"work_id" => ^missed_id}}
-    ^port = listen(home, port)
+    ^port = listen(home)
     changed(missed.work_id, "completed")
 
     # A replay inside the window, not a reset: list_work was not read again.
@@ -436,7 +462,7 @@ defmodule AtlasFlow.Runtime.HttpContractTest do
     stop_runtime()
     await(fn -> not Link.info(link).connected end)
     start_runtime(runtime)
-    ^port = listen(home, port)
+    ^port = listen(home)
 
     # Restarted, the Runtime made the running attempt interrupted; the link learns it
     # from list_work after the reset, not from a replay (the window was in memory).
@@ -478,13 +504,26 @@ defmodule AtlasFlow.Runtime.HttpContractTest do
     assert {:unreachable, _} = C.retry(m, work["work_id"], false)
     assert {:unreachable, _} = C.cancel(m, work["work_id"], :graceful, nil)
 
-    ^port = listen(home, port)
+    ^port = listen(home)
 
     assert {:existing, %{"work_id" => id}} =
              C.submit(m, "TK-down-1", request(home, "complete down"))
 
     assert id == work["work_id"]
     assert {:accepted, _} = C.submit(m, "TK-down-2", request(home, "complete down two"))
+  end
+
+  test "D44 from Flow's side: a folder workspace over TCP is refused not_permitted, nothing written",
+       %{m: m, home: home} do
+    key = "TK-folder-1"
+    assert {:refused, :not_permitted} = C.submit(m, key, folder_request(home, "complete folder"))
+    assert :not_found = C.find_work(m, key)
+    assert {:works, [], _sequence} = C.list_work(m, nil)
+    assert launches(home) == []
+
+    # The same work in a repository is accepted: the refusal is the folder's, not the token's.
+    assert {:accepted, %{"client_key" => ^key}} =
+             C.submit(m, key, request(home, "complete folder"))
   end
 
   test "the token: none or a wrong one is refused as unauthenticated; retry and list_work",

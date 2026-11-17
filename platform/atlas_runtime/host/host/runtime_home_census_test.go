@@ -67,7 +67,7 @@ var censusHome = map[string]censusEntry{
 	"frozen":                {"denied", "the work core's private frozen results and their blobs (S5a)", false},
 	"execution-events.json": {"denied", "the execution-event outbox", false},
 	"mode.json":             {"denied", "the persisted Runtime mode (S2)", false},
-	"clients.json":          {"denied", "the backend clients and tokens (S3)", true},
+	"clients.json":          {"denied", "the loopback TCP clients: token hashes and rights (S3)", false},
 	"workers":               {"chain", "the managed repositories' worker directories", false},
 }
 

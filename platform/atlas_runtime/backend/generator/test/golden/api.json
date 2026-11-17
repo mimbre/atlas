@@ -90,6 +90,7 @@
         },
         {
           "capability": "find_book",
+          "etag": "edition",
           "headers": {},
           "method": "GET",
           "path": "/v1/books/:book_id",

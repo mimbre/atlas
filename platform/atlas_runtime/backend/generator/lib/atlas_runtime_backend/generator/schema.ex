@@ -24,12 +24,13 @@ defmodule AtlasRuntimeBackend.Generator.Schema do
         target :rest, carries: :entities do
           resource :post, "/v1/books", capability: :lend, body: :input,
             header: ["Request-Key": :request_key]
-          resource :get, "/v1/books/:book_id", capability: :find_book
+          resource :get, "/v1/books/:book_id", capability: :find_book, etag: :edition
           resource :get, "/v1/count", capability: :count
           stream "/v1/events", capability: :watch, events: [:book, :reset],
             resume_header: "Last-Event-ID", into: :from, open: [watching: nil, restart: :reset]
 
           status :lent, 201, header: [location: "/v1/books/{book.book_id}"]
+          status :found, 200, body: :book
           status :busy, 503, type: "busy", header: ["Retry-After": :retry_after]
           status :refused, by: :reason, cases: [invalid: {400, "invalid"}, taken: {409, "taken"}]
           status :missing, 404, type: "not-found"
@@ -71,6 +72,12 @@ defmodule AtlasRuntimeBackend.Generator.Schema do
     through the input's `new/1` like a body.
     Two resources with the same method and path shape are told apart by their required
     query parameters: at most one of them has none.
+    `etag: field` (GET only) makes the resource conditional: its capability has exactly
+    one outcome with a status below 400 (a single code), and `field` is a required
+    integer field of what that status sends (the `body:` entity, else the outcome). That
+    outcome carries `ETag: "<field>"`, and an `If-None-Match` holding that tag (or `*`)
+    gets 304 with the `ETag` and no body. Every other outcome, and every other resource,
+    is answered as declared, with no `ETag`.
   - `stream path, capability:, events:, resume_header:, into:, open:`: a long-lived
     response that carries `events` (names of shared events) after the capability's
     outcome. `resume_header` is bound to the input field `into:`; `open:` names, for every
@@ -117,7 +124,7 @@ defmodule AtlasRuntimeBackend.Generator.Schema do
           %{name: atom, carries: atom,
             resources: [%{method: atom, path: text, capability: atom, params: [atom],
                           query: [{text, atom}], required: [text], headers: [{text, atom}],
-                          body: [atom] | nil}],
+                          body: [atom] | nil, etag: atom | nil}],
             streams: [%{path: text, capability: atom, events: [atom], resume_header: text,
                         into: atom, open: [{atom, atom | nil}]}],
             statuses: [%{outcome: atom, status: integer | nil, type: text | nil, by: atom | nil,
@@ -531,6 +538,8 @@ defmodule AtlasRuntimeBackend.Generator.Schema do
       )
     end
 
+    for item <- resources, item.etag, do: etag!(item, ctx, statuses)
+
     errors = errors!(Map.get(by_kind, :error, []), file, line)
 
     %{
@@ -554,10 +563,10 @@ defmodule AtlasRuntimeBackend.Generator.Schema do
         )
 
     unless Keyword.keyword?(opts) and
-             Keyword.keys(opts) -- [:capability, :body, :header, :query] == [],
+             Keyword.keys(opts) -- [:capability, :body, :header, :query, :etag] == [],
            do:
              fail.(
-               "resource #{inspect(path)}: the options are capability:, body:, header: and query:"
+               "resource #{inspect(path)}: the options are capability:, body:, header:, query: and etag:"
              )
 
     capability = capability!(opts[:capability], ctx, fail)
@@ -650,6 +659,16 @@ defmodule AtlasRuntimeBackend.Generator.Schema do
           "resource #{method} #{path}: a #{String.upcase(Atom.to_string(method))} takes no body"
         )
 
+    etag = opts[:etag]
+
+    if etag != nil do
+      unless snake?(etag),
+        do: fail.("resource #{method} #{path}: etag: is a field name, got #{inspect(etag)}")
+
+      unless method == :get,
+        do: fail.("resource #{method} #{path}: etag: goes with a GET")
+    end
+
     for field <- Map.values(fields),
         field.required,
         field.name not in bound,
@@ -668,8 +687,57 @@ defmodule AtlasRuntimeBackend.Generator.Schema do
       required: for({name, field} <- query, fields[field].required, do: name),
       headers: headers,
       body: body,
+      etag: etag,
       at: {f, l}
     }
+  end
+
+  # etag: is a required integer field of what the capability's one success outcome sends.
+  defp etag!(item, ctx, statuses) do
+    {f, l} = item.at
+    at = "resource #{item.method} #{item.path}: etag: #{inspect(item.etag)}"
+    by_outcome = Map.new(statuses, &{&1.outcome, &1})
+
+    success =
+      for o <- ctx.capabilities[item.capability].outcomes,
+          status = by_outcome[o.name],
+          Enum.any?([status.status | Enum.map(status.cases, & &1.status)], &(&1 && &1 < 400)),
+          do: {o, status}
+
+    {outcome, status} =
+      case success do
+        [{_o, %{by: nil}} = one] ->
+          one
+
+        _ ->
+          __fail__(
+            f,
+            l,
+            "#{at}: capability #{inspect(item.capability)} needs exactly one outcome with a " <>
+              "single status below 400 to carry the tag"
+          )
+      end
+
+    model_name =
+      if status.body,
+        do: Enum.find(ctx.models[outcome.model].fields, &(&1.name == status.body)).type,
+        else: outcome.model
+
+    fields = if model_name, do: ctx.models[model_name].fields, else: []
+
+    unless match?(
+             %{type: :integer, required: true},
+             Enum.find(fields, &(&1.name == item.etag))
+           ),
+           do:
+             __fail__(
+               f,
+               l,
+               "#{at} is no required integer field of #{inspect(model_name)}, which outcome " <>
+                 "#{inspect(outcome.name)} sends"
+             )
+
+    :ok
   end
 
   defp stream!({path, opts}, f, l, ctx, events) do

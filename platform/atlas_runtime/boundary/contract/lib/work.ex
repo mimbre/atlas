@@ -27,7 +27,7 @@ defmodule AtlasRuntimeBoundary.Work do
   version "0.1.0"
 
   # Enumerations used in more than one place (§3.1, §5).
-  @rights [:submit, :cancel, :read, :read_all, :choose_slot]
+  @rights [:submit, :cancel, :read, :read_all, :choose_slot, :choose_path]
   @attempt_states [
     :buffered,
     :starting,
@@ -46,10 +46,11 @@ defmodule AtlasRuntimeBoundary.Work do
 
   ## Client (§3.1)
 
-  # Who is calling: opaque. `choose_slot` is needed to name a slot; `read_all` widens
-  # reading and subscribing beyond the caller's own work (§3.2 visibility). No capability
-  # takes or gives this model: it declares the rights a client can hold, including the two
-  # that no capability names as its right.
+  # Who is calling: opaque. `choose_slot` is needed to name a slot, and `choose_path` to
+  # name a folder on the Runtime's machine (D44); `read_all` widens reading and subscribing
+  # beyond the caller's own work (§3.2 visibility). No capability takes or gives this
+  # model: it declares the rights a client can hold, including the three that no
+  # capability names as its right.
   defmodel :client do
     field :id, :string, required: true
     field :rights, {:list, {:enum, @rights}}, required: true
@@ -66,7 +67,7 @@ defmodule AtlasRuntimeBoundary.Work do
     # An execution profile, such as deep_coding, light_work or independent_review.
     field :profile, :string, required: true
     field :cost_class, {:enum, [:low, :standard, :high]}, required: true
-
+    # The Runtime chooses the folder for every form but folder (D44).
     field :workspace, {:one_of, [:repository, :folder, :base, :from_work], tag: :kind},
       required: true
 
@@ -85,8 +86,11 @@ defmodule AtlasRuntimeBoundary.Work do
     field :base, :string, required: true
   end
 
+  # Needs the right choose_path: a client names a path on the Runtime's machine (D44).
+  # path: required in a request; in a work it is given only to a client holding
+  # choose_path (D44), so the contract leaves it optional.
   defmodel :folder do
-    field :path, :string, required: true
+    field :path, :string
 
     field :permissions, {:enum, [:"read-only", :"workspace-write", :"materialized-folder"]},
       required: true
@@ -205,8 +209,9 @@ defmodule AtlasRuntimeBoundary.Work do
     field :workspace, :resume_workspace, required: true
   end
 
+  # path: only for a client holding choose_path (D44).
   defmodel :resume_workspace do
-    field :path, :string, required: true
+    field :path, :string
     field :branch, :string
     field :commit, :string
   end
@@ -249,8 +254,10 @@ defmodule AtlasRuntimeBoundary.Work do
     field :check, :check_result
   end
 
+  # path: only for a client holding choose_path; paths on the Runtime's machine never
+  # leave it otherwise (D44).
   defmodel :work_product_workspace do
-    field :path, :string, required: true
+    field :path, :string
     field :branch, :string
     field :base_sha, :string
     field :head_sha, :string
@@ -457,8 +464,9 @@ defmodule AtlasRuntimeBoundary.Work do
 
   # not_permitted (a right is missing) is checked first: a capability's own right is
   # answered before the capability runs, so this reason is for a right the request needs
-  # (choose_slot with slot). conflict: same client key, another request; invalid: the
-  # input does not fit the contract; no_permitted_option is permanent.
+  # (choose_slot with slot, choose_path with a folder workspace). conflict: same client
+  # key, another request; invalid: the input does not fit the contract;
+  # no_permitted_option is permanent.
   defmodel :refused do
     field :reason,
           {:enum,
@@ -565,7 +573,7 @@ defmodule AtlasRuntimeBoundary.Work do
   # enum value) is refused as invalid, by every capability that can answer refused (§1.5).
   invalid_input :refused, set: [reason: :invalid], detail: :detail
 
-  # Naming a slot also needs choose_slot.
+  # Naming a slot also needs choose_slot; a folder workspace, choose_path.
   defcapability :submit,
     input: :work_request,
     outcomes: [
@@ -588,9 +596,12 @@ defmodule AtlasRuntimeBoundary.Work do
     ],
     right: :submit
 
+  # retry and cancel act only on the caller's own work (§3.2 Ownership): another client's
+  # work is not_found to a caller that cannot see it, and refused: not_permitted to one
+  # with read_all, which grants reading, never acting.
   defcapability :cancel,
     input: :cancel_input,
-    outcomes: [cancelling: :cancelling, ended: :ended, not_found: :not_found],
+    outcomes: [cancelling: :cancelling, ended: :ended, refused: :refused, not_found: :not_found],
     right: :cancel
 
   # Without read_all, get_work, find_work, list_work, turn_output and subscribe see only

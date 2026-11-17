@@ -62,6 +62,44 @@ TLS and lifecycle behavior only. The image build, real Fly certificate issuance,
 enrollment, policy reachability and Serve route have **not** been exercised; this
 section does not claim deployed or working tailnet ingress.
 
+## Optional Runtime backend client from core (not activated)
+
+Core can reach the mini's Runtime backend over the tailnet (runtime backend design §9,
+S3). This is opt-in with `ATLAS_RUNTIME_REMOTE`. If it is unset, empty or `0`, startup is
+exactly as above. It can be `1`. Any other value makes `core-run` fail before any child
+starts. `1` requires `ATLAS_CONTROL_TAILSCALE=1`: the client uses core's own
+Control `tailscaled`. Without it, `core-run` fails before apply-move or any other child.
+`1` also refuses an unset or empty `ATLAS_RUNTIME_BACKEND_TOKEN`, in the same way, before any child starts.
+
+With `ATLAS_RUNTIME_REMOTE=1`, the owned `tailscaled` gets one more flag:
+`--outbound-http-proxy-listen=localhost:1055`. This is an HTTP CONNECT proxy on
+localhost only, and the release's `AtlasRuntime.Remote` uses it. TLS to the mini's
+`tailscale serve` runs inside the tunnel. There is no SOCKS proxy, route, tag or exit
+node, and the `tailscale set` restrictions above still apply. With the flag off, the
+`tailscaled` command line is byte-for-byte as before.
+
+`ATLAS_RUNTIME_BACKEND_TOKEN` (a Fly secret) works like `TS_AUTHKEY`. `core-run` copies
+it into a non-exported shell variable and removes it from the environment before
+apply-move, so apply-move, Rela verification, the hold path, `python3`, `tailscaled`
+and `tailscale` never see it. Only the release gets it, as an environment prefix on
+`release/bin/atlas start`, never in argv. With the flag off (`0`, the default-core
+branch or held), no child gets it. `ATLAS_RUNTIME_BACKEND_URL` reaches the release
+unchanged. The release's own handling of the URL and token is `AtlasRuntime.Remote`
+(S3 P6).
+
+Activation needs Melle's explicit go for each live item, in order: the tailnet
+HTTPS/MagicDNS check, the mini rollout, the mini's `clients.json` (read-only `core`
+entry), the mini's `tailscale serve`, the ACL rule core → mini:<port> only, and then the
+prod-only Fly secrets and env. These are listed with their undo in the S3 plan, §5. No
+key, token, ACL, enrollment or live Fly change is made by this implementation. The local
+fixtures (`platform/ops/tests/test_runtime_remote_startup.py`, fake binaries only) cover
+startup argv and env only. A real proxy, tailnet path or Runtime connection has **not**
+been exercised.
+
+Rollback: unset `ATLAS_RUNTIME_REMOTE` (or set it to `0`), remove the
+`ATLAS_RUNTIME_BACKEND_TOKEN` and `ATLAS_RUNTIME_BACKEND_URL` secrets, and restart the
+core through the approved flow. Control ingress is not affected.
+
 ## Start
 
 ```sh

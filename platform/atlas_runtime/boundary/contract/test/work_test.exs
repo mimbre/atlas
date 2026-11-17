@@ -27,7 +27,11 @@ defmodule AtlasRuntimeBoundary.WorkTest do
     %{
       client: [
         f(:id, :string, true),
-        f(:rights, {:list, {:enum, [:submit, :cancel, :read, :read_all, :choose_slot]}}, true)
+        f(
+          :rights,
+          {:list, {:enum, [:submit, :cancel, :read, :read_all, :choose_slot, :choose_path]}},
+          true
+        )
       ],
       work_request: [
         f(:client_key, :string),
@@ -41,8 +45,9 @@ defmodule AtlasRuntimeBoundary.WorkTest do
         f(:after_check, :after_check)
       ],
       repository: [f(:url, :string, true), f(:branch, :string, true), f(:base, :string, true)],
+      # D44: a work shows the path only to a client holding choose_path.
       folder: [
-        f(:path, :string, true),
+        f(:path, :string),
         f(:permissions, {:enum, [:"read-only", :"workspace-write", :"materialized-folder"]}, true)
       ],
       base: [
@@ -118,7 +123,8 @@ defmodule AtlasRuntimeBoundary.WorkTest do
         f(:conversation_id, :string, true),
         f(:workspace, :resume_workspace, true)
       ],
-      resume_workspace: [f(:path, :string, true), f(:branch, :string), f(:commit, :string)],
+      # D44: the path only for a client holding choose_path.
+      resume_workspace: [f(:path, :string), f(:branch, :string), f(:commit, :string)],
       result: [
         f(:kind, {:enum, @kinds}, true),
         f(
@@ -149,7 +155,7 @@ defmodule AtlasRuntimeBoundary.WorkTest do
         f(:check, :check_result)
       ],
       work_product_workspace: [
-        f(:path, :string, true),
+        f(:path, :string),
         f(:branch, :string),
         f(:base_sha, :string),
         f(:head_sha, :string),
@@ -330,8 +336,10 @@ defmodule AtlasRuntimeBoundary.WorkTest do
     retry:
       {:submit, :retry_input,
        [accepted: :accepted, at_capacity: :at_capacity, refused: :refused, not_found: :not_found]},
+    # §3.2 Ownership: another client's work is refused (not_permitted) to a read_all caller.
     cancel:
-      {:cancel, :cancel_input, [cancelling: :cancelling, ended: :ended, not_found: :not_found]},
+      {:cancel, :cancel_input,
+       [cancelling: :cancelling, ended: :ended, refused: :refused, not_found: :not_found]},
     get_work: {:read, :get_work_input, [found: :found, pruned: :pruned, not_found: :not_found]},
     find_work: {:read, :find_work_input, [found: :found, pruned: :pruned, not_found: :not_found]},
     list_work: {:read, :list_work_input, [works: :works]},
@@ -461,19 +469,42 @@ defmodule AtlasRuntimeBoundary.WorkTest do
   end
 
   # work.json differs from S1's (the fixture, untouched) by S2's one hunk, runtime_stop in
-  # result.reason (§13.1 Q9), and by S5a's I-B5 additions, written out below as JSON. Any
-  # other change to the work contract fails here.
+  # result.reason (§13.1 Q9), by S3's D44 and §3.2 Ownership changes, and by S5a's I-B5
+  # additions, written out below as JSON. D44: the right choose_path, and a path in
+  # resume_workspace, work_product_workspace and folder (a request names it; a work shows
+  # it only with choose_path) no longer required. Ownership: cancel may answer refused
+  # (not_permitted, another client's work). Any other change to the work contract fails
+  # here.
   @work_json Path.expand("../../targets/json/work.json", __DIR__)
   @s1_work_json Path.expand("fixtures/work.develop.json", __DIR__)
 
-  test "work.json differs from S1's only by runtime_stop and the S5a additions" do
+  test "work.json differs from S1's only by runtime_stop, D44, ownership and the S5a additions" do
     s1 = JSON.decode!(File.read!(@s1_work_json))
     now = JSON.decode!(File.read!(@work_json))
 
     assert reason_values(s1) == reason_values(now) -- ["runtime_stop"]
     assert List.last(reason_values(now)) == "runtime_stop"
 
-    allowed = s1 |> put_reason_values(reason_values(now)) |> s5a()
+    assert field(s1, "client", "rights")["values"] ++ ["choose_path"] ==
+             field(now, "client", "rights")["values"]
+
+    for model <- ["resume_workspace", "work_product_workspace", "folder"] do
+      assert field(s1, model, "path")["required"] == true
+      assert field(now, model, "path") == %{field(s1, model, "path") | "required" => false}
+    end
+
+    assert Enum.sort(outcomes(now, "cancel")) ==
+             Enum.sort(outcomes(s1, "cancel") ++ [%{"model" => "refused", "name" => "refused"}])
+
+    allowed =
+      s1
+      |> put_reason_values(reason_values(now))
+      |> put_field("client", "rights", field(now, "client", "rights"))
+      |> put_field("resume_workspace", "path", field(now, "resume_workspace", "path"))
+      |> put_field("work_product_workspace", "path", field(now, "work_product_workspace", "path"))
+      |> put_field("folder", "path", field(now, "folder", "path"))
+      |> put_outcomes("cancel", outcomes(now, "cancel"))
+      |> s5a()
 
     for key <- Enum.uniq(Map.keys(allowed) ++ Map.keys(now)) do
       assert by_name(Map.get(now, key)) == by_name(Map.get(allowed, key)),
@@ -623,6 +654,41 @@ defmodule AtlasRuntimeBoundary.WorkTest do
           do: values
 
     values
+  end
+
+  defp field(json, model, name) do
+    [field] =
+      for %{"name" => ^model, "fields" => fields} <- json["models"],
+          %{"name" => ^name} = field <- fields,
+          do: field
+
+    field
+  end
+
+  defp put_field(json, model, name, value) do
+    update_in(json["models"], fn models ->
+      for m <- models do
+        if m["name"] == model,
+          do:
+            update_in(m["fields"], fn fs ->
+              for f <- fs, do: if(f["name"] == name, do: value, else: f)
+            end),
+          else: m
+      end
+    end)
+  end
+
+  defp outcomes(json, capability) do
+    [outcomes] = for %{"name" => ^capability, "outcomes" => o} <- json["capabilities"], do: o
+    outcomes
+  end
+
+  # The outcomes compare as a set (by_name), so the new one's place does not matter.
+  defp put_outcomes(json, capability, outcomes) do
+    update_in(json["capabilities"], fn capabilities ->
+      for c <- capabilities,
+          do: if(c["name"] == capability, do: %{c | "outcomes" => outcomes}, else: c)
+    end)
   end
 
   defp put_reason_values(json, values) do

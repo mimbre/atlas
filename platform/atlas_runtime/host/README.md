@@ -91,6 +91,69 @@ History readers on `backend.sock`: this CLI's `turns`, Learn (`platform/atlas_le
 
 The sections below describe how the Service runs turns. The work core drives them through the Service's own start, continue, stop and kill, with the slot as the worker and a request ID derived from the work and attempt. Their proof records, and some examples marked as such, come from before the cutover, when the CLI sent those commands on `runtime.sock` with `--worker`, `--backend`, `--sandbox`, `--request-id`, `--questions` and `output --follow`. `runtime.sock` now refuses them.
 
+## Loopback TCP listener and the mini runbook (S3)
+
+Besides `backend.sock`, the service can serve the same work contract on **loopback TCP**, for clients on other machines (Atlas core on Fly) that reach it through the tailnet (design `2026-11-16-runtime-backend.md` §8.1, §9). It is off unless `$ATLAS_RUNTIME_HOME/clients.json` exists: with no file, nothing listens. `backend.sock` is unchanged (`local:<user>`, every right).
+
+- **Bind.** The listener binds `127.0.0.1` only, on the file's `listen.port`. It is started only by `host/service.exs`, never by the core release. TLS ends at the mini's `tailscale serve`; the client's identity is its token, never its Tailscale peer.
+- **Order of checks.** A request with any `Origin` header → 403 `origin-refused`. Then `Authorization: Bearer <token>`: a missing, malformed, unknown or disabled token → the same 401 `unauthenticated` with `WWW-Authenticate: Bearer`. Otherwise the client is `token:<name>`, with the entry's rights cut to the TCP ceiling (`submit`, `cancel`, `read`, `read_all`; never `choose_slot` or `choose_path`, nor the operations rights `inspect` and `operate`). Bodies over 1 MiB → 400 `invalid`.
+- **One router (S2).** TCP serves the same router as the socket, so the operations and history routes are there too. Every operations route answers a token 403 `not-permitted`: only the socket's owner inspects or operates the Runtime. The history routes need `read`, so a token sees the turns of its own work, and all turns with `read_all`. The generated descriptions are per contract, in `platform/atlas_runtime/backend/targets/rest/<contract>/` (`routes.json`, `openapi.json`); only `work_api`'s declare the `tcp` listener.
+- **Read on every request.** `clients.json` is not cached and needs no restart or signal for an edit: a new, changed, disabled or removed entry applies on the next request. An open event stream re-checks its token at each heartbeat (15 s) and ends if it was revoked or its rights changed. Only *starting* the listener needs a service restart (the file appeared, or `listen.port` changed).
+- **Broken file.** An invalid file, or a wrong mode or owner, at service start makes `service start` fail loudly. If it breaks or is removed later, the port stays open until the next restart but every TCP request gets 401 and the service logs one line per refused request that names the problem, never the file's contents. Neither a token nor its hash is ever logged or echoed.
+- **HTTP semantics** are the socket's: `GET /v1/work/{id}` carries `ETag: "<revision>"` and answers 304 to a matching `If-None-Match`; a repeated submit (`existing`, 200) carries `Idempotent-Replayed: true`.
+
+### `clients.json`
+
+```json
+{
+  "version": 1,
+  "listen": {"port": 8443},
+  "clients": [
+    {"name": "core", "token_sha256": "<64 lowercase hex>", "rights": ["read"]},
+    {"name": "old-core", "token_sha256": "<64 lowercase hex>", "rights": ["read"], "disabled": true}
+  ]
+}
+```
+
+| Field | Rule |
+|---|---|
+| `version` | `1` |
+| `listen.port` | integer 1–65535; the port `tailscale serve` forwards to |
+| `clients[].name` | `^[a-z0-9][a-z0-9_-]{0,62}$`, unique; the work's `client` is `token:<name>` |
+| `clients[].token_sha256` | SHA-256 of the token, 64 lowercase hex characters, unique. The token itself is never stored on the mini. |
+| `clients[].rights` | a subset of `submit`, `cancel`, `read`, `read_all`. Any other right, `choose_slot`, `choose_path`, `inspect` and `operate` included, makes the **whole file** invalid; it is never silently dropped. Without `read_all` a client sees only its own work and its events. |
+| `clients[].disabled` | optional boolean; `true` keeps the entry but it no longer authenticates |
+
+Unknown fields anywhere make the file invalid. The file must be a regular file (no symlink), mode `0600`, owned by the user the Runtime runs as. Like `policy.json`, it is human-owned: edit it locally; the Runtime never writes it.
+
+### Tokens
+
+One token per client, with the least rights it needs. Generate it where the client's secret will be set, and put only its hash on the mini:
+
+```sh
+TOKEN="$(openssl rand -hex 32)"
+printf %s "$TOKEN" | shasum -a 256 | cut -d' ' -f1   # → token_sha256 (no trailing newline is hashed)
+```
+
+Hand the token to the client's secret store (for core: the Fly secret `ATLAS_RUNTIME_BACKEND_TOKEN`), then clear it from the shell (`unset TOKEN`). Never write it into `clients.json`, a log or a ticket.
+
+**Rotation:** add a new entry with the new hash, move the client's secret to the new token and restart the client, then set `"disabled": true` on the old entry (applies on the next request) and later delete it.
+
+### Mini setup and rollback
+
+Each live item needs Melle's explicit go, in this order (S3 plan §5). None is run by a package, a worker or CI. Core's side (`AtlasRuntime.Remote`, S3 P6, and core's outbound proxy, P7) is not built yet; L6–L8 apply once it is.
+
+| # | Step | Rollback |
+|---|---|---|
+| L1 | Tailnet admin console: check that MagicDNS and HTTPS certificates are on (Control may already rely on them); turn them on only if off. | Leave on if Control uses them; otherwise turn off. |
+| L2 | Install the S3 Runtime build on the mini while no work runs; `atlas-runtime service stop`, then `service start`. With no `clients.json` there is still no TCP listener. | Reinstall the previous build and restart. |
+| L3 | Generate core's token (above). Write `clients.json` with one entry, `core`, rights `["read"]` only, and port P; `chmod 600 "$ATLAS_RUNTIME_HOME/clients.json"`. Restart the service; it prints `Runtime backend listening on loopback TCP for clients.json`. Check: `curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:P/v1/capacity` → `401`. | Set `"disabled": true` (next request), or delete the file and restart (the port closes). |
+| L4 | `tailscale serve --bg --https=P http://127.0.0.1:P` (`--bg` persists across reboots; with the Runtime down, clients get 502 and treat it as unreachable). | `tailscale serve --https=P off` |
+| L5 | Tailnet ACL: allow only core's node → mini:P, and check that no broader rule already covers it. Core runs `--advertise-tags=` (empty), so name it by a `hosts` alias for its node address; a tag would change `platform/ops/control-tailscale.sh` and needs its own go first. Rule shape: `{"action": "accept", "src": ["atlas-core"], "dst": ["atlas-mini:P"]}`, with `atlas-core` and `atlas-mini` in `hosts`. | Remove the rule (and the aliases). |
+| L6 | Prod core only (no link from the mini to TEST): Fly secrets `ATLAS_RUNTIME_BACKEND_TOKEN` and `ATLAS_RUNTIME_BACKEND_URL` (`https://<mini MagicDNS name>:P`), env `ATLAS_RUNTIME_REMOTE=1`, then deploy or restart through the approved flow. If `ATLAS_CONTROL_TAILSCALE` is 0 on prod, setting it to 1 also turns on Control's tailnet ingress, and a Tailscale auth key, if the node needs login, is a separate go. | Unset `ATLAS_RUNTIME_REMOTE`, remove both secrets, restart. |
+| L7 | First probe on prod core: `bin/atlas rpc "AtlasRuntime.Remote.probe()"`, one read-only `GET /v1/capacity`. | None needed (read-only). |
+| L8 | Once the Flow Engine's client exists and Melle approves submitting from prod: widen `core` to `["submit", "cancel", "read"]`. | Narrow the rights again, or disable the entry (next request). |
+
 ## Concurrent slots
 
 ```sh
