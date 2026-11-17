@@ -136,7 +136,10 @@ defmodule AtlasFlow.Model do
   "key"}`) of the owner's kind, is that supervisor. With no supervisor, outside every
   span, or with no run, it is the configured actor. The projection passes the run with
   its subflow's `spans` and its supervisor as the run's fact links it, of the
-  supervision relation's holder kind (`AtlasFlow.Runs.Projection`).
+  supervision relation's holder kind (`AtlasFlow.Runs.Projection`). A run of a subflow a
+  span names in its `with:` lies in no span of its own: the projection passes it with
+  the precomputed answer of its nearest spanned run (`in_span`, a boolean) and that
+  run's supervisor instead.
   """
   def owner(owner, actors, run \\ nil)
 
@@ -167,6 +170,9 @@ defmodule AtlasFlow.Model do
   end
 
   defp supervisor(_owner, _run), do: nil
+
+  # A run of a subflow a span names in its `with:` carries its span's answer itself.
+  defp in_span?(%{"in_span" => in_span}) when is_boolean(in_span), do: in_span
 
   defp in_span?(%{"state" => state, "spans" => spans}) when is_list(spans),
     do: Enum.any?(spans, &(state in (&1["states"] || [])))

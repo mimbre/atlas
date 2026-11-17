@@ -27,8 +27,11 @@ defmodule AtlasFlow.Engine do
     read any more: what was above a fact it removed is found from the links its `changes`
     name (before and after). The runs of those facts are reconciled, then their subjects
     and those of all returned runs are projected, including composition parents and
-    recursive ancestors absent from hint discovery. Every required projection must
-    succeed. A new fact of a kind that owns work projects again the facts whose
+    recursive ancestors absent from hint discovery. A spanned run whose supervisor
+    changed (a pickup, a hand-over, leaving its span) projects the subjects of the runs
+    its span names in `with:` right under its subject too, found downwards through the
+    model's parent relations, as their owner is its supervisor's. Every required
+    projection must succeed. A new fact of a kind that owns work projects again the facts whose
     owner waited for it. A hint reads only around the facts it is about, never every
     fact: finding kinds, facts that changed without a hint about them, and every other
     run is the round's. A hint of Flow's own write is passed over: the run writer's
@@ -179,7 +182,9 @@ defmodule AtlasFlow.Engine do
     {{state, reconciled, projected}, wrote} =
       Talk.writing(fn ->
         with {:ok, facts} <- affected(state, kind, content) do
+          known = state.runs
           {state, reconciled, runs} = reconcile_runs(state, facts)
+          {belonging, found} = belonging(state, known, runs)
 
           subjects = for {k, key, _} <- facts, k in state.kinds, uniq: true, do: {k, key}
 
@@ -199,10 +204,11 @@ defmodule AtlasFlow.Engine do
           {state, projected} =
             project_all(
               %{state | waiting: waiting},
-              Enum.uniq(subjects ++ run_subjects(runs) ++ MapSet.to_list(waited))
+              Enum.uniq(subjects ++ run_subjects(runs) ++ belonging ++ MapSet.to_list(waited))
             )
 
-          {state, reconciled, projected}
+          # Runs whose supervision moved with their parent's must be projected too.
+          {state, reconciled, if(found == :ok, do: projected, else: :failed)}
         else
           {:error, why} ->
             Logger.warning(
@@ -270,9 +276,57 @@ defmodule AtlasFlow.Engine do
   # One subject's runs reconciled now and projected, with those the reconcile returned; a
   # failure waits for the round, which reads every task back.
   defp reconcile_subject(state, kind, key) do
+    known = state.runs
     {state, _reconciled, runs} = reconcile_runs(state, [{kind, key, :ensure}])
-    {state, _projected} = project_all(state, Enum.uniq([{kind, key} | run_subjects(runs)]))
+    {belonging, _found} = belonging(state, known, runs)
+
+    {state, _projected} =
+      project_all(state, Enum.uniq([{kind, key} | run_subjects(runs)] ++ belonging))
+
     state
+  end
+
+  # A run of a subflow a span names in its `with:` takes its owner from the spanned run
+  # above it (`AtlasFlow.Runs.Projection`). When a reconcile changed a spanned run's
+  # supervisor (a pickup, a hand-over, the run leaving its span), the subjects of those
+  # runs are projected again with it: `{subjects, :ok | {:error, why}}`. Found downwards,
+  # as hint discovery (which goes up) does not: the facts of a `with:` subflow's subject
+  # kind that link to the spanned run's subject through a parent relation of the model.
+  defp belonging(%{runner: %{config: config, relations: relations}}, known, runs)
+       when is_map(config) do
+    spans = get_in(config, ["supervision", "spans"]) || %{}
+
+    lookups =
+      for run <- runs,
+          with = Enum.flat_map(spans[run["flow"]] || [], &(&1["with"] || [])),
+          with != [],
+          supervisor_changed?(known, run),
+          name <- with,
+          kind = get_in(config, ["selection", name, "subject"]),
+          is_binary(kind),
+          {relation, %{"parent" => true, "from" => from, "to" => [to]}} <- relations || %{},
+          to == run["subject_kind"] and kind in from,
+          uniq: true,
+          do: {{kind, relation}, run["subject_key"]}
+
+    case discover(lookups, fn {of, key} -> component_subjects(of, key) end) do
+      {:ok, subjects} -> {Enum.uniq(subjects), :ok}
+      {:error, _} = error -> {[], error}
+    end
+  end
+
+  defp belonging(_state, _known, _runs), do: {[], :ok}
+
+  # Whether `run`'s supervisor differs from the one of its run as last known.
+  defp supervisor_changed?(known, run) do
+    same =
+      &(&1["flow"] == run["flow"] and &1["subject_kind"] == run["subject_kind"] and
+          &1["subject_key"] == run["subject_key"])
+
+    case Enum.find(known, same) do
+      nil -> run["supervised_by"] != nil
+      before -> before["supervised_by"] != run["supervised_by"]
+    end
   end
 
   defp position(%Envelope{position: position}) when is_integer(position), do: position
