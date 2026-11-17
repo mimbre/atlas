@@ -93,7 +93,9 @@ defmodule AtlasRuntimeModel.FrozenResultTest do
                {:base, :string, true},
                {:frozen_at, :datetime, true},
                {:pruned, :boolean, true},
-               {:roots, {:list, :frozen_root}, true}
+               {:roots, {:list, :frozen_root}, true},
+               {:base_owner, :string, false},
+               {:baseline_id, :string, false}
              ]
     end
 
@@ -183,6 +185,46 @@ defmodule AtlasRuntimeModel.FrozenResultTest do
       assert_raise ArgumentError, ~r/no file name/, fn ->
         FrozenResult.path(%{frozen_id: "../work-x.1"})
       end
+    end
+  end
+
+  # S5c P3 (N4): the work's private base references, copied at freeze.
+  describe "S5c additions" do
+    @s5a_fixture Path.expand("support/fixtures/frozen_result.s5a.json", __DIR__)
+    @baseline "sha256:" <> String.duplicate("e", 64)
+
+    test "a frozen result with base_owner and baseline_id round-trips, and its tombstone keeps them" do
+      record = frozen(base_owner: "tcp:flow", baseline_id: @baseline)
+      assert {:ok, ^record} = round_trip(record)
+      encoded = FrozenResult.encode(record)
+      assert {encoded["base_owner"], encoded["baseline_id"]} == {"tcp:flow", @baseline}
+
+      pruned = tombstone(record)
+      assert {:ok, ^pruned} = round_trip(pruned)
+      assert {pruned.base_owner, pruned.baseline_id} == {"tcp:flow", @baseline}
+    end
+
+    test "without them a frozen result is written as before" do
+      encoded = FrozenResult.encode(frozen())
+      refute Map.has_key?(encoded, "base_owner") or Map.has_key?(encoded, "baseline_id")
+    end
+
+    test "an S5a-era frozen result file decodes, and is written back unchanged" do
+      file = @s5a_fixture |> File.read!() |> JSON.decode!()
+      assert file["format_version"] == 1
+
+      assert {:ok, %FrozenResult{base_owner: nil, baseline_id: nil} = record} =
+               FrozenResult.decode(file)
+
+      assert record.base == @base
+      assert FrozenResult.encode(record) == file
+    end
+
+    test "a base reference of the wrong type is refused" do
+      encoded = FrozenResult.encode(frozen(base_owner: "tcp:flow", baseline_id: @baseline))
+
+      assert {:error, {:invalid, "frozen_result.baseline_id", _}} =
+               FrozenResult.decode(%{encoded | "baseline_id" => 1})
     end
   end
 

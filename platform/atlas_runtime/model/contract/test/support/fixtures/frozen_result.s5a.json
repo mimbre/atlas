@@ -1,0 +1,52 @@
+{
+  "attempt": 2,
+  "base": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "format_version": 1,
+  "frozen_at": "2026-11-17T09:00:00.000000Z",
+  "frozen_id": "work-0123456789abcdef.2",
+  "pruned": false,
+  "roots": [
+    {
+      "entries": [
+        {
+          "kind": "file",
+          "mode": "100644",
+          "op": "write",
+          "path": "a b/é.txt",
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "size": 12
+        },
+        {
+          "kind": "file",
+          "mode": "100755",
+          "op": "write",
+          "path": "bin/run",
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "size": 0
+        },
+        {
+          "kind": "symlink",
+          "mode": "120000",
+          "op": "write",
+          "path": "link",
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "size": 6,
+          "target": "a b/é.txt"
+        },
+        {
+          "op": "delete",
+          "path": "gone.md"
+        }
+      ],
+      "fingerprint": "csf_1111111111111111111111111111111111111111111111111111111111111111",
+      "root": "atlas"
+    },
+    {
+      "entries": [],
+      "fingerprint": "csf_2222222222222222222222222222222222222222222222222222222222222222",
+      "root": "other"
+    }
+  ],
+  "work_id": "work-0123456789abcdef"
+}
+

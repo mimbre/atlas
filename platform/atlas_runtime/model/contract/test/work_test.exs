@@ -240,7 +240,12 @@ defmodule AtlasRuntimeModel.WorkTest do
                {:prepare_pid, :integer, false}
              ]
 
-      assert List.last(shape.(:work_record)) == {:source, :source, false}
+      assert Enum.take(shape.(:work_record), -3) == [
+               {:source, :source, false},
+               {:base_owner, :string, false},
+               {:baseline_id, :string, false}
+             ]
+
       # r2's folder.base_id is not added (r3, G1).
       assert Enum.map(entities.folder.fields, & &1.name) == [:path, :permissions]
       assert entities.work_record.persistence.format_version == 1
@@ -654,6 +659,61 @@ defmodule AtlasRuntimeModel.WorkTest do
 
       assert {:error, {:missing_field, "work_record.source.attempt"}} =
                WorkRecord.decode(update_in(encoded, ["source"], &Map.delete(&1, "attempt")))
+    end
+  end
+
+  # S5c P3 (B10, B11): the private base references, optional so S5a-era records decode.
+  describe "S5c additions" do
+    @s5a_fixture Path.expand("support/fixtures/work.s5a.json", __DIR__)
+    @baseline "sha256:" <> String.duplicate("e", 64)
+
+    defp base_record(fields) do
+      base = %{kind: :base, base_id: "flow.run-42:atlas", permissions: :workspace_write}
+
+      WorkRecord.new!(
+        Map.merge(%{record() | request: %{record().request | workspace: base}}, fields)
+      )
+    end
+
+    test "a base work with base_owner and baseline_id round-trips, stored at the top level" do
+      record = base_record(%{base_owner: "tcp:flow", baseline_id: @baseline})
+      encoded = WorkRecord.encode(record)
+      assert encoded["format_version"] == 1
+      assert {encoded["base_owner"], encoded["baseline_id"]} == {"tcp:flow", @baseline}
+      assert {:ok, ^record} = encoded |> JSON.encode!() |> JSON.decode!() |> WorkRecord.decode()
+    end
+
+    test "without them a record is written as before" do
+      encoded = WorkRecord.encode(record())
+      refute Map.has_key?(encoded, "base_owner") or Map.has_key?(encoded, "baseline_id")
+    end
+
+    test "an S5a-era work file (a base work, S5a's encode) decodes, and is written back unchanged" do
+      file = @s5a_fixture |> File.read!() |> JSON.decode!()
+      assert file["format_version"] == 1
+      assert %{"kind" => "base"} = file["request"]["workspace"]
+
+      assert {:ok, %WorkRecord{base_owner: nil, baseline_id: nil} = record} =
+               WorkRecord.decode(file)
+
+      assert %Base{permissions: :workspace_write} = record.request.workspace
+      assert %Source{attempt: 3} = record.source
+      assert WorkRecord.encode(record) == file
+    end
+
+    test "a pre-S5a work file decodes without them too" do
+      file = @fixture |> File.read!() |> JSON.decode!()
+      assert {:ok, %WorkRecord{base_owner: nil, baseline_id: nil}} = WorkRecord.decode(file)
+    end
+
+    test "a base reference of the wrong type is refused" do
+      encoded = WorkRecord.encode(base_record(%{base_owner: "tcp:flow", baseline_id: @baseline}))
+
+      assert {:error, {:invalid, "work_record.baseline_id", _}} =
+               WorkRecord.decode(%{encoded | "baseline_id" => 1})
+
+      assert {:error, {:invalid, "work_record.base_owner", _}} =
+               WorkRecord.decode(%{encoded | "base_owner" => %{"client" => "x"}})
     end
   end
 

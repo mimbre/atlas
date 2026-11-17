@@ -16,7 +16,7 @@ defmodule AtlasRuntimeBoundary.WorkMappingsTest do
   test "S1: work_record both ways with work, key_index_entry one way to pruned" do
     by_model = Map.new(mappings(), &{&1.model, &1})
 
-    assert %{boundary: :work, direction: :both, supply: [:state], rename: [], drop: [:source]} =
+    assert %{boundary: :work, direction: :both, supply: [:state], rename: [], drop: [:source | _]} =
              by_model.work_record
 
     assert %{
@@ -27,6 +27,13 @@ defmodule AtlasRuntimeBoundary.WorkMappingsTest do
            } = by_model.key_index_entry
 
     assert %{drop: [:turn_folder, :stop_latch | _]} = by_model.attempt
+  end
+
+  # S5c P3 (B10): a base work's base owner and baseline stay private, never projected.
+  test "S5c: base_owner and baseline_id are dropped from work, and no work field takes them" do
+    by_model = Map.new(mappings(), &{&1.model, &1})
+    assert by_model.work_record.drop == [:source, :base_owner, :baseline_id]
+    refute Enum.any?([:base_owner, :baseline_id], &(&1 in models().work))
   end
 
   test "an attempt's provenance is translated, with its selection, options and skips" do
@@ -50,7 +57,7 @@ defmodule AtlasRuntimeBoundary.WorkMappingsTest do
   test "S5a: the private additions are dropped, and the new entities are mapped one to one" do
     by_model = Map.new(mappings(), &{&1.model, &1})
 
-    assert by_model.work_record.drop == [:source]
+    assert by_model.work_record.drop -- [:base_owner, :baseline_id] == [:source]
 
     assert by_model.attempt.drop -- [:turn_folder, :stop_latch, :released_by, :released_at] ==
              @private_s5a

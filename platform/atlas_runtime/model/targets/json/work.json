@@ -805,6 +805,16 @@
           "name": "source",
           "required": false,
           "type": "source"
+        },
+        {
+          "name": "base_owner",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "baseline_id",
+          "required": false,
+          "type": "string"
         }
       ],
       "name": "work_record",
