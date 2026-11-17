@@ -88,10 +88,16 @@ defmodule AtlasFacts.GuidanceVisibilityTest do
     %{backend: backend, server: server}
   end
 
+  # No time window: AtlasBus.send/2 returns once the Router has put the request in the
+  # store's mailbox, and the store answers inline (its reply goes through the Router's
+  # synchronous call before it takes its next message). So a synchronous call to the store
+  # endpoint returns only after the reply is already in this process's mailbox.
   defp request(class, kind, content) do
     e = Envelope.new(class, kind)
     :ok = AtlasBus.send(e, content)
-    assert_receive {:atlas_bus, %Envelope{id: id} = response, body} when id == e.id
+    [{store, _}] = Registry.lookup(AtlasBus.Endpoints, AtlasBus.store())
+    _ = :sys.get_state(store, :infinity)
+    assert_received {:atlas_bus, %Envelope{id: id} = response, body} when id == e.id
     {response.class, body}
   end
 
@@ -105,7 +111,7 @@ defmodule AtlasFacts.GuidanceVisibilityTest do
         Registry.unregister(AtlasBus.Endpoints, "runtime@box")
       end
     end)
-    |> Task.await()
+    |> Task.await(:infinity)
   end
 
   defp create_run do
