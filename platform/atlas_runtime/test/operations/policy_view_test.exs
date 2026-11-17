@@ -23,7 +23,7 @@ defmodule AtlasRuntime.Operations.PolicyViewTest do
     "independence" => %{"different_from" => "model"},
     "profiles" => %{
       "independent_review" => %{
-        "permissions" => ["review-packet", "read-only"],
+        "permissions" => ["read-only"],
         "cost_classes" => ["low", "standard"],
         "options" => [@codex, @claude]
       },

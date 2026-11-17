@@ -17,6 +17,16 @@
       "type": "no-route"
     },
     {
+      "kind": "too_large",
+      "status": 413,
+      "type": "too-large"
+    },
+    {
+      "kind": "unsupported_media_type",
+      "status": 415,
+      "type": "unsupported-media-type"
+    },
+    {
       "kind": "unauthenticated",
       "status": 401,
       "type": "unauthenticated"
@@ -282,6 +292,56 @@
       "path": "/v1/books/{book_id}/scan",
       "query": {},
       "right": "browse"
+    },
+    {
+      "capability": "deposit",
+      "headers": {},
+      "method": "PUT",
+      "outcomes": [
+        {
+          "headers": {},
+          "outcome": "deposited",
+          "status": 201
+        },
+        {
+          "headers": {},
+          "outcome": "missing",
+          "status": 404,
+          "type": "not-found"
+        },
+        {
+          "by": "reason",
+          "cases": [
+            {
+              "status": 400,
+              "type": "invalid",
+              "value": "invalid"
+            },
+            {
+              "status": 409,
+              "type": "taken",
+              "value": "taken"
+            },
+            {
+              "status": 403,
+              "type": "not-permitted",
+              "value": "not_permitted"
+            }
+          ],
+          "headers": {},
+          "outcome": "refused"
+        }
+      ],
+      "params": [
+        "book_id"
+      ],
+      "path": "/v1/books/{book_id}/pages",
+      "query": {},
+      "right": "lend",
+      "upload": {
+        "content_type": "application/octet-stream",
+        "field": "pages"
+      }
     },
     {
       "capability": "watch",

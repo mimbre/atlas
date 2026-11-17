@@ -112,10 +112,9 @@ func run(args []string) (err error) {
 		complete(stopped bool) error
 	}
 	questionSession := ""
-	// A materialized-folder or review-packet turn needs no pre-exec child: no Git and no repository preparation.
+	// A materialized-folder turn needs no pre-exec child: no Git and no repository preparation.
 	folderScope, _ := scope.(map[string]any)
-	review := folderScope["profile"] == "review-packet"
-	folderProfile := folderScope["profile"] == "materialized-folder" || review
+	folderProfile := folderScope["profile"] == "materialized-folder"
 	runtimeHome, _ := folderScope["home"].(string)
 	deniedHome, err := deniedRuntimeHome(runtimeHome)
 	if err != nil {
@@ -221,13 +220,9 @@ func run(args []string) (err error) {
 	}
 	var environment []string
 	if folderProfile {
-		current, changed := workspace.FolderScope, "Materialized folder permission scope changed"
-		if review {
-			current, changed = workspace.PacketScope, "Review packet permission scope changed"
-		}
-		recomputed, err := current(workspacePath, runtimeHome)
+		recomputed, err := workspace.FolderScope(workspacePath, runtimeHome)
 		if err == nil && !workspace.JSONEqual(recomputed, scope) {
-			err = errors.New(changed)
+			err = errors.New("Materialized folder permission scope changed")
 		}
 		if err == nil && backend == "codex" {
 			if err = os.MkdirAll(filepath.Dir(scratch), 0700); err == nil {
@@ -267,11 +262,7 @@ func run(args []string) (err error) {
 		if folderProfile {
 			// HOME/scratch/<turn> would exceed Claude's 44-byte child-temp limit.
 			scratch = temporary
-			if review {
-				settings, err = claudePacketSettings(folderScope, temporary, home, inspector)
-			} else {
-				settings, err = claudeFolderSettings(folderScope, temporary, home, inspector)
-			}
+			settings, err = claudeFolderSettings(folderScope, temporary, home, inspector)
 		} else {
 			settings, err = claudeRepositorySettings(scope, temporary, deniedHome)
 		}

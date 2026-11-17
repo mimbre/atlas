@@ -176,6 +176,25 @@
         ],
         "type": "object"
       },
+      "deposit": {
+        "properties": {
+          "book_id": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "integer"
+          },
+          "sha256": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "book_id",
+          "bytes",
+          "sha256"
+        ],
+        "type": "object"
+      },
       "found": {
         "properties": {
           "book": {
@@ -969,6 +988,281 @@
               }
             },
             "description": "outcome `missing`"
+          }
+        }
+      }
+    },
+    "/v1/books/{book_id}/pages": {
+      "put": {
+        "operationId": "deposit",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "description": "the input's `pages`, as a byte stream",
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/deposit"
+                }
+              }
+            },
+            "description": "outcome `deposited`"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "const": "invalid"
+                    },
+                    "status": {
+                      "const": 400
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "const": "invalid"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "outcome `refused` (reason `invalid`); error `invalid`"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": 401
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "const": "unauthenticated"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "error `unauthenticated`"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "properties": {
+                        "detail": {
+                          "type": "string"
+                        },
+                        "reason": {
+                          "const": "not_permitted"
+                        },
+                        "status": {
+                          "const": 403
+                        },
+                        "title": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "const": "not-permitted"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "detail": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "const": 403
+                        },
+                        "title": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "const": "origin-refused"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "outcome `refused` (reason `not_permitted`); error `not_permitted`; error `origin_refused`"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "status": {
+                      "const": 404
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "const": "not-found"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "outcome `missing`"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "const": "taken"
+                    },
+                    "status": {
+                      "const": 409
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "const": "taken"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "reason"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "outcome `refused` (reason `taken`)"
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": 413
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "const": "too-large"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "error `too_large`"
+          },
+          "415": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": 415
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "const": "unsupported-media-type"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "error `unsupported_media_type`"
           }
         }
       }

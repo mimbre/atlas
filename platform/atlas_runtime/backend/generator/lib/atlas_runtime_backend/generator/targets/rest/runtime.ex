@@ -197,4 +197,143 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest.Runtime do
   def refusal(_value), do: :none
 
   defp encode_segment(value), do: URI.encode(value, &URI.char_unreserved?/1)
+
+  ## A streamed request body
+
+  @chunk 1_048_576
+  @read_timeout 60_000
+
+  @doc """
+  The limit a streamed body's `max_bytes: {module, function}` gave: a positive integer,
+  else an `ArgumentError` (a contract's limit is never guessed).
+  """
+  def limit!(limit, _module, _function) when is_integer(limit) and limit > 0, do: limit
+
+  def limit!(other, module, function),
+    do:
+      raise(
+        ArgumentError,
+        "#{inspect(module)}.#{function}() gave #{inspect(other)}, no positive number of bytes"
+      )
+
+  @doc """
+  Whether a request's `Content-Type` values are exactly one, of `expected` (its type and
+  subtype, compared without case; parameters such as `charset` aside).
+  """
+  def media_type?([value], expected) do
+    value |> String.split(";") |> hd() |> String.trim() |> String.downcase() == expected
+  end
+
+  def media_type?(_values, _expected), do: false
+
+  @doc "Whether a request's `Content-Length` values declare more than `limit` bytes."
+  def longer?([value], limit) do
+    case Integer.parse(String.trim(value)) do
+      {length, ""} -> length > limit
+      _ -> false
+    end
+  end
+
+  def longer?(_values, _limit), do: false
+
+  @doc """
+  The request body of `conn` as a lazy stream of chunks, read at most `limit` bytes:
+  `{ref, stream}`. Each element is the next chunk (at most 1 MiB), read with `read`
+  (`Plug.Conn.read_body/2`, which the router passes) only when the stream is enumerated;
+  nothing is read before.
+  The conn it reads with is kept in the calling process under `ref`, so the stream must be
+  enumerated in that process (else an `ArgumentError`); `uploaded/1` gives the conn after
+  the last read. More than `limit` bytes, or a read that fails, raises
+  `AtlasRuntimeBackend.Generator.Targets.Rest.BodyError` (`kind: :too_large` or
+  `:unreadable`). Once the body has ended, or failed, the stream is empty.
+  """
+  def upload(conn, limit, read) when is_integer(limit) and limit > 0 and is_function(read, 2) do
+    ref = make_ref()
+    owner = self()
+
+    Process.put({__MODULE__, ref}, %{
+      conn: conn,
+      read: 0,
+      state: :open,
+      limit: limit,
+      reader: read
+    })
+
+    {ref, Stream.resource(fn -> ref end, &next(&1, owner), fn ref -> ref end)}
+  end
+
+  @doc """
+  After the facade: `{conn, read?}`, the conn of the last read of `ref`'s body (the one to
+  answer with) and whether the body was read to its end.
+  """
+  def uploaded(ref) do
+    %{conn: conn, state: state} = Process.get({__MODULE__, ref})
+    {conn, state == :ended}
+  end
+
+  @doc "Forgets `ref`'s body: a stream read after this raises an `ArgumentError`."
+  def discard(ref) do
+    Process.delete({__MODULE__, ref})
+    :ok
+  end
+
+  defp next(ref, owner) do
+    if self() != owner,
+      do:
+        raise(
+          ArgumentError,
+          "a request body is read in the process that took the request, not in #{inspect(self())}"
+        )
+
+    case Process.get({__MODULE__, ref}) do
+      nil ->
+        raise ArgumentError, "the request body is read after its request was answered"
+
+      %{state: state} when state in [:ended, :failed] ->
+        {:halt, ref}
+
+      %{conn: conn, read: read, limit: limit, reader: reader} = body ->
+        # One byte past the limit is enough to know the body is too large.
+        length = min(@chunk, limit - read + 1)
+
+        case reader.(conn, length: length, read_length: length, read_timeout: @read_timeout) do
+          {status, data, conn} when status in [:ok, :more] ->
+            read = read + byte_size(data)
+
+            if read > limit do
+              Process.put({__MODULE__, ref}, %{body | conn: conn, read: read, state: :failed})
+
+              raise AtlasRuntimeBackend.Generator.Targets.Rest.BodyError,
+                kind: :too_large,
+                ref: ref
+            end
+
+            state = if status == :ok, do: :ended, else: :open
+            Process.put({__MODULE__, ref}, %{body | conn: conn, read: read, state: state})
+            {if(data == "", do: [], else: [data]), ref}
+
+          {:error, _reason} ->
+            Process.put({__MODULE__, ref}, %{body | state: :failed})
+
+            raise AtlasRuntimeBackend.Generator.Targets.Rest.BodyError,
+              kind: :unreadable,
+              ref: ref
+        end
+    end
+  end
+end
+
+defmodule AtlasRuntimeBackend.Generator.Targets.Rest.BodyError do
+  @moduledoc """
+  Raised while a streamed request body is read (see
+  `AtlasRuntimeBackend.Generator.Targets.Rest`): `kind` is `:too_large` (more bytes than
+  the body's limit: the resource's `max_bytes`, at most 1 MiB) or `:unreadable` (the
+  read failed: the client went away or was too slow). A facade lets it pass; the router
+  answers it. Its message names no request data.
+  """
+  defexception [:kind, :ref]
+
+  @impl true
+  def message(%{kind: :too_large}), do: "the request body is larger than its limit"
+  def message(%{kind: _}), do: "the request body could not be read to its end"
 end

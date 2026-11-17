@@ -68,6 +68,8 @@ var censusHome = map[string]censusEntry{
 	"execution-events.json": {"denied", "the execution-event outbox", false},
 	"mode.json":             {"denied", "the persisted Runtime mode (S2)", false},
 	"clients.json":          {"denied", "the S3 loopback TCP clients; no code site since work-acquisition M0, deny kept", true},
+	"sources":               {"denied", "the work sources' credentials and per-source stores, e.g. sources/<name>/token (work acquisition M2, F4)", true},
+	"local-source":          {"denied", "the local work source's queue store (work acquisition M2, F4)", true},
 	"workers":               {"chain", "the managed repositories' worker directories", false},
 }
 
@@ -108,7 +110,6 @@ var censusNotHome = map[string]string{
 	"complete":       "snapshot baseline marker",
 	"findings":       "packet",
 	"packet.json":    "packet",
-	"diff.json":      "packet",
 	"discarded.json": "packet",
 	"findings.json":  "packet findings directory",
 	"done":           "rebind directory",

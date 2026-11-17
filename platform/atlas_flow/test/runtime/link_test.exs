@@ -9,8 +9,6 @@ defmodule AtlasFlow.Runtime.LinkTest do
   - `reset` reads `list_work(changed_since: last handled sequence)`;
   - a `work` event whose snapshot can't be read does not advance the sequence, so the next
     open replays it.
-
-  The contract test (`http_contract_test.exs`) runs the Link against the real Runtime.
   """
   use ExUnit.Case, async: false
 

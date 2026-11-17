@@ -29,7 +29,9 @@
     "frozen",
     "execution-events.json",
     "mode.json",
-    "clients.json"
+    "clients.json",
+    "sources",
+    "local-source"
   ],
   "atomic_temps": [
     "code.json.tmp",

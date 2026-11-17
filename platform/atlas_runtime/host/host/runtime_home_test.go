@@ -129,7 +129,7 @@ func TestCodexManagedRepositoryDeniesTheRuntimeHomeBesideItsAncestors(t *testing
 		var paths []string
 		for _, name := range []string{"runtime.sock", "backend.sock", "turns", "code.json", "server.json", "backends.json", "policy.json", "availability.json", "service.log",
 			"service.lock", "passes", "snapshots", "materializations", "scratch", "work", "admissions", "preparations", "packets", "submissions", "rebinds",
-			"frozen", "execution-events.json", "mode.json", "clients.json", "code.json.tmp", "server.json.tmp", "backends.json.tmp", "policy.json.tmp",
+			"frozen", "execution-events.json", "mode.json", "clients.json", "sources", "local-source", "code.json.tmp", "server.json.tmp", "backends.json.tmp", "policy.json.tmp",
 			"availability.json.tmp", "execution-events.json.tmp", "mode.json.tmp", "clients.json.tmp"} {
 			if !slices.Contains(skip, name) {
 				paths = append(paths, filepath.Join(home, name))
@@ -198,12 +198,14 @@ func TestCodexManagedRepositoryDeniesTheRuntimeHomeBesideItsAncestors(t *testing
 	}
 	// S6 P0: the entries the deny list used to miss, every one absent when the argv is built, are denied
 	// by path, so the backend socket, the work and admission records, the preparation, packet, submission
-	// and rebind stores, the execution-event outbox and the reserved mode and client files stay out of reach
+	// and rebind stores, the execution-event outbox, the reserved mode and client files and the reserved work
+	// sources (sources/<name>/token) and local work source queue (local-source/, work acquisition M2 F4)
+	// stay out of reach
 	// when the service, freeze, submit or rebind creates them after launch. So are the atomic-write
 	// siblings (<file>.tmp, renamed over <file>) of the outbox, the availability and the other home files,
 	// which hold the whole new content until the rename.
 	for _, name := range []string{"backend.sock", "work", "admissions", "preparations", "packets", "submissions", "rebinds",
-		"execution-events.json", "mode.json", "clients.json", "execution-events.json.tmp", "availability.json.tmp",
+		"execution-events.json", "mode.json", "clients.json", "sources", "local-source", "execution-events.json.tmp", "availability.json.tmp",
 		"mode.json.tmp", "clients.json.tmp", "code.json.tmp", "server.json.tmp", "backends.json.tmp", "policy.json.tmp"} {
 		path := filepath.Join(home, name)
 		if _, err := os.Lstat(path); !os.IsNotExist(err) {
@@ -511,6 +513,9 @@ func TestRepositoryAndPlainProfilesDenyTheRuntimeHomeUnderInstalledCodexSandbox(
 		// S6 P0 port: the frozen results (#267), a record and a blob.
 		filepath.Join(home, "frozen", "work-1.1.json"):                   "FROZEN-SENTINEL",
 		filepath.Join(home, "frozen", "blobs", strings.Repeat("ab", 32)): "FROZEN-BLOB-SENTINEL",
+		// Work acquisition M2 (F4): a work source's credential and the local work source's queue.
+		filepath.Join(home, "sources", "s1", "token"):     "SOURCE-SENTINEL",
+		filepath.Join(home, "local-source", "queue.json"): "LOCAL-SOURCE-SENTINEL",
 	}
 	listHome := fmt.Sprintf("ls %q", home)
 	denied := []string{
@@ -831,8 +836,8 @@ type homeProfileCheck struct {
 
 // homeProfileChecks renders every Codex and Claude profile against a fresh Runtime home: Codex read-only
 // and workspace-write (a project, and a workspace inside the home), dedicated repositories (outside, and
-// managed below <home>/workers), materialized folder and review packet; Claude read-only, dedicated
-// repositories, materialized folder, review packet and a Runtime work folder (<home>/workers/work-<name>).
+// managed below <home>/workers) and materialized folder; Claude read-only, dedicated repositories,
+// materialized folder and a Runtime work folder (<home>/workers/work-<name>).
 // setup runs on each home before its profiles are rendered. Every fixture root is outside the system temp
 // roots (outsideSystemTemp), so the Claude rows, which refuse a root there, run alike on Linux and macOS.
 func homeProfileChecks(t *testing.T, setup func(home string)) []homeProfileCheck {
@@ -875,9 +880,6 @@ func homeProfileChecks(t *testing.T, setup func(home string)) []homeProfileCheck
 		inspector := filepath.Join(user, "bin", "atlas-runtime")
 		args, err := permissionArguments(scope, filepath.Join(home, "scratch", "turn-1"), inspector, "")
 		codex("materialized-folder", home, args, err)
-		packet := freeze(t, home, dest, filepath.Join(user, "packet"), packetID)
-		args, err = permissionArguments(packet, filepath.Join(home, "scratch", "turn-1"), inspector, "")
-		codex("review-packet", home, args, err)
 	}
 	{
 		user := claudeUser(t)
@@ -900,9 +902,6 @@ func homeProfileChecks(t *testing.T, setup func(home string)) []homeProfileCheck
 		inspector := filepath.Join(user, "bin", "atlas-runtime")
 		encoded, err := claudeFolderSettings(scope, "/u/.ac-12345678", user, inspector)
 		claude("materialized-folder", home, dest, encoded, err, true)
-		packet := freeze(t, home, dest, filepath.Join(user, "packet"), packetID)
-		encoded, err = claudePacketSettings(packet, "/u/.ac-12345678", user, inspector)
-		claude("review-packet", home, packet["root"].(string), encoded, err, true)
 	}
 	{
 		user := claudeUser(t)
@@ -913,8 +912,8 @@ func homeProfileChecks(t *testing.T, setup func(home string)) []homeProfileCheck
 		encoded, err := claudeFolderSettings(scope, "/u/.ac-12345678", user, filepath.Join(user, "bin", "atlas-runtime"))
 		claude("work folder", home, root, encoded, err, true)
 	}
-	if len(checks) != 16 {
-		t.Fatalf("%d profile checks, want 16", len(checks))
+	if len(checks) != 14 {
+		t.Fatalf("%d profile checks, want 14", len(checks))
 	}
 	return checks
 }
@@ -972,6 +971,46 @@ func TestEveryProfileDeniesTheFrozenResults(t *testing.T) {
 			for _, path := range []string{frozen, filepath.Join(frozen, "work-1.1.json"), filepath.Join(frozen, "blobs", blob)} {
 				if !check.denies(path) {
 					t.Errorf("%s (frozen present at launch: %v) does not deny the frozen result path %s", check.name, present, path)
+				}
+			}
+		}
+	}
+}
+
+// workSourceEntries are the work acquisition M2 (decision F4) home stores and one entry below each:
+// the work sources' credentials and per-source stores, and the local work source's queue store.
+var workSourceEntries = [][2]string{{"sources", "s1/token"}, {"local-source", "queue.json"}}
+
+// TestEveryProfileDeniesTheWorkSources (work acquisition M2, decision F4): every Codex and Claude profile
+// denies each workSourceEntries store and the entry below it, both when the store is absent at launch
+// (a Codex managed repository denies it by its sensitiveHomeNames path, a Claude work folder by its
+// enumerated workerHomeNames path) and when it exists.
+func TestEveryProfileDeniesTheWorkSources(t *testing.T) {
+	for _, present := range []bool{false, true} {
+		checks := homeProfileChecks(t, func(home string) {
+			if !present {
+				return
+			}
+			for _, entry := range workSourceEntries {
+				path := filepath.Join(home, entry[0], entry[1])
+				if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte("SOURCE-SENTINEL"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+		})
+		for _, check := range checks {
+			for _, entry := range workSourceEntries {
+				store := filepath.Join(check.home, entry[0])
+				if _, err := os.Lstat(store); present == os.IsNotExist(err) {
+					t.Fatalf("%s: %s present=%v at launch, got %v", check.name, entry[0], present, err)
+				}
+				for _, path := range []string{store, filepath.Join(store, entry[1])} {
+					if !check.denies(path) {
+						t.Errorf("%s (%s present at launch: %v) does not deny the work source path %s", check.name, entry[0], present, path)
+					}
 				}
 			}
 		}

@@ -28,8 +28,9 @@ defmodule AtlasRuntime.Sandbox.SpecParityTest do
   test "every decision table row is asserted here or skipped as legacy-only" do
     rows = SpecRows.rows()
     skipped = for {_, row} <- rows, Map.has_key?(row, "elixir"), do: row["elixir"]
-    assert length(rows) == 74
-    assert Enum.sort(skipped) == ["skip:review-packet", "skip:review-packet"]
+    # S5b B2: the two legacy-only review-packet rows left with the profile.
+    assert length(rows) == 72
+    assert skipped == []
   end
 
   describe "the Runtime home" do

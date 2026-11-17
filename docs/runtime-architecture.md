@@ -121,7 +121,7 @@ There are two tokens, each in an owner-only (0600) regular file under the Code h
 
 Runtime never passes either token to native workers; `Agent.Native` already strips all but a fixed environment list.
 
-**Known limit:** every worker profile (Codex and Claude read-only, Codex workspace-write, dedicated-repository, materialized-folder, review-packet) denies the Runtime home and the runtime token file named by its `code.json`, with that file's directory (normally the Code home, so an orchestrator token beside it as well). A Codex managed repository below the Runtime home is the exception to a whole-home deny: Git needs its ancestors, so only the home entries beside that ancestor chain, the known sensitive entries and, through Codex deny-read globs, every other `workers/<id>` directory (also one created after launch) are denied (host README, dedicated-repository). A same-user token file elsewhere is not hidden from a worker that can read the user's home directory, e.g. a Codex read-only sandbox. This contract does not claim further worker isolation from Code; that belongs to the later isolation work.
+**Known limit:** every worker profile (Codex and Claude read-only, Codex workspace-write, dedicated-repository, materialized-folder) denies the Runtime home and the runtime token file named by its `code.json`, with that file's directory (normally the Code home, so an orchestrator token beside it as well). A Codex managed repository below the Runtime home is the exception to a whole-home deny: Git needs its ancestors, so only the home entries beside that ancestor chain, the known sensitive entries and, through Codex deny-read globs, every other `workers/<id>` directory (also one created after launch) are denied (host README, dedicated-repository). A same-user token file elsewhere is not hidden from a worker that can read the user's home directory, e.g. a Codex read-only sandbox. This contract does not claim further worker isolation from Code; that belongs to the later isolation work.
 
 Every error response is `{"error": {"code": "<code>", "message": "<text>", "details": {}}}` with the HTTP status shown:
 
@@ -390,7 +390,7 @@ Review findings and the packet chain (implemented, `platform/atlas_runtime/host/
 - **Order:**
   1. Resolve `P` and `P/tree`, whose materialization record must name a packet.
   2. Return an existing `<home>/packets/<id>/findings/REVIEW_TURN.json` if the file still has its `sha256`.
-  3. Read `<home>/turns/REVIEW_TURN/turn.json`. Its `cwd` must be `P/tree`, `permissions.profile` must be `review-packet` with this `packet_id`, and its `state` must be `finished`, `stopped` or `killed`.
+  3. Read `<home>/turns/REVIEW_TURN/turn.json`, a saved review-packet turn (the Runtime no longer starts that profile; such turns predate its removal). Its `cwd` must be `P/tree`, `permissions.profile` must be `review-packet` with this `packet_id`, and its `state` must be `finished`, `stopped` or `killed`.
   4. Take the tree's `flock` (`folder … has an active Runtime owner; nothing was recorded`). Under it, a `packets/<id>/discarded.json` refuses with code `packet_discarded`.
   5. Verify the packet as the profile scope does (`VerifiedPacket`). The scope's `fingerprint` must equal the packet's.
   6. Read `P/findings/findings.json` without following symlinks, at most 64 KiB.
