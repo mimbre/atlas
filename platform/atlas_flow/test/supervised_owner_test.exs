@@ -1,8 +1,9 @@
 defmodule AtlasFlow.SupervisedOwnerTest do
   # A state owned by the configured `decider` inside a supervised span goes to the run's
-  # human supervisor (its `supervised_by`); with no supervisor, outside every span, or a
-  # supervisor of another kind, it goes to the configured decider. Other owners never move
-  # to the supervisor. The span model is this file's own: a neutral one on the depot.
+  # human supervisor (its `supervised_by`); with no supervisor, outside every span of its
+  # own subflow, or a supervisor of another kind, it goes to the configured decider. Other
+  # owners never move to the supervisor, and only those states read the run's supervisor.
+  # The span model is this file's own: a neutral one on the depot.
   use ExUnit.Case, async: false
   @moduletag :capture_log
 
@@ -59,12 +60,12 @@ defmodule AtlasFlow.SupervisedOwnerTest do
         }
       }
 
-    def supervision,
+    def supervision(subflow \\ "sort"),
       do: %{
         "version" => 1,
         "relation" => "tended_by",
         "spans" => %{
-          "sort" => [
+          subflow => [
             %{"name" => "tend", "label" => "Tend", "states" => ["check", "pack"], "with" => []}
           ]
         }
@@ -101,6 +102,28 @@ defmodule AtlasFlow.SupervisedOwnerTest do
       relations: AtlasFlow.SupervisedOwnerTest.Span.relations("crate")
 
     def supervision, do: AtlasFlow.SupervisedOwnerTest.Span.supervision()
+  end
+
+  # The same span, but declared for another subflow than the run's own.
+  defmodule Elsewhere do
+    @moduledoc false
+    use AtlasFlow.TestModel,
+      subflows: [AtlasFlow.SupervisedOwnerTest.Sort],
+      actors: [decider: "clerk"],
+      selection: AtlasFlow.SupervisedOwnerTest.Span.selection(),
+      relations: AtlasFlow.SupervisedOwnerTest.Span.relations("clerk")
+
+    def supervision, do: AtlasFlow.SupervisedOwnerTest.Span.supervision("elsewhere")
+  end
+
+  # The same subflow, with no supervision at all.
+  defmodule Unsupervised do
+    @moduledoc false
+    use AtlasFlow.TestModel,
+      subflows: [AtlasFlow.SupervisedOwnerTest.Sort],
+      actors: [decider: "clerk"],
+      selection: AtlasFlow.SupervisedOwnerTest.Span.selection(),
+      relations: AtlasFlow.SupervisedOwnerTest.Span.relations("clerk")
   end
 
   setup do
@@ -189,6 +212,43 @@ defmodule AtlasFlow.SupervisedOwnerTest do
     supervise(box, "sam")
     Engine.round(engine)
     assert owner(box) == ["dee"]
+  end
+
+  test "a span of another subflow does not move the run's decider state", %{box: box} do
+    engine = start(Elsewhere)
+    Engine.round(engine)
+    supervise(box, "sam")
+    Engine.round(engine)
+    assert state(box) == "Check it"
+    assert owner(box) == ["dee"]
+  end
+
+  # Flow's reads in one round of an engine on `model`, after it has settled on the facts.
+  defp reads_in_a_round(model) do
+    engine = start(model)
+    Engine.round(engine)
+    Engine.round(engine)
+    {before, _plain} = FakeFacts.reads()
+    Engine.round(engine)
+    {after_round, _plain} = FakeFacts.reads()
+    stop_supervised!(Engine)
+    after_round - before
+  end
+
+  test "only a supervised span's decider state reads the run's supervisor", %{box: box} do
+    engine = start(Spanned)
+    Engine.round(engine)
+    supervise(box, "sam")
+    stop_supervised!(Engine)
+
+    in_span = reads_in_a_round(Unsupervised)
+    assert reads_in_a_round(Spanned) > in_span
+    assert reads_in_a_round(Elsewhere) == in_span
+
+    result(box, "pack")
+    fixed_owner = reads_in_a_round(Unsupervised)
+    assert state(box) == "Pack it"
+    assert reads_in_a_round(Spanned) == fixed_owner
   end
 
   describe "AtlasFlow.Model.owner/3" do
