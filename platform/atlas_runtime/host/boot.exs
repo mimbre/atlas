@@ -57,6 +57,20 @@ end
 for app_file <- Path.wildcard(Path.join(build, "lib/*/ebin/*.app")),
     do: load.(load, app_file |> Path.basename(".app") |> String.to_atom())
 
+# Only the loaded applications stay loadable, as Mix prunes the code path to the project's
+# dependency tree (Mix.Tasks.Compile.All, `prune_code_paths`): the rest of Erlang/OTP (ssh,
+# observer, …) is taken off the path. The consolidated protocols stay first. Each entry is
+# deleted as it is named: Code.delete_paths/1 expands it first, which misses Elixir's own
+# `bin/../lib/*/ebin` entries (and so Mix keeps mix, iex and ex_unit loadable; here they go).
+keep =
+  for {app, _, _} <- Application.loaded_applications(),
+      dir = :code.lib_dir(app),
+      is_list(dir),
+      into: MapSet.new([Path.expand(Path.join(build, "consolidated"))]),
+      do: Path.expand(Path.join(dir, "ebin"))
+
+for path <- :code.get_path(), Path.expand(path) not in keep, do: :code.del_path(path)
+
 runtime = Path.expand("config/runtime.exs")
 
 if File.regular?(runtime) do

@@ -95,6 +95,8 @@ The sections below describe how the Service runs turns. The work core drives the
 
 The service serves its backend on `backend.sock` only. The S3 loopback TCP listener, its `clients.json` and the mini runbook were removed before they were ever activated (work acquisition decision 2026-11-17, M0): a Runtime will get remote work only by pulling it from the work sources it is configured with, so no agent machine has a network listener.
 
+This is enforced at start: the service runs without Mix (`elixir -pz/-pa … -r host/boot.exs host/service.exs`, because `mix run` opens Mix's PubSub loopback listener), and `service.exs` fails its start, before `backend.sock` serves and again before `Runtime ready`, when the VM owns any IP listen socket: inet ports of `gen_tcp`/`gen_sctp`, and `:socket` sockets of domain `inet`/`inet6` of any protocol (`AtlasRuntime.ListenerCheck`). A `:socket` the socket registry does not hold cannot be inspected, so it fails the start too. The log line holds only the reason and the ports: `Runtime not ready: {"ports":[…],"reason":"ip_listener"}` (or `{"reason":"unregistered_socket","sockets":N}`).
+
 ## Concurrent slots
 
 ```sh
