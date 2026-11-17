@@ -16,7 +16,7 @@ defmodule Model.Package do
       only Flow writes a package. The packages it waits for (`after`) are not read yet:
       that ordering comes with F4.
     * `authoring` is one author task (`AtlasFlow.Activities.Task`): role developer,
-      profile `deep_coding`, on a fresh `develop` of the repository, with `bin/check`
+      profile `deep_coding`, on a fresh `develop` of the repository, with `atlas/bin/check`
       after the work. Its record is a `task` linked `task_of` the package. It runs only
       while the package's Assignment is with a machinery (E1); otherwise nothing is
       done for it.
@@ -25,8 +25,11 @@ defmodule Model.Package do
       assignment moved away from the machinery). A person who takes a stuck package
       back restarts it or does it by hand; F2 reviews and fixes the other two.
 
-  The workspace is a repository and its base, never a path on the machinery's machine
-  (the Runtime's D44): the Runtime chooses where it is.
+  The workspace is a base (the plan's §6 F1.5a): when its task is made, Flow snapshots
+  Code's `github.com/mimbre/atlas` at its current `develop`, placed at `atlas` in the
+  work's folder, and the snapshot is the work's `base_id`, so the Runtime freezes what the
+  work changed. It is never a path on the machinery's machine (the Runtime's D44): the
+  Runtime chooses where the folder is.
   """
   use RelaDSL
 
@@ -86,9 +89,9 @@ defmodule Model.Package do
   )
 
   @author_instructions """
-  Build the package below in the repository you are given, starting from its base. \
-  Keep to the worker rules: the boundary greps that CI runs must stay clean (bin/check \
-  runs them, and runs after you), and do no web search. Run the tests of every system \
+  Build the package below in the repository you are given, at atlas/ in your folder, \
+  starting from its base. Keep to the worker rules: the boundary greps that CI runs must \
+  stay clean (atlas/bin/check runs them, and runs after you), and do no web search. Run the tests of every system \
   you change. End your answer with what you changed, the tests you ran with their \
   results, and what is left open.\
   """
@@ -111,15 +114,15 @@ defmodule Model.Package do
         expected: "Author it on the machinery",
         why: "it is ready to be built",
         instructions:
-          "Its machinery builds it on a fresh base of develop and runs bin/check after the work. Nothing is done while it is not assigned to a machinery."
+          "Its machinery builds it on a fresh base of develop and runs atlas/bin/check after the work. Nothing is done while it is not assigned to a machinery."
       )
 
       task(:author,
         role: :developer,
         profile: :deep_coding,
         cost_class: :standard,
-        input: [repository: "https://github.com/mimbre/atlas.git", base: "develop"],
-        check: ["bin/check"],
+        input: [code: "github.com/mimbre/atlas", base: "develop", root: "atlas"],
+        check: ["atlas/bin/check"],
         instructions: @author_instructions,
         fields: [:title, :instructions, :acceptance],
         records: [kind: "task", relation: "task_of"],
@@ -152,5 +155,18 @@ defmodule Model.Package do
     ],
     admission: [],
     imports: []
+  )
+
+  # The approved migration of its runs, from the digest the base branch recorded
+  # (RelaDSL.RunIdentity); the same in prod and test. F1.5a changed only the author task's
+  # input (a Code base instead of a repository workspace), its check (`atlas/bin/check`, at
+  # the base's root) and its texts; the states are the same, so each run keeps its state
+  # as a state migration. One whose author task is in flight is not quiescent and blocks,
+  # as Flow does for every frozen mechanism: its request stays the one it was sent with.
+  migrate(:package,
+    from: "ed9ae978d163fa3b7d7baf396b8fafab0bebbaf06edfe5028fe4f853d9c99d2c",
+    to: "b7cef2766ee847effe8114a46d5282e7a3c6681435ed785872cb369cbb4c5b94",
+    states: :same,
+    reason: "F1.5a: the author task starts from a Code base, not a repository workspace"
   )
 end

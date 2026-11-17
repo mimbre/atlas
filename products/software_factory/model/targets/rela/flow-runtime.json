@@ -149,7 +149,9 @@
       "package": {
         "choices": [],
         "choice_states": [],
-        "migrations": [],
+        "migrations": [
+          {"from":"ed9ae978d163fa3b7d7baf396b8fafab0bebbaf06edfe5028fe4f853d9c99d2c","to":"b7cef2766ee847effe8114a46d5282e7a3c6681435ed785872cb369cbb4c5b94","states":{"authored":"authored","authoring":"authoring","check_failed":"check_failed","stuck":"stuck","waiting":"waiting"},"reason":"F1.5a: the author task starts from a Code base, not a repository workspace"}
+        ],
         "subject": "package",
         "projection": {
           "on": "assignment",

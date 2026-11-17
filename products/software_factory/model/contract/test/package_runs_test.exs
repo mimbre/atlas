@@ -2,15 +2,19 @@ defmodule Model.PackageRunsTest do
   @moduledoc """
   F1.4: the package subflow on Flow's durable runs, through the composition. A package
   waits for its instructions, then is authored by one author task on the machinery its
-  Assignment names (role developer, `deep_coding`, a repository workspace on `develop`,
-  `bin/check` after the work), and ends `authored`, `check_failed` or `stuck`. It is run
-  by `AtlasFlow.Runs.Store` as the composition selects it, with `AtlasFlow.FakeFacts` and
-  a fake `AtlasFlow.Runtime.Client` (`AtlasFlow.FakeRuntime`), and presented on its
-  Assignment (`AtlasFlow.Runs.Projection`).
+  Assignment names (role developer, `deep_coding`, `atlas/bin/check` after the work), and
+  ends `authored`, `check_failed` or `stuck`. It is run by `AtlasFlow.Runs.Store` as the
+  composition selects it, with `AtlasFlow.FakeFacts`, a fake `AtlasFlow.Runtime.Client`
+  (`AtlasFlow.FakeRuntime`) and a fake `AtlasFlow.Code.Client` (`AtlasFlow.FakeCode`),
+  and presented on its Assignment (`AtlasFlow.Runs.Projection`).
+
+  F1.5a: its task starts from a `base` workspace whose `base_id` is the Code snapshot of
+  `github.com/mimbre/atlas` at `develop` (root `atlas`), made when the task is; no
+  repository workspace or input remains.
   """
   use ExUnit.Case, async: false
 
-  alias AtlasFlow.{FakeFacts, FakeRuntime, ManualClock}
+  alias AtlasFlow.{FakeCode, FakeFacts, FakeRuntime, ManualClock}
   alias AtlasFlow.Runs.{Projection, Run, Store}
 
   @now ~U[2026-11-17 09:00:00Z]
@@ -18,6 +22,7 @@ defmodule Model.PackageRunsTest do
   @name "package"
   @key "PK-IS-Atlas-01-1"
   @task "TK-PK-IS-Atlas-01-1-1"
+  @input %{"code" => "github.com/mimbre/atlas", "base" => "develop", "root" => "atlas"}
 
   defp flow(env), do: Enum.find(Model.AtlasEyra.subflows(env), &(&1.name() == @name))
   defp runner, do: AtlasFlow.Model.load(Model.AtlasEyra, :test, %{"decider" => "someone"})
@@ -55,7 +60,7 @@ defmodule Model.PackageRunsTest do
       end
     end
 
-    test "authoring is one author task: developer, deep_coding, the base, bin/check" do
+    test "authoring is one author task: developer, deep_coding, the base, atlas/bin/check" do
       for env <- @envs do
         assert {:task, spec} = flow(env).mechanism("authoring")
 
@@ -64,12 +69,10 @@ defmodule Model.PackageRunsTest do
                  "role" => "developer",
                  "profile" => "deep_coding",
                  "cost_class" => "standard",
-                 # A repository and its base, never a path on the machinery (D44).
-                 "input" => %{
-                   "repository" => "https://github.com/mimbre/atlas.git",
-                   "base" => "develop"
-                 },
-                 "check" => ["bin/check"],
+                 # Code's repository, the branch it is snapshotted at and its root in the
+                 # work's folder: never a repository workspace, nor a path (D44, F1.5a).
+                 "input" => @input,
+                 "check" => ["atlas/bin/check"],
                  "fields" => ["title", "instructions", "acceptance"],
                  "records" => %{"kind" => "task", "relation" => "task_of"},
                  "machinery" => "machinery",
@@ -81,7 +84,29 @@ defmodule Model.PackageRunsTest do
         assert spec["instructions"] =~ "no web search"
         assert spec["instructions"] =~ "Run the tests of every system you change."
         assert spec["instructions"] =~ "End your answer with"
+        assert spec["instructions"] =~ "at atlas/ in your folder"
       end
+    end
+
+    test "no repository input remains in either environment (F1.5a)" do
+      for env <- @envs, f = flow(env), state <- f.states() do
+        case f.mechanism(state) do
+          {:task, spec} ->
+            refute Map.has_key?(spec["input"], "repository"), "#{env} #{state}"
+            refute Map.has_key?(spec["input"], "url"), "#{env} #{state}"
+
+          _ ->
+            :ok
+        end
+      end
+    end
+
+    test "its runs move from the F1.4 digest along a state migration" do
+      [m] = for m <- Model.AtlasEyra.selection(@name)["migrations"], do: m
+
+      assert m["from"] == "ed9ae978d163fa3b7d7baf396b8fafab0bebbaf06edfe5028fe4f853d9c99d2c"
+      assert m["to"] == flow(:prod).digest()
+      assert m["states"] == Map.new(flow(:prod).states(), &{&1, &1})
     end
 
     test "presented on its Assignment, in plain texts; waiting presents nothing" do
@@ -133,20 +158,24 @@ defmodule Model.PackageRunsTest do
       {:ok, _} = Application.ensure_all_started(:atlas_bus)
       machinery = Application.get_env(:atlas_flow, :machinery)
       client = Application.get_env(:atlas_flow, :runtime_client)
+      code = Application.get_env(:atlas_flow, :code_client)
 
       Application.put_env(:atlas_flow, :machinery, %{
         "mac-mini" => %{url: "http://127.0.0.1:9", token_env: "ATLAS_FLOW_PACKAGE_TEST_TOKEN"}
       })
 
       Application.put_env(:atlas_flow, :runtime_client, FakeRuntime)
+      Application.put_env(:atlas_flow, :code_client, FakeCode)
 
       on_exit(fn ->
         restore(:machinery, machinery)
         restore(:runtime_client, client)
+        restore(:code_client, code)
       end)
 
       start_supervised!(FakeFacts)
       start_supervised!(FakeRuntime)
+      start_supervised!(FakeCode)
       clock = start_supervised!({ManualClock, @now})
       :ok = AtlasBus.attach("flow")
 
@@ -179,22 +208,26 @@ defmodule Model.PackageRunsTest do
                "work_id" => "w-1"
              }
 
-      assert JSON.decode!(record["values"]["input"]) == %{
-               "repository" => "https://github.com/mimbre/atlas.git",
-               "base" => "develop"
-             }
+      # Code was asked once for the base: develop of github.com/mimbre/atlas, at atlas.
+      assert FakeCode.calls() == [@input]
+      base_id = FakeCode.id(@input)
+      assert "sha256:" <> _ = base_id
 
-      # One submit, under the task's key: a repository on develop, bin/check after it.
+      # The record says what the task started from: its input and the base it got.
+      assert JSON.decode!(record["values"]["input"]) == Map.put(@input, "base_id", base_id)
+
+      # One submit, under the task's key: a base workspace of that snapshot, writable for
+      # its author, atlas/bin/check after it. No repository workspace, url or branch.
       assert [[@task, request]] = FakeRuntime.calls(:submit)
 
       assert request["workspace"] == %{
-               "kind" => "repository",
-               "url" => "https://github.com/mimbre/atlas.git",
-               "branch" => "flow/" <> @task,
-               "base" => "develop"
+               "kind" => "base",
+               "base_id" => base_id,
+               "permissions" => "workspace-write"
              }
 
-      assert request["after_check"] == %{"command" => ["bin/check"]}
+      assert authoring["pending"]["task"]["request"]["workspace"]["base_id"] == base_id
+      assert request["after_check"] == %{"command" => ["atlas/bin/check"]}
       assert {request["profile"], request["cost_class"]} == {"deep_coding", "standard"}
       assert request["title"] == "author " <> @key
       assert request["instructions"] =~ ~r/\ABuild the package below/
@@ -218,6 +251,8 @@ defmodule Model.PackageRunsTest do
       assert [%{"key" => @task, "outcome" => "completed"}] = done["pending"]["tasks"]
       assert FakeFacts.get("task", @task)["values"]["state"] == "completed"
       assert length(FakeRuntime.calls(:submit)) == 1
+      # One task, one base: following its work asked Code for nothing more.
+      assert length(FakeCode.calls()) == 1
 
       # Ended: nothing is expected of anyone any more.
       assert {:ok, _} = Projection.project(c.runner, "package", @key)
@@ -272,12 +307,32 @@ defmodule Model.PackageRunsTest do
       assert assignment["values"]["expected"] == "Author it on the machinery"
     end
 
+    test "without a base from Code no task is made; the next round makes it", c do
+      package(@key, "mac-mini")
+      FakeCode.script([{:unavailable, "no Code instance"}, {:refused, :unknown_reference}])
+
+      for _ <- 1..2 do
+        run = reconcile(c)
+        assert {run["state"], run["status"]} == {"authoring", "active"}
+        assert run["pending"]["task"] == nil
+        assert FakeRuntime.calls() == []
+        assert FakeFacts.get("task", @task) == nil
+      end
+
+      authoring = reconcile(c)
+      assert authoring["pending"]["task"]["key"] == @task
+      assert length(FakeCode.calls()) == 3
+      base_id = FakeCode.id(@input)
+      assert [[@task, %{"workspace" => %{"base_id" => ^base_id}}]] = FakeRuntime.calls(:submit)
+    end
+
     test "not assigned to a machinery: no task, nothing sent (E1)", c do
       package(@key, "coordinator")
       run = reconcile(c)
       assert {run["state"], run["status"]} == {"authoring", "active"}
       assert run["pending"]["task"] == nil
       assert FakeRuntime.calls() == []
+      assert FakeCode.calls() == []
       assert FakeFacts.get("task", @task) == nil
     end
   end

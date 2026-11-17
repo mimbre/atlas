@@ -23,15 +23,18 @@ defmodule AtlasFlow.MixProject do
   defp elixirc_paths(:test), do: ["lib", "test/support"]
   defp elixirc_paths(_), do: ["lib"]
 
-  # Flow reaches Facts, Gates and Code over the Bus, and the Runtime as a remote client of
-  # its backend (ADR 0006): over HTTP, with `req` (Finch/Mint, which also speak the HTTP
-  # CONNECT proxy of the tailnet path), never by calling it. It runs the model it is wired
-  # to by configuration (AtlasFlow.Model) and depends on none; its tests write neutral
+  # Flow reaches Facts, Gates and Code's integrate receiver over the Bus, and the Runtime as
+  # a remote client of its backend (ADR 0006): over HTTP, with `req` (Finch/Mint, which also
+  # speak the HTTP CONNECT proxy of the tailnet path), never by calling it. A task's base is
+  # a Code snapshot, asked of Code's boundary facade in the same BEAM
+  # (AtlasFlow.Code.Client.Boundary, plan F1.5a): hence atlas_code. It runs the model it is
+  # wired to by configuration (AtlasFlow.Model) and depends on none; its tests write neutral
   # models in the Rela DSL. The Runtime is a test dependency only: the client's contract
   # test starts its real backend in the test (AtlasFlow.Runtime.Client.Http).
   defp deps,
     do: [
       {:atlas_bus, in_umbrella: true},
+      {:atlas_code, in_umbrella: true},
       {:req, "~> 0.5.16"},
       {:atlas_runtime, in_umbrella: true, only: :test},
       {:rela_dsl, path: "../../products/software_factory/model/generator", only: :test}
