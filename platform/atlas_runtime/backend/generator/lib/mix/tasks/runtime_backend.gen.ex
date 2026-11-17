@@ -1,5 +1,5 @@
 defmodule Mix.Tasks.RuntimeBackend.Gen do
-  @shortdoc "Generate the file targets of the configured backend contract"
+  @shortdoc "Generate the file targets of the configured backend contracts"
   @moduledoc """
       mix runtime_backend.gen           # write them
       mix runtime_backend.gen --check   # fail when one is stale or left over (CI)
@@ -11,16 +11,17 @@ defmodule Mix.Tasks.RuntimeBackend.Gen do
         [
           ...,
           runtime_backend: [
-            contracts: [lending: MyContracts.Lending],
+            contracts: [lending: MyContracts.Lending, desk: MyContracts.Desk],
             targets: [json: "../targets/rest"],
             root: "../../../.."
           ]
         ]
       end
 
-  `contracts` names the contract (a module that uses `AtlasRuntimeBackend.Generator.Schema`)
-  by the name of its files: `lending` writes `lending.json`. It takes exactly one
-  contract per project. `targets` maps each file target to its folder, or to
+  `contracts` names each contract (a module that uses `AtlasRuntimeBackend.Generator.Schema`)
+  by the name of its files: `lending` writes `lending.json`, `desk` writes `desk.json`.
+  Each file target writes every contract's files; a name given twice, or two contracts
+  writing one path, fails before anything is written. `targets` maps each file target to its folder, or to
   `{folder, options}`. `root` (optional, default the project's folder) is what the
   header's path to the contract file is relative to.
 
@@ -36,7 +37,9 @@ defmodule Mix.Tasks.RuntimeBackend.Gen do
   Every file starts with an `AtlasRuntimeBackend.Generator.Header`. A file without
   exactly that header is hand-written and never overwritten. A file with it, in a target's
   folder, that no target writes any more (a renamed or removed one) is left over: the task
-  removes it, and `--check` fails on it, as on a file that would change.
+  removes it, and `--check` fails on it, as on a file that would change. Left over is
+  judged against what all the contracts write, so removing a contract leaves its files
+  over.
   """
   use Mix.Task
 
@@ -55,15 +58,20 @@ defmodule Mix.Tasks.RuntimeBackend.Gen do
     if rest != [], do: Mix.raise("unexpected argument #{Enum.join(rest, " ")}")
 
     config = config!()
-    {name, contract} = config.contract
-    schema = contract.__schema__()
-    source = Path.relative_to(schema.file, Path.expand(config.root))
 
     files =
-      for {target, dir, target_opts} <- config.targets,
+      for {name, contract} <- config.contracts,
+          schema <- [contract.__schema__()],
+          source <- [Path.relative_to(schema.file, Path.expand(config.root))],
+          {target, dir, target_opts} <- config.targets,
           {path, body} <-
             Map.fetch!(@targets, target).files(schema, Keyword.put_new(target_opts, :name, name)),
           do: {Path.join(dir, path), Header.put(Path.extname(path), source, body)}
+
+    case Enum.map(files, &elem(&1, 0)) |> then(&(&1 -- Enum.uniq(&1))) do
+      [] -> :ok
+      [path | _] -> Mix.raise("runtime_backend: two contracts write #{path}")
+    end
 
     stale = for {path, body} <- files, File.read(path) != {:ok, body}, do: path
     leftovers = leftovers(files, config.targets)
@@ -115,8 +123,8 @@ defmodule Mix.Tasks.RuntimeBackend.Gen do
 
   defp generated?(path), do: Header.generated?(Path.extname(path), File.read!(path))
 
-  # `%{contract: {name, module}, targets: [{target, dir, opts}], root: dir}`, from the
-  # project's `runtime_backend` key, else from the application config.
+  # `%{contracts: [{name, module}], targets: [{target, dir, opts}], root: dir}`, from the
+  # project's `runtime_backend` key, else from the application config (one contract).
   defp config! do
     case Mix.Project.config()[:runtime_backend] do
       nil ->
@@ -130,7 +138,7 @@ defmodule Mix.Tasks.RuntimeBackend.Gen do
           end
 
         %{
-          contract: contract,
+          contracts: [contract],
           targets: targets!(Application.get_env(@app, :targets, [])),
           root: Application.get_env(@app, :root, ".")
         }
@@ -140,22 +148,30 @@ defmodule Mix.Tasks.RuntimeBackend.Gen do
                  Keyword.keys(project) -- [:contracts, :targets, :root] == [],
                do: Mix.raise("runtime_backend: the keys are contracts:, targets: and root:")
 
-        contract =
+        contracts =
           case project[:contracts] do
-            [{name, module}] when is_atom(name) and is_atom(module) ->
-              {Atom.to_string(name), module}
+            [_ | _] = list ->
+              unless Keyword.keyword?(list) and Enum.all?(list, fn {_, m} -> is_atom(m) end),
+                do:
+                  Mix.raise(
+                    "runtime_backend: expected contracts: [name: Module, ...], got #{inspect(list)}"
+                  )
 
-            [_, _ | _] ->
-              Mix.raise("runtime_backend: one contract per project (several come later)")
+              case Keyword.keys(list) -- Enum.uniq(Keyword.keys(list)) do
+                [] -> :ok
+                [name | _] -> Mix.raise("runtime_backend: contract #{name} is named twice")
+              end
+
+              for {name, module} <- list, do: {Atom.to_string(name), module}
 
             other ->
               Mix.raise(
-                "runtime_backend: expected contracts: [name: Module], got #{inspect(other)}"
+                "runtime_backend: expected contracts: [name: Module, ...], got #{inspect(other)}"
               )
           end
 
         %{
-          contract: contract,
+          contracts: contracts,
           targets: targets!(project[:targets] || []),
           root: project[:root] || "."
         }

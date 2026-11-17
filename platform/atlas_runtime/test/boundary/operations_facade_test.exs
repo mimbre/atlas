@@ -10,7 +10,6 @@ defmodule AtlasRuntime.Boundary.OperationsFacadeTest do
 
   alias AtlasRuntime.Boundary.Operations, as: F
   alias AtlasRuntime.Model.RuntimeMode.RuntimeMode
-  alias AtlasRuntime.Operations.NotImplemented
   alias AtlasRuntimeBoundary.Generator.{ContractError, InvalidInput, NotPermitted}
 
   @moduletag :tmp_dir
@@ -60,11 +59,13 @@ defmodule AtlasRuntime.Boundary.OperationsFacadeTest do
       assert detail =~ "slot"
     end
 
-    test "a valid input reaches the skeleton" do
-      assert_raise NotImplemented, ~r/stop/, fn -> F.stop(@operator, %{force: true}) end
+    # Through a test implementation: the real stop would stop this Runtime (O1).
+    test "a valid input reaches the implementation" do
+      facade = facade_on(fn -> raise "reached" end)
+      assert_raise RuntimeError, "reached", fn -> facade.stop(@operator, %{force: true}) end
 
-      assert_raise NotImplemented, ~r/release_slot/, fn ->
-        F.release_slot(@operator, %{slot: "dev1"})
+      assert_raise RuntimeError, "reached", fn ->
+        facade.release_slot(@operator, %{slot: "dev1"})
       end
     end
   end
@@ -173,8 +174,8 @@ defmodule AtlasRuntime.Boundary.OperationsFacadeTest do
     )
   end
 
-  # A facade of the operations contract on an implementation whose runtime_info answers
-  # `answer.()`; every other capability is the skeleton's.
+  # A facade of the operations contract on an implementation whose runtime_info, stop and
+  # release_slot answer `answer.()`; every other capability is AtlasRuntime.Operations'.
   defp facade_on(answer) do
     n = System.unique_integer([:positive])
     facade = Module.concat(AtlasRuntime.Test, "OperationsFacade#{n}")
@@ -201,9 +202,9 @@ defmodule AtlasRuntime.Boundary.OperationsFacadeTest do
       @impl true
       def drain(c), do: AtlasRuntime.Operations.drain(c)
       @impl true
-      def stop(c, i), do: AtlasRuntime.Operations.stop(c, i)
+      def stop(_c, _i), do: :persistent_term.get({__MODULE__, :answer}).()
       @impl true
-      def release_slot(c, i), do: AtlasRuntime.Operations.release_slot(c, i)
+      def release_slot(_c, _i), do: :persistent_term.get({__MODULE__, :answer}).()
       @impl true
       def clear_quota_mark(c, i), do: AtlasRuntime.Operations.clear_quota_mark(c, i)
     end

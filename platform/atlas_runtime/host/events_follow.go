@@ -42,8 +42,7 @@ type eventFollower struct {
 }
 
 // The journal (events and events --follow) is read on runtime.sock with the runtime.read/1
-// protocol (design 2026-11-16-runtime-backend §13.1 Q3); history stays on read.sock until S2
-// moves it.
+// protocol (design 2026-11-16-runtime-backend §13.1 Q3); history is on backend.sock.
 const journalSocket = "runtime.sock"
 
 // journalRequest is one finite runtime.read/1 journal read (events) on <home>/runtime.sock.

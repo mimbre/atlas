@@ -127,7 +127,7 @@ func TestCodexManagedRepositoryDeniesTheRuntimeHomeBesideItsAncestors(t *testing
 	}
 	sensitive := func(skip ...string) []string {
 		var paths []string
-		for _, name := range []string{"runtime.sock", "read.sock", "backend.sock", "turns", "code.json", "server.json", "backends.json", "policy.json", "availability.json", "service.log",
+		for _, name := range []string{"runtime.sock", "backend.sock", "turns", "code.json", "server.json", "backends.json", "policy.json", "availability.json", "service.log",
 			"service.lock", "passes", "snapshots", "materializations", "scratch"} {
 			if !slices.Contains(skip, name) {
 				paths = append(paths, filepath.Join(home, name))

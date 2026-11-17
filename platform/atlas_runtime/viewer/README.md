@@ -1,9 +1,11 @@
 # Atlas Runtime viewer
 
-A local, read-only browser view of a standalone Runtime: workers, turns with their
-metadata, activity, results and answers, public output and the execution-event journal.
-It reads only `<runtime home>/read.sock` through `runtime.read/1`
-([contract](../../../docs/contracts/runtime-read.md)) and needs neither Atlas Server nor Code.
+A local, read-only browser view of a standalone Runtime: its slots and mode, the turns of
+its history with their metadata, public output and the execution-event journal. It reads
+`<runtime home>/backend.sock` (`GET /v1/runtime`, the history contract's `GET /v1/turns`
+and `GET /v1/turns/{id}`, and the work contract's `GET /v1/turns/{id}/output`) and the
+journal on `<runtime home>/runtime.sock` (`runtime.read/1` `events`), and needs neither
+Atlas Server nor Code.
 There are no start, stop, continue, answer or orchestration controls; opening or closing
 the viewer does not change any worker.
 
@@ -34,7 +36,8 @@ MIX_BUILD_PATH="$TMPDIR/viewer-build" mix test test/atlas_viewer_test.exs
 ```
 
 The first file checks pure request validation. The second starts an ephemeral loopback
-HTTP server and synthetic Unix-socket listeners; repeat it to check fixture cleanup.
+HTTP server and synthetic Unix-socket listeners (an HTTP stand-in for `backend.sock`, a
+JSON-lines one for `runtime.sock`); repeat it to check fixture cleanup.
 ExUnit owns the listeners and stops them before exit callbacks stop HTTP and remove
 the fixture directory. Directory cleanup is registered before creating files or starting
 HTTP; HTTP cleanup is registered immediately after startup, so later setup failures
@@ -53,26 +56,36 @@ failure if blocked; do not broaden permissions or disable sandbox checks to run 
 ## What it shows
 
 - **Live / reconnecting.** Polls every two seconds. When the viewer backend or Runtime is
-  unreachable, or a read times out (10 s), it says which, keeps the last data marked with
-  its time, and retries with backoff up to 15 s. A wrong token (a restarted viewer) stops
-  polling.
+  unreachable (it names the socket), or a read times out (10 s), it says which, keeps the
+  last data marked with its time, and retries with backoff up to 15 s. A wrong token (a
+  restarted viewer) stops polling. A mode other than `open` (paused, draining, stopping) is
+  shown with the live state.
+- **Slots and turns.** Slots come from `GET /v1/runtime` (`slots`, each `busy` or free); a
+  slot links to its newest turn that has not ended. Turns are the history, newest first,
+  read page by page (at most 20 pages of 100 per poll; the page says when later turns
+  were not read). A turn shows the history fields only: slot, state, native outcome,
+  harness, configured and reported model, conversation and times. Its assignment, result,
+  answer and questions are not part of the history.
 - **Gaps.** A `reset` (`retention_gap` with its sequences, or `epoch_changed`) appears in
-  the event or output list where the loss is. A refused cursor is reported and reading
-  restarts from the oldest retained position.
-- **Expired output.** `output_unavailable` is shown as such: output is lost when the
-  service exits and expires 15 minutes after the turn ends. Result and answer stay.
-- `ended` output means the producer closed the stream, not that the turn completed;
-  activity is not evidence the worker still runs; `execution_finished` is not verification.
+  the event list where the loss is. A refused cursor is reported and reading restarts from
+  the oldest retained position.
+- **Expired output.** A `not-found` output read is shown as no retained output: output is
+  lost when the service exits and expires 15 minutes after the turn ends.
+- `execution_finished` is not verification.
 
 Runtime text is placed as text, never as HTML. Worker and turn selection are native
 buttons (Tab, Enter/Space).
 
 ## Boundary
 
-The backend is OTP `:inets` httpd bound to 127.0.0.1. It forwards only the five
-`runtime.read/1` operations and their fields, sets `api` itself, connects to nothing but
-`read.sock` and keeps no state between requests. Cursors are Runtime's, held opaquely in
-the page. `POST /api/read` needs the per-launch bearer token, `Host` 127.0.0.1 or
+The backend is OTP `:inets` httpd bound to 127.0.0.1. It forwards only five reads and
+their fields: `runtime`, `turns`, `turn` and `output` as `GET` requests on `backend.sock`
+(a turn ID is always one encoded path segment), and `events` as one `runtime.read/1` line
+on `runtime.sock`, with `api` set by the viewer. It connects to nothing else and keeps no
+state between requests. A backend refusal reaches the page as `{"error": {"code",
+"status", "message"}}`, its problem type as the code. Cursors are Runtime's, held opaquely
+in the page. The browser API (`POST /api/read`) is the viewer's own and changed with the
+history contract. `POST /api/read` needs the per-launch bearer token, `Host` 127.0.0.1 or
 localhost with the viewer's port (the default HTTP port 80 may be omitted) and the matching
 `Origin`. Application responses carry a strict Content-Security-Policy, `nosniff`,
 `no-store` and no CORS headers. The launch URL prints the token; request logging is not configured.

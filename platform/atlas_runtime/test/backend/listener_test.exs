@@ -3,19 +3,25 @@ Code.require_file("support.exs", __DIR__)
 defmodule AtlasRuntime.BackendTest.Listener do
   @moduledoc """
   The backend's listener (design §8.1): Bandit on `<home>/backend.sock`, mode 0600,
-  removed on stop, every client the socket's owner with all work rights. Answers plain
-  `curl --unix-socket` (G10).
+  removed on stop, every client the socket's owner with all work rights plus `inspect`
+  and `operate` (§13.1 Q4). Answers plain `curl --unix-socket` (G10).
   """
   use ExUnit.Case, async: false
   import Bitwise
 
   alias AtlasRuntime.Backend.{Listener, TestSocket}
-  alias AtlasRuntime.Test.FakeWork
+  alias AtlasRuntime.Test.{FakeOperations, FakeWork}
 
   setup do
     FakeWork.reset_all()
+    FakeOperations.reset_all()
     FakeWork.owner(self())
-    on_exit(&FakeWork.reset_all/0)
+
+    on_exit(fn ->
+      FakeWork.reset_all()
+      FakeOperations.reset_all()
+    end)
+
     home = TestSocket.home()
     on_exit(fn -> File.rm_rf!(home) end)
     %{home: home, path: Path.join(home, "backend.sock")}
@@ -49,7 +55,61 @@ defmodule AtlasRuntime.BackendTest.Listener do
     assert %{"accepting" => false, "slots" => %{"total" => 2}} = JSON.decode!(body)
 
     assert_received {:fake_work, :capacity, {"local:" <> _user, rights}, nil}
-    assert rights == [:submit, :cancel, :read, :read_all, :choose_slot]
+    assert rights == [:submit, :cancel, :read, :read_all, :choose_slot, :inspect, :operate]
+  end
+
+  @tag :curl
+  test "the socket's owner operates: curl POST /v1/control/pause and GET /v1/runtime",
+       %{home: home, path: path} do
+    {:ok, _} = start(home)
+
+    curl = fn args ->
+      {out, 0} =
+        System.cmd("curl", ["-sS", "-i", "--unix-socket", path | args], stderr_to_stdout: true)
+
+      [head, body] = String.split(out, "\r\n\r\n", parts: 2)
+      {head, JSON.decode!(body)}
+    end
+
+    {head, body} = curl.(["-X", "POST", "http://localhost/v1/control/pause"])
+    assert head =~ "HTTP/1.1 200"
+    assert %{"mode" => "paused", "slots" => [%{"name" => "s1", "busy" => true} | _]} = body
+    assert_received {:fake_operations, :pause, {"local:" <> _, rights}, nil}
+    assert :operate in rights and :inspect in rights
+
+    {head, body} = curl.(["http://localhost/v1/runtime"])
+    assert head =~ "HTTP/1.1 200"
+    assert %{"mode" => "open", "incarnation" => "i-1"} = body
+  end
+
+  @tag :curl
+  test "a capability that raises (the S2b skeletons, before S2c) is a 500 on the socket",
+       %{home: home, path: path} do
+    FakeOperations.answer(:runtime_info, fn _, _ ->
+      raise "runtime_info has no implementation yet"
+    end)
+
+    {:ok, _} = start(home)
+
+    ExUnit.CaptureLog.capture_log(fn ->
+      {out, 0} =
+        System.cmd(
+          "curl",
+          [
+            "-sS",
+            "-o",
+            "/dev/null",
+            "-w",
+            "%{http_code}",
+            "--unix-socket",
+            path,
+            "http://localhost/v1/runtime"
+          ],
+          stderr_to_stdout: true
+        )
+
+      assert out == "500"
+    end)
   end
 
   test "the client is local:<name of the process's uid>, whatever $USER says",

@@ -58,8 +58,9 @@ defmodule AtlasRuntimeBoundary.History do
     field :since, :datetime
     # Opaque; from the previous page.
     field :cursor, :string
-    # At most this many turns.
-    field :limit, :integer
+    # At most this many turns: 1 to 100, and 100 without it (§13.1 Q1). A value outside the
+    # range is refused as invalid, never clamped.
+    field :limit, :integer, range: 1..100
   end
 
   defmodel :get_turn_input do
