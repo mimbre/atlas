@@ -18,7 +18,7 @@ defmodule AtlasRuntime.Work.AfterCheckTest do
 
   alias AtlasRuntime.Boundary.Work, as: F
   alias AtlasRuntime.{CodeStandIn, FakeNative, TestHost}
-  alias AtlasRuntime.Work.{Check, Folders, FrozenStore, Store, Translation}
+  alias AtlasRuntime.Work.{Check, Folders, FrozenStore, Queue, Store, Translation}
 
   @moduletag capture_log: true
 
@@ -32,6 +32,9 @@ defmodule AtlasRuntime.Work.AfterCheckTest do
   @socket {"c1", [:submit, :cancel, :read, :choose_path]}
   # The same owner without choose_path: WorkHarness.client/0 holds it since S3 (D44).
   @reader {"c1", [:submit, :cancel, :read]}
+  # A safety bound on the core's `completed` write, under ExUnit's 60 s test timeout. It
+  # bounds a wait for that event and is no poll budget: a healthy run never comes near it.
+  @completed_write_ms 50_000
 
   ## The bench
 
@@ -42,7 +45,13 @@ defmodule AtlasRuntime.Work.AfterCheckTest do
       Keyword.merge(
         [
           check_helper: {FakeNative.path(), ["hostcheck"]},
-          after_write: fn record -> send(test, {:written, record}) end
+          after_write: fn record ->
+            send(test, {:written, record})
+            # The event check!/2 awaits: a write whose current attempt is completed (I2: that
+            # write carries the check).
+            if Queue.current(record).state == :completed,
+              do: send(test, {:completed_write, record.work_id})
+          end
         ],
         options
       )
@@ -79,8 +88,20 @@ defmodule AtlasRuntime.Work.AfterCheckTest do
 
   defp checks(bench), do: jsonl(bench, "check-launches.jsonl")
 
+  # The core's own `completed` write is the event, not a time-bounded poll of the boundary
+  # (WorkHarness.await/2's 10 s budget expired on a loaded CI runner, #332). It arrives
+  # whether it was written before or after this call. The work is then read once, as
+  # before: by the time the core answers get_work it has finished the commit that sent it.
   defp check!(work_id, client \\ client()) do
-    [attempt | _] = Enum.reverse(await_state(work_id, :completed, client).attempts)
+    receive do
+      {:completed_write, ^work_id} -> :ok
+    after
+      @completed_write_ms ->
+        flunk("no completed write for #{work_id}; the work is #{inspect(work!(work_id, client))}")
+    end
+
+    [attempt | _] = Enum.reverse(work!(work_id, client).attempts)
+    assert attempt.state == :completed
     attempt.result.work_product.check
   end
 
