@@ -394,9 +394,10 @@ defmodule AtlasRuntime.Boundary.WorkS5aContractTest do
       assert %F.Outcome.Refused{reason: :unsupported_workspace, detail: nil} =
                F.submit(tcp, req(from_work()))
 
+      # A URL a token client may name (D44 repository_hosts), so the after_check guard decides.
       repository = %{
         kind: "repository",
-        url: "https://example.invalid/r.git",
+        url: "https://github.com/owner/r.git",
         branch: "b",
         base: "develop"
       }

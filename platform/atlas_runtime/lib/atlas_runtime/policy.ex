@@ -22,6 +22,10 @@ defmodule AtlasRuntime.Policy do
     "codex" => @permissions
   }
   @default_slots ["default"]
+  # D44 (designer decision 2026-11-17): the hosts a client without `choose_path` may name in
+  # a `repository` URL; today's sandbox network host.
+  @default_repository_hosts ["github.com"]
+  @host ~r/\A[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\z/
   # Design §4; a profile's `limits.max_duration` overrides its default.
   @max_duration %{"deep_coding" => 14_400, "independent_review" => 3_600, "light_work" => 1_800}
   @default_max_duration 14_400
@@ -70,6 +74,35 @@ defmodule AtlasRuntime.Policy do
   @spec slots(loaded()) :: [String.t()]
   def slots({:ok, %{"slots" => slots}}), do: slots
   def slots(_), do: @default_slots
+
+  @doc """
+  The hosts a client without `choose_path` may name in a `repository` workspace URL (D44):
+  the policy's `repository_hosts`, `["github.com"]` when it names none. Without a valid
+  policy none.
+  """
+  @spec repository_hosts(loaded()) :: [String.t()]
+  def repository_hosts({:ok, %{"repository_hosts" => hosts}}), do: hosts
+  def repository_hosts({:ok, _policy}), do: @default_repository_hosts
+  def repository_hosts(_), do: []
+
+  @doc """
+  Whether a client without `choose_path` may name `url` as a `repository` workspace (D44):
+  only `https://<host>/…` with `host` in `repository_hosts/1`, no user info and the default
+  port. A local path, `file://`, `ssh://`, `git@host:…` or any other scheme is not.
+  """
+  @spec repository_url_permitted?(loaded(), term()) :: boolean()
+  def repository_url_permitted?(loaded, "https://" <> _ = url) do
+    case URI.new(url) do
+      {:ok, %URI{scheme: "https", userinfo: nil, host: host, port: 443, path: "/" <> _}}
+      when is_binary(host) ->
+        String.downcase(host) in repository_hosts(loaded)
+
+      _ ->
+        false
+    end
+  end
+
+  def repository_url_permitted?(_loaded, _url), do: false
 
   @doc "Accepted work that may wait for a slot; by default one per slot (design §2)."
   @spec buffer_size(loaded()) :: non_neg_integer()
@@ -371,7 +404,7 @@ defmodule AtlasRuntime.Policy do
     end
   end
 
-  @top ~w(version changed_by changed_at buffer_size slots independence profiles)
+  @top ~w(version changed_by changed_at buffer_size slots independence repository_hosts profiles)
   @profile_keys ~w(permissions cost_classes options limits)
 
   defp validate(policy) do
@@ -386,6 +419,8 @@ defmodule AtlasRuntime.Policy do
        "slots must be a non-empty list of distinct worker names"},
       {optional(policy, "independence", &independence?/1),
        "independence.different_from must be conversation, model or provider"},
+      {optional(policy, "repository_hosts", &hosts?/1),
+       "repository_hosts must be a list of distinct lower-case host names"},
       {is_map(policy["profiles"]), "profiles must be an object"}
     ]
 
@@ -437,6 +472,11 @@ defmodule AtlasRuntime.Policy do
     do:
       is_list(slots) and slots != [] and Enum.uniq(slots) == slots and
         Enum.all?(slots, &AtlasRuntime.Execution.Identity.valid_worker_id?/1)
+
+  defp hosts?(hosts),
+    do:
+      is_list(hosts) and Enum.uniq(hosts) == hosts and
+        Enum.all?(hosts, &(is_binary(&1) and Regex.match?(@host, &1)))
 
   defp independence?(%{"different_from" => strength} = value),
     do: map_size(value) == 1 and strength in ~w(conversation model provider)

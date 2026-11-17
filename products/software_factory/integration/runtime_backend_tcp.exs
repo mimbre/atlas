@@ -1409,6 +1409,53 @@ defmodule RuntimeBackendTcpE2E.TcpTest do
     assert attempt_paths(get(rt, :tcp, remote["work_id"], token: t.all).json) == []
   end
 
+  test "D44: a TCP token names a repository only as https on a listed host; the socket as before",
+       %{rt: rt, t: t} do
+    # Designer decision 2026-11-17: policy.json names no repository_hosts, so github.com only.
+    listed = work_request(rt, "complete d44-url")["workspace"]
+    source = Path.join([rt.run, "src", Path.basename(listed["url"])])
+    assert File.dir?(source)
+
+    for url <- [
+          source,
+          "file://" <> source,
+          "git@github.com:s3-e2e/d44-url.git",
+          "https://example.com/s3-e2e/d44-url.git"
+        ] do
+      refused =
+        submit(rt, :tcp, "complete d44-url",
+          token: t.all,
+          extra: %{"workspace" => Map.put(listed, "url", url)}
+        )
+
+      assert refused.status == 403, "#{url}: #{refused.body}"
+      assert refused.json["type"] == "not-permitted"
+      assert refused.json["reason"] == "not_permitted"
+      refute Map.has_key?(refused.json, "detail"), refused.body
+    end
+
+    %{status: 200, json: %{"works" => works}} =
+      request(rt, :tcp, "GET", "/v1/work", token: t.all)
+
+    refute Enum.any?(works, &(&1["request"]["instructions"] == "complete d44-url"))
+    assert launches(rt) |> Enum.filter(&(&1["goal"] == "complete d44-url")) == []
+
+    # The listed host is accepted over TCP and runs.
+    remote = submit!(rt, :tcp, "complete d44-url", token: t.all)
+    assert remote["request"]["workspace"]["url"] == listed["url"]
+    await_state(rt, remote["work_id"], "completed")
+
+    # The socket (choose_path) still submits any URL; what the helper then does is unchanged.
+    local =
+      submit!(rt, :sock, "complete d44-url-socket",
+        workspace: :repository,
+        extra: %{"workspace" => Map.put(listed, "url", source)}
+      )
+
+    assert local["request"]["workspace"]["url"] == source
+    await(fn -> terminal?(get(rt, :sock, local["work_id"]).json) end)
+  end
+
   test "read_all reads another client's work over TCP, but never cancels or retries it",
        %{rt: rt, t: t} do
     work = submit!(rt, :tcp, "hang owned", token: t.writer)

@@ -507,6 +507,13 @@ defmodule AtlasRuntime.Work.Server do
       match?(%B.Folder{}, input.workspace) and not Enum.member?(rights, :choose_path) ->
         refused(state, :not_permitted, "a folder workspace needs the right choose_path")
 
+      # D44 (designer decision 2026-11-17): without choose_path a repository is an https URL
+      # on a host the policy lists (`repository_hosts`), never a local path, file://, ssh://,
+      # git@ or another scheme. Checked before anything is stored or any helper runs.
+      match?(%B.Repository{}, input.workspace) and not Enum.member?(rights, :choose_path) and
+          not Policy.repository_url_permitted?(Policy.load(state.dir), input.workspace.url) ->
+        refused(state, :not_permitted, "a repository url must be https on a listed host")
+
       # The contract leaves folder.path optional (a work shows it only with choose_path);
       # a request must name it.
       match?(%B.Folder{path: nil}, input.workspace) ->
