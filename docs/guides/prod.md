@@ -240,6 +240,18 @@ an environment with integration requests. Keep the destination's stopped journal
 do not combine a different environment's journal with moved runs or release the core
 until the matching data has been restored.
 
+**Code's service home is on the core volume too.** With `code.home` (prod:
+`/data/code-home`) and Flow's `flow.work_source` both set, the core runs a registered Code
+service (`AtlasCode.Core`) that reads
+base repositories from `code.sources`, anonymously for an entry with
+`"credentials": "none"` (no gh in the image). Its bare clones can be fetched again, but its
+revision handles (`revisions/`) and snapshot manifests (`snapshots/`) exist only there:
+without them, the handles and snapshot IDs Flow already holds are unknown to Code. The
+move scripts do not copy it either; preserve it with `/data/code`. A home whose owner
+crashed is recovered at the next boot through its OS lock (`service.lock`), without `ps`.
+Without `flow.work_source` (prod today) the core runs no Code service and writes nothing
+there, even with `code.home` set; remove either key to run the core without it.
+
 GitHub can supply the current pull state after a move, but cannot rebuild the original
 request ids and update ancestry. With a lost journal, `merged_elsewhere` can mean Code
 merged at an update head that is no longer in the rebuilt ancestry; `stale_revision`

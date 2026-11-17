@@ -50,9 +50,14 @@ defmodule AtlasCode.Effects do
   enabled again; stored terminal outcomes can still be replayed.
 
   **The request.** Its `target` is the pull's GitHub address, `payload` holds the
-  `revision` (a commit) and its `fingerprint` must be the digest of that payload by the
-  request's `fingerprint_definition`, with `approved` equal to it: so the revision merged
-  is the one approved. The repository must be listed in `repositories`.
+  `revision` (a commit, or a `rev_` handle of Code's) and its `fingerprint` must be the
+  digest of that payload by the request's `fingerprint_definition`, with `approved` equal to
+  it: so the revision merged is the one approved. The repository must be listed in
+  `repositories`. A handle is resolved, once, when the request is accepted, through Code's
+  own record of it (`<home>/revisions/<handle>.json`, `AtlasCode.put_revision/3`): it must
+  be the handle of that record's commit in the pull's repository (`github.com/<owner>/<repo>`),
+  otherwise it is refused `unknown_revision`, also for a handle of another repository. The
+  journal's `line` starts at the resolved commit; the request keeps the handle.
 
   GitHub is reached through `github: {module, config}` (`AtlasCode.Effects.GitHub`).
   """
@@ -61,13 +66,17 @@ defmodule AtlasCode.Effects do
 
   @address ~r{\Ahttps://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/pull/([0-9]+)\z}
   @commit ~r/\A([0-9a-f]{40}|[0-9a-f]{64})\z/
+  @handle ~r/\Arev_[0-9a-f]{64}\z/
   @id ~r/\A[0-9a-f]{64}\z/
   @methods ~w(merge squash rebase)
 
   @doc """
   The receiver's settings: `dir` (its journal's folder), `github` (`{module, config}`),
-  `repositories` (`["owner/repo"]`, the only ones it integrates) and `merge_method`
-  (`merge`, `squash` or `rebase`; `merge` by default).
+  `repositories` (`["owner/repo"]`, the only ones it integrates), `merge_method`
+  (`merge`, `squash` or `rebase`; `merge` by default) and `home` (the Code home whose
+  `revisions/` resolves `rev_` handles; `dir` by default, so a journal kept in Code's home
+  needs no more). Code's `update_review` reads this journal (`AtlasCode.start/2`'s
+  `effects:`, the home by default).
   """
   def new(opts) do
     opts = Map.new(opts, fn {k, v} -> {to_string(k), v} end)
@@ -86,6 +95,7 @@ defmodule AtlasCode.Effects do
 
     %{
       dir: dir,
+      home: Map.get(opts, "home", dir),
       github: {module, config},
       repositories: repositories,
       merge_method: method
@@ -130,11 +140,8 @@ defmodule AtlasCode.Effects do
     record = %{"request" => r, "digest" => digest}
 
     case check(s, r) do
-      :ok ->
-        save(
-          file,
-          Map.merge(record, %{"phase" => "accepted", "line" => [r["payload"]["revision"]]})
-        )
+      {:ok, commit} ->
+        save(file, Map.merge(record, %{"phase" => "accepted", "line" => [commit]}))
         |> then(&carry_on(s, file, &1))
 
       {:refused, reason, details} ->
@@ -154,7 +161,8 @@ defmodule AtlasCode.Effects do
         {:refused, "invalid_target", %{}}
 
       not (is_map(payload) and is_binary(payload["revision"]) and
-               Regex.match?(@commit, payload["revision"])) ->
+               (Regex.match?(@commit, payload["revision"]) or
+                  Regex.match?(@handle, payload["revision"]))) ->
         {:refused, "invalid_revision", %{}}
 
       not (is_map(definition) and definition["relations"] == [] and
@@ -170,7 +178,27 @@ defmodule AtlasCode.Effects do
         {:refused, "repository_not_allowed", %{"repository" => slug(r)}}
 
       true ->
-        :ok
+        resolve(s, slug(r), payload["revision"])
+    end
+  end
+
+  # A commit is itself; a handle is the commit Code recorded it for, in the pull's repository
+  # only (see "The request" in the module's documentation).
+  defp resolve(s, slug, revision) do
+    if Regex.match?(@commit, revision) do
+      {:ok, revision}
+    else
+      repository = "github.com/" <> slug
+
+      # The handle names its repository and commit: one recorded for another repository, or
+      # under another name, is not this pull's.
+      with {:ok, bytes} <- File.read(Path.join([s.home, "revisions", revision <> ".json"])),
+           {:ok, %{"commit" => commit}} when is_binary(commit) <- JSON.decode(bytes),
+           true <- AtlasCode.handle(repository, commit) == revision do
+        {:ok, commit}
+      else
+        _ -> {:refused, "unknown_revision", %{"revision" => revision}}
+      end
     end
   end
 

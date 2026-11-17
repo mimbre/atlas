@@ -150,6 +150,31 @@ defmodule AtlasRuntime.Sources.ImportWiringTest do
              reports(ctx.source, "task-1")
   end
 
+  # K1 (work_source 0.2.0, change_set.base required): the ended report's change set names
+  # the base its roots were frozen on, which is the baseline this lease's input was imported
+  # into (the attempt's frozen base), and the source records it (not Rejected(:invalid)).
+  test "a pulled work's ended change set carries the lease's frozen base", ctx do
+    {manifest, blobs} = Source.base(@files)
+
+    Source.add_work(
+      ctx.source,
+      offered(%{base: %{base_id: "b-1", manifest: manifest}}, "write atlas/a.txt alpha"),
+      blobs
+    )
+
+    {work_id, record} = run!(ctx)
+    assert %M.Base{base_id: "sha256:" <> _ = baseline} = record.request.workspace
+
+    assert %B.Outcome.Frozen{base: ^baseline} =
+             B.get_frozen(@client, %{work_id: work_id, attempt: 1})
+
+    assert [%S.Accepted{}, %S.Started{}, %S.Ended{change_set: %S.ChangeSet{} = set}] =
+             reports(ctx.source, "task-1")
+
+    assert set.base == baseline
+    assert [%S.ChangeRoot{root: "atlas", entries: [_ | _]}] = set.roots
+  end
+
   test "base + change_set starts from exactly the base plus the change set", ctx do
     {manifest, blobs} = Source.base(@files)
 

@@ -258,10 +258,16 @@ defmodule AtlasRuntimeBoundary.WorkSource do
     field :ended_at, :datetime
   end
 
-  # The frozen result: its change set per root, each with its csf_ fingerprint. base: the
-  # snapshot id of the baseline the roots sit on (the work's input base_id, as the Runtime
-  # froze it; part of every root's csf_). A change set given back as a later work's input
-  # must sit on exactly that work's base.
+  # The frozen result: its change set per root, each with its csf_ fingerprint.
+  #
+  # base: the id (sha256:<hex>) of the baseline snapshot the Runtime imported from the
+  # work's input base and froze on; part of every root's csf_. It is content-derived and
+  # deterministic: the sha256 of the canonical manifest of the served base's entries (roots,
+  # paths, kinds, modes, sizes, sha256s, symlink targets) and nothing else: no Runtime home,
+  # time, user, entry order or salt. So every Runtime that imports the same served base
+  # reports the same base. It is not the input's base_id (the source's own name for what it
+  # serves); a source stores it as reported, and a change set given back as a later work's
+  # input must sit on exactly the base that work's input imports to.
   defmodel :change_set do
     field :base, :string, required: true
     field :roots, {:list, :change_root}, required: true

@@ -445,6 +445,74 @@ defmodule AtlasCode.EffectsTest do
     assert FakeGitHub.writes(c.gh) == []
   end
 
+  # K3: Flow holds only Code's `rev_` handles of commits.
+  test "a rev_ handle of Code's is integrated as the commit Code recorded for it", c do
+    handle = AtlasCode.put_revision(c.dir, "github.com/o/r", c.revision)
+    FakeGitHub.ci(c.gh, c.revision, :success)
+    r = request(handle)
+
+    assert %{"status" => "done", "outputs" => %{"head" => head}} = call(c.s, "submit", r)
+    assert head == c.revision
+    assert [{:merge, 7, ^head}] = merges(c.gh)
+
+    # The journal keeps the request as asked and its line from the resolved commit.
+    record = JSON.decode!(File.read!(Path.join([c.dir, "effects", r["id"] <> ".json"])))
+    assert {record["request"]["payload"]["revision"], record["line"]} == {handle, [c.revision]}
+
+    # Resolved from another folder's record (`home`) just the same, and only there.
+    home = Path.join(c.dir, "code-home")
+    other = request(handle, %{"id" => String.duplicate("b", 64)})
+    FakeGitHub.set_pull(c.gh, 7, %{"merged" => false, "state" => "open", "head" => c.revision})
+
+    elsewhere =
+      Effects.new(
+        dir: Path.join(c.dir, "j"),
+        home: home,
+        github: c.s.github,
+        repositories: ["o/r"]
+      )
+
+    assert %{"status" => "refused", "reason" => "unknown_revision"} =
+             call(elsewhere, "submit", other)
+
+    ^handle = AtlasCode.put_revision(home, "github.com/o/r", c.revision)
+    third = request(handle, %{"id" => String.duplicate("c", 64)})
+    assert %{"status" => "done"} = call(elsewhere, "submit", third)
+  end
+
+  test "an unknown, foreign or forged handle is refused unknown_revision, nothing asked of GitHub",
+       c do
+    unknown = "rev_" <> String.duplicate("1", 64)
+    foreign = AtlasCode.put_revision(c.dir, "github.com/x/y", c.revision)
+
+    # A record under a name that is not its handle.
+    forged = "rev_" <> String.duplicate("2", 64)
+
+    File.write!(
+      Path.join([c.dir, "revisions", forged <> ".json"]),
+      JSON.encode!(%{"commit" => c.revision, "repository" => "github.com/o/r"})
+    )
+
+    FakeGitHub.ci(c.gh, c.revision, :success)
+
+    for {handle, n} <- Enum.with_index([unknown, foreign, forged]) do
+      r = request(handle, %{"id" => String.duplicate(Integer.to_string(n + 3), 64)})
+
+      assert %{"status" => "refused", "reason" => "unknown_revision", "details" => details} =
+               call(c.s, "submit", r)
+
+      assert details == %{"revision" => handle}
+      # Kept: a repeat answers the same refusal.
+      assert call(c.s, "lookup", r)["reason"] == "unknown_revision"
+    end
+
+    # Neither a commit nor a handle stays invalid_revision.
+    assert %{"reason" => "invalid_revision"} =
+             call(c.s, "submit", request("rev_x", %{"id" => String.duplicate("6", 64)}))
+
+    assert FakeGitHub.writes(c.gh) == []
+  end
+
   test "one id names one request: changed, forged and unknown requests act on nothing", c do
     FakeGitHub.ci(c.gh, c.revision, :success)
     r = request(c.revision)

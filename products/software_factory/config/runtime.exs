@@ -66,14 +66,43 @@ if config_env() != :test do
   # the per-Runtime credentials (a core secret: runtime id → holder and token sha256);
   # `results` is the result store's folder. With `port`, Flow listens on 127.0.0.1 at that
   # port, behind the tailnet edge (TLS ends there); without one it has no listener.
+  #
+  # A test environment may shorten the lease timing (a bench such as pull-e2e): the integer
+  # keys `lease_ttl` (s), `poll_max` (s, 1–25), `sweep_ms`, `resync_ms` and the Results'
+  # `result_cap` (bytes), only those given. Prod refuses them and keeps Flow's defaults
+  # (AtlasFlow.Dispatch, AtlasFlow.Results). `grace` is not settable in either: the
+  # Runtime's own grace and import bound assume Flow's 120 s. The wire `timing` is unchanged.
   if source = get_in(settings, ["flow", "work_source"]) do
-    config :atlas_flow, :work_source,
-      port: source["port"],
-      credentials_env:
-        source["credentials_env"] || raise("#{file} has no flow.work_source.credentials_env")
+    if Map.has_key?(source, "grace"), do: raise("#{file}: flow.work_source.grace is not settable")
 
-    config :atlas_flow, :results,
-      dir: expand.(source["results"] || raise("#{file} has no flow.work_source.results"))
+    timing =
+      for key <- ~w(lease_ttl poll_max sweep_ms resync_ms result_cap),
+          Map.has_key?(source, key) do
+        value = source[key]
+
+        if env != "test", do: raise("#{file}: flow.work_source.#{key} is for env test only")
+
+        if not is_integer(value) or value < 1 or (key == "poll_max" and value > 25),
+          do: raise("#{file}: flow.work_source.#{key} is #{inspect(value)}")
+
+        {String.to_atom(key), value}
+      end
+
+    {result_timing, work_timing} = Keyword.split(timing, [:result_cap])
+
+    config :atlas_flow,
+           :work_source,
+           [
+             port: source["port"],
+             credentials_env:
+               source["credentials_env"] ||
+                 raise("#{file} has no flow.work_source.credentials_env")
+           ] ++ work_timing
+
+    config :atlas_flow,
+           :results,
+           [dir: expand.(source["results"] || raise("#{file} has no flow.work_source.results"))] ++
+             result_timing
   end
 
   # Code's receiver of Flow's integrate effect (AtlasCode.Effects), with its journal in
@@ -100,6 +129,23 @@ if config_env() != :test do
       effect_receivers: %{
         "code" => %{"contract" => 1, "address" => "code/effects", "operations" => ["integrate"]}
       }
+
+    # The Code service in the core (AtlasCode.Core): a registered Code on its own home
+    # (`code.home`, not `code.data`'s effects journal) that reads the repositories Flow's work
+    # source takes bases from (`code.sources`: name → remote, as in a Code home's config.json,
+    # e.g. {"url": …, "credentials": "none"} for an anonymous read). It serves only that work
+    # source, so it starts only when `flow.work_source` is configured too. Without either,
+    # nothing starts and nothing is written: the core has no Code service. A `code.home`
+    # waiting for its work source is still checked, so turning the source on is one key.
+    if home = code["home"] do
+      sources = code["sources"]
+
+      unless is_map(sources) and map_size(sources) > 0,
+        do: raise("#{file} has code.home but no code.sources")
+
+      if get_in(settings, ["flow", "work_source"]),
+        do: config(:atlas_code, service: %{"home" => expand.(home), "repositories" => sources})
+    end
   end
 
   # Who fills each role the model's owners name (`"actors": {"decider": "<key>"}`): the
