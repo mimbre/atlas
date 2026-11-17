@@ -2,8 +2,9 @@ defmodule AtlasFlow.FakeCode do
   @moduledoc """
   An `AtlasFlow.Code.Client` in memory, for Bases' tests. The client is `{FakeCode, pid}`.
 
-  It holds repositories (`reference => revision`) and revisions (`path => bytes`; files
-  only, under `bin/` executable). It records every call with the calling process, and it
+  It holds repositories (`reference => revision`) and revisions (`path => bytes`, under
+  `bin/` executable; or `path => {:symlink, target}`). Its manifest lists the entries in
+  descending path order, so Bases' own sort is what the tests see. It records every call with the calling process, and it
   can be set to answer (`:ok`), to fail (`:failing`: Code answers `provider_unavailable`)
   or to block (`:blocked`: a call waits until `release/1`, then answers as `:ok`, or fails
   when the mode is `:failing` by then).
@@ -89,32 +90,45 @@ defmodule AtlasFlow.FakeCode do
 
         {repository, path, files} ->
           {:ok,
-           for {file, bytes} <- files do
+           for {file, content} <- Enum.sort(files, :desc) do
+             {kind, mode, bytes, target} =
+               case content do
+                 {:symlink, target} -> {"symlink", "120000", target, target}
+                 bytes -> {"file", file_mode(file), bytes, nil}
+               end
+
              %{
                repository: repository,
                path: path <> "/" <> file,
-               kind: "file",
-               mode: if(String.starts_with?(file, "bin/"), do: "100755", else: "100644"),
+               kind: kind,
+               mode: mode,
                size: byte_size(bytes),
                sha256: sha256(bytes),
-               target: nil
+               target: target
              }
            end}
       end
     end)
   end
 
+  defp file_mode(file), do: if(String.starts_with?(file, "bin/"), do: "100755", else: "100644")
+
   @impl true
   def get_blob(fake, snapshot_id, digest) do
     answer(fake, :get_blob, fn s ->
       with {_repository, _path, files} <- files(s, snapshot_id),
-           {_file, bytes} <- Enum.find(files, fn {_, bytes} -> sha256(bytes) == digest end) do
+           {_file, content} <-
+             Enum.find(files, fn {_, content} -> sha256(bytes(content)) == digest end),
+           bytes = bytes(content) do
         {:ok, byte_size(bytes), chunks(bytes)}
       else
         _ -> {:error, :not_found}
       end
     end)
   end
+
+  defp bytes({:symlink, target}), do: target
+  defp bytes(bytes), do: bytes
 
   defp files(s, snapshot_id) do
     with {repository, revision, path} <- s.snapshots[snapshot_id],

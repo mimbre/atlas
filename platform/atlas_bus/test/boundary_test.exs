@@ -39,17 +39,20 @@ defmodule AtlasBus.BoundaryTest do
   @test_only_dependencies %{atlas_flow: ["atlas_runtime"]}
   @contract_tests %{}
   # A layer that calls another's boundary facade in the same BEAM (ADR 0006; Flow plan
-  # 2026-11-17 §3.4; work acquisition M3 A1): Flow serves Runtimes their bases from Code.
-  # Flow depends on Code, with `runtime: false` (depending on it starts nothing), right after
-  # the Bus. It names only the facade `AtlasCode.Boundary` (and the modules generated under
-  # it, its outcomes), only in its adapter and the adapter's test, and only the adapter's
-  # module calls it. The test may also start and stop the Code it runs against
-  # (`AtlasCode.start`, `AtlasCode.stop`): the dependency starts none. Every other `AtlasCode`
-  # module stays forbidden to Flow.
+  # 2026-11-17 §3.4; work acquisition M3 A1; Main's answers on #317, W1 and W2): Flow serves
+  # Runtimes their bases from Code. Flow depends on Code, with `runtime: false` (depending on
+  # it starts nothing), right after the Bus. It names only the facade `AtlasCode.Boundary` and
+  # the facade's outcome structs (`AtlasCode.Boundary.Outcome` and the modules under it), only
+  # in its adapter and the adapter's test, and only the adapter's module calls them. Nothing
+  # else under the facade (`Implementation`, the input structs, …) is allowed. Test only: the
+  # adapter's test may also start and stop the Code it runs against (`AtlasCode.start`,
+  # `AtlasCode.stop`), because the dependency starts none. Every other `AtlasCode` module stays
+  # forbidden to Flow.
   @boundary_facades %{
     atlas_flow: %{
       dependency: "atlas_code",
       facade: AtlasCode.Boundary,
+      outcomes: AtlasCode.Boundary.Outcome,
       adapter: AtlasFlow.Code.Client.Boundary,
       files: %{
         "platform/atlas_flow/lib/atlas_flow/code/client/boundary.ex" => [],
@@ -97,27 +100,61 @@ defmodule AtlasBus.BoundaryTest do
   @doc """
   Other layers' namespaces that `source` of layer `own` names, at `relative` (its path from
   the repository's root): `foreign_names/2`, less what `relative` may name through a facade
-  of `@boundary_facades`.
+  of `@boundary_facades`: the facade, its outcomes and the file's extra names. A facade file
+  that reaches past them through an alias (`Boundary.Implementation`, `alias …, as:`) names
+  the facade's layer.
   """
   def foreign_names(source, own, relative) do
-    allowed =
-      for {_app, %{facade: facade, files: files}} <- @boundary_facades,
-          {^relative, extra} <- files,
-          name <- [inspect(facade) | extra],
-          do: name
+    code = code_only(source)
 
-    allowed
-    |> Enum.reduce(code_only(source), fn name, code ->
-      Regex.replace(~r/\b#{Regex.escape(name)}\b/, code, "")
-    end)
-    |> foreign_names(own)
+    allowed =
+      for {_app, %{files: files} = facade} <- @boundary_facades,
+          {^relative, extra} <- files,
+          do: {facade, extra}
+
+    stripped =
+      Enum.reduce(allowed, code, fn {facade, extra}, code ->
+        extra
+        |> Enum.reduce(Regex.replace(facade_names(facade), code, ""), fn name, code ->
+          Regex.replace(~r/\b#{Regex.escape(name)}\b/, code, "")
+        end)
+      end)
+
+    escapes =
+      for {%{facade: facade} = entry, _} <- allowed,
+          Regex.match?(alias_escape(entry), code),
+          do: namespace(facade)
+
+    Enum.uniq(foreign_names(stripped, own) ++ escapes)
   end
 
-  @doc "Whether compiled `module` of layer `app` may call `called` of another layer: only its facade, from its adapter."
+  # The facade (`AtlasCode.Boundary`, its functions) and its outcomes (`…Outcome`, the
+  # modules under it), whole names only: not `…BoundaryHelper`, `…Boundary.Implementation`
+  # or `…Boundary.{…}`.
+  defp facade_names(%{facade: facade, outcomes: outcomes}) do
+    outcome = outcomes |> Module.split() |> List.last()
+    ~r/\b#{Regex.escape(inspect(facade))}(?:\.#{outcome}(?:\.[A-Z]\w*)*)?(?!\w|\.[A-Z{])/
+  end
+
+  # The facade's alias reaching another module under it, or the facade aliased under
+  # another name.
+  defp alias_escape(%{facade: facade, outcomes: outcomes}) do
+    last = facade |> Module.split() |> List.last()
+    outcome = outcomes |> Module.split() |> List.last()
+    full = Regex.escape(inspect(facade))
+
+    ~r/(?<![\w.])#{last}\.(?!#{outcome}(?!\w))[A-Z{]|\balias\s+#{full}(?:\.#{outcome})?\s*,\s*as:/
+  end
+
+  @doc """
+  Whether compiled `module` of layer `app` may call `called` of another layer: only its
+  facade and its outcomes, from its adapter.
+  """
   def facade_call?(app, module, called) do
     case @boundary_facades do
-      %{^app => %{adapter: ^module, facade: facade}} ->
-        called == facade or String.starts_with?(Atom.to_string(called), "#{facade}.")
+      %{^app => %{adapter: ^module, facade: facade, outcomes: outcomes}} ->
+        called in [facade, outcomes] or
+          String.starts_with?(Atom.to_string(called), "#{outcomes}.")
 
       _ ->
         false
@@ -257,6 +294,9 @@ defmodule AtlasBus.BoundaryTest do
       alias AtlasCode.Boundary.Outcome
       AtlasCode.Boundary.get_blob(caller, input)
       %AtlasCode.Boundary.Outcome.Blob{} = blob
+      Boundary.get_blob(caller, input)
+      %Outcome.Blob{} = blob
+      %Boundary.Outcome.Created{} = created
       """
 
       assert foreign_names(facade, "AtlasFlow", adapter) == []
@@ -269,7 +309,15 @@ defmodule AtlasBus.BoundaryTest do
             "AtlasCode.Running.get_blob(caller, input)",
             "AtlasCode.BoundaryHelper.x()",
             "AtlasCode.settings()",
-            "AtlasFacts.Server.handle(x)"
+            "AtlasFacts.Server.handle(x)",
+            # Under the facade, only the outcomes (W2).
+            "@behaviour AtlasCode.Boundary.Implementation",
+            "%AtlasCode.Boundary.ResolveReferenceInput{}",
+            "AtlasCode.Boundary.Foo.x()",
+            "alias AtlasCode.Boundary.{Implementation, Outcome}",
+            "AtlasCode.Boundary.OutcomeHelper.x()",
+            "alias AtlasCode.Boundary\n@behaviour Boundary.Implementation",
+            "alias AtlasCode.Boundary, as: B\nB.Implementation.x()"
           ],
           file <- [adapter, adapter_test] do
         assert foreign_names(violation, "AtlasFlow", file) != [], "#{file}: #{violation}"
@@ -284,6 +332,23 @@ defmodule AtlasBus.BoundaryTest do
       assert facade_call?(:atlas_flow, AtlasFlow.Code.Client.Boundary, AtlasCode.Boundary)
       refute facade_call?(:atlas_flow, AtlasFlow.Code.Client.Boundary, AtlasCode.Running)
       refute facade_call?(:atlas_flow, AtlasFlow.Code.Client.Boundary, AtlasCode.BoundaryHelper)
+
+      assert facade_call?(:atlas_flow, AtlasFlow.Code.Client.Boundary, AtlasCode.Boundary.Outcome)
+
+      assert facade_call?(
+               :atlas_flow,
+               AtlasFlow.Code.Client.Boundary,
+               AtlasCode.Boundary.Outcome.Blob
+             )
+
+      for called <- [
+            AtlasCode.Boundary.Implementation,
+            AtlasCode.Boundary.ResolveReferenceInput,
+            AtlasCode.Boundary.Foo,
+            AtlasCode.Boundary.OutcomeHelper
+          ],
+          do: refute(facade_call?(:atlas_flow, AtlasFlow.Code.Client.Boundary, called))
+
       refute facade_call?(:atlas_flow, AtlasFlow.Engine, AtlasCode.Boundary)
       refute facade_call?(:atlas_facts, AtlasFlow.Code.Client.Boundary, AtlasCode.Boundary)
     end

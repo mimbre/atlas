@@ -9,9 +9,12 @@ defmodule AtlasFlow.Bases do
 
   - `base_id` is `"code-"` followed by the 64 hex digits of the snapshot ID. One revision
     has one snapshot, so it has one base, and a base is reused for as long as it lives.
-  - `manifest` is the sha256 of the base's manifest blob: the canonical JSON (keys sorted,
-    no whitespace) of `{"roots":[{"root":<root>,"entries":[<write entry>…]}]}`, the entries
-    in the change-set entry shape (`AtlasChangeset`), sorted by path. The root is the
+  - `manifest` is the sha256 (64 lowercase hex) of the base's manifest blob: the Runtime's
+    base line (S5c P6 B3, what W5's base import stages as `entries.json` for
+    `workspace base-import`), one line ending in a newline. It is the canonical JSON (keys
+    sorted, no whitespace) of `{"format":"atlas-base","roots":[{"entries":[<write
+    entry>…],"root":<root>}],"version":1}`, the entries in the change-set write shape
+    (`AtlasChangeset`), paths relative to the root and sorted by path. The root is the
     repository's last name, and the snapshot places the repository at it.
 
   Its blobs are read through from Code, never copied: `blob/3` streams them.
@@ -145,7 +148,7 @@ defmodule AtlasFlow.Bases do
     with {:ok, snapshot_id} <- Client.create_snapshot(client, [placement]),
          {:ok, entries} <- Client.get_manifest(client, snapshot_id) do
       document = document(root, entries)
-      bytes = canonical(document)
+      bytes = line(document)
       "sha256:" <> hex = snapshot_id
 
       base = %{base_id: "code-" <> hex, manifest: sha256(bytes), snapshot_id: snapshot_id}
@@ -171,14 +174,24 @@ defmodule AtlasFlow.Bases do
         if entry.kind == "symlink", do: Map.put(write, "target", entry.target), else: write
       end
 
-    %{"roots" => [%{"root" => root, "entries" => Enum.sort_by(entries, & &1["path"])}]}
+    %{
+      "format" => "atlas-base",
+      "version" => 1,
+      "roots" => [%{"root" => root, "entries" => Enum.sort_by(entries, & &1["path"])}]
+    }
   end
+
+  @doc "The manifest blob of a document: its canonical JSON as one line, ending in a newline."
+  @spec line(map()) :: binary()
+  def line(document), do: canonical(document) <> "\n"
 
   defp root(repository), do: repository |> String.split("/") |> List.last()
 
   @doc """
   The canonical JSON of a document: object keys in byte order, no whitespace. Lists keep
-  their order; strings and integers are encoded as JSON encodes them.
+  their order; integers in decimal. Strings are escaped as `AtlasChangeset` escapes them,
+  byte by byte and never by a general JSON encoder: `"` is `\\"`, `\\` is `\\\\`,
+  U+0000..U+001F is `\\u00xx` (lowercase hex), every other code point its literal UTF-8.
   """
   def canonical(value), do: value |> encode() |> IO.iodata_to_binary()
 
@@ -186,13 +199,28 @@ defmodule AtlasFlow.Bases do
     pairs =
       map
       |> Enum.sort_by(fn {key, _} -> key end)
-      |> Enum.map_intersperse(?,, fn {key, value} -> [JSON.encode!(key), ?:, encode(value)] end)
+      |> Enum.map_intersperse(?,, fn {key, value} -> [string(key), ?:, encode(value)] end)
 
     [?{, pairs, ?}]
   end
 
   defp encode(list) when is_list(list), do: [?[, Enum.map_intersperse(list, ?,, &encode/1), ?]]
-  defp encode(value), do: JSON.encode!(value)
+  defp encode(value) when is_binary(value), do: string(value)
+  defp encode(value) when is_integer(value), do: Integer.to_string(value)
+
+  defp string(value) do
+    escaped =
+      for <<byte <- value>>, into: "" do
+        case byte do
+          ?" -> ~S(\")
+          ?\\ -> ~S(\\)
+          byte when byte < 0x20 -> "\\u00" <> Base.encode16(<<byte>>, case: :lower)
+          byte -> <<byte>>
+        end
+      end
+
+    [?", escaped, ?"]
+  end
 
   defp sha256(bytes), do: Base.encode16(:crypto.hash(:sha256, bytes), case: :lower)
 
