@@ -45,6 +45,16 @@ defmodule AtlasFlow.FakeFacts do
   @doc "Put a fact as Facts would answer it: `%{\"key\", \"values\", \"links\", …}`."
   def put(kind, fact), do: GenServer.call(__MODULE__, {:put, kind, fact})
 
+  @doc """
+  Once, around the next write of fact `{kind, key}` from the endpoint `sender`, change
+  the fact `target` (default that one) with `fun` (the stored fact → the fact), as another
+  writer's write would: `:before` Facts handles the write, or `:after` it stored it. A
+  race between two named steps.
+  """
+  def hook(kind, key, sender, at, fun, target \\ nil)
+      when at in [:before, :after] and is_function(fun, 1),
+      do: GenServer.call(__MODULE__, {:hook, kind, key, sender, at, {target || {kind, key}, fun}})
+
   def lose_ack(kind), do: GenServer.call(__MODULE__, {:lose_ack, kind})
 
   @doc "Delete the fact at `key` and hold the key back: a create of it is refused `reserved`."
@@ -109,6 +119,7 @@ defmodule AtlasFlow.FakeFacts do
        refused_writes: MapSet.new(),
        reserved: MapSet.new(),
        busy_after_write: MapSet.new(),
+       hooks: %{},
        description: Keyword.get(opts, :description, description())
      }}
   end
@@ -166,6 +177,12 @@ defmodule AtlasFlow.FakeFacts do
 
   def handle_call({:allow_read, kind, content}, _from, s),
     do: {:reply, :ok, %{s | blocked_reads: MapSet.delete(s.blocked_reads, {kind, content})}}
+
+  # Once, around the next write of this fact from `sender`: `fun` changes the fact as
+  # another writer's write would (a new version), `:before` Facts handles that write or
+  # `:after` it was stored. How a race between two named steps is staged.
+  def handle_call({:hook, kind, key, sender, at, fun}, _from, s),
+    do: {:reply, :ok, put_in(s.hooks[{kind, key, sender, at}], fun)}
 
   def handle_call({:refuse_write, kind, key}, _from, s),
     do: {:reply, :ok, %{s | refused_writes: MapSet.put(s.refused_writes, {kind, key})}}
@@ -341,14 +358,26 @@ defmodule AtlasFlow.FakeFacts do
     do: run["values"]["status"] == "active" and run["values"]["entry"] == input["entry"]
 
   defp fact(e, %{"key" => key} = c, s) do
+    s = run_hook(s, {e.kind, key, e.sender, :before})
     old = s.facts[{e.kind, key}]
 
+    # As Facts does (P1): a change on an old version is stored when it changes nothing
+    # (a resend), applied when every field and link it sets still has its `was` value,
+    # and refused otherwise.
     conflict =
       old != nil and c["op"] == "change" and c["version"] != nil and
-        c["version"] != old["version"] and
-        not Enum.all?(c["was"] || %{}, fn {field, value} -> old["values"][field] == value end)
+        c["version"] != old["version"] and not same?(old, c) and not untouched?(old, c)
 
     cond do
+      old != nil and c["op"] == "change" and c["version"] != nil and
+        c["version"] != old["version"] and same?(old, c) ->
+        AtlasBus.send(
+          Envelope.reply(e, "stored", position: s.position),
+          Map.take(c, ["op", "key", "by"])
+        )
+
+        {:noreply, s}
+
       flow?(e.sender) and MapSet.member?(s.refused_writes, {e.kind, key}) ->
         AtlasBus.send(Envelope.reply(e, "refused"), %{"reasons" => ["projection unavailable"]})
         {:noreply, s}
@@ -421,6 +450,8 @@ defmodule AtlasFlow.FakeFacts do
             },
             else: s
 
+        s = run_hook(s, {e.kind, key, e.sender, :after})
+
         if s.lose_ack == e.kind do
           # Commit, then lose the answer. Immediate transport failure avoids timer waits.
           AtlasBus.send(Envelope.reply(e, "refused"), %{"reasons" => ["answer lost"]})
@@ -440,6 +471,41 @@ defmodule AtlasFlow.FakeFacts do
     %{s | ledger: Map.put(s.ledger, e.id, {"refused", refusal, nil})}
   end
 
+  defp run_hook(s, hook) do
+    case Map.pop(s.hooks, hook) do
+      {nil, _} ->
+        s
+
+      {{target, fun}, hooks} ->
+        # Always a newer version than the fact had, also one a test put with its own.
+        position = max(s.position, (s.facts[target] || %{})["version"] || 0) + 1
+        fact = Map.merge(fun.(s.facts[target]), %{"version" => position, "position" => position})
+        %{s | hooks: hooks, position: position, facts: Map.put(s.facts, target, fact)}
+    end
+  end
+
+  defp loose(""), do: nil
+  defp loose(value), do: value
+
+  defp same?(old, c) do
+    Enum.all?(c["values"] || %{}, fn {f, v} -> loose(old["values"][f]) == loose(v) end) and
+      Enum.all?(c["links"] || %{}, fn {r, keys} ->
+        Enum.sort(old["links"][r] || []) == Enum.sort(List.wrap(keys))
+      end)
+  end
+
+  defp untouched?(old, %{"was" => was} = c) when is_map(was) do
+    Enum.all?(c["values"] || %{}, fn {f, _} ->
+      Map.has_key?(was, f) and loose(old["values"][f]) == loose(was[f])
+    end) and
+      Enum.all?(c["links"] || %{}, fn {r, _} ->
+        Map.has_key?(was, r) and
+          Enum.sort(old["links"][r] || []) == Enum.sort(List.wrap(was[r]))
+      end)
+  end
+
+  defp untouched?(_old, _c), do: false
+
   defp fact_links(nil), do: %{}
   defp fact_links(fact), do: fact["links"] || %{}
 
@@ -447,4 +513,290 @@ defmodule AtlasFlow.FakeFacts do
 
   defp count({all, plain}, content),
     do: {all + 1, plain + if(content["plain"] == true, do: 1, else: 0)}
+end
+
+defmodule AtlasFlow.FakeFacts.Leasing do
+  @moduledoc """
+  Facts as the work source's tests prepare them (plan m3 A2), on `AtlasFlow.FakeFacts`:
+  the neutral watch model (`AtlasFlow.TestModel.Watch`) with crates under their bin
+  (`in_bin`, a parent relation) and attempts that ran on a robot (`ran_on`); a bin's run in
+  a supervised span, its supervisor as the run fact's link; runs that hold a version-2
+  intent; and the work source's processes on one manual clock.
+  """
+  import ExUnit.Callbacks, only: [start_supervised!: 1]
+
+  alias AtlasFlow.{Delivery, Dispatch, FakeFacts, ManualClock, Results}
+  alias AtlasFlow.Runs.{Run, Store}
+  alias AtlasFlow.WorkSource.Translate
+
+  defmodule Model do
+    @moduledoc "The watch model, with crates under bins and attempts on robots."
+    @behaviour AtlasFlow.Model
+    alias AtlasFlow.TestModel.Watch
+
+    @impl true
+    def subflows(env), do: Watch.subflows(env)
+    @impl true
+    def runs, do: Watch.runs()
+    @impl true
+    def selection(name), do: Watch.selection(name)
+    @impl true
+    def migrations, do: Watch.migrations()
+    @impl true
+    def composition, do: Watch.composition()
+    @impl true
+    def actors, do: Watch.actors()
+    def turn, do: Watch.turn()
+    def supervision, do: Watch.supervision()
+
+    @impl true
+    def relations,
+      do:
+        Map.merge(Watch.relations(), %{
+          "in_bin" => %{
+            "from" => ["crate"],
+            "to" => ["bin"],
+            "max_outgoing" => 1,
+            "parent" => true
+          },
+          "ran_on" => %{"from" => ["task_attempt"], "to" => ["robot"], "max_outgoing" => 1}
+        })
+  end
+
+  @epoch ~U[2026-11-17 12:00:00Z]
+
+  def epoch, do: @epoch
+  def config, do: AtlasFlow.Model.load(Model, :prod).config
+
+  @doc """
+  Starts FakeFacts, the clock, the result store (in `dir`), Dispatch and Delivery
+  (Delivery casts to the test process as its Engine). Options go to Dispatch (`poll_wait`
+  0, no sweep or resync timer by default) and `results:` to the store.
+  """
+  def start(dir, opts \\ []) do
+    Application.put_env(:atlas_bus, :store, "lease-#{System.unique_integer([:positive])}")
+    start_supervised!(FakeFacts)
+    {:ok, clock} = ManualClock.start_link(@epoch)
+    clock = {ManualClock, clock}
+
+    results =
+      Keyword.merge(
+        [dir: dir, clock: clock, sweep_ms: 86_400_000, pins: fn -> [] end],
+        Keyword.get(opts, :results, [])
+      )
+
+    start_supervised!(Supervisor.child_spec({Results, results}, id: Results))
+    start_dispatch(clock, opts)
+    start_supervised!({Delivery, model: Model, clock: clock, engine: self()})
+    %{clock: clock, dir: dir}
+  end
+
+  @doc "Starts Dispatch (again) on `clock`."
+  def start_dispatch(clock, opts \\ []) do
+    opts =
+      Keyword.merge(
+        [model: Model, clock: clock, poll_wait: 0, sweep_ms: nil, resync_ms: nil],
+        Keyword.drop(opts, [:results])
+      )
+
+    start_supervised!(Supervisor.child_spec({Dispatch, opts}, id: Dispatch))
+  end
+
+  @doc "Moves the manual clock on by `seconds`."
+  def advance(%{clock: {ManualClock, clock}}, seconds),
+    do: ManualClock.advance(clock, seconds * 1000)
+
+  def now(%{clock: clock}), do: AtlasFlow.Runs.Clock.now(clock)
+
+  @doc "A base as Bases makes it (no Code behind it)."
+  def base(name \\ "repo") do
+    hex = sha256("snapshot " <> name)
+
+    %{
+      base_id: "code-" <> hex,
+      manifest: sha256("manifest " <> name),
+      snapshot_id: "sha256:" <> hex
+    }
+  end
+
+  @doc "A version-2 intent for task `key`, made at `at`."
+  def intent(key, opts \\ []) do
+    base = Keyword.get(opts, :base, base())
+
+    spec = %{
+      "kind" => Keyword.get(opts, :kind, "author"),
+      "profile" => Keyword.get(opts, :profile, "deep_coding"),
+      "cost_class" => "standard",
+      "instructions" => "Load the bin.",
+      "fields" => [],
+      "check" => Keyword.get(opts, :check)
+    }
+
+    Translate.intent(
+      spec,
+      %{"key" => key, "values" => %{}},
+      key,
+      base,
+      "robot-1",
+      Keyword.get(opts, :at, @epoch)
+    )
+  end
+
+  @doc """
+  The run of `{kind, key}` holding `intent` (or none), as a run fact: in `state`
+  (`loading`, inside the span `pack`, by default), `status` active, and supervised by
+  `supervisor` (a clerk's key, or nil). Answers the run's key.
+  """
+  def run(kind, key, opts \\ []) do
+    config = config()
+    flow = Keyword.get(opts, :flow, if(kind == "bin", do: "watch", else: "pack"))
+    run_key = Run.key(flow, kind, key, 1)
+    pending = %{"version" => 1, "writes" => []}
+    pending = if opts[:intent], do: Map.put(pending, "task", opts[:intent]), else: pending
+
+    run = %{
+      "flow" => flow,
+      "subject_kind" => kind,
+      "subject_key" => key,
+      "generation" => 1,
+      "definition_sha256" => "test",
+      "state" => Keyword.get(opts, :state, "loading"),
+      "entry" => 1,
+      "entered_at" => DateTime.to_iso8601(@epoch),
+      "status" => Keyword.get(opts, :status, "active"),
+      "deadlines" => %{"version" => 1},
+      "pending" => pending,
+      "input_cursor" => 0,
+      "last_input" => %{"version" => 1},
+      "blocked_reason" => ""
+    }
+
+    supervisor = Keyword.get(opts, :supervisor)
+    links = if supervisor, do: %{"watched_by" => [supervisor]}, else: %{}
+
+    FakeFacts.put(config["kind"], %{
+      "key" => run_key,
+      "version" => 0,
+      "values" => Store.encode(config, run),
+      "links" => links
+    })
+
+    run_key
+  end
+
+  @doc "Sets (or, with nil, clears) the run's supervisor, as S1's pickup or hand-over writes it."
+  def supervise(run_key, supervisor) do
+    config = config()
+    fact = FakeFacts.get(config["kind"], run_key)
+    links = Map.put(fact["links"], "watched_by", List.wrap(supervisor))
+
+    FakeFacts.put(
+      config["kind"],
+      Map.merge(fact, %{"links" => links, "version" => (fact["version"] || 0) + 1})
+    )
+  end
+
+  @doc "A function a FakeFacts hook runs: the run fact's supervisor set to `supervisor`."
+  def supervisor_set(supervisor),
+    do: fn fact -> put_in(fact, ["links", "watched_by"], List.wrap(supervisor)) end
+
+  @doc "The task fact as the Engine writes it with its intent."
+  def task(key, subject) do
+    FakeFacts.put("task", %{
+      "key" => key,
+      "version" => 0,
+      "values" => %{"kind" => "author", "client_key" => key, "state" => "waiting"},
+      "links" => %{"task_of" => [subject]}
+    })
+  end
+
+  @doc "A bin `key` supervised by `supervisor`, whose run holds task `TK-<key>-1`'s intent."
+  def supervised_task(key, supervisor, opts \\ []) do
+    task = "TK-#{key}-1"
+    FakeFacts.put("bin", %{"key" => key, "values" => %{"phase" => "first"}})
+
+    run =
+      run("bin", key, Keyword.merge([intent: intent(task, opts), supervisor: supervisor], opts))
+
+    task(task, key)
+    %{task: task, run: run}
+  end
+
+  @doc "A crate `key` in bin `bin`, whose own run holds task `TK-<key>-1`'s intent."
+  def crate_task(key, bin, opts \\ []) do
+    task = "TK-#{key}-1"
+    FakeFacts.put("crate", %{"key" => key, "links" => %{"in_bin" => [bin]}})
+    run("crate", key, Keyword.merge([intent: intent(task, opts), state: "packing"], opts))
+    task(task, key)
+    task
+  end
+
+  @doc "The task fact's values."
+  def values(task), do: FakeFacts.get("task", task)["values"]
+
+  @doc "A poll input from Runtime `runtime_id`."
+  def poll_input(runtime_id, holdings \\ [], offer \\ %{"deep_coding" => 1}) do
+    %{
+      runtime_id: runtime_id,
+      incarnation: "inc-1",
+      build: "test",
+      policy_version: 1,
+      offer: offer,
+      holdings: for(h <- holdings, do: %{lease_id: h, state: :running})
+    }
+  end
+
+  @doc """
+  A change set over `files` (`[{path, bytes}]`) on `base_id`, with each root's `csf_` as
+  `AtlasChangeset` computes it (or `fingerprint:` given).
+  """
+  def change_set(files, base_id, opts \\ []) do
+    entries =
+      for {path, bytes} <- files,
+          do: %{
+            path: path,
+            op: :write,
+            kind: :file,
+            mode: :"100644",
+            size: byte_size(bytes),
+            sha256: sha256(bytes)
+          }
+
+    fingerprint =
+      Keyword.get_lazy(opts, :fingerprint, fn ->
+        AtlasChangeset.fingerprint(base_id, "repo", Translate.normal(entries))
+      end)
+
+    %{roots: [%{root: "repo", fingerprint: fingerprint, entries: entries}]}
+  end
+
+  @doc "An `ended` report: `kind` (completed), its change set and check, and one turn's provenance."
+  def ended(change_set \\ nil, opts \\ []) do
+    result =
+      %{kind: Keyword.get(opts, :kind, :completed), retryable: false, never_started: false}
+      |> Map.merge(Map.new(Keyword.take(opts, [:reason, :answer, :check])))
+
+    %{
+      state: :ended,
+      result: result,
+      provenance: [
+        %{
+          provider: "vendor",
+          harness: "harness",
+          runtime_build: "rt-1",
+          machine: "machine-1",
+          slot: "slot-1",
+          configured_model: "model-a",
+          reported_model: "model-a",
+          profile: "deep_coding",
+          policy_version: 1,
+          turn_id: "turn-1",
+          started_at: ~U[2026-11-17 12:00:10Z]
+        }
+      ],
+      change_set: change_set
+    }
+  end
+
+  def sha256(bytes), do: Base.encode16(:crypto.hash(:sha256, bytes), case: :lower)
 end
