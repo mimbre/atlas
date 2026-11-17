@@ -22,6 +22,10 @@ var baseFixtureDir = filepath.Join("..", "..", "..", "atlas_flow", "test", "fixt
 // reader derives from it (the id the A1 fix report and its re-review recorded).
 const baseFixtureID = "sha256:f195116376d779057f050c6ccc1adcd46f21254da13bb220c4c81ca0d92e4a46"
 
+// baseFixtureManifest is the sha256 of the fixture's manifest bytes. The reader canonicalizes
+// (key and entry order), so the baseline id alone does not pin every byte; this does.
+const baseFixtureManifest = "ae6a4f2efc53a1e72b99a85dedc8320cec8c245e118170011fb6e4cd959b2006"
+
 // baseFixture reads the fixture's manifest (line 1 of a base stream) and its blobs by name.
 func baseFixture(t *testing.T) ([]byte, map[string][]byte) {
 	t.Helper()
@@ -56,6 +60,9 @@ func stageFixture(t *testing.T, home string, line []byte, blobs map[string][]byt
 
 func TestSharedBaseFixtureImports(t *testing.T) {
 	line, blobs := baseFixture(t)
+	if got := sum(string(line)); got != baseFixtureManifest {
+		t.Fatalf("fixture manifest has sha256 %s, want %s", got, baseFixtureManifest)
+	}
 
 	// Every blob is named by its own sha256, and the blobs are exactly the distinct file contents
 	// the reader asks for: none missing, none extra.

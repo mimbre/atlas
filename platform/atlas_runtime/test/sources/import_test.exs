@@ -537,6 +537,8 @@ defmodule AtlasRuntime.Sources.ImportTest do
     @fixture Path.expand("../../../atlas_flow/test/fixtures/base_manifest", __DIR__)
     # The baseline the fixture imports to (the A1 fix report's and its re-review's id).
     @fixture_baseline "sha256:f195116376d779057f050c6ccc1adcd46f21254da13bb220c4c81ca0d92e4a46"
+    # The fixture manifest's own sha256: the importer canonicalizes, so this pins its bytes.
+    @fixture_manifest "ae6a4f2efc53a1e72b99a85dedc8320cec8c245e118170011fb6e4cd959b2006"
 
     # The fixture's manifest line and its blobs by name, read in place.
     defp shared_fixture do
@@ -559,6 +561,7 @@ defmodule AtlasRuntime.Sources.ImportTest do
     test "imports, served by its manifest sha256, to the pinned baseline", %{home: home} do
       {line, blobs} = shared_fixture()
       manifest = sha256(line)
+      assert manifest == @fixture_manifest
       for {name, bytes} <- blobs, do: assert(sha256(bytes) == name)
 
       src = source(Map.put(blobs, manifest, line))
