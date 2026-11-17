@@ -22,6 +22,8 @@ COPY platform/atlas_learn /src/platform/atlas_learn
 COPY platform/atlas_runtime /src/platform/atlas_runtime
 # The Runtime's path dependency: the neutral change-set library (D42).
 COPY platform/frameworks/changeset /src/platform/frameworks/changeset
+# Flow's path dependency: the shared request-body limit (M3 A3).
+COPY platform/frameworks/body_limit /src/platform/frameworks/body_limit
 COPY products/software_factory/mix.exs products/software_factory/.formatter.exs products/software_factory/.gitignore /src/products/software_factory/
 COPY products/software_factory/config /src/products/software_factory/config
 COPY products/software_factory/integration /src/products/software_factory/integration

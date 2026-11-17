@@ -33,20 +33,24 @@ defmodule AtlasFlow.Application do
 
   They run under one supervisor, in that order, `rest_for_one`: the store rebuilds its pins
   from Facts before it serves a call, and Dispatch and Delivery start after it.
+
+  The HTTP listener (`AtlasFlow.Backend.Listener`, A3) comes last, and only when the work
+  source has a `port`: without one there is no listener. It binds 127.0.0.1 only.
   """
   def work_source do
     case Application.get_env(:atlas_flow, :work_source) do
       nil ->
         {:ok, []}
 
-      _set ->
+      settings ->
         if Keyword.get(Application.get_env(:atlas_flow, :results, []), :dir) do
-          children = [
-            {AtlasFlow.Results, pins: &result_pins/0},
-            AtlasFlow.Bases,
-            AtlasFlow.Dispatch,
-            AtlasFlow.Delivery
-          ]
+          children =
+            [
+              {AtlasFlow.Results, pins: &result_pins/0},
+              AtlasFlow.Bases,
+              AtlasFlow.Dispatch,
+              AtlasFlow.Delivery
+            ] ++ listener(settings)
 
           {:ok,
            [
@@ -61,6 +65,17 @@ defmodule AtlasFlow.Application do
         else
           {:error, :work_source_without_results}
         end
+    end
+  end
+
+  @doc """
+  The listener child of the work source's `settings`: none without a `port`, else
+  `AtlasFlow.Backend.Listener` on 127.0.0.1 and that port.
+  """
+  def listener(settings) do
+    case Keyword.get(settings, :port) do
+      nil -> []
+      port -> [{AtlasFlow.Backend.Listener, port: port}]
     end
   end
 

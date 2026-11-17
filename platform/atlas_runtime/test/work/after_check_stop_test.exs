@@ -64,13 +64,6 @@ defmodule AtlasRuntime.Work.AfterCheckStopTest do
     work
   end
 
-  defp jsonl(bench, name) do
-    case File.read(Path.join(bench.dir, name)) do
-      {:ok, bytes} -> bytes |> String.split("\n", trim: true) |> Enum.map(&JSON.decode!/1)
-      {:error, :enoent} -> []
-    end
-  end
-
   defp checks(bench), do: jsonl(bench, "check-launches.jsonl")
 
   defp check!(work_id) do
