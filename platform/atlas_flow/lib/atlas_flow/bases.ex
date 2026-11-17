@@ -26,9 +26,19 @@ defmodule AtlasFlow.Bases do
   for one reference share one resolution. When Code fails or takes longer than 15 s the
   reference is `:unavailable`; Bases tries again after 30 s and keeps the notifies waiting.
 
-  Not started by the application yet: the work source starts it (M3 A2).
+  **Pinned by snapshot (M3 A4).** A lease keeps the Code snapshot its base was made from
+  (`base_snapshot`, beside `base_id` on its intent and task fact). Code snapshots are
+  immutable by id, while a reference moves. So after a restart (an empty table), Bases
+  restores a held lease's base with `restore/4`: from that snapshot id alone
+  (`get_manifest`), never by resolving the reference again, and only when the manifest
+  it derives is the lease's. The lease is then served the same base, byte for byte, also
+  once the branch moved on.
+
+  The work source starts it (M3 A2), before the Engine (A4).
   """
   use GenServer
+
+  require Logger
 
   alias AtlasFlow.Code.Client
   alias AtlasFlow.Runs.Clock
@@ -68,6 +78,18 @@ defmodule AtlasFlow.Bases do
   def request(repository, reference, {pid, _message} = notify, server \\ __MODULE__)
       when is_pid(pid),
       do: GenServer.cast(server, {:request, {repository, reference}, notify})
+
+  @doc """
+  Restores the base of a held lease from the Code snapshot it was made from
+  (`snapshot_id`), when Bases does not hold its `manifest` (after a restart). Returns
+  `:ok` at once, also when Bases is not running. Bases reads that snapshot's manifest in
+  its own task, never resolves a reference, and keeps the base only when the manifest it
+  derives has the sha256 `manifest`; a failing Code is tried again after 30 s.
+  """
+  @spec restore(String.t(), String.t(), String.t(), atom()) :: :ok
+  def restore(repository, snapshot_id, manifest, server \\ __MODULE__)
+      when is_binary(repository) and is_binary(snapshot_id) and is_binary(manifest),
+      do: GenServer.cast(server, {:restore, {:snapshot, repository, snapshot_id, manifest}})
 
   @doc """
   Every name a lease on this base may read: the manifest blob's sha256 and the sha256 of
@@ -142,17 +164,31 @@ defmodule AtlasFlow.Bases do
   end
 
   defp snapshot(client, repository, revision) do
-    root = root(repository)
-    placement = %{repository: repository, revision: revision, path: root}
+    placement = %{repository: repository, revision: revision, path: root(repository)}
 
     with {:ok, snapshot_id} <- Client.create_snapshot(client, [placement]),
-         {:ok, entries} <- Client.get_manifest(client, snapshot_id) do
-      document = document(root, entries)
+         {:ok, made} <- made(client, repository, snapshot_id),
+         do: {:ok, revision, made}
+  end
+
+  # The base of a snapshot, from its manifest alone: what a snapshot id pins.
+  defp made(client, repository, snapshot_id) do
+    with {:ok, entries} <- Client.get_manifest(client, snapshot_id) do
+      document = document(root(repository), entries)
       bytes = line(document)
       "sha256:" <> hex = snapshot_id
 
       base = %{base_id: "code-" <> hex, manifest: sha256(bytes), snapshot_id: snapshot_id}
-      {:ok, revision, %{base: base, document: document, bytes: bytes}}
+      {:ok, %{base: base, document: document, bytes: bytes}}
+    end
+  end
+
+  # A held lease's base, again from its snapshot id; only the lease's own manifest is kept.
+  defp pinned(client, repository, snapshot_id, manifest) do
+    case made(client, repository, snapshot_id) do
+      {:ok, %{base: %{manifest: ^manifest}} = made} -> {:ok, :pinned, made}
+      {:ok, _other} -> {:error, :manifest_mismatch}
+      error -> error
     end
   end
 
@@ -273,6 +309,13 @@ defmodule AtlasFlow.Bases do
     end
   end
 
+  def handle_cast({:restore, {:snapshot, _, _, manifest} = key}, state) do
+    case lookup(state.table, {:manifest, manifest}) do
+      {:ok, _held} -> {:noreply, state}
+      _ -> {:noreply, state |> wait(key, nil) |> resolve(key)}
+    end
+  end
+
   @impl true
   def handle_info({ref, result}, state) when is_reference(ref) do
     Process.demonitor(ref, [:flush])
@@ -308,28 +351,17 @@ defmodule AtlasFlow.Bases do
 
   defp wait(state, key, notify) do
     entry = Map.get(state.pending, key, %{status: :idle, notifies: [], task: nil, timer: nil})
-    put_in(state.pending[key], %{entry | notifies: entry.notifies ++ [notify]})
+    notifies = if notify, do: entry.notifies ++ [notify], else: entry.notifies
+    put_in(state.pending[key], %{entry | notifies: notifies})
   end
 
   # One resolution per reference at a time, in a task: Code is never called from here, nor
   # from a caller. While a reference waits for its retry, requests only add their notify.
-  defp resolve(state, {repository, reference} = key) do
+  defp resolve(state, key) do
     case state.pending[key] do
       %{status: :idle} = entry ->
-        table = state.table
-        client = state.client
-
-        known = fn revision ->
-          case :ets.lookup(table, {:revision, repository, revision}) do
-            [{_, made}] -> made
-            [] -> nil
-          end
-        end
-
-        task =
-          Task.Supervisor.async_nolink(state.tasks, fn ->
-            resolution(client, repository, reference, known)
-          end)
+        job = job(state, key)
+        task = Task.Supervisor.async_nolink(state.tasks, job)
 
         timer = Clock.schedule(state.clock, self(), {:timeout, key, task.ref}, state.timeout)
         put_in(state.pending[key], %{entry | status: :resolving, task: task, timer: timer})
@@ -343,6 +375,28 @@ defmodule AtlasFlow.Bases do
     case Enum.find(state.pending, fn {_key, entry} -> match?(%{task: %{ref: ^ref}}, entry) end) do
       nil -> state
       {key, entry} -> finish(state, key, entry, result)
+    end
+  end
+
+  defp finish(state, {:snapshot, _repository, _snapshot_id, _manifest} = key, entry, result) do
+    Clock.cancel(state.clock, entry.timer)
+
+    case result do
+      {:ok, :pinned, made} ->
+        :ets.insert(state.table, [
+          {{:manifest, made.base.manifest}, Map.put(made, :snapshot_id, made.base.snapshot_id)}
+        ])
+
+        %{state | pending: Map.delete(state.pending, key)}
+
+      # Not this lease's base: nothing to try again.
+      {:error, :manifest_mismatch} ->
+        Logger.warning("flow bases: snapshot #{elem(key, 2)} does not give its lease's manifest")
+        %{state | pending: Map.delete(state.pending, key)}
+
+      _failure ->
+        timer = Clock.schedule(state.clock, self(), {:retry, key}, state.retry)
+        put_in(state.pending[key], %{entry | status: :waiting, task: nil, timer: timer})
     end
   end
 
@@ -368,4 +422,20 @@ defmodule AtlasFlow.Bases do
   end
 
   defp send_notify({pid, message}), do: send(pid, message)
+
+  # What a pending entry runs in Bases' task: a reference resolved (and snapshotted once
+  # per revision), or a lease's base rebuilt from its pinned snapshot id.
+  defp job(%{client: client}, {:snapshot, repository, snapshot_id, manifest}),
+    do: fn -> pinned(client, repository, snapshot_id, manifest) end
+
+  defp job(%{table: table, client: client}, {repository, reference}) do
+    known = fn revision ->
+      case :ets.lookup(table, {:revision, repository, revision}) do
+        [{_, made}] -> made
+        [] -> nil
+      end
+    end
+
+    fn -> resolution(client, repository, reference, known) end
+  end
 end

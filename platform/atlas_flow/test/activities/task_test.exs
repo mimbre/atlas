@@ -1,75 +1,338 @@
+defmodule AtlasFlow.Activities.TaskTest.Bench do
+  @moduledoc """
+  A neutral model for the task activity on the lease path (plan m3 A4): a bin is worked
+  on by a robot (a machinery kind) through its `loading` state, which runs a task and lies
+  in the supervised span `pack`. A clerk supervises the run; a robot can never supervise.
+  The task's input names a Code repository and the reference its base comes from.
+  """
+  use RelaDSL.Composition,
+    name: "bench",
+    subflow_behaviour: AtlasFlow.Subflow
+
+  @behaviour AtlasFlow.Model
+
+  defmodule Desk do
+    @moduledoc "The bins, their robots, who supervises their runs, and the slips."
+    use RelaDSL
+
+    type(:slip_operation, values: [:choice, :pickup, :hand_over])
+
+    entity :clerk, label: "Clerk", plural: "clerks", id_type: :manual do
+      field(:name, :string)
+    end
+
+    entity :robot, label: "Robot", plural: "robots", id_type: :manual do
+      field(:name, :string)
+    end
+
+    entity :bin, label: "Bin", plural: "bins", id_type: :manual do
+      field(:phase, :string)
+      field(:step, :string)
+      field(:choice, :string)
+      field(:task_result, :string)
+    end
+
+    relation(:owned_by, label: "owned by", from: [:bin], to: [:robot, :clerk], max_outgoing: 1)
+    relation(:chosen_by, label: "chosen by", from: [:bin], to: [:clerk], max_outgoing: 1)
+
+    entity :cursor, label: "Cursor", plural: "cursors", id_type: :manual do
+      for f <- ~w(flow subject_kind subject_key definition_sha256 state entered_at status
+                  deadlines pending last_input blocked_reason)a,
+          do: field(f, :string)
+
+      for f <- ~w(generation entry input_cursor)a, do: field(f, :integer)
+    end
+
+    entity :slip, label: "Slip", plural: "slips", id_type: :manual do
+      field(:run, :string)
+      field(:actor, :string)
+      field(:operation, :slip_operation)
+      field(:hand_to, :string)
+    end
+
+    relation(:watched_by,
+      label: "watched by",
+      from: [:cursor],
+      to: [:clerk],
+      max_outgoing: 1,
+      set_by: [:flow]
+    )
+
+    flow_runtime(
+      runs: :cursor,
+      writer: [sender: :flow, by: :flow],
+      inputs: :slip,
+      supervision: [relation: :watched_by, operation: :operation, hand_to: :hand_to]
+    )
+
+    subflow :work, label: "Work", subject: :bin do
+      run_as("system:bench")
+      owner(relation: :owned_by, default: {:clerk, :desk})
+      start(:create)
+      initial(:loading)
+      supervise(:pack, label: "Pack", states: [:loading])
+
+      state :loading do
+        task(:author,
+          role: :developer,
+          profile: :deep_coding,
+          input: [repository: "example.org/acme/bench", base: "develop"],
+          check: ["bin/check"],
+          instructions: "Load the bin.",
+          fields: [:step],
+          records: [kind: "task", relation: "task_of"],
+          machinery: "robot",
+          on: [completed: :done, check_failed: :failed, stuck: :stuck, abandoned: :abandoned]
+        )
+      end
+
+      state :stuck do
+        wait_for([:clerk], on: :choice, again: :loading)
+      end
+
+      final(:done)
+      final(:failed)
+      final(:abandoned)
+    end
+
+    select(:work,
+      choices: [:choice],
+      roles: [clerk: :chosen_by],
+      admission: [phase: [:first]],
+      imports: []
+    )
+  end
+
+  defmodule Bins do
+    @moduledoc "The bench model's one module."
+    use RelaDSL.Module, path: "modules/bins/schema.yaml", concepts: [Desk]
+  end
+
+  schema(version: "1.0", namespace: "https://example.invalid/bench#", description: "Bins.\n")
+  modules([Bins])
+  environments([:prod, :test])
+
+  acl(comment: "The bench's roles.")
+  role("bench", read: ["*"], create: [:cursor], update: [:bin, :cursor])
+  role("clerk", read: ["*"], update: [:bin])
+  assign("system:bench", "bench")
+
+  defcomposition :bench do
+    subflows([Desk])
+  end
+end
+
 defmodule AtlasFlow.Activities.TaskTest do
   @moduledoc """
-  The `task` activity (plan 2026-11-17 §6 F1.3, client obligations 1–5 of §3.5), with
-  `FakeFacts` and a fake `AtlasFlow.Runtime.Client` (`AtlasFlow.FakeRuntime`): the state
-  path; the same key after a transport error; unreachable → no change; 404 → resubmit;
-  410 → stuck; at_capacity → submit after capacity; nothing without a machinery assignee
-  (E1); an assignment moved away → abandoned; snapshots by revision; and, through the
-  engine, the boot reconcile for intent with and without a `work_id`, and the Link's
-  messages.
+  The `task` activity on Flow's work source (plan m3 §3.5, §4 A4): a bin assigned to a
+  robot, whose run is supervised by a clerk, becomes a version-2 intent and a task fact,
+  is offered to that clerk's Runtime with its base, and ends as the task fact Delivery
+  wrote says. The real Dispatch, Delivery, result store and Bases (on `FakeCode`), with
+  `FakeFacts` and a manual clock; asserted on run fields, fact values, lease fields, calls
+  and outcome tags, never on wording.
   """
   use ExUnit.Case, async: false
+  @moduletag :capture_log
 
-  alias AtlasFlow.{Engine, FakeFacts, FakeRuntime, ManualClock, Sorts, TestModel}
+  alias AtlasFlow.{Bases, Delivery, Dispatch, Engine, FakeCode, FakeFacts, ManualClock}
+  alias AtlasFlow.{Results, WorkSource}
   alias AtlasFlow.Activities.Task
+  alias AtlasFlow.Activities.TaskTest.Bench
+  alias AtlasFlow.FakeFacts.Leasing, as: L
   alias AtlasFlow.Runs.{Run, Store}
+  alias AtlasFlow.WorkSource.{Leases, Translate}
 
-  @now ~U[2026-11-17 09:00:00Z]
-
-  defmodule Authored do
-    @moduledoc false
-    use AtlasFlow.TestModel,
-      subflows: [AtlasFlow.Sorts.Authoring],
-      selection: %{"sort" => Map.put(AtlasFlow.Depot.selection("sort"), "imports", [])}
-  end
+  @epoch ~U[2026-11-17 12:00:00Z]
+  @repository "example.org/acme/bench"
+  @readme "# Bench\n"
+  @actors %{"desk" => "ada"}
+  @mini {"mini", "ada"}
+  @laptop {"laptop", "bea"}
+  @task "TK-B-1-1"
 
   setup do
-    Application.put_env(:atlas_bus, :store, "state-#{System.unique_integer([:positive])}")
-    machinery = Application.get_env(:atlas_flow, :machinery)
-    client = Application.get_env(:atlas_flow, :runtime_client)
-
-    Application.put_env(:atlas_flow, :machinery, %{
-      "mac-mini" => %{url: "http://127.0.0.1:9", token_env: "ATLAS_FLOW_TASK_TEST_TOKEN"}
-    })
-
-    Application.put_env(:atlas_flow, :runtime_client, FakeRuntime)
-
-    on_exit(fn ->
-      restore(:machinery, machinery)
-      restore(:runtime_client, client)
-    end)
+    Application.put_env(:atlas_bus, :store, "task-#{System.unique_integer([:positive])}")
+    dir = Path.join(System.tmp_dir!(), "task-#{System.unique_integer([:positive])}")
+    on_exit(fn -> File.rm_rf!(dir) end)
 
     start_supervised!(FakeFacts)
-    start_supervised!(FakeRuntime)
-    clock = start_supervised!({ManualClock, @now})
-    FakeFacts.put("machinery", %{"key" => "mac-mini", "values" => %{"name" => "mac-mini"}})
-    FakeFacts.put("clerk", %{"key" => "ada"})
-    c = put_in(TestModel.config(), ["selection", "sort", "imports"], [])
-    assert :ok = Run.validate(Sorts.Authoring)
-    %{c: c, flows: %{"sort" => Sorts.Authoring}, clock: clock}
+    {:ok, clock} = ManualClock.start_link(@epoch)
+    clock = {ManualClock, clock}
+
+    results = [dir: dir, clock: clock, sweep_ms: 86_400_000, pins: fn -> [] end]
+    start_supervised!(Supervisor.child_spec({Results, results}, id: Results))
+
+    code = start_supervised!({FakeCode, %{}}, id: :code)
+    FakeCode.put(code, @repository, "develop", "rev_1", %{"README.md" => @readme})
+
+    runner = AtlasFlow.Model.load(Bench, :prod, @actors)
+    assert runner.refusal == nil
+
+    for clerk <- ~w(ada bea), do: FakeFacts.put("clerk", %{"key" => clerk})
+    for robot <- ~w(mini laptop), do: FakeFacts.put("robot", %{"key" => robot})
+
+    %{runner: runner, clock: clock, code: code, dir: dir}
   end
 
-  defp restore(key, nil), do: Application.delete_env(:atlas_flow, key)
-  defp restore(key, value), do: Application.put_env(:atlas_flow, key, value)
+  # Bases on FakeCode, Dispatch and Delivery (which casts to `engine`), on the test's clock.
+  defp source(c, opts \\ []) do
+    start_bases(c)
+    start_dispatch(c)
+    start_delivery(c, Keyword.get(opts, :engine, self()))
+    c
+  end
 
-  # A box handed by hand (a link someone other than Flow set) to `owner`.
-  defp box(key, owner) do
-    FakeFacts.put("box", %{
+  defp start_bases(c),
+    do:
+      start_supervised!(
+        Supervisor.child_spec({Bases, client: FakeCode.client(c.code), clock: c.clock}, id: Bases)
+      )
+
+  defp start_dispatch(c),
+    do:
+      start_supervised!(
+        Supervisor.child_spec(
+          {Dispatch,
+           model: Bench,
+           actors: @actors,
+           clock: c.clock,
+           poll_wait: 0,
+           sweep_ms: nil,
+           resync_ms: nil},
+          id: Dispatch
+        )
+      )
+
+  defp start_delivery(c, engine),
+    do:
+      start_supervised!(
+        Supervisor.child_spec(
+          {Delivery, model: Bench, actors: @actors, clock: c.clock, engine: engine},
+          id: Delivery
+        )
+      )
+
+  # A bin in its first phase, owned (by hand) by `owner`: a robot, a clerk or nobody.
+  defp bin(key, owner) do
+    FakeFacts.put("bin", %{
       "key" => key,
-      "values" => %{"phase" => "first", "step" => "Pack {#{key}} first."},
+      "values" => %{"phase" => "first", "step" => "Load {#{key}}."},
       "links" => %{"owned_by" => List.wrap(owner)},
-      "origins" => %{"owned_by" => %{"by" => "melle", "position" => 1}}
+      "origins" => %{"owned_by" => %{"by" => "someone", "position" => 1}}
     })
   end
 
-  defp run(key \\ "B-1") do
-    case FakeFacts.get("cursor", Run.key("sort", "box", key, 1)) do
+  defp run(c, key \\ "B-1") do
+    case FakeFacts.get(c.runner.config["kind"], Run.key("work", "bin", key, 1)) do
       nil -> nil
-      fact -> with {:ok, run} <- Store.decode(TestModel.config(), fact), do: run
+      fact -> with {:ok, run} <- Store.decode(c.runner.config, fact), do: run
     end
   end
 
-  defp task_record(key), do: FakeFacts.get("task", key)
+  # Sets (nil: clears) the run's supervisor, as a checked pickup or hand-over writes it.
+  defp supervise(c, supervisor, key \\ "B-1") do
+    run_key = Run.key("work", "bin", key, 1)
+    fact = FakeFacts.get(c.runner.config["kind"], run_key)
+    links = Map.put(fact["links"] || %{}, "watched_by", List.wrap(supervisor))
+    version = (fact["version"] || 0) + 1
+
+    FakeFacts.put(
+      c.runner.config["kind"],
+      Map.merge(fact, %{"links" => links, "version" => version})
+    )
+  end
+
+  defp reconcile(c, key \\ "B-1") do
+    {:ok, %{runs: known}} = Store.plan(c.runner.config, c.runner.flows)
+
+    {:ok, runs} =
+      Store.reconcile_subjects(c.runner.config, c.runner.flows, now(c), known, [{"bin", key}])
+
+    assert [run] = Enum.filter(runs, &(&1["subject_key"] == key))
+    run
+  end
+
+  defp now(%{clock: clock}), do: AtlasFlow.Runs.Clock.now(clock)
+
+  # The base is resolved in Bases' own task; its notify reaches the test process.
+  defp base_ready(key \\ "B-1"), do: assert_receive({:reconcile, "bin", ^key}, 2_000)
+
+  # A bin (supervised by `supervisor`) whose run holds its version-2 intent and whose task
+  # fact exists. Its base is asked for first, unless Bases holds it already.
+  defp intended(c, key \\ "B-1", supervisor \\ "ada") do
+    bin(key, "mini")
+
+    if reconcile(c, key)["pending"]["task"] == nil do
+      base_ready(key)
+      assert %{"version" => 2} = reconcile(c, key)["pending"]["task"]
+    end
+
+    if supervisor, do: supervise(c, supervisor, key)
+    run = reconcile(c, key)
+    assert %{"version" => 2} = run["pending"]["task"]
+    run
+  end
+
+  # A process attached as `flow` that runs what it is given and passes on any other
+  # message (Bases' notify) to the test: `{:ok, answer}`, or `:timeout`.
+  defp flow_process do
+    test = self()
+
+    spawn_link(fn ->
+      :ok = AtlasBus.attach("flow")
+      serve(test)
+    end)
+  end
+
+  defp serve(test) do
+    receive do
+      {:run, ref, fun} ->
+        send(test, {ref, fun.()})
+        serve(test)
+
+      other ->
+        send(test, other)
+        serve(test)
+    end
+  end
+
+  defp as_flow(process, fun, timeout \\ 2_000) do
+    ref = make_ref()
+    send(process, {:run, ref, fun})
+
+    receive do
+      {^ref, answer} -> {:ok, answer}
+    after
+      timeout -> :timeout
+    end
+  end
+
+  defp poll(client, holdings \\ [], offer \\ %{"deep_coding" => 1}) do
+    {id, _} = client
+    WorkSource.poll(client, L.poll_input(id, holdings, offer))
+  end
+
+  defp lease!(client) do
+    assert {:polled, %{leases: [lease]}} = poll(client)
+    lease
+  end
+
+  defp report(client, lease, revision, report),
+    do: WorkSource.report(client, %{lease_id: lease, revision: revision, report: report})
+
+  # accepted, started, then `ended`.
+  defp work(client, lease, ended) do
+    assert {:recorded, _} = report(client, lease, 1, %{state: :accepted})
+    assert {:recorded, _} = report(client, lease, 2, %{state: :started})
+    report(client, lease, 3, ended)
+  end
+
+  defp delivered(key \\ "B-1"), do: assert_receive({:"$gen_cast", {:reconcile, "bin", ^key}})
+
+  defp task_values(key \\ @task), do: FakeFacts.get("task", key)["values"]
+
+  defp check(exit_status, more \\ %{}),
+    do: Map.merge(%{exit_status: exit_status, output_tail: "tail"}, more)
 
   describe "through the run store" do
     setup do
@@ -77,639 +340,553 @@ defmodule AtlasFlow.Activities.TaskTest do
       :ok
     end
 
-    test "the state path: intent first, capacity, one submit by key; the result branches", c do
-      box("B-1", "mac-mini")
-      test = self()
+    test "intent first, offered to the supervisor's Runtime with its base; a passed check is done",
+         c do
+      source(c)
+      bin("B-1", "mini")
 
-      FakeRuntime.script(:submit, [
-        fn key, _request ->
-          send(test, {:at_submit, task_record(key), run()})
-          :default
-        end
-      ])
+      # No base cached yet: Bases is asked, no intent is made, the run is unchanged.
+      waiting = reconcile(c)
+      assert {waiting["state"], waiting["pending"]["task"]} == {"loading", nil}
+      assert FakeFacts.get("task", @task) == nil
+      base_ready()
+      {:ok, base} = Bases.cached(@repository, "develop")
 
-      authoring = reconcile(c)
-      key = "TK-B-1-1"
-      assert authoring["state"] == "authoring" and authoring["status"] == "active"
+      supervise(c, "ada")
+      run = reconcile(c)
 
-      assert %{"key" => ^key, "machinery" => "mac-mini", "work_id" => "w-1"} =
-               authoring["pending"]["task"]
+      # The run holds the version-2 intent with the base; the task fact was created after it.
+      assert %{"version" => 2, "key" => @task, "machinery" => "mini"} =
+               intent = run["pending"]["task"]
 
-      # Intent first: when the Runtime was asked, Facts held the task record and the run
-      # held its key and request.
-      assert_received {:at_submit, record, stored}
-      assert record["values"]["client_key"] == key and record["values"]["state"] == "waiting"
-      assert record["links"]["task_of"] == ["B-1"]
-      assert record["values"]["kind"] == "author" and record["values"]["profile"] == "deep_coding"
+      assert Translate.intent?(intent)
 
-      assert stored["pending"]["task"]["key"] == key and
-               stored["pending"]["task"]["work_id"] == nil
-
-      # Looked up by key, capacity asked, then exactly one submit under the task's key.
-      assert Enum.map(FakeRuntime.calls(), &elem(&1, 0)) ==
-               [:find_work, :capacity, :submit, :get_work]
-
-      assert [[^key, request]] = FakeRuntime.calls(:submit)
-      # A repository workspace on the task's own branch: never a folder or a path (D44).
-      assert request["workspace"] == %{
-               "kind" => "repository",
-               "url" => "https://example.invalid/depot.git",
-               "branch" => "flow/" <> key,
-               "base" => "develop"
+      assert intent["work"]["input"]["base"] == %{
+               "base_id" => base.base_id,
+               "manifest" => base.manifest
              }
 
-      assert request["after_check"] == %{"command" => ["bin/check"]}
-      assert request["profile"] == "deep_coding" and request["cost_class"] == "standard"
-      assert request["instructions"] == "Pack the box.\n\n## step\n\nPack {B-1} first."
-      assert task_record(key)["values"]["work_id"] == "w-1"
+      record = FakeFacts.get("task", @task)
+      assert record["links"]["task_of"] == ["B-1"]
+      assert record["values"]["state"] == "waiting" and record["values"]["client_key"] == @task
 
-      FakeRuntime.move(key, "running")
-      assert reconcile(c)["pending"]["task"]["state"] == "running"
-      assert task_record(key)["values"]["state"] == "running"
+      assert Map.take(record["values"], ~w(kind role profile)) ==
+               %{"kind" => "author", "role" => "developer", "profile" => "deep_coding"}
 
-      FakeRuntime.completed(key)
+      # Offered at once (Dispatch was told; no resync runs), only to the supervisor's Runtime.
+      assert {:polled, %{leases: []}} = poll(@laptop)
+      assert %{lease_id: lease, work: offered} = lease!(@mini)
+      assert offered == Translate.offered_work(intent)
+      assert offered.work_key == @task
+      assert offered.input.base == %{base_id: base.base_id, manifest: base.manifest}
+      assert offered.after_check == %{command: ["bin/check"]}
+      refute Enum.any?(Map.keys(offered), &(&1 in [:repository, :folder, :slot, :resume_from]))
+
+      # Nothing moves the run until the result is recorded.
+      assert reconcile(c)["state"] == "loading"
+      assert {:recorded, _} = work(@mini, lease, L.ended(nil, check: check(0)))
+      delivered()
+
       done = reconcile(c)
-      assert {done["state"], done["status"]} == {"authored", "completed"}
+      assert {done["state"], done["status"]} == {"done", "completed"}
       assert done["pending"]["task"] == nil
-      assert done["last_input"] == %{"version" => 1, "task" => key, "outcome" => "completed"}
 
       assert [
-               %{
-                 "key" => ^key,
-                 "work_id" => "w-1",
-                 "attempt" => 1,
-                 "outcome" => "completed",
-                 "kind" => "completed",
-                 "check" => %{"exit_status" => 0}
-               }
-             ] = done["pending"]["tasks"]
+               %{"key" => @task, "machinery" => "mini", "attempt" => 1, "outcome" => "completed"} =
+                 r
+             ] =
+               done["pending"]["tasks"]
 
-      values = task_record(key)["values"]
-      assert values["state"] == "completed" and values["result_kind"] == "completed"
-      assert values["check_exit_status"] == 0 and values["answer"] == "Done."
-      assert length(FakeRuntime.calls(:submit)) == 1
+      assert r["kind"] == "completed" and r["check"]["exit_status"] == 0
+      assert task_values()["state"] == "completed"
+      assert done["last_input"] == %{"version" => 1, "task" => @task, "outcome" => "completed"}
     end
 
-    test "a failed, timed out or unfinished check is check_failed; any other end is stuck", c do
+    test "a failed check is check_failed; refused, too large or another end is stuck", c do
+      source(c)
+
       ends = [
-        {"B-1", &FakeRuntime.completed(&1, %{"exit_status" => 1}), "check_failed"},
-        {"B-2", &FakeRuntime.completed(&1, %{"exit_status" => nil, "timed_out" => true}),
+        {"B-1", &work(@mini, &1, L.ended(nil, check: check(1))), "failed", "check_failed"},
+        {"B-2", &work(@mini, &1, L.ended(nil, check: check(nil, %{timed_out: true}))), "failed",
          "check_failed"},
-        {"B-3", &FakeRuntime.completed(&1, %{"exit_status" => 0, "interrupted" => true}),
-         "check_failed"},
-        {"B-4", &FakeRuntime.finish(&1, "completed"), "check_failed"},
-        {"B-5", &FakeRuntime.finish(&1, "failed", %{"reason" => "time_limit"}), "stuck"},
-        {"B-6", &FakeRuntime.finish(&1, "crashed"), "stuck"}
+        {"B-3", &work(@mini, &1, L.ended(nil)), "failed", "check_failed"},
+        {"B-4", &work(@mini, &1, L.ended(nil, kind: :failed, reason: "time_limit")), "stuck",
+         "stuck"},
+        {"B-5", &report(@mini, &1, 1, %{state: :refused, reason: :unsupported_profile}), "stuck",
+         "stuck"}
       ]
 
-      for {box, finish, outcome} <- ends do
-        box(box, "mac-mini")
-        reconcile(c, box)
-        finish.("TK-#{box}-1")
-        ended = reconcile(c, box)
-        assert ended["state"] == outcome, "#{box}: #{ended["state"]}"
+      for {key, finish, state, outcome} <- ends do
+        intended(c, key)
+        %{lease_id: lease} = lease!(@mini)
+        assert {:recorded, _} = finish.(lease)
+        delivered(key)
+        ended = reconcile(c, key)
+        status = if state == "stuck", do: "active", else: "completed"
+        assert {ended["state"], ended["status"]} == {state, status}, key
         assert [%{"outcome" => ^outcome}] = ended["pending"]["tasks"]
-        assert task_record("TK-#{box}-1")["values"]["state"] == outcome
+        assert task_values("TK-#{key}-1")["state"] == outcome
       end
 
-      assert task_record("TK-B-2-1")["values"]["check_ending"] == "timed_out"
-      assert task_record("TK-B-4-1")["values"]["check_ending"] == "not_run"
-      assert task_record("TK-B-5-1")["values"]["reason"] == "time_limit"
+      assert [%{"kind" => "refused"}] = reconcile(c, "B-5")["pending"]["tasks"]
+      assert task_values("TK-B-2-1")["check_ending"] == "timed_out"
     end
 
-    test "after a transport error the same key is sent again; a taken one is found by key", c do
-      # The Runtime took B-1's work but its answer was lost; B-2's never reached it.
-      FakeRuntime.script(:submit, [{:lose, :timeout}, {:unreachable, :econnrefused}])
-      box("B-1", "mac-mini")
-      box("B-2", "mac-mini")
-      lost = reconcile(c, "B-1")
-      assert lost["pending"]["task"]["work_id"] == nil
-      never = reconcile(c, "B-2")
-      assert never["pending"]["task"]["work_id"] == nil
+    test "a result is taken only once it is complete: its blobs, then its csf_", c do
+      source(c)
+      intended(c)
+      %{lease_id: lease} = lease!(@mini)
+      base_id = task_values()["base_id"]
+      bytes = "fn main() {}\n"
+      change_set = L.change_set([{"main.rs", bytes}], base_id)
 
-      assert reconcile(c, "B-1")["pending"]["task"]["work_id"] == "w-1"
-      assert reconcile(c, "B-2")["pending"]["task"]["work_id"] == "w-2"
+      assert {:recorded, %{missing: [sha]}} =
+               work(@mini, lease, L.ended(change_set, check: check(0)))
 
-      # One key per task, throughout: B-1 was found, not sent twice; B-2 was sent again.
-      assert Enum.map(FakeRuntime.calls(:submit), &hd/1) == ["TK-B-1-1", "TK-B-2-1", "TK-B-2-1"]
+      assert task_values()["result_state"] == "incomplete"
 
-      assert FakeRuntime.calls(:find_work) |> Enum.map(&hd/1) |> Enum.uniq() ==
-               ["TK-B-1-1", "TK-B-2-1"]
+      # Ended, but incomplete: the run waits.
+      held = reconcile(c)
+      assert {held["state"], held["pending"]["task"]["key"]} == {"loading", @task}
+
+      assert :stored =
+               WorkSource.put_blob(@mini, %{
+                 lease_id: lease,
+                 sha256: sha,
+                 size: byte_size(bytes),
+                 content: [bytes]
+               })
+
+      delivered()
+      assert task_values()["result_state"] == "complete"
+      assert reconcile(c)["state"] == "done"
     end
 
-    test "an unreachable Runtime changes nothing: no move, no resubmit, no reroute", c do
-      box("B-1", "mac-mini")
-      FakeRuntime.script(:find_work, [{:unreachable, :closed}])
-      intent = reconcile(c)
-      assert intent["pending"]["task"]["work_id"] == nil
-      # Nothing was submitted, nor capacity asked, while the key could not be looked up.
-      assert Enum.map(FakeRuntime.calls(), &elem(&1, 0)) == [:find_work]
+    test "not assigned to a robot: no base asked for, no intent, no task (E1)", c do
+      source(c)
+      bin("B-1", "ada")
+      FakeFacts.put("bin", %{"key" => "B-2", "values" => %{"phase" => "first"}})
+      bin("B-3", "mac-maxi")
 
-      submitted = reconcile(c)
-      assert submitted["pending"]["task"]["work_id"] == "w-1"
-      FakeRuntime.completed("TK-B-1-1")
-      puts = FakeFacts.puts()
-      calls = length(FakeRuntime.calls())
-
-      FakeRuntime.script(:get_work, List.duplicate({:unreachable, {:status, 502}}, 3))
-
-      for advance <- [0, 3_600_000, 86_400_000] do
-        ManualClock.advance(c.clock, advance)
-        assert reconcile(c) == submitted
+      for key <- ~w(B-1 B-2 B-3) do
+        run = reconcile(c, key)
+        assert {run["state"], run["pending"]["task"]} == {"loading", nil}
       end
 
-      assert FakeFacts.puts() == puts
-
-      assert Enum.map(Enum.drop(FakeRuntime.calls(), calls), &elem(&1, 0)) ==
-               [:get_work, :get_work, :get_work]
-
-      # Reachable again: the result it held all along.
-      assert reconcile(c)["state"] == "authored"
-    end
-
-    test "404 by key is the only resubmit: a work the Runtime does not know is sent again", c do
-      box("B-1", "mac-mini")
-      assert reconcile(c)["pending"]["task"]["work_id"] == "w-1"
-      # The Runtime lost it (its home was reset): by id, then by key, it was never seen.
-      Agent.update(FakeRuntime, &%{&1 | works: %{}})
-      again = reconcile(c)
-      assert again["pending"]["task"]["key"] == "TK-B-1-1"
-      assert again["pending"]["task"]["work_id"] == "w-2"
-
-      assert Enum.map(FakeRuntime.calls(:submit), &hd/1) == ["TK-B-1-1", "TK-B-1-1"]
-      assert ["TK-B-1-1"] = List.last(FakeRuntime.calls(:find_work))
-    end
-
-    test "410 is stuck, never a resubmit", c do
-      box("B-1", "mac-mini")
-      box("B-2", "mac-mini")
-      reconcile(c, "B-1")
-      FakeRuntime.prune("TK-B-1-1", "completed")
-      stuck = reconcile(c, "B-1")
-      assert stuck["state"] == "stuck" and stuck["status"] == "active"
-
-      assert [%{"outcome" => "stuck", "reason" => "pruned: completed"}] =
-               stuck["pending"]["tasks"]
-
-      assert task_record("TK-B-1-1")["values"]["state"] == "stuck"
-
-      # Pruned before Flow learnt its id: found pruned by key, never submitted.
-      FakeRuntime.script(:submit, [{:lose, :timeout}])
-      reconcile(c, "B-2")
-      FakeRuntime.prune("TK-B-2-1", "failed")
-      assert reconcile(c, "B-2")["state"] == "stuck"
-      assert Enum.map(FakeRuntime.calls(:submit), &hd/1) == ["TK-B-1-1", "TK-B-2-1"]
-      assert reconcile(c, "B-1") == stuck
-    end
-
-    test "at_capacity waits for capacity, then submits once", c do
-      FakeRuntime.capacity!(FakeRuntime.full())
-      box("B-1", "mac-mini")
-      waiting = reconcile(c)
-      assert waiting["pending"]["task"]["work_id"] == nil
-      assert at(waiting["pending"]["task"]["retry_at"]) == ~U[2026-11-17 09:00:30Z]
-      assert FakeRuntime.calls(:submit) == []
-
-      # Until capacity is reported or Retry-After passed, the Runtime is not asked again.
-      calls = FakeRuntime.calls()
-      ManualClock.advance(c.clock, 29_000)
-      assert reconcile(c) == waiting
-      assert FakeRuntime.calls() == calls
-
-      # The Link reports capacity: it asks again before its retry_at, and submits.
-      FakeRuntime.capacity!(FakeRuntime.room())
-      assert reconcile(c, "B-1", wake: true)["pending"]["task"]["work_id"] == "w-1"
-      assert [["TK-B-1-1", _]] = FakeRuntime.calls(:submit)
-
-      # The Runtime itself answers at_capacity: it waits its Retry-After, then submits.
-      box("B-2", "mac-mini")
-      FakeRuntime.script(:submit, [{:at_capacity, 5}])
-      assert at(reconcile(c, "B-2")["pending"]["task"]["retry_at"]) == ~U[2026-11-17 09:00:34Z]
-      assert reconcile(c, "B-2")["pending"]["task"]["work_id"] == nil
-      ManualClock.advance(c.clock, 5_000)
-      assert reconcile(c, "B-2")["pending"]["task"]["work_id"] == "w-2"
-      assert Enum.map(FakeRuntime.calls(:submit), &hd/1) == ["TK-B-1-1", "TK-B-2-1", "TK-B-2-1"]
-    end
-
-    test "nothing happens without a machinery assignee (E1)", c do
-      # Flow's configuration names `ada` and `mac-maxi`, but neither is a machinery: ada is
-      # a clerk, and no fact is named mac-maxi. mac-mini is a machinery it does not name.
-      Application.put_env(:atlas_flow, :machinery, %{
-        "ada" => %{url: "http://127.0.0.1:9", token_env: "ATLAS_FLOW_TASK_TEST_TOKEN"},
-        "mac-maxi" => %{url: "http://127.0.0.1:9", token_env: "ATLAS_FLOW_TASK_TEST_TOKEN"}
-      })
-
-      box("B-1", "ada")
-      FakeFacts.put("box", %{"key" => "B-2", "values" => %{"phase" => "first"}})
-      box("B-3", "mac-maxi")
-      box("B-4", "mac-mini")
-
-      for key <- ["B-1", "B-2", "B-3", "B-4"] do
-        waiting = reconcile(c, key)
-        assert waiting["state"] == "authoring" and waiting["pending"]["task"] == nil
-      end
-
-      assert FakeRuntime.calls() == []
+      refute_receive {:reconcile, _, _}, 100
+      assert FakeCode.calls(c.code) == []
       assert for(f <- FakeFacts.sent(), String.starts_with?(f["key"] || "", "TK-"), do: f) == []
-
-      # Handed to the machinery: now it has its task.
-      Application.put_env(:atlas_flow, :machinery, %{
-        "mac-mini" => %{url: "http://127.0.0.1:9", token_env: "ATLAS_FLOW_TASK_TEST_TOKEN"}
-      })
-
-      box("B-1", "mac-mini")
-      assert reconcile(c, "B-1")["pending"]["task"]["key"] == "TK-B-1-1"
     end
 
-    test "an assignment moved away abandons the task; its late result is ignored", c do
-      box("B-1", "mac-mini")
-      assert reconcile(c)["pending"]["task"]["work_id"] == "w-1"
-      box("B-1", "ada")
+    test "no supervisor: the intent waits and nothing is offered", c do
+      source(c)
+      intended(c, "B-1", nil)
+      assert FakeFacts.get("task", @task) != nil
+      assert {:polled, %{leases: []}} = poll(@mini)
+      assert {:polled, %{leases: []}} = poll(@laptop)
+      assert task_values()["lease_id"] == nil
+
+      # Picked up: the next reconcile tells Dispatch again, and the holder's Runtime gets it.
+      supervise(c, "ada")
+      reconcile(c)
+      assert %{work: %{work_key: @task}} = lease!(@mini)
+    end
+
+    test "a lease ended without a result is offered again; the run waits", c do
+      source(c)
+      intended(c)
+      %{lease_id: first} = lease!(@mini)
+      assert {:recorded, _} = report(@mini, first, 1, %{state: :accepted})
+      assert {:recorded, _} = report(@mini, first, 2, L.ended(nil, kind: :returned))
+
+      run = reconcile(c)
+      assert {run["state"], run["pending"]["task"]["key"]} == {"loading", @task}
+      assert %{lease_id: second, work: %{work_key: @task}} = lease!(@mini)
+      assert second != first and task_values()["attempt"] == 2
+    end
+
+    test "an assignment moved away abandons the task and unpins its result; a late end is ignored",
+         c do
+      source(c)
+      intended(c)
+      %{lease_id: lease} = lease!(@mini)
+      bytes = "abc\n"
+      change_set = L.change_set([{"a.txt", bytes}], task_values()["base_id"])
+
+      assert {:recorded, %{missing: [sha]}} =
+               work(@mini, lease, L.ended(change_set, check: check(0)))
+
+      assert {:ok, _} = Results.manifest(@task)
+
+      bin("B-1", "bea")
       abandoned = reconcile(c)
       assert {abandoned["state"], abandoned["status"]} == {"abandoned", "completed"}
-      assert [%{"outcome" => "abandoned", "work_id" => "w-1"}] = abandoned["pending"]["tasks"]
-      assert task_record("TK-B-1-1")["values"]["state"] == "abandoned"
+      assert [%{"outcome" => "abandoned", "key" => @task}] = abandoned["pending"]["tasks"]
+      assert task_values()["state"] == "abandoned"
+      assert Results.manifest(@task) == :not_found
 
-      FakeRuntime.completed("TK-B-1-1")
-      box("B-1", "mac-mini")
-      assert reconcile(c, "B-1", works: %{"w-1" => FakeRuntime.work("TK-B-1-1")}) == abandoned
-      assert task_record("TK-B-1-1")["values"]["state"] == "abandoned"
+      # The late end is recorded on the task, and the run, which no longer holds it, stays.
+      assert :stored =
+               WorkSource.put_blob(@mini, %{
+                 lease_id: lease,
+                 sha256: sha,
+                 size: byte_size(bytes),
+                 content: [bytes]
+               })
+
+      assert task_values()["result_state"] == "complete"
+      bin("B-1", "mini")
+      assert reconcile(c) == abandoned
+
+      # A rebuild from Facts does not pin it again.
+      assert :ok = Results.rebuild(Leases.pins())
+      assert Results.manifest(@task) == :not_found
     end
 
-    test "snapshots apply by revision: one not newer is passed over", c do
-      box("B-1", "mac-mini")
-      reconcile(c)
-      old = FakeRuntime.work("TK-B-1-1")
-      FakeRuntime.move("TK-B-1-1", "running")
-      running = reconcile(c)
-      assert running["pending"]["task"]["revision"] == 2
-      # The Link's older report changes nothing; a newer one is applied without a read.
-      assert reconcile(c, "B-1", works: %{"w-1" => old}) == running
-      gets = length(FakeRuntime.calls(:get_work))
-      done = FakeRuntime.completed("TK-B-1-1")
-      assert reconcile(c, "B-1", works: %{"w-1" => done})["state"] == "authored"
-      assert length(FakeRuntime.calls(:get_work)) == gets
-    end
-
-    # Review f13-review-dev2, required change 1 (R2): obligation 1, unreachable → no change.
-    test "an unreachable capacity changes nothing: no submit, the run as it was", c do
-      box("B-1", "mac-mini")
-      FakeRuntime.script(:capacity, List.duplicate({:unreachable, :econnrefused}, 3))
-      intent = reconcile(c)
-      assert intent["pending"]["task"]["work_id"] == nil
-      assert intent["pending"]["task"]["retry_at"] == nil
-      assert Enum.map(FakeRuntime.calls(), &elem(&1, 0)) == [:find_work, :capacity]
-      puts = FakeFacts.puts()
-
-      for advance <- [0, 3_600_000] do
-        ManualClock.advance(c.clock, advance)
-        assert reconcile(c) == intent
-      end
-
-      assert FakeRuntime.calls(:submit) == []
-      assert FakeFacts.puts() == puts
-      assert task_record("TK-B-1-1")["values"]["state"] == "waiting"
-
-      # Reachable again: submitted once, under the same key.
-      assert reconcile(c)["pending"]["task"]["work_id"] == "w-1"
-      assert [["TK-B-1-1", _]] = FakeRuntime.calls(:submit)
-    end
-
-    # Review f13-review-dev2, required change 2 (R6): a Facts blip never abandons.
-    test "Facts unavailable on the assignee read changes nothing; the task is not abandoned",
+    test "the Engine writes a task fact's input once, at its create; Dispatch's grant writes it fenced",
          c do
-      box("B-1", "mac-mini")
-      # Before any intent: no task is started.
-      GenServer.call(FakeFacts, {:busy, "machinery", "mac-mini"})
-      before = reconcile(c)
-      assert before["state"] == "authoring" and before["pending"]["task"] == nil
-      assert FakeRuntime.calls() == []
-      GenServer.call(FakeFacts, {:free, "machinery", "mac-mini"})
+      source(c)
+      intended(c)
+      %{lease_id: lease} = lease!(@mini)
+      assert {:recorded, _} = work(@mini, lease, L.ended(nil, check: check(0)))
+      delivered()
+      assert reconcile(c)["state"] == "done"
 
-      running = reconcile(c)
-      assert running["pending"]["task"]["work_id"] == "w-1"
-      FakeRuntime.completed("TK-B-1-1")
-      puts = FakeFacts.puts()
-      calls = FakeRuntime.calls()
+      writes = for w <- FakeFacts.sent(), w["key"] == @task, do: w
+      with_input = for w <- writes, Map.has_key?(w["values"] || %{}, "input"), do: w
+      assert [%{"op" => "create"}, grant] = with_input
+      assert grant["values"]["lease_id"] == lease and Map.has_key?(grant["was"], "input")
 
-      # With a task in flight: kept as it was, the Runtime not even asked.
-      GenServer.call(FakeFacts, {:busy, "machinery", "mac-mini"})
-
-      for advance <- [0, 3_600_000] do
-        ManualClock.advance(c.clock, advance)
-        assert reconcile(c) == running
-      end
-
-      assert FakeFacts.puts() == puts
-      assert FakeRuntime.calls() == calls
-      assert task_record("TK-B-1-1")["values"]["state"] == "buffered"
-
-      # Facts answers again: the result it held all along, not abandoned.
-      GenServer.call(FakeFacts, {:free, "machinery", "mac-mini"})
-      done = reconcile(c)
-      assert done["state"] == "authored"
-      assert [%{"outcome" => "completed"}] = done["pending"]["tasks"]
+      # The Engine's last write on it: the outcome alone.
+      assert %{"op" => "change", "values" => %{"state" => "completed"}} = List.last(writes)
     end
 
-    # Review f13-review-dev2, required change 3 (R5b): a re-entered state takes a new key.
-    test "re-entering the task's state after stuck takes a new key, never the old one", c do
-      box("B-1", "mac-mini")
+    test "Code unavailable: no intent; after Bases' retry it is made", c do
+      source(c)
+      FakeCode.mode(c.code, :failing)
+      bin("B-1", "mini")
+      supervise_later = reconcile(c)
+      assert supervise_later["pending"]["task"] == nil
+      # Bases failed: it is unavailable, and a reconcile asks nothing more of it.
+      wait_until(fn -> Bases.cached(@repository, "develop") == :unavailable end)
+      calls = length(FakeCode.calls(c.code))
+      supervise(c, "ada")
+      assert reconcile(c)["pending"]["task"] == nil
+      assert length(FakeCode.calls(c.code)) == calls
+
+      FakeCode.mode(c.code, :ok)
+      L.advance(c, 30)
+      base_ready()
+      assert %{"version" => 2} = reconcile(c)["pending"]["task"]
+    end
+
+    test "the work source off (Bases not running): no intent, nothing raised", c do
+      bin("B-1", "mini")
+      run = reconcile(c)
+      assert {run["state"], run["pending"]["task"]} == {"loading", nil}
+      assert Bases.cached(@repository, "develop") == :unavailable
+      assert FakeCode.calls(c.code) == []
+    end
+
+    test "after a restart, a held lease's base is restored from its snapshot, also once the branch moved",
+         c do
+      source(c)
+      intended(c)
+      %{lease_id: lease, work: offered} = lease!(@mini)
+      readme = L.sha256(@readme)
+      blob = %{lease_id: lease, sha256: readme}
+      assert {:blob, %{content: before}} = WorkSource.get_blob(@mini, blob)
+      before = IO.iodata_to_binary(Enum.to_list(before))
+      assert before == @readme
+      resolved = Enum.count(FakeCode.calls(c.code), &(elem(&1, 0) == :resolve_reference))
+
+      # develop moves on, and Flow restarts: Bases' table is empty.
+      FakeCode.put(c.code, @repository, "develop", "rev_2", %{"README.md" => "# Moved\n"})
+      stop_supervised!(Bases)
+      start_bases(c)
+      assert WorkSource.get_blob(@mini, blob) == :not_found
+      assert Bases.names(offered.input.base.manifest) == :not_found
+
+      assert reconcile(c)["state"] == "loading"
+      wait_until(fn -> match?({:ok, _}, Bases.names(offered.input.base.manifest)) end)
+
+      # The lease's own base, from its pinned snapshot: the original bytes, no new resolve.
+      assert {:blob, %{content: served}} = WorkSource.get_blob(@mini, blob)
+      assert IO.iodata_to_binary(Enum.to_list(served)) == before
+      assert Enum.count(FakeCode.calls(c.code), &(elem(&1, 0) == :resolve_reference)) == resolved
+      assert task_values()["base_snapshot"] == run(c)["pending"]["task"]["base_snapshot"]
+    end
+
+    test "a held intent of the push path is never offered: it ends stuck", c do
+      source(c)
+      bin("B-1", "mini")
       reconcile(c)
-      FakeRuntime.prune("TK-B-1-1", "failed")
+      base_ready()
+      supervise(c, "ada")
+      run = run(c)
+      old = %{"version" => 1, "key" => @task, "machinery" => "mini", "created_at" => "x"}
+      config = c.runner.config
+      fact = FakeFacts.get(config["kind"], run["key"])
+      values = Store.encode(config, put_in(run, ["pending", "task"], old))
+
+      FakeFacts.put(
+        config["kind"],
+        Map.merge(fact, %{"values" => values, "version" => fact["version"] + 1})
+      )
+
       stuck = reconcile(c)
       assert stuck["state"] == "stuck"
-      assert [%{"key" => "TK-B-1-1", "outcome" => "stuck"}] = stuck["pending"]["tasks"]
-
-      choose(stuck, "again")
-      again = reconcile(c)
-      assert again["state"] == "authoring" and again["status"] == "active"
-      assert %{"key" => "TK-B-1-2", "work_id" => "w-2"} = again["pending"]["task"]
-      assert Enum.map(FakeRuntime.calls(:submit), &hd/1) == ["TK-B-1-1", "TK-B-1-2"]
-      assert List.last(FakeRuntime.calls(:find_work)) == ["TK-B-1-2"]
-
-      assert task_record("TK-B-1-2")["values"]["client_key"] == "TK-B-1-2"
-      assert task_record("TK-B-1-2")["links"]["task_of"] == ["B-1"]
-      assert task_record("TK-B-1-1")["values"]["state"] == "stuck"
-
-      FakeRuntime.completed("TK-B-1-2")
-      assert reconcile(c)["state"] == "authored"
+      assert [%{"key" => @task, "outcome" => "stuck"}] = stuck["pending"]["tasks"]
     end
+  end
 
-    # Review f13-review-dev2, required change 4 (R1, R9).
-    test "a refused submit is stuck with its reason; unauthenticated changes nothing", c do
-      # `invalid` is today's answer to `after_check` from a Runtime without S5a.
-      for {box, reason} <- [{"B-1", :invalid}, {"B-2", :unsupported_workspace}] do
-        box(box, "mac-mini")
-        FakeRuntime.script(:submit, [{:refused, reason}])
-        stuck = reconcile(c, box)
-        key = "TK-#{box}-1"
-        text = "refused: #{reason}"
-        assert {stuck["state"], stuck["status"]} == {"stuck", "active"}
+  describe "Code on the Engine's path" do
+    test "Code blocked: the reconcile returns without calling Code; the notify makes the intent",
+         c do
+      source(c)
+      FakeCode.mode(c.code, :blocked)
+      bin("B-1", "mini")
+      flow = flow_process()
 
-        assert [%{"key" => ^key, "outcome" => "stuck", "reason" => ^text}] =
-                 stuck["pending"]["tasks"]
+      assert {:ok, run} = as_flow(flow, fn -> reconcile(c) end)
+      assert run["pending"]["task"] == nil
+      # Code is called only from Bases' own task, never from the reconciling process.
+      wait_until(fn -> FakeCode.blocked(c.code) == 1 end)
+      refute Enum.any?(FakeCode.calls(c.code), fn {_, pid} -> pid in [flow, self()] end)
 
-        assert task_record(key)["values"]["state"] == "stuck"
-        assert task_record(key)["values"]["reason"] == text
-        # Terminal: never sent again.
-        assert reconcile(c, box) == stuck
-      end
+      supervise(c, "ada")
+      assert {:ok, again} = as_flow(flow, fn -> reconcile(c) end)
+      assert again["pending"]["task"] == nil
+      refute_receive {:reconcile, _, _}, 50
 
-      assert Enum.map(FakeRuntime.calls(:submit), &hd/1) == ["TK-B-1-1", "TK-B-2-1"]
+      FakeCode.mode(c.code, :ok)
+      FakeCode.release(c.code)
+      base_ready()
 
-      # A token mistake is not the task's fault: nothing moves, the same key goes again.
-      box("B-3", "mac-mini")
-      FakeRuntime.script(:submit, List.duplicate({:refused, :unauthenticated}, 2))
-      intent = reconcile(c, "B-3")
-      assert intent["state"] == "authoring" and intent["pending"]["task"]["work_id"] == nil
-      assert intent["pending"]["task"]["retry_at"] == nil
-      puts = FakeFacts.puts()
-      assert reconcile(c, "B-3") == intent
-      assert FakeFacts.puts() == puts
-      assert task_record("TK-B-3-1")["values"]["state"] == "waiting"
+      assert {:ok, %{"pending" => %{"task" => %{"version" => 2}}}} =
+               as_flow(flow, fn -> reconcile(c) end)
 
-      assert reconcile(c, "B-3")["pending"]["task"]["work_id"] == "w-1"
-
-      assert Enum.map(FakeRuntime.calls(:submit), &hd/1) ==
-               ["TK-B-1-1", "TK-B-2-1", "TK-B-3-1", "TK-B-3-1", "TK-B-3-1"]
-    end
-
-    # Review f13-review-dev2, optional (R4): only the task's own work is applied.
-    test "a snapshot of another work is not applied", c do
-      box("B-1", "mac-mini")
-
-      other = %{
-        "work_id" => "w-9",
-        "client_key" => "TK-B-9-1",
-        "revision" => 1,
-        "state" => "completed",
-        "attempts" => [
-          %{"attempt" => 1, "state" => "completed", "result" => %{"kind" => "failed"}}
-        ]
-      }
-
-      FakeRuntime.script(:find_work, [{:found, other}])
-      intent = reconcile(c)
-      assert intent["state"] == "authoring" and intent["pending"]["task"]["work_id"] == nil
-      assert FakeRuntime.calls(:submit) == []
-
-      # Its own work, by id: another id's snapshot is passed over too.
-      assert reconcile(c)["pending"]["task"]["work_id"] == "w-1"
-      FakeRuntime.script(:get_work, [{:found, %{other | "revision" => 5}}])
-      assert reconcile(c)["pending"]["task"]["work_id"] == "w-1"
-      assert reconcile(c)["state"] == "authoring"
-    end
-
-    # Review f13-review-dev2, optional (R11): the answer the record keeps is capped at 8 KB.
-    test "a long answer is kept to its first 8 KB, on a character boundary", c do
-      box("B-1", "mac-mini")
-      box("B-2", "mac-mini")
-      reconcile(c, "B-1")
-      reconcile(c, "B-2")
-      long = String.duplicate("a", 9000)
-      # "a" then two-byte characters: byte 8192 falls inside one.
-      split = "a" <> String.duplicate("é", 5000)
-      FakeRuntime.finish("TK-B-1-1", "failed", %{"answer" => long})
-      FakeRuntime.finish("TK-B-2-1", "failed", %{"answer" => split})
-      assert reconcile(c, "B-1")["state"] == "stuck"
-      assert reconcile(c, "B-2")["state"] == "stuck"
-
-      assert task_record("TK-B-1-1")["values"]["answer"] == binary_part(long, 0, 8192)
-      kept = task_record("TK-B-2-1")["values"]["answer"]
-      assert String.valid?(kept) and byte_size(kept) == 8191
-      assert String.starts_with?(split, kept)
-    end
-
-    # Review f13-review-dev2, required change 2 (R6), the component read: `holder/3`.
-    test "Facts unavailable on the component holding the owner is unavailable, not other" do
-      {:task, spec} = Sorts.Authoring.mechanism("authoring")
-      owner = %{"relation" => "owned_by", "via" => "tray"}
-      projection = %{"on" => "in_tray"}
-      subject = %{"key" => "B-1", "links" => %{"in_tray" => ["T-1"]}}
-      FakeFacts.put("tray", %{"key" => "T-1", "links" => %{"owned_by" => ["mac-mini"]}})
-      assert Task.assignee(spec, owner, projection, subject) == {:machinery, "mac-mini"}
-
-      GenServer.call(FakeFacts, {:busy, "tray", "T-1"})
-      assert Task.assignee(spec, owner, projection, subject) == :unavailable
-      GenServer.call(FakeFacts, {:free, "tray", "T-1"})
-
-      GenServer.call(FakeFacts, {:busy, "machinery", "mac-mini"})
-      assert Task.assignee(spec, owner, projection, subject) == :unavailable
-      GenServer.call(FakeFacts, {:free, "machinery", "mac-mini"})
-
-      FakeFacts.put("tray", %{"key" => "T-1", "links" => %{"owned_by" => ["ada"]}})
-      assert Task.assignee(spec, owner, projection, subject) == :other
+      refute Enum.any?(FakeCode.calls(c.code), fn {_, pid} -> pid in [flow, self()] end)
     end
   end
 
   describe "through the engine" do
-    defp engine(c), do: start_supervised!({Engine, engine_opts(c)}, id: Engine)
-
-    defp engine_opts(c),
-      do: [every: 3_600_000, clock: {ManualClock, c.clock}, model: Authored]
-
-    test "boot reconcile: intent is found by key or sent after 404; a work_id is read back", c do
-      for key <- ["B-1", "B-2", "B-3"], do: box(key, "mac-mini")
-
-      lose = fn
-        "TK-B-1-1", _ -> {:lose, :timeout}
-        "TK-B-2-1", _ -> {:unreachable, :econnrefused}
-        _, _ -> :default
-      end
-
-      FakeRuntime.script(:submit, [lose, lose, lose])
-      # Only the boot round: the one the engine plans when it starts.
-      Engine.idle(engine(c))
-      assert run("B-1")["pending"]["task"]["work_id"] == nil
-      assert run("B-2")["pending"]["task"]["work_id"] == nil
-      assert run("B-3")["pending"]["task"]["work_id"] == "w-2"
-      stop_supervised!(Engine)
-
-      # While Flow was down, B-3's work ended.
-      FakeRuntime.completed("TK-B-3-1")
-      calls = length(FakeRuntime.calls())
-      Engine.idle(engine(c))
-
-      assert run("B-1")["pending"]["task"]["work_id"] == "w-1"
-      assert run("B-2")["pending"]["task"]["work_id"] == "w-3"
-      assert run("B-3")["state"] == "authored"
-
-      boot = Enum.drop(FakeRuntime.calls(), calls)
-      # By key for intent without a work_id (B-1 found; B-2 never seen, so sent again under
-      # its key); by id for the one with a work_id.
-      assert {:find_work, ["TK-B-1-1"]} in boot and {:find_work, ["TK-B-2-1"]} in boot
-      assert {:get_work, ["w-2"]} in boot
-      refute Enum.any?(boot, &match?({:submit, ["TK-B-1-1", _]}, &1))
-
-      assert Enum.map(FakeRuntime.calls(:submit), &hd/1) ==
-               ["TK-B-1-1", "TK-B-2-1", "TK-B-3-1", "TK-B-2-1"]
+    defp engine(c) do
+      start_supervised!(
+        {Engine,
+         every: 3_600_000, clock: c.clock, model: Bench, actors: @actors, name: AtlasFlow.Engine},
+        id: Engine
+      )
     end
 
-    test "the Link: capacity submits the waiting tasks oldest first; a change applies", c do
-      FakeRuntime.capacity!(FakeRuntime.full())
-      box("B-2", "mac-mini")
+    test "a reconcile arrives as a cast (Delivery's) and as a plain message (Bases'); both reconcile",
+         c do
+      source(c, engine: AtlasFlow.Engine)
+      bin("B-1", "mini")
       engine = engine(c)
-      Engine.round(engine)
-      ManualClock.advance(c.clock, 1_000)
-      box("B-1", "mac-mini")
-      Engine.round(engine)
-
-      assert run("B-2")["pending"]["task"]["created_at"] <
-               run("B-1")["pending"]["task"]["created_at"]
-
-      assert FakeRuntime.calls(:submit) == []
-
-      # Room for one: the older task (B-2's) is submitted, the other one waits.
-      FakeRuntime.script(:capacity, [
-        {:capacity, FakeRuntime.room()},
-        {:capacity, FakeRuntime.full()}
-      ])
-
-      FakeRuntime.capacity!(FakeRuntime.room())
-      send(engine, {:capacity, FakeRuntime.room()})
-      :sys.get_state(engine)
-      assert Enum.map(FakeRuntime.calls(:submit), &hd/1) == ["TK-B-2-1"]
-      assert run("B-1")["pending"]["task"]["work_id"] == nil
-
-      # No room reported: nothing is asked.
-      calls = FakeRuntime.calls()
-      send(engine, {:capacity, FakeRuntime.full()})
-      :sys.get_state(engine)
-      assert FakeRuntime.calls() == calls
-
-      # The Link reports B-2's work completed: its run applies that snapshot, read once.
-      gets = length(FakeRuntime.calls(:get_work))
-      send(engine, {:work_changed, FakeRuntime.completed("TK-B-2-1")})
-      :sys.get_state(engine)
-      assert run("B-2")["state"] == "authored"
-      assert length(FakeRuntime.calls(:get_work)) == gets
-
-      # A change of a work Flow holds no task for does nothing.
-      send(
-        engine,
-        {:work_changed, %{"work_id" => "w-9", "client_key" => "TK-X-1", "revision" => 1}}
-      )
-
-      :sys.get_state(engine)
-      assert run("B-1")["pending"]["task"]["work_id"] == nil
-
-      # Without a capacity event, the round comes at the task's Retry-After, not the hour.
-      retry_at = at(run("B-1")["pending"]["task"]["retry_at"])
-
-      ManualClock.advance(
-        c.clock,
-        DateTime.diff(retry_at, ManualClock.now(c.clock), :millisecond)
-      )
-
       Engine.idle(engine)
-      assert run("B-1")["pending"]["task"]["work_id"] == "w-2"
+      # The boot round asked Bases; its notify reconciled the bin, which still has no supervisor.
+      wait_until(fn -> Bases.cached(@repository, "develop") != :missing end)
+      :sys.get_state(engine)
+      supervise(c, "ada")
+
+      # A plain message, as Bases' notify: the intent is made and offered.
+      send(engine, {:reconcile, "bin", "B-1"})
+      :sys.get_state(engine)
+      assert %{"version" => 2} = run(c)["pending"]["task"]
+      %{lease_id: lease} = lease!(@mini)
+
+      # A cast, as Delivery's once the result is recorded: the run ends.
+      assert {:recorded, _} = work(@mini, lease, L.ended(nil, check: check(0)))
+      wait_until(fn -> run(c)["state"] == "done" end)
+
+      GenServer.cast(engine, {:reconcile, "bin", "nothing-here"})
+      send(engine, {:reconcile, "bin", "nothing-here"})
+      :sys.get_state(engine)
+      assert Process.alive?(engine)
     end
 
-    # Review f13-review-dev2, optional (R7): after a lost submit answer, only the client key
-    # can match the Link's report.
-    test "the Link's change of a task without a work_id is matched by its client key", c do
-      box("B-1", "mac-mini")
-      FakeRuntime.script(:submit, [{:lose, :timeout}])
+    test "with the work source off, a task that needs a base makes no intent; the Engine lives",
+         c do
+      bin("B-1", "mini")
       engine = engine(c)
       Engine.idle(engine)
-      assert run("B-1")["pending"]["task"]["work_id"] == nil
-      finds = length(FakeRuntime.calls(:find_work))
+      supervise(c, "ada")
+      Engine.round(engine)
+      assert Process.alive?(engine)
+      assert run(c)["state"] == "loading" and run(c)["pending"]["task"] == nil
+    end
 
-      send(engine, {:work_changed, FakeRuntime.work("TK-B-1-1")})
-      :sys.get_state(engine)
-      assert run("B-1")["pending"]["task"]["work_id"] == "w-1"
-      assert length(FakeRuntime.calls(:find_work)) == finds + 1
-      assert [["TK-B-1-1", _]] = FakeRuntime.calls(:submit)
+    test "Flow restarted mid-task is rebuilt from Facts alone and ends the task", c do
+      source(c, engine: AtlasFlow.Engine)
+      bin("B-1", "mini")
+      engine = engine(c)
+      Engine.idle(engine)
+      wait_until(fn -> match?({:ok, _}, Bases.cached(@repository, "develop")) end)
+      supervise(c, "ada")
+      Engine.round(engine)
+      %{lease_id: lease} = lease!(@mini)
+      assert {:recorded, _} = report(@mini, lease, 1, %{state: :accepted})
+
+      # Every process of Flow stops; what they knew is in Facts only.
+      for id <- [Engine, Delivery, Dispatch, Bases], do: stop_supervised!(id)
+      source(c, engine: AtlasFlow.Engine)
+      engine = engine(c)
+      Engine.idle(engine)
+
+      assert {:polled, %{lease_lost: []}} = poll(@mini, [lease], %{})
+      assert {:recorded, _} = report(@mini, lease, 2, L.ended(nil, check: check(0)))
+      # The run is stored before its write of the task's outcome is sent (intent first).
+      wait_until(fn -> run(c)["state"] == "done" and task_values()["state"] == "completed" end)
     end
   end
 
-  describe "the spec" do
-    test "a task names a repository and its base, never a path" do
-      {:task, spec} = Sorts.Authoring.mechanism("authoring")
+  describe "through the application" do
+    defmodule Probed do
+      @moduledoc """
+      The bench model, which tells the test whether Bases' table exists when the Engine
+      loads it (in its `init`, before its first round).
+      """
+      @behaviour AtlasFlow.Model
+      alias AtlasFlow.Activities.TaskTest.Bench
+
+      @impl true
+      def subflows(env) do
+        with {:registered_name, AtlasFlow.Engine} <- Process.info(self(), :registered_name),
+             test when is_pid(test) <- :persistent_term.get({__MODULE__, :test}, nil),
+             do: send(test, {:engine_init, :ets.whereis(AtlasFlow.Bases) != :undefined})
+
+        Bench.subflows(env)
+      end
+
+      @impl true
+      def runs, do: Bench.runs()
+      @impl true
+      def selection(name), do: Bench.selection(name)
+      @impl true
+      def migrations, do: Bench.migrations()
+      @impl true
+      def composition, do: Bench.composition()
+      @impl true
+      def actors, do: Bench.actors()
+      @impl true
+      def relations, do: Bench.relations()
+      def turn, do: Bench.turn()
+      def supervision, do: Bench.supervision()
+    end
+
+    test "configured, the work source starts before the Engine: its first round finds Bases",
+         c do
+      keys =
+        [atlas: :model, atlas: :actors, atlas_flow: :start, atlas_flow: :tick_seconds] ++
+          [atlas_flow: :work_source, atlas_flow: :results]
+
+      previous = for {app, key} <- keys, do: {app, key, Application.get_env(app, key)}
+      :persistent_term.put({Probed, :test}, self())
+      bin("B-1", "mini")
+      # The application starts its own result store.
+      stop_supervised!(Results)
+
+      try do
+        :ok = Application.stop(:atlas_flow)
+        Application.put_env(:atlas, :model, Probed)
+        Application.put_env(:atlas, :actors, @actors)
+        Application.put_env(:atlas_flow, :start, true)
+        Application.put_env(:atlas_flow, :tick_seconds, 3_600)
+        Application.put_env(:atlas_flow, :work_source, sweep_ms: nil, resync_ms: nil)
+        Application.put_env(:atlas_flow, :results, dir: Path.join(c.dir, "app"))
+        {:ok, _} = Application.ensure_all_started(:atlas_flow)
+
+        assert_receive {:engine_init, true}, 2_000
+        Engine.idle(AtlasFlow.Engine)
+
+        # Its first round asked Bases for the bin's base (no Code runs here, so it is
+        # unavailable now, not missing: Bases tried).
+        wait_until(fn -> Bases.cached(@repository, "develop") != :missing end)
+      after
+        Application.stop(:atlas_flow)
+        :persistent_term.erase({Probed, :test})
+
+        for {app, key, value} <- previous do
+          if value == nil,
+            do: Application.delete_env(app, key),
+            else: Application.put_env(app, key, value)
+        end
+
+        {:ok, _} = Application.ensure_all_started(:atlas_flow)
+      end
+    end
+  end
+
+  describe "the spec and the lease path's code" do
+    test "a task names a repository and its base reference, never a path" do
+      {:task, spec} = Bench.subflows(:prod) |> hd() |> then(& &1.mechanism("loading"))
       assert Task.valid?(spec)
+      assert spec["input"] == %{"repository" => @repository, "base" => "develop"}
       refute Task.valid?(put_in(spec, ["input", "path"], "/Users/someone/work"))
       refute Task.valid?(Map.put(spec, "input", %{"folder" => "/tmp/x", "base" => "develop"}))
       refute Task.valid?(Map.put(spec, "profile", "light_work"))
-      refute Task.valid?(Map.put(spec, "check", []))
       refute Task.valid?(Map.delete(spec, "records"))
+
+      # Never a URL: a scheme, or the `user@host:path` form, in either value.
+      for {key, url} <- [
+            {"repository", "https://example.org/acme/bench.git"},
+            {"repository", "git@example.org:acme/bench.git"},
+            {"base", "file:///srv/bench"}
+          ],
+          do: refute(Task.valid?(put_in(spec, ["input", key], url)), url)
     end
 
-    test "room: accepting, the profile available, and a free slot or buffer place" do
-      assert Task.room?(FakeRuntime.room(), "deep_coding")
-      refute Task.room?(FakeRuntime.full(), "deep_coding")
-      refute Task.room?(Map.put(FakeRuntime.room(), "accepting", false), "deep_coding")
+    test "the DSL refuses a task input with a folder or path key, or a URL" do
+      for input <- [
+            ~s([repository: "example.org/acme/x", base: "develop", path: "/w"]),
+            ~s([folder: "/tmp/x", base: "develop"]),
+            ~s([repository: "https://example.org/acme/x.git", base: "develop"]),
+            ~s([repository: "git@example.org:acme/x.git", base: "develop"])
+          ] do
+        source = """
+        defmodule AtlasFlow.Activities.TaskTest.Refused#{System.unique_integer([:positive])} do
+          use RelaDSL.Schema
 
-      refute Task.room?(
-               put_in(FakeRuntime.room(), ["profiles", "deep_coding", "available"], false),
-               "deep_coding"
-             )
+          subflow :sort, subject: :box do
+            run_as("system:depot")
+            owner(default: {:clerk, :ada})
+            start(:create)
+            initial(:a)
 
-      refute Task.room?(nil, "deep_coding")
+            state :a do
+              task(:author, role: :developer, profile: :deep_coding, input: #{input},
+                instructions: "x", records: [kind: "task", relation: "task_of"],
+                machinery: "machinery",
+                on: [completed: :b, check_failed: :b, stuck: :b, abandoned: :b])
+            end
+
+            final(:b)
+          end
+        end
+        """
+
+        assert_raise CompileError, fn -> Code.compile_string(source) end
+      end
+    end
+
+    test "no lib module names the push client, its Link or its machinery config" do
+      push = ~r/AtlasFlow\.Runtime\.(Client|Link|Config)\b/
+      own = ~w(client.ex link.ex config.ex client)
+
+      for path <- Path.wildcard(Path.expand("../../lib/**/*.ex", __DIR__)),
+          not (String.contains?(path, "/lib/atlas_flow/runtime/") and
+                 Path.basename(path) in own) do
+        refute File.read!(path) =~ push, path
+      end
     end
   end
 
-  defp at(text), do: text |> Run.parse!() |> DateTime.truncate(:second)
-
-  # The clerk's choice on the run's current entry, as Facts takes it.
-  defp choose(run, choice) do
-    {:stored, _} =
-      AtlasFlow.Talk.put("choice", %{
-        "op" => "submit",
-        "key" => "I-#{run["subject_key"]}-#{choice}-#{run["entry"]}",
-        "values" => %{
-          "run" => run["key"],
-          "entry" => run["entry"],
-          "roles" => ["clerk"],
-          "changed_fields" => %{"choice" => choice}
-        }
-      })
-  end
-
-  defp reconcile(c, key \\ "B-1", opts \\ []) do
-    {:ok, %{runs: known}} = Store.plan(c.c, c.flows)
-    now = ManualClock.now(c.clock)
-    {:ok, runs} = Store.reconcile_subjects(c.c, c.flows, now, known, [{"box", key}], opts)
-    assert [run] = Enum.filter(runs, &(&1["subject_key"] == key))
-    run
+  defp wait_until(fun, tries \\ 100) do
+    cond do
+      fun.() -> :ok
+      tries == 0 -> flunk("the condition did not hold")
+      true -> Process.sleep(20) && wait_until(fun, tries - 1)
+    end
   end
 end

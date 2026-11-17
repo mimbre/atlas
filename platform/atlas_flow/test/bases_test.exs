@@ -31,7 +31,8 @@ defmodule AtlasFlow.BasesTest do
 
   defp ready(context, reference \\ "develop") do
     :ok = Bases.request(@repository, reference, {self(), {:ready, reference}}, context.name)
-    assert_receive {:ready, ^reference}
+    # The base is resolved in Bases' own task: a loaded machine may take longer than 100 ms.
+    assert_receive {:ready, ^reference}, 2_000
     {:ok, base} = Bases.cached(@repository, reference, context.name)
     base
   end
@@ -318,6 +319,108 @@ defmodule AtlasFlow.BasesTest do
     end
   end
 
+  describe "pinned by snapshot (M3 A4)" do
+    defp bytes(context, sha, snapshot_id) do
+      assert {:ok, size, stream} = Bases.blob(sha, snapshot_id, context.name)
+      content = IO.iodata_to_binary(Enum.to_list(stream))
+      assert byte_size(content) == size
+      content
+    end
+
+    # The branch moves on: develop now names another revision with other files.
+    defp move(fake),
+      do:
+        FakeCode.put(fake, @repository, "develop", "rev_2", %{
+          "README.md" => "moved\n",
+          "bin/run" => "#!/bin/sh\necho moved\n"
+        })
+
+    test "after a restart, a lease's base is restored from its snapshot id, byte for byte, the branch moved",
+         context do
+      start_bases(context)
+      base = ready(context)
+      manifest = bytes(context, base.manifest, base.snapshot_id)
+      readme = bytes(context, sha256(@readme), base.snapshot_id)
+      run = bytes(context, sha256(@run), base.snapshot_id)
+
+      move(context.fake)
+      stop_supervised!(context.name)
+      start_bases(context)
+      assert Bases.names(base.manifest, context.name) == :not_found
+      resolved = count(context.fake, :resolve_reference)
+      snapshotted = count(context.fake, :create_snapshot)
+
+      assert :ok = Bases.restore(@repository, base.snapshot_id, base.manifest, context.name)
+      settle(context, fn -> match?({:ok, _}, Bases.names(base.manifest, context.name)) end)
+
+      # The same base: its manifest blob and its files, as they were before the move.
+      assert {:ok, names} = Bases.names(base.manifest, context.name)
+      assert names == Bases.names_of(base.manifest, JSON.decode!(manifest))
+      assert bytes(context, base.manifest, base.snapshot_id) == manifest
+      assert bytes(context, sha256(@readme), base.snapshot_id) == readme
+      assert bytes(context, sha256(@run), base.snapshot_id) == run
+
+      # From the snapshot id alone: no reference resolved, no snapshot made.
+      assert count(context.fake, :resolve_reference) == resolved
+      assert count(context.fake, :create_snapshot) == snapshotted
+      assert Bases.cached(@repository, "develop", context.name) == :missing
+
+      # The branch did move: a fresh request gives another base.
+      assert ready(context).manifest != base.manifest
+
+      # Restored again (it is held): nothing more is asked of Code.
+      calls = length(FakeCode.calls(context.fake))
+      assert :ok = Bases.restore(@repository, base.snapshot_id, base.manifest, context.name)
+      :sys.get_state(context.name)
+      assert length(FakeCode.calls(context.fake)) == calls
+    end
+
+    test "a snapshot that does not give the lease's manifest is not kept", context do
+      start_bases(context)
+      base = ready(context)
+      stop_supervised!(context.name)
+      start_bases(context)
+      other = String.duplicate("0", 64)
+
+      assert :ok = Bases.restore(@repository, base.snapshot_id, other, context.name)
+      # Its task answered, and nothing waits for a retry.
+      settle(context, fn -> :sys.get_state(context.name).pending == %{} end)
+      assert Bases.names(other, context.name) == :not_found
+      assert Bases.names(base.manifest, context.name) == :not_found
+    end
+
+    test "Code failing: the restore is tried again after 30 s", context do
+      start_bases(context)
+      base = ready(context)
+      stop_supervised!(context.name)
+      start_bases(context)
+      FakeCode.mode(context.fake, :failing)
+
+      assert :ok = Bases.restore(@repository, base.snapshot_id, base.manifest, context.name)
+      # Its task answered: the restore waits for its retry.
+      settle(context, fn ->
+        match?([%{status: :waiting}], Map.values(:sys.get_state(context.name).pending))
+      end)
+
+      assert Bases.names(base.manifest, context.name) == :not_found
+
+      FakeCode.mode(context.fake, :ok)
+      ManualClock.advance(context.clock, 30_000)
+      settle(context, fn -> match?({:ok, _}, Bases.names(base.manifest, context.name)) end)
+      assert count(context.fake, :resolve_reference) == 1
+    end
+
+    test "with Bases not running, a restore is :ok and nothing raises", context do
+      assert :ok =
+               Bases.restore(
+                 @repository,
+                 "sha256:" <> String.duplicate("a", 64),
+                 "x",
+                 context.name
+               )
+    end
+  end
+
   describe "no caller waits on Code" do
     test "with Code blocked, cached/3 and request/4 answer at once and never call Code",
          context do
@@ -344,8 +447,8 @@ defmodule AtlasFlow.BasesTest do
 
       FakeCode.mode(context.fake, :ok)
       FakeCode.release(context.fake)
-      assert_receive :first
-      assert_receive :second
+      assert_receive :first, 2_000
+      assert_receive :second, 2_000
       assert {:ok, _base} = Bases.cached(@repository, "develop", context.name)
       assert count(context.fake, :resolve_reference) == 1
       refute Enum.any?(FakeCode.calls(context.fake), &(elem(&1, 1) in [caller_pid, self()]))
@@ -367,7 +470,7 @@ defmodule AtlasFlow.BasesTest do
 
       FakeCode.mode(context.fake, :ok)
       ManualClock.advance(context.clock, 30_000)
-      assert_receive :ready
+      assert_receive :ready, 2_000
       assert {:ok, _base} = Bases.cached(@repository, "develop", context.name)
     end
 
@@ -392,8 +495,8 @@ defmodule AtlasFlow.BasesTest do
       refute_received :first
 
       ManualClock.advance(context.clock, 1)
-      assert_receive :first
-      assert_receive :second
+      assert_receive :first, 2_000
+      assert_receive :second, 2_000
       assert {:ok, _base} = Bases.cached(@repository, "develop", context.name)
     end
 

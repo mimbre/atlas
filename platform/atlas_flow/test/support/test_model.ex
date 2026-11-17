@@ -144,7 +144,7 @@ defmodule AtlasFlow.TestModel.Watch do
         task(:author,
           role: :developer,
           profile: :deep_coding,
-          input: [repository: "https://example.invalid/watch.git", base: "develop"],
+          input: [repository: "example.invalid/watch", base: "develop"],
           instructions: "Load the bin.",
           fields: [:step],
           records: [kind: "task", relation: "task_of"],

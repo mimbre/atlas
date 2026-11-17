@@ -57,7 +57,8 @@ defmodule RelaDSL.Schema do
   | `task` | `task_result`, or `field:` | `completed`, `check_failed`, `stuck`, `abandoned` |
 
   A `task` is one unit of work Flow defines for the machinery the subject is assigned
-  to, and hands to its Runtime (`AtlasFlow.Activities.Task`). Its result is the run's
+  to, which a Runtime of the flow's supervisor takes from Flow's work source
+  (`AtlasFlow.Activities.Task`). Its result is the run's
   own: Flow never writes it on the subject, so the field is not reset on entry, and only
   its branches (of the role `atlas-flow`) read it. Nothing is done while the subject is
   not assigned to a machinery.
@@ -66,7 +67,7 @@ defmodule RelaDSL.Schema do
         role: :developer,
         profile: :deep_coding,
         cost_class: :standard,
-        input: [repository: "https://example.invalid/repo.git", base: "develop"],
+        input: [repository: "example.invalid/repo", base: "develop"],
         check: ["bin/check"],
         instructions: "Build what the package says.",
         fields: [:title, :instructions],
@@ -77,8 +78,11 @@ defmodule RelaDSL.Schema do
 
   `kind` is `plan`, `author`, `review` or `fix`; `role` `architect` or `developer`;
   `profile` `deep_coding` or `independent_review`; `cost_class` `low`, `standard` (the
-  default) or `high`. `input` is where the work starts: a repository and its base. It
-  never names a path on the machinery's machine, which the Runtime chooses (its D44).
+  default) or `high`. `input` is where the work starts: `repository` is a Code
+  repository's name (as Code's settings name it) and `base` the reference its base is
+  resolved from, by Flow, in Code (M3 plan Q11). Neither is a URL, and neither is sent to
+  the Runtime, which gets the resolved base only. It never names a path on the
+  machinery's machine, which the Runtime chooses (its D44).
   `check` is the command (argv) run after the work, `instructions` the standard text,
   and `fields` the subject's fields added to it. `records` names the kind and relation
   of its task records, `machinery` the kind of the assignee it runs for.
@@ -1235,12 +1239,14 @@ defmodule RelaDSL.Schema do
         pre <> "profile: must be one of #{list(@task_profiles)}",
       spec[:cost_class] not in @task_costs &&
         pre <> "cost_class: must be one of #{list(@task_costs)}",
-      not (Keyword.keyword?(input || []) and input != nil and
-             Enum.sort(Keyword.keys(input)) == [:base, :repository] and
-             text?.(input[:repository]) and text?.(input[:base])) &&
+      input_problem(input) == :input_shape &&
         pre <>
-          "input: must be [repository: url, base: ref]; a task never names a path on the " <>
+          "input: must be [repository: name, base: ref]; a task never names a path on the " <>
           "machinery's machine",
+      input_problem(input) == :input_url &&
+        pre <>
+          "input: repository and base are a Code repository's name and a reference, " <>
+          "never a URL",
       not (spec[:check] == nil or
              (is_list(spec[:check]) and spec[:check] != [] and Enum.all?(spec[:check], text?))) &&
         pre <> "check: must be a command, a list of texts",
@@ -1255,6 +1261,37 @@ defmodule RelaDSL.Schema do
     ]
     |> Enum.filter(& &1)
   end
+
+  @doc """
+  What is wrong with a task's `input`, as a tag a test compares (never the text): nil
+  when it is `[repository: name, base: ref]` with two texts and neither is a URL;
+  `:input_shape` when it has other keys (a `path` or `folder` above all) or is no such
+  keyword list; `:input_url` when either value is a URL (a scheme, such as `https:`, or
+  the `user@host:path` form). A Code repository's name (`github.com/owner/repo`) and a
+  reference (`develop`) hold no `:`.
+  """
+  @spec input_problem(term()) :: nil | :input_shape | :input_url
+  def input_problem(input) do
+    text? = &(is_binary(&1) and String.trim(&1) != "")
+
+    cond do
+      not (is_list(input) and input != [] and Keyword.keyword?(input) and
+             Enum.sort(Keyword.keys(input)) == [:base, :repository] and
+             text?.(input[:repository]) and text?.(input[:base])) ->
+        :input_shape
+
+      Enum.any?([input[:repository], input[:base]], &url?/1) ->
+        :input_url
+
+      true ->
+        nil
+    end
+  end
+
+  defp url?(value),
+    do:
+      Regex.match?(~r/^[A-Za-z][A-Za-z0-9+.-]*:/, value) or
+        Regex.match?(~r/^[^\/]*@[^\/]*:/, value)
 
   defp also({s, ps}, earlier), do: {s, earlier ++ ps}
 
