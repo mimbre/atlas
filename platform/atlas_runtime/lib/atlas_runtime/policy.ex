@@ -34,6 +34,16 @@ defmodule AtlasRuntime.Policy do
   @model ~r/\A[A-Za-z0-9][A-Za-z0-9._:\/\[\]-]{0,199}\z/
   @provider ~r/\A[a-z][a-z0-9_-]{0,63}\z/
   @profile ~r/\A[a-z][a-z0-9_]{0,63}\z/
+  # A source name is one path segment (`sources/<name>/`) and part of its client id
+  # (`source:<name>`), so it is a plain lower-case name and never `.`, `..` or a path.
+  @source ~r/\A[a-z][a-z0-9_-]{0,63}\z/
+  # Decision §5.5: only the built-in local work source is `builtin`; every other one is
+  # `remote`, reached over https with its own credential file.
+  @builtin_source "local"
+  @source_keys %{
+    "builtin" => ~w(name kind priority max_slots max_store_bytes),
+    "remote" => ~w(name kind url credential_file priority max_slots max_store_bytes)
+  }
 
   @type loaded :: {:ok, map()} | {:error, :missing | {:invalid, String.t()}}
   @type option :: %{String.t() => String.t()}
@@ -74,6 +84,15 @@ defmodule AtlasRuntime.Policy do
   @spec slots(loaded()) :: [String.t()]
   def slots({:ok, %{"slots" => slots}}), do: slots
   def slots(_), do: @default_slots
+
+  @doc """
+  The configured work sources (decision §5.5), sorted by `priority`, lowest first: the
+  order in which free slots are offered. Each entry is as written in the file (string
+  keys); `load/1` has checked it. `[]` without a `sources` key or without a valid policy.
+  """
+  @spec sources(loaded()) :: [%{String.t() => term()}]
+  def sources({:ok, %{"sources" => sources}}), do: Enum.sort_by(sources, & &1["priority"])
+  def sources(_), do: []
 
   @doc "Accepted work that may wait for a slot; by default one per slot (design §2)."
   @spec buffer_size(loaded()) :: non_neg_integer()
@@ -402,7 +421,7 @@ defmodule AtlasRuntime.Policy do
     end
   end
 
-  @top ~w(version changed_by changed_at buffer_size slots independence profiles)
+  @top ~w(version changed_by changed_at buffer_size slots independence profiles sources)
   @profile_keys ~w(permissions cost_classes options limits allow_after_check)
   @limit_keys ~w(max_duration max_check_timeout)
 
@@ -421,15 +440,95 @@ defmodule AtlasRuntime.Policy do
       {is_map(policy["profiles"]), "profiles must be an object"}
     ]
 
-    with :ok <- first_failure(checks) do
-      Enum.reduce_while(policy["profiles"], :ok, fn {name, profile}, :ok ->
-        case profile(name, profile) do
-          :ok -> {:cont, :ok}
-          error -> {:halt, error}
-        end
-      end)
+    with :ok <- first_failure(checks),
+         :ok <-
+           Enum.reduce_while(policy["profiles"], :ok, fn {name, profile}, :ok ->
+             case profile(name, profile) do
+               :ok -> {:cont, :ok}
+               error -> {:halt, error}
+             end
+           end) do
+      sources_valid(Map.get(policy, "sources", []))
     end
   end
+
+  # Decision §5.5. Each entry alone first, then what holds across entries.
+  defp sources_valid(sources) when is_list(sources) do
+    with :ok <- each_source(sources) do
+      first_failure(
+        [
+          {unique?(sources, "name"), "source names must be unique"},
+          {unique?(sources, "priority"), "source priorities must be unique"}
+        ],
+        "sources: "
+      )
+    end
+  end
+
+  defp sources_valid(_), do: {:error, {:invalid, "sources must be a list"}}
+
+  defp each_source(sources) do
+    sources
+    |> Enum.with_index()
+    |> Enum.reduce_while(:ok, fn {source, index}, :ok ->
+      case source(source) do
+        :ok -> {:cont, :ok}
+        {:error, {:invalid, why}} -> {:halt, {:error, {:invalid, "sources[#{index}]: " <> why}}}
+      end
+    end)
+  end
+
+  defp source(%{"name" => name, "kind" => kind} = source) when is_map_key(@source_keys, kind) do
+    keys = @source_keys[kind]
+
+    first_failure([
+      {is_binary(name) and Regex.match?(@source, name), "invalid source name"},
+      {Enum.sort(Map.keys(source)) == Enum.sort(keys),
+       "a #{kind} source has exactly the fields #{Enum.join(keys, ", ")}"},
+      {kind == "builtin" == (name == @builtin_source),
+       "only #{inspect(@builtin_source)} is builtin, and it is never remote"},
+      {kind == "builtin" or https?(source["url"]), "url must be an https:// URL with a host"},
+      {kind == "builtin" or credential_file?(source["credential_file"], name),
+       "credential_file must be a relative path under sources/#{name}/"},
+      {is_integer(source["priority"]), "priority must be an integer"},
+      {is_integer(source["max_slots"]) and source["max_slots"] >= 0,
+       "max_slots must be a non-negative integer"},
+      {positive?(source["max_store_bytes"]), "max_store_bytes must be a positive integer"}
+    ])
+  end
+
+  defp source(_),
+    do: {:error, {:invalid, "a source needs a name and a kind, builtin or remote"}}
+
+  defp unique?(entries, key) do
+    values = Enum.map(entries, & &1[key])
+    Enum.uniq(values) == values
+  end
+
+  # Only TLS (decision §3, §6.2): no plaintext scheme, no scheme-relative or host-less URL.
+  defp https?(url) when is_binary(url) do
+    case URI.parse(url) do
+      %URI{scheme: "https", host: host} when is_binary(host) and host != "" ->
+        String.starts_with?(url, "https://")
+
+      _ ->
+        false
+    end
+  end
+
+  defp https?(_), do: false
+
+  # Relative to the Runtime home and inside that source's own directory: every segment is
+  # a plain name, so neither `..`, `.`, an empty segment nor an absolute path can leave it.
+  defp credential_file?(path, name) when is_binary(path) do
+    segments = String.split(path, "/")
+
+    Path.type(path) == :relative and not String.contains?(path, <<0>>) and
+      match?(["sources", ^name, _ | _], segments) and
+      Enum.all?(segments, &(&1 not in ["", ".", ".."]))
+  end
+
+  defp credential_file?(_, _), do: false
 
   defp profile(name, profile) do
     first_failure(
