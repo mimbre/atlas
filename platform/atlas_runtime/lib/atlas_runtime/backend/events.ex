@@ -21,6 +21,12 @@ defmodule AtlasRuntime.Backend.Events do
   emits (§3.6); written like any other, it also keeps proxies from dropping the
   connection, and a client that left is noticed at the next write, which ends the loop.
   When the listener stops, the loop ends with it, quietly.
+
+  On the loopback TCP listener (S3 plan B3) the conn carries a re-check of its client
+  (`conn.private.atlas_runtime_recheck`, set by `AtlasRuntime.Backend.TcpListener`). At
+  every heartbeat, before writing it, the loop calls it, and ends the stream when the
+  token was revoked or its rights changed: within one heartbeat of the edit. A stream on
+  the socket has no re-check; its client is the socket's owner.
   Visibility, the window and the heartbeat's content are the implementation's; this loop
   decides nothing.
   """
@@ -35,9 +41,17 @@ defmodule AtlasRuntime.Backend.Events do
       {:atlas_runtime_work, value} ->
         case router.__event__(value) do
           {:ok, frame} ->
-            case Plug.Conn.chunk(conn, frame) do
-              {:ok, conn} -> stream(conn, router, parent)
-              {:error, _closed} -> conn
+            if heartbeat?(frame) and not permitted?(conn) do
+              Logger.info(
+                "#{inspect(__MODULE__)}: stream ended; its client was revoked or changed"
+              )
+
+              conn
+            else
+              case Plug.Conn.chunk(conn, frame) do
+                {:ok, conn} -> stream(conn, router, parent)
+                {:error, _closed} -> conn
+              end
             end
 
           :error ->
@@ -62,6 +76,17 @@ defmodule AtlasRuntime.Backend.Events do
 
       {:EXIT, _from, reason} ->
         exit(reason)
+    end
+  end
+
+  defp heartbeat?(frame),
+    do: String.starts_with?(IO.iodata_to_binary(frame), "event: heartbeat\n")
+
+  # The client the stream was opened for still holds, with the same rights.
+  defp permitted?(conn) do
+    case conn.private do
+      %{atlas_runtime_recheck: recheck} -> recheck.()
+      _ -> true
     end
   end
 

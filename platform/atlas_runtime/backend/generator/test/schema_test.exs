@@ -243,6 +243,152 @@ defmodule AtlasRuntimeBackend.Generator.SchemaTest do
       )
     end
 
+    test "etag:" do
+      # The valid resources, with `resource` in place of find_book's.
+      with_etag = fn resource ->
+        """
+            resource :post, "/v1/books", capability: :lend, body: :input
+            #{resource}
+            resource :get, "/v1/books", capability: :search, query: [title: :title]
+            resource :get, "/v1/books", capability: :list_books, query: [limit: :limit]
+            resource :post, "/v1/books/:book_id/return", capability: :give_back, body: [:note]
+            resource :get, "/v1/count", capability: :count
+        """
+      end
+
+      found_book =
+        ~s(    status :lent, 201\n    status :busy, 503, type: "busy"\n    status :refused, by: :reason, cases: [invalid: {400, "invalid"}, taken: {409, "taken"}, not_permitted: {403, "not-permitted"}]\n    status :found, 200, body: :book\n    status :missing, 404, type: "not-found"\n    status :listed, 200\n    status :returned, 200\n    status :counted, 200\n)
+
+      # Valid: the body: entity's integer field, and an outcome's own integer field.
+      assert [{_, _}] =
+               compile(
+                 resources:
+                   with_etag.(
+                     ~s(resource :get, "/v1/books/:book_id", capability: :find_book, etag: :edition)
+                   ),
+                 statuses: found_book
+               )
+
+      assert [{module, _}] =
+               compile(
+                 resources:
+                   String.replace(
+                     with_etag.(~s(resource :get, "/v1/books/:book_id", capability: :find_book)),
+                     ~s(capability: :count),
+                     ~s(capability: :count, etag: :total)
+                   )
+               )
+
+      assert [%{capability: :count, etag: :total}] =
+               for(r <- hd(module.__schema__().targets).resources, r.etag, do: r)
+
+      # No integer: a text field.
+      fails(
+        [
+          resources:
+            with_etag.(
+              ~s(resource :get, "/v1/books/:book_id", capability: :find_book, etag: :title)
+            ),
+          statuses: found_book
+        ],
+        "etag: :title is no required integer field of :book, which outcome :found sends"
+      )
+
+      # Not what the success outcome sends: without body:, found sends {book}.
+      fails(
+        [
+          resources:
+            with_etag.(
+              ~s(resource :get, "/v1/books/:book_id", capability: :find_book, etag: :edition)
+            )
+        ],
+        "etag: :edition is no required integer field of :found, which outcome :found sends"
+      )
+
+      # A field of another outcome than the success one.
+      defmodule MissingWithCounts do
+        def __schema__ do
+          schema = AtlasRuntimeBackend.Generator.Example.Boundary.__schema__()
+
+          capabilities =
+            for c <- schema.capabilities do
+              if c.name == :find_book,
+                do: %{
+                  c
+                  | outcomes: [%{name: :found, model: :found}, %{name: :busy, model: :busy}]
+                },
+                else: c
+            end
+
+          %{schema | capabilities: capabilities}
+        end
+      end
+
+      fails(
+        [
+          boundary: inspect(MissingWithCounts),
+          resources:
+            with_etag.(
+              ~s(resource :get, "/v1/books/:book_id", capability: :find_book, etag: :retry_after)
+            ),
+          statuses: found_book
+        ],
+        "etag: :retry_after is no required integer field of :book, which outcome :found sends"
+      )
+
+      # The success outcome is not one: two outcomes below 400.
+      fails(
+        [
+          resources:
+            with_etag.(
+              ~s(resource :get, "/v1/books/:book_id", capability: :find_book, etag: :edition)
+            ),
+          statuses:
+            String.replace(
+              found_book,
+              ~s(status :missing, 404, type: "not-found"),
+              "status :missing, 200"
+            )
+        ],
+        "capability :find_book needs exactly one outcome with a single status below 400"
+      )
+
+      fails(
+        [
+          resources:
+            String.replace(
+              with_etag.(~s(resource :get, "/v1/books/:book_id", capability: :find_book)),
+              ~s(capability: :lend, body: :input),
+              ~s(capability: :lend, body: :input, etag: :edition)
+            ),
+          statuses: found_book
+        ],
+        "resource post /v1/books: etag: goes with a GET"
+      )
+
+      fails(
+        [
+          resources:
+            with_etag.(
+              ~s(resource :get, "/v1/books/:book_id", capability: :find_book, etag: "edition")
+            ),
+          statuses: found_book
+        ],
+        ~s(etag: is a field name, got "edition")
+      )
+    end
+
+    test "a header with a fixed text" do
+      assert [{module, _}] =
+               compile(
+                 statuses:
+                   ~s(    status :lent, 201, header: ["Replayed": "true"]\n    status :busy, 503, type: "busy"\n    status :refused, by: :reason, cases: [invalid: {400, "invalid"}, taken: {409, "taken"}, not_permitted: {403, "not-permitted"}]\n    status :found, 200\n    status :missing, 404, type: "not-found"\n    status :listed, 200\n    status :returned, 200\n    status :counted, 200\n)
+               )
+
+      assert %{headers: [{"replayed", "true"}]} =
+               Enum.find(hd(module.__schema__().targets).statuses, &(&1.outcome == :lent))
+    end
+
     test "two resources with the same method and path that nothing tells apart" do
       fails(
         [

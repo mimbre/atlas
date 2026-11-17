@@ -54,6 +54,23 @@ defmodule AtlasRuntime.Work.BaseWorkspaceTest do
     end
   end
 
+  # S3 (D44) gates naming a path on this machine (a folder workspace) on choose_path. A base
+  # names none: the Runtime chooses its folder, so the TCP ceiling (no choose_path) submits one.
+  test "a client without choose_path submits a base, which runs in the Runtime-chosen folder",
+       %{bench: bench, code: code} do
+    tcp = {"token:t", [:submit, :cancel, :read, :read_all]}
+
+    assert %F.Outcome.Accepted{work: work} =
+             F.submit(tcp, base_request(code, "complete without choose_path"))
+
+    done = await_state(work.work_id, :completed, tcp)
+    folder = expected_folder(bench.dir, work.work_id)
+    [%{turn_id: turn_id} = attempt] = done.attempts
+    assert attempt.result.kind == :completed
+    assert turn(bench, turn_id)["cwd"] == folder
+    assert %{folder: ^folder} = private_attempt(bench.dir, work.work_id, 1)
+  end
+
   test "workspace-write: the base is materialized into <home>/workers/work-<work_id> before the turn, which runs there as materialized-folder",
        %{bench: bench, code: code} do
     work = submit_base!(code, "complete in a base folder")

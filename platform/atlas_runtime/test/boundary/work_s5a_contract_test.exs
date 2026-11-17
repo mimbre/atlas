@@ -30,6 +30,10 @@ defmodule AtlasRuntime.Boundary.WorkS5aContractTest do
   # The core's private S5a fields (I-M5) and the work's pinned source: never public.
   @private [:source, :checking, :check_pgid, :folder, :preparing, :prepare_pid]
 
+  # S3 (D44): the core's translation takes the caller's rights. With choose_path (as the
+  # socket's client) a work keeps its paths, as the generated translation does.
+  @paths [:submit, :cancel, :read, :choose_path]
+
   defp req(workspace, extra \\ %{}) do
     Map.merge(
       %{
@@ -217,7 +221,7 @@ defmodule AtlasRuntime.Boundary.WorkS5aContractTest do
            %F.FromWork{work_id: "work-0", attempt: nil, permissions: :"read-only"}}
         ] do
       record = full_record(workspace)
-      work = Translation.from_model(record)
+      work = Translation.from_model(record, @paths)
 
       assert %F.Work{request: request, attempts: [attempt]} = work
       assert request.workspace == public
@@ -263,7 +267,7 @@ defmodule AtlasRuntime.Boundary.WorkS5aContractTest do
     assert work.request.workspace == %F.Base{base_id: @base_id, permissions: :"workspace-write"}
 
     [attempt] = work.attempts
-    [expected] = Translation.from_model(record).attempts
+    [expected] = Translation.from_model(record, @paths).attempts
     assert attempt.result.work_product == expected.result.work_product
     assert attempt.timestamps == expected.timestamps
 
@@ -362,6 +366,10 @@ defmodule AtlasRuntime.Boundary.WorkS5aContractTest do
          %{bench: bench} do
       before = files(bench.dir)
 
+      # client() holds choose_path, as the socket's client does, so it gets each refusal's
+      # detail (S3, D44); a client without it gets the reason only (below).
+      assert :choose_path in elem(client(), 1)
+
       assert %F.Outcome.Refused{
                reason: :unsupported_workspace,
                detail: "from_work not available"
@@ -379,6 +387,22 @@ defmodule AtlasRuntime.Boundary.WorkS5aContractTest do
 
       assert %F.Outcome.Refused{reason: :invalid, detail: "after_check not available"} =
                F.submit(client(), folder)
+
+      # S3 (D44): the TCP ceiling has no choose_path, so the same refusals carry no detail.
+      tcp = {"token:t", [:submit, :cancel, :read, :read_all]}
+
+      assert %F.Outcome.Refused{reason: :unsupported_workspace, detail: nil} =
+               F.submit(tcp, req(from_work()))
+
+      repository = %{
+        kind: "repository",
+        url: "https://example.invalid/r.git",
+        branch: "b",
+        base: "develop"
+      }
+
+      assert %F.Outcome.Refused{reason: :invalid, detail: nil} =
+               F.submit(tcp, req(repository, %{after_check: %{command: ["bin/check"]}}))
 
       assert files(bench.dir) == before
       assert %F.Outcome.Works{works: []} = F.list_work(client(), %{})

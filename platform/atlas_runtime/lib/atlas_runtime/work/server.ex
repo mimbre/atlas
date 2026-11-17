@@ -252,14 +252,14 @@ defmodule AtlasRuntime.Work.Server do
           end
 
         record ->
-          %B.Outcome.Found{work: Translation.from_model(record)}
+          %B.Outcome.Found{work: view(record, client)}
       end
 
     {:reply, outcome, state}
   end
 
   def handle_call(
-        {:find_work, {client_id, _} = _client, %B.FindWorkInput{client_key: key}},
+        {:find_work, {client_id, _} = client, %B.FindWorkInput{client_key: key}},
         _from,
         state
       ) do
@@ -274,7 +274,7 @@ defmodule AtlasRuntime.Work.Server do
         entry ->
           case state.works[entry.work_id] do
             nil -> %B.Outcome.NotFound{}
-            record -> %B.Outcome.Found{work: Translation.from_model(record)}
+            record -> %B.Outcome.Found{work: view(record, client)}
           end
       end
 
@@ -287,7 +287,7 @@ defmodule AtlasRuntime.Work.Server do
       |> Map.values()
       |> Enum.filter(&Notifications.sees?(client, &1.client))
       |> Enum.filter(&(is_nil(input.changed_since) or &1.sequence > input.changed_since))
-      |> Enum.map(&Translation.from_model/1)
+      |> Enum.map(&view(&1, client))
       |> Enum.filter(&(is_nil(input.state) or &1.state == input.state))
       |> Enum.sort_by(& &1.sequence)
 
@@ -498,23 +498,39 @@ defmodule AtlasRuntime.Work.Server do
 
   ## Submit (§3.2, §3.3)
 
-  defp submit(state, {client_id, rights} = client, input) do
+  defp submit(state, {_client_id, rights} = client, input) do
+    cond do
+      input.slot && not Enum.member?(rights, :choose_slot) ->
+        refused(state, :not_permitted, "naming a slot needs the right choose_slot")
+
+      # D44: only a client holding choose_path (the socket's) names a path on this machine.
+      match?(%B.Folder{}, input.workspace) and not Enum.member?(rights, :choose_path) ->
+        refused(state, :not_permitted, "a folder workspace needs the right choose_path")
+
+      # The contract leaves folder.path optional (a work shows it only with choose_path);
+      # a request must name it.
+      match?(%B.Folder{path: nil}, input.workspace) ->
+        refused(state, :invalid, "a folder workspace needs its path")
+
+      true ->
+        admit(state, client, input)
+    end
+  end
+
+  defp admit(state, {client_id, _rights} = client, input) do
     policy = Policy.load(state.dir)
     key = input.client_key
     entry = key && state.index[{client_id, key}]
     request = Translation.to_model(input)
 
     cond do
-      input.slot && not Enum.member?(rights, :choose_slot) ->
-        refused(state, :not_permitted, "naming a slot needs the right choose_slot")
-
       entry && entry.pruned ->
         refused(state, :conflict, "client key #{key} named work #{entry.work_id}, pruned")
 
       entry ->
         case state.works[entry.work_id] do
           %{request: ^request} = record ->
-            {:reply, %B.Outcome.Existing{work: Translation.from_model(record)}, state}
+            {:reply, %B.Outcome.Existing{work: view(record, client)}, state}
 
           _ ->
             refused(state, :conflict, "client key #{key} names another request")
@@ -551,7 +567,7 @@ defmodule AtlasRuntime.Work.Server do
         with {:ok, resume} <- resume_from(state, client, input),
              {:ok, _selection} <- check_policy(state, policy, request, resume),
              true <- room?(state) || {:full} do
-          create(state, client_id, key, request, resume)
+          create(state, client, key, request, resume)
         else
           {:refused, reason, detail} -> refused(state, reason, detail)
           {:at_capacity, reason, _} -> {:reply, at_capacity(state, reason), state}
@@ -579,7 +595,7 @@ defmodule AtlasRuntime.Work.Server do
     end
   end
 
-  defp create(state, client_id, key, request, resume) do
+  defp create(state, {client_id, _rights} = client, key, request, resume) do
     id = "work-" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
     now = now()
 
@@ -618,7 +634,7 @@ defmodule AtlasRuntime.Work.Server do
         state
       end
 
-    {:reply, %B.Outcome.Accepted{work: Translation.from_model(state.works[id])}, state}
+    {:reply, %B.Outcome.Accepted{work: view(state.works[id], client)}, state}
   end
 
   ## Retry (§3.2 retry table)
@@ -627,6 +643,9 @@ defmodule AtlasRuntime.Work.Server do
     case visible(state, client, input.work_id) do
       nil ->
         {%B.Outcome.NotFound{}, state}
+
+      record when record.client != elem(client, 0) ->
+        not_owner(state)
 
       record ->
         current = Queue.current(record)
@@ -661,8 +680,7 @@ defmodule AtlasRuntime.Work.Server do
           true ->
             state = add_attempt(state, record, current, rule, resume)
 
-            {%B.Outcome.Accepted{work: Translation.from_model(state.works[record.work_id])},
-             state}
+            {%B.Outcome.Accepted{work: view(state.works[record.work_id], client)}, state}
         end
     end
   end
@@ -719,6 +737,9 @@ defmodule AtlasRuntime.Work.Server do
       nil ->
         {%B.Outcome.NotFound{}, state}
 
+      record when record.client != elem(client, 0) ->
+        not_owner(state)
+
       record ->
         current = Queue.current(record)
         id = record.work_id
@@ -742,7 +763,7 @@ defmodule AtlasRuntime.Work.Server do
 
         record = state.works[id]
         current = Queue.current(record)
-        work = Translation.from_model(record)
+        work = view(record, client)
 
         outcome =
           if current.state == :cancelling,
@@ -1947,8 +1968,17 @@ defmodule AtlasRuntime.Work.Server do
     end
   end
 
+  # A work as this client may see it: paths on this machine only with choose_path (D44).
+  defp view(record, {_id, rights}), do: Translation.from_model(record, rights)
+
   defp refused(state, reason, detail),
     do: {:reply, %B.Outcome.Refused{reason: reason, detail: detail}, state}
+
+  # §3.2 Ownership: retry and cancel act only on the caller's own work. A work another
+  # client owns is visible here only through read_all, which grants reading, never acting.
+  defp not_owner(state),
+    do:
+      {%B.Outcome.Refused{reason: :not_permitted, detail: "the work is another client's"}, state}
 
   # nil once the work is gone (a timer may outlive a pruned work).
   defp attempt_of(state, id, n) do
