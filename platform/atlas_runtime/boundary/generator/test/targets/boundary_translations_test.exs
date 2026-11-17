@@ -363,8 +363,34 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.BoundaryTranslationsTest do
     end
   end
 
-  defp stream_facade(options) do
+  describe "a :stream input field (S5c)" do
+    test "a mapping onto its input model fails at the mapping's line, either direction" do
+      for options <- ["supply: [:content]", "direction: :from_model, supply: [:content]"] do
+        error =
+          assert_raise CompileError,
+                       ~r/defmapping :shelf_spot -> :scan: scan.content is the :stream of an input; an input's stream reaches the implementation unread, so no mapping takes it/,
+                       fn -> stream_facade(options, :input) end
+
+        assert error.line == 13
+      end
+    end
+  end
+
+  defp stream_facade(options, role \\ :outcome) do
     n = System.unique_integer([:positive])
+
+    {capability, implementation} =
+      case role do
+        :outcome ->
+          {"defcapability :get, outcomes: [got: :scan], right: :r",
+           "def get(_client), do: %StreamFacade#{n}.Outcome.Got{row: 1, content: []}"}
+
+        :input ->
+          {"defcapability :put, input: :scan, outcomes: [ok: nil], right: :r",
+           "def put(_client, _input), do: %StreamFacade#{n}.Outcome.Ok{}"}
+      end
+
+    options = if role == :outcome, do: "direction: :from_model, " <> options, else: options
 
     Code.compile_string("""
     defmodule StreamContract#{n} do
@@ -374,12 +400,12 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.BoundaryTranslationsTest do
         field :row, :integer, required: true
         field :content, :stream, required: true
       end
-      defcapability :get, outcomes: [got: :scan], right: :r
+      #{capability}
     end
 
     defmodule StreamMappings#{n} do
       use AtlasRuntimeBoundary.Generator.Mappings
-      defmapping :shelf_spot, :scan, direction: :from_model, #{options}
+      defmapping :shelf_spot, :scan, #{options}
     end
 
     defmodule StreamFacade#{n} do
@@ -393,7 +419,7 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.BoundaryTranslationsTest do
     defmodule StreamDesk#{n} do
       use StreamFacade#{n}.Implementation
       @impl true
-      def get(_client), do: %StreamFacade#{n}.Outcome.Got{row: 1, content: []}
+      #{implementation}
     end
     """)
 

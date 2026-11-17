@@ -72,7 +72,11 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Boundary do
     caller, as the facade receives it and passes it on.
 
   A `:stream` field has the type `Enumerable.t()`. Its struct's `dump/1` raises
-  `ContractError`: a stream is sent as bytes, never as JSON.
+  `ContractError`: a stream is sent as bytes, never as JSON. In an input (S5c, an upload)
+  it is checked the same way: `new/1` and the facade take any `Enumerable` there and keep
+  the same term, never enumerated, so the implementation reads it; a binary, a list that
+  is not of binary chunks, or a missing value does not validate (step 3). A mapping onto
+  such an input model is a `CompileError`: its stream is never translated.
 
   **Compile-time checks.** The first is `use F.Implementation`'s `@before_compile` check
   above, run whenever the implementation compiles. As a backstop, the facade registers an

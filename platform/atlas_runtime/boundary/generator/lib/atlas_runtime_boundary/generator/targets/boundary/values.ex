@@ -9,9 +9,11 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Boundary.Values do
   `{:map, type}` or `:stream`.
 
   A `:stream` value is anything that implements `Enumerable` (a list, a `Stream`, a
-  `File.Stream`, a function of arity 2), except a plain map. It is checked without being
-  enumerated, and passed on as it is. `dump/1` refuses to dump a struct with a stream in
-  it: a stream is sent as bytes, never as JSON.
+  `File.Stream`, a function of arity 2), except a plain map, a binary, or a list that is
+  not a proper list of binaries (a list is already in memory, so its chunks are looked
+  at). Any other stream is checked without being enumerated, and passed on as it is, in an
+  input as in an outcome. `dump/1` refuses to dump a struct with a stream in it: a stream
+  is sent as bytes, never as JSON.
   """
 
   alias AtlasRuntimeBoundary.Generator.{ContractError, InvalidInput, NotPermitted}
@@ -233,11 +235,14 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Boundary.Values do
     end
   end
 
-  # Never enumerated: only its type is looked at.
+  # Never enumerated: only its type is looked at (a list's chunks, which are in memory).
   defp value(:stream, value, at, _mode) do
     cond do
       is_map(value) and not is_struct(value) ->
         {:error, ["#{at} must be a stream (an Enumerable), got a map"]}
+
+      is_list(value) and not chunks?(value) ->
+        {:error, ["#{at} must be a stream of binary chunks, got #{inspect(value)}"]}
 
       is_function(value) and not is_function(value, 2) ->
         {:error, ["#{at} must be a stream (an Enumerable), got a function of another arity"]}
@@ -332,6 +337,11 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.Boundary.Values do
 
   defp value(type, value, at, _mode),
     do: {:error, ["#{at} must be #{describe(type)}, got #{inspect(value)}"]}
+
+  # A proper list of binaries.
+  defp chunks?([]), do: true
+  defp chunks?([chunk | rest]) when is_binary(chunk), do: chunks?(rest)
+  defp chunks?(_other), do: false
 
   defp describe({:list, inner}), do: "a list of #{describe(inner)}"
   defp describe({:map, inner}), do: "a map of #{describe(inner)}"

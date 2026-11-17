@@ -177,6 +177,65 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.BoundaryTest do
     end
   end
 
+  describe "a :stream input field (S5c)" do
+    test "the implementation gets the same term, unread, from a map or a built struct" do
+      lazy = Stream.map(["a", "b"], fn chunk -> send(self(), :enumerated) && chunk end)
+      file = File.stream!(__ENV__.file, 64)
+
+      for pages <- [lazy, file, ["a", "b"], [], fn _acc, _fun -> {:done, nil} end] do
+        assert %B.Outcome.Received{} =
+                 B.upload({self(), [:lend]}, %{"title" => "Dune", "pages" => pages})
+
+        assert_received {:received, ^pages}
+
+        assert %B.Outcome.Received{} =
+                 B.upload({self(), [:lend]}, %B.UploadInput{title: "Dune", pages: pages})
+
+        assert_received {:received, ^pages}
+
+        assert {:ok, %B.UploadInput{pages: ^pages}} =
+                 B.UploadInput.new(title: "Dune", pages: pages)
+      end
+
+      refute_received :enumerated
+    end
+
+    test "a binary, a list of non-binaries or a missing value is refused: invalid" do
+      for {pages, reason} <- [
+            {"bytes", ~s(input.pages must be a stream (an Enumerable\), got "bytes")},
+            {[1, 2], "input.pages must be a stream of binary chunks, got [1, 2]"},
+            {["a", :b], ~s(input.pages must be a stream of binary chunks, got ["a", :b])},
+            {["a" | "b"], ~s(input.pages must be a stream of binary chunks, got ["a" | "b"])},
+            {%{}, "input.pages must be a stream (an Enumerable), got a map"},
+            {nil, "input.pages is required"}
+          ] do
+        assert B.upload({self(), [:lend]}, %{"title" => "Dune", "pages" => pages}) ==
+                 %B.Outcome.Declined{why: :unreadable, note: reason}
+
+        assert B.upload({self(), [:lend]}, %B.UploadInput{title: "Dune", pages: pages}) ==
+                 %B.Outcome.Declined{why: :unreadable, note: reason}
+
+        assert B.UploadInput.new(%{title: "Dune", pages: pages}) ==
+                 {:error, ["upload_" <> reason]}
+      end
+
+      assert %B.Outcome.Declined{note: "input.pages is required"} =
+               B.upload({self(), [:lend]}, %{"title" => "Dune"})
+
+      refute_received {:received, _}
+    end
+
+    test "its type is Enumerable.t(), and dump/1 refuses it" do
+      {:ok, types} = Code.Typespec.fetch_types(B.UploadInput)
+      {:type, t} = Enum.find(types, &match?({:type, {:t, _, _}}, &1))
+      assert Code.Typespec.type_to_quoted(t) |> Macro.to_string() =~ "pages: Enumerable.t()"
+
+      assert_raise ContractError, ~r/UploadInput.pages is a :stream/, fn ->
+        B.UploadInput.dump(%B.UploadInput{title: "t", pages: ["a"]})
+      end
+    end
+  end
+
   describe "invalid_detail_right:" do
     test "the invalid_input detail goes only to a client that holds the right" do
       told = {"ann", [:lend, :browse, :see_reasons]}
@@ -350,7 +409,7 @@ defmodule AtlasRuntimeBoundary.Generator.Targets.BoundaryTest do
   describe "types and the behaviour" do
     test "the behaviour has one callback per capability, with its arity" do
       assert Enum.sort(B.Implementation.behaviour_info(:callbacks)) ==
-               [count: 1, download: 2, find: 2, lend: 2]
+               [count: 1, download: 2, find: 2, lend: 2, upload: 2]
     end
 
     test "callbacks and specs carry the input struct and the union of outcome structs" do
