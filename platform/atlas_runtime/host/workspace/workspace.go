@@ -22,11 +22,13 @@ import (
 
 func Run(args []string, output io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("use workspace path|scope|folder-scope|packet-scope|request")
+		return errors.New("use workspace path|scope|folder-scope|packet-scope|request|facts")
 	}
 	var result any
 	var err error
 	switch args[0] {
+	case "facts":
+		return RunFacts(args[1:], os.Stdin, output)
 	case "path", "scope":
 		if len(args) != 2 {
 			return fmt.Errorf("workspace %s requires one path", args[0])

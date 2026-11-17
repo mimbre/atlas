@@ -1,0 +1,124 @@
+{
+  "version": 1,
+  "rows": [
+    {
+      "id": "empty",
+      "fs": [],
+      "note": "An empty spec builds an empty root."
+    },
+    {
+      "id": "modes",
+      "fs": [
+        {"path": "a", "type": "dir", "mode": "0700"},
+        {"path": "a/b/c.txt", "type": "file", "content": "hello\n", "mode": "0600"},
+        {"path": "a/run.sh", "type": "file", "content": "#!/bin/sh\nexit 0\n", "mode": "0755"},
+        {"path": "a/ro", "type": "file", "content": "", "mode": "0444"},
+        {"path": "group", "type": "dir", "mode": "0750"},
+        {"path": "group/shared", "type": "file", "mode": "0640", "content": "ünïcode ✓\u0000end"},
+        {"path": "plain", "type": "file", "content": "x"},
+        {"path": "locked", "type": "dir", "mode": "0500"},
+        {"path": "locked/inside", "type": "file", "content": "kept", "mode": "0400"}
+      ],
+      "note": "Explicit modes on files and directories, implicit 0755 parents, defaults 0644/0755, and a read-only directory whose mode is applied after its child."
+    },
+    {
+      "id": "symlinks",
+      "fs": [
+        {"path": "data/f", "type": "file", "content": "f"},
+        {"path": "data/rel", "type": "symlink", "target": "f"},
+        {"path": "data/up", "type": "symlink", "target": "../data/f"},
+        {"path": "links/dangling", "type": "symlink", "target": "../missing/nowhere"},
+        {"path": "links/abs", "type": "symlink", "target": "{tmp}/data/f"},
+        {"path": "links/home", "type": "symlink", "target": "{home}/workers"},
+        {"path": "links/homework", "type": "symlink", "target": "{tmp}/homework"},
+        {"path": "links/outside", "type": "symlink", "target": "/etc/hosts"},
+        {"path": "links/dir", "type": "symlink", "target": "../data"}
+      ],
+      "note": "Targets are written verbatim after substitution: relative stays relative, and a listing abstracts absolute targets back to placeholders ({tmp}/homework is not {home}work)."
+    },
+    {
+      "id": "hardlinks",
+      "fs": [
+        {"path": "one", "type": "file", "content": "same inode", "mode": "0640"},
+        {"path": "two", "type": "hardlink", "target": "one"},
+        {"path": "repo", "type": "git"},
+        {"path": "repo/.git/objects/blob", "type": "hardlink", "target": "{tmp}/one"}
+      ],
+      "note": "A hardlink shares its target's inode, mode and content; nlink shows the sharing (also inside .git)."
+    },
+    {
+      "id": "home_layout",
+      "fs": [
+        {"path": "{home}", "type": "dir", "mode": "0700"},
+        {"path": "{home}/backend.sock", "type": "socket", "mode": "0600"},
+        {"path": "{home}/runtime.sock", "type": "socket"},
+        {"path": "{home}/turns", "type": "dir", "mode": "0700"},
+        {"path": "{home}/workers/w1/repositories", "type": "dir"},
+        {"path": "{user}/.codex/config.toml", "type": "file", "content": "model = \"x\"\n", "mode": "0600"},
+        {"path": "{temporary}", "type": "dir", "mode": "0700"}
+      ],
+      "note": "Placeholder paths, sockets with an explicit and the default mode."
+    },
+    {
+      "id": "long_row_id_keeps_the_home_backend_socket_within_the_socket_path_budget",
+      "fs": [
+        {"path": "{home}", "type": "dir", "mode": "0700"},
+        {"path": "{home}/backend.sock", "type": "socket", "mode": "0600"}
+      ],
+      "note": "Y1: the root's length must not depend on the row id (Go t.TempDir embeds the test name), so a {home} socket fits on both sides."
+    },
+    {
+      "id": "git_stub",
+      "fs": [
+        {"path": "repo", "type": "git"},
+        {"path": "nested/w", "type": "git", "head": "feature/x"},
+        {"path": "private", "type": "dir", "mode": "0700"},
+        {"path": "private", "type": "git"},
+        {"path": "repo/.git/objects/info/alternates", "type": "file", "content": "/elsewhere/objects\n"}
+      ],
+      "note": "A git stub is .git/{HEAD,config,objects,refs/heads,refs/tags} that git rev-parse accepts; a directory entry and a git entry may share a path."
+    },
+    {
+      "id": "placeholders",
+      "fs": [],
+      "input": {
+        "home": "{home}/backend.sock",
+        "boundary": "{tmp}/homework",
+        "list": ["{user}", "{temporary}/y", "text {home} more", "pre:{tmp}"],
+        "unknown": "{unknown}/z",
+        "number": 3,
+        "flag": true,
+        "none": null
+      },
+      "note": "input is substituted, then abstracted: every placeholder comes back, unknown placeholders and non-strings are left alone."
+    },
+    {"id": "error_not_object", "fs": ["a"]},
+    {"id": "error_unknown_field", "fs": [{"path": "a", "type": "dir", "owner": "root"}]},
+    {"id": "error_field_type", "fs": [{"path": "a", "type": "file", "mode": 420}]},
+    {"id": "error_missing_path", "fs": [{"type": "dir"}]},
+    {"id": "error_missing_type", "fs": [{"path": "a"}]},
+    {"id": "error_unknown_type", "fs": [{"path": "a", "type": "fifo"}]},
+    {"id": "error_escape", "fs": [{"path": "../x", "type": "dir"}]},
+    {"id": "error_absolute_outside", "fs": [{"path": "/etc/x", "type": "file"}]},
+    {"id": "error_root_itself", "fs": [{"path": "{tmp}", "type": "dir"}]},
+    {"id": "error_unclean", "fs": [{"path": "a", "type": "dir"}, {"path": "a/./b", "type": "dir"}]},
+    {"id": "error_duplicate", "fs": [{"path": "a", "type": "dir"}, {"path": "{tmp}/a", "type": "dir"}]},
+    {"id": "error_git_twice", "fs": [{"path": "r", "type": "git"}, {"path": "r", "type": "git"}]},
+    {"id": "error_field_not_allowed", "fs": [{"path": "a", "type": "dir", "content": "x"}]},
+    {"id": "error_mode_symlink", "fs": [{"path": "l", "type": "symlink", "target": "x", "mode": "0777"}]},
+    {"id": "error_mode_format", "fs": [{"path": "a", "type": "file", "mode": "644"}]},
+    {"id": "error_mode_range", "fs": [{"path": "a", "type": "file", "mode": "0989"}]},
+    {"id": "error_symlink_without_target", "fs": [{"path": "l", "type": "symlink"}]},
+    {"id": "error_hardlink_without_target", "fs": [{"path": "l", "type": "hardlink"}]},
+    {"id": "error_head", "fs": [{"path": "r", "type": "git", "head": "a b"}]},
+    {"id": "error_parent_file", "fs": [{"path": "a", "type": "file"}, {"path": "a/b", "type": "file"}]},
+    {"id": "error_parent_symlink", "fs": [{"path": "real", "type": "dir"}, {"path": "l", "type": "symlink", "target": "real"}, {"path": "l/x", "type": "file"}]},
+    {"id": "error_path_exists", "fs": [{"path": "a/b", "type": "dir"}, {"path": "a", "type": "file"}]},
+    {"id": "error_dir_over_file", "fs": [{"path": "a", "type": "file"}, {"path": "a", "type": "dir"}]},
+    {"id": "error_hardlink_target_missing", "fs": [{"path": "l", "type": "hardlink", "target": "nope"}]},
+    {"id": "error_hardlink_target_dir", "fs": [{"path": "d", "type": "dir"}, {"path": "l", "type": "hardlink", "target": "d"}]},
+    {"id": "error_hardlink_through_symlink", "fs": [{"path": "real/f", "type": "file"}, {"path": "l", "type": "symlink", "target": "real"}, {"path": "h", "type": "hardlink", "target": "l/f"}]},
+    {"id": "error_hardlink_target_outside", "fs": [{"path": "h", "type": "hardlink", "target": "/etc/hosts"}]},
+    {"id": "error_later_entry", "fs": [{"path": "ok", "type": "file"}, {"path": "ok2", "type": "file"}, {"path": "bad", "type": "dir", "mode": "1777"}]}
+  ]
+}
