@@ -66,14 +66,43 @@ if config_env() != :test do
   # the per-Runtime credentials (a core secret: runtime id → holder and token sha256);
   # `results` is the result store's folder. With `port`, Flow listens on 127.0.0.1 at that
   # port, behind the tailnet edge (TLS ends there); without one it has no listener.
+  #
+  # A test environment may shorten the lease timing (a bench such as pull-e2e): the integer
+  # keys `lease_ttl` (s), `poll_max` (s, 1–25), `sweep_ms`, `resync_ms` and the Results'
+  # `result_cap` (bytes), only those given. Prod refuses them and keeps Flow's defaults
+  # (AtlasFlow.Dispatch, AtlasFlow.Results). `grace` is not settable in either: the
+  # Runtime's own grace and import bound assume Flow's 120 s. The wire `timing` is unchanged.
   if source = get_in(settings, ["flow", "work_source"]) do
-    config :atlas_flow, :work_source,
-      port: source["port"],
-      credentials_env:
-        source["credentials_env"] || raise("#{file} has no flow.work_source.credentials_env")
+    if Map.has_key?(source, "grace"), do: raise("#{file}: flow.work_source.grace is not settable")
 
-    config :atlas_flow, :results,
-      dir: expand.(source["results"] || raise("#{file} has no flow.work_source.results"))
+    timing =
+      for key <- ~w(lease_ttl poll_max sweep_ms resync_ms result_cap),
+          Map.has_key?(source, key) do
+        value = source[key]
+
+        if env != "test", do: raise("#{file}: flow.work_source.#{key} is for env test only")
+
+        if not is_integer(value) or value < 1 or (key == "poll_max" and value > 25),
+          do: raise("#{file}: flow.work_source.#{key} is #{inspect(value)}")
+
+        {String.to_atom(key), value}
+      end
+
+    {result_timing, work_timing} = Keyword.split(timing, [:result_cap])
+
+    config :atlas_flow,
+           :work_source,
+           [
+             port: source["port"],
+             credentials_env:
+               source["credentials_env"] ||
+                 raise("#{file} has no flow.work_source.credentials_env")
+           ] ++ work_timing
+
+    config :atlas_flow,
+           :results,
+           [dir: expand.(source["results"] || raise("#{file} has no flow.work_source.results"))] ++
+             result_timing
   end
 
   # Code's receiver of Flow's integrate effect (AtlasCode.Effects), with its journal in
