@@ -92,7 +92,7 @@ defmodule AtlasRuntimeModel.LocalSourceTest do
 
       assert shape(:queue_key_entry) == [
                {:client, :string, true},
-               {:client_key, :string, true},
+               {:client_key, :string, false},
                {:work_id, :string, true},
                {:final_kind, kinds, false},
                {:pruned, :boolean, true}
@@ -163,7 +163,9 @@ defmodule AtlasRuntimeModel.LocalSourceTest do
           work_id: "w2",
           final_kind: :failed,
           pruned: true
-        )
+        ),
+        # A keyless work's tombstone: no client key.
+        QueueKeyEntry.new!(client: "local", work_id: "w3", final_kind: :cancelled, pruned: true)
       ]
 
       decoded =

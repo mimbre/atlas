@@ -88,6 +88,8 @@ func TestCheckSandboxDeniesRuntimeSockets(t *testing.T) {
 	for path, body := range map[string]string{
 		filepath.Join(home, "workers", "slot1", "sentinel"): "SLOT-SENTINEL",
 		filepath.Join(home, "frozen", "blobs", "b"):         "FROZEN-SENTINEL",
+		filepath.Join(home, "sources", "s1", "token"):       "SOURCE-SENTINEL", // work acquisition M2 (F4)
+		filepath.Join(home, "local-source", "queue.json"):   "LOCAL-SOURCE-SENTINEL",
 	} {
 		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 			t.Fatal(err)
@@ -191,6 +193,10 @@ func TestCheckSandboxDeniesRuntimeSockets(t *testing.T) {
 		}
 		denied("read a sibling worker", run("cat", filepath.Join(home, "workers", "slot1", "sentinel")))
 		denied("list the frozen store", run("ls", filepath.Join(home, "frozen")))
+		denied("read a work source's credential", run("cat", filepath.Join(home, "sources", "s1", "token")))
+		denied("list the work sources", run("ls", filepath.Join(home, "sources")))
+		denied("read the local work source's queue", run("cat", filepath.Join(home, "local-source", "queue.json")))
+		denied("list the local work source's queue", run("ls", filepath.Join(home, "local-source")))
 		denied("list the Runtime home", run("ls", home))
 		// B2: no write or create in the Runtime home outside the folder and the check's own scratch,
 		// at every place where the core or the helper puts an atomic temp or a rename target.

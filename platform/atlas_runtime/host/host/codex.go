@@ -223,6 +223,10 @@ func socketEntries(home string, projects ...string) ([][2]string, error) {
 //   - execution-events.json: the durable execution-event outbox (persistence/execution_events.ex);
 //   - mode.json: the persisted Runtime mode (model/contract runtime_mode, S2);
 //   - clients.json: the loopback TCP clients, their token hashes and rights (backend/clients.ex, S3);
+//   - sources: the work sources' credentials and per-source stores, e.g. sources/<name>/token (work
+//     acquisition M2, decision F4; reserved until a source joins it);
+//   - local-source: the local work source's queue store (sources/local/store.ex, model/contract
+//     local_source; work acquisition M2, decision F4);
 //   - <name>.json.tmp for each <name>.json above: the sibling an atomic write (write <path>.tmp, then
 //     rename) fills before the rename, with the whole new content (execution_events.ex and
 //     availability.ex write execution-events.json and availability.json so on every change). A
@@ -234,7 +238,7 @@ func socketEntries(home string, projects ...string) ([][2]string, error) {
 var sensitiveHomeNames = append(slices.Clone(runtimeSockets), "turns", "code.json", "server.json",
 	"backends.json", "policy.json", "availability.json", "service.log", "service.lock", "passes",
 	"snapshots", "materializations", "scratch", "work", "admissions", "preparations", "packets",
-	"submissions", "rebinds", "frozen", "execution-events.json", "mode.json", "clients.json",
+	"submissions", "rebinds", "frozen", "execution-events.json", "mode.json", "clients.json", "sources", "local-source",
 	"code.json.tmp", "server.json.tmp", "backends.json.tmp", "policy.json.tmp", "availability.json.tmp",
 	"execution-events.json.tmp", "mode.json.tmp", "clients.json.tmp")
 

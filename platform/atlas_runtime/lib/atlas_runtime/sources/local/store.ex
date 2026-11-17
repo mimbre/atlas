@@ -8,8 +8,8 @@ defmodule AtlasRuntime.Sources.Local.Store do
   - `local-source/queue/<work_id>.json`: one `queued_work` per work;
   - `local-source/index.json`: every `queue_key_entry`, (client, client key) → `work_id`,
     kept as a tombstone once its queued work is pruned (I3, I7). A pruned work without a
-    client key keeps a tombstone too: an entry whose `client_key` is its own `work_id`,
-    held under `{:pruned, work_id}` so that no client key looks it up.
+    client key keeps a tombstone too: an entry without a `client_key`, held under
+    `{:pruned, work_id}` so that no client key looks it up.
 
   Every file is written to a temporary file and renamed into place, so a reader sees the
   old or the new content, never a part. A queued work is written before the index entry
@@ -113,7 +113,8 @@ defmodule AtlasRuntime.Sources.Local.Store do
 
   @doc """
   Writes one queued work (a change of state, lease or result) and, for a keyed work new to
-  the index, its index entry after it. Returns the new `loaded`.
+  the index, its index entry after it. Returns the new `loaded`. A new work is added only
+  through `add!/3`, which keeps a pruned key's tombstone (I7).
   """
   def put!(home, loaded, %QueuedWork{} = work) do
     write!(home, QueuedWork.path(work), QueuedWork.encode(work))
@@ -151,15 +152,12 @@ defmodule AtlasRuntime.Sources.Local.Store do
   def prune!(home, loaded, work_id) do
     %QueuedWork{state: :ended, result: %{kind: kind}} = work = Map.fetch!(loaded.entries, work_id)
 
-    {key, client_key} =
-      if work.client_key,
-        do: {{work.client, work.client_key}, work.client_key},
-        else: {{:pruned, work_id}, work_id}
+    key = if work.client_key, do: {work.client, work.client_key}, else: {:pruned, work_id}
 
     tombstone =
       QueueKeyEntry.new!(
         client: work.client,
-        client_key: client_key,
+        client_key: work.client_key,
         work_id: work_id,
         final_kind: kind,
         pruned: true
@@ -184,7 +182,7 @@ defmodule AtlasRuntime.Sources.Local.Store do
 
   @doc "Writes the whole index."
   def put_index!(home, index) do
-    entries = index |> Map.values() |> Enum.sort_by(&{&1.client, &1.client_key})
+    entries = index |> Map.values() |> Enum.sort_by(&{&1.client, &1.client_key, &1.work_id})
     write!(home, QueueKeyEntry.path(), QueueKeyEntry.encode_file(entries))
   end
 
@@ -255,7 +253,8 @@ defmodule AtlasRuntime.Sources.Local.Store do
 
     if File.exists?(path) do
       with {:ok, map} <- read_json(path),
-           {:ok, entries} <- decode_file(map) do
+           {:ok, entries} <- decode_file(map),
+           :ok <- keyed_unless_pruned(entries) do
         index = Map.new(entries, &{index_key(&1), &1})
 
         if map_size(index) == length(entries),
@@ -283,7 +282,15 @@ defmodule AtlasRuntime.Sources.Local.Store do
     end
   end
 
-  defp index_key(%QueueKeyEntry{pruned: true, client_key: id, work_id: id}), do: {:pruned, id}
+  # Only a keyless work's tombstone has no client key; a live entry without one names nothing.
+  defp keyed_unless_pruned(entries) do
+    case Enum.find(entries, &(&1.client_key == nil and not &1.pruned)) do
+      nil -> :ok
+      entry -> {:error, "a live entry for #{entry.work_id} has no client key"}
+    end
+  end
+
+  defp index_key(%QueueKeyEntry{pruned: true, client_key: nil, work_id: id}), do: {:pruned, id}
   defp index_key(entry), do: {entry.client, entry.client_key}
 
   # A queued work written before its index entry: the entry is added back. An entry whose

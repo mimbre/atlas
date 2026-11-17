@@ -9,7 +9,8 @@ defmodule AtlasRuntimeModel.LocalSource do
     its state, the lease it was handed out under and a reference to its result.
   - `queue_key_entry`: (client, client key) → `work_id`, all in `local-source/index.json`.
     An entry outlives its pruned queued work as a tombstone (I3, I7 move here): `pruned`,
-    and the final result kind.
+    and the final result kind. A work added without a client key gets a tombstone too, with
+    no `client_key`.
 
   Rules across records or fields are behaviour, kept by the hand-written store
   (`AtlasRuntime.Sources.Local.Store`), not declared here:
@@ -17,7 +18,8 @@ defmodule AtlasRuntimeModel.LocalSource do
   - `position` grows with every add;
   - `local-source/index.json` holds at most one entry per (client, client key);
   - a `leased` work has its `lease_id`; an `ended` work has its `result`;
-  - an entry is `pruned` only once its work is `ended`, so a tombstone has its `final_kind`.
+  - an entry is `pruned` only once its work is `ended`, so a tombstone has its `final_kind`;
+  - an entry without a `client_key` is a pruned keyless work's tombstone, never a live entry.
   """
   use AtlasRuntimeModel.Generator.Schema
 
@@ -107,7 +109,8 @@ defmodule AtlasRuntimeModel.LocalSource do
     # One file for all entries: the path has no {field}.
     persist: [form: :json_file, path: "local-source/index.json", format_version: 1] do
     field :client, :string, required: true
-    field :client_key, :string, required: true
+    # Absent only on the tombstone of a work added without a client key.
+    field :client_key, :string
     field :work_id, :string, required: true
     # The result kind once the work ended.
     field :final_kind, :result_kind

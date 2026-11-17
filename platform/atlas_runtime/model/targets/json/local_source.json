@@ -241,7 +241,7 @@
         },
         {
           "name": "client_key",
-          "required": true,
+          "required": false,
           "type": "string"
         },
         {

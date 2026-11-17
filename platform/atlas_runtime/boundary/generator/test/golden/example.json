@@ -59,6 +59,20 @@
         }
       ],
       "right": "browse"
+    },
+    {
+      "input": "upload_input",
+      "name": "upload",
+      "outcomes": [
+        {
+          "name": "received"
+        },
+        {
+          "model": "refusal",
+          "name": "declined"
+        }
+      ],
+      "right": "lend"
     }
   ],
   "invalid_input": {
@@ -240,6 +254,22 @@
         }
       ],
       "name": "download_input"
+    },
+    {
+      "fields": [
+        {
+          "name": "title",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "byte stream",
+          "name": "pages",
+          "required": true,
+          "type": "stream"
+        }
+      ],
+      "name": "upload_input"
     }
   ],
   "version": "1.0.0"

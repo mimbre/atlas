@@ -6,8 +6,10 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Client.Transport do
   neither does the client: a failure goes back to the caller as `{:error, :unreachable}`.
 
   A request is `%{method: "GET" | "POST" | ..., path: text, query: text, headers:
-  [{lowercase_name, text}], body: binary | nil}`: `path` is percent-encoded, `query` is an
-  encoded query string (`""` for none) and `body` is JSON or `nil` for none.
+  [{lowercase_name, text}], body: binary | Enumerable | nil}`: `path` is percent-encoded,
+  `query` is an encoded query string (`""` for none) and `body` is JSON, `nil` for none,
+  or, for a resource with a streamed body, the caller's enumerable of binaries, sent as
+  it is read (the request's `content-type` header says which).
   """
 
   @type request :: %{
@@ -15,7 +17,7 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Client.Transport do
           path: String.t(),
           query: String.t(),
           headers: [{String.t(), String.t()}],
-          body: binary() | nil
+          body: binary() | Enumerable.t() | nil
         }
 
   @type response :: %{
@@ -88,6 +90,9 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Client do
   `{:error, {:invalid, [reason]}}` without a request when it does not fit. It then puts each
   field where the resource binds it (path, query, header or JSON body). A header bound to an
   input field is sent only when the field has a value: the client never makes one up.
+  A `:stream` field that the resource takes as its body (`body: {:stream, field}`) is any
+  enumerable of binaries (not a binary, not a map); the client never reads it, and hands
+  it to the transport as the body, with the declared `content-type`.
 
   `opts`:
   - `transport:` options passed on to the transport as they are;
@@ -302,6 +307,9 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Client do
             query: resource.query,
             headers: resource.headers,
             body: resource.body,
+            upload:
+              (upload = Map.get(resource, :upload)) &&
+                %{field: upload.field, content_type: upload.content_type},
             etag: Map.get(resource, :etag) != nil,
             outcomes: outcomes,
             errors: target.errors
@@ -459,7 +467,8 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Client.Runtime do
     do:
       spec.params ++
         Enum.map(spec.query, &elem(&1, 1)) ++
-        Enum.map(spec.headers, &elem(&1, 1)) ++ (spec.body || [])
+        Enum.map(spec.headers, &elem(&1, 1)) ++
+        (spec.body || []) ++ if(upload = spec[:upload], do: [upload.field], else: [])
 
   defp request(%{kind: :stream} = spec, values, _opts) do
     resume =
@@ -503,7 +512,14 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Client.Runtime do
           Map.new(Map.take(values, spec.body), fn {k, v} -> {Atom.to_string(k), v} end)
         )
 
-    content = if body, do: [{"content-type", "application/json"}], else: []
+    {body, content} =
+      case spec[:upload] do
+        %{field: field, content_type: type} ->
+          {Map.fetch!(values, field), [{"content-type", type}]}
+
+        nil ->
+          {body, if(body, do: [{"content-type", "application/json"}], else: [])}
+      end
 
     accept =
       Enum.join(
@@ -596,6 +612,15 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Client.Runtime do
         {:error, "is invalid: no field #{Enum.map_join(unknown, ", ", &inspect/1)}"}
     end
   end
+
+  # A streamed body: the caller's enumerable, passed on unread.
+  defp encode(:stream, v, _m) when not is_binary(v) and not (is_map(v) and not is_struct(v)) do
+    if Enumerable.impl_for(v) != nil,
+      do: {:ok, v},
+      else: {:error, "is invalid: no enumerable of binaries"}
+  end
+
+  defp encode(:stream, _v, _m), do: {:error, "is invalid: no enumerable of binaries"}
 
   defp encode(_type, v, _m), do: {:error, "is invalid: #{inspect(v)}"}
 

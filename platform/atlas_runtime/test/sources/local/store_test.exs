@@ -131,13 +131,28 @@ defmodule AtlasRuntime.Sources.Local.StoreTest do
     assert Store.find(reloaded, "local", "never") == :not_found
   end
 
+  test "I7: a pruned key equal to its work_id stays a conflict after a restart", %{home: home} do
+    {work, loaded} = add!(home, Store.empty(), 1, work_id: "w1", client_key: "w1")
+    loaded = finish!(home, loaded, work)
+    loaded = Store.prune!(home, loaded, "w1")
+    assert {:conflict, "w1"} = Store.add!(home, loaded, attrs(2, client_key: "w1"))
+
+    assert {:ok, reloaded} = Store.load(home)
+    assert reloaded == loaded
+    assert {:pruned, %{work_id: "w1", pruned: true}} = Store.find(reloaded, "local", "w1")
+    assert {:conflict, "w1"} = Store.add!(home, reloaded, attrs(2, client_key: "w1"))
+  end
+
   test "a pruned work without a key keeps a tombstone under its own id", %{home: home} do
     {work, loaded} = add!(home, Store.empty(), 1, client_key: nil)
     loaded = finish!(home, loaded, work, :cancelled)
     loaded = Store.prune!(home, loaded, "work-1")
     assert {:ok, ^loaded} = Store.load(home)
     reloaded = loaded
-    assert %{pruned: true, final_kind: :cancelled} = Store.tombstone(reloaded, "work-1")
+
+    assert %{pruned: true, final_kind: :cancelled, client_key: nil} =
+             Store.tombstone(reloaded, "work-1")
+
     assert Store.find(reloaded, "local", "work-1") == :not_found
   end
 
@@ -195,6 +210,15 @@ defmodule AtlasRuntime.Sources.Local.StoreTest do
 
       File.write!(path, map |> Map.update!("entries", &(&1 ++ &1)) |> JSON.encode!())
       assert {:error, _} = Store.load(home)
+    end
+
+    test "an index entry without a client key that is not pruned", %{home: home} do
+      path = Path.join(home, "local-source/index.json")
+      map = path |> File.read!() |> JSON.decode!()
+      keyless = &Enum.map(&1, fn entry -> Map.delete(entry, "client_key") end)
+      File.write!(path, map |> Map.update!("entries", keyless) |> JSON.encode!())
+      assert {:error, why} = Store.load(home)
+      assert why =~ "index.json"
     end
   end
 

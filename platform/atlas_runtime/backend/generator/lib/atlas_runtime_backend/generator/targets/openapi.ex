@@ -12,7 +12,8 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Openapi do
     input field's type), a stream's resume header, and `If-None-Match` on a resource
     with an `etag` field;
   - a JSON request body of the bound body fields, closed to others (the router refuses
-    unknown members);
+    unknown members), or, for a streamed body (`body: {:stream, field}`), a required
+    body of its `content_type` with `{"type": "string", "format": "binary"}`;
   - per status, every outcome that answers it, with the declared headers, and the
     body: the outcome's entity (`body:`) or its fields as `application/json` below 400
     (`anyOf` when outcomes differ), or, for an outcome sent as bytes (`stream:`), its
@@ -24,7 +25,8 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Openapi do
     their bodies: its members are theirs (`anyOf` where they differ), required only where
     all require them. So a body matches exactly one branch;
   - every error of the target on every operation, except `:no_route`, which answers a
-    path no operation has (it is under `components.responses`);
+    path no operation has (it is under `components.responses`), and `:too_large` and
+    `:unsupported_media_type`, which only an operation with a streamed body has;
   - on a resource with `etag`, `ETag` on each success outcome whose body has that field,
     and `304` (no body) for a matching `If-None-Match`;
   - a stream as `200 text/event-stream`, with its events in `x-events` (name, `id:` field
@@ -47,6 +49,7 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Openapi do
   alias AtlasRuntimeBackend.Generator.Targets.Routes
 
   @options [:name, :title, :security, :target]
+  @upload_errors [:too_large, :unsupported_media_type]
   @binary %{"type" => "string", "format" => "binary"}
   @scalars %{
     string: %{"type" => "string"},
@@ -74,7 +77,8 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Openapi do
       models: Map.new(boundary.models, &{&1.name, &1}),
       statuses: Map.new(target.statuses, &{&1.outcome, &1}),
       events: Map.new(schema.events, &{&1.name, &1}),
-      errors: Enum.reject(target.errors, &(&1.kind == :no_route))
+      errors: Enum.reject(target.errors, &(&1.kind in [:no_route | @upload_errors])),
+      upload_errors: Enum.filter(target.errors, &(&1.kind in @upload_errors))
     }
 
     items =
@@ -225,18 +229,39 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Openapi do
         object(for f <- body, do: fields[f]) |> Map.put("additionalProperties", false)
       end
 
-    case bodies do
-      [] ->
-        nil
+    uploads =
+      for item <- group, upload = Map.get(item, :upload), uniq: true do
+        {upload.content_type,
+         %{
+           "schema" =>
+             Map.put(@binary, "description", "the input's `#{upload.field}`, as a byte stream")
+         }}
+      end
 
-      [one] ->
-        %{
-          "required" => one["required"] != [],
-          "content" => %{"application/json" => %{"schema" => one}}
-        }
+    json =
+      case bodies do
+        [] ->
+          nil
 
-      several ->
-        %{"content" => %{"application/json" => %{"schema" => %{"oneOf" => several}}}}
+        [one] ->
+          %{
+            "required" => one["required"] != [],
+            "content" => %{"application/json" => %{"schema" => one}}
+          }
+
+        several ->
+          %{"content" => %{"application/json" => %{"schema" => %{"oneOf" => several}}}}
+      end
+
+    case {json, uploads} do
+      {json, []} ->
+        json
+
+      {nil, uploads} ->
+        %{"required" => true, "content" => Map.new(uploads)}
+
+      {json, uploads} ->
+        %{"content" => Map.merge(json["content"], Map.new(uploads))}
     end
   end
 
@@ -251,9 +276,12 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Openapi do
         answer
       end
 
+    uploads? = Enum.any?(group, &Map.get(&1, :upload))
+
     answers =
       answers ++
         Enum.map(ctx.errors, &{:error, &1}) ++
+        if(uploads?, do: Enum.map(ctx.upload_errors, &{:error, &1}), else: []) ++
         for(item <- group, Map.get(item, :etag), do: {:not_modified, item})
 
     answers
