@@ -465,10 +465,9 @@ defmodule RelaDSL.SupervisionTest do
   test "the work's names resolve on the schema" do
     assert work_problems(decl: work_decl(@work)) == []
 
-    # No such kind: nothing leads from it either.
-    assert :supervision_work_kind in tags(
-             work_problems(decl: work_decl(Keyword.put(@work, :kind, :ghost)))
-           )
+    # No such kind: that is the one reason, the names read on it are not blamed.
+    assert tags(work_problems(decl: work_decl(Keyword.put(@work, :kind, :ghost)))) ==
+             [:supervision_work_kind]
 
     for {key, value, tag} <- [
           {:of, :ghost, :supervision_work_of},
@@ -476,6 +475,9 @@ defmodule RelaDSL.SupervisionTest do
           {:of, :job_run, :supervision_work_of},
           {:for, :ghost, :supervision_work_for},
           {:for, :job_of, :supervision_work_for},
+          # Right target, wrong source: these lead from another kind than the work's.
+          {:for, :watched_by, :supervision_work_for},
+          {:of, :part_of, :supervision_work_of},
           {:ended, :ghost, :supervision_work_ended}
         ] do
       problems = work_problems(decl: work_decl(Keyword.put(@work, key, value)))

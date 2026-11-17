@@ -693,27 +693,34 @@ defmodule RelaDSL.Description.Build do
           not Enum.any?(parts, &(&1 in (get_in(relations, [of, "to"]) || []))),
           do: span.name
 
-    [
-      get_in(schema, ["entities", kind]) == nil &&
-        problem(:supervision_work_kind, [kind], at <> "kind #{kind} is no kind"),
-      (not from?.(relations[of]) or spans_off != []) &&
-        problem(
-          :supervision_work_of,
-          [of, kind],
-          at <>
-            "of #{of} must lead from #{kind} to each span's subject or one of its with: subjects"
-        ),
-      (not from?.(relations[for_]) or not is_list(supervisor) or
-         supervisor -- (relations[for_]["to"] || []) != []) &&
-        problem(
-          :supervision_work_for,
-          [for_, kind],
-          at <> "for #{for_} must lead from #{kind} to the supervisor's kind"
-        ),
-      get_in(schema, ["entities", kind, "properties", ended]) == nil &&
-        problem(:supervision_work_ended, [kind, ended], at <> "#{kind}.#{ended} must be a field")
-    ]
-    |> Enum.filter(& &1)
+    if get_in(schema, ["entities", kind]) == nil do
+      # The other three names are read on the kind, so a kind that is none is the one reason.
+      [problem(:supervision_work_kind, [kind], at <> "kind #{kind} is no kind")]
+    else
+      [
+        (not from?.(relations[of]) or spans_off != []) &&
+          problem(
+            :supervision_work_of,
+            [of, kind],
+            at <>
+              "of #{of} must lead from #{kind} to each span's subject or one of its with: subjects"
+          ),
+        (not from?.(relations[for_]) or not is_list(supervisor) or
+           supervisor -- (relations[for_]["to"] || []) != []) &&
+          problem(
+            :supervision_work_for,
+            [for_, kind],
+            at <> "for #{for_} must lead from #{kind} to the supervisor's kind"
+          ),
+        get_in(schema, ["entities", kind, "properties", ended]) == nil &&
+          problem(
+            :supervision_work_ended,
+            [kind, ended],
+            at <> "#{kind}.#{ended} must be a field"
+          )
+      ]
+      |> Enum.filter(& &1)
+    end
   end
 
   # A span's `with:` names a subflow the composition runs whose subject points at the
