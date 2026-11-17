@@ -217,6 +217,21 @@ defmodule AtlasFlow.Runs.SupervisionInputsTest do
     assert run(c)["supervised_by"] == "bea"
   end
 
+  test "the held hand-over survives the run entering its next state, for its To-Do", c do
+    supervised(c)
+    slip(c, 11, "hand_over", "ada", %{"hand_to" => "bea"})
+    assert {:ok, _} = reconcile(c)
+    left = run(c)
+
+    slip(c, 12, "choice", "cid", %{"roles" => ["clerk"], "changed_fields" => %{"choice" => "yes"}})
+
+    assert {:ok, _} = reconcile(c)
+    r = run(c)
+    assert r["state"] == "checking" and r["entry"] == left["entry"] + 1
+    assert r["input_cursor"] == 12 and status("S-12") == "consumed"
+    assert r["pending"]["hand_over"] == %{"to" => "bea", "input" => "S-11"}
+  end
+
   test "a hand-over needs exactly one target that is a holder (target, target_kind)", c do
     supervised(c)
 
@@ -276,6 +291,24 @@ defmodule AtlasFlow.Runs.SupervisionInputsTest do
     assert {:ok, _} = reconcile(c)
     assert run(c)["supervised_by"] == "ada" and run(c)["state"] == "loading"
     assert status("S-10") == "consumed"
+  end
+
+  test "in a state that runs a task, a supervision input passes an earlier input of its entry",
+       c do
+    before = started(c, "load")
+    assert before["state"] == "loading"
+    assert {:task, _} = c.flows["watch"].mechanism("loading")
+
+    slip(c, 10, "choice", "bea", %{"roles" => ["clerk"], "changed_fields" => %{"choice" => "yes"}})
+
+    slip(c, 11, "pickup", "ada")
+
+    assert {:ok, _} = reconcile(c)
+    r = run(c)
+    assert r["supervised_by"] == "ada" and link() == ["ada"]
+    assert r["state"] == "loading" and r["entry"] == before["entry"]
+    assert r["input_cursor"] == 11
+    assert status("S-11") == "consumed"
   end
 
   test "the run machine takes a supervision input before a mechanism's early return", c do
