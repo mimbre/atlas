@@ -80,6 +80,47 @@ defmodule AtlasRuntime.Boundary.VisibilityTest do
     refute theirs.work_id == mine.work_id
   end
 
+  # §3.2 Ownership: retry and cancel act only on the caller's own work. Another client's
+  # work is not_found to a caller that cannot see it, and refused: not_permitted to one with
+  # read_all, which grants reading, never acting.
+  test "retry and cancel act only on the caller's own work; read_all reads, never acts" do
+    bench = start!()
+    alice = client("alice")
+    bob = client("bob")
+    carol = client("carol", [:read_all])
+
+    gate = Path.join(bench.dir, "hold")
+    File.write!(gate, "")
+    mine = submit!(bench, "wait hold", %{}, alice)
+    await_launch(bench, mine, 1, alice)
+
+    assert %F.Outcome.NotFound{} = F.cancel(bob, %{work_id: mine.work_id, mode: "force"})
+    assert %F.Outcome.NotFound{} = F.retry(bob, %{work_id: mine.work_id})
+
+    assert %F.Outcome.Found{} = F.get_work(carol, %{work_id: mine.work_id})
+
+    for mode <- ["graceful", "force"] do
+      assert %F.Outcome.Refused{reason: :not_permitted, detail: detail} =
+               F.cancel(carol, %{work_id: mine.work_id, mode: mode})
+
+      assert detail =~ "another client"
+    end
+
+    assert %F.Outcome.Refused{reason: :not_permitted} = F.retry(carol, %{work_id: mine.work_id})
+
+    assert %F.Outcome.Refused{reason: :not_permitted} =
+             F.retry(carol, %{work_id: mine.work_id, resume: true})
+
+    # Nothing changed: the one attempt still runs.
+    assert %F.Outcome.Found{work: work} = F.get_work(alice, %{work_id: mine.work_id})
+    assert [%{state: :running, cancel_stage: nil}] = work.attempts
+
+    # The owner acts on it.
+    assert %F.Outcome.Cancelling{} = F.cancel(alice, %{work_id: mine.work_id, mode: "force"})
+    await_state(mine.work_id, :cancelled, alice)
+    File.rm!(gate)
+  end
+
   test "a client cannot continue a turn of a work it may not read" do
     bench = start!()
     alice = client("alice")

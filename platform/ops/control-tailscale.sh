@@ -49,7 +49,15 @@ print(p)
 tls_port="${ATLAS_CONTROL_TLS_PORT:-443}"
 [[ "$tls_port" =~ ^[0-9]{1,5}$ ]] || fail "invalid TLS port"
 (( 10#$tls_port >= 1 && 10#$tls_port <= 65535 )) || fail "invalid TLS port"
-tailscaled --tun=userspace-networking --statedir="$state_dir" --socket="$sock" &
+daemon_args=(--tun=userspace-networking --statedir="$state_dir" --socket="$sock")
+# ATLAS_RUNTIME_REMOTE=1 (checked by core-run): an HTTP CONNECT proxy on localhost only, for the
+# release's Runtime backend client. No SOCKS, routes, tags or exit node.
+case "${runtime_remote:-0}" in
+  0) ;;
+  1) daemon_args+=(--outbound-http-proxy-listen=localhost:1055) ;;
+  *) fail "ATLAS_RUNTIME_REMOTE must be 0 or 1" ;;
+esac
+tailscaled "${daemon_args[@]}" &
 daemon_pid=$!
 state=""
 for _ in {1..100}; do
@@ -82,8 +90,14 @@ control_ts_key=""
 ts set --accept-dns=false --accept-routes=false --ssh=false \
   --advertise-routes= --advertise-tags= --advertise-exit-node=false ||
   fail "cannot restrict node preferences"
-"$app/release/bin/atlas" start &
+# The token reaches only the release, as an env prefix (never argv); nothing else here gets it.
+if [ "${runtime_remote:-0}" = 1 ]; then
+  ATLAS_RUNTIME_BACKEND_TOKEN="${runtime_backend_token:-}" "$app/release/bin/atlas" start &
+else
+  "$app/release/bin/atlas" start &
+fi
 core_pid=$!
+runtime_backend_token=""
 ready=""
 for _ in {1..100}; do
   kill -0 "$daemon_pid" 2>/dev/null || fail "owned tailscaled exited"

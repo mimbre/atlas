@@ -13,18 +13,23 @@ defmodule AtlasRuntimeBackend.WorkTest do
     assert [%{name: :rest, carries: :entities}] = @schema.targets
   end
 
-  test "§8.1: the socket gets every work right, choose_slot included; TCP never choose_slot" do
+  test "§8.1: the socket gets every work right, choose_slot and choose_path included; TCP neither" do
     assert @schema.rights == [
-             %{listener: :socket, rights: [:submit, :cancel, :read, :read_all, :choose_slot]},
+             %{
+               listener: :socket,
+               rights: [:submit, :cancel, :read, :read_all, :choose_slot, :choose_path]
+             },
              %{listener: :tcp, rights: [:submit, :cancel, :read, :read_all]}
            ]
   end
 
-  test "§8.1: the TCP ceiling is within the socket's rights and excludes choose_slot" do
+  test "§8.1: the TCP ceiling is within the socket's rights and excludes choose_slot and choose_path" do
     rights = Map.new(@schema.rights, &{&1.listener, &1.rights})
 
     assert MapSet.subset?(MapSet.new(rights.tcp), MapSet.new(rights.socket))
     refute :choose_slot in rights.tcp
+    # D44: a TCP client never names a path on the Runtime's machine.
+    refute :choose_path in rights.tcp
     # Every right a listener names is a client right of the boundary.
     [client_rights] =
       for %{name: :client, fields: fields} <- AtlasRuntimeBoundary.Work.__schema__().models,
@@ -37,7 +42,7 @@ defmodule AtlasRuntimeBackend.WorkTest do
   test "§8.2: the resources" do
     routes =
       for r <- @rest.resources,
-          do: {r.method, r.path, r.capability, r.query, r.headers, r.body}
+          do: {r.method, r.path, r.capability, r.query, r.headers, r.body, r.etag}
 
     assert routes == [
              {:post, "/v1/work", :submit, [], [{"idempotency-key", :client_key}],
@@ -50,16 +55,25 @@ defmodule AtlasRuntimeBackend.WorkTest do
                 :resume_from,
                 :slot,
                 :after_check
-              ]},
-             {:get, "/v1/work/:work_id", :get_work, [], [], nil},
-             {:get, "/v1/work", :find_work, [{"key", :client_key}], [], nil},
+              ], nil},
+             # S3: conditional on the work's revision.
+             {:get, "/v1/work/:work_id", :get_work, [], [], nil, :revision},
+             {:get, "/v1/work", :find_work, [{"key", :client_key}], [], nil, nil},
              {:get, "/v1/work", :list_work,
-              [{"state", :state}, {"changed_since", :changed_since}], [], nil},
-             {:post, "/v1/work/:work_id/attempts", :retry, [], [], [:resume]},
-             {:post, "/v1/work/:work_id/cancel", :cancel, [], [], [:mode, :reason]},
-             {:get, "/v1/capacity", :capacity, [], [], nil},
-             {:get, "/v1/turns/:turn_id/output", :turn_output, [{"cursor", :cursor}], [], nil}
+              [{"state", :state}, {"changed_since", :changed_since}], [], nil, nil},
+             {:post, "/v1/work/:work_id/attempts", :retry, [], [], [:resume], nil},
+             {:post, "/v1/work/:work_id/cancel", :cancel, [], [], [:mode, :reason], nil},
+             {:get, "/v1/capacity", :capacity, [], [], nil, nil},
+             {:get, "/v1/turns/:turn_id/output", :turn_output, [{"cursor", :cursor}], [], nil,
+              nil}
            ]
+  end
+
+  test "§8.2 (S3): only get_work has an ETag, and it is the work's revision, not its sequence" do
+    assert for(r <- @rest.resources, r.etag, do: {r.capability, r.etag}) == [get_work: :revision]
+
+    work = Enum.find(AtlasRuntimeBoundary.Work.__schema__().models, &(&1.name == :work))
+    assert %{type: :integer, required: true} = Enum.find(work.fields, &(&1.name == :revision))
   end
 
   test "§8.3: the status of every outcome, with its headers and problem type" do
@@ -67,8 +81,8 @@ defmodule AtlasRuntimeBackend.WorkTest do
 
     assert statuses == %{
              accepted: {{201, nil}, [{"location", "/v1/work/{work.work_id}"}], :work},
-             # S1: a plain 200, no Idempotent-Replayed.
-             existing: {{200, nil}, [], :work},
+             # S3: a replay says so; accepted (201) never does.
+             existing: {{200, nil}, [{"idempotent-replayed", "true"}], :work},
              at_capacity: {{503, "at-capacity"}, [{"retry-after", :retry_after}], nil},
              refused:
                {{:reason,
@@ -86,7 +100,7 @@ defmodule AtlasRuntimeBackend.WorkTest do
              # The body is the work; its attempt's cancel_stage holds the stage.
              cancelling: {{202, nil}, [], :work},
              ended: {{200, nil}, [], :work},
-             # S1: no ETag.
+             # The ETag is the resource's (get_work), not the outcome's: find_work has none.
              found: {{200, nil}, [], :work},
              works: {{200, nil}, [], nil},
              capacity: {{200, nil}, [{"retry-after", :retry_after}], nil},

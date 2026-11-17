@@ -80,7 +80,7 @@ defmodule AtlasRuntime.BackendTest.Events do
     path = listen(ctx, 10)
     {stream, {id, rights}, %F.SubscribeInput{from: nil}} = subscribe(path)
     assert id == me()
-    assert :read_all in rights and :choose_slot in rights
+    assert :read_all in rights and :choose_slot in rights and :choose_path in rights
 
     {stream, head} = TestSocket.await(stream, "\r\n\r\n")
     assert head =~ "HTTP/1.1 200"
