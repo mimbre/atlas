@@ -1649,6 +1649,11 @@
           "name": "more",
           "required": true,
           "type": "boolean"
+        },
+        {
+          "name": "ended",
+          "required": false,
+          "type": "boolean"
         }
       ],
       "name": "page"
@@ -1791,5 +1796,5 @@
       "name": "reset"
     }
   ],
-  "version": "0.1.0"
+  "version": "0.2.0"
 }

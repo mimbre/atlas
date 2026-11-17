@@ -20,7 +20,8 @@ defmodule AtlasRuntime.Sources.UploadTest do
 
   alias AtlasRuntime.Boundary.Work, as: F
   alias AtlasRuntime.CodeStandIn
-  alias AtlasRuntime.Sources.Upload
+  alias AtlasRuntime.Sources.{Import, Upload}
+  alias AtlasRuntime.Test.WorkSourceFacade, as: WS
   alias AtlasRuntime.Work.{FrozenStore, Store}
 
   @moduletag capture_log: true
@@ -164,8 +165,11 @@ defmodule AtlasRuntime.Sources.UploadTest do
     assert %{lease_id: @lease, revision: revision, state: :ended} = report
     assert revision == work.revision
 
-    assert %{result: %{kind: :completed}, provenance: %{}, manifest: %{roots: [_]}} =
+    assert %{result: %{kind: :completed}, provenance: %{}, manifest: %{base: base, roots: [_]}} =
              report.result
+
+    # K1: the ended change set declares the work's base (work_source 0.2.0, required).
+    assert base == work.request.workspace.base_id
 
     expected = Enum.sort([sha("beta\n"), sha("gamma\n")])
     assert Enum.sort(manifest_shas(fake)) == Enum.sort([sha("alpha\n") | expected])
@@ -175,6 +179,118 @@ defmodule AtlasRuntime.Sources.UploadTest do
     assert Enum.all?(puts, &(&1.lease_id == @lease and sha(&1.bytes) == &1.sha256))
     assert Enum.all?(puts, &(&1.size == byte_size(&1.bytes)))
     assert MapSet.subset?(MapSet.new(expected), FakeSource.stored(fake))
+  end
+
+  # An importing source's policy entry, a blob fetch over a map of blobs, and a lease of the
+  # base line base_sha with an optional change-set reference (as Sources.Import takes them).
+  @importer %{"name" => "flow-test", "max_store_bytes" => 10_000_000}
+
+  defp serve(blobs) do
+    fn sha256 ->
+      case Map.fetch(blobs, sha256) do
+        {:ok, bytes} -> {:ok, %{sha256: sha256, size: byte_size(bytes), content: [bytes]}}
+        :error -> :not_found
+      end
+    end
+  end
+
+  defp lease_of(base_sha, change_set),
+    do: %{
+      lease_id: @lease,
+      work: %{
+        work_key: "task-1",
+        input: %{base: %{base_id: "b-1", manifest: base_sha}, change_set: change_set}
+      }
+    }
+
+  # @files as an atlas-base v1 line of the root atlas: its sha256 and its blobs by sha256.
+  defp base_line do
+    entries =
+      for {path, content} <- Enum.sort(@files),
+          do: %{
+            "path" => path,
+            "op" => "write",
+            "kind" => "file",
+            "mode" => "100644",
+            "size" => byte_size(content),
+            "sha256" => sha(content)
+          }
+
+    line =
+      JSON.encode!(%{
+        "format" => "atlas-base",
+        "version" => 1,
+        "roots" => [%{"root" => "atlas", "entries" => entries}]
+      }) <> "\n"
+
+    blobs = Map.new(@files, fn {_path, content} -> {sha(content), content} end)
+    {sha(line), Map.put(blobs, sha(line), line)}
+  end
+
+  # A stored entry as AtlasChangeset reads one: string values, nil fields absent.
+  defp strings(entry) do
+    for {k, v} <- Map.from_struct(entry), v != nil, into: %{} do
+      {k, if(is_atom(v) and not is_boolean(v), do: Atom.to_string(v), else: v)}
+    end
+  end
+
+  # K1 acceptance 1 (f2f3 plan §5): Upload's ended change set, decoded through the generated
+  # work_source change-set type and re-encoded as JSON, is accepted by Import as the
+  # input.change_set on that base. A base work's base is a Code snapshot (version 2 id), and
+  # no import yields one (an imported baseline's id is its version 3 manifest's sha256), so
+  # the work's stored frozen record is pinned onto a baseline imported into the same home from
+  # the same files, its csf_ fingerprints recomputed for that base (the next test writes the
+  # stored record too). Upload reads it as any frozen result: base and roots are its own.
+  test "the uploaded change set, through the generated type and back to JSON, is accepted by Import on its base",
+       %{bench: bench, code: code} do
+    work = ended!(code, @three)
+    {base_sha, base_blobs} = base_line()
+
+    assert {:ok, %{baseline_id: baseline_id, change_set: nil}} =
+             Import.base(bench.dir, @importer, lease_of(base_sha, nil), serve(base_blobs))
+
+    stored = FrozenStore.get(bench.dir, work.work_id, 1)
+    assert stored.base == work.request.workspace.base_id
+    refute baseline_id == stored.base
+
+    set = %{
+      base: baseline_id,
+      roots: for(r <- stored.roots, do: %{root: r.root, entries: Enum.map(r.entries, &strings/1)})
+    }
+
+    csf = Map.new(AtlasChangeset.fingerprints(set), &{&1.root, &1.fingerprint})
+    roots = for r <- stored.roots, do: %{r | fingerprint: Map.fetch!(csf, r.root)}
+    FrozenStore.put!(bench.dir, %{stored | base: baseline_id, roots: roots})
+
+    fake = FakeSource.start!()
+    assert {:ok, _} = Upload.run(@source_client, {FakeSource, fake}, @lease, work.work_id)
+    assert [report] = FakeSource.reports(fake)
+
+    # Through the generated type to its JSON (the wire's ended.change_set), then re-encoded as
+    # the manifest Import takes: the neutral change set (base, roots of root and entries), each
+    # root's reported csf_ going into the input's fingerprints.
+    assert {:ok, %WS.ChangeSet{} = change_set} = WS.ChangeSet.new(report.result.manifest)
+    wire = change_set |> WS.ChangeSet.dump() |> JSON.encode!() |> JSON.decode!()
+    assert %{"base" => ^baseline_id, "roots" => [_ | _] = wire_roots} = wire
+
+    json =
+      JSON.encode!(%{
+        "base" => wire["base"],
+        "roots" => for(r <- wire_roots, do: Map.take(r, ["root", "entries"]))
+      })
+
+    fingerprints = for r <- wire_roots, do: %{root: r["root"], fingerprint: r["fingerprint"]}
+    ref = %{manifest: sha(json), fingerprints: fingerprints}
+
+    # The source serves the base, the blobs Upload put and the manifest.
+    put = Map.new(FakeSource.puts(fake), &{&1.sha256, &1.bytes})
+    assert map_size(put) > 0
+    blobs = base_blobs |> Map.merge(put) |> Map.put(sha(json), json)
+
+    assert {:ok, %{baseline_id: ^baseline_id, change_set: %{file: file, blobs: _}}} =
+             Import.base(bench.dir, @importer, lease_of(base_sha, ref), serve(blobs))
+
+    assert File.read!(file) == json
   end
 
   # The helper refuses absolute or escaping symlink targets, so the test writes Runtime

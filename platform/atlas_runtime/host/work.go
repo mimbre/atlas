@@ -18,8 +18,10 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 	"unicode/utf8"
 )
@@ -35,14 +37,20 @@ const (
 	titleMaxBytes  = 200
 )
 
-// workCall is one request of the work contract.
+// workCall is one request of the work contract. follow (output --follow) reads it again,
+// page after page, until the turn's output has ended.
 type workCall struct {
 	method string
 	path   string
 	query  url.Values
 	header http.Header
 	body   map[string]any
+	follow bool
 }
+
+// outputFollowWait is how long output --follow waits before it reads again when the last page
+// said no more output is there yet (a variable for the tests).
+var outputFollowWait = time.Second
 
 // backendProblem is a refusal: the problem+json body (type, title, status and the
 // outcome's fields, such as reason, detail, retry_after and capacity) and its HTTP status.
@@ -385,11 +393,13 @@ func cancelCall(name string, args []string) (workCall, error) {
 	return workCall{method: http.MethodPost, path: "/v1/work/" + url.PathEscape(*work) + "/cancel", body: body}, nil
 }
 
-// output reads one page of a turn's output: GET /v1/turns/{turn_id}/output?cursor=.
+// output reads one page of a turn's output: GET /v1/turns/{turn_id}/output?cursor=. With
+// --follow it reads page after page (followOutput).
 func outputCall(name string, args []string) (workCall, error) {
 	flags := flag.NewFlagSet(name, flag.ContinueOnError)
 	turn := flags.String("turn", "", "the turn whose output to read")
 	cursor := flags.String("cursor", "", "cursor of the previous page")
+	follow := flags.Bool("follow", false, "read every page until the turn's output has ended")
 	if err := flags.Parse(args); err != nil {
 		return workCall{}, err
 	}
@@ -398,11 +408,49 @@ func outputCall(name string, args []string) (workCall, error) {
 	}
 	set := visited(flags)
 	if !set["turn"] {
-		return workCall{}, errors.New("use output --turn TURN_ID [--cursor CURSOR]")
+		return workCall{}, errors.New("use output --turn TURN_ID [--cursor CURSOR] [--follow]")
 	}
-	call := workCall{method: http.MethodGet, path: "/v1/turns/" + url.PathEscape(*turn) + "/output"}
+	call := workCall{method: http.MethodGet, path: "/v1/turns/" + url.PathEscape(*turn) + "/output", follow: *follow}
 	if set["cursor"] {
 		call.query = url.Values{"cursor": {*cursor}}
 	}
 	return call, nil
+}
+
+// followOutput prints each output page as one JSON line, from call's cursor on, and stops at
+// the page that says ended (the work contract's page, 0.2.0: the turn had ended and no event
+// follows). A page with more is read on at once; otherwise it waits outputFollowWait. A
+// Runtime whose pages carry no ended cannot say when to stop, so following it is refused at
+// its first page. SIGINT and SIGTERM end it, exit 0.
+func followOutput(dir string, call workCall, out io.Writer) error {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	encoder := json.NewEncoder(out)
+	for {
+		page, err := callBackend(dir, call)
+		if err != nil {
+			return err
+		}
+		ended, known := page["ended"].(bool)
+		if !known {
+			return errors.New("this Runtime's output pages do not say when a turn's output ended; read output without --follow")
+		}
+		if err = encoder.Encode(page); err != nil {
+			return err
+		}
+		if ended {
+			return nil
+		}
+		if next, ok := page["cursor"].(string); ok && next != "" {
+			call.query = url.Values{"cursor": {next}}
+		}
+		if more, _ := page["more"].(bool); more {
+			continue
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(outputFollowWait):
+		}
+	}
 }

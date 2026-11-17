@@ -193,6 +193,67 @@ defmodule AtlasRuntime.PolicyTest do
     end
   end
 
+  # Main's #330 round 3: one availability rule for the offer and a retry's check. A profile
+  # is available for a work only when an option that serves that work's permission is.
+  describe "available?/6 (the one rule)" do
+    @light %{
+      "version" => 1,
+      "profiles" => %{
+        "light_work" => %{
+          "permissions" => ["read-only", "workspace-write", "materialized-folder"],
+          "cost_classes" => ["standard"],
+          "options" => [@codex, @claude]
+        }
+      }
+    }
+
+    test "per permission: Codex quota-marked leaves light_work for read-only, not workspace-write",
+         %{tmp_dir: dir} do
+      policy = loaded(dir, @light)
+      out = codex_out(Availability.empty())
+      both = ["claude", "codex"]
+      available? = &Policy.available?(policy, &1, "light_work", &2, both, @now)
+
+      assert available?.(Availability.empty(), "workspace-write")
+      refute available?.(out, "workspace-write")
+      assert available?.(out, "read-only")
+      assert available?.(out, :"materialized-folder")
+
+      # The offer's view: available for some permission it permits.
+      assert Policy.profiles(policy, out, both, @now)["light_work"] == %{available: true}
+
+      # resolve/5 agrees with it for every permission.
+      for permission <- ["read-only", "workspace-write", "materialized-folder"] do
+        resolved =
+          Policy.resolve(
+            policy,
+            out,
+            %{profile: "light_work", cost_class: :standard, permission: permission},
+            both,
+            @now
+          )
+
+        assert match?({:ok, _}, resolved) == available?.(out, permission)
+      end
+
+      # Not permitted, unknown, or no policy: never available.
+      refute Policy.available?(policy, out, "light_work", "dedicated-repository", both, @now)
+      refute Policy.available?(policy, out, "light_wrok", "read-only", both, @now)
+      refute Policy.available?({:error, :missing}, out, "light_work", "read-only", both, @now)
+    end
+
+    test "a profile no option of which can serve any permission it permits is not offered",
+         %{tmp_dir: dir} do
+      write_only = put_in(@light, ["profiles", "light_work", "permissions"], ["workspace-write"])
+      policy = loaded(dir, write_only)
+
+      out = codex_out(Availability.empty())
+
+      assert Policy.profiles(policy, out, ["claude", "codex"], @now)["light_work"].available ==
+               false
+    end
+  end
+
   describe "slots, buffer and limits" do
     test "slots follow F1 and the buffer defaults to one per slot", %{tmp_dir: dir} do
       assert Policy.slots({:error, :missing}) == ["default"]
@@ -371,8 +432,21 @@ defmodule AtlasRuntime.PolicyTest do
           do: assert({:ok, _} = loaded(dir, with_sources(sources)), inspect(sources))
     end
 
-    test "sources absent gives no sources", %{tmp_dir: dir} do
-      assert Policy.sources(loaded(dir)) == []
+    # Main's A6 Q2: no `sources` is `local` alone, at priority 1, with every slot; Flow's
+    # source (or any remote one) is pulled only when the policy names it.
+    test "sources absent gives local alone, priority 1, every slot", %{tmp_dir: dir} do
+      assert [%{"name" => "local", "kind" => "builtin", "priority" => 1} = local] =
+               Policy.sources(loaded = loaded(dir))
+
+      assert local["max_slots"] == length(Policy.slots(loaded))
+      assert local["max_slots"] > 0
+
+      three = Map.put(@mini, "slots", ["a", "b", "c"])
+      assert [%{"name" => "local", "max_slots" => 3}] = Policy.sources(loaded(dir, three))
+
+      # Named sources are taken as written; an explicit empty list names none.
+      assert Policy.sources(loaded(dir, with_sources([@flow]))) == [@flow]
+      assert Policy.sources(loaded(dir, with_sources([]))) == []
       assert Policy.sources({:error, :missing}) == []
       assert Policy.sources({:error, {:invalid, "x"}}) == []
     end
