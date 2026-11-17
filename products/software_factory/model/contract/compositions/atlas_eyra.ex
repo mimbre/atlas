@@ -33,6 +33,7 @@ defmodule Model.AtlasEyra do
     Decision,
     Delivery,
     FollowThrough,
+    Package,
     PrReview,
     PrTest,
     PullRequest,
@@ -62,7 +63,7 @@ defmodule Model.AtlasEyra do
   relation(:assignment,
     label: "assignment",
     description: "What belongs to being assigned, for one fact; made and deleted with it.",
-    from: [:scene, :use_case, :issue, :pull_request, :decision, :to_do],
+    from: [:scene, :use_case, :issue, :package, :pull_request, :decision, :to_do],
     to: [:assignment],
     max_outgoing: 1,
     inverse: {:assignment_of, "assignment of"}
@@ -212,6 +213,7 @@ defmodule Model.AtlasEyra do
       :flow_input,
       :flow_run,
       :issue,
+      :package,
       :pull_request,
       :pr_review,
       :pr_test,
@@ -254,7 +256,8 @@ defmodule Model.AtlasEyra do
       Scene,
       Decision,
       FollowThrough,
-      ToDo
+      ToDo,
+      Package
     ])
 
     link(:pr_review,

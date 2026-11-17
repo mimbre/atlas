@@ -61,8 +61,9 @@ defmodule Model.FlowFactsTest do
                configured_model reported_model selection_reason conversation_id machine slot
                started_at ended_at))
 
+    # F1.4 adds the result field its subflow's task branches read (never written).
     assert Enum.sort(Map.keys(entities["package"]["properties"])) ==
-             Enum.sort(~w(title instructions acceptance after state))
+             Enum.sort(~w(title instructions acceptance after state task_result))
 
     assert Map.keys(entities["machinery"]["properties"]) == ["name"]
   end

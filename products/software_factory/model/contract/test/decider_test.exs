@@ -265,12 +265,14 @@ defmodule Model.DeciderTest do
     # slice 8 the pull request and slice 9 the issue (Model.DeliveryRunsTest), slice 10 the
     # design of a use case and slice 11 its building and testing (Model.AcceptanceRunsTest),
     # slice 12 the scene (Model.SceneRunsTest), slice 14 the follow-through of an accepted
-    # decision (Model.FollowThroughTest), and the To-Do: all ten.
+    # decision (Model.FollowThroughTest), the To-Do, and F1.4 the package
+    # (Model.PackageRunsTest): all eleven.
     assert selected == [
              "decide",
              "design_and_accept",
              "follow_through",
              "issue",
+             "package",
              "pr_review",
              "pr_test",
              "pull_request",

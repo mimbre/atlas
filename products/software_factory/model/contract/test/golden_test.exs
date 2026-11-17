@@ -44,6 +44,8 @@ defmodule Model.GoldenTest do
   # Slice 12: test_and_accept_scene loses its passes; the decider's verdict ends to_test,
   # and a new open use case sends it back from to_test (was 8dc48c7180394ded).
   # Slice 14: follow_through, new, takes an accepted decision until work is based on it.
+  # F1.4: package, new, authors a package on its machinery. Its version is the one the
+  # pinned rela gives: run `mix model.gen` with ATLAS_RELA_BIN to draw it.
   @versions [
     {"issue", [issue: "de930a7511675ac8"]},
     {"pull_request", [pull_request: "0ef9fa7df6aab982"]},
@@ -54,7 +56,8 @@ defmodule Model.GoldenTest do
     {"scene", [test_and_accept_scene: "b3c10271c51b8945"]},
     {"decision", [decide: "e2ad1048cd8a4748"]},
     {"follow_through", [follow_through: "c78849a1df469267"]},
-    {"to_do", [to_do: "c8e174fc1ec59364"]}
+    {"to_do", [to_do: "c8e174fc1ec59364"]},
+    {"package", [package: "not-drawn-rela-missing"]}
   ]
 
   defp below_header(text),
@@ -83,7 +86,7 @@ defmodule Model.GoldenTest do
     assert generated() == approved()
   end
 
-  test "the composition holds the ten subflows, in order" do
+  test "the composition holds the eleven subflows, in order" do
     names = for {_, flows} <- @versions, {name, _} <- flows, do: name
     assert Enum.map(AtlasEyra.__flows__(), & &1.name) == names
   end
@@ -160,6 +163,7 @@ defmodule Model.GoldenTest do
                "design_and_accept",
                "follow_through",
                "issue",
+               "package",
                "pr_review",
                "pr_test",
                "pull_request",
