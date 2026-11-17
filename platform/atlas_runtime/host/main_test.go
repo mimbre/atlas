@@ -617,3 +617,58 @@ func TestSnapshotReadOnlyFlagsSealTheFolder(t *testing.T) {
 		}
 	}
 }
+
+// TestWorkspaceBaseCommandsWriteTheirCode (S5c P6): workspace base-import and materialize, which
+// only the core runs, write a refusal as JSON with its code (and an invalid base's rule) on stderr,
+// so the core branches on the code; the other workspace commands still write plain text.
+func TestWorkspaceBaseCommandsWriteTheirCode(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := filepath.Join(root, "runtime")
+	staging := filepath.Join(home, "bases", ".staging-1")
+	if err := os.MkdirAll(filepath.Join(staging, "blobs"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, "workers", "work-work-0123456789abcdef"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256([]byte("alpha"))
+	sum := hex.EncodeToString(digest[:])
+	line := `{"format":"atlas-base","roots":[{"entries":[{"kind":"file","mode":"100644","op":"write","path":"a.txt","sha256":"` + sum + `","size":5}],"root":"atlas"}],"version":1}` + "\n"
+	if err := os.WriteFile(filepath.Join(staging, "entries.json"), []byte(line), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(staging, "blobs", sum), []byte("alphA"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		args []string
+		want map[string]any
+	}{
+		{[]string{"base-import", "--home", home, "--staging", staging}, map[string]any{"code": "invalid", "rule": "blob_mismatch"}},
+		{[]string{"materialize", "--home", home, "--baseline", "sha256:" + sum, "--dest", filepath.Join(home, "workers", "work-work-0123456789abcdef")},
+			map[string]any{"code": "destination_exists"}},
+		{[]string{"materialize", "--home", home, "--baseline", "sha256:" + sum, "--dest", filepath.Join(home, "workers", "w1")},
+			map[string]any{"code": "destination_not_allowed"}},
+	} {
+		var stdout, stderr bytes.Buffer
+		if status := runWorkspace(c.args, &stdout, &stderr); status != 1 || stdout.Len() != 0 {
+			t.Fatalf("workspace %v: status %d, stdout %q", c.args, status, stdout.String())
+		}
+		var reply map[string]any
+		if err := json.Unmarshal(stderr.Bytes(), &reply); err != nil {
+			t.Fatalf("workspace %v: stderr is not one JSON reply: %q", c.args, stderr.String())
+		}
+		message, _ := reply["error"].(string)
+		delete(reply, "error")
+		if fmt.Sprint(reply) != fmt.Sprint(c.want) || message == "" {
+			t.Errorf("workspace %v: reply %v with error %q, want %v", c.args, reply, message, c.want)
+		}
+	}
+	var stdout, stderr bytes.Buffer
+	if status := runWorkspace([]string{"path"}, &stdout, &stderr); status != 1 || json.Valid(stderr.Bytes()) || stderr.Len() == 0 {
+		t.Fatalf("workspace path: status %d, stderr %q", status, stderr.String())
+	}
+}

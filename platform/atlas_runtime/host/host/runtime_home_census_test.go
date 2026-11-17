@@ -70,6 +70,7 @@ var censusHome = map[string]censusEntry{
 	"clients.json":          {"denied", "the loopback TCP clients: token hashes and rights (S3)", false},
 	"sources":               {"denied", "the work sources' credentials and per-source stores, e.g. sources/<name>/token (work acquisition M2, F4)", true},
 	"local-source":          {"denied", "the local work source's queue store (work acquisition M2, F4)", true},
+	"bases":                 {"denied", "every client's uploaded base records and the import staging (S5c); joined by bases/store.ex from S5c P7", true},
 	"workers":               {"chain", "the managed repositories' worker directories", false},
 }
 
@@ -108,6 +109,7 @@ var censusNotHome = map[string]string{
 	"tree":           "snapshot baseline, packet or its staging",
 	"manifest.json":  "snapshot baseline",
 	"complete":       "snapshot baseline marker",
+	"entries.json":   "base import staging (<home>/bases/.staging-*, S5c): line 1 of the base stream",
 	"findings":       "packet",
 	"packet.json":    "packet",
 	"discarded.json": "packet",
@@ -130,7 +132,7 @@ var censusNotHome = map[string]string{
 	"*.tmp":    "work directory (temporary-file glob)",
 	"*.json":   "work or frozen directory (record glob)",
 	// Below frozen (<home>/frozen, S5a P7b/P8: work/frozen_store.ex).
-	"blobs":      "frozen directory (the frozen results' blob folder)",
+	"blobs":      "frozen directory (the frozen results' blob folder); base import staging (<home>/bases/.staging-*, S5c): the blobs by sha256",
 	"*.json.tmp": "frozen directory (temporary-file glob)",
 	// Codex sessions, the fake inbox and the source tree.
 	"sessions":      "Codex home (~/.codex/sessions)",

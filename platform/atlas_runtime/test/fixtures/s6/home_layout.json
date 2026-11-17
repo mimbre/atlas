@@ -31,7 +31,8 @@
     "mode.json",
     "clients.json",
     "sources",
-    "local-source"
+    "local-source",
+    "bases"
   ],
   "atomic_temps": [
     "code.json.tmp",

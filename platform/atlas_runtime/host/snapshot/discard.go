@@ -47,6 +47,9 @@ func Discard(home, path, id string) (map[string]any, error) {
 	}
 
 	tree, folder := p.Tree, filepath.Dir(p.Tree)
+	if err = uploadedBase(home, tree, "discard"); err != nil {
+		return nil, err
+	}
 	if _, err := os.Lstat(folder); err == nil {
 		// Only the folder this packet's record names, still recorded as its tree, is removed.
 		info, err := os.Lstat(tree)

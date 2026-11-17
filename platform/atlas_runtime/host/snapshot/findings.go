@@ -88,6 +88,9 @@ func Findings(home, path, turn string) (map[string]any, error) {
 	if _, err = os.Stat(recordPath(home, tree)); errors.Is(err, fs.ErrNotExist) {
 		return nil, fmt.Errorf("%s is not a review packet folder: its tree is not recorded under %s", dir, home)
 	}
+	if err = uploadedBase(home, tree, "record findings for"); err != nil {
+		return nil, err
+	}
 	id, err := RecordedPacket(home, tree)
 	if err != nil {
 		return nil, err

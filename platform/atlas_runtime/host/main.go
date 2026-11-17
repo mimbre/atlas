@@ -463,11 +463,26 @@ func executeTo(args []string, out io.Writer) (map[string]any, error) {
 	return result, err
 }
 
+// runWorkspace runs workspace args and returns the exit status. The core-only base-import and
+// materialize (S5c P6) write a refusal as writeCommandError's JSON, with its code (and an invalid
+// base's rule), so the core branches on the code and never on the text; the others write the text.
+func runWorkspace(args []string, stdout, stderr io.Writer) int {
+	err := workspace.Run(args, stdout)
+	if err == nil {
+		return 0
+	}
+	if len(args) > 0 && (args[0] == "base-import" || args[0] == "materialize") {
+		writeCommandError(stderr, err)
+	} else {
+		fmt.Fprintln(stderr, err)
+	}
+	return 1
+}
+
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "workspace" {
-		if err := workspace.Run(os.Args[2:], os.Stdout); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+		if code := runWorkspace(os.Args[2:], os.Stdout, os.Stderr); code != 0 {
+			os.Exit(code)
 		}
 		return
 	}
