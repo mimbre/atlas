@@ -75,8 +75,9 @@ defmodule AtlasFlow.Runs.Projection do
     with nil <- refusal,
          true <- subflow != nil,
          {:ok, %{} = run} <- Store.latest(config, name, kind, fact["key"]),
-         true <- run["definition_sha256"] == subflow.digest() do
-      {:ok, Presentation.of_run(run, subflow, fact, &owner(runner, &1))}
+         true <- run["definition_sha256"] == subflow.digest(),
+         run = supervised(runner, subflow, run) do
+      {:ok, Presentation.of_run(run, subflow, fact, &owner(runner, &1, run))}
     else
       {:error, why} -> {:error, {:presentation_unavailable, why}}
       _ -> {:ok, nil}
@@ -84,9 +85,34 @@ defmodule AtlasFlow.Runs.Projection do
   end
 
   # Who the state names, with a configured actor (`config`) as the environment's settings
-  # fill it (`AtlasFlow.Model.owner/2`).
-  defp owner(_runner, nil), do: nil
-  defp owner(runner, owner), do: AtlasFlow.Model.owner(owner, runner.actors)
+  # fill it, or the run's human supervisor in its stead inside a supervised span
+  # (`AtlasFlow.Model.owner/3`).
+  defp owner(_runner, nil, _run), do: nil
+  defp owner(runner, owner, run), do: AtlasFlow.Model.owner(owner, runner.actors, run)
+
+  # The run with its subflow's supervised `spans` and its human supervisor as
+  # `AtlasFlow.Model.owner/3` takes it (`supervised_by`, `%{"kind", "key"}` or nil): only
+  # when its subflow declares a span and its state's owner may go to a supervisor. The
+  # run's writer keeps the supervisor as a link of the run's fact, and the run it read
+  # carries that link's key as `supervised_by` (`AtlasFlow.Runs.Store`); its kind is the
+  # supervision relation's one holder kind. It reads nothing more.
+  defp supervised(runner, subflow, run) do
+    supervision = runner.config["supervision"] || %{}
+    spans = get_in(supervision, ["spans", run["flow"]]) || []
+
+    with true <- spans != [] and run["status"] == "active",
+         true <- AtlasFlow.Model.supervisable?((subflow.owner(run["state"]) || %{})["default"]) do
+      supervisor =
+        case {supervision["holders"], run["supervised_by"]} do
+          {[kind], key} when is_binary(key) -> %{"kind" => kind, "key" => key}
+          _ -> nil
+        end
+
+      Map.merge(run, %{"spans" => spans, "supervised_by" => supervisor})
+    else
+      false -> run
+    end
+  end
 
   # Store what differs on the fact the projection writes on: its own, or the one its
   # `on` relation points at. The owner it waits for, or nil.
