@@ -293,6 +293,11 @@ defmodule AtlasRuntime.Work.BaseWorkspaceTest do
     work = submit_base!(code, "complete after a restart")
     pid = await(fn -> private_attempt(bench.dir, work.work_id, 1).prepare_pid end)
     await(fn -> CodeStandIn.held?(code) end)
+    # The committed pid alone is not enough: the core commits it, then acknowledges it, and a
+    # preparer whose owner dies before the acknowledgement kills its helper (`Folders`,
+    # review S3), so the helper this test needs alive would be gone (CI run 44140354565). Stop
+    # the core only once the preparer is past the handshake, waiting on its helper.
+    await(&preparer_awaits_helper?/0)
     stop_work()
     # The probe is the process check (`kill -0`): an agent sandbox may deny `ps`, which the
     # default listing (`Restart.processes/0`) needs.
@@ -318,6 +323,86 @@ defmodule AtlasRuntime.Work.BaseWorkspaceTest do
     assert CodeStandIn.archives(code) == ["atlas", "atlas"]
     assert [%{"cwd" => cwd}] = launches(bench)
     assert cwd == expected_folder(bench.dir, work.work_id)
+  end
+
+  # The window the test above now avoids, held open on purpose: the core dies after it
+  # committed `prepare_pid` and before it acknowledged it. The preparer then kills its helper,
+  # and the attempt is still not quiescent at boot: the pid is recorded, so only the probe's
+  # proof that the helper is gone settles it, never the boot itself.
+  @tag work_options: [after_write: &__MODULE__.hold_after_pid_commit/1]
+  test "a core that dies between committing prepare_pid and acknowledging it: the helper is killed, and the boot is not quiescent until the probe proves it gone",
+       %{bench: bench, code: code} do
+    test = self()
+    :persistent_term.put({__MODULE__, :test}, test)
+    on_exit(fn -> :persistent_term.erase({__MODULE__, :test}) end)
+
+    CodeStandIn.hold(code)
+    work = submit_base!(code, "complete after a lost acknowledgement")
+    assert_receive {:pid_committed, core, pid}, 10_000
+    # The core is held inside that commit: the preparer still waits for the acknowledgement.
+    refute preparer_awaits_helper?()
+    assert {_, 0} = System.cmd("/bin/kill", ["-0", Integer.to_string(pid)])
+
+    stop_work()
+    refute Process.alive?(core)
+    # The preparer saw its owner go and killed the helper (its own `:DOWN`, not a timer).
+    await(fn -> signal_probe(pid, nil) != :alive end)
+
+    start_work!(bench,
+      probe: &__MODULE__.signal_probe/2,
+      after_write: fn record -> send(test, {:written, record, System.monotonic_time()}) end
+    )
+
+    # The boot's own commit: interrupted, retryable, and not quiescent, the pid being recorded.
+    boot = await_written(work.work_id, &(&1.state == :interrupted))
+    assert boot.result.retryable
+    refute boot.quiescent
+    assert %{preparing: false, prepare_pid: ^pid} = private_attempt(bench.dir, work.work_id, 1)
+
+    # Then the heartbeat probe, which proves the helper gone, settles it.
+    settled = await_written(work.work_id, &(&1.state == :interrupted and &1.quiescent))
+    assert settled.result.retryable
+    assert [%{state: :interrupted, quiescent: true}] = work!(work.work_id).attempts
+    assert launches(bench) == []
+    CodeStandIn.release(code)
+  end
+
+  # The first core's after_write: the commit that records a prepare_pid is held (as a
+  # descheduled core would be) before the core acknowledges it to the preparer.
+  def hold_after_pid_commit(record) do
+    case List.last(record.attempts) do
+      %{state: :starting, preparing: true, prepare_pid: pid} when is_integer(pid) ->
+        send(:persistent_term.get({__MODULE__, :test}), {:pid_committed, self(), pid})
+        Process.sleep(:infinity)
+
+      _ ->
+        :ok
+    end
+  end
+
+  # The next record of `work_id` the core wrote whose current attempt matches `fun`.
+  defp await_written(work_id, fun) do
+    receive do
+      {:written, %{work_id: ^work_id} = record, _at} ->
+        attempt = List.last(record.attempts)
+        if fun.(attempt), do: attempt, else: await_written(work_id, fun)
+    after
+      10_000 -> flunk("no matching write of #{work_id}")
+    end
+  end
+
+  # A preparer (`Folders`) waiting on its helper's port: past the prepare_pid handshake.
+  defp preparer_awaits_helper? do
+    Enum.any?(Process.list(), fn pid ->
+      case Process.info(pid, :current_stacktrace) do
+        {:current_stacktrace, stack} ->
+          Enum.any?(stack, &match?({AtlasRuntime.Work.Folders, _, _, _}, &1)) and
+            Enum.any?(stack, &match?({AtlasRuntime.Workspaces, :collect, _, _}, &1))
+
+        nil ->
+          false
+      end
+    end)
   end
 
   test "retry resume: true continues in the same folder, without preparing it", %{
