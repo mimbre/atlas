@@ -193,6 +193,8 @@ defmodule AtlasFlow.Backend.RuntimeClientContractTest do
       result: %{kind: :completed, retryable: false, never_started: false},
       provenance: [],
       change_set: %{
+        # K1 (work_source 0.2.0): `base` is required; the lease's base, as the Runtime sends it.
+        base: base.base_id,
         roots: [
           %{
             root: "repo",
