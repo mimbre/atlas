@@ -334,9 +334,29 @@ func runtimeWorkFolder(home, root string) bool {
 	return home != "" && root == filepath.Join(home, "workers", name) && runtimeWorkName.MatchString(name)
 }
 
+// claudeHomeTopPatterns are the Read-rule patterns (gitignore syntax: `*` stays inside one directory)
+// for names directly in the Runtime home that a work folder's file tools are denied even when they are
+// created after launch: every dot name (the snapshot store's .record-*/.claim- temps), the atomic
+// <name>.tmp temps (mode.json.tmp, availability.json.tmp, policy.json.tmp, …), and every JSON record,
+// socket, lock and log. None matches workers, the one home entry on the chain to the folder, so these
+// Claude denies (which win over allows) never deny the folder. Claude has no complement pattern, so a
+// later top-level name of another shape (a new store directory such as submissions/) is covered only by
+// the home's Bash read deny (claudeWorkerSettings) and, for the file tools, by --restricted.
+var claudeHomeTopPatterns = []string{".*", "*.tmp", "*.json", "*.sock", "*.lock", "*.log"}
+
+// claudeHomeTopRules are the claudeHomeTopPatterns of home as Read rules.
+func claudeHomeTopRules(home string) []string {
+	var rules []string
+	for _, pattern := range claudeHomeTopPatterns {
+		rules = append(rules, "Read(/"+filepath.Join(home, pattern)+")")
+	}
+	return rules
+}
+
 // workerHomeNames are the Runtime home entries a worker in a Runtime-chosen folder is denied by path,
-// even when they are absent at launch: the sensitiveHomeNames and the frozen results.
-var workerHomeNames = append(slices.Clone(sensitiveHomeNames), "frozen")
+// even when they are absent at launch: the workFolderHomeNames of the Codex profiles (the
+// sensitiveHomeNames, the frozen results, the bases and the work store).
+var workerHomeNames = workFolderHomeNames
 
 // claudeWorkerSettings is the policy described at claudeFolderSettings with writable as the written
 // project paths, frozen as project paths that are read but never written, and pty whether Bash may
@@ -464,6 +484,9 @@ func claudeWorkerSettings(scope map[string]any, temporary, user, inspector strin
 	for _, path := range protected {
 		rules = append(rules, "Read(/"+path+")") // `//` marks an absolute path in Claude rules.
 	}
+	if worker {
+		rules = append(rules, claudeHomeTopRules(home)...)
+	}
 	// The file-editing tools may not touch a frozen path, whatever tools a later Runtime enables.
 	for _, tool := range []string{"Edit", "Write"} {
 		for _, path := range frozen {
@@ -545,23 +568,34 @@ func claudeTemporaryRoots(root, temporary, subject string) ([]string, error) {
 }
 
 // claudeReadOnlySettings denies a plain read-only turn's file tools (it has no Bash) the Runtime home
-// and the Code token with its directory. A Read rule on a home containing the workspace (resolved
+// (for the work folder, every home entry off the chain to it) and the Code token with its directory. A Read rule on a home containing the workspace (resolved
 // through symlinks) would also deny the workspace, so there only --restricted, which confines the file
 // tools to the workspace, keeps them out of the rest of the home.
-func claudeReadOnlySettings(workspace, home string) (string, error) {
-	workspace, err := resolvePath(workspace)
+func claudeReadOnlySettings(project, home string) (string, error) {
+	project, err := resolvePath(project)
 	if err != nil {
 		return "", err
 	}
-	denied, err := runtimeEntries(home, workspace)
+	// The work folder <home>/workers/work-<work_id> gets the chain and sibling denies (homeEntries) as
+	// paths, never the home itself, plus the claudeHomeTopRules for names created later at the home's top
+	// level. Claude rules have no complement pattern, so a sibling worker created later stays outside
+	// --restricted only.
+	denied, err := homeEntries(home, project)
+	if err != nil {
+		return "", err
+	}
+	globs, err := siblingWorkerGlobs(home, project)
 	if err != nil {
 		return "", err
 	}
 	rules := []string{}
 	for _, entry := range denied {
-		if !within(entry[0], workspace) {
+		if !within(entry[0], project) && !slices.Contains(globs, entry) {
 			rules = append(rules, "Read(/"+entry[0]+")")
 		}
+	}
+	if workspace.RuntimeWorkFolder(home, project) {
+		rules = append(rules, claudeHomeTopRules(home)...)
 	}
 	return encodeSettings(struct {
 		Permissions claudePermissions `json:"permissions"`

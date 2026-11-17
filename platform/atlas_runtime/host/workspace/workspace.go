@@ -457,8 +457,31 @@ func readyScope(scope map[string]any) (map[string]any, error) {
 	return scope, nil
 }
 
+// workFolderName is the name of a Runtime-chosen work folder: "work-" and a work_id, itself "work-"
+// and 16 lowercase hex digits (design §3.9 RQ7, `<home>/workers/work-<work_id>`).
+var workFolderName = regexp.MustCompile(`\Awork-work-[0-9a-f]{16}\z`)
+
+// RuntimeWorkFolder reports whether root, a canonical path, is exactly the work folder
+// <home>/workers/work-<work_id> of the canonical Runtime home: a direct child of <home>/workers
+// named work- and a valid work_id. It is the one Runtime-home path a worker may run in; its
+// profiles deny every other entry along the chain home → workers → folder.
+func RuntimeWorkFolder(home, root string) bool {
+	return home != "" && filepath.Dir(root) == filepath.Join(home, "workers") && workFolderName.MatchString(filepath.Base(root))
+}
+
+// runtimeWorkFolder is the exemption of FolderScopeBeforePreparation: dest is spelled exactly as its
+// canonical path (no ".", "..", doubled or trailing separator, and no symlink in any parent) and that
+// path is RuntimeWorkFolder of the canonical home; dest itself is a real directory, not a symlink.
+func runtimeWorkFolder(dest, canonical, home string) bool {
+	if dest != canonical || !RuntimeWorkFolder(home, canonical) {
+		return false
+	}
+	info, err := os.Lstat(dest)
+	return err == nil && info.IsDir()
+}
+
 // FolderScopeBeforePreparation is the materialized-folder permission scope of dest, materialized
-// outside the Runtime home, whatever its preparation. It verifies the record and baseline like
+// outside the Runtime home (or exactly the work folder RuntimeWorkFolder names), whatever its preparation. It verifies the record and baseline like
 // snapshot status, without Git.
 func FolderScopeBeforePreparation(dest, home string) (map[string]any, error) {
 	if !filepath.IsAbs(dest) || !filepath.IsAbs(home) {
@@ -476,7 +499,9 @@ func FolderScopeBeforePreparation(dest, home string) (map[string]any, error) {
 	within := func(dir, path string) bool {
 		return path == dir || strings.HasPrefix(path, strings.TrimSuffix(dir, "/")+"/")
 	}
-	if within(home, canonical) || within(canonical, home) {
+	// The one exception is the Runtime-chosen work folder (§3.9 RQ7), named exactly: its profiles deny
+	// the rest of the home along the chain to it instead of the home whole (I8).
+	if (within(home, canonical) || within(canonical, home)) && !runtimeWorkFolder(dest, canonical, home) {
 		return nil, fmt.Errorf("Materialized folder %s overlaps the Runtime home %s; materialize it outside the Runtime home", dest, home)
 	}
 	scope, err := snapshot.Verified(home, dest)

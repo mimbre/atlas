@@ -73,11 +73,12 @@ defmodule AtlasRuntime.WorkHarness do
 
     on_exit(fn ->
       stop_all()
+      await_preparers()
 
       for {name, value} <- previous,
           do: if(value, do: System.put_env(name, value), else: System.delete_env(name))
 
-      File.rm_rf!(dir)
+      remove_home!(dir)
     end)
 
     context
@@ -154,6 +155,75 @@ defmodule AtlasRuntime.WorkHarness do
       {:DOWN, ^monitor, :process, ^pid, _} -> :ok
     after
       5_000 -> flunk("#{inspect(pid)} did not stop")
+    end
+  end
+
+  @doc """
+  Waits for every folder preparer (`AtlasRuntime.Work.Folders`) to end. A preparer is not
+  linked to the core (F17): a stopped core leaves it to finish its helper, which still writes,
+  then seals (0555), the work folder and the snapshot baseline under the home. One still alive
+  after `timeout` ms has its helper (the OS process behind its port) and itself killed.
+  """
+  def await_preparers(timeout \\ @wait) do
+    deadline = System.monotonic_time(:millisecond) + timeout
+
+    for pid <- preparers() do
+      monitor = Process.monitor(pid)
+      remaining = max(deadline - System.monotonic_time(:millisecond), 0)
+
+      receive do
+        {:DOWN, ^monitor, :process, ^pid, _} -> :ok
+      after
+        remaining ->
+          for port <- links(pid),
+              {:os_pid, os_pid} <- [Port.info(port, :os_pid)],
+              do:
+                System.cmd("/bin/kill", ["-KILL", Integer.to_string(os_pid)],
+                  stderr_to_stdout: true
+                )
+
+          Process.demonitor(monitor, [:flush])
+          kill(pid)
+      end
+    end
+
+    :ok
+  end
+
+  # A preparer is a plain `spawn/1` (initial call `:erlang.apply/2`): it is known by the
+  # `Folders` frames on its stack.
+  defp preparers do
+    for pid <- Process.list(),
+        {:current_stacktrace, stack} <- [Process.info(pid, :current_stacktrace)],
+        Enum.any?(stack, &match?({AtlasRuntime.Work.Folders, _, _, _}, &1)),
+        do: pid
+  end
+
+  defp links(pid) do
+    case Process.info(pid, :links) do
+      {:links, links} -> Enum.filter(links, &is_port/1)
+      nil -> []
+    end
+  end
+
+  # Removes the home once nothing of the bench writes in it: the write bits back first (sealed
+  # folders and snapshot baselines are 0555, and Linux cannot unlink inside them), then
+  # `rm_rf`. Native executions end their own groups after `stop_all/0`, asynchronously, so a
+  # failed pass is retried until the wait runs out.
+  defp remove_home!(dir, deadline \\ System.monotonic_time(:millisecond) + @wait) do
+    System.cmd("/bin/chmod", ["-R", "u+w", dir], stderr_to_stdout: true)
+
+    case File.rm_rf(dir) do
+      {:ok, _} ->
+        :ok
+
+      {:error, _, _} ->
+        if System.monotonic_time(:millisecond) < deadline do
+          Process.sleep(100)
+          remove_home!(dir, deadline)
+        else
+          File.rm_rf!(dir)
+        end
     end
   end
 

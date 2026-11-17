@@ -719,3 +719,115 @@ func TestWorkspaceContextUnreadableGitMetadata(t *testing.T) {
 	t.Cleanup(func() { os.Chmod(config, 0600) })
 	workspaceTestContext(t, root, "Cannot inspect Claude working directory")
 }
+
+// TestWorkspaceFolderScopeExemptsOnlyTheRuntimeWorkFolder pins the S5a P7a exemption (decision
+// 2026-11-17, designer conditions 1 and 3): of all paths that overlap the Runtime home, only
+// <home>/workers/work-<work_id>, spelled as its canonical path, a direct child of <home>/workers and a
+// real directory, has a folder scope. Every other one, symlink and spelling tricks included, keeps
+// today's refusal.
+func TestWorkspaceFolderScopeExemptsOnlyTheRuntimeWorkFolder(t *testing.T) {
+	root := workspaceTestRoot(t)
+	home := filepath.Join(root, "runtime")
+	workers := filepath.Join(home, "workers")
+	work := filepath.Join(workers, "work-work-0123456789abcdef")
+	id := workspaceTestMaterialize(t, home, work)
+	t.Setenv("PATH", "")
+	scope, err := FolderScope(work, home)
+	if err != nil {
+		t.Fatalf("the work folder must have a folder scope: %v", err)
+	}
+	if scope["root"] != work || scope["home"] != home || scope["snapshot_id"] != id || scope["profile"] != "materialized-folder" {
+		t.Fatalf("work folder scope: %v", scope)
+	}
+	if !RuntimeWorkFolder(home, work) {
+		t.Fatal("RuntimeWorkFolder must name the work folder")
+	}
+	// The home named through a symlink is the same home.
+	alias := filepath.Join(root, "home-alias")
+	if err := os.Symlink(home, alias); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := FolderScope(work, alias); err != nil {
+		t.Fatalf("home alias: %v", err)
+	}
+
+	refused := func(dest string) {
+		t.Helper()
+		_, err := FolderScope(dest, home)
+		want := "Materialized folder " + dest + " overlaps the Runtime home " + home + "; materialize it outside the Runtime home"
+		if err == nil || err.Error() != want {
+			t.Errorf("%s: wanted today's overlap refusal, got %v", dest, err)
+		}
+	}
+	// Recorded folders in every other shape of a Runtime-home path.
+	for _, dest := range []string{
+		filepath.Join(workers, "slot1"),
+		filepath.Join(workers, "work-x"),
+		filepath.Join(workers, "work-0123456789abcdef"),
+		filepath.Join(workers, "work-work-0123456789abcde"),
+		filepath.Join(workers, "work-work-0123456789abcdef0"),
+		filepath.Join(workers, "work-work-0123456789ABCDEF"),
+		filepath.Join(work, "sub"),
+		filepath.Join(workers, "slot1", "work-work-0123456789abcdef"),
+		filepath.Join(home, "work-work-0123456789abcdef"),
+		filepath.Join(home, "scratch", "work-work-0123456789abcdef"),
+		filepath.Join(home, "frozen", "work-work-0123456789abcdef"),
+	} {
+		workspaceTestMaterialize(t, home, dest)
+		refused(dest)
+	}
+	refused(home)
+	refused(workers)
+	refused(root)
+	// Spelling tricks: the same folder, but not as its canonical path.
+	for _, dest := range []string{work + "/", filepath.Join(workers, "slot1") + "/../" + filepath.Base(work),
+		workers + "//" + filepath.Base(work), workers + "/./" + filepath.Base(work)} {
+		refused(dest)
+	}
+	// Symlink tricks: a parent that resolves to <home>/workers, a work folder name that is a symlink to
+	// an outside folder, and a <home>/workers that is a symlink.
+	if err := os.Symlink(workers, filepath.Join(workers, "link")); err != nil {
+		t.Fatal(err)
+	}
+	refused(filepath.Join(workers, "link", filepath.Base(work)))
+	outside := filepath.Join(root, "outside")
+	workspaceTestMaterialize(t, home, outside)
+	linked := filepath.Join(workers, "work-work-1111111111111111")
+	if err := os.Symlink(outside, linked); err != nil {
+		t.Fatal(err)
+	}
+	refused(linked)
+	other := filepath.Join(root, "other-home")
+	if err := os.MkdirAll(filepath.Join(other, "elsewhere"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(other, "elsewhere"), filepath.Join(other, "workers")); err != nil {
+		t.Fatal(err)
+	}
+	moved := filepath.Join(other, "workers", "work-work-2222222222222222")
+	workspaceTestMaterialize(t, other, filepath.Join(other, "elsewhere", "work-work-2222222222222222"))
+	if _, err := FolderScope(moved, other); err == nil ||
+		err.Error() != "Materialized folder "+moved+" overlaps the Runtime home "+other+"; materialize it outside the Runtime home" {
+		t.Errorf("a symlinked <home>/workers: %v", err)
+	}
+	// An outside alias of the work folder is not the work folder either.
+	outer := filepath.Join(root, "outer-alias")
+	if err := os.Symlink(work, outer); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := FolderScope(outer, home); err == nil {
+		t.Error("an outside symlink to the work folder must be refused")
+	}
+	// The packet and preparation paths share the rule: the work folder passes their first check too.
+	if _, err := FolderScopeBeforePreparation(work, home); err != nil {
+		t.Fatalf("before preparation: %v", err)
+	}
+	for _, path := range []string{"", workers, filepath.Join(workers, "work-x"), filepath.Join(work, "sub"), filepath.Join(home, "work-work-0123456789abcdef")} {
+		if RuntimeWorkFolder(home, path) {
+			t.Errorf("RuntimeWorkFolder(%q) must be false", path)
+		}
+	}
+	if RuntimeWorkFolder("", filepath.Join("workers", "work-work-0123456789abcdef")) {
+		t.Error("RuntimeWorkFolder needs a home")
+	}
+}
