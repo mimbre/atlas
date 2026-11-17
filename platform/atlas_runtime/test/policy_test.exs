@@ -324,6 +324,185 @@ defmodule AtlasRuntime.PolicyTest do
     end
   end
 
+  describe "sources (decision §5.5)" do
+    # The decision's example, with a concrete host for its elided url.
+    @local %{
+      "name" => "local",
+      "kind" => "builtin",
+      "priority" => 1,
+      "max_slots" => 6,
+      "max_store_bytes" => 2_147_483_648
+    }
+    @flow %{
+      "name" => "flow-prod",
+      "kind" => "remote",
+      "url" => "https://flow.example.test/work-source",
+      "credential_file" => "sources/flow-prod/token",
+      "priority" => 2,
+      "max_slots" => 4,
+      "max_store_bytes" => 2_147_483_648
+    }
+
+    defp with_sources(sources), do: Map.put(@mini, "sources", sources)
+
+    # Each policy is the valid example with one change; it must refuse the whole policy,
+    # so nothing is permitted (as for every other key).
+    defp assert_refused(dir, sources) do
+      write_policy(dir, with_sources(sources))
+      assert {:error, {:invalid, _}} = loaded = Policy.load(dir), inspect(sources)
+      assert Policy.sources(loaded) == []
+
+      assert {:refused, :policy_forbids, _} =
+               Policy.resolve(loaded, Availability.empty(), request(), ["claude"], @now)
+    end
+
+    defp flow(changes), do: Map.merge(@flow, changes)
+
+    test "the decision's example loads, in priority order", %{tmp_dir: dir} do
+      policy = with_sources([@flow, @local])
+      assert {:ok, ^policy} = loaded = loaded(dir, policy)
+      assert Policy.sources(loaded) == [@local, @flow]
+
+      lower_first = with_sources([flow(%{"priority" => 0}), @local])
+      assert Policy.sources(loaded(dir, lower_first)) == [flow(%{"priority" => 0}), @local]
+
+      # Remote sources alone, an empty list and zero slots are all valid.
+      for sources <- [[@flow], [], [Map.put(@local, "max_slots", 0)]],
+          do: assert({:ok, _} = loaded(dir, with_sources(sources)), inspect(sources))
+    end
+
+    test "sources absent gives no sources", %{tmp_dir: dir} do
+      assert Policy.sources(loaded(dir)) == []
+      assert Policy.sources({:error, :missing}) == []
+      assert Policy.sources({:error, {:invalid, "x"}}) == []
+    end
+
+    test "the policy view is unchanged by sources", %{tmp_dir: dir} do
+      without = Policy.view(loaded(dir), Availability.empty(), ["claude", "codex"], @now)
+      sourced = loaded(dir, with_sources([@local, @flow]))
+      assert Policy.view(sourced, Availability.empty(), ["claude", "codex"], @now) == without
+    end
+
+    test "refuses a plaintext source url", %{tmp_dir: dir} do
+      for url <- [
+            "http://flow.example.test/work-source",
+            "HTTP://flow.example.test",
+            "//flow.example.test",
+            "flow.example.test",
+            "ftp://flow.example.test",
+            "https://",
+            "https:/flow.example.test",
+            "https://user:secret@flow.example.test/work-source",
+            "https://user@flow.example.test/work-source",
+            "https://flow.example.test /work-source",
+            "https://flow.example.test/work source",
+            "https://flow.example.test/work-source\n",
+            "https://flow.example.test/work-source?token=x",
+            "https://flow.example.test/work-source#x",
+            "",
+            nil
+          ],
+          do: assert_refused(dir, [@local, flow(%{"url" => url})])
+    end
+
+    test "credential file stays under sources/<name>/", %{tmp_dir: dir} do
+      for path <- [
+            "../x",
+            "/etc/token",
+            "/sources/flow-prod/token",
+            "sources/flow-prod/../other/token",
+            "sources/flow-prod/../../token",
+            "sources/../flow-prod/token",
+            "./sources/flow-prod/token",
+            "sources/flow-prod/./token",
+            "sources//flow-prod/token",
+            "sources/flow-prod//token",
+            "sources/other/token",
+            "sources/flow-prod",
+            "sources/flow-prod/",
+            "token",
+            "sources/flow-prod/tok\0en",
+            "sources/flow-prod/tok\nen",
+            "sources/flow-prod/tok\ten",
+            "sources/flow-prod/tok\x7Fen",
+            "",
+            nil
+          ],
+          do: assert_refused(dir, [@local, flow(%{"credential_file" => path})])
+
+      # A deeper file in its own directory is fine.
+      assert {:ok, _} =
+               loaded(
+                 dir,
+                 with_sources([flow(%{"credential_file" => "sources/flow-prod/a/token"})])
+               )
+    end
+
+    test "priorities are unique", %{tmp_dir: dir} do
+      assert_refused(dir, [@local, flow(%{"priority" => 1})])
+      other = flow(%{"name" => "flow-test", "credential_file" => "sources/flow-test/token"})
+      assert_refused(dir, [@flow, Map.put(other, "priority", 2)])
+    end
+
+    test "names are unique", %{tmp_dir: dir} do
+      assert_refused(dir, [@flow, flow(%{"priority" => 3})])
+      assert_refused(dir, [@local, Map.put(@local, "priority", 3)])
+    end
+
+    test "only local is builtin", %{tmp_dir: dir} do
+      assert_refused(dir, [Map.put(@local, "name", "flow-prod")])
+      assert_refused(dir, [Map.put(@local, "name", "other"), @flow])
+      # Nor is local ever remote: its client holds the local socket's rights.
+      local_remote = flow(%{"name" => "local", "credential_file" => "sources/local/token"})
+      assert_refused(dir, [local_remote])
+    end
+
+    test "each kind has exactly its fields", %{tmp_dir: dir} do
+      for sources <- [
+            [Map.put(@local, "url", @flow["url"])],
+            [Map.put(@local, "credential_file", "sources/local/token")],
+            [Map.delete(@flow, "url")],
+            [Map.delete(@flow, "credential_file")],
+            [Map.put(@flow, "weight", 1)],
+            [Map.put(@local, "kind", "other")],
+            [Map.delete(@local, "kind")],
+            [Map.delete(@flow, "name")]
+          ],
+          do: assert_refused(dir, sources)
+
+      for key <- ~w(priority max_slots max_store_bytes),
+          source <- [@local, @flow],
+          do: assert_refused(dir, [Map.delete(source, key)])
+    end
+
+    test "names, priorities, slots and store quotas are checked", %{tmp_dir: dir} do
+      for name <- ["", "..", "Flow", "flow/prod", "-flow", "flow prod", 7, nil] do
+        credential = if is_binary(name), do: "sources/#{name}/token", else: "sources/x/token"
+        assert_refused(dir, [flow(%{"name" => name, "credential_file" => credential})])
+      end
+
+      # A JSON object or array as name refuses the policy too, for either kind; it must
+      # never reach a check that turns it into text and raises instead.
+      for name <- [%{}, [%{}], [-1], ["flow-prod"], [], %{"a" => 1}] do
+        assert_refused(dir, [flow(%{"name" => name})])
+        assert_refused(dir, [Map.put(@local, "name", name)])
+      end
+
+      for value <- [1.5, "1", nil], do: assert_refused(dir, [flow(%{"priority" => value})])
+      for value <- [-1, 1.0, "4", nil], do: assert_refused(dir, [flow(%{"max_slots" => value})])
+
+      for value <- [0, -1, 1.0, "1", nil],
+          do: assert_refused(dir, [flow(%{"max_store_bytes" => value})])
+    end
+
+    test "sources must be a list of entries", %{tmp_dir: dir} do
+      for sources <- [%{"local" => @local}, "local", nil, [nil], ["local"], [[@local]]] do
+        write_policy(dir, with_sources(sources))
+        assert {:error, {:invalid, _}} = Policy.load(dir), inspect(sources)
+      end
+    end
+  end
+
   describe "availability.json (the former claude_quota evidence)" do
     test "weekly evidence is recorded atomically with its turn and survives reload", %{
       tmp_dir: dir

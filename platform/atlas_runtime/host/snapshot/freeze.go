@@ -123,6 +123,9 @@ func Freeze(home, dest, turn, path, id, previous, revision string) (map[string]a
 	if err != nil {
 		return nil, err
 	}
+	if err = uploadedBase(home, dest, "freeze"); err != nil {
+		return nil, err
+	}
 	target, err := packetPath(path)
 	if err != nil {
 		return nil, err

@@ -50,7 +50,8 @@ defmodule AtlasRuntime.Sandbox.HomeLayout do
               "mode.json",
               "clients.json",
               "sources",
-              "local-source"
+              "local-source",
+              "bases"
             ]
 
   # The atomic-write temps in the home, in sensitiveHomeNames' order (codex.go:181-182): the
