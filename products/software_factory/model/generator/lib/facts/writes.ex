@@ -43,8 +43,10 @@ defmodule RelaDSL.Facts.Writes do
     empty, and is then kept too (`once_error`). Sending what is there already changes
     nothing.
   - `delete_error`: a fact of the kind is never deleted; the text says why.
-  - fields `set_by` the run writer only (`flow_runtime.writer.by`) are written by it alone;
-    the kind runs are kept in (`flow_runtime.kind`) too.
+  - fields `set_by` the run writer only (`flow_runtime.writer.by`) are written by it alone,
+    from its sender, or from one of the further senders `flow_runtime.writer.senders`
+    names for that kind; the kind runs are kept in (`flow_runtime.kind`) is written by it
+    alone, from its sender only.
 
   Per relation:
 
@@ -450,18 +452,37 @@ defmodule RelaDSL.Facts.Writes do
 
     machine = get_in(d, ["flow_runtime", "writer"])
 
+    # The field guard holds the writer `{by, sender}` and, when `writer.senders` names this
+    # kind, that kind's further senders of the same writer (never another kind's).
+    field_writer =
+      case machine do
+        %{} ->
+          base = Map.delete(machine, "senders")
+
+          case get_in(machine, ["senders", kind]) do
+            [_ | _] = senders -> Map.put(base, "senders", senders)
+            _ -> base
+          end
+
+        _ ->
+          machine
+      end
+
     writers =
       for {field, p} <- spec["properties"] || %{},
           machine != nil and p["set_by"] == [machine["by"]],
           into: %{},
-          do: {field, machine}
+          do: {field, field_writer}
 
     rules = if writers == %{}, do: rules, else: Map.put(rules, "field_writers", writers)
 
     rules =
       case d["flow_runtime"] do
-        %{"kind" => ^kind, "writer" => writer} -> Map.put(rules, "machine_writer", writer)
-        _ -> rules
+        %{"kind" => ^kind, "writer" => writer} ->
+          Map.put(rules, "machine_writer", Map.delete(writer, "senders"))
+
+        _ ->
+          rules
       end
 
     only_target =
@@ -583,10 +604,20 @@ defmodule RelaDSL.Facts.Writes do
     refused =
       for {field, writer} <- writers,
           Map.has_key?(values, field),
-          machine_writer(writer, env) != :ok,
+          field_writer(writer, env) != :ok,
           do: field
 
     if refused == [], do: :ok, else: {:refused, ["protected fields: #{Enum.join(refused, ", ")}"]}
+  end
+
+  # A field guard: the machine writer, or the same writer (`by`) from one of the kind's
+  # further senders (`rules/2`).
+  defp field_writer(rule, env) do
+    if machine_writer(rule, env) == :ok or
+         (env["writer"] == rule["by"] and is_binary(env["sender"]) and
+            env["sender"] in List.wrap(rule["senders"])),
+       do: :ok,
+       else: {:refused, ["only the configured machine writer may write this field"]}
   end
 
   defp machine_writer(nil, _env), do: :ok

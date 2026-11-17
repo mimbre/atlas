@@ -97,10 +97,15 @@ defmodule Model.FlowRun do
 
   # The durable runs are facts of flow_run, their inputs of flow_input; the writer is Flow.
   # A run's human supervisor is its supervised_by, moved by pickup and hand-over inputs.
+  # Flow's work source leaser and its report receiver (decision 2026-11-17 §6.4, Flow plan
+  # decision 11) are the same writer from their own endpoints: they may write Flow's own
+  # task fields (the leaser and the receiver) and task_attempt fields (the receiver),
+  # nothing else, and never a run.
   flow_runtime(
     runs: :flow_run,
     writer: [sender: :flow, by: :flow],
     inputs: :flow_input,
-    supervision: [relation: :supervised_by, operation: :operation, hand_to: :hand_to]
+    supervision: [relation: :supervised_by, operation: :operation, hand_to: :hand_to],
+    senders: [task: [:"flow/dispatch", :"flow/delivery"], task_attempt: [:"flow/delivery"]]
   )
 end

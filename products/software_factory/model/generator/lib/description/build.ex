@@ -42,7 +42,7 @@ defmodule RelaDSL.Description.Build do
     :restart_by
   ]
   @migrate_keys [:from, :to, :states, :rekey, :preserve_entry, :reason]
-  @flow_runtime_keys [:runs, :writer, :inputs, :supervision]
+  @flow_runtime_keys [:runs, :writer, :inputs, :supervision, :senders]
   @supervision_keys [:relation, :operation, :hand_to]
   @operations ["pickup", "hand_over"]
   @writer "atlas-flow"
@@ -156,7 +156,10 @@ defmodule RelaDSL.Description.Build do
         unknown(i, {"migrate", name}, opts, @migrate_keys)
 
       %{kind: :root, value: {:flow_runtime, opts}} = i ->
-        unknown(i, {"flow_runtime"}, opts, @flow_runtime_keys)
+        case unknown(i, {"flow_runtime"}, opts, @flow_runtime_keys) do
+          [] -> senders_problems(i, opts[:senders], items)
+          problems -> problems
+        end
 
       %{kind: :extend_entity, value: {name, rules}} = i ->
         unknown(i, {"extend_entity", name}, rules, Enum.map(@entity_notes, &String.to_atom/1))
@@ -420,7 +423,7 @@ defmodule RelaDSL.Description.Build do
                {"flags", {:ordered, flags}},
                {"reviews", {:ordered, reviews}},
                {"kind", run},
-               {"writer", Plain.ordered(opts[:writer])},
+               {"writer", writer(opts[:writer], opts[:senders])},
                {"fields", identity(items, run)},
                {"selection", {:ordered, selection}},
                {"inputs",
@@ -433,6 +436,66 @@ defmodule RelaDSL.Description.Build do
                  ]}}
              ] ++ supervision(opts[:supervision], flows)}}
          ]}
+    end
+  end
+
+  # The run writer, `{sender, by}`; with `senders:`, also the further endpoints of the same
+  # writer per kind (`"senders"`, kind → [sender]), which only that kind's field guard
+  # accepts (`RelaDSL.Facts.Writes.rules/2`). Without `senders:` it is exactly `writer:`.
+  defp writer(writer, nil), do: Plain.ordered(writer)
+
+  defp writer(writer, senders) do
+    {:ordered, pairs} = Plain.ordered(writer)
+
+    {:ordered,
+     pairs ++
+       [
+         {"senders",
+          {:ordered,
+           for({kind, list} <- senders, do: {to_string(kind), Enum.map(list, &to_string/1)})}}
+       ]}
+  end
+
+  # `senders:` is a keyword list of kinds the items declare, each with a list of senders
+  # (atoms or strings), each kind once.
+  defp senders_problems(_i, nil, _items), do: []
+
+  defp senders_problems(i, senders, items) do
+    kinds = for %{kind: :entity, value: e} <- items, into: MapSet.new(), do: e.name
+    shape? = fn v -> is_list(v) and v != [] and Enum.all?(v, &(is_atom(&1) or is_binary(&1))) end
+
+    cond do
+      not Keyword.keyword?(senders) or not Enum.all?(senders, fn {_, v} -> shape?.(v) end) ->
+        [
+          {i.file, i.line,
+           problem(
+             :flow_runtime_senders,
+             [],
+             "flow_runtime senders: takes a keyword list of kinds, each with a list of senders"
+           )}
+        ]
+
+      (twice = Keyword.keys(senders) -- Enum.uniq(Keyword.keys(senders))) != [] ->
+        twice = Enum.uniq(twice)
+
+        [
+          {i.file, i.line,
+           problem(
+             :given_twice,
+             ["flow_runtime", "senders" | Enum.map(twice, &to_string/1)],
+             "flow_runtime senders: gives #{Enum.map_join(twice, ", ", &to_string/1)} twice"
+           )}
+        ]
+
+      true ->
+        for {kind, _} <- senders, not MapSet.member?(kinds, kind) do
+          {i.file, i.line,
+           problem(
+             :not_a_kind,
+             ["flow_runtime", "senders", to_string(kind)],
+             "flow_runtime senders: #{kind} is no kind"
+           )}
+        end
     end
   end
 
