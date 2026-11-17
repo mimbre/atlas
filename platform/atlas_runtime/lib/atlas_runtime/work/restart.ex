@@ -14,6 +14,11 @@ defmodule AtlasRuntime.Work.Restart do
   | live | ended (before or during the restart) | its end, as `AtlasRuntime.Work.Turns.outcome/2` maps it |
   | `starting`/`running` | `unknown`, or none | `interrupted` with its `resume_point` |
   | `cancelling` | `unknown`, or none | `cancelled`, or `failed: time_limit` for a time-limit cancel |
+  | `starting` or `cancelling` while `preparing` its folder (B25) | none | as the two rows above; never prepared or started again |
+
+  `quiescent` of a `preparing` attempt is false while its preparer's helper may still write
+  the folder (`prepare_pid` recorded) and true without one; the probe settles it once that
+  process is provably gone (`prepare_gone?/2`), as for an `unknown` turn.
 
   `quiescent` is false when the turn is `unknown` (its process may still exist) and true
   otherwise. **The probe** re-checks such a turn on every heartbeat with the Service's own
@@ -32,6 +37,18 @@ defmodule AtlasRuntime.Work.Restart do
       not Queue.live?(attempt) ->
         :keep
 
+      Map.get(attempt, :preparing) == true ->
+        {kind, reason} = interrupted(attempt)
+
+        {:end,
+         %{
+           kind: kind,
+           reason: reason,
+           native_outcome: nil,
+           quiescent: is_nil(attempt.prepare_pid),
+           answer: nil
+         }}
+
       owned? ->
         :keep
 
@@ -39,22 +56,30 @@ defmodule AtlasRuntime.Work.Restart do
         {:end, Turns.outcome(turn, attempt)}
 
       true ->
-        {kind, reason} =
-          case attempt do
-            %{state: :cancelling, cancel_reason: :time_limit} ->
-              {:failed, "time_limit"}
-
-            %{state: :cancelling, cancel_reason: why} ->
-              {:cancelled, Atom.to_string(why || :cancel)}
-
-            _ ->
-              {:interrupted, nil}
-          end
+        {kind, reason} = interrupted(attempt)
 
         {:end,
          %{kind: kind, reason: reason, native_outcome: nil, quiescent: is_nil(turn), answer: nil}}
     end
   end
+
+  defp interrupted(%{state: :cancelling, cancel_reason: :time_limit}), do: {:failed, "time_limit"}
+
+  defp interrupted(%{state: :cancelling, cancel_reason: why}),
+    do: {:cancelled, Atom.to_string(why || :cancel)}
+
+  defp interrupted(_attempt), do: {:interrupted, nil}
+
+  @doc """
+  Whether the helper a preparer ran (`attempt.prepare_pid`, B25) is provably gone, by the
+  probe's process check against the attempt's `started_at` (the preparer starts the helper
+  right after that commit).
+  """
+  def prepare_gone?(%{prepare_pid: pid, timestamps: %{started_at: %DateTime{} = at}}, probe)
+      when is_integer(pid) and pid > 1,
+      do: match?({:gone, _why}, probe.(pid, DateTime.to_unix(at)))
+
+  def prepare_gone?(_attempt, _probe), do: false
 
   @doc """
   Whether a turn's process is provably gone: `probe.(pid, launched)` on its `process.json`,
