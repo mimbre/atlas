@@ -46,8 +46,9 @@ defmodule Model.FlowFactsTest do
     assert entities["machinery"]["id_type"] == "manual"
 
     assert entities["task"]["properties"]["kind"]["type"] == "task_kind"
-    assert schema()["types"]["task_kind"]["values"] == ~w(plan author review fix)
-    assert schema()["types"]["task_role"]["values"] == ~w(architect developer)
+    # F2 adds the diagnose task (ladder rung a) and its investigator role.
+    assert schema()["types"]["task_kind"]["values"] == ~w(plan author review fix diagnose)
+    assert schema()["types"]["task_role"]["values"] == ~w(architect developer investigator)
     assert schema()["types"]["task_verdict"]["values"] == ~w(approved changes_required)
 
     # §3.2's fields, no more: F3's (change id, review id, fpr_, PR URL; published_*) wait.

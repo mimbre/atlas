@@ -13,18 +13,22 @@ types:
     - author
     - review
     - fix
+    - diagnose
     labels:
       plan: Plan
       author: Author
       review: Review
       fix: Fix
+      diagnose: Diagnose
   task_role:
     values:
     - architect
     - developer
+    - investigator
     labels:
       architect: Architect
       developer: Developer
+      investigator: Investigator
   task_verdict:
     values:
     - approved
@@ -246,13 +250,13 @@ entities:
       kind:
         type: task_kind
         required: true
-        description: Plan, author, review or fix
+        description: Plan, author, review, fix or diagnose
       role:
         type: task_role
-        description: Architect or developer
+        description: Architect, developer or investigator
       profile:
         type: string
-        description: 'The abstract profile it needs: deep_coding or independent_review'
+        description: 'The abstract profile it needs: deep_coding, independent_review or deep_coding_max'
       input:
         type: string
         description: 'What it starts from: the base, or the result of a task, read or write (JSON)'

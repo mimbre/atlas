@@ -635,7 +635,7 @@ defmodule RelaDSL.SchemaTest do
       refused(
         task_source(~s(input: [folder: "/Users/someone/work", base: "develop"],)),
         6,
-        "state a: task author: input: must be [repository: url, base: ref]"
+        "state a: task author: input: must be [repository: url, base: ref], or [result: :latest, access: :read | :write] for a review, fix or diagnose task"
       )
 
       refused(
@@ -643,7 +643,7 @@ defmodule RelaDSL.SchemaTest do
           ~s(input: [repository: "https://example.invalid/r.git", base: "develop", path: "/w"],)
         ),
         6,
-        "state a: task author: input: must be [repository: url, base: ref]"
+        "state a: task author: input: must be [repository: url, base: ref], or [result: :latest, access: :read | :write] for a review, fix or diagnose task"
       )
     end
 
@@ -651,7 +651,7 @@ defmodule RelaDSL.SchemaTest do
       refused(
         task_source("profile: :light_work,"),
         6,
-        "state a: task author: profile: must be one of deep_coding, independent_review"
+        "state a: task author: profile: must be one of deep_coding, independent_review, deep_coding_max"
       )
 
       refused(task_source("slot: \"s1\","), 6, "state a: task author: knows no slot")
@@ -659,7 +659,113 @@ defmodule RelaDSL.SchemaTest do
       refused(
         String.replace(task_source(""), "task :author", "task :ship"),
         6,
-        "state a: task ship: kind must be one of plan, author, review, fix"
+        "state a: task ship: kind must be one of plan, author, review, fix, diagnose"
+      )
+    end
+
+    # F2: review, fix and diagnose tasks are steps of the review and fix loop.
+    test "a review, fix or diagnose task maps every step of the loop, not task results" do
+      steps =
+        "on: [review: :b, fix: :b, diagnose: :b, fresh: :b, stronger: :b, ready: :b, decide: :c, held: :c]"
+
+      assert compile!(loop_source(":review", "[result: :latest, access: :read]", "", steps))
+
+      assert compile!(
+               loop_source(
+                 ":fix",
+                 "[result: :latest, access: :write]",
+                 "check: [\"bin/check\"],",
+                 steps
+               )
+             )
+
+      assert compile!(
+               loop_source(
+                 ":diagnose",
+                 "[result: :latest, access: :read]",
+                 "",
+                 steps,
+                 ":investigator"
+               )
+             )
+
+      refused(
+        loop_source(
+          ":review",
+          "[result: :latest, access: :read]",
+          "",
+          "on: [ready: :b, held: :c]"
+        ),
+        6,
+        "state a: task review can give review, fix, diagnose, fresh, stronger, decide, which no branch takes"
+      )
+
+      refused(
+        loop_source(
+          ":review",
+          "[result: :latest, access: :read]",
+          "",
+          "on: [completed: :b, check_failed: :c, stuck: :c, abandoned: :c]"
+        ),
+        6,
+        "state a: task review never gives completed, check_failed, stuck, abandoned"
+      )
+
+      # An author on the loop says so (`ladder: true`), and then branches on the steps too.
+      assert compile!(task_source("ladder: true,", steps))
+    end
+
+    test "a review reads the latest result, a fix writes it; neither starts from a repository" do
+      steps =
+        "on: [review: :b, fix: :b, diagnose: :b, fresh: :b, stronger: :b, ready: :b, decide: :c, held: :c]"
+
+      message =
+        "input: must be [repository: url, base: ref], or [result: :latest, access: :read | :write]"
+
+      refused(
+        loop_source(":review", "[result: :latest, access: :write]", "", steps),
+        6,
+        "task review: " <> message
+      )
+
+      refused(
+        loop_source(":fix", "[result: :latest, access: :read]", "check: [\"bin/check\"],", steps),
+        6,
+        "task fix: " <> message
+      )
+
+      refused(
+        loop_source(":review", "[result: :first, access: :read]", "", steps),
+        6,
+        "task review: " <> message
+      )
+
+      refused(
+        loop_source(
+          ":review",
+          ~s([repository: "https://example.invalid/r.git", base: "develop"]),
+          "",
+          steps
+        ),
+        6,
+        "task review: " <> message
+      )
+    end
+
+    test "an author or fix task without a check does not compile (lesson 7)" do
+      steps =
+        "on: [review: :b, fix: :b, diagnose: :b, fresh: :b, stronger: :b, ready: :b, decide: :c, held: :c]"
+
+      refused(
+        loop_source(":fix", "[result: :latest, access: :write]", "", steps),
+        6,
+        "state a: task fix: check: an author or fix task runs a check after the work (bin/check)"
+      )
+
+      refused(
+        String.replace(task_source(""), ~s(check: ["bin/check"], ), ""),
+        6,
+        "state a: task author: check: an author or fix task runs a check after the work (bin/check)"
       )
     end
 
@@ -1214,6 +1320,22 @@ defmodule RelaDSL.SchemaTest do
     |> then(
       &if(extra =~ "profile:", do: String.replace(&1, "profile: :deep_coding, ", ""), else: &1)
     )
+  end
+
+  # A task of the review and fix loop (`kind`, its `input`, any `check`) in state a.
+  defp loop_source(kind, input, check, on, role \\ ":developer") do
+    """
+    subflow :f, subject: :t do
+      run_as "system:x"
+      start :create
+      initial :a
+      state :a do
+        task #{kind}, role: #{role}, profile: :deep_coding, input: #{input}, #{check} instructions: "Do it.", records: [kind: "task", relation: "task_of"], machinery: "machinery", #{on}
+      end
+      final :b
+      final :c
+    end
+    """
   end
 
   # The change breaks exactly the one rule the message names.

@@ -12,13 +12,13 @@ defmodule Model.Task do
   use RelaDSL
 
   type(:task_kind,
-    values: [:plan, :author, :review, :fix],
-    labels: [plan: "Plan", author: "Author", review: "Review", fix: "Fix"]
+    values: [:plan, :author, :review, :fix, :diagnose],
+    labels: [plan: "Plan", author: "Author", review: "Review", fix: "Fix", diagnose: "Diagnose"]
   )
 
   type(:task_role,
-    values: [:architect, :developer],
-    labels: [architect: "Architect", developer: "Developer"]
+    values: [:architect, :developer, :investigator],
+    labels: [architect: "Architect", developer: "Developer", investigator: "Investigator"]
   )
 
   type(:task_verdict,
@@ -37,14 +37,18 @@ defmodule Model.Task do
     """ do
     field(:kind, :task_kind,
       required: true,
-      description: "Plan, author, review or fix",
+      description: "Plan, author, review, fix or diagnose",
       set_by: [:flow]
     )
 
-    field(:role, :task_role, description: "Architect or developer", set_by: [:flow])
+    field(:role, :task_role,
+      description: "Architect, developer or investigator",
+      set_by: [:flow]
+    )
 
     field(:profile, :string,
-      description: "The abstract profile it needs: deep_coding or independent_review",
+      description:
+        "The abstract profile it needs: deep_coding, independent_review or deep_coding_max",
       set_by: [:flow]
     )
 

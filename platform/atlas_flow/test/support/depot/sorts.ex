@@ -459,6 +459,125 @@ defmodule AtlasFlow.Sorts.Written do
     end
   end
 
+  defmodule Reviewed do
+    @moduledoc """
+    The review and fix loop with its strategy ladder (F2), as a package's subflow would
+    run it: an author task on the loop, then review, fix, diagnose, a fresh and a stronger
+    author, each branching on the ladder's step; ready, awaiting a decision, or held.
+    """
+    use RelaDSL.Schema
+
+    @steps [
+      review: :reviewing,
+      fix: :fixing,
+      diagnose: :diagnosing,
+      fresh: :fresh,
+      stronger: :stronger,
+      ready: :ready,
+      decide: :awaiting_decision,
+      held: :held
+    ]
+    @repository [repository: "https://example.invalid/depot.git", base: "develop"]
+    @records [kind: "task", relation: "task_of"]
+
+    subflow :sort, subject: :box do
+      run_as("system:depot")
+      owner(relation: :owned_by, default: {:clerk, :ada})
+      start(:create)
+      initial(:authoring)
+
+      state :authoring do
+        task(:author,
+          role: :developer,
+          profile: :deep_coding,
+          input: @repository,
+          check: ["bin/check"],
+          instructions: "Pack the box.",
+          fields: [:step],
+          records: @records,
+          machinery: "machinery",
+          ladder: true,
+          on: @steps
+        )
+      end
+
+      state :reviewing do
+        task(:review,
+          role: :developer,
+          profile: :independent_review,
+          input: [result: :latest, access: :read],
+          instructions: "Review the packed box.",
+          fields: [:step],
+          records: @records,
+          machinery: "machinery",
+          on: @steps
+        )
+      end
+
+      state :fixing do
+        task(:fix,
+          role: :developer,
+          profile: :deep_coding,
+          input: [result: :latest, access: :write],
+          check: ["bin/check"],
+          instructions: "Fix the packed box.",
+          fields: [:step],
+          records: @records,
+          machinery: "machinery",
+          on: @steps
+        )
+      end
+
+      state :diagnosing do
+        task(:diagnose,
+          role: :investigator,
+          profile: :deep_coding,
+          input: [result: :latest, access: :read],
+          instructions: "Find out why packing the box keeps failing.",
+          fields: [:step],
+          records: @records,
+          machinery: "machinery",
+          on: @steps
+        )
+      end
+
+      state :fresh do
+        task(:author,
+          role: :developer,
+          profile: :deep_coding,
+          input: @repository,
+          check: ["bin/check"],
+          instructions: "Pack the box again, from the start.",
+          fields: [:step],
+          records: @records,
+          machinery: "machinery",
+          ladder: true,
+          on: @steps
+        )
+      end
+
+      state :stronger do
+        task(:author,
+          role: :developer,
+          profile: :deep_coding_max,
+          cost_class: :high,
+          input: @repository,
+          check: ["bin/check"],
+          instructions: "Pack the box again, from the start.",
+          fields: [:step],
+          records: @records,
+          machinery: "machinery",
+          ladder: true,
+          on: @steps
+        )
+      end
+
+      final(:ready)
+      final(:awaiting_decision)
+      final(:held)
+    end
+  end
+
   defmodule Unbound do
     @moduledoc "An effect as the flow format writes one without a contract: no runner runs it."
     use RelaDSL.Schema
@@ -572,4 +691,9 @@ end
 defmodule AtlasFlow.Sorts.Authoring do
   @moduledoc false
   use AtlasFlow.Sorts, from: AtlasFlow.Sorts.Written.Authoring
+end
+
+defmodule AtlasFlow.Sorts.Reviewed do
+  @moduledoc false
+  use AtlasFlow.Sorts, from: AtlasFlow.Sorts.Written.Reviewed
 end
