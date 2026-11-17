@@ -275,45 +275,108 @@ defmodule AtlasRuntime.WorkHarness do
     work
   end
 
-  @doc "The work once `check` holds for it."
-  def await_work(id, check, client \\ client()) do
-    await(fn ->
-      work = work!(id, client)
-      if check.(work), do: work
-    end)
+  @doc """
+  The work once `check` holds for it. `check` should name a fact the work keeps once it
+  holds (a terminal state, a quiescent attempt, a held turn): a state the work only passes
+  through can be gone before the next look. On timeout the work as it is then is reported.
+  """
+  def await_work(id, check, client \\ client(), what \\ "the awaited work state") do
+    await(
+      fn ->
+        work = work!(id, client)
+        if check.(work), do: work
+      end,
+      fn -> "#{what} of #{id}; now: #{inspect(seen(work!(id, client)))}" end
+    )
   end
 
-  @doc "The work once its current attempt is in `state`."
-  def await_state(id, state, client \\ client()), do: await_work(id, &(&1.state == state), client)
+  @doc "The work once its current attempt is in `state` (a state it stays in, see `await_work/4`)."
+  def await_state(id, state, client \\ client()),
+    do: await_work(id, &(&1.state == state), client, "state #{inspect(state)}")
 
-  @doc "The value of `fun` once it is truthy; fails after 10 s."
-  def await(fun, deadline \\ System.monotonic_time(:millisecond) + @wait) do
+  defp seen(work),
+    do: %{
+      state: work.state,
+      attempts: Enum.map(work.attempts, &Map.take(&1, [:attempt, :state, :turn_id, :quiescent]))
+    }
+
+  @doc """
+  The value of `fun` once it is truthy; fails after 10 s naming `what` (a string, or a
+  function giving one at the failure).
+  """
+  def await(fun, what \\ "condition"),
+    do: await(fun, what, System.monotonic_time(:millisecond) + @wait)
+
+  defp await(fun, what, deadline) do
     case fun.() do
       value when value not in [nil, false] ->
         value
 
       _ ->
-        if System.monotonic_time(:millisecond) > deadline, do: flunk("condition not met in time")
+        if System.monotonic_time(:millisecond) > deadline,
+          do: flunk("not met in #{@wait} ms: #{if is_function(what), do: what.(), else: what}")
+
         Process.sleep(20)
-        await(fun, deadline)
+        await(fun, what, deadline)
     end
   end
 
-  @doc "The fake harness's launches: one map per native start."
-  def launches(context) do
-    case File.read(Path.join(context.dir, "work-launches.jsonl")) do
-      {:ok, bytes} -> bytes |> String.split("\n", trim: true) |> Enum.map(&JSON.decode!/1)
+  @doc """
+  The records of the bench's JSONL log `name` (the fakes' `work-launches.jsonl`,
+  `work-ends.jsonl`, ...): only the complete, newline-terminated lines. A fake appends each
+  record with one `write(2)` while the test may be reading, so the bytes after the last
+  newline can be a record still being written; they are never decoded.
+  """
+  def jsonl(context, name) do
+    case File.read(Path.join(context.dir, name)) do
+      {:ok, bytes} -> bytes |> complete_lines() |> Enum.map(&JSON.decode!/1)
       {:error, :enoent} -> []
     end
   end
 
-  @doc "The work, running, once the fake harness has launched its turn (`count` launches of the goal)."
-  def await_launch(context, work, count \\ 1, client \\ client()) do
-    running = await_state(work.work_id, :running, client)
-    goal = work.request.instructions
-    await(fn -> Enum.count(launches(context), &(&1["goal"] == goal)) >= count end)
-    running
+  @doc "The newline-terminated lines of `bytes`, without a trailing partial line."
+  def complete_lines(bytes) do
+    case :binary.matches(bytes, "\n") do
+      [] ->
+        []
+
+      matches ->
+        {last, 1} = List.last(matches)
+        bytes |> binary_part(0, last) |> String.split("\n", trim: true)
+    end
   end
+
+  @doc "The fake harness's launches: one map per native start."
+  def launches(context), do: jsonl(context, "work-launches.jsonl")
+
+  @doc """
+  The work once the fake harness has launched its turn: `count` launch records of the goal
+  are in the launch log, and the work's current attempt holds the turn the Service admitted
+  (`turn_id`). Both only ever become true, so a turn that ends before the next look (a goal
+  that completes at once) is still seen as launched; the attempt's state is whatever it is
+  by then (`running` for a turn that has not ended). No transient state is waited for.
+  """
+  def await_launch(context, work, count \\ 1, client \\ client()) do
+    goal = work.request.instructions
+
+    await(
+      fn ->
+        if Enum.count(launches(context), &(&1["goal"] == goal)) >= count do
+          current = work!(work.work_id, client)
+          if launched?(List.last(current.attempts)), do: current
+        end
+      end,
+      fn ->
+        "#{count} launch(es) of #{inspect(goal)} with the attempt's admitted turn; now: " <>
+          "#{Enum.count(launches(context), &(&1["goal"] == goal))} launch(es), " <>
+          inspect(seen(work!(work.work_id, client)))
+      end
+    )
+  end
+
+  # The current attempt was admitted as a turn and has left the start path.
+  defp launched?(%{turn_id: turn}) when is_binary(turn), do: true
+  defp launched?(_attempt), do: false
 
   @doc "A turn's record as the Service wrote it."
   def turn(context, turn_id),
