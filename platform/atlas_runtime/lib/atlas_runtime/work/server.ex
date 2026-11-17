@@ -534,13 +534,15 @@ defmodule AtlasRuntime.Work.Server do
     id = "work-" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
     now = now()
 
+    # Not quiescent until it ends (design §3.5): only a terminal write, the probe or a
+    # `release` sets it.
     attempt =
       M.Attempt.new!(
         attempt: 1,
         state: :buffered,
         timestamps: M.Timestamps.new!(received_at: now, accepted_at: now),
         resume_point: model_resume_point(resume),
-        quiescent: true
+        quiescent: false
       )
 
     record =
@@ -649,7 +651,7 @@ defmodule AtlasRuntime.Work.Server do
         state: :buffered,
         timestamps: M.Timestamps.new!(received_at: now, accepted_at: now),
         resume_point: model_resume_point(resume),
-        quiescent: true
+        quiescent: false
       )
 
     replaced =

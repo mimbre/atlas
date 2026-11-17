@@ -228,7 +228,7 @@ defmodule AtlasRuntime.Test.FakeWork do
             attempt: 1,
             state: :buffered,
             timestamps: %F.AttemptTimestamps{received_at: ~U[2026-11-16 10:00:00Z]},
-            quiescent: true
+            quiescent: false
           }
         ]
       },

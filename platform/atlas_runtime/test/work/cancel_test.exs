@@ -333,12 +333,12 @@ defmodule AtlasRuntime.Work.CancelTest do
     {before, [ended]} = Enum.split(samples, -1)
 
     # Until the end the attempt is not terminal: still cancelling, with no result (designer
-    # decision Q-A1 (b); `quiescent` is read only with terminal, `settled?`, so a live
-    # attempt's value is not asserted), and nothing confirmed the stop while a member of the
-    # group lived.
+    # decision Q-A1 (b)), not quiescent (design §3.5, follow-up (a)), and nothing confirmed
+    # the stop while a member of the group lived.
     for sample <- before do
       assert sample.attempt.state == :cancelling
       refute sample.attempt.result
+      refute sample.attempt.quiescent
 
       if sample.confirmed,
         do: refute(sample.child, "confirmed while the group still had a member")
