@@ -23,9 +23,9 @@ defmodule AtlasFlow.Activities.Task do
      `{:reconcile, kind, key}`, reconciles the subject once the base is there; on
      `:unavailable` (Code failed, or Bases is not running) nothing is asked. Either way no
      intent is made this round, and the run is unchanged; the Engine's round is the
-     fallback. A held intent's base that Bases does not hold (after a Flow restart, its
-     table is empty) is restored from the snapshot id the intent pins (`base_snapshot`),
-     never from its reference, so its blobs are served as they were.
+     fallback. A held intent's base that Bases does not hold for the snapshot id the
+     intent pins (`base_snapshot`; after a Flow restart its table is empty) is restored
+     from that snapshot, never from its reference, so its blobs are served as they were.
   4. **Offered by Dispatch.** Once the stored run holds the intent and the task fact
      exists, the task is cast to `AtlasFlow.Dispatch` (`{:ready, key}`), which offers it
      to a Runtime of the subject's human supervisor. The cast is sent again while the
@@ -313,15 +313,16 @@ defmodule AtlasFlow.Activities.Task do
 
   # After a Flow restart Bases' table is empty: the intent's base is restored from the
   # Code snapshot it was made from (`base_snapshot`, immutable by id), never by resolving
-  # its reference again, so Delivery serves the same base also once the branch moved.
+  # its reference again, so Delivery serves the same base also once the branch moved. It
+  # asks whether Bases holds the manifest *for that snapshot*: whatever the reference's
+  # cached base is now, and even when another snapshot (the same tree at a new revision)
+  # gave the same manifest. A cast; while a restore fails, each reconcile asks again.
   defp servable(intent, spec) do
     manifest = get_in(intent, ["work", "input", "base", "manifest"])
     snapshot = intent["base_snapshot"]
 
-    with :not_found <- Bases.names(manifest),
-         true <- is_binary(snapshot) do
-      Bases.restore(spec["input"]["repository"], snapshot, manifest)
-    end
+    if is_binary(manifest) and is_binary(snapshot) and not Bases.held?(manifest, snapshot),
+      do: Bases.restore(spec["input"]["repository"], snapshot, manifest)
 
     :ok
   end

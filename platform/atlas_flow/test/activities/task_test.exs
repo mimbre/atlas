@@ -329,6 +329,40 @@ defmodule AtlasFlow.Activities.TaskTest do
 
   defp delivered(key \\ "B-1"), do: assert_receive({:"$gen_cast", {:reconcile, "bin", ^key}})
 
+  # The leased bin's README and manifest blob requests, and their bytes as served now.
+  defp leased_base do
+    %{lease_id: lease, work: offered} = lease!(@mini)
+    readme = %{lease_id: lease, sha256: L.sha256(@readme)}
+    manifest = %{lease_id: lease, sha256: offered.input.base.manifest}
+    {readme, manifest, {served(readme), served(manifest)}}
+  end
+
+  defp served(blob) do
+    assert {:blob, %{content: content}} = WorkSource.get_blob(@mini, blob)
+    IO.iodata_to_binary(Enum.to_list(content))
+  end
+
+  # Runs `fun`, then awaits Bases' restore of `manifest` from `snapshot`: its task's answer
+  # as Bases receives it (traced, an event; no sleep), then Bases has handled it.
+  defp restored(manifest, snapshot, fun) do
+    bases = Process.whereis(Bases)
+    1 = :erlang.trace(bases, true, [:receive])
+
+    try do
+      fun.()
+
+      assert_receive {:trace, ^bases, :receive,
+                      {ref,
+                       {:ok, :pinned, %{base: %{manifest: ^manifest, snapshot_id: ^snapshot}}}}}
+                     when is_reference(ref),
+                     2_000
+
+      :sys.get_state(bases)
+    after
+      :erlang.trace(bases, false, [:receive])
+    end
+  end
+
   defp task_values(key \\ @task), do: FakeFacts.get("task", key)["values"]
 
   defp check(exit_status, more \\ %{}),
@@ -617,6 +651,56 @@ defmodule AtlasFlow.Activities.TaskTest do
       assert task_values()["base_snapshot"] == run(c)["pending"]["task"]["base_snapshot"]
     end
 
+    test "the pin holds while the moved branch is cached first: restored from its snapshot (B1)",
+         c do
+      source(c)
+      pinned = intended(c)["pending"]["task"]["base_snapshot"]
+      {readme, manifest_blob, before} = leased_base()
+      manifest = manifest_blob.sha256
+
+      FakeCode.put(c.code, @repository, "develop", "rev_2", %{"README.md" => "# Moved\n"})
+      stop_supervised!(Bases)
+      start_bases(c)
+
+      # A new bin needs a fresh base: the moved develop is cached before B-1 is reconciled.
+      bin("B-2", "mini")
+      assert reconcile(c, "B-2")["pending"]["task"] == nil
+      base_ready("B-2")
+      assert {:ok, moved} = Bases.cached(@repository, "develop")
+      assert moved.manifest != manifest and moved.snapshot_id != pinned
+      assert WorkSource.get_blob(@mini, manifest_blob) == :not_found
+
+      restored(manifest, pinned, fn -> assert reconcile(c)["state"] == "loading" end)
+
+      # The lease's own base, byte for byte; the reference keeps its moved base.
+      assert {served(readme), served(manifest_blob)} == before
+      assert Bases.cached(@repository, "develop") == {:ok, moved}
+    end
+
+    test "same tree, new revision: the held lease's manifest blob is served after a restart (B2)",
+         c do
+      source(c)
+      pinned = intended(c)["pending"]["task"]["base_snapshot"]
+      {readme, manifest_blob, before} = leased_base()
+      manifest = manifest_blob.sha256
+
+      # develop moves to a revision with the same files: another snapshot, the same manifest.
+      FakeCode.put(c.code, @repository, "develop", "rev_2", %{"README.md" => @readme})
+      stop_supervised!(Bases)
+      start_bases(c)
+      bin("B-2", "mini")
+      assert reconcile(c, "B-2")["pending"]["task"] == nil
+      base_ready("B-2")
+      assert {:ok, same} = Bases.cached(@repository, "develop")
+      assert same.manifest == manifest and same.snapshot_id != pinned
+      refute Bases.held?(manifest, pinned)
+
+      restored(manifest, pinned, fn -> assert reconcile(c)["state"] == "loading" end)
+
+      assert {served(readme), served(manifest_blob)} == before
+      assert Bases.held?(manifest, pinned) and Bases.held?(manifest, same.snapshot_id)
+    end
+
     test "a held intent of the push path is never offered: it ends stuck", c do
       source(c)
       bin("B-1", "mini")
@@ -866,7 +950,9 @@ defmodule AtlasFlow.Activities.TaskTest do
         end
         """
 
-        assert_raise CompileError, fn -> Code.compile_string(source) end
+        # Refused at the task's own line (source line 11), whatever the problem's text.
+        error = assert_raise CompileError, fn -> Code.compile_string(source) end
+        assert error.line == 11
       end
     end
 

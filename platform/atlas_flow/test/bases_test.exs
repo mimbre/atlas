@@ -410,6 +410,92 @@ defmodule AtlasFlow.BasesTest do
       assert count(context.fake, :resolve_reference) == 1
     end
 
+    # develop moves to a revision with the same files: another snapshot, the same manifest.
+    defp same_tree(fake), do: FakeCode.put(fake, @repository, "develop", "rev_2", files())
+
+    # Awaits the answer of Bases' task for `snapshot_id` as Bases receives it (traced, an
+    # event; no sleep), then lets Bases handle it.
+    defp restoring(context, snapshot_id, fun) do
+      bases = Process.whereis(context.name)
+      1 = :erlang.trace(bases, true, [:receive])
+
+      try do
+        fun.()
+
+        assert_receive {:trace, ^bases, :receive,
+                        {ref, {:ok, :pinned, %{base: %{snapshot_id: ^snapshot_id}}}}}
+                       when is_reference(ref),
+                       2_000
+
+        :sys.get_state(bases)
+      after
+        :erlang.trace(bases, false, [:receive])
+      end
+    end
+
+    test "one manifest from two snapshots: a restore, then a resolution, serve it to both",
+         context do
+      start_bases(context)
+      base = ready(context)
+      manifest = bytes(context, base.manifest, base.snapshot_id)
+      same_tree(context.fake)
+      stop_supervised!(context.name)
+      start_bases(context)
+
+      restoring(context, base.snapshot_id, fn ->
+        Bases.restore(@repository, base.snapshot_id, base.manifest, context.name)
+      end)
+
+      again = ready(context)
+      assert again.manifest == base.manifest and again.snapshot_id != base.snapshot_id
+
+      for snapshot <- [base.snapshot_id, again.snapshot_id] do
+        assert Bases.held?(base.manifest, snapshot, context.name)
+        assert bytes(context, base.manifest, snapshot) == manifest
+      end
+    end
+
+    test "one manifest from two snapshots: a resolution, then a restore, serve it to both",
+         context do
+      start_bases(context)
+      base = ready(context)
+      manifest = bytes(context, base.manifest, base.snapshot_id)
+      same_tree(context.fake)
+      stop_supervised!(context.name)
+      start_bases(context)
+
+      again = ready(context)
+      assert again.manifest == base.manifest and again.snapshot_id != base.snapshot_id
+      # Bases holds the manifest, but not for the lease's snapshot: it is restored.
+      refute Bases.held?(base.manifest, base.snapshot_id, context.name)
+      assert Bases.blob(base.manifest, base.snapshot_id, context.name) == :not_found
+
+      restoring(context, base.snapshot_id, fn ->
+        Bases.restore(@repository, base.snapshot_id, base.manifest, context.name)
+      end)
+
+      for snapshot <- [base.snapshot_id, again.snapshot_id] do
+        assert Bases.held?(base.manifest, snapshot, context.name)
+        assert bytes(context, base.manifest, snapshot) == manifest
+      end
+    end
+
+    test "a manifest blob is served only to a snapshot it was derived from", context do
+      start_bases(context)
+      base = ready(context)
+      FakeCode.put(context.fake, @repository, "release", "rev_3", %{"README.md" => "other\n"})
+      other = ready(context, "release")
+      assert other.manifest != base.manifest
+
+      for snapshot <- [other.snapshot_id, "sha256:" <> String.duplicate("b", 64)] do
+        refute Bases.held?(base.manifest, snapshot, context.name)
+        assert Bases.blob(base.manifest, snapshot, context.name) == :not_found
+      end
+
+      assert Bases.held?(base.manifest, base.snapshot_id, context.name)
+      refute Bases.held?(base.manifest, base.snapshot_id, :bases_not_running)
+    end
+
     test "with Bases not running, a restore is :ok and nothing raises", context do
       assert :ok =
                Bases.restore(

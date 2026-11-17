@@ -34,6 +34,11 @@ defmodule AtlasFlow.Bases do
   it derives is the lease's. The lease is then served the same base, byte for byte, also
   once the branch moved on.
 
+  One manifest can come from more than one snapshot (a new revision with the same tree).
+  Bases keeps, per manifest, every snapshot it derived that manifest from, and serves the
+  manifest blob to each of them, never to another snapshot. `held?/3` asks whether a
+  lease's own snapshot is among them.
+
   The work source starts it (M3 A2), before the Engine (A4).
   """
   use GenServer
@@ -92,6 +97,19 @@ defmodule AtlasFlow.Bases do
       do: GenServer.cast(server, {:restore, {:snapshot, repository, snapshot_id, manifest}})
 
   @doc """
+  Whether Bases holds `manifest` as derived from `snapshot_id`: the lease pinning that
+  snapshot is served its manifest blob. Reads the table only; `false` when Bases is not
+  running.
+  """
+  @spec held?(String.t(), String.t(), atom()) :: boolean()
+  def held?(manifest, snapshot_id, server \\ __MODULE__) do
+    case lookup(server, {:manifest, manifest}) do
+      {:ok, %{snapshots: snapshots}} -> MapSet.member?(snapshots, snapshot_id)
+      _ -> false
+    end
+  end
+
+  @doc """
   Every name a lease on this base may read: the manifest blob's sha256 and the sha256 of
   each of its write entries. `:not_found` for a manifest Bases does not hold.
   """
@@ -113,19 +131,18 @@ defmodule AtlasFlow.Bases do
   end
 
   @doc """
-  One blob of a base: the manifest blob itself, or an entry's blob read through from Code
-  (a stream; no blob is held whole). `{:ok, size, stream}`, `:not_found` or `:unavailable`.
+  One blob of a base: the manifest blob itself (only to a snapshot Bases derived it from),
+  or an entry's blob read through from Code (a stream; no blob is held whole). `{:ok, size, stream}`, `:not_found` or `:unavailable`.
   Called in the caller's process: it reads Code, so it is never called on the Engine's path.
   """
   @spec blob(String.t(), String.t(), atom()) ::
           {:ok, non_neg_integer(), Enumerable.t()} | :not_found | :unavailable
   def blob(sha256, snapshot_id, server \\ __MODULE__) do
     case lookup(server, {:manifest, sha256}) do
-      {:ok, %{snapshot_id: ^snapshot_id, bytes: bytes}} ->
-        {:ok, byte_size(bytes), [bytes]}
-
-      {:ok, _other_snapshot} ->
-        :not_found
+      {:ok, %{snapshots: snapshots, bytes: bytes}} ->
+        if MapSet.member?(snapshots, snapshot_id),
+          do: {:ok, byte_size(bytes), [bytes]},
+          else: :not_found
 
       :no_table ->
         :unavailable
@@ -309,11 +326,10 @@ defmodule AtlasFlow.Bases do
     end
   end
 
-  def handle_cast({:restore, {:snapshot, _, _, manifest} = key}, state) do
-    case lookup(state.table, {:manifest, manifest}) do
-      {:ok, _held} -> {:noreply, state}
-      _ -> {:noreply, state |> wait(key, nil) |> resolve(key)}
-    end
+  def handle_cast({:restore, {:snapshot, _, snapshot_id, manifest} = key}, state) do
+    if held?(manifest, snapshot_id, state.table),
+      do: {:noreply, state},
+      else: {:noreply, state |> wait(key, nil) |> resolve(key)}
   end
 
   @impl true
@@ -383,13 +399,11 @@ defmodule AtlasFlow.Bases do
 
     case result do
       {:ok, :pinned, made} ->
-        :ets.insert(state.table, [
-          {{:manifest, made.base.manifest}, Map.put(made, :snapshot_id, made.base.snapshot_id)}
-        ])
+        keep_manifest(state.table, made)
 
         %{state | pending: Map.delete(state.pending, key)}
 
-      # Not this lease's base: nothing to try again.
+      # Not this lease's base: Bases does not try it again (the Engine may ask once more).
       {:error, :manifest_mismatch} ->
         Logger.warning("flow bases: snapshot #{elem(key, 2)} does not give its lease's manifest")
         %{state | pending: Map.delete(state.pending, key)}
@@ -405,11 +419,9 @@ defmodule AtlasFlow.Bases do
 
     case result do
       {:ok, revision, made} ->
-        :ets.insert(state.table, [
-          {{:revision, repository, revision}, made},
-          {{:manifest, made.base.manifest}, Map.put(made, :snapshot_id, made.base.snapshot_id)},
-          {{:reference, repository, reference}, {:ok, made.base}}
-        ])
+        :ets.insert(state.table, {{:revision, repository, revision}, made})
+        keep_manifest(state.table, made)
+        :ets.insert(state.table, {{:reference, repository, reference}, {:ok, made.base}})
 
         Enum.each(entry.notifies, &send_notify/1)
         %{state | pending: Map.delete(state.pending, key)}
@@ -419,6 +431,20 @@ defmodule AtlasFlow.Bases do
         timer = Clock.schedule(state.clock, self(), {:retry, key}, state.retry)
         put_in(state.pending[key], %{entry | status: :waiting, task: nil, timer: timer})
     end
+  end
+
+  # A manifest's entry keeps every snapshot it was derived from: a later snapshot of the
+  # same tree adds to them, never replaces them (a held lease's pin stays served).
+  defp keep_manifest(table, %{base: base} = made) do
+    key = {:manifest, base.manifest}
+
+    held =
+      case :ets.lookup(table, key) do
+        [{^key, %{snapshots: snapshots}}] -> snapshots
+        [] -> MapSet.new()
+      end
+
+    :ets.insert(table, {key, Map.put(made, :snapshots, MapSet.put(held, base.snapshot_id))})
   end
 
   defp send_notify({pid, message}), do: send(pid, message)
