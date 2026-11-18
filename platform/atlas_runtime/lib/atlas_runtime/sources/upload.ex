@@ -64,8 +64,9 @@ defmodule AtlasRuntime.Sources.Upload do
   @callback put_blob(ref :: term(), put_blob()) ::
               :stored | :lease_lost | :too_large | :not_referenced | {:error, term()}
 
-  # The contract's per-result cap (decision §6.2; `work_source` `blob_max_bytes/0`).
-  @default_max_result_bytes 20_000_000
+  # The contract's per-result cap (decision §6.2), 20 000 000: read from the contract, so
+  # the two cannot drift.
+  @default_max_result_bytes AtlasRuntimeBackend.WorkSource.blob_max_bytes()
   @terminal [:completed, :failed, :crashed, :interrupted, :cancelled, :returned]
 
   @type outcome ::

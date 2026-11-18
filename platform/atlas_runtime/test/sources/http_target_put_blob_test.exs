@@ -190,9 +190,12 @@ defmodule AtlasRuntime.Sources.HttpTargetPutBlobTest do
   end
 
   # C2: a rejected put_blob is final at the source; repeating it would loop for ever.
-  test "rejected (400 invalid, 422 digest-mismatch) stops as for a lost lease", ctx do
+  test "rejected (400 invalid, 409 revision-conflict, 422 digest-mismatch) stops as for a lost lease",
+       ctx do
     for {status, type, reason} <- [
           {400, "invalid", "invalid"},
+          # 409 is also not_referenced's status: only the problem type tells them apart.
+          {409, "revision-conflict", "conflict"},
           {422, "digest-mismatch", "digest_mismatch"}
         ] do
       ref = target(ctx, answering(status, %{type: type, reason: reason, detail: "x"}))
@@ -200,6 +203,70 @@ defmodule AtlasRuntime.Sources.HttpTargetPutBlobTest do
       assert_received {:raw, %{chunked?: true}}
     end
   end
+
+  # Review Low 1: a blob may take minutes to send, so put_blob gives the transport its
+  # whole-upload timeout (600 s, the puller's upload job bound), not the 35 s default. Read
+  # where it takes effect: the :httpc handler's request (`#http_options.timeout`), while the
+  # server holds the request unanswered. No clock: the server waits for the test's release.
+  test "put_blob hands :httpc the 600 s upload timeout, not the transport's 35 s default",
+       ctx do
+    test = self()
+
+    ref =
+      target(ctx, fn _request ->
+        send(test, {:holding, self()})
+
+        receive do
+          :release -> {:send, RawServer.response(200)}
+        end
+      end)
+
+    upload = Task.async(fn -> HttpTarget.put_blob(ref, blob("abc")) end)
+    assert_receive {:holding, server}
+
+    manager = :"httpc_#{ref.conn.profile}"
+
+    timeouts =
+      for {_, pid, _, _} <- Supervisor.which_children(:httpc_handler_sup),
+          is_pid(pid),
+          state = state(pid),
+          contains?(state, manager),
+          timeout <- http_timeouts(state),
+          uniq: true,
+          do: timeout
+
+    assert timeouts == [HttpTarget.put_timeout_ms()]
+    assert HttpTarget.put_timeout_ms() == 600_000
+    assert HttpTarget.put_timeout_ms() > AtlasRuntime.Sources.Transport.timeout_ms()
+
+    send(server, :release)
+    assert Task.await(upload, :infinity) == :stored
+  end
+
+  defp state(pid) do
+    :sys.get_state(pid)
+  catch
+    :exit, _ -> nil
+  end
+
+  defp contains?(term, value) when term == value, do: true
+  defp contains?(term, value) when is_tuple(term), do: contains?(Tuple.to_list(term), value)
+
+  defp contains?(term, value) when is_list(term),
+    do: not List.improper?(term) and Enum.any?(term, &contains?(&1, value))
+
+  defp contains?(_term, _value), do: false
+
+  # Every `#http_options{}` record's `timeout` (its second field) in a term.
+  defp http_timeouts(term) when is_tuple(term) and elem(term, 0) == :http_options,
+    do: [elem(term, 2)]
+
+  defp http_timeouts(term) when is_tuple(term), do: http_timeouts(Tuple.to_list(term))
+
+  defp http_timeouts(term) when is_list(term),
+    do: if(List.improper?(term), do: [], else: Enum.flat_map(term, &http_timeouts/1))
+
+  defp http_timeouts(_term), do: []
 
   test "a connection closed before an answer is an error, not an outcome", ctx do
     ref = target(ctx, fn _request -> :close end)

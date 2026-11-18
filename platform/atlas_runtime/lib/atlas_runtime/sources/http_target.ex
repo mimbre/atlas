@@ -126,6 +126,7 @@ defmodule AtlasRuntime.Sources.HttpTarget do
   def put_blob(%{conn: conn}, blob) do
     input = Map.take(blob, [:lease_id, :sha256, :size, :content])
 
+    # The whole-upload timeout, not the transport's 35 s default: a blob may take minutes.
     case Client.put_blob(input, transport: [conn: conn, timeout: @put_timeout_ms]) do
       answer when answer in [:stored, :lease_lost, :too_large, :not_referenced] ->
         answer
