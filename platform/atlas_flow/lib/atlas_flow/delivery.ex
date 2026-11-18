@@ -327,7 +327,7 @@ defmodule AtlasFlow.Delivery do
     end
   end
 
-  defp ended_with_result(_fact, lease, report, result, state) do
+  defp ended_with_result(fact, lease, report, result, state) do
     if Translate.change_set?(report) do
       manifest = Translate.manifest(report)
 
@@ -375,12 +375,14 @@ defmodule AtlasFlow.Delivery do
            end}
       end
     else
+      # A job's result went to Code over Git (`input.result_ref`): the task names its ref.
       values =
         Map.merge(result, %{
           "lease_state" => "done",
           "lease_end_cause" => nil,
           "result_manifest" => nil,
-          "result_state" => nil
+          "result_state" => nil,
+          "result_ref" => Translate.input_result_ref(Leases.value(fact, "input"))
         })
 
       {:write, values, %{},

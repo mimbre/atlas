@@ -64,6 +64,47 @@ defmodule AtlasCode.GitTest do
     end
   end
 
+  test "a Runtime pushes a result commit on the base under the ref Flow named", %{
+    url: url,
+    dir: dir
+  } do
+    base_id = "code-" <> snapshot()
+    base = "refs/atlas/bases/" <> base_id
+    cache = Path.join(dir, "runtime.git")
+    git(dir, ["init", "-q", "--bare", cache])
+    fetch = ["--git-dir", cache, "fetch", "-q", "--depth", "1", "#{url}/bases/#{base_id}"]
+    {_, 0} = System.cmd("git", fetch ++ ["+#{base}:#{base}"], env: header(@token))
+
+    blob = cache |> git_in(["hash-object", "-w", "--stdin"], "changed\n") |> String.trim()
+    index = [{"GIT_INDEX_FILE", Path.join(dir, "index")}]
+    git_in(cache, ["read-tree", base], "", index)
+    git_in(cache, ["update-index", "--add", "--cacheinfo", "100644,#{blob},README.md"], "", index)
+    tree = cache |> git_in(["write-tree"], "", index) |> String.trim()
+
+    commit =
+      cache |> git_in(["commit-tree", tree, "-p", base, "-m", "result"], "") |> String.trim()
+
+    push = ["--git-dir", cache, "push", "-q", "#{url}/bases/#{base_id}"]
+    result = "refs/atlas/results/TK-1"
+    {_, 0} = System.cmd("git", push ++ ["#{commit}:#{result}"], env: header(@token))
+
+    {:ok, code} = AtlasCode.Service.base_repository(AtlasCode.settings(), base_id)
+    assert git(dir, ["--git-dir", code, "rev-parse", result]) == commit <> "\n"
+    assert git(dir, ["--git-dir", code, "show", result <> ":README.md"]) == "changed\n"
+  end
+
+  defp git_in(git_dir, args, input, env \\ []) do
+    file = Path.join(System.tmp_dir!(), "git-in-#{System.unique_integer([:positive])}")
+    File.write!(file, input)
+    script = ~s(exec git --git-dir "$0" "$@" < "$GIT_IN")
+    config = ["-c", "user.name=t", "-c", "user.email=t@t"]
+
+    {output, 0} =
+      System.cmd("sh", ["-c", script, git_dir | config ++ args], env: [{"GIT_IN", file} | env])
+
+    output
+  end
+
   defp header(token),
     do: [
       {"GIT_TERMINAL_PROMPT", "0"},

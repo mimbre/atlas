@@ -262,6 +262,13 @@ defmodule Model.Task do
       label: "Result state"
     )
 
+    field(:result_ref, :string,
+      description:
+        "The Git ref its result commit was pushed to in Code's repository (a job's task)",
+      set_by: [:flow],
+      label: "Result ref"
+    )
+
     top(false)
     by_hand(false)
     order(:newest)

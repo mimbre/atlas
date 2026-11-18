@@ -304,6 +304,11 @@
             "read-only",
             "workspace-write"
           ]
+        },
+        {
+          "name": "result_ref",
+          "required": false,
+          "type": "string"
         }
       ],
       "name": "work_input"
@@ -807,5 +812,5 @@
       "name": "rejected"
     }
   ],
-  "version": "0.2.0"
+  "version": "0.3.0"
 }
