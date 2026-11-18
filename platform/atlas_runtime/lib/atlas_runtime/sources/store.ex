@@ -22,9 +22,11 @@ defmodule AtlasRuntime.Sources.Store do
   folder that cannot be listed, or a blob that cannot be stat'ed, fails the scan (fails
   closed) rather than counting as empty.
 
-  One process writes a source's store at a time (the source's puller); concurrent writers
-  for the same source could each pass the quota check, and a scan removes the other's
-  temporary file.
+  One process writes a source's store at a time: `AtlasRuntime.Sources.Import.base/5` holds
+  the source's `AtlasRuntime.Sources.StoreLock` from its scan to its last put. Concurrent
+  writers for the same source could each pass the quota check, and a scan removes the
+  other's temporary file; a caller of `scan/2` or `put/5` outside an import must hold that
+  lock too.
   """
 
   # The same rule as the policy's source names: one plain path segment.

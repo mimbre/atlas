@@ -18,11 +18,12 @@ defmodule AtlasRuntime.Sources.SelfFencingTest do
   import AtlasRuntime.WorkHarness
 
   alias AtlasRuntime.Boundary.Work, as: B
-  alias AtlasRuntime.Sources.{Puller, Rights}
+  alias AtlasRuntime.Sources.{Puller, Rights, StoreLock}
   alias AtlasRuntime.Test.FakeSourceTarget
   alias AtlasRuntime.Test.ImportedBase
   alias AtlasRuntime.Test.FakeWorkSource, as: Source
   alias AtlasRuntime.Test.WorkSourceFacade, as: S
+  alias AtlasTestAwait, as: Await
 
   @moduletag capture_log: true
 
@@ -692,14 +693,23 @@ defmodule AtlasRuntime.Sources.SelfFencingTest do
          ctx do
       held_import(ctx)
       poll = Task.async(fn -> catch_exit(Puller.poll_now(ctx.puller)) end)
-      assert_receive {:importing, _importer, {slow, _sha}}, 5_000
+      assert_receive {:importing, importer, {slow, _sha}}, 5_000
       slow_work = Puller.leases(ctx.puller)[slow].work_id
 
-      # What the puller's import task answers, set by the puller's own call; then it stops.
+      # The held import task holds its source's store lock. Stopping the puller ends it, and
+      # its lock with it, before the base is imported here (the same source's store: done
+      # while the task still held the lock, this import would wait on it for good).
+      assert StoreLock.holder(ctx.bench.dir, @name) == importer
+      importing = Process.monitor(importer)
+      :ok = stop_supervised({Puller, @name})
+      assert Await.down(importing) == :shutdown
+      Task.await(poll, 5_000)
+
+      # What the import task answered, set by the puller's own call before it stopped; then
+      # the puller starts again with the same options.
       imported = ImportedBase.import!(ctx.bench.dir, @name, %{"slow.txt" => "slow\n"})
       assert :ok = AtlasRuntime.Work.lease_imported(slow_work, {:ok, imported})
-      ctx = restart!(ctx)
-      Task.await(poll, 5_000)
+      ctx = %{ctx | puller: start_supervised!({Puller, ctx.opts})}
       FakeSourceTarget.hook(ctx.target, :get_blob, nil)
       blobs = length(FakeSourceTarget.calls(ctx.target, :get_blob))
 
