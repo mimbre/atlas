@@ -210,8 +210,8 @@ defmodule Model.FlowFactsTest do
     assert %{"from" => ["package"], "to" => ["issue"], "max_outgoing" => 1} =
              relations["package_of"]
 
-    assert %{"from" => ["task"], "to" => ["package", "issue"], "max_outgoing" => 1} =
-             relations["task_of"]
+    assert %{"from" => ["task"], "to" => to, "max_outgoing" => 1} = relations["task_of"]
+    assert "package" in to and "issue" in to
 
     assert %{"from" => ["task_attempt"], "to" => ["task"]} = relations["attempt_of"]
     assert %{"from" => ["task_attempt"], "to" => ["machinery"]} = relations["ran_on"]

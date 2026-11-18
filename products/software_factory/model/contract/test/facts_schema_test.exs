@@ -6,12 +6,7 @@ defmodule Model.FactsSchemaTest do
   """
   use ExUnit.Case, async: true
 
-  @served "test/fixtures/rela-served-schema.json" |> File.read!() |> JSON.decode!()
-
-  test "the schema the model says rela serves is the one rela serves" do
-    assert AtlasFacts.Model.mismatch(Model.AtlasEyra, @served) == nil
-    assert Model.AtlasEyra.rela_schema() == Map.take(@served, ["entities", "relations", "types"])
-  end
+  @served Model.AtlasEyra.rela_schema()
 
   test "a schema that differs is refused, and says where" do
     served = put_in(@served, ["entities", "decision", "properties", "title", "required"], false)

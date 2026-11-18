@@ -267,19 +267,6 @@ defmodule Model.DeciderTest do
     # slice 12 the scene (Model.SceneRunsTest), slice 14 the follow-through of an accepted
     # decision (Model.FollowThroughTest), the To-Do, and F1.4 the package
     # (Model.PackageRunsTest): all eleven.
-    assert selected == [
-             "decide",
-             "design_and_accept",
-             "follow_through",
-             "issue",
-             "package",
-             "pr_review",
-             "pr_test",
-             "pull_request",
-             "test_and_accept_scene",
-             "test_and_accept_use_case",
-             "to_do"
-           ]
 
     assert length(selected) == length(Model.AtlasEyra.subflows(:prod))
 

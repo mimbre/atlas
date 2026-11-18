@@ -11,12 +11,12 @@ roles:
   atlas-flow:
     read: ["*"]
     create: [flow_run, flow_input]
-    update: [flow_input, flow_run, issue, package, pull_request, pr_review, pr_test, use_case, scene, decision]
+    update: [flow_input, flow_run, issue, job, package, pull_request, pr_review, pr_test, use_case, scene, decision]
   # The principal flows run their outputs as: resets, created reviews and tests.
   sf-flow:
     read: ["*"]
     create: [pr_review, pr_test]
-    update: [issue, pull_request, pr_review, pr_test, use_case, scene, decision]
+    update: [issue, job, pull_request, pr_review, pr_test, use_case, scene, decision]
   maintainer:
     read: ["*"]
     update: [issue, pull_request, pr_review, pr_test, use_case]

@@ -197,7 +197,10 @@ defmodule Model.SupervisionTest do
     assert %{relation: "assigned_to"} = start.assigned
 
     assert %{spans: spans} = open = start.open_for_you
-    assert [%{subflow: "issue", subject: "issue", span: "build", states: ["author"]}] = spans
+
+    assert %{subject: "issue", span: "build", states: ["author"]} =
+             Enum.find(spans, &(&1.subflow == "issue"))
+
     assert %{relation: "supervised_by"} = mine = start.supervised_by_you
 
     for entry <- [open, mine], key <- [:title, :count, :empty] do

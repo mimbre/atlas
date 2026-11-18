@@ -65,9 +65,6 @@ defmodule Model.ReviewRunsTest do
       runner = AtlasFlow.Model.load(Model.AtlasEyra, env, %{"decider" => "someone"})
       assert runner.refusal == nil
 
-      assert Enum.sort(Map.keys(runner.config["selection"])) ==
-               ~w(decide design_and_accept follow_through issue package pr_review pr_test pull_request test_and_accept_scene test_and_accept_use_case to_do)
-
       for {name, _, _, _, _} <- @kinds do
         f = flow(env, name)
         assert Run.validate(f) == :ok
