@@ -54,6 +54,37 @@ defmodule AtlasRuntime.ListenerCheckTest do
       end
     end
 
+    test "skip a gen_tcp port whose info is gone as it closes, whatever :inet.info/1 returns" do
+      {:ok, listen} = :gen_tcp.listen(0, ip: @loopback4)
+      {:ok, port} = :inet.port(listen)
+
+      # What `:inet.info/1` itself returns for a port that is no inet socket: a map without
+      # `:states`. It returns the same for an inet port that closes between its own two reads,
+      # as one in `Port.list/0` did in CI run 44203281242.
+      other = :erlang.open_port({:spawn_driver, ~c"ram_file_drv"}, [:binary])
+      no_states = :inet.info(other)
+      true = Port.close(other)
+      refute Map.has_key?(no_states, :states)
+
+      seen = ListenerCheck.ip_listeners()
+      assert port in seen
+
+      answers = [no_states, %{states: [:closed]}, %{states: :undefined}, nil, :undefined, :raise]
+
+      for gone <- answers do
+        listeners =
+          ListenerCheck.ip_listeners(fn
+            ^listen when gone == :raise -> raise ArgumentError
+            ^listen -> gone
+            other -> :inet.info(other)
+          end)
+
+        assert count(listeners, port) == count(seen, port) - 1, inspect(gone)
+      end
+
+      :ok = :gen_tcp.close(listen)
+    end
+
     test "count a listening :socket whatever its protocol, IPv6 included" do
       for {domain, address} <- [inet: @loopback4, inet6: @loopback6],
           protocol <- [:default, :tcp, 0] do
@@ -228,6 +259,8 @@ defmodule AtlasRuntime.ListenerCheckTest do
         {:ok, %{"reason" => _} = refusal} <- [JSON.decode(json)],
         do: refusal
   end
+
+  defp count(ports, port), do: Enum.count(ports, &(&1 == port))
 
   defp write(dir, name, code) do
     path = Path.join(dir, name)

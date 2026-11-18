@@ -28,8 +28,14 @@ defmodule AtlasRuntime.ListenerCheck do
   The local port numbers of the IP listen sockets this VM owns, of either backend, sorted.
   """
   @spec ip_listeners() :: [:inet.port_number()]
-  def ip_listeners do
-    Enum.sort(inet_listeners() ++ socket_listeners())
+  def ip_listeners, do: ip_listeners(&:inet.info/1)
+
+  # The tests' seam: `inet_info` stands in for `:inet.info/1`, so that what it returns for a
+  # port that closes while it is looked at can be given on purpose.
+  @doc false
+  @spec ip_listeners((port() -> term())) :: [:inet.port_number()]
+  def ip_listeners(inet_info) when is_function(inet_info, 1) do
+    Enum.sort(inet_listeners(inet_info) ++ socket_listeners())
   end
 
   @doc """
@@ -55,15 +61,21 @@ defmodule AtlasRuntime.ListenerCheck do
     end
   end
 
-  # A port or socket that closes while it is looked at is no listener.
-  defp inet_listeners do
+  # A port or socket that closes while it is looked at is no listener, whatever the call
+  # returns then. `Port.info/2` returns nil. `:inet.info/1` returns `%{states: [:closed]}`,
+  # or, when the port closes between its own two reads, a map with no `:states` at all (as
+  # for a port that is no inet socket). A call can also raise.
+  defp inet_listeners(inet_info) do
     for port <- Port.list(),
         Port.info(port, :name) in [{:name, ~c"tcp_inet"}, {:name, ~c"sctp_inet"}],
-        :listen in safely(fn -> :inet.info(port)[:states] end, []),
+        listen_state?(safely(fn -> inet_info.(port) end, :closed)),
         {:ok, {address, number}} when is_tuple(address) <-
           [safely(fn -> :inet.sockname(port) end, :closed)],
         do: number
   end
+
+  defp listen_state?(%{states: states}) when is_list(states), do: :listen in states
+  defp listen_state?(_info), do: false
 
   defp socket_listeners do
     for socket <- :socket.which_sockets(fn %{domain: domain} -> domain in [:inet, :inet6] end),
