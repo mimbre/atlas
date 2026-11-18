@@ -752,8 +752,8 @@ func TestClaudeWorkFolderBelowTheRuntimeHome(t *testing.T) {
 			t.Errorf("own record or baseline %s must be read-only: %s", path, encoded)
 		}
 	}
-	if !slices.Contains(filesystem.DenyWrite, root+"/.git") || !slices.Contains(filesystem.DenyWrite, root+"/repo/.git") {
-		t.Fatalf("Git metadata in the folder must stay denied: %v", filesystem.DenyWrite)
+	if !slices.Contains(filesystem.DenyWrite, root+"/.git") || slices.Contains(filesystem.DenyWrite, root+"/repo/.git") {
+		t.Fatalf("Git metadata above the repository must stay denied, the repository's own is the agent's: %v", filesystem.DenyWrite)
 	}
 
 	// Any other root inside the home keeps today's refusal.

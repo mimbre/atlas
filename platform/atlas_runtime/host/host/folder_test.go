@@ -400,7 +400,7 @@ func TestClaudeFolderSettingsAreTheEnforcementContract(t *testing.T) {
 	}
 	slices.Sort(roots)
 	record, baseline := scope["record"].(string), scope["baseline"].(string)
-	protected := slices.Concat([]string{home}, socketPaths(home), []string{dest + "/.git", dest + "/repo/.git", token, filepath.Dir(token), user + "/.claude"})
+	protected := slices.Concat([]string{home}, socketPaths(home), []string{dest + "/.git", token, filepath.Dir(token), user + "/.claude"})
 	for _, name := range credentialPaths {
 		if name != ".claude" {
 			protected = append(protected, filepath.Join(user, name))
@@ -538,7 +538,7 @@ printf '%s\n' '{"type":"result","result":"done"}'
 	}
 	if index := slices.Index(lines, "--settings"); index < 0 || json.Unmarshal([]byte(lines[index+1]), &settings) != nil ||
 		!slices.Equal(settings.Sandbox.Filesystem.AllowWrite, []string{dest, temporary}) ||
-		!slices.Contains(settings.Sandbox.Filesystem.DenyRead, home) || !slices.Contains(settings.Permissions.Deny, "Read(/"+dest+"/repo/.git)") {
+		!slices.Contains(settings.Sandbox.Filesystem.DenyRead, home) || !slices.Contains(settings.Permissions.Deny, "Read(/"+dest+"/.git)") {
 		t.Fatalf("settings in argv %q", argv)
 	}
 	if !slices.Contains(lines, "Bash,Read,Glob,Grep") || slices.Contains(lines, "Edit") {

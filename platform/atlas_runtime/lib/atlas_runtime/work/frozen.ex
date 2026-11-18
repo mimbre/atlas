@@ -36,8 +36,10 @@ defmodule AtlasRuntime.Work.Frozen do
 
   @doc """
   Whether a work's attempts are frozen: `:required` (`base`, `from_work`), `:if_recorded`
-  (a `folder` with `materialized-folder`) or `:never`.
+  (a `folder` with `materialized-folder`) or `:never`; never a job's base whose result goes
+  back over Git (`imported.git_base`): its folder is a Git checkout, the result its commit.
   """
+  def kind(%M.WorkRecord{imported: %M.Imported{git_base: ref}}) when is_binary(ref), do: :never
   def kind(%M.WorkRecord{request: %M.Request{workspace: workspace}}), do: kind(workspace)
   def kind(%M.Base{}), do: :required
   def kind(%M.FromWork{}), do: :required

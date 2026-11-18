@@ -780,6 +780,11 @@
           "name": "pending",
           "required": false,
           "type": "boolean"
+        },
+        {
+          "name": "git_base",
+          "required": false,
+          "type": "string"
         }
       ],
       "name": "imported",

@@ -305,10 +305,17 @@ defmodule AtlasRuntime.Sources.UploadTest do
     assert File.read!(file) == json
   end
 
-  test "with a result_ref, the work's root is pushed to Code as a commit on the base and the report carries no change set",
+  test "with a result_ref, the work's root is pushed to Code as a commit on the base, without the prepared base's dependencies, and the report carries no change set",
        %{bench: bench, code: code} do
+    {dependency, _content} = GitBase.dependency()
+
     work =
-      ended!(code, @three <> "; write atlas/.gitignore *.log; write atlas/build.log noise")
+      ended!(
+        code,
+        @three <>
+          "; write atlas/.gitignore *.log; write atlas/build.log noise" <>
+          "; write atlas/#{dependency} dependency"
+      )
 
     served = GitBase.serve("b-1", @files)
     dir = Path.join(bench.dir, "git-cache")
@@ -317,7 +324,7 @@ defmodule AtlasRuntime.Sources.UploadTest do
     url = served.url <> "/bases/b-1"
 
     {_, 0} =
-      System.cmd("git", ["--git-dir", dir, "fetch", "-q", "--depth", "1", url, "+#{ref}:#{ref}"])
+      System.cmd("git", ["--git-dir", dir, "fetch", "-q", "--depth", "2", url, "+#{ref}:#{ref}"])
 
     git = %{
       url: url,
@@ -339,8 +346,12 @@ defmodule AtlasRuntime.Sources.UploadTest do
     {files, 0} =
       System.cmd("git", ["ls-tree", "-r", "--name-only", "refs/atlas/results/TK-1"], cd: url)
 
+    # The base's own commit is the parent: the result diffs against it with the work's changes.
     assert String.split(files) == ~w(.gitignore README.md a.txt b.txt c.txt)
-    {parent, 0} = System.cmd("git", ["rev-parse", "refs/atlas/results/TK-1^", ref], cd: url)
+
+    {parent, 0} =
+      System.cmd("git", ["rev-parse", "refs/atlas/results/TK-1^", ref <> "^"], cd: url)
+
     assert [same, same] = String.split(parent)
   end
 

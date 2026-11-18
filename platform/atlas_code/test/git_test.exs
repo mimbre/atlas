@@ -18,6 +18,24 @@ defmodule AtlasCode.GitTest do
     File.mkdir_p!(Path.join(source, "lib"))
     File.write!(Path.join(source, "README.md"), "hello\n")
     File.write!(Path.join(source, "lib/app.ex"), "defmodule App, do: nil\n")
+    # A package lockfile whose one dependency is a folder of the repository: npm ci, offline.
+    File.mkdir_p!(Path.join(source, "dep"))
+    File.mkdir_p!(Path.join(source, "web"))
+    File.write!(Path.join(source, "dep/package.json"), ~s({"name":"dep","version":"1.0.0"}))
+    File.write!(Path.join(source, "web/.gitignore"), "node_modules/\n")
+
+    File.write!(
+      Path.join(source, "web/package.json"),
+      ~s({"name":"web","private":true,"dependencies":{"dep":"file:../dep"}})
+    )
+
+    File.write!(Path.join(source, "web/package-lock.json"), """
+    {"name": "web", "lockfileVersion": 3, "requires": true, "packages": {
+      "": {"name": "web", "dependencies": {"dep": "file:../dep"}},
+      "../dep": {"version": "1.0.0"},
+      "node_modules/dep": {"resolved": "../dep", "link": true}}}
+    """)
+
     git(source, ["add", "-A"])
     git(source, ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "app"])
     remote = Path.join(dir, "app.git")
@@ -41,7 +59,8 @@ defmodule AtlasCode.GitTest do
     %{url: "http://127.0.0.1:#{port}", dir: dir}
   end
 
-  test "a Runtime fetches a base's ref with its token, and only with it", %{url: url, dir: dir} do
+  test "a Runtime fetches a base's ref, its dependencies prepared, with its token and only with it",
+       %{url: url, dir: dir} do
     base_id = "code-" <> snapshot()
     ref = "refs/atlas/bases/" <> base_id
     cache = Path.join(dir, "runtime.git")
@@ -50,8 +69,12 @@ defmodule AtlasCode.GitTest do
 
     {_, 0} = System.cmd("git", fetch, env: header(@token), stderr_to_stdout: true)
 
-    assert git(dir, ["--git-dir", cache, "ls-tree", "-r", "--name-only", ref]) ==
-             "README.md\nlib/app.ex\n"
+    # The base's commit, and on it one commit that adds what npm ci installed.
+    assert git(dir, ["--git-dir", cache, "rev-parse", ref <> "^"]) ==
+             git(dir, ["-C", Path.join(dir, "app-source"), "rev-parse", "develop"])
+
+    assert git(dir, ["--git-dir", cache, "diff", "--name-only", ref <> "^", ref]) ==
+             "web/node_modules/.package-lock.json\nweb/node_modules/dep\n"
 
     assert git(dir, ["--git-dir", cache, "show", ref <> ":README.md"]) == "hello\n"
 
