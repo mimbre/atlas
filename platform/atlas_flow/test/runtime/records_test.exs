@@ -116,6 +116,81 @@ defmodule AtlasFlow.Runtime.RecordsTest do
     assert %{"state" => "completed", "lease_id" => @lease} = attempt()["values"]
   end
 
+  describe "ended by Flow's fence (F10, lost/6)" do
+    @at ~U[2026-11-17 12:15:00Z]
+
+    test "a fenced lease's running attempt ends lost, with the fence's cause and when" do
+      {:ok, :created} = Records.record(@task, 1, @lease, %{"state" => "started"}, nil)
+      assert {:ok, :changed} = Records.lost(@task, 1, @lease, "expired", @at)
+
+      assert %{
+               "state" => "lost",
+               "result_kind" => "expired",
+               "lease_id" => @lease,
+               "ended_at" => "2026-11-17T12:15:00Z"
+             } = attempt()["values"]
+    end
+
+    test "lost is terminal: no later report or fence writes it again" do
+      {:ok, :created} = Records.record(@task, 1, @lease, %{"state" => "started"}, nil)
+      {:ok, :changed} = Records.lost(@task, 1, @lease, "expired", @at)
+      sent = length(writes())
+
+      assert {:ok, :kept} = Records.record(@task, 1, @lease, ended(), nil)
+      assert {:ok, :kept} = Records.lost(@task, 1, @lease, "supervision", nil)
+      assert length(writes()) == sent
+      assert %{"state" => "lost", "result_kind" => "expired"} = attempt()["values"]
+    end
+
+    test "a terminal attempt is kept: its result stands" do
+      {:ok, :created} = Records.record(@task, 1, @lease, ended(), nil)
+      sent = length(writes())
+
+      assert {:ok, :kept} = Records.lost(@task, 1, @lease, "expired", @at)
+      assert length(writes()) == sent
+      assert %{"state" => "completed", "result_kind" => "completed"} = attempt()["values"]
+      refute Map.has_key?(attempt()["values"], "ended_at")
+    end
+
+    test "another lease's attempt is kept" do
+      {:ok, :created} = Records.record(@task, 1, @lease, %{"state" => "started"}, nil)
+      sent = length(writes())
+
+      assert {:ok, :kept} = Records.lost(@task, 1, @later, "expired", @at)
+      assert length(writes()) == sent
+      assert %{"state" => "running", "lease_id" => @lease} = attempt()["values"]
+    end
+
+    test "no record: none is created" do
+      assert {:ok, :none} = Records.lost(@task, 1, @lease, "late_accept", @at)
+      assert writes() == []
+      assert attempt() == nil
+    end
+
+    test "an ended_at the record holds is kept" do
+      FakeFacts.put("task_attempt", %{
+        "key" => Records.attempt_key(@task, 1),
+        "version" => 0,
+        "values" => %{
+          "state" => "running",
+          "lease_id" => @lease,
+          "ended_at" => "2026-11-17T12:05:00Z"
+        }
+      })
+
+      assert {:ok, :changed} = Records.lost(@task, 1, @lease, "expired", @at)
+      assert %{"state" => "lost", "ended_at" => "2026-11-17T12:05:00Z"} = attempt()["values"]
+    end
+
+    test "without a time (the repair at boot) no ended_at is written" do
+      {:ok, :created} = Records.record(@task, 1, @lease, %{"state" => "started"}, nil)
+      assert {:ok, :changed} = Records.lost(@task, 1, @lease, "expired", nil)
+      assert %{"state" => "lost", "result_kind" => "expired"} = attempt()["values"]
+      refute Map.has_key?(attempt()["values"], "ended_at")
+      refute Enum.any?(writes(), &Map.has_key?(&1["values"], "ended_at"))
+    end
+  end
+
   test "a lost answer, then the same report again: one record, written once" do
     FakeFacts.lose_ack("task_attempt")
     assert {:error, _} = Records.record(@task, 1, @lease, %{"state" => "started"}, nil)

@@ -19,14 +19,21 @@ defmodule AtlasFlow.Runtime.Records do
   - once it holds a terminal state, it is never written again; neither is an earlier
     lease's record by a later one.
 
+  **Ended by Flow's own fence (F10, `lost/6`).** When Dispatch fences a lease (`expired`
+  or `lost`), its running record ends `state: lost`, `result_kind` the fence's cause
+  (`lease_end_cause`), and `ended_at` only when the caller gives a time (Delivery's live
+  path, on Dispatch's notice; its boot repair gives none) and the record has none yet.
+  `lost` is a terminal state like the others. A fence never creates a record (a lease
+  fenced before `started` has none) and never writes another lease's record.
+
   Each write goes under a stable message id, so a lost answer is sent again and stored
-  once. Writes go from the calling process (Delivery's endpoint).
+  once. Writes go from the calling process: Delivery's endpoint, the only attempt writer.
   """
 
   alias AtlasFlow.Talk
   alias AtlasFlow.WorkSource.{Leases, Translate}
 
-  @terminal ~w(refused completed failed crashed interrupted cancelled returned)
+  @terminal ~w(refused completed failed crashed interrupted cancelled returned lost)
   @progress ~w(state result_kind)
 
   @doc "The key of the attempt of lease `n` of the task `task_key`: `TA-<task key>-<n>`."
@@ -75,6 +82,38 @@ defmodule AtlasFlow.Runtime.Records do
       error ->
         error
     end
+  end
+
+  @doc """
+  Ends the record of lease `lease_id`, attempt `n` of `task_key`, that Flow's fence ended
+  with `cause` (the lease's `lease_end_cause`): `state: lost`, `result_kind` `cause`, and
+  `ended_at` `at` when `at` is given and the record has none. `{:ok, :changed |
+  :unchanged}`; `{:ok, :kept}` for a terminal record or another lease's; `{:ok, :none}`
+  when there is no record (none is created); or `{:error, why}`.
+  """
+  @spec lost(String.t(), pos_integer(), String.t(), String.t(), DateTime.t() | nil, String.t()) ::
+          {:ok, atom()} | {:error, term()}
+  def lost(task_key, n, lease_id, cause, at, by \\ "flow") do
+    case read(attempt_key(task_key, n)) do
+      {:ok, nil} ->
+        {:ok, :none}
+
+      {:ok, %{"values" => stored} = fact} ->
+        cond do
+          stored["lease_id"] not in [nil, lease_id] -> {:ok, :kept}
+          stored["state"] in @terminal -> {:ok, :kept}
+          true -> change(fact, gained(stored, ending(lease_id, cause, at)), by)
+        end
+
+      error ->
+        error
+    end
+  end
+
+  # `ended_at` is not a progress field: `gained/2` keeps one the record already holds.
+  defp ending(lease_id, cause, at) do
+    values = %{"state" => "lost", "result_kind" => cause, "lease_id" => lease_id}
+    if at, do: Map.put(values, "ended_at", DateTime.to_iso8601(at)), else: values
   end
 
   # What a running attempt's record gains: progress fields that moved on, and fields not

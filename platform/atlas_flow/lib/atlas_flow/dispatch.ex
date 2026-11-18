@@ -38,10 +38,16 @@ defmodule AtlasFlow.Dispatch do
     lease → `lost`; an `accepted` or `started` one → `cancel_requested`, named in its
     holder's next poll's `cancel`; an `ended` one stands.
 
+  Each `expired` or `lost` write, once stored, is cast to Delivery
+  (`AtlasFlow.Delivery.lease_fenced/4`, never a call), which ends that lease's running
+  `task_attempt` (F10). A `cancel_requested` write is not: the lease's work goes on until
+  its Runtime ends it.
+
   **Boot.** Every live lease on a task fact counts as renewed at boot (§5.3 item 5).
 
   Options of `start_link/1`: `name` (default `AtlasFlow.Dispatch`), `model` (default the
-  configured one), `clock`, and the timing (`config :atlas_flow, :work_source`):
+  configured one), `clock`, `delivery` (the server fences are cast to, default
+  `AtlasFlow.Delivery`), and the timing (`config :atlas_flow, :work_source`):
   `lease_ttl` (900 s), `grace` (120 s), `accept_deadline` (30 s), `poll_max` (25 s),
   `poll_wait` (ms a poll with nothing to answer is held, default `poll_max`), `sweep_ms`
   (5 000) and `resync_ms` (60 000); nil for either means no timer (a test sweeps itself).
@@ -135,6 +141,7 @@ defmodule AtlasFlow.Dispatch do
           Keyword.get(opts, :actors, AtlasBus.Actors.configured())
         ),
       clock: opts[:clock],
+      delivery: Keyword.get(opts, :delivery, AtlasFlow.Delivery),
       ttl: conf[:lease_ttl],
       grace: conf[:grace],
       deadline: conf[:accept_deadline],
@@ -416,7 +423,7 @@ defmodule AtlasFlow.Dispatch do
         :ok
 
       _changed ->
-        end_lease(entry.key, lease_id, ["offered"], "lost", "supervision")
+        end_lease(state, entry.key, lease_id, ["offered"], "lost", "supervision")
         :lost
     end
   end
@@ -444,7 +451,7 @@ defmodule AtlasFlow.Dispatch do
           {:ok, fact} ->
             if Leases.value(fact, "lease_id") == id and
                  Leases.value(fact, "lease_state") == "offered" do
-              end_lease(lease.task_key, id, ["offered"], "lost", "late_accept")
+              end_lease(state, lease.task_key, id, ["offered"], "lost", "late_accept")
               {drop(state, id), seen}
             else
               # Accepted in time (Delivery's), or gone: look again as a live lease.
@@ -461,13 +468,13 @@ defmodule AtlasFlow.Dispatch do
 
       lease.state == :expired and
           DateTime.diff(now, lease.expires_at, :second) >= state.grace ->
-        case end_lease(lease.task_key, id, ["expired"], "lost", "expired") do
+        case end_lease(state, lease.task_key, id, ["expired"], "lost", "expired") do
           :unavailable -> {state, seen}
           _ -> {drop(state, id), seen}
         end
 
       lease.state != :expired and DateTime.compare(now, lease.expires_at) != :lt ->
-        case end_lease(lease.task_key, id, @live, "expired", "expired") do
+        case end_lease(state, lease.task_key, id, @live, "expired", "expired") do
           :ended -> {put_in(state.leases[id].state, :expired), seen}
           :gone -> {drop(state, id), seen}
           :unavailable -> {state, seen}
@@ -502,7 +509,7 @@ defmodule AtlasFlow.Dispatch do
   # The graceful cancel (§3.7): an offered lease is lost; an accepted or started one is
   # cancel_requested, named in its holder's next poll; an ended one stands.
   defp cancel_lease(state, id, lease, cause) do
-    case end_lease(lease.task_key, id, ["offered"], "lost", cause) do
+    case end_lease(state, lease.task_key, id, ["offered"], "lost", cause) do
       :ended ->
         drop(state, id)
 
@@ -511,6 +518,7 @@ defmodule AtlasFlow.Dispatch do
 
       :gone ->
         case end_lease(
+               state,
                lease.task_key,
                id,
                ["accepted", "started"],
@@ -545,7 +553,9 @@ defmodule AtlasFlow.Dispatch do
 
   # Fence-writes `lease_state` (and its cause) on lease `id` while it is in one of `from`:
   # `:ended` once stored, `:gone` when the lease is not in one of them, `:unavailable`.
-  defp end_lease(task_key, id, from, to, cause) do
+  # A stored fence (`to` expired or lost) is cast to Delivery, which ends the lease's
+  # attempt (F10); `cancel_requested` fences nothing, so it is not.
+  defp end_lease(state, task_key, id, from, to, cause) do
     decide = fn fact ->
       if Leases.value(fact, "lease_id") == id and Leases.value(fact, "lease_state") in from,
         do: {:write, %{"lease_state" => to, "lease_end_cause" => cause}, %{}, :ended},
@@ -553,8 +563,17 @@ defmodule AtlasFlow.Dispatch do
     end
 
     case Leases.update(task_key, decide) do
-      result when result in [:ended, :gone] -> result
-      _ -> :unavailable
+      :ended ->
+        if to in ~w(expired lost),
+          do: AtlasFlow.Delivery.lease_fenced(task_key, id, cause, state.delivery)
+
+        :ended
+
+      :gone ->
+        :gone
+
+      _ ->
+        :unavailable
     end
   end
 

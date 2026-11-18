@@ -172,6 +172,60 @@ defmodule AtlasFlow.WorkSource.DeliveryTest do
     end
   end
 
+  # F10: Dispatch fences the lease and casts it to Delivery, which is stopped before it
+  # handles the cast (it is suspended meanwhile): the crash window the repair at init closes.
+  defp fenced_unrecorded(ctx) do
+    ctx = grant(ctx)
+    assert {:recorded, _} = report(@mini, ctx.lease, 1, state(:accepted))
+    assert {:recorded, _} = report(@mini, ctx.lease, 2, state(:started))
+    :sys.suspend(Delivery)
+    L.advance(ctx, 900)
+    Dispatch.sweep()
+    :ok = stop_supervised(Delivery)
+
+    assert L.values(ctx.task)["lease_state"] == "expired"
+    assert %{"state" => "running"} = attempt(ctx.task)
+    ctx
+  end
+
+  defp start_delivery(ctx),
+    do: start_supervised({Delivery, model: L.Model, clock: ctx.clock, engine: self()})
+
+  defp attempt(task), do: FakeFacts.get("task_attempt", "TA-#{task}-1")["values"]
+
+  describe "fenced attempts at init (F10)" do
+    test "a fenced lease whose notice was lost: its attempt ends lost at the next start, with no ended_at",
+         ctx do
+      ctx = fenced_unrecorded(ctx)
+      assert {:ok, _} = start_delivery(ctx)
+
+      assert %{"state" => "lost", "result_kind" => "expired", "lease_id" => lease} =
+               v = attempt(ctx.task)
+
+      assert lease == ctx.lease
+      refute Map.has_key?(v, "ended_at")
+    end
+
+    test "Facts does not answer the repair's read: Delivery starts and serves; the next start repairs",
+         ctx do
+      L.supervised_task("B-2", "ada")
+      ctx = fenced_unrecorded(ctx)
+
+      :ok = GenServer.call(FakeFacts, {:block_read, "task", %{"plain" => true}})
+      assert {:ok, _} = start_delivery(ctx)
+      :ok = GenServer.call(FakeFacts, {:allow_read, "task", %{"plain" => true}})
+
+      Dispatch.resync()
+      assert {:polled, %{leases: [%{lease_id: other}]}} = poll(@mini, [ctx.lease])
+      assert {:recorded, _} = report(@mini, other, 1, state(:accepted))
+      assert %{"state" => "running"} = attempt(ctx.task)
+
+      :ok = stop_supervised(Delivery)
+      assert {:ok, _} = start_delivery(ctx)
+      assert %{"state" => "lost", "result_kind" => "expired"} = attempt(ctx.task)
+    end
+  end
+
   describe "result upload (fencing_test.exs)" do
     test "ended answers the missing blobs; put_blob stores each, and a replay answers fewer",
          ctx do

@@ -41,6 +41,25 @@ defmodule AtlasFlow.WorkSource.DispatchTest do
     ctx
   end
 
+  # F10: Dispatch casts a fence to Delivery before its sweep answers; once Delivery
+  # answers a `:sys` request after that, it has handled the cast.
+  defp delivered, do: :sys.get_state(Delivery)
+
+  defp attempt(task, n \\ 1), do: FakeFacts.get("task_attempt", "TA-#{task}-#{n}")["values"]
+
+  defp attempt_writes(task, n \\ 1),
+    do: Enum.filter(FakeFacts.sent(), &(&1["key"] == "TA-#{task}-#{n}"))
+
+  defp started(ctx, key) do
+    %{task: task} = L.supervised_task(key, "ada")
+    ready(ctx)
+    lease = lease!(@mini)
+    assert {:recorded, _} = report(@mini, lease, 1, :accepted)
+    assert {:recorded, _} = report(@mini, lease, 2, :started)
+    assert %{"state" => "running"} = attempt(task)
+    {task, lease}
+  end
+
   describe "accept (§5.3 item 1; fencing_test.exs accept)" do
     test "an accepted within the deadline is recorded; the lease's work is the offer", ctx do
       %{task: task} = L.supervised_task("B-1", "ada")
@@ -223,6 +242,48 @@ defmodule AtlasFlow.WorkSource.DispatchTest do
                {"lost", "answer"}
 
       assert {:polled, %{leases: [], lease_lost: [^lease]}} = poll(@mini, [lease])
+    end
+
+    test "F10: an offered lease of a cancelled task is lost and leaves no attempt", ctx do
+      %{task: task} = L.supervised_task("B-1", "ada")
+      ready(ctx)
+      _lease = lease!(@mini)
+
+      Dispatch.cancel(task, "answer")
+      stored("B-1", task)
+      Dispatch.sweep()
+      delivered()
+
+      assert %{"lease_state" => "lost", "lease_end_cause" => "answer"} = L.values(task)
+      assert attempt_writes(task) == []
+    end
+
+    test "F10: a started lease of a cancelled task stays running until it ends; silent, it ends lost at expiry, once",
+         ctx do
+      {task, lease} = started(ctx, "B-1")
+      Dispatch.cancel(task, "answer")
+      stored("B-1", task)
+      Dispatch.sweep()
+      delivered()
+
+      assert cancel_requested?(task)
+      assert %{"state" => "running"} = attempt(task)
+      assert length(attempt_writes(task)) == 1
+
+      # The Runtime never answers: the cause is the fence's that ended the lease (expiry).
+      L.advance(ctx, 900)
+      Dispatch.sweep()
+      delivered()
+      assert %{"lease_state" => "expired", "lease_end_cause" => "expired"} = L.values(task)
+
+      assert %{"state" => "lost", "result_kind" => "expired", "lease_id" => ^lease} =
+               attempt(task)
+
+      L.advance(ctx, 120)
+      Dispatch.sweep()
+      delivered()
+      assert L.values(task)["lease_state"] == "lost"
+      assert length(attempt_writes(task)) == 2
     end
 
     test "Facts unavailable during the carry-out: the cancel happens once Facts is back", ctx do
@@ -411,6 +472,40 @@ defmodule AtlasFlow.WorkSource.DispatchTest do
       assert :lease_lost = report(@mini, lease, 2, :started)
     end
 
+    test "F10: a started lease's attempt ends lost at expiry, from Delivery, and once",
+         ctx do
+      {task, lease} = started(ctx, "B-1")
+
+      # The next attempt write is Delivery's: it marks a fact only when it comes from there.
+      :ok =
+        FakeFacts.hook(
+          "task_attempt",
+          "TA-#{task}-1",
+          "flow/delivery",
+          :after,
+          fn _ -> %{"key" => "from-delivery"} end,
+          {"clerk", "from-delivery"}
+        )
+
+      L.advance(ctx, 900)
+      Dispatch.sweep()
+      delivered()
+
+      assert %{"state" => "lost", "result_kind" => "expired", "lease_id" => ^lease} =
+               v = attempt(task)
+
+      assert v["ended_at"] == DateTime.to_iso8601(L.now(ctx))
+      assert FakeFacts.get("clerk", "from-delivery") != nil
+
+      # The grace step's lost writes the attempt no more: one write after started.
+      L.advance(ctx, 120)
+      Dispatch.sweep()
+      delivered()
+      assert L.values(task)["lease_state"] == "lost"
+      assert length(attempt_writes(task)) == 2
+      assert attempt(task)["ended_at"] == v["ended_at"]
+    end
+
     test "with no other Runtime of the holder, it waits", ctx do
       L.supervised_task("B-1", "ada")
       ready(ctx)
@@ -524,6 +619,24 @@ defmodule AtlasFlow.WorkSource.DispatchTest do
       after
         :sys.resume(Delivery)
       end
+    end
+
+    test "F10: Delivery suspended, a sweep that fences a lease still answers", ctx do
+      {task, _lease} = started(ctx, "B-1")
+      :sys.suspend(Delivery)
+
+      try do
+        L.advance(ctx, 900)
+        %Task{ref: ref} = Task.async(fn -> Dispatch.sweep() end)
+        assert_receive {^ref, :ok}
+        Process.demonitor(ref, [:flush])
+        assert L.values(task)["lease_state"] == "expired"
+      after
+        :sys.resume(Delivery)
+      end
+
+      delivered()
+      assert %{"state" => "lost", "result_kind" => "expired"} = attempt(task)
     end
 
     test "Dispatch gone: Delivery still records", ctx do

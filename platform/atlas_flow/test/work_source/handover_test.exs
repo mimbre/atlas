@@ -9,7 +9,7 @@ defmodule AtlasFlow.WorkSource.HandoverTest do
   use ExUnit.Case, async: false
   @moduletag :capture_log
 
-  alias AtlasFlow.{Dispatch, FakeFacts, Results, WorkSource}
+  alias AtlasFlow.{Delivery, Dispatch, FakeFacts, Results, WorkSource}
   alias AtlasFlow.FakeFacts.Leasing, as: L
   alias AtlasFlow.WorkSource.Translate
 
@@ -39,6 +39,12 @@ defmodule AtlasFlow.WorkSource.HandoverTest do
 
   defp report(client, lease, revision, report),
     do: WorkSource.report(client, %{lease_id: lease, revision: revision, report: report})
+
+  # F10: once Delivery answers a `:sys` request, it has handled the sweep's casts.
+  defp delivered, do: :sys.get_state(Delivery)
+
+  defp attempt(task), do: FakeFacts.get("task_attempt", "TA-#{task}-1")["values"]
+  defp attempt_writes(task), do: Enum.filter(FakeFacts.sent(), &(&1["key"] == "TA-#{task}-1"))
 
   # Four leases of ada's: the bin's own task offered, and three crates' accepted, started
   # and ended.
@@ -180,6 +186,27 @@ defmodule AtlasFlow.WorkSource.HandoverTest do
       assert {:ok, _} = Results.manifest(task)
     end
 
+    test "F10: cancel_requested ends no attempt; the Runtime's ended(completed) records it with its provenance",
+         _ctx do
+      %{task: task, lease: lease, next: next} = handed_over(true)
+      delivered()
+
+      assert L.values(task)["lease_state"] == "cancel_requested"
+      assert %{"state" => "running"} = attempt(task)
+      assert length(attempt_writes(task)) == 1
+
+      assert {:recorded, _} = report(@mini, lease, next, L.ended(nil))
+
+      assert %{
+               "state" => "completed",
+               "result_kind" => "completed",
+               "lease_id" => ^lease,
+               "turn_id" => "turn-1",
+               "provider" => "vendor",
+               "harness" => "harness"
+             } = attempt(task)
+    end
+
     test "the grant decides from the ending even when the fact still holds the cause", _ctx do
       %{run: run, task: task} = L.supervised_task("B-1", "ada")
       fact = FakeFacts.get("task", task)
@@ -202,6 +229,19 @@ defmodule AtlasFlow.WorkSource.HandoverTest do
       Dispatch.resync()
       not_offered_again(run, task)
     end
+  end
+
+  test "F10: an offered lease lost to a hand-over leaves no attempt", _ctx do
+    %{run: run, task: task} = L.supervised_task("B-1", "ada")
+    Dispatch.resync()
+    assert {:polled, %{leases: [_]}} = poll(@mini, [], %{"deep_coding" => 1})
+
+    L.supervise(run, nil)
+    Dispatch.sweep()
+    delivered()
+
+    assert %{"lease_state" => "lost", "lease_end_cause" => "supervision"} = L.values(task)
+    assert attempt_writes(task) == []
   end
 
   test "a hand-over and a pickup by the same holder within one sweep cancel nothing", ctx do
