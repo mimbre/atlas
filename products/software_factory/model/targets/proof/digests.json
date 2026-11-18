@@ -319,8 +319,16 @@
     },
     "job": {
       "prod": {
-        "digest": "9d3344521082b52910d3a4e637a7e2278746a9e76dae06a2ffcbfc5c376e202b",
+        "digest": "3fcbc03eccf0397972a0eaf8fb5cb2322b739439436d705a88d7258efd26ec59",
         "history": [
+          {
+            "digest": "3fcbc03eccf0397972a0eaf8fb5cb2322b739439436d705a88d7258efd26ec59",
+            "states": [
+              "done",
+              "stuck",
+              "working"
+            ]
+          },
           {
             "digest": "9d3344521082b52910d3a4e637a7e2278746a9e76dae06a2ffcbfc5c376e202b",
             "states": [
@@ -337,8 +345,16 @@
         ]
       },
       "test": {
-        "digest": "9d3344521082b52910d3a4e637a7e2278746a9e76dae06a2ffcbfc5c376e202b",
+        "digest": "3fcbc03eccf0397972a0eaf8fb5cb2322b739439436d705a88d7258efd26ec59",
         "history": [
+          {
+            "digest": "3fcbc03eccf0397972a0eaf8fb5cb2322b739439436d705a88d7258efd26ec59",
+            "states": [
+              "done",
+              "stuck",
+              "working"
+            ]
+          },
           {
             "digest": "9d3344521082b52910d3a4e637a7e2278746a9e76dae06a2ffcbfc5c376e202b",
             "states": [

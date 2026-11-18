@@ -57,7 +57,7 @@ defmodule Model.Job do
         cost_class: :standard,
         input: [repository: "github.com/mimbre/atlas", base: "develop"],
         instructions:
-          "Do the job below in the repository you are given, starting from its base. End your answer with what you did and what is left open.",
+          "Do the job below in the folder you are given: it holds the files of the repository at its base. The Runtime records your changes itself; do not use git and do not commit. Do not run bin/check: the sandbox has no network for its dependencies. End your answer with what you did and what is left open.",
         fields: [:title, :description],
         records: [kind: "task", relation: "task_of"],
         machinery: "machinery",
@@ -68,6 +68,14 @@ defmodule Model.Job do
     final :done, label: "Done"
     final :stuck, label: "Stuck"
   end
+
+  # The job's instruction says it works in a folder without git, and runs no bin/check.
+  migrate(:job,
+    from: "9d3344521082b52910d3a4e637a7e2278746a9e76dae06a2ffcbfc5c376e202b",
+    to: "3fcbc03eccf0397972a0eaf8fb5cb2322b739439436d705a88d7258efd26ec59",
+    states: :same,
+    reason: "Only the agent's instruction changed"
+  )
 
   select(:job,
     choices: [],
