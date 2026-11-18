@@ -1157,7 +1157,10 @@ defmodule AtlasRuntime.Work.Server do
             M.Imported.new!(
               source: source,
               change_set: change_set,
-              pending: if(is_nil(imported), do: true)
+              pending: if(is_nil(imported), do: true),
+              git_base:
+                Map.get(work.input, :result_ref) &&
+                  "refs/atlas/bases/" <> work.input.base.base_id
             )
         }
 
@@ -1861,7 +1864,8 @@ defmodule AtlasRuntime.Work.Server do
            Map.merge(spec, %{
              base_id: base_id,
              store: record.imported.source,
-             change_set: record.imported.change_set
+             change_set: record.imported.change_set,
+             git_base: record.imported.git_base
            })}
 
         %M.Base{base_id: base_id} ->

@@ -222,9 +222,10 @@ defmodule AtlasRuntime.Sources.Import do
   defp too_large?(size, {:at_most, cap}), do: size > cap
   defp too_large?(_size, _want), do: false
 
-  # The base's ref into the source's Git cache (one commit deep: its tree is all a work
-  # needs, and a result is committed on it), then each file blob the store lacks from its
-  # tree, by the first path the manifest names it at, in one `git cat-file --batch`.
+  # The base's ref into the source's Git cache, two commits deep: Code's prepared base (the
+  # base's files plus its dependencies) and the base's commit under it, which a result is
+  # committed on. Then each file blob the store lacks from its tree, by the first path the
+  # manifest names it at, in one `git cat-file --batch`.
   defp obtain_base(home, source, base, base_files, git) do
     missing =
       for {sha, size} <- base_files.files, not Store.has?(home, source.name, sha), do: {sha, size}
@@ -240,7 +241,7 @@ defmodule AtlasRuntime.Sources.Import do
       "--quiet",
       "--no-tags",
       "--depth",
-      "1",
+      "2",
       git.url <> "/bases/" <> base.base_id
     ]
 

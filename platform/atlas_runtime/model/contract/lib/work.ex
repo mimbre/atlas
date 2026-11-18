@@ -277,6 +277,9 @@ defmodule AtlasRuntimeModel.Work do
     field :change_set, :string
     # Main's #330 F5 (b): accepted before its import; the base is set once it is imported.
     field :pending, :boolean
+    # A job's base whose result goes back over Git (the lease's result_ref): its ref in the
+    # source's Git cache, the prepared base the work folder is a Git checkout of.
+    field :git_base, :string
   end
 
   # The records.
