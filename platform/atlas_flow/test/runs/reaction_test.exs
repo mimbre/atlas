@@ -10,6 +10,9 @@ defmodule AtlasFlow.Runs.ReactionTest do
   """
   use ExUnit.Case, async: false
 
+  require AtlasTestAwait, as: Await
+
+  alias AtlasBus.Envelope
   alias AtlasFlow.{Engine, FakeFacts, ManualClock, Talk}
   alias AtlasFlow.Runs.{Run, Store}
 
@@ -96,14 +99,26 @@ defmodule AtlasFlow.Runs.ReactionTest do
     %{engine: engine, config: AtlasFlow.TestModel.config(Gathering)}
   end
 
+  # Flow has taken every hint of a fact this test put. The Router acknowledges a fact to
+  # its writer before it hints Flow (AtlasBus.Router.deliver/3), so a `:sys.get_state/1`
+  # from this process can reach Flow before the hint does. This request is routed after
+  # that hint by the same Router process, so Flow takes it after the hint, and answers it
+  # at once (every position is at or past 0).
+  defp settled do
+    request = %{Envelope.new("request", "_settled") | address: "flow"}
+    :ok = AtlasBus.send(request, %{"position" => 0})
+    id = request.id
+    Await.message({:atlas_bus, %Envelope{id: ^id, class: "answer"}, %{"settled" => _}})
+  end
+
   # What Flow wrote while the engine took one hint, and how many facts it sent (each
   # attempt and replay): `{[{op, :run | key}], round trips}`.
-  defp written(c, fun) do
+  defp written(_c, fun) do
     sent = length(FakeFacts.stored_from_flow())
     puts = FakeFacts.puts()
     fun.()
-    :sys.get_state(c.engine)
-    runs = runs(c)
+    settled()
+    runs = runs()
 
     writes =
       for w <- Enum.drop(FakeFacts.stored_from_flow(), sent),
@@ -112,7 +127,7 @@ defmodule AtlasFlow.Runs.ReactionTest do
     {writes, FakeFacts.puts() - puts}
   end
 
-  defp runs(_c), do: for({{"cursor", key}, _} <- facts(), do: key)
+  defp runs, do: for({{"cursor", key}, _} <- facts(), do: key)
   defp facts, do: :sys.get_state(FakeFacts).facts
 
   defp run(c, name, kind, key) do
@@ -157,7 +172,7 @@ defmodule AtlasFlow.Runs.ReactionTest do
   end
 
   # One fact put, and the hint of it taken by the engine.
-  defp put(c, {:stored, _}), do: :sys.get_state(c.engine)
+  defp put(_c, {:stored, _}), do: settled()
 
   defp at(run), do: {run["state"], run["entry"], run["status"], run["pending"]["writes"]}
 
