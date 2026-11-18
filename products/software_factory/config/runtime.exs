@@ -143,8 +143,17 @@ if config_env() != :test do
       unless is_map(sources) and map_size(sources) > 0,
         do: raise("#{file} has code.home but no code.sources")
 
-      if get_in(settings, ["flow", "work_source"]),
-        do: config(:atlas_code, service: %{"home" => expand.(home), "repositories" => sources})
+      if source = get_in(settings, ["flow", "work_source"]) do
+        config(:atlas_code, service: %{"home" => expand.(home), "repositories" => sources})
+
+        # Code's Git endpoint (AtlasCode.Git): Runtimes fetch their bases from Code over Git,
+        # on 127.0.0.1 at `code.git_port` behind the tailnet edge, with their work source token.
+        if port = code["git_port"],
+          do:
+            config(:atlas_code,
+              git: %{"port" => port, "credentials_env" => source["credentials_env"]}
+            )
+      end
     end
   end
 

@@ -147,7 +147,7 @@ defmodule AtlasRuntime.Sources.Puller do
 
   alias AtlasRuntime.Boundary.Work, as: B
   alias AtlasRuntime.{Policy, Provenance, Work}
-  alias AtlasRuntime.Sources.{Import, LeaseClock, LeaseShape, Rights, Upload}
+  alias AtlasRuntime.Sources.{Credential, Import, LeaseClock, LeaseShape, Rights, Upload}
   alias AtlasRuntime.Work.Queue
 
   @accept_deadline_ms 30_000
@@ -791,12 +791,26 @@ defmodule AtlasRuntime.Sources.Puller do
       with {:ok, lease} <- LeaseShape.check(lease),
            true <- is_binary(home),
            %{} = source <- policy_source(home, name) do
+        git = %{url: source["git_url"], env: fn -> git_env(home, name) end}
+        options = Keyword.put_new(options, :git, git)
         Import.base(home, source, lease, &module.get_blob(ref, id, &1), options)
       else
         {:error, {_rule, _path}} -> {:ok, nil}
         _ -> {:error, "the core is not running, or the policy no longer names the source"}
       end
     end
+  end
+
+  # Git's environment for a fetch from the source's Code: its bearer token as an extra header,
+  # never on Git's command line.
+  defp git_env(home, name) do
+    {:ok, header} = Credential.load(home, name)
+
+    [
+      {"GIT_CONFIG_COUNT", "1"},
+      {"GIT_CONFIG_KEY_0", "http.extraHeader"},
+      {"GIT_CONFIG_VALUE_0", "Authorization: " <> header.()}
+    ]
   end
 
   defp policy_source(home, name),

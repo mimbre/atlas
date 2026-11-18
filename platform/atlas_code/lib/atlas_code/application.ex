@@ -5,7 +5,9 @@ defmodule AtlasCode.Application do
   - the registered Code service of the core (`AtlasCode.Core`) with
     `config :atlas_code, :service`, which the core's `runtime.exs` sets only when its
     settings name a Code home, the repositories Flow's work source reads bases from, and
-    that work source (`flow.work_source`) itself.
+    that work source (`flow.work_source`) itself;
+  - Code's Git endpoint for Runtimes (`AtlasCode.Git`) with `config :atlas_code, :git`, set
+    with the service when the settings give `code.git_port`.
   The local Code service (`mix atlas_code.server`, the `atlas_code` release) has neither
   configuration and starts only through `AtlasCode.Server`.
   """
@@ -20,7 +22,11 @@ defmodule AtlasCode.Application do
   @doc false
   # The children for an application environment.
   def children(env) do
-    for {key, child} <- [effects: AtlasCode.Effects.Endpoint, service: AtlasCode.Core],
+    for {key, child} <- [
+          effects: AtlasCode.Effects.Endpoint,
+          service: AtlasCode.Core,
+          git: AtlasCode.Git
+        ],
         settings = env[key],
         do: {child, settings}
   end
