@@ -20,6 +20,100 @@ defmodule AtlasRuntime.Sources.TransportTest do
     def log(event, %{config: %{test: test}}), do: send(test, {:raw_log, event})
   end
 
+  defmodule RawServer do
+    @moduledoc false
+    # A TLS 1.3 server on a listening socket that reads each request raw: its head, then its
+    # body as the head frames it (chunked, de-chunked here, or by Content-Length). It sends
+    # `{:raw, request}` to the test and answers as `answer.(request)` says: `{:send, bytes}`
+    # after the body; `{:early, bytes}` right after the head, the body unread, then closes;
+    # `:close` after the body, with no answer. One connection after another.
+    def serve(listen, test, answer) do
+      {:ok, socket} = :ssl.transport_accept(listen)
+      {:ok, socket} = :ssl.handshake(socket, 30_000)
+      {head, rest} = head(socket, "")
+      [request_line | lines] = String.split(head, "\r\n")
+      [method, path, _version] = String.split(request_line, " ")
+
+      headers =
+        for line <- lines,
+            [name, value] = String.split(line, ":", parts: 2),
+            do: {String.downcase(name), String.trim(value)}
+
+      request = %{method: method, path: path, headers: headers}
+
+      case answer.(request) do
+        {:early, bytes} ->
+          send(test, {:raw, Map.merge(request, %{chunked?: chunked?(headers), body: nil})})
+          _ = :ssl.send(socket, bytes)
+
+        then ->
+          body =
+            if chunked?(headers),
+              do: chunks(socket, rest, []),
+              else: exactly(socket, rest, content_length(headers))
+
+          send(test, {:raw, Map.merge(request, %{chunked?: chunked?(headers), body: body})})
+          with {:send, bytes} <- then, do: :ssl.send(socket, bytes)
+      end
+
+      :ssl.close(socket)
+      serve(listen, test, answer)
+    end
+
+    def response(status, json \\ nil) do
+      body = if json, do: JSON.encode!(json), else: ""
+
+      "HTTP/1.1 #{status} X\r\ncontent-type: application/json\r\n" <>
+        "content-length: #{byte_size(body)}\r\nconnection: close\r\n\r\n" <> body
+    end
+
+    defp chunked?(headers), do: {"transfer-encoding", "chunked"} in headers
+
+    defp content_length(headers) do
+      case List.keyfind(headers, "content-length", 0) do
+        {_, n} -> String.to_integer(n)
+        nil -> 0
+      end
+    end
+
+    defp recv!(socket) do
+      {:ok, data} = :ssl.recv(socket, 0, 30_000)
+      data
+    end
+
+    defp head(socket, buffer) do
+      case :binary.split(buffer, "\r\n\r\n") do
+        [head, rest] -> {head, rest}
+        [_] -> head(socket, buffer <> recv!(socket))
+      end
+    end
+
+    defp exactly(_socket, buffer, n) when byte_size(buffer) >= n, do: binary_part(buffer, 0, n)
+    defp exactly(socket, buffer, n), do: exactly(socket, buffer <> recv!(socket), n)
+
+    # The chunked framing: `<hex size>\r\n<bytes>\r\n` ... `0\r\n\r\n`.
+    defp chunks(socket, buffer, acc) do
+      case :binary.split(buffer, "\r\n") do
+        [size_line, rest] ->
+          {size, _} = Integer.parse(size_line, 16)
+
+          if size == 0 do
+            IO.iodata_to_binary(Enum.reverse(acc))
+          else
+            rest = fill(socket, rest, size + 2)
+            <<chunk::binary-size(size), "\r\n", rest::binary>> = rest
+            chunks(socket, rest, [chunk | acc])
+          end
+
+        [_] ->
+          chunks(socket, buffer <> recv!(socket), acc)
+      end
+    end
+
+    defp fill(_socket, buffer, n) when byte_size(buffer) >= n, do: buffer
+    defp fill(socket, buffer, n), do: fill(socket, buffer <> recv!(socket), n)
+  end
+
   defmodule Holder do
     @moduledoc false
     # A process that keeps an open connection in its state, as a puller does.
@@ -436,6 +530,97 @@ defmodule AtlasRuntime.Sources.TransportTest do
       assert full(crash) =~ "forced_crash"
       assert full(crash) =~ "Bearer [redacted]"
       refute full(events) =~ ctx.token
+    end
+  end
+
+  describe "a streamed request body (D2)" do
+    # A raw TLS 1.3 server (RawServer) answering with `answer`, and an open connection to it.
+    defp raw(ctx, answer) do
+      {:ok, listen} =
+        :ssl.listen(
+          0,
+          [:binary, active: false, ip: {127, 0, 0, 1}, versions: [:"tlsv1.3"]] ++ ctx.pki.server
+        )
+
+      on_exit(fn -> :ssl.close(listen) end)
+      {:ok, {_ip, port}} = :ssl.sockname(listen)
+      test = self()
+
+      start_supervised!(
+        Supervisor.child_spec({Task, fn -> RawServer.serve(listen, test, answer) end},
+          id: make_ref()
+        )
+      )
+
+      assert {:ok, conn} =
+               Transport.open(@name, "https://localhost:#{port}",
+                 home: ctx.home,
+                 cacertfile: ctx.cacertfile
+               )
+
+      on_exit(fn -> Transport.close(conn) end)
+      conn
+    end
+
+    defp put(body, headers \\ []),
+      do: %{
+        method: "PUT",
+        path: "/v1/leases/L/blobs/x",
+        query: "",
+        headers: [{"content-type", "application/octet-stream"}] ++ headers,
+        body: body
+      }
+
+    defp stored, do: fn _request -> {:send, RawServer.response(200)} end
+
+    defp sha(bytes), do: :crypto.hash(:sha256, bytes)
+
+    test "an enumerable goes chunked, without a Content-Length, even when the caller gave one",
+         ctx do
+      conn = raw(ctx, stored())
+      body = Stream.map(["ab", "cd", "ef"], & &1)
+      stray = [{"content-length", "6"}, {"transfer-encoding", "identity"}]
+
+      assert {:ok, %{status: 200}} = Transport.request(put(body, stray), conn: conn)
+      assert_received {:raw, %{method: "PUT", chunked?: true, headers: headers, body: "abcdef"}}
+      refute List.keymember?(headers, "content-length", 0)
+      assert for({"transfer-encoding", v} <- headers, do: v) == ["chunked"]
+      assert {"content-type", "application/octet-stream"} in headers
+    end
+
+    test "3 MiB in 64 KiB elements arrive byte-exact; an empty element ends nothing", ctx do
+      conn = raw(ctx, stored())
+      bytes = :crypto.strong_rand_bytes(3 * 1024 * 1024)
+      elements = for <<chunk::binary-size(65_536) <- bytes>>, do: chunk
+      {first, rest} = Enum.split(elements, 3)
+
+      assert {:ok, %{status: 200}} =
+               Transport.request(put(Stream.concat([first, [""], rest])), conn: conn)
+
+      assert_received {:raw, %{chunked?: true, body: body}}
+      assert byte_size(body) == byte_size(bytes)
+      assert sha(body) == sha(bytes)
+    end
+
+    test "a binary body still goes with its Content-Length, not chunked", ctx do
+      conn = raw(ctx, stored())
+
+      assert {:ok, %{status: 200}} = Transport.request(put("abcdef"), conn: conn)
+      assert_received {:raw, %{chunked?: false, headers: headers, body: "abcdef"}}
+      assert {"content-length", "6"} in headers
+      refute List.keymember?(headers, "transfer-encoding", 0)
+    end
+
+    test "a server that answers 413 after the head and closes ends the call, raising nothing",
+         ctx do
+      conn = raw(ctx, fn _request -> {:early, RawServer.response(413, %{type: "too-large"})} end)
+      body = Stream.repeatedly(fn -> :binary.copy("x", 65_536) end) |> Stream.take(48)
+
+      answer = capture(fn -> Transport.request(put(body), conn: conn, timeout: 20_000) end)
+      assert_received {:raw, %{chunked?: true, body: nil}}
+
+      assert match?({:ok, %{status: 413}}, answer) or match?({:error, _}, answer)
+      refute answer == {:error, :timeout}
     end
   end
 

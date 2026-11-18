@@ -11,7 +11,10 @@ defmodule AtlasRuntime.Sources.UploadTest do
     caller's client holds; the agent's answer names its work folder `.` and any other home
     path `<runtime-home>`.
   - A repeat after a restart sends the same report and uploads nothing twice.
-  - `lease_lost` stops at once; `too_large` and the byte cap stop before more is sent.
+  - `lease_lost` stops at once; `too_large` and the byte cap (by default the contract's
+    20 000 000) stop before more is sent.
+  - A `put_blob` that does not reach the source is unreachable, not a stop: the repeat
+    uploads only what the source still names as missing.
   """
   use ExUnit.Case, async: false
 
@@ -37,7 +40,7 @@ defmodule AtlasRuntime.Sources.UploadTest do
 
     # options: stored (sha256s it holds already), also_missing (named missing although no
     # manifest entry), script (put_blob call number => :lease_lost | :too_large |
-    # :crash_after_store), lease (its current lease_id).
+    # :unreachable | :crash_after_store), lease (its current lease_id).
     def start!(options \\ []) do
       {:ok, agent} =
         Agent.start_link(fn ->
@@ -98,6 +101,10 @@ defmodule AtlasRuntime.Sources.UploadTest do
 
             state.script[n] == :too_large ->
               {:too_large, state}
+
+            # The source was not reached: nothing stored.
+            state.script[n] == :unreachable ->
+              {{:error, :unreachable}, state}
 
             not MapSet.member?(state.referenced, blob.sha256) ->
               {:not_referenced, state}
@@ -448,6 +455,66 @@ defmodule AtlasRuntime.Sources.UploadTest do
              )
 
     assert [{:report, _}] = FakeSource.calls(fake)
+  end
+
+  # The stored record's sizes of the blobs `sizes` names (sha256 => size); the cap counts the
+  # manifest's sizes, so no 20 MB file is needed.
+  defp resize!(dir, work_id, sizes) do
+    stored = FrozenStore.get(dir, work_id, 1)
+
+    roots =
+      for root <- stored.roots do
+        %{
+          root
+          | entries: for(e <- root.entries, do: %{e | size: Map.get(sizes, e.sha256, e.size)})
+        }
+      end
+
+    FrozenStore.put!(dir, %{stored | roots: roots})
+  end
+
+  test "by default the missing blobs may sum to 20 000 000 bytes, not one more",
+       %{bench: bench, code: code} do
+    work = ended!(code, @three)
+    [beta, gamma] = [sha("beta\n"), sha("gamma\n")]
+
+    resize!(bench.dir, work.work_id, %{beta => 10_000_000, gamma => 10_000_001})
+    fake = FakeSource.start!(stored: [sha("alpha\n")])
+
+    assert {:stopped, :too_large} =
+             Upload.run(@source_client, {FakeSource, fake}, @lease, work.work_id)
+
+    assert [{:report, _}] = FakeSource.calls(fake)
+
+    resize!(bench.dir, work.work_id, %{gamma => 10_000_000})
+    fake = FakeSource.start!(stored: [sha("alpha\n")])
+
+    assert {:ok, %{uploaded: uploaded}} =
+             Upload.run(@source_client, {FakeSource, fake}, @lease, work.work_id)
+
+    assert Enum.sort(uploaded) == Enum.sort([beta, gamma])
+  end
+
+  test "a put_blob that does not reach the source is unreachable; the repeat sends only what is missing",
+       %{code: code} do
+    work = ended!(code, @three)
+    fake = FakeSource.start!(script: %{2 => :unreachable})
+
+    assert {:error, :unreachable} =
+             Upload.run(@source_client, {FakeSource, fake}, @lease, work.work_id)
+
+    assert [{:report, _}, {:put_blob, first}, {:put_blob, failed}] = FakeSource.calls(fake)
+    assert FakeSource.stored(fake) == MapSet.new([first.sha256])
+
+    assert {:ok, %{uploaded: uploaded}} =
+             Upload.run(@source_client, {FakeSource, fake}, @lease, work.work_id)
+
+    [first_report, second_report] = FakeSource.reports(fake)
+    assert first_report == second_report
+    assert failed.sha256 in uploaded
+    refute first.sha256 in uploaded
+    assert MapSet.new([first.sha256 | uploaded]) == MapSet.new(manifest_shas(fake))
+    assert length(FakeSource.puts(fake)) == 2 + length(uploaded)
   end
 
   test "a work that has not ended, or is not the client's, sends nothing", %{

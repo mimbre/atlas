@@ -23,8 +23,13 @@ defmodule AtlasRuntime.Sources.Upload do
     before any is sent: stop and log; the source holds the task;
   - `not_referenced` (from `put_blob`): stop and log.
 
-  A repeat (after a restart) sends the same report again, at the same revision, and uploads
-  what the source still names as missing. Both steps are idempotent at the source.
+  A source that cannot be reached (`{:error, reason}` from `report` or any `put_blob`) is
+  not a stop: `report`'s error is answered as it is, a `put_blob`'s as
+  `{:error, :unreachable}`, nothing more is sent, and the puller tries again.
+
+  A repeat (after a restart or an unreachable source) sends the same report again, at the
+  same revision, and uploads what the source still names as missing. Both steps are
+  idempotent at the source.
 
   The source is reached through the `{module, ref}` seam below (`report/2`, `put_blob/2`).
   The M1 `work_source` contract's in-BEAM and HTTP client targets are adapted to it by the
@@ -54,17 +59,19 @@ defmodule AtlasRuntime.Sources.Upload do
           content: Enumerable.t()
         }
 
-  @callback report(ref :: term(), report()) :: {:recorded, [String.t()]} | :lease_lost
+  @callback report(ref :: term(), report()) ::
+              {:recorded, [String.t()]} | :lease_lost | {:error, term()}
   @callback put_blob(ref :: term(), put_blob()) ::
-              :stored | :lease_lost | :too_large | :not_referenced
+              :stored | :lease_lost | :too_large | :not_referenced | {:error, term()}
 
-  @default_max_result_bytes 20 * 1024 * 1024
+  # The contract's per-result cap (decision §6.2; `work_source` `blob_max_bytes/0`).
+  @default_max_result_bytes 20_000_000
   @terminal [:completed, :failed, :crashed, :interrupted, :cancelled, :returned]
 
   @type outcome ::
           {:ok, %{uploaded: [String.t()], skipped: [String.t()]}}
           | {:stopped, :lease_lost | :too_large | {:not_referenced, String.t()}}
-          | {:error, :not_found | :not_ended | {:blob_unavailable, String.t()}}
+          | {:error, :not_found | :not_ended | :unreachable | {:blob_unavailable, String.t()}}
 
   @doc """
   Uploads the ended attempt of `work_id` under `lease_id` to `source`, reading as `client`.
@@ -73,8 +80,8 @@ defmodule AtlasRuntime.Sources.Upload do
   - `:attempt`: the attempt to upload (default: the work's current one);
   - `:home`: the Runtime home whose paths the answer must not name (default: the running
     core's, `AtlasRuntime.Work.runtime/0`);
-  - `:max_result_bytes`: the most bytes of missing blobs one upload sends (default 20 MiB,
-    the source's per-result cap, §6.2).
+  - `:max_result_bytes`: the most bytes of missing blobs one upload sends (default
+    20 000 000, the contract's per-result cap, §6.2).
   """
   @spec run({String.t(), [atom()]}, source(), String.t(), String.t(), keyword()) :: outcome()
   def run(client, source, lease_id, work_id, options \\ []) do
@@ -166,6 +173,7 @@ defmodule AtlasRuntime.Sources.Upload do
             :lease_lost -> {:halt, stop(:lease_lost, lease_id)}
             :too_large -> {:halt, stop(:too_large, lease_id)}
             :not_referenced -> {:halt, stop({:not_referenced, sha256}, lease_id)}
+            {:error, reason} -> {:halt, unreachable(lease_id, sha256, reason)}
           end
 
         _ ->
@@ -223,6 +231,13 @@ defmodule AtlasRuntime.Sources.Upload do
 
   defp call({module, ref}, :report, input), do: module.report(ref, input)
   defp call({module, ref}, :put_blob, input), do: module.put_blob(ref, input)
+
+  # The source was not reached for one blob: as a failed report, the puller tries again,
+  # and the repeat uploads what the source still names as missing.
+  defp unreachable(lease_id, sha256, reason) do
+    Logger.warning("upload #{lease_id}: put_blob #{sha256} not done (#{inspect(reason)})")
+    {:error, :unreachable}
+  end
 
   defp stop(reason, lease_id) do
     Logger.warning("upload #{lease_id}: stopped (#{inspect(reason)})")

@@ -23,7 +23,20 @@ defmodule AtlasRuntime.Sources.Transport do
   - a whole answer may take `timeout_ms/0` (35 s): above the source's `poll_max` (25 s, a
     long poll) plus a margin. `opts` (the client's `transport:` option) may set `timeout:`,
     `connect_timeout:` (default 5 s) and, for a stream, `idle_timeout:` (default 35 s
-    without a byte).
+    without a byte);
+  - a streamed request body (the client's enumerable of binaries, as for `put_blob`) is
+    sent `transfer-encoding: chunked`, one chunk per element, read only as it is sent, and
+    never with a `Content-Length`: for a chunked body `:httpc` itself sets
+    `transfer-encoding: chunked` over any the caller gave and drops a `content-length`
+    (inets `httpc.erl` `ensure_chunked_encoding/1`, `httpc_request.erl`
+    `handle_transfer_encoding/1`; the transport test pins it). A JSON or binary body goes
+    with its `Content-Length`, as before.
+    `:httpc` reads the enumerable in its own request handler process, so the enumeration
+    is started there, not in the caller: a frozen blob is a raw file stream, which only the
+    process that opened it may read. `:httpc` has no idle timeout while it sends, so the
+    whole `timeout:` the caller gives bounds a stalled upload; a handler still blocked in a
+    TLS send after the caller's timeout ends when the connection's profile is stopped
+    (`close/1`, as the puller does when it stops).
 
   A failure is `{:error, reason}` (the client answers it as `{:error, :unreachable}`).
   `reason` is a short term made only from the cause: `:timeout`, `{:redirect, status}`,
@@ -360,9 +373,37 @@ defmodule AtlasRuntime.Sources.Transport do
           [] -> "application/json"
         end
 
-      {url, headers, String.to_charlist(type), request.body || ""}
+      {url, headers, String.to_charlist(type), body(request.body)}
     end
   end
+
+  # A binary (JSON) goes with its Content-Length. A streamed body (the caller's enumerable
+  # of binaries) goes chunked, one chunk per element, read only as :httpc sends it. The
+  # reduce is *started* by the first `next_chunk/1` call, which :httpc makes in its own
+  # request handler process, so the enumerable is opened, read and closed all in that one
+  # process: a frozen blob is a raw `File.stream!`, readable only by the process that opened
+  # it (a reduce begun here and resumed there answers `:not_on_controlling_process`).
+  defp body(nil), do: ""
+  defp body(body) when is_binary(body), do: body
+  defp body(enumerable), do: {:chunkify, &__MODULE__.next_chunk/1, {:unstarted, enumerable}}
+
+  @doc false
+  # :httpc's chunk function: `{:ok, chunk, acc}` for each non-empty element, then `:eof`
+  # (an empty chunk would end the body early, so it is skipped). It runs in :httpc's handler.
+  def next_chunk({:unstarted, enumerable}),
+    do: resumed(Enumerable.reduce(enumerable, {:cont, nil}, &suspend/2))
+
+  def next_chunk({:suspended, continuation}), do: resumed(continuation.({:cont, nil}))
+
+  defp suspend(element, _acc), do: {:suspend, element}
+
+  defp resumed({:suspended, element, continuation}) do
+    if IO.iodata_length(element) == 0,
+      do: next_chunk({:suspended, continuation}),
+      else: {:ok, element, {:suspended, continuation}}
+  end
+
+  defp resumed({done, _acc}) when done in [:done, :halted], do: :eof
 
   defp query(""), do: ""
   defp query(nil), do: ""
