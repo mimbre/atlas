@@ -819,7 +819,7 @@ defmodule AtlasRuntime.Sources.LocalTest do
         assert {:added, _} = Local.add(client(), folder_work(bench, "complete one"))
         assert :polled = AtlasRuntime.Sources.Puller.poll_now(puller)
 
-        assert [{_lease_id, %{work_id: work_id, phase: phase, stamp: {0, 0}}}] =
+        assert [{lease_id, %{work_id: work_id, phase: phase, stamp: {0, 0}}}] =
                  Map.to_list(AtlasRuntime.Sources.Puller.leases(puller))
 
         if @expired do
@@ -834,9 +834,25 @@ defmodule AtlasRuntime.Sources.LocalTest do
           assert is_nil(timestamps.running_at)
           assert launches(bench) == []
         else
-          assert phase in [:released, :started]
-          assert await_state(work_id, :completed, @client)
+          # Released, not fenced. `poll_now/1` answers once what the accept led to has ended
+          # too (the `started` report, and the `ended` upload once the attempt is terminal and
+          # quiescent), so how far the lease got by then depends on how fast the launch ran.
+          assert phase in [:released, :started, :done]
+
+          assert [%{timestamps: %{running_at: running_at}}] =
+                   await_work(
+                     work_id,
+                     &match?([%{state: :completed, quiescent: true}], &1.attempts),
+                     @client
+                   ).attempts
+
+          refute is_nil(running_at)
           assert [_one] = launches(bench)
+
+          # Whatever the poll left, one check sends the rest: the lease ends done (its `ended`
+          # uploaded), never fenced or lost.
+          assert :ok = AtlasRuntime.Sources.Puller.check_now(puller)
+          assert %{^lease_id => %{phase: :done}} = AtlasRuntime.Sources.Puller.leases(puller)
         end
       end
     end
