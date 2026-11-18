@@ -126,7 +126,7 @@ defmodule AtlasFlow.Activities.ReviewFixTest do
       assert given(run) == change_set_of("TK-B-1-1")
       assert input(run)["permissions"] == "workspace-write"
       assert input(run)["base"] == author["work"]["input"]["base"]
-      assert fix["work"]["after_check"] == %{"command" => ["bin/check"]}
+      assert fix["work"]["after_check"] == %{"command" => ["loop/bin/check"]}
       assert fix["work"]["profile"] == "deep_coding"
       # The finding is in what the fix is told (the review's data, not a wording).
       assert String.contains?(fix["work"]["instructions"], @finding)
@@ -166,9 +166,12 @@ defmodule AtlasFlow.Activities.ReviewFixTest do
       assert run["state"] == "fixing"
       assert given(run) == change_set_of("TK-B-1-1")
       fix = intent(run)["work"]
-      assert fix["after_check"] == %{"command" => ["bin/check"]}
-      # Told to run its check (the command it is given), not shown the ending as a failure.
-      assert String.contains?(fix["instructions"], Enum.join(fix["after_check"]["command"], " "))
+      assert fix["after_check"] == %{"command" => ["loop/bin/check"]}
+      # Told to run its check (the command it is given, as the repository names it: the
+      # after-check carries it from the pulled folder, at the root `loop`), not shown the
+      # ending as a failure.
+      [program] = fix["after_check"]["command"]
+      assert String.contains?(fix["instructions"], Path.relative_to(program, "loop"))
       refute String.contains?(fix["instructions"], a["check_ending"])
       refute String.contains?(fix["instructions"], a["check_output_tail"])
     end
@@ -194,7 +197,7 @@ defmodule AtlasFlow.Activities.ReviewFixTest do
       finish(@mini, answer: diagnosis(%{"cause" => "wrong_assumption", "evidence" => "e"}))
       run = settle(c)
       assert {run["state"], run["pending"]["ladder"]["rung"]} == {"fresh", "b"}
-      assert intent(run)["work"]["after_check"] == %{"command" => ["bin/check"]}
+      assert intent(run)["work"]["after_check"] == %{"command" => ["loop/bin/check"]}
       assert input(run)["base"] == original
       refute Map.has_key?(input(run), "change_set")
       assert input(run)["permissions"] == "workspace-write"
@@ -203,7 +206,7 @@ defmodule AtlasFlow.Activities.ReviewFixTest do
         finish(@mini, files: @fixed, check: 1)
         fixing = settle(c)
         assert fixing["state"] == "fixing"
-        assert intent(fixing)["work"]["after_check"] == %{"command" => ["bin/check"]}
+        assert intent(fixing)["work"]["after_check"] == %{"command" => ["loop/bin/check"]}
       end
 
       finish(@mini, files: @fixed, check: 1)
@@ -211,7 +214,7 @@ defmodule AtlasFlow.Activities.ReviewFixTest do
       assert {run["state"], run["pending"]["ladder"]["rung"]} == {"stronger", "c"}
       assert intent(run)["work"]["profile"] == "deep_coding_max"
       assert intent(run)["work"]["cost_class"] == "high"
-      assert intent(run)["work"]["after_check"] == %{"command" => ["bin/check"]}
+      assert intent(run)["work"]["after_check"] == %{"command" => ["loop/bin/check"]}
       assert input(run)["base"] == original
       refute Map.has_key?(input(run), "change_set")
     end

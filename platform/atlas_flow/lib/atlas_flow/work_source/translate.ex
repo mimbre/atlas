@@ -95,6 +95,30 @@ defmodule AtlasFlow.WorkSource.Translate do
     })
   end
 
+  @doc """
+  The intent with its after-check's program placed in the repository's root
+  (`AtlasFlow.Bases.root_of/1`): a pulled work's folder holds the repository at
+  `<root>/`, and the Runtime runs the check in that folder. A relative program path
+  (`bin/check`) becomes `<root>/bin/check`; a bare name (found on PATH) or an absolute path
+  is kept, as is an intent without a check or without a repository.
+  """
+  def root_check(intent, repository) when is_binary(repository) do
+    case get_in(intent, ["work", "after_check", "command"]) do
+      [program | args] when is_binary(program) ->
+        if String.contains?(program, "/") and Path.type(program) == :relative,
+          do:
+            put_in(intent, ["work", "after_check", "command"], [
+              AtlasFlow.Bases.root_of(repository) <> "/" <> program | args
+            ]),
+          else: intent
+
+      _ ->
+        intent
+    end
+  end
+
+  def root_check(intent, _repository), do: intent
+
   @doc "The permissions a task kind's work runs with: read-only for a review or a diagnose."
   def permissions(kind) when kind in @read_only, do: "read-only"
   def permissions(_kind), do: "workspace-write"
@@ -281,12 +305,16 @@ defmodule AtlasFlow.WorkSource.Translate do
 
   @doc """
   The change set Flow stores as the result's manifest: the report's roots on the base the
-  report declares, **as reported** (Main's ruling, option A). That base is the Runtime's
-  content-derived id of the baseline it imported and froze on, not the lease's `base_id`;
-  every root's `csf_` is computed on it, and a later work's input must sit on it again.
+  report declares, **as reported** (Main's ruling, option A), each root without its
+  `fingerprint`. That base is the Runtime's content-derived id of the baseline it imported
+  and froze on, not the lease's `base_id`; every root's `csf_` is computed on it, and a
+  later work's input must sit on it again. The stored manifest is the plain change set
+  (`root` and `entries` per root), because a later work gets these bytes as its input
+  manifest, which the Runtime validates with `AtlasChangeset.validate/1` (work_source
+  `change_set_ref`); the fingerprints go beside it (`result_fingerprints`).
   """
   def manifest(%{"change_set" => %{"base" => base, "roots" => roots}}),
-    do: %{"base" => base, "roots" => roots}
+    do: %{"base" => base, "roots" => Enum.map(roots, &Map.delete(&1, "fingerprint"))}
 
   @doc "Every blob a change set references: the sha256 of each write entry, sorted."
   def references(%{"roots" => roots}) when is_list(roots) do
@@ -302,20 +330,30 @@ defmodule AtlasFlow.WorkSource.Translate do
   @doc """
   Whether every root's reported `csf_` fingerprint is the one `AtlasChangeset` computes
   for its entries on the manifest's base (the base the report declared, `manifest/1`).
+  `reported` is the roots' fingerprints: a list of `%{"root", "fingerprint"}` or the task
+  fact's `result_fingerprints` (JSON of that list).
   """
-  def fingerprints_hold?(%{"base" => base, "roots" => roots} = manifest) when is_binary(base) do
-    plain = %{"base" => base, "roots" => Enum.map(roots, &Map.delete(&1, "fingerprint"))}
+  def fingerprints_hold?(manifest, reported) when is_binary(reported) do
+    case JSON.decode(reported) do
+      {:ok, list} when is_list(list) -> fingerprints_hold?(manifest, list)
+      _ -> false
+    end
+  end
+
+  def fingerprints_hold?(%{"base" => base, "roots" => roots}, [_ | _] = reported)
+      when is_binary(base) do
+    plain = %{"base" => base, "roots" => roots}
 
     with :ok <- AtlasChangeset.validate(plain) do
       computed = Enum.map(AtlasChangeset.fingerprints(plain), &{&1.root, &1.fingerprint})
-      reported = Enum.map(manifest["roots"], &{&1["root"], &1["fingerprint"]})
+      reported = for %{} = r <- reported, do: {r["root"], r["fingerprint"]}
       Enum.sort(computed) == Enum.sort(reported)
     else
       _ -> false
     end
   end
 
-  def fingerprints_hold?(_), do: false
+  def fingerprints_hold?(_manifest, _reported), do: false
 
   @doc """
   The `task_attempt` values of a report (§3.5), no nil values: `state` and, for an

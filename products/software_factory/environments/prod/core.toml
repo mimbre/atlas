@@ -12,6 +12,7 @@ kill_timeout = "10s"
 [env]
   ATLAS_ENV = "prod"
   ATLAS_ENV_FILE = "/app/products/software_factory/environments/prod/core.json"
+  ATLAS_CONTROL_TAILSCALE = "1"
 
 [mounts]
   source = "core_data"

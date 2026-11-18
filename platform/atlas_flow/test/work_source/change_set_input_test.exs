@@ -145,6 +145,13 @@ defmodule AtlasFlow.WorkSource.ChangeSetInputTest do
     %{lease: lease, task: task, reported: reported}
   end
 
+  # The change set as Flow stores and serves it: as reported, each root without its
+  # fingerprint (the plain change set the Runtime validates as an input manifest).
+  defp plain(reported) do
+    reported = Translate.normal(reported)
+    %{reported | "roots" => Enum.map(reported["roots"], &Map.delete(&1, "fingerprint"))}
+  end
+
   defp review_input(task) do
     v = L.values(task)
     %{manifest: v["result_manifest"], fingerprints: v["result_fingerprints"]}
@@ -187,14 +194,14 @@ defmodule AtlasFlow.WorkSource.ChangeSetInputTest do
       assert %{"result_state" => "complete", "lease_state" => "done"} = v
       assert {:ok, stored} = Results.manifest(author.task)
       assert stored["base"] == ctx.imported
-      assert stored == Translate.normal(author.reported)
+      assert stored == plain(author.reported)
 
       review = hold!("B-2", intent("review", "TK-B-2-1", ctx.base, review_input(author.task)))
       %{lease_id: lease, work: work} = grant!([author.lease])
       assert work.input.change_set.manifest == v["result_manifest"]
 
       assert {:ok, bytes} = fetch(@mini, lease, v["result_manifest"])
-      assert bytes == Results.canonical(author.reported)
+      assert bytes == Results.canonical(plain(author.reported))
       assert L.sha256(bytes) == v["result_manifest"]
       assert JSON.decode!(bytes)["base"] == ctx.imported
       assert L.values(review)["lease_state"] == "offered"
@@ -245,6 +252,30 @@ defmodule AtlasFlow.WorkSource.ChangeSetInputTest do
       assert :not_found = fetch(@laptop, lease, input.manifest)
       assert :not_found = fetch(@laptop, lease, L.sha256("a\n"))
       assert :not_found = fetch(@mini, "TK-B-2-1~1~AAAAAAAAAAAAAAAAAAAAAA", input.manifest)
+    end
+
+    test "a fix's input manifest is a valid change set that hashes to its name (fix path b)",
+         ctx do
+      author = authored!(ctx, "B-1", [{"a.txt", "a\n"}, {"lib/b.ex", "b\n"}])
+      input = review_input(author.task)
+      hold!("B-2", intent("fix", "TK-B-2-1", ctx.base, input, check: ["bin/check"]))
+      %{lease_id: lease, work: work} = grant!([author.lease])
+      assert work.input.change_set.manifest == input.manifest
+
+      assert {:ok, bytes} = fetch(@mini, lease, input.manifest)
+      assert L.sha256(bytes) == input.manifest
+      manifest = JSON.decode!(bytes)
+
+      # What the Runtime's import checks (sources/import.ex decode_change_set): the plain
+      # change set, and each offered fingerprint recomputes on it.
+      assert AtlasChangeset.validate(manifest) == :ok
+
+      offered = for f <- work.input.change_set.fingerprints, do: {f.root, f.fingerprint}
+
+      assert Enum.sort(offered) ==
+               Enum.sort(
+                 for f <- AtlasChangeset.fingerprints(manifest), do: {f.root, f.fingerprint}
+               )
     end
 
     test "a blob or manifest of another task's result is not served", ctx do

@@ -334,7 +334,12 @@ defmodule AtlasFlow.Delivery do
       case Results.put_manifest(manifest, state.results) do
         {:ok, sha} ->
           missing = absent(state, Translate.references(manifest))
-          result_state = if missing == [], do: verdict(manifest), else: "incomplete"
+
+          result_state =
+            if missing == [],
+              do: verdict(manifest, result["result_fingerprints"]),
+              else: "incomplete"
+
           lease_state = if missing == [], do: "done", else: "ended"
 
           values =
@@ -424,8 +429,10 @@ defmodule AtlasFlow.Delivery do
   defp absent(state, shas),
     do: Enum.filter(shas, &(Results.blob(&1, state.results) == :not_found))
 
-  defp verdict(manifest),
-    do: if(Translate.fingerprints_hold?(manifest), do: "complete", else: "invalid")
+  # `fingerprints`: the roots' reported csf_ (`result_fingerprints`, JSON); the stored
+  # manifest is the plain change set (`Translate.manifest/1`).
+  defp verdict(manifest, fingerprints),
+    do: if(Translate.fingerprints_hold?(manifest, fingerprints), do: "complete", else: "invalid")
 
   ## Blobs
 
@@ -512,7 +519,7 @@ defmodule AtlasFlow.Delivery do
          {:ok, manifest} <-
            Results.manifest_by_sha(Leases.value(fact, "result_manifest"), state.results),
          [] <- absent(state, Translate.references(manifest)) do
-      result_state = verdict(manifest)
+      result_state = verdict(manifest, Leases.value(fact, "result_fingerprints"))
 
       {:write, %{"lease_state" => "done", "result_state" => result_state}, %{},
        fn -> settled(state, lease.task_key, result_state) end}

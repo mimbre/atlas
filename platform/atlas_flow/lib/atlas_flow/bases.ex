@@ -181,7 +181,7 @@ defmodule AtlasFlow.Bases do
   end
 
   defp snapshot(client, repository, revision) do
-    placement = %{repository: repository, revision: revision, path: root(repository)}
+    placement = %{repository: repository, revision: revision, path: root_of(repository)}
 
     with {:ok, snapshot_id} <- Client.create_snapshot(client, [placement]),
          {:ok, made} <- made(client, repository, snapshot_id),
@@ -191,7 +191,7 @@ defmodule AtlasFlow.Bases do
   # The base of a snapshot, from its manifest alone: what a snapshot id pins.
   defp made(client, repository, snapshot_id) do
     with {:ok, entries} <- Client.get_manifest(client, snapshot_id) do
-      document = document(root(repository), entries)
+      document = document(root_of(repository), entries)
       bytes = line(document)
       "sha256:" <> hex = snapshot_id
 
@@ -238,7 +238,12 @@ defmodule AtlasFlow.Bases do
   @spec line(map()) :: binary()
   def line(document), do: canonical(document) <> "\n"
 
-  defp root(repository), do: repository |> String.split("/") |> List.last()
+  @doc """
+  The root a repository's base places it at: the repository's last name
+  (`github.com/mimbre/atlas` → `atlas`). A pulled work's folder holds the repository there.
+  """
+  @spec root_of(String.t()) :: String.t()
+  def root_of(repository), do: repository |> String.split("/") |> List.last()
 
   @doc """
   The canonical JSON of a document: object keys in byte order, no whitespace. Lists keep

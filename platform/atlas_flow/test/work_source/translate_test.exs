@@ -75,6 +75,68 @@ defmodule AtlasFlow.WorkSource.TranslateTest do
     refute Map.has_key?(Translate.offered_work(L.intent("TK-B-1-1")), :after_check)
   end
 
+  describe "the after-check in a pulled work's folder (fix path a)" do
+    # The Runtime runs the check in the composed folder, where a pulled base places the
+    # repository at `<root>/` (AtlasFlow.Bases.root_of/1).
+    defp command(check, repository),
+      do:
+        L.intent("TK-B-1-1", check: check)
+        |> Translate.root_check(repository)
+        |> Translate.offered_work()
+        |> Map.get(:after_check)
+
+    test "a relative program path is placed in the repository's root" do
+      assert AtlasFlow.Bases.root_of("github.com/mimbre/atlas") == "atlas"
+
+      assert command(["bin/check"], "github.com/mimbre/atlas") ==
+               %{command: ["atlas/bin/check"]}
+
+      assert command(["bin/check", "--fast"], "github.com/mimbre/atlas") ==
+               %{command: ["atlas/bin/check", "--fast"]}
+    end
+
+    test "a bare name, an absolute path, no check or no repository is kept" do
+      assert command(["mix", "test"], "github.com/mimbre/atlas") == %{command: ["mix", "test"]}
+
+      assert command(["/usr/bin/true"], "github.com/mimbre/atlas") == %{
+               command: ["/usr/bin/true"]
+             }
+
+      assert command(nil, "github.com/mimbre/atlas") == nil
+      assert command(["bin/check"], nil) == %{command: ["bin/check"]}
+    end
+  end
+
+  describe "the stored result manifest (fix path b)" do
+    defp reported(opts \\ []),
+      do: Translate.normal(L.ended(L.change_set([{"a.txt", "a\n"}], "sha256:b", opts)))
+
+    test "is the plain change set: valid as an input manifest, its fingerprints beside it" do
+      ended = reported()
+      manifest = Translate.manifest(ended)
+      fingerprints = Translate.ended_values(ended)["result_fingerprints"]
+
+      assert Enum.all?(manifest["roots"], &(Map.keys(&1) |> Enum.sort() == ~w(entries root)))
+      assert AtlasChangeset.validate(manifest) == :ok
+      assert Translate.fingerprints_hold?(manifest, fingerprints)
+      assert Translate.fingerprints_hold?(manifest, JSON.decode!(fingerprints))
+    end
+
+    test "fingerprints that do not recompute, or none, do not hold" do
+      bad = reported(fingerprint: "csf_" <> String.duplicate("0", 64))
+      manifest = Translate.manifest(bad)
+
+      refute Translate.fingerprints_hold?(
+               manifest,
+               Translate.ended_values(bad)["result_fingerprints"]
+             )
+
+      refute Translate.fingerprints_hold?(Translate.manifest(reported()), nil)
+      refute Translate.fingerprints_hold?(Translate.manifest(reported()), [])
+      refute Translate.fingerprints_hold?(Translate.manifest(reported()), "not json")
+    end
+  end
+
   test "a review reads only; the other kinds may write" do
     assert Translate.permissions("review") == "read-only"
     for kind <- ~w(plan author fix), do: assert(Translate.permissions(kind) == "workspace-write")

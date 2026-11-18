@@ -167,7 +167,7 @@ defmodule AtlasFlow.Activities.LadderEscalationTest do
     intent = run["pending"]["task"]
     # The ladder took the answer's step (the state's spec alone would give the profile).
     assert intent["loop"]["step"] == "stronger"
-    assert intent["work"]["after_check"] == %{"command" => ["bin/check"]}
+    assert intent["work"]["after_check"] == %{"command" => ["loop/bin/check"]}
 
     assert {intent["work"]["profile"], intent["work"]["cost_class"]} ==
              {"deep_coding_max", "high"}

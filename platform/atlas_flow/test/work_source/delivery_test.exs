@@ -389,7 +389,9 @@ defmodule AtlasFlow.WorkSource.DeliveryTest do
                JSON.decode!(v["result_fingerprints"])
 
       assert casts() == [{"bin", "B-1"}]
-      assert {:ok, %{"roots" => [_]}} = Results.manifest(ctx.task)
+      assert {:ok, %{"roots" => [root]}} = Results.manifest(ctx.task)
+      # Stored plain (fix path b): the fingerprints are the task fact's, not the manifest's.
+      assert Map.keys(root) |> Enum.sort() == ~w(entries root)
       assert {:result, "completed", _} = Translate.outcome(FakeFacts.get("task", ctx.task), false)
     end
 
@@ -415,6 +417,9 @@ defmodule AtlasFlow.WorkSource.DeliveryTest do
       second = ended_lease!(ctx, [{"a.txt", "a\n"}], bin: "B-2")
       assert second.missing == []
       assert L.values(second.task)["result_state"] == "complete"
+      assert {:ok, %{"roots" => [root]}} = Results.manifest(second.task)
+      assert Map.keys(root) |> Enum.sort() == ~w(entries root)
+      assert AtlasChangeset.validate(elem(Results.manifest(second.task), 1)) == :ok
       assert casts() == [{"bin", "B-2"}]
     end
 

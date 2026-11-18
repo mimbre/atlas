@@ -413,7 +413,8 @@ defmodule AtlasFlow.Activities.TaskTest do
       assert offered == Translate.offered_work(intent)
       assert offered.work_key == @task
       assert offered.input.base == %{base_id: base.base_id, manifest: base.manifest}
-      assert offered.after_check == %{command: ["bin/check"]}
+      # The pulled folder holds the repository at its root (`bench`): the check is there.
+      assert offered.after_check == %{command: ["bench/bin/check"]}
       refute Enum.any?(Map.keys(offered), &(&1 in [:repository, :folder, :slot, :resume_from]))
 
       # Nothing moves the run until the result is recorded.
