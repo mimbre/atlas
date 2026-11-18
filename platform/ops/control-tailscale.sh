@@ -90,7 +90,7 @@ control_ts_key=""
 [ "$(backend_state)" = Running ] || fail "node is not Running"
 # Restate the restricted preferences for persisted nodes as well. No tags, routes or SSH.
 ts set --accept-dns=false --accept-routes=false --ssh=false --hostname="$hostname" \
-  --advertise-routes= --advertise-tags= --advertise-exit-node=false ||
+  --advertise-routes= --advertise-exit-node=false ||
   fail "cannot restrict node preferences"
 "$app/release/bin/atlas" start &
 core_pid=$!

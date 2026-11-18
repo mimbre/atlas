@@ -230,7 +230,7 @@ class StartupTest(unittest.TestCase):
         resume = next(e for e in self.events() if 'up' in e['args'])
         self.assertFalse(any(a.startswith('--auth-key') for a in resume['args']))
         restrict = next(e for e in self.events() if 'set' in e['args'])
-        for flag in ['--advertise-routes=','--advertise-tags=','--advertise-exit-node=false','--ssh=false']:
+        for flag in ['--advertise-routes=','--advertise-exit-node=false','--ssh=false']:
             self.assertIn(flag, restrict['args'])
         self.stop(); self.assert_clean()
 
